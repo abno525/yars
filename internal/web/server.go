@@ -216,7 +216,7 @@ func (s *Server) goEngagement(w http.ResponseWriter, r *http.Request) {
 }
 
 var columns = []struct{ Key, Label string }{
-	{"id", "ID"}, {"title", "Title"}, {"severity", "Severity"}, {"cvss", "CVSS"}, {"status", "Status"}, {"author", "Author"}, {"reviewers", "Reviewers"},
+	{"id", "ID"}, {"title", "Title"}, {"severity", "Severity"}, {"cvss", "CVSS"}, {"status", "Status"}, {"chat", "Chat"}, {"author", "Author"}, {"reviewers", "Reviewers"},
 }
 
 func (s *Server) engagement(w http.ResponseWriter, r *http.Request) {

@@ -119,6 +119,6 @@ table.kv { border-collapse: collapse; width: 100%; }
   .wf-action textarea { width: 100%; }
   .metric { grid-template-columns: 1fr; }
   .editor { grid-template-columns: 1fr; }
-  .findings td:nth-child(6), .findings th:nth-child(6), .findings td:nth-child(7), .findings th:nth-child(7) { display: none; }
+  .findings td:nth-child(7), .findings th:nth-child(7), .findings td:nth-child(8), .findings th:nth-child(8) { display: none; }
   .switcher select { min-width: 0; max-width: 50vw; }
 }

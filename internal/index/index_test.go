@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"yars/internal/chat"
 	"yars/internal/config"
 	"yars/internal/gitrepo"
 	"yars/internal/store"
@@ -168,6 +169,18 @@ func TestSortByCVSS(t *testing.T) {
 	rows, _ = ix.Rows(Query{EngID: "acme", Sort: "cvss", Desc: true})
 	if titles(rows) != "A,C,B" {
 		t.Fatalf("desc got %q", titles(rows))
+	}
+}
+
+func TestRowsOpenThreads(t *testing.T) {
+	ix, s := fixture(t)
+	u := config.User{Username: "bob", Role: "reviewer"}
+	t1, _ := s.PostChat("acme", "F-002-b", chat.Message{Text: "one"}, u)
+	s.PostChat("acme", "F-002-b", chat.Message{Text: "two"}, u)
+	s.PostChat("acme", "F-002-b", chat.Message{Resolves: t1.ID}, u)
+	rows, _ := ix.Rows(Query{EngID: "acme", Sort: "chat", Desc: true})
+	if rows[0].Title != "B" || rows[0].OpenThreads != 1 || rows[1].OpenThreads != 0 {
+		t.Fatalf("rows %+v", rows)
 	}
 }
 

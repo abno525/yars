@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"yars/internal/chat"
 	"yars/internal/cvss"
 	"yars/internal/finding"
 	"yars/internal/gitrepo"
@@ -19,6 +20,7 @@ import (
 type Row struct {
 	EngID, Dir, ID, Title, Status, Severity, Author string
 	Score                                           string
+	OpenThreads                                     int
 	Reviewers                                       []string
 	Meta                                            finding.Meta // full front matter, for workflow classification
 	score                                           float64      // -1 when no valid vector
@@ -78,9 +80,11 @@ func (ix *Index) refresh() error {
 		for _, r := range refs {
 			m := r.F.Meta
 			txt, sc := scoreOf(m.CVSS)
+			msgs, _ := ix.store.Chat(e.ID, r.Dir)
+			open, _ := chat.OpenCount(msgs)
 			rows = append(rows, Row{EngID: e.ID, Dir: r.Dir, ID: m.ID, Title: m.Title, Status: m.Status,
 				Severity: cvss.Derive(m.CVSS, m.Severity), Author: m.Author, Reviewers: m.Reviewers,
-				Score: txt, score: sc, Meta: m})
+				Score: txt, score: sc, Meta: m, OpenThreads: open})
 		}
 	}
 	ix.mu.Lock()
@@ -125,6 +129,8 @@ func (ix *Index) Rows(q Query) ([]Row, error) {
 			return strings.Compare(a.Author, b.Author)
 		case "cvss":
 			return cmp.Compare(a.score, b.score)
+		case "chat":
+			return cmp.Compare(a.OpenThreads, b.OpenThreads)
 		}
 		return strings.Compare(a.Dir, b.Dir)
 	}

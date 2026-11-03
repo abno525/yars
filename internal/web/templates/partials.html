@@ -19,11 +19,12 @@
         <td>{{if .Severity}}<span class="pill sev-{{.Severity}}">{{.Severity}}</span>{{end}}</td>
         <td class="fid">{{.Score}}</td>
         <td><span class="pill status-{{.Status}}">{{.Status}}</span></td>
+        <td class="fid">{{if .OpenThreads}}<span class="threads" title="open chat threads">{{.OpenThreads}} open</span>{{end}}</td>
         <td>{{.Author}}</td>
         <td>{{join .Reviewers ", "}}</td>
       </tr>
     {{else}}
-      <tr><td colspan="7" class="muted empty">No findings match.</td></tr>
+      <tr><td colspan="8" class="muted empty">No findings match.</td></tr>
     {{end}}
     </tbody>
   </table>
