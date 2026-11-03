@@ -1,0 +1,80 @@
+{{define "sevpill"}}<span id="sevpill"{{if .OOB}} hx-swap-oob="true"{{end}}>{{if .Severity}}<span class="pill sev-{{.Severity}}">{{.Severity}}</span>{{end}}</span>{{end}}
+
+{{define "cvss_score"}}
+<div class="scoreline">
+  <span class="score">{{if .Score}}{{.Score}}{{else}}–{{end}}</span>
+  {{if .Rating}}<span class="pill sev-{{.Rating}}">{{.Rating}}</span>{{end}}
+  {{if .Vector}}<code class="vector">{{.Vector}}</code>{{end}}
+</div>
+{{end}}
+
+{{define "cvss_panel"}}
+<section class="panel" id="cvss">
+  <div class="panelhead">
+    <h2>CVSS 3.1</h2>
+    <button class="link" hx-get="{{.EditURL}}" hx-target="#cvss" hx-swap="outerHTML">{{if .HasStored}}Edit{{else}}Calculate{{end}}</button>
+  </div>
+  {{if .Foreign}}
+  <p><code>{{.Foreign}}</code></p>
+  <p class="muted">Not a CVSS 3.1 base vector — using the calculator will replace it.</p>
+  {{end}}
+  {{if .HasStored}}
+    {{template "cvss_score" .}}
+    {{if .Reasons}}
+    <h3 class="subhead">Non-standard metrics</h3>
+    <table class="kv reasons">
+      <thead><tr><th>Metric</th><th>Value</th><th>Reason</th></tr></thead>
+      <tbody>
+      {{range .Reasons}}
+        <tr><td>{{.Metric}}</td><td>{{.Value}}</td><td class="text">{{if .Reason}}{{.Reason}}{{else}}<span class="error">reason missing</span>{{end}}</td></tr>
+      {{end}}
+      </tbody>
+    </table>
+    {{end}}
+    {{if .Missing}}<p class="error">Non-standard metrics without a reason: {{join .Missing ", "}}</p>{{end}}
+  {{else}}
+    <form class="sevform" hx-post="{{.SeverityURL}}" hx-target="#cvss" hx-swap="outerHTML" hx-trigger="change">
+      <label>Severity (manual, no vector)
+        <select name="severity">
+          <option value="" {{if not .Severity}}selected{{end}} disabled>—</option>
+          {{$cur := .Severity}}
+          {{range .Severities}}<option value="{{.}}"{{if eq . $cur}} selected{{end}}>{{.}}</option>{{end}}
+        </select>
+      </label>
+    </form>
+  {{end}}
+</section>
+{{if .OOB}}{{template "sevpill" .}}{{end}}
+{{end}}
+
+{{define "cvss_editor"}}
+<section class="panel editing" id="cvss">
+  <form hx-post="{{.SaveURL}}" hx-target="#cvss" hx-swap="outerHTML">
+    <div class="panelhead"><h2>CVSS 3.1</h2>{{template "cvss_score" .}}</div>
+    {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+    <input type="hidden" name="base" value="{{.Base}}">
+    {{range .Metrics}}
+    {{$m := .}}
+    <div class="metric">
+      <span class="mname">{{.Name}}{{if .Standard}} <span class="muted">(std {{.Standard}})</span>{{end}}</span>
+      <div class="seg" hx-post="{{$.CalcURL}}" hx-trigger="change" hx-include="closest form" hx-target="#cvss" hx-swap="outerHTML">
+        {{range .Values}}<label title="{{.Name}}"><input type="radio" name="{{$m.Key}}" value="{{.Code}}"{{if eq .Code $m.Selected}} checked{{end}}><span>{{.Name}}</span></label>{{end}}
+      </div>
+      {{if .NonStandard}}
+      <input class="reason" name="reason_{{.Key}}" value="{{.Reason}}" placeholder="Why is {{.Name}} non-standard here?">
+      {{end}}
+    </div>
+    {{end}}
+    <div class="paste">
+      <input name="paste" placeholder="Paste a vector, e.g. CVSS:3.1/AV:N/AC:L/…" aria-label="Paste vector">
+      <button type="button" hx-post="{{.CalcURL}}" hx-include="closest form" hx-target="#cvss" hx-swap="outerHTML">Apply</button>
+    </div>
+    {{if .Missing}}<p class="error">Non-standard metrics without a reason: {{join .Missing ", "}}</p>{{end}}
+    <div class="actions">
+      <button class="primary"{{if not .Complete}} disabled{{end}}>Save</button>
+      {{if .HasStored}}<button name="action" value="clear">Clear vector</button>{{end}}
+      <button type="button" hx-get="{{.ViewURL}}" hx-target="#cvss" hx-swap="outerHTML">Cancel</button>
+    </div>
+  </form>
+</section>
+{{end}}

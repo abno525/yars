@@ -6,11 +6,11 @@
     <h1><span class="fid">{{$f.Meta.ID}}</span> {{$f.Meta.Title}}</h1>
     <p class="meta">
       <span class="pill status-{{$f.Meta.Status}}">{{$f.Meta.Status}}</span>
-      {{if $f.Meta.Severity}}<span class="pill sev-{{$f.Meta.Severity}}">{{$f.Meta.Severity}}</span>{{end}}
-      {{if $f.Meta.CVSS}}<code class="cvss">{{$f.Meta.CVSS}}</code>{{end}}
+      {{template "sevpill" .CVSS}}
       <span class="muted">by {{$f.Meta.Author}}{{if $f.Meta.Reviewers}} · reviewers: {{join $f.Meta.Reviewers ", "}}{{end}}</span>
     </p>
   </div>
 </div>
+{{template "cvss_panel" .CVSS}}
 {{range .Panels}}{{template "panel" .}}{{end}}
 {{end}}

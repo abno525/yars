@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/yuin/goldmark"
@@ -60,6 +61,7 @@ type page struct {
 	Columns       []link
 	Finding       store.FindingRef
 	Panels        []panel
+	CVSS          cvssView
 	Form          url.Values
 }
 
@@ -68,14 +70,16 @@ var funcs = template.FuncMap{"join": strings.Join}
 func (s *Server) init() {
 	s.md = goldmark.New(goldmark.WithExtensions(extension.GFM))
 	s.pages = map[string]*template.Template{}
+	// Shared templates are parsed into every page so partial handlers can
+	// execute their blocks via any page set.
+	shared := []string{"templates/layout.html", "templates/partials.html", "templates/cvss.html"}
 	names, _ := fs.Glob(templateFS, "templates/*.html")
 	for _, n := range names {
-		base := strings.TrimPrefix(n, "templates/")
-		if base == "layout.html" || base == "partials.html" {
+		if slices.Contains(shared, n) {
 			continue
 		}
-		s.pages[base] = template.Must(template.New(base).Funcs(funcs).ParseFS(templateFS,
-			"templates/layout.html", "templates/partials.html", n))
+		base := strings.TrimPrefix(n, "templates/")
+		s.pages[base] = template.Must(template.New(base).Funcs(funcs).ParseFS(templateFS, append(slices.Clone(shared), n)...))
 	}
 }
 
@@ -90,6 +94,7 @@ func (s *Server) Handler() http.Handler {
 	private.HandleFunc("GET /e/{eng}", s.engagement)
 	private.HandleFunc("GET /e/{eng}/f/{fid}", s.finding)
 	s.routesEdit(private)
+	s.routesCVSS(private)
 
 	root := http.NewServeMux()
 	root.HandleFunc("GET /login", s.loginPage)
@@ -315,5 +320,6 @@ func (s *Server) finding(w http.ResponseWriter, r *http.Request) {
 	for _, n := range s.sectionNames(p.Finding) {
 		p.Panels = append(p.Panels, s.panelFor(p.Finding, n))
 	}
+	p.CVSS = s.cvssPanel(p.Finding)
 	s.render(w, "finding.html", p)
 }

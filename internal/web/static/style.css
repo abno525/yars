@@ -70,7 +70,30 @@ table.findings { width: 100%; border-collapse: collapse; background: var(--surfa
 .editor .preview { border: 1px dashed var(--border); border-radius: 8px; padding: 8px 14px; overflow: auto; max-height: 36em; }
 .current { border: 1px solid var(--verification); border-radius: 8px; padding: 8px 14px; margin-bottom: 12px; }
 .actions { display: flex; gap: 8px; margin-top: 10px; }
+.subhead { font-size: 1rem; margin: 16px 0 6px; }
+.scoreline { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.score { font-size: 1.8rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.vector { font-size: .85rem; color: var(--muted); word-break: break-all; }
+table.kv { border-collapse: collapse; width: 100%; }
+.kv th, .kv td { text-align: left; vertical-align: top; padding: 8px 12px; border: 1px solid var(--border); }
+.kv th { color: var(--muted); font-weight: 600; font-size: .9rem; }
+.kv td.text { white-space: pre-wrap; }
+.metric { display: grid; grid-template-columns: 14em 1fr; gap: 6px 12px; align-items: center; padding: 6px 0; }
+.metric .reason { grid-column: 2; width: 100%; }
+.mname { font-weight: 600; }
+.seg { display: inline-flex; flex-wrap: wrap; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; width: fit-content; }
+.seg label { cursor: pointer; }
+.seg input { position: absolute; opacity: 0; pointer-events: none; }
+.seg span { display: inline-block; padding: 7px 14px; min-height: 36px; border-right: 1px solid var(--border); }
+.seg label:last-child span { border-right: none; }
+.seg input:checked + span { background: var(--accent); color: var(--accent-text); }
+.seg input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: -2px; }
+.paste { display: flex; gap: 8px; margin-top: 12px; }
+.paste input { flex: 1; font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+.sevform select { margin-left: 8px; }
 @media (max-width: 800px) {
+  .metric { grid-template-columns: 1fr; }
+  .metric .reason { grid-column: 1; }
   .editor { grid-template-columns: 1fr; }
   .findings td:nth-child(6), .findings th:nth-child(6), .findings td:nth-child(7), .findings th:nth-child(7) { display: none; }
   .switcher select { min-width: 0; max-width: 50vw; }
