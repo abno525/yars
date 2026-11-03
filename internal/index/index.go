@@ -1,0 +1,122 @@
+// Package index keeps an in-memory table of all findings, rebuilt whenever
+// the data repo's HEAD changes (web edits or external commits).
+package index
+
+import (
+	"sort"
+	"strings"
+	"sync"
+
+	"yars/internal/gitrepo"
+	"yars/internal/store"
+)
+
+type Row struct {
+	EngID, Dir, ID, Title, Status, Severity, Author string
+	Reviewers                                       []string
+}
+
+// Query filters by exact field values (empty = any) and sorts by
+// id|title|status|severity|author (default id).
+type Query struct {
+	EngID, Status, Severity, Author string
+	Sort                            string
+	Desc                            bool
+}
+
+var StatusOrder = []string{"draft", "verification", "complete", "reported"}
+
+type Index struct {
+	store *store.Store
+	repo  *gitrepo.Repo
+	mu    sync.RWMutex
+	head  string
+	built bool
+	rows  []Row
+}
+
+func New(s *store.Store, r *gitrepo.Repo) *Index { return &Index{store: s, repo: r} }
+
+func (ix *Index) refresh() error {
+	head, err := ix.repo.Head()
+	if err != nil {
+		return err
+	}
+	ix.mu.RLock()
+	fresh := ix.built && head == ix.head
+	ix.mu.RUnlock()
+	if fresh {
+		return nil
+	}
+	engs, err := ix.store.ListEngagements()
+	if err != nil {
+		return err
+	}
+	var rows []Row
+	for _, e := range engs {
+		refs, err := ix.store.ListFindings(e.ID)
+		if err != nil {
+			return err
+		}
+		for _, r := range refs {
+			m := r.F.Meta
+			rows = append(rows, Row{EngID: e.ID, Dir: r.Dir, ID: m.ID, Title: m.Title, Status: m.Status,
+				Severity: m.Severity, Author: m.Author, Reviewers: m.Reviewers})
+		}
+	}
+	ix.mu.Lock()
+	ix.rows, ix.head, ix.built = rows, head, true
+	ix.mu.Unlock()
+	return nil
+}
+
+func rank(order []string, v string) int {
+	for i, x := range order {
+		if strings.EqualFold(x, v) {
+			return i
+		}
+	}
+	return len(order)
+}
+
+func (ix *Index) Rows(q Query) ([]Row, error) {
+	if err := ix.refresh(); err != nil {
+		return nil, err
+	}
+	ix.mu.RLock()
+	var out []Row
+	for _, r := range ix.rows {
+		if (q.EngID == "" || r.EngID == q.EngID) && (q.Status == "" || r.Status == q.Status) &&
+			(q.Severity == "" || r.Severity == q.Severity) && (q.Author == "" || r.Author == q.Author) {
+			out = append(out, r)
+		}
+	}
+	ix.mu.RUnlock()
+
+	sev := ix.store.Config().Severities
+	less := func(a, b Row) int {
+		switch q.Sort {
+		case "title":
+			return strings.Compare(strings.ToLower(a.Title), strings.ToLower(b.Title))
+		case "status":
+			return rank(StatusOrder, a.Status) - rank(StatusOrder, b.Status)
+		case "severity":
+			return rank(sev, a.Severity) - rank(sev, b.Severity)
+		case "author":
+			return strings.Compare(a.Author, b.Author)
+		}
+		return strings.Compare(a.Dir, b.Dir)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		c := less(out[i], out[j])
+		if c == 0 {
+			c = strings.Compare(out[i].Dir, out[j].Dir)
+			return c < 0
+		}
+		if q.Desc {
+			return c > 0
+		}
+		return c < 0
+	})
+	return out, nil
+}
