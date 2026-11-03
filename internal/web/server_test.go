@@ -96,6 +96,17 @@ func (e *env) lastCommit(t *testing.T) string {
 	return strings.TrimSpace(string(out))
 }
 
+func TestCloneHint(t *testing.T) {
+	e := setup(t)
+	if b := e.do(t, "alice", "GET", "/", nil, nil).Body.String(); strings.Contains(b, "git clone") {
+		t.Fatal("hint shown without git endpoint")
+	}
+	e.srv.Git = http.NotFoundHandler()
+	if b := e.do(t, "alice", "GET", "/", nil, nil).Body.String(); !strings.Contains(b, "git clone http://example.com/git/yars") {
+		t.Fatalf("no clone hint:\n%s", b)
+	}
+}
+
 func TestEngagementTable(t *testing.T) {
 	e := setup(t)
 	rec := e.do(t, "alice", "GET", "/e/acme", nil, nil)

@@ -37,6 +37,7 @@ type Server struct {
 	Auth  *auth.Auth
 	Cfg   config.Config
 	Rules *rules.Engine // optional style rules
+	Git   http.Handler  // optional git smart HTTP endpoint, mounted at /git/
 
 	pages map[string]*template.Template
 	md    goldmark.Markdown
@@ -71,6 +72,7 @@ type page struct {
 	Inbox         inboxView
 	Chat          chatView
 	Checks        checksView
+	CloneURL      string
 	Form          url.Values
 }
 
@@ -115,6 +117,9 @@ func (s *Server) Handler() http.Handler {
 	root.HandleFunc("POST /login", s.login)
 	root.Handle("GET /static/", http.StripPrefix("/static/", http.FileServerFS(static)))
 	root.Handle("/", s.Auth.Require(private))
+	if s.Git != nil {
+		root.Handle("/git/", s.Git) // HTTP Basic auth, no cookies
+	}
 	// Reject cross-origin state-changing requests (CSRF, incl. login CSRF).
 	return http.NewCrossOriginProtection().Handler(root)
 }
@@ -209,6 +214,13 @@ func (s *Server) home(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.fail(w, err)
 		return
+	}
+	if s.Git != nil {
+		scheme := "http"
+		if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+			scheme = "https"
+		}
+		p.CloneURL = scheme + "://" + r.Host + "/git/yars"
 	}
 	s.render(w, "engagements.html", p)
 }

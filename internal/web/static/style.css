@@ -132,6 +132,8 @@ main:has(.finding-grid) { max-width: 1560px; }
 .checks h2 { display: flex; gap: 8px; align-items: center; }
 .small { font-size: .85rem; margin: 0; }
 .htmx-request.checks { opacity: .6; }
+.clonehint { margin-top: 32px; }
+.clonehint pre { background: var(--bg); padding: 10px 14px; border-radius: 8px; overflow-x: auto; }
 .inboxlink { color: var(--text); white-space: nowrap; }
 .badge { display: inline-block; min-width: 1.5em; padding: 0 6px; border-radius: 999px; background: var(--critical); color: #fff; font-size: .8rem; font-weight: 700; text-align: center; }
 .inbox h2 { margin: 24px 0 8px; }

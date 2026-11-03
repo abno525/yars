@@ -14,4 +14,11 @@
 {{else}}
 <p class="muted">No engagements yet.</p>
 {{end}}
+{{if .CloneURL}}
+<section class="panel clonehint">
+  <h2>Work locally</h2>
+  <p class="muted small">Clone the findings repo with your YARS login, edit Markdown in any editor (or with AI), then push. Pushes are checked with the same rules as the website.</p>
+  <pre><code>git clone {{.CloneURL}}</code></pre>
+</section>
+{{end}}
 {{end}}

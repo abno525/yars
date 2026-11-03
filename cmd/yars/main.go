@@ -24,7 +24,9 @@ import (
 	"yars/internal/auth"
 	"yars/internal/config"
 	"yars/internal/gitrepo"
+	"yars/internal/gitserve"
 	"yars/internal/index"
+	"yars/internal/policy"
 	"yars/internal/rules"
 	"yars/internal/store"
 	"yars/internal/web"
@@ -34,6 +36,71 @@ var system = gitrepo.Author{Name: "yars", Email: "yars@yars.local"}
 
 //go:embed rules_example.yaml
 var exampleRules []byte
+
+func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
+
+// hookCmd is the command line the git pre-receive hook execs.
+func hookCmd(bin, dataDir string) string {
+	abs, _ := filepath.Abs(dataDir)
+	return shellQuote(bin) + " hook pre-receive --data " + shellQuote(abs)
+}
+
+// cmdHook implements "yars hook pre-receive": reads "<old> <new> <ref>"
+// lines from git, checks them against the server's rules and prints one
+// "yars: <problem>" line per rejection reason. Exit 1 rejects the push.
+func cmdHook(args []string, in io.Reader, errOut io.Writer) int {
+	if len(args) == 0 || args[0] != "pre-receive" {
+		fmt.Fprintln(errOut, "yars: usage: yars hook pre-receive --data <dir>")
+		return 2
+	}
+	fs := flag.NewFlagSet("hook", flag.ContinueOnError)
+	data := fs.String("data", ".", "data repo")
+	if err := fs.Parse(args[1:]); err != nil {
+		return 2
+	}
+	// git runs hooks with a possibly relative GIT_DIR; our git calls use -C.
+	if gd := os.Getenv("GIT_DIR"); gd != "" && !filepath.IsAbs(gd) {
+		if abs, err := filepath.Abs(gd); err == nil {
+			os.Setenv("GIT_DIR", abs)
+		}
+	}
+	fail := func(msg string) int {
+		fmt.Fprintln(errOut, "yars: "+msg)
+		return 1
+	}
+	user := os.Getenv("REMOTE_USER")
+	if user == "" {
+		return fail("pushes must go through the YARS server (no authenticated user)")
+	}
+	r, err := gitrepo.Open(*data)
+	if err != nil {
+		return fail(err.Error())
+	}
+	cfg, err := config.Load(r.Dir)
+	if err != nil {
+		return fail(err.Error())
+	}
+	users, err := config.LoadUsers(r.Dir)
+	if err != nil {
+		return fail(err.Error())
+	}
+	var ups []policy.Update
+	sc := bufio.NewScanner(in)
+	for sc.Scan() {
+		if f := strings.Fields(sc.Text()); len(f) == 3 {
+			ups = append(ups, policy.Update{Old: f[0], New: f[1], Ref: f[2]})
+		}
+	}
+	c := &policy.Checker{Repo: r, Cfg: cfg, Users: users, Linter: rules.NewEngine(rules.DirFor(r.Dir), cfg)}
+	ps := c.Check(user, ups)
+	for _, p := range ps {
+		fmt.Fprintln(errOut, "yars: "+p)
+	}
+	if len(ps) > 0 {
+		return 1
+	}
+	return 0
+}
 
 // cmdLint checks findings against the style rules. Exit code 1 when any
 // error-level violation is found.
@@ -111,6 +178,8 @@ func main() {
 		err = cmdUseradd(os.Args[2:])
 	case "serve":
 		err = cmdServe(os.Args[2:])
+	case "hook":
+		os.Exit(cmdHook(os.Args[2:], os.Stdin, os.Stderr))
 	case "lint":
 		code, lerr := cmdLint(os.Args[2:], os.Stdout)
 		if lerr != nil {
@@ -240,7 +309,16 @@ func cmdServe(args []string) error {
 	st := store.New(r, cfg)
 	eng := rules.NewEngine(rules.DirFor(r.Dir), cfg)
 	st.Linter = eng
-	srv := &web.Server{Store: st, Index: index.New(st, r), Auth: auth.New(users), Cfg: cfg, Rules: eng}
+	au := auth.New(users)
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	gs := &gitserve.Server{Repo: r, Auth: au, HookCmd: hookCmd(exe, r.Dir)}
+	if err := gs.Setup(); err != nil {
+		return fmt.Errorf("git setup: %w", err)
+	}
+	srv := &web.Server{Store: st, Index: index.New(st, r), Auth: au, Cfg: cfg, Rules: eng, Git: gs.Handler()}
 	log.Printf("yars serving %s on %s", r.Dir, *addr)
 	return http.ListenAndServe(*addr, srv.Handler())
 }
