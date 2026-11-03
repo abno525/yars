@@ -48,6 +48,7 @@ type link struct {
 type panel struct {
 	Name, Anchor, EditURL, SaveURL, PreviewURL, Raw string
 	Base, Error                                     string
+	Open                                            int // open chat threads anchored here
 	HTML, Current                                   template.HTML
 }
 
@@ -66,6 +67,7 @@ type page struct {
 	Details       detailsView
 	WF            wfView
 	Inbox         inboxView
+	Chat          chatView
 	Form          url.Values
 }
 
@@ -76,7 +78,7 @@ func (s *Server) init() {
 	s.pages = map[string]*template.Template{}
 	// Shared templates are parsed into every page so partial handlers can
 	// execute their blocks via any page set.
-	shared := []string{"templates/layout.html", "templates/partials.html", "templates/cvss.html", "templates/details.html", "templates/workflow.html"}
+	shared := []string{"templates/layout.html", "templates/partials.html", "templates/cvss.html", "templates/details.html", "templates/workflow.html", "templates/chat.html"}
 	names, _ := fs.Glob(templateFS, "templates/*.html")
 	for _, n := range names {
 		if slices.Contains(shared, n) {
@@ -102,6 +104,7 @@ func (s *Server) Handler() http.Handler {
 	s.routesCVSS(private)
 	s.routesDetails(private)
 	s.routesWorkflow(private)
+	s.routesChat(private)
 
 	root := http.NewServeMux()
 	root.HandleFunc("GET /login", s.loginPage)
@@ -333,9 +336,16 @@ func (s *Server) renderFinding(w http.ResponseWriter, r *http.Request, status in
 		return
 	}
 	p.Error = errMsg
+	msgs, err := s.Store.Chat(p.Finding.EngID, p.Finding.Dir)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	p.Chat = s.chatFor(p.Finding, msgs)
 	locked := !workflow.CanEdit(p.User, p.Finding.F.Meta)
 	for _, n := range s.sectionNames(p.Finding) {
 		pn := s.panelFor(p.Finding, n)
+		pn.Open = p.Chat.BySection[n]
 		if locked {
 			pn.EditURL = ""
 		}

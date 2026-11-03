@@ -55,7 +55,10 @@
 <section class="panel" id="s-{{.Anchor}}">
   <div class="panelhead">
     <h2>{{.Name}}</h2>
-    {{if .EditURL}}<button class="link" hx-get="{{.EditURL}}" hx-target="#s-{{.Anchor}}" hx-swap="outerHTML">Edit</button>{{end}}
+    <span class="panel-tools">
+      <button class="link" type="button" data-section="{{.Name}}" onclick="yarsComment(this.dataset.section)">Comment{{if .Open}} <span class="open-count">{{.Open}}</span>{{end}}</button>
+      {{if .EditURL}}<button class="link" hx-get="{{.EditURL}}" hx-target="#s-{{.Anchor}}" hx-swap="outerHTML">Edit</button>{{end}}
+    </span>
   </div>
   <div class="md">{{if .HTML}}{{.HTML}}{{else}}<p class="muted">Empty</p>{{end}}</div>
 </section>
