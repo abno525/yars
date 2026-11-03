@@ -214,6 +214,18 @@ func (f *fence) step(line string) bool {
 	return true
 }
 
+// FenceMask reports, for each line of body (split on "\n"), whether it is
+// inside or delimits a fenced code block.
+func FenceMask(body string) []bool {
+	lines := strings.Split(body, "\n")
+	out := make([]bool, len(lines))
+	var fc fence
+	for i, l := range lines {
+		out[i] = fc.step(strings.TrimSuffix(l, "\r"))
+	}
+	return out
+}
+
 // ValidateBody rejects section bodies that would corrupt the file structure:
 // a top-level "## " heading (would start a new section) or an unclosed fence
 // (would swallow following sections).
