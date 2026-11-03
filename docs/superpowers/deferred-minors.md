@@ -28,3 +28,17 @@ Small issues found by the end-of-milestone reviews and deliberately left for the
 - Section open-thread counters only update on reload.
 - After a server restart, polling with an expired session swaps the login page into the chat column.
 - Test gaps: commit-failure rollback for chat; `.gitattributes` created by a transition; composer untouched by poll swaps.
+
+## M5 Rules
+- `yars lint`: a scope that matches nothing exits 0; flags after the positional scope are ignored; scope takes the dir name, not the ID; rule problems repeat per finding (and aren't printed with zero findings).
+- `Errors()` doesn't de-duplicate: 20 identical backtick errors show 20 times in the bar/banner.
+- The `cvss-explained` built-in duplicates the workflow gate's CVSS check (both messages shown).
+- Script/AI messages aren't length-capped; the AI cache grows without bound; script results aren't cached; `/checks` has no rate limit.
+- Anthropic `max_tokens: 1024` can truncate long replies; `base_url` ending in `/v1` for Anthropic gives `/v1/v1/messages`.
+- AI error text (first 80 chars of a 401 body) is shown to users; show only the status code.
+- Live hints run on the untrimmed body; the panel on the trimmed one (`$` at end can differ).
+- Table check: rows in indented code blocks flagged, tables in blockquotes missed, continuation rows without `|` missed.
+- Rules dir signature (name/size/mtime) can miss a same-size rewrite within mtime resolution.
+- Script timeout kills only the direct child; grandchildren survive (use a process group).
+- No test for a symlink pointing outside the rules dir; problems for a rule without an id have an empty rule field.
+- Error-level AI rules can flip between runs (LLM variance, in-memory cache only); prompt injection in finding text can pass an AI rule.

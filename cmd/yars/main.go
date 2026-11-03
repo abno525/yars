@@ -3,7 +3,7 @@
 //	yars init <dir>
 //	yars useradd --data <dir> --role <role> [--email e] <username>   (password read from stdin)
 //	yars serve --data <dir> [--addr :8080]
-//	yars lint --data <dir> [--fast] [<engagement>[/<finding-dir>]]
+//	yars lint --data <dir> [--all] [<engagement>[/<finding-dir>]]
 package main
 
 import (
@@ -40,7 +40,8 @@ var exampleRules []byte
 func cmdLint(args []string, out io.Writer) (int, error) {
 	fs := flag.NewFlagSet("lint", flag.ContinueOnError)
 	data := fs.String("data", ".", "data repo")
-	fast := fs.Bool("fast", false, "only regex and built-in rules (skip scripts and AI)")
+	fs.Bool("fast", true, "only regex and built-in rules (the default)")
+	all := fs.Bool("all", false, "also run script and AI rules (runs code from the repo and sends text to the AI provider)")
 	if err := fs.Parse(args); err != nil {
 		return 2, err
 	}
@@ -54,9 +55,9 @@ func cmdLint(args []string, out io.Writer) (int, error) {
 	}
 	st := store.New(r, cfg)
 	eng := rules.NewEngine(rules.DirFor(r.Dir), cfg)
-	kinds := rules.All
-	if *fast {
-		kinds = rules.Fast
+	kinds := rules.Fast
+	if *all {
+		kinds = rules.All
 	}
 	scopeEng, scopeDir, _ := strings.Cut(fs.Arg(0), "/")
 	engs, err := st.ListEngagements()
@@ -94,7 +95,7 @@ func cmdLint(args []string, out io.Writer) (int, error) {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: yars init <dir> | useradd --data <dir> --role <role> <username> | serve --data <dir> [--addr :8080] | lint --data <dir> [--fast] [eng[/finding]]")
+	fmt.Fprintln(os.Stderr, "usage: yars init <dir> | useradd --data <dir> --role <role> <username> | serve --data <dir> [--addr :8080] | lint --data <dir> [--all] [eng[/finding]]")
 	os.Exit(2)
 }
 

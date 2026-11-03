@@ -170,6 +170,42 @@ func TestAIErrorIsWarning(t *testing.T) {
 	}
 }
 
+func TestScriptOutputCapped(t *testing.T) {
+	dir := t.TempDir()
+	script(t, dir, "loud.sh", "head -c 5000000 /dev/zero | tr '\\0' 'x'\n")
+	r := NewRunner(dir, config.AIConfig{})
+	vs := r.Script(context.Background(), Rule{ID: "loud", Level: "error", Script: "loud.sh"}, doc())
+	if len(vs) != 1 || !strings.Contains(vs[0].Message, "output too large") {
+		t.Fatalf("got %d violations: %.200v", len(vs), vs)
+	}
+}
+
+func TestAIFailureSkipsRemainingParts(t *testing.T) {
+	f := &fakeAI{status: 500, body: func(map[string]any) string { return "down" }}
+	srv := f.server(t)
+	r := aiRunner(t, "openai", srv.URL)
+	s := &Set{Rules: []Rule{{ID: "acr", Level: "warning", AI: "x", Target: "text"}}}
+	d := doc()
+	d.Sections = []Section{{"A", "one"}, {"B", "two"}, {"C", "three"}}
+	vs := s.Run(context.Background(), d, config.Default(), All, r)
+	if f.hits.Load() != 1 || len(vs) != 1 {
+		t.Fatalf("hits %d, violations %d", f.hits.Load(), len(vs))
+	}
+}
+
+func TestEngineBudget(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "r.yaml"), []byte("- id: slow\n  script: slow.sh\n"), 0o644)
+	script(t, dir, "slow.sh", "sleep 5\necho '[]'\n")
+	e := NewEngine(dir, config.Default())
+	e.Budget = 300 * time.Millisecond
+	start := time.Now()
+	vs := e.LintDoc(context.Background(), doc(), All)
+	if time.Since(start) > 3*time.Second || len(vs) != 1 || !strings.Contains(vs[0].Message, "rule failed") {
+		t.Fatalf("took %s: %+v", time.Since(start), vs)
+	}
+}
+
 func TestAINotConfigured(t *testing.T) {
 	r := NewRunner(t.TempDir(), config.AIConfig{})
 	vs := r.AI(context.Background(), acr, "title", "x")

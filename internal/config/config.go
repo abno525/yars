@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -69,6 +70,13 @@ func validate(c *Config) error {
 	}
 	if p := c.AI.Provider; p != "" && p != "openai" && p != "anthropic" {
 		return fmt.Errorf("config: ai.provider %q must be openai or anthropic", p)
+	}
+	if b := c.AI.BaseURL; b != "" {
+		u, err := url.Parse(b)
+		local := err == nil && (u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1" || u.Hostname() == "::1")
+		if err != nil || (u.Scheme != "https" && !(u.Scheme == "http" && local)) {
+			return fmt.Errorf("config: ai.base_url %q must use https (plain http only for localhost)", b)
+		}
 	}
 	for k, v := range c.CVSS.Standard {
 		if !cvss.Valid(k, v) {

@@ -126,12 +126,21 @@ func Load(dir string) *Set {
 			continue
 		}
 		var rs []Rule
+		var raw []map[string]any
 		if err := yaml.Unmarshal(b, &rs); err != nil {
 			problem("rules/"+file, err.Error())
 			continue
 		}
-		for _, r := range rs {
+		yaml.Unmarshal(b, &raw)
+		for i, r := range rs {
 			r.File = file
+			// a typo like "levle:" must not be silently ignored
+			if i < len(raw) {
+				if bad := unknownKeys(raw[i]); len(bad) > 0 {
+					problem(r.ID, fmt.Sprintf("%s: unknown field(s) %s", r.ID, strings.Join(bad, ", ")))
+					continue
+				}
+			}
 			if err := r.prepare(); err != nil {
 				problem(r.ID, err.Error())
 				continue
@@ -145,6 +154,20 @@ func Load(dir string) *Set {
 		}
 	}
 	return s
+}
+
+var ruleKeys = map[string]bool{"id": true, "level": true, "message": true, "target": true, "regex_forbid": true,
+	"regex_require": true, "check": true, "script": true, "ai": true, "require_nonempty": true, "enabled": true}
+
+func unknownKeys(m map[string]any) []string {
+	var bad []string
+	for k := range m {
+		if !ruleKeys[k] {
+			bad = append(bad, k)
+		}
+	}
+	sort.Strings(bad)
+	return bad
 }
 
 func (r *Rule) prepare() error {
@@ -178,6 +201,13 @@ func (r *Rule) prepare() error {
 	}
 	if r.Target == "" && r.Script == "" {
 		r.Target = "text"
+	}
+	switch t := r.Target; {
+	case t == "", t == "title", t == "sections", t == "details", t == "text":
+	case strings.HasPrefix(t, "section:") && len(t) > len("section:"):
+	case strings.HasPrefix(t, "details:") && len(t) > len("details:"):
+	default:
+		return fmt.Errorf("%s: unknown target %q (use title, text, sections, details, section:<Name> or details:<Row>)", r.ID, t)
 	}
 	return nil
 }
@@ -275,9 +305,18 @@ func (s *Set) Run(ctx context.Context, d Doc, cfg config.Config, kinds Kind, slo
 			}
 		case r.AI != "":
 			if kinds&Slow != 0 && slow != nil {
+			parts:
 				for _, p := range parts(d, r.Target) {
-					if strings.TrimSpace(p.Text) != "" {
-						vs = append(vs, slow.AI(ctx, r, p.Target, p.Text)...)
+					if strings.TrimSpace(p.Text) == "" {
+						continue
+					}
+					got := slow.AI(ctx, r, p.Target, p.Text)
+					vs = append(vs, got...)
+					// provider down or not configured: don't repeat for every part
+					for _, v := range got {
+						if v.Target == "ai" {
+							break parts
+						}
 					}
 				}
 			}

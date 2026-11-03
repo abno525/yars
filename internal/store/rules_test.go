@@ -1,12 +1,14 @@
 package store
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"yars/internal/config"
+	"yars/internal/finding"
 	"yars/internal/rules"
 	"yars/internal/workflow"
 )
@@ -19,6 +21,37 @@ func withRules(t *testing.T, s *Store, dir, body string) {
 		t.Fatal(err)
 	}
 	s.Linter = rules.NewEngine(rd, config.Default())
+}
+
+// editingLinter edits the finding while "checking" it, simulating a write
+// that lands during a slow script/AI run.
+type editingLinter struct{ s *Store }
+
+func (l editingLinter) Lint(_ context.Context, f *finding.Finding, _ rules.Kind) []rules.Violation {
+	l.s.UpdateSection(eng, "F-001-sql-injection", "Impact", "edited during lint", "", alice)
+	return nil
+}
+
+func TestSubmitRefusedIfChangedDuringLint(t *testing.T) {
+	s, _, fd := ready(t)
+	s.Linter = editingLinter{s}
+	err := s.Transition(eng, fd, workflow.Submit, "", uAlice)
+	if !denied(err) || !strings.Contains(err.Error(), "changed while its checks ran") {
+		t.Fatalf("err %v", err)
+	}
+	if load(t, s, fd).F.Meta.Status != "draft" {
+		t.Fatal("status changed")
+	}
+}
+
+func TestApproveBlockedByRule(t *testing.T) {
+	s, dir, fd := ready(t)
+	s.Transition(eng, fd, workflow.Submit, "", uAlice)
+	s.Transition(eng, fd, workflow.Clear, "", uBob)
+	withRules(t, s, dir, "- id: t\n  target: title\n  regex_forbid: 'SQL'\n  message: no SQL in titles\n")
+	if err := s.Transition(eng, fd, workflow.Approve, "", uDora); !denied(err) || !strings.Contains(err.Error(), "no SQL in titles") {
+		t.Fatalf("err %v", err)
+	}
 }
 
 func TestSubmitBlockedByRule(t *testing.T) {

@@ -82,6 +82,35 @@ func TestLoadReportsBadRules(t *testing.T) {
 	}
 }
 
+func TestTyposAreProblems(t *testing.T) {
+	s := Load(writeRules(t, map[string]string{"t.yaml": `
+- id: typo-key
+  levle: warning
+  target: title
+  regex_forbid: 'x'
+- id: typo-target
+  target: Title
+  regex_forbid: 'x'
+`}))
+	all := ""
+	for _, p := range s.Problems {
+		all += p.Message + "\n"
+	}
+	if !strings.Contains(all, "levle") || !strings.Contains(all, "Title") {
+		t.Fatalf("problems:\n%s", all)
+	}
+	// unknown section/details names are flagged by the engine (it knows the config)
+	dir := writeRules(t, map[string]string{"u.yaml": "- id: loc\n  target: section:location\n  regex_forbid: 'x'\n- id: ok\n  target: details:Location\n  regex_forbid: 'x'\n"})
+	e := NewEngine(dir, config.Default())
+	msgs := ""
+	for _, p := range e.Rules().Problems {
+		msgs += p.Rule + ":" + p.Message + "\n"
+	}
+	if !strings.Contains(msgs, "loc:") || !strings.Contains(msgs, "section:location") || strings.Contains(msgs, "ok:") {
+		t.Fatalf("engine problems:\n%s", msgs)
+	}
+}
+
 func TestRegexForbid(t *testing.T) {
 	vs := run(t, `
 - id: title-no-dot

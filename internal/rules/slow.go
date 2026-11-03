@@ -58,6 +58,28 @@ func (rn *Runner) scriptPath(script string) (string, error) {
 	return p, nil
 }
 
+// capWriter buffers up to max bytes and then fails, so a runaway script
+// can't exhaust the server's memory.
+// (No embedded bytes.Buffer: its ReadFrom would let io.Copy bypass Write.)
+type capWriter struct {
+	buf  bytes.Buffer
+	max  int
+	over bool
+}
+
+var errTooLarge = errors.New("output too large")
+
+func (w *capWriter) Write(p []byte) (int, error) {
+	if w.buf.Len()+len(p) > w.max {
+		w.over = true
+		return 0, errTooLarge
+	}
+	return w.buf.Write(p)
+}
+
+func (w *capWriter) String() string { return w.buf.String() }
+func (w *capWriter) Bytes() []byte  { return w.buf.Bytes() }
+
 type scriptResult struct {
 	Message string `json:"message"`
 	Quote   string `json:"quote"`
@@ -80,11 +102,14 @@ func (rn *Runner) Script(ctx context.Context, r Rule, d Doc) []Violation {
 	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + os.Getenv("HOME")}
 	cmd.Stdin = bytes.NewReader(input)
 	cmd.WaitDelay = time.Second
-	var out, stderr bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &out, &stderr
+	out, stderr := &capWriter{max: 1 << 20}, &capWriter{max: 64 << 10}
+	cmd.Stdout, cmd.Stderr = out, stderr
 	err = cmd.Run()
+	if out.over {
+		return failed(r, "output too large (limit 1 MB)")
+	}
 	if ctx.Err() == context.DeadlineExceeded {
-		return failed(r, "timed out after "+rn.ScriptTimeout.String())
+		return failed(r, "timed out")
 	}
 	if err != nil {
 		msg := strings.TrimSpace(stderr.String())

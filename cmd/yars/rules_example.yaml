@@ -13,6 +13,11 @@
 # Targets: title, section:<Name>, sections, details:<Row>, details, text
 # (default: title + all sections + all details rows).
 # Disable a rule with "enabled: false".
+#
+# Trust: script rules are programs that run on the YARS server (and on your
+# machine with "yars lint --all"); AI rules send finding text to the provider
+# in config.yaml. Only admins and directors may change .yars/ (also enforced on
+# git push). A broken rule shows up as an error on every finding until fixed.
 
 - id: title-no-trailing-dot
   target: title

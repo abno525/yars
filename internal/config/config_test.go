@@ -124,6 +124,13 @@ func TestLoadAIConfig(t *testing.T) {
 	if _, err := Load(writeCfg(t, "ai:\n  provider: gemini\n")); err == nil || !strings.Contains(err.Error(), "gemini") {
 		t.Fatalf("err %v", err)
 	}
+	// the key must never be sent over plain http to a remote host
+	if _, err := Load(writeCfg(t, "ai:\n  provider: openai\n  base_url: http://evil.example/v1\n")); err == nil || !strings.Contains(err.Error(), "https") {
+		t.Fatalf("plain http accepted: %v", err)
+	}
+	if _, err := Load(writeCfg(t, "ai:\n  provider: openai\n  base_url: http://localhost:4000\n")); err != nil {
+		t.Fatalf("local LiteLLM rejected: %v", err)
+	}
 }
 
 func TestValidRole(t *testing.T) {
