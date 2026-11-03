@@ -1,6 +1,7 @@
 package web
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 
@@ -64,8 +65,7 @@ func (s *Server) newEngagement(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	w.WriteHeader(http.StatusBadRequest)
-	s.render(w, "new_engagement.html", p)
+	s.renderStatus(w, http.StatusBadRequest, "new_engagement.html", p)
 }
 
 func (s *Server) newFindingForm(w http.ResponseWriter, r *http.Request) {
@@ -89,8 +89,7 @@ func (s *Server) newFinding(w http.ResponseWriter, r *http.Request) {
 	title := strings.TrimSpace(r.FormValue("title"))
 	if title == "" {
 		p.Error = "Title is required."
-		w.WriteHeader(http.StatusBadRequest)
-		s.render(w, "new_finding.html", p)
+		s.renderStatus(w, http.StatusBadRequest, "new_finding.html", p)
 		return
 	}
 	ref, err := s.Store.CreateFinding(eng, title, author(p.User))
@@ -137,11 +136,26 @@ func (s *Server) sectionSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	u := auth.UserFrom(r.Context())
-	if err := s.Store.UpdateSection(ref.EngID, ref.Dir, name, r.FormValue("body"), author(u)); err != nil {
+	body := r.FormValue("body")
+	err := s.Store.UpdateSection(ref.EngID, ref.Dir, name, body, r.FormValue("base"), author(u))
+	if errors.Is(err, store.ErrConflict) || errors.Is(err, store.ErrInvalidBody) {
+		// Re-show the editor with the user's text so nothing typed is lost.
+		p := s.panelFor(ref, name)
+		p.Raw, p.Error = body, err.Error()
+		status := http.StatusBadRequest
+		if errors.Is(err, store.ErrConflict) {
+			status = http.StatusConflict
+			p.Error = "This section was changed by someone else while you were editing. Your text is kept below; the current saved version is shown above it. Saving again will replace it."
+			p.Current = p.HTML
+		}
+		s.execStatus(w, status, "finding.html", "editor", p)
+		return
+	}
+	if err != nil {
 		s.fail(w, err)
 		return
 	}
-	ref, err := s.Store.Finding(ref.EngID, ref.Dir)
+	ref, err = s.Store.Finding(ref.EngID, ref.Dir)
 	if err != nil {
 		s.fail(w, err)
 		return

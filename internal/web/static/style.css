@@ -68,6 +68,7 @@ table.findings { width: 100%; border-collapse: collapse; background: var(--surfa
 .md img { max-width: 100%; }
 .editor { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .editor .preview { border: 1px dashed var(--border); border-radius: 8px; padding: 8px 14px; overflow: auto; max-height: 36em; }
+.current { border: 1px solid var(--verification); border-radius: 8px; padding: 8px 14px; margin-bottom: 12px; }
 .actions { display: flex; gap: 8px; margin-top: 10px; }
 @media (max-width: 800px) {
   .editor { grid-template-columns: 1fr; }

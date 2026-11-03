@@ -70,8 +70,14 @@ func (r *Repo) Commit(paths []string, msg string, a Author) error {
 		"GIT_AUTHOR_NAME=" + a.Name, "GIT_AUTHOR_EMAIL=" + a.Email,
 		"GIT_COMMITTER_NAME=" + a.Name, "GIT_COMMITTER_EMAIL=" + a.Email,
 	}
-	_, err := r.run(env, "commit", "-q", "-m", msg)
+	// --only: commit exactly these paths, never anything else staged.
+	_, err := r.run(env, append([]string{"commit", "-q", "--only", "-m", msg, "--"}, paths...)...)
 	return err
+}
+
+// Unstage removes paths from the index (best effort, used after a failed commit).
+func (r *Repo) Unstage(paths []string) {
+	r.run(nil, append([]string{"reset", "-q", "--"}, paths...)...)
 }
 
 // Head returns the current commit hash, or "" if there are no commits yet.

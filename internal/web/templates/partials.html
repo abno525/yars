@@ -33,6 +33,9 @@
 <section class="panel editing" id="s-{{.Anchor}}">
   <form hx-post="{{.SaveURL}}" hx-target="#s-{{.Anchor}}" hx-swap="outerHTML">
     <div class="panelhead"><h2>{{.Name}}</h2></div>
+    {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+    {{if .Current}}<details class="current" open><summary>Current saved version</summary><div class="md">{{.Current}}</div></details>{{end}}
+    <input type="hidden" name="base" value="{{.Base}}">
     <div class="editor">
       <textarea name="body" rows="14" autofocus
         hx-post="{{.PreviewURL}}" hx-trigger="keyup changed delay:300ms, load" hx-target="#p-{{.Anchor}}" hx-swap="innerHTML">{{.Raw}}</textarea>

@@ -39,12 +39,71 @@ type Finding struct {
 	Meta     Meta
 	Preamble string
 	Sections []Section
+
+	rawMeta  string // front matter text exactly as read (LF-normalized)
+	metaSnap string // Meta encoding at parse time, to detect deliberate changes
+	crlf     bool   // file used CRLF line endings
 }
 
 var headingRe = regexp.MustCompile(`^## (.+)$`)
 
+// fence tracks CommonMark fenced code blocks line by line.
+type fence struct {
+	char byte
+	n    int
+}
+
+var fenceRe = regexp.MustCompile("^ {0,3}(`{3,}|~{3,})(.*)$")
+
+// step consumes one line (without newline) and reports whether the line is
+// inside (or delimits) a fenced code block.
+func (f *fence) step(line string) bool {
+	m := fenceRe.FindStringSubmatch(line)
+	if f.n == 0 {
+		if m == nil || (m[1][0] == '`' && strings.Contains(m[2], "`")) {
+			return false
+		}
+		f.char, f.n = m[1][0], len(m[1])
+		return true
+	}
+	if m != nil && m[1][0] == f.char && len(m[1]) >= f.n && strings.TrimSpace(m[2]) == "" {
+		f.n = 0
+	}
+	return true
+}
+
+// ValidateBody rejects section bodies that would corrupt the file structure:
+// a top-level "## " heading (would start a new section) or an unclosed fence
+// (would swallow following sections).
+func ValidateBody(body string) error {
+	var fc fence
+	for _, line := range strings.Split(strings.ReplaceAll(body, "\r\n", "\n"), "\n") {
+		if fc.step(line) {
+			continue
+		}
+		if headingRe.MatchString(line) {
+			return errors.New("level-2 headings (## ) are reserved for sections; use ### instead")
+		}
+	}
+	if fc.n != 0 {
+		return errors.New("unclosed code fence")
+	}
+	return nil
+}
+
+func encodeMeta(m *Meta) string {
+	var out bytes.Buffer
+	enc := yaml.NewEncoder(&out)
+	enc.SetIndent(4)
+	_ = enc.Encode(m)
+	_ = enc.Close()
+	return out.String()
+}
+
 func Parse(b []byte) (*Finding, error) {
-	s := strings.ReplaceAll(string(b), "\r\n", "\n")
+	s := string(b)
+	f := &Finding{crlf: strings.Contains(s, "\r\n")}
+	s = strings.ReplaceAll(s, "\r\n", "\n")
 	if !strings.HasPrefix(s, "---\n") {
 		return nil, errors.New("finding: missing front matter")
 	}
@@ -52,15 +111,16 @@ func Parse(b []byte) (*Finding, error) {
 	if end < 0 {
 		return nil, errors.New("finding: unterminated front matter")
 	}
-	f := &Finding{}
-	if err := yaml.Unmarshal([]byte(s[4:4+end+1]), &f.Meta); err != nil {
+	f.rawMeta = s[4 : 4+end+1]
+	if err := yaml.Unmarshal([]byte(f.rawMeta), &f.Meta); err != nil {
 		return nil, err
 	}
+	f.metaSnap = encodeMeta(&f.Meta)
 	rest := s[4+end+5:]
 
 	var cur *Section
 	var buf strings.Builder
-	inFence := false
+	var fc fence
 	flush := func() {
 		if cur == nil {
 			f.Preamble = buf.String()
@@ -75,9 +135,7 @@ func Parse(b []byte) (*Finding, error) {
 			continue
 		}
 		trimmed := strings.TrimSuffix(line, "\n")
-		if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
-			inFence = !inFence
-		}
+		inFence := fc.step(trimmed)
 		if m := headingRe.FindStringSubmatch(trimmed); m != nil && !inFence {
 			flush()
 			cur = &Section{Name: strings.TrimSpace(m[1])}
@@ -90,19 +148,25 @@ func Parse(b []byte) (*Finding, error) {
 }
 
 func (f *Finding) Bytes() []byte {
-	var out bytes.Buffer
+	var out strings.Builder
 	out.WriteString("---\n")
-	enc := yaml.NewEncoder(&out)
-	enc.SetIndent(4)
-	_ = enc.Encode(&f.Meta)
-	_ = enc.Close()
+	// Keep the front matter byte-for-byte (comments, order, style) unless
+	// Meta was deliberately changed since parsing.
+	if enc := encodeMeta(&f.Meta); f.rawMeta != "" && enc == f.metaSnap {
+		out.WriteString(f.rawMeta)
+	} else {
+		out.WriteString(enc)
+	}
 	out.WriteString("---\n")
 	out.WriteString(f.Preamble)
 	for _, s := range f.Sections {
 		out.WriteString("## " + s.Name + "\n")
 		out.WriteString(s.Body)
 	}
-	return out.Bytes()
+	if f.crlf {
+		return []byte(strings.ReplaceAll(out.String(), "\n", "\r\n"))
+	}
+	return []byte(out.String())
 }
 
 func (f *Finding) Section(name string) (string, bool) {

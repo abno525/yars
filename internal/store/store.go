@@ -1,14 +1,17 @@
 // Package store maps the data repo layout to engagements and findings.
-// Every write is a single git commit.
+// Every write is a single git commit. All file access goes through an
+// os.Root so symlinks cannot reach outside the repository.
 package store
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
 	"log"
 	"os"
-	"path/filepath"
+	"path"
 	"regexp"
 	"sort"
 	"strconv"
@@ -22,7 +25,11 @@ import (
 	"yars/internal/gitrepo"
 )
 
-var ErrNotFound = errors.New("not found")
+var (
+	ErrNotFound    = errors.New("not found")
+	ErrConflict    = errors.New("section was changed by someone else")
+	ErrInvalidBody = errors.New("invalid section body")
+)
 
 type Engagement struct {
 	ID     string `yaml:"-"`
@@ -40,24 +47,60 @@ type FindingRef struct {
 }
 
 type Store struct {
-	repo *gitrepo.Repo
-	cfg  config.Config
-	mu   sync.Mutex
+	repo    *gitrepo.Repo
+	cfg     config.Config
+	root    *os.Root
+	rootErr error
+	mu      sync.Mutex
 }
 
-func New(r *gitrepo.Repo, cfg config.Config) *Store { return &Store{repo: r, cfg: cfg} }
+func New(r *gitrepo.Repo, cfg config.Config) *Store {
+	root, err := os.OpenRoot(r.Dir)
+	return &Store{repo: r, cfg: cfg, root: root, rootErr: err}
+}
 
 func (s *Store) Config() config.Config { return s.cfg }
 func (s *Store) Repo() *gitrepo.Repo   { return s.repo }
 
 var idRe = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 
-func ValidID(id string) bool { return idRe.MatchString(id) && id != "." && id != ".." }
+// ValidID accepts path-safe names; leading dots (".", "..", ".git") are rejected.
+func ValidID(id string) bool { return idRe.MatchString(id) && !strings.HasPrefix(id, ".") }
 
-func (s *Store) engDir(id string) string { return filepath.Join(s.repo.Dir, "engagements", id) }
+// BodyHash identifies a section body version for optimistic concurrency.
+func BodyHash(body string) string {
+	h := sha256.Sum256([]byte(body))
+	return hex.EncodeToString(h[:8])
+}
+
+func engDir(id string) string { return path.Join("engagements", id) }
+func findingPath(eng, dir string) string {
+	return path.Join("engagements", eng, "findings", dir, "finding.md")
+}
+
+func (s *Store) readDir(p string) ([]fs.DirEntry, error) {
+	if s.rootErr != nil {
+		return nil, s.rootErr
+	}
+	return fs.ReadDir(s.root.FS(), p)
+}
+
+func (s *Store) readFile(p string) ([]byte, error) {
+	if s.rootErr != nil {
+		return nil, s.rootErr
+	}
+	return s.root.ReadFile(p)
+}
+
+func (s *Store) writeFile(p string, b []byte) error {
+	if s.rootErr != nil {
+		return s.rootErr
+	}
+	return s.root.WriteFile(p, b, 0o644)
+}
 
 func (s *Store) ListEngagements() ([]Engagement, error) {
-	ents, err := os.ReadDir(filepath.Join(s.repo.Dir, "engagements"))
+	ents, err := s.readDir("engagements")
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
@@ -71,6 +114,9 @@ func (s *Store) ListEngagements() ([]Engagement, error) {
 		}
 		eng, err := s.Engagement(e.Name())
 		if err != nil {
+			if !errors.Is(err, ErrNotFound) {
+				log.Printf("skip engagement %s: %v", e.Name(), err)
+			}
 			continue
 		}
 		out = append(out, eng)
@@ -82,7 +128,7 @@ func (s *Store) Engagement(id string) (Engagement, error) {
 	if !ValidID(id) {
 		return Engagement{}, ErrNotFound
 	}
-	b, err := os.ReadFile(filepath.Join(s.engDir(id), "engagement.yaml"))
+	b, err := s.readFile(path.Join(engDir(id), "engagement.yaml"))
 	if errors.Is(err, fs.ErrNotExist) {
 		return Engagement{}, ErrNotFound
 	}
@@ -97,14 +143,43 @@ func (s *Store) Engagement(id string) (Engagement, error) {
 	return e, nil
 }
 
+// commit commits paths; on failure it restores each path's previous content
+// (nil = file did not exist) so the tree is left clean.
+func (s *Store) commit(prev map[string][]byte, msg string, a gitrepo.Author, cleanupDir string) error {
+	var paths []string
+	for p := range prev {
+		paths = append(paths, p)
+	}
+	sort.Strings(paths)
+	err := s.repo.Commit(paths, msg, a)
+	if err == nil {
+		return nil
+	}
+	s.repo.Unstage(paths)
+	for _, p := range paths {
+		if prev[p] == nil {
+			s.root.Remove(p)
+		} else {
+			s.writeFile(p, prev[p])
+		}
+	}
+	if cleanupDir != "" {
+		s.root.RemoveAll(cleanupDir)
+	}
+	return err
+}
+
 func (s *Store) CreateEngagement(e Engagement, a gitrepo.Author) error {
 	if !ValidID(e.ID) {
 		return fmt.Errorf("invalid engagement id %q", e.ID)
 	}
+	if s.rootErr != nil {
+		return s.rootErr
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	dir := s.engDir(e.ID)
-	if _, err := os.Stat(dir); err == nil {
+	dir := engDir(e.ID)
+	if _, err := s.root.Lstat(dir); err == nil {
 		return fmt.Errorf("engagement %s already exists", e.ID)
 	}
 	if e.Type == "" {
@@ -114,14 +189,15 @@ func (s *Store) CreateEngagement(e Engagement, a gitrepo.Author) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Join(dir, "findings"), 0o755); err != nil {
+	if err := s.root.MkdirAll(path.Join(dir, "findings"), 0o755); err != nil {
 		return err
 	}
-	rel := filepath.Join("engagements", e.ID, "engagement.yaml")
-	if err := os.WriteFile(filepath.Join(s.repo.Dir, rel), b, 0o644); err != nil {
+	rel := path.Join(dir, "engagement.yaml")
+	if err := s.writeFile(rel, b); err != nil {
+		s.root.RemoveAll(dir)
 		return err
 	}
-	return s.repo.Commit([]string{rel}, "engagement "+e.ID+": create", a)
+	return s.commit(map[string][]byte{rel: nil}, "engagement "+e.ID+": create", a, dir)
 }
 
 // ListFindings returns parseable findings of an engagement, sorted by dir.
@@ -131,7 +207,7 @@ func (s *Store) ListFindings(engID string) ([]FindingRef, error) {
 	if _, err := s.Engagement(engID); err != nil {
 		return nil, err
 	}
-	ents, err := os.ReadDir(filepath.Join(s.engDir(engID), "findings"))
+	ents, err := s.readDir(path.Join(engDir(engID), "findings"))
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
@@ -156,15 +232,11 @@ func (s *Store) ListFindings(engID string) ([]FindingRef, error) {
 	return out, nil
 }
 
-func (s *Store) findingPath(engID, dir string) string {
-	return filepath.Join(s.engDir(engID), "findings", dir, "finding.md")
-}
-
 func (s *Store) Finding(engID, dir string) (FindingRef, error) {
 	if !ValidID(engID) || !ValidID(dir) {
 		return FindingRef{}, ErrNotFound
 	}
-	b, err := os.ReadFile(s.findingPath(engID, dir))
+	b, err := s.readFile(findingPath(engID, dir))
 	if errors.Is(err, fs.ErrNotExist) {
 		return FindingRef{}, ErrNotFound
 	}
@@ -208,8 +280,8 @@ func (s *Store) CreateFinding(engID, title string, a gitrepo.Author) (FindingRef
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	fdir := filepath.Join(s.engDir(engID), "findings")
-	ents, _ := os.ReadDir(fdir)
+	fdir := path.Join(engDir(engID), "findings")
+	ents, _ := s.readDir(fdir)
 	max := 0
 	for _, e := range ents {
 		if m := numRe.FindStringSubmatch(e.Name()); m != nil {
@@ -221,25 +293,36 @@ func (s *Store) CreateFinding(engID, title string, a gitrepo.Author) (FindingRef
 	id := fmt.Sprintf("F-%03d", max+1)
 	dir := id + "-" + Slug(title)
 	f := finding.New(id, strings.TrimSpace(title), a.Name, s.cfg.Sections)
-	if err := os.MkdirAll(filepath.Join(fdir, dir), 0o755); err != nil {
+	if err := s.root.MkdirAll(path.Join(fdir, dir), 0o755); err != nil {
 		return FindingRef{}, err
 	}
-	if err := os.WriteFile(s.findingPath(engID, dir), f.Bytes(), 0o644); err != nil {
+	rel := findingPath(engID, dir)
+	if err := s.writeFile(rel, f.Bytes()); err != nil {
 		return FindingRef{}, err
 	}
-	rel := filepath.Join("engagements", engID, "findings", dir, "finding.md")
-	if err := s.repo.Commit([]string{rel}, id+": create", a); err != nil {
+	if err := s.commit(map[string][]byte{rel: nil}, id+": create", a, path.Join(fdir, dir)); err != nil {
 		return FindingRef{}, err
 	}
 	return FindingRef{EngID: engID, Dir: dir, F: f}, nil
 }
 
-func (s *Store) UpdateSection(engID, dir, section, body string, a gitrepo.Author) error {
+// UpdateSection replaces one section's body and commits. If base is non-empty
+// it must equal BodyHash of the section's current body, else ErrConflict.
+func (s *Store) UpdateSection(engID, dir, section, body, base string, a gitrepo.Author) error {
+	if err := finding.ValidateBody(body); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidBody, err)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	ref, err := s.Finding(engID, dir)
 	if err != nil {
 		return err
+	}
+	if base != "" {
+		cur, _ := ref.F.Section(section)
+		if BodyHash(cur) != base {
+			return ErrConflict
+		}
 	}
 	before := ref.F.Bytes()
 	ref.F.SetSection(section, body)
@@ -247,9 +330,13 @@ func (s *Store) UpdateSection(engID, dir, section, body string, a gitrepo.Author
 	if string(before) == string(after) {
 		return nil
 	}
-	if err := os.WriteFile(s.findingPath(engID, dir), after, 0o644); err != nil {
+	rel := findingPath(engID, dir)
+	orig, err := s.readFile(rel)
+	if err != nil {
 		return err
 	}
-	rel := filepath.Join("engagements", engID, "findings", dir, "finding.md")
-	return s.repo.Commit([]string{rel}, ref.F.Meta.ID+": edit "+section, a)
+	if err := s.writeFile(rel, after); err != nil {
+		return err
+	}
+	return s.commit(map[string][]byte{rel: orig}, ref.F.Meta.ID+": edit "+section, a, "")
 }

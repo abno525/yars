@@ -45,7 +45,8 @@ type link struct {
 
 type panel struct {
 	Name, Anchor, EditURL, SaveURL, PreviewURL, Raw string
-	HTML                                            template.HTML
+	Base, Error                                     string
+	HTML, Current                                   template.HTML
 }
 
 type page struct {
@@ -95,14 +96,25 @@ func (s *Server) Handler() http.Handler {
 	root.HandleFunc("POST /login", s.login)
 	root.Handle("GET /static/", http.StripPrefix("/static/", http.FileServerFS(static)))
 	root.Handle("/", s.Auth.Require(private))
-	return root
+	// Reject cross-origin state-changing requests (CSRF, incl. login CSRF).
+	return http.NewCrossOriginProtection().Handler(root)
 }
 
 func (s *Server) render(w http.ResponseWriter, name string, p *page) {
-	s.exec(w, name, "layout", p)
+	s.execStatus(w, http.StatusOK, name, "layout", p)
+}
+
+func (s *Server) renderStatus(w http.ResponseWriter, status int, name string, p *page) {
+	s.execStatus(w, status, name, "layout", p)
 }
 
 func (s *Server) exec(w http.ResponseWriter, name, tmpl string, data any) {
+	s.execStatus(w, http.StatusOK, name, tmpl, data)
+}
+
+// execStatus renders into a buffer first so headers and status are only
+// written once the template succeeded.
+func (s *Server) execStatus(w http.ResponseWriter, status int, name, tmpl string, data any) {
 	var buf bytes.Buffer
 	if err := s.pages[name].ExecuteTemplate(&buf, tmpl, data); err != nil {
 		log.Printf("template %s/%s: %v", name, tmpl, err)
@@ -110,6 +122,7 @@ func (s *Server) exec(w http.ResponseWriter, name, tmpl string, data any) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(status)
 	buf.WriteTo(w)
 }
 
@@ -155,8 +168,7 @@ func (s *Server) loginPage(w http.ResponseWriter, r *http.Request) {
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	tok, ok := s.Auth.Login(r.FormValue("username"), r.FormValue("password"))
 	if !ok {
-		w.WriteHeader(http.StatusUnauthorized)
-		s.render(w, "login.html", &page{Error: "Wrong username or password."})
+		s.renderStatus(w, http.StatusUnauthorized, "login.html", &page{Error: "Wrong username or password."})
 		return
 	}
 	auth.SetCookie(w, tok)
@@ -280,7 +292,7 @@ func (s *Server) sectionNames(ref store.FindingRef) []string {
 
 func (s *Server) panelFor(ref store.FindingRef, name string) panel {
 	body, _ := ref.F.Section(name)
-	p := panel{Name: name, Anchor: anchor(name), Raw: strings.Trim(body, "\n")}
+	p := panel{Name: name, Anchor: anchor(name), Raw: strings.Trim(body, "\n"), Base: store.BodyHash(body)}
 	if strings.TrimSpace(body) != "" {
 		p.HTML = s.renderMD(body)
 	}

@@ -76,7 +76,7 @@ func TestNoGlobalNewFinding(t *testing.T) {
 
 func TestExtraSectionEditable(t *testing.T) {
 	e := setup(t)
-	if err := e.srv.Store.UpdateSection("acme", "F-001-sql-injection", "Notes", "n", gitrepo.Author{Name: "x", Email: "x@x"}); err != nil {
+	if err := e.srv.Store.UpdateSection("acme", "F-001-sql-injection", "Notes", "n", "", gitrepo.Author{Name: "x", Email: "x@x"}); err != nil {
 		t.Fatal(err)
 	}
 	if rec := e.do(t, "bob", "POST", "/e/acme/f/F-001-sql-injection/s/Notes", url.Values{"body": {"updated"}}, nil); rec.Code != 200 {
@@ -88,6 +88,46 @@ func TestExtraSectionEditable(t *testing.T) {
 	b, _ := os.ReadFile(filepath.Join(e.dir, "engagements/acme/findings/F-001-sql-injection/finding.md"))
 	if strings.Contains(string(b), "Bogus") {
 		t.Fatal("Bogus section written")
+	}
+}
+
+func TestEditFormCarriesBase(t *testing.T) {
+	e := setup(t)
+	rec := e.do(t, "bob", "GET", "/e/acme/f/F-001-sql-injection/s/Impact/edit", nil, nil)
+	if !strings.Contains(rec.Body.String(), `name="base"`) {
+		t.Fatal("editor form has no base field")
+	}
+}
+
+func TestEditConflict409(t *testing.T) {
+	e := setup(t)
+	form := url.Values{"body": {"bob text"}, "base": {"0000000000000000"}}
+	rec := e.do(t, "bob", "POST", "/e/acme/f/F-001-sql-injection/s/Impact", form, nil)
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "changed by someone else") {
+		t.Fatalf("code %d body %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "bob text") {
+		t.Fatal("user's text not kept in the editor")
+	}
+}
+
+func TestEditInvalidBody400(t *testing.T) {
+	e := setup(t)
+	rec := e.do(t, "bob", "POST", "/e/acme/f/F-001-sql-injection/s/Impact", url.Values{"body": {"x\n## Remediation\ny"}}, nil)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "reserved for sections") {
+		t.Fatalf("code %d body %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestCrossOriginPostRejected(t *testing.T) {
+	e := setup(t)
+	hdr := map[string]string{"Sec-Fetch-Site": "cross-site", "Origin": "https://evil.example"}
+	rec := e.do(t, "alice", "POST", "/e/acme/findings/new", url.Values{"title": {"x"}}, hdr)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("code %d", rec.Code)
+	}
+	if rec := e.do(t, "", "POST", "/login", url.Values{"username": {"alice"}, "password": {"pw"}}, hdr); rec.Code != http.StatusForbidden {
+		t.Fatalf("login CSRF code %d", rec.Code)
 	}
 }
 

@@ -111,6 +111,77 @@ func TestSetSection(t *testing.T) {
 	}
 }
 
+func sectionNames(f *Finding) string {
+	var n []string
+	for _, s := range f.Sections {
+		n = append(n, s.Name)
+	}
+	return strings.Join(n, ",")
+}
+
+func TestFenceRulesCommonMark(t *testing.T) {
+	cases := map[string]string{
+		"inline triple backticks": "```/api/login``` is vulnerable\n",
+		"tilde inside backticks":  "```\n~~~\n## in fence\n```\n",
+		"four-backtick fence":     "````\n```\n## in fence\n````\n",
+	}
+	for name, body := range cases {
+		in := "---\nid: F-001\n---\n## A\n" + body + "## B\nb\n"
+		f, err := Parse([]byte(in))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := sectionNames(f); got != "A,B" {
+			t.Errorf("%s: sections %q", name, got)
+		}
+	}
+}
+
+func TestValidateBody(t *testing.T) {
+	if err := ValidateBody("```\nunclosed\n"); err == nil {
+		t.Error("unclosed fence accepted")
+	}
+	if err := ValidateBody("text\n## Impact\nmore"); err == nil {
+		t.Error("top-level ## heading accepted")
+	}
+	if err := ValidateBody("```\n## fine in fence\n```\n### sub ok\n```a``` inline"); err != nil {
+		t.Errorf("valid body rejected: %v", err)
+	}
+}
+
+func TestFrontMatterPreservedVerbatim(t *testing.T) {
+	in := "---\nid: F-001\ntitle: T\nstatus: draft   # draft|verification|complete|reported\nreviewers: [bob]\ncvss: 9.8\nretest: { source: e/F-001, result: not_fixed, note: x }\n---\n## Impact\nold\n"
+	f, err := Parse([]byte(in))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.SetSection("Impact", "new")
+	want := strings.Replace(in, "## Impact\nold\n", "## Impact\n\nnew\n", 1)
+	if got := string(f.Bytes()); got != want {
+		t.Fatalf("got\n%s\nwant\n%s", got, want)
+	}
+	f.Meta.Status = "verification"
+	if !strings.Contains(string(f.Bytes()), "status: verification") {
+		t.Fatal("deliberate meta change not written")
+	}
+}
+
+func TestCRLFWriteBack(t *testing.T) {
+	in := strings.ReplaceAll(canonical, "\n", "\r\n")
+	f, err := Parse([]byte(in))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(f.Bytes()) != in {
+		t.Fatal("CRLF not preserved on round trip")
+	}
+	f.SetSection("Location", "/a\r\n/b")
+	out := string(f.Bytes())
+	if strings.Contains(strings.ReplaceAll(out, "\r\n", ""), "\n") {
+		t.Fatalf("bare LF in CRLF output: %q", out)
+	}
+}
+
 func TestNew(t *testing.T) {
 	defaults := []string{"Description", "Location", "Impact", "Steps to Reproduce", "Remediation", "References"}
 	f := New("F-002", "XSS", "alice", defaults)

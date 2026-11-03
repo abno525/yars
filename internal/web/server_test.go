@@ -159,7 +159,7 @@ func TestLoginFlow(t *testing.T) {
 
 func TestMarkdownNoRawHTML(t *testing.T) {
 	e := setup(t)
-	if err := e.srv.Store.UpdateSection("acme", "F-001-sql-injection", "Impact", "<script>alert(1)</script>", gitrepo.Author{Name: "x", Email: "x@x"}); err != nil {
+	if err := e.srv.Store.UpdateSection("acme", "F-001-sql-injection", "Impact", "<script>alert(1)</script>", "", gitrepo.Author{Name: "x", Email: "x@x"}); err != nil {
 		t.Fatal(err)
 	}
 	rec := e.do(t, "alice", "GET", "/e/acme/f/F-001-sql-injection", nil, nil)
