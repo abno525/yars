@@ -141,7 +141,9 @@ func TestPolicyPaths(t *testing.T) {
 func TestPolicyNewFinding(t *testing.T) {
 	f := newFx(t)
 	nf := func(dir, meta string) func(string) {
-		return func(d string) { write(d, "engagements/acme/findings/"+dir+"/finding.md", "---\n"+meta+"---\n\n## Description\n\nx\n") }
+		return func(d string) {
+			write(d, "engagements/acme/findings/"+dir+"/finding.md", "---\n"+meta+"---\n\n## Description\n\nx\n")
+		}
 	}
 	if ps := f.push("alice", nf("F-002-xss", "id: F-002\ntitle: XSS\nstatus: verification\nauthor: alice\n")); !has(ps, "draft") {
 		t.Fatalf("non-draft new finding: %v", ps)
