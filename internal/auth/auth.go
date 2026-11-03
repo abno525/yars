@@ -51,8 +51,9 @@ func HashPassword(pw string) (string, error) {
 	return string(h), err
 }
 
-// Login checks credentials and returns a new session token.
-func (a *Auth) Login(username, pw string) (string, bool) {
+// Check verifies credentials without creating a session (git HTTP auth).
+// Unknown users take as long as wrong passwords.
+func (a *Auth) Check(username, pw string) (config.User, bool) {
 	a.mu.Lock()
 	u, ok := a.users[username]
 	a.mu.Unlock()
@@ -60,8 +61,15 @@ func (a *Auth) Login(username, pw string) (string, bool) {
 	if ok {
 		hash = []byte(u.PasswordHash)
 	}
-	// Always run bcrypt so unknown users take as long as wrong passwords.
 	if bcrypt.CompareHashAndPassword(hash, []byte(pw)) != nil || !ok {
+		return config.User{}, false
+	}
+	return u, true
+}
+
+// Login checks credentials and returns a new session token.
+func (a *Auth) Login(username, pw string) (string, bool) {
+	if _, ok := a.Check(username, pw); !ok {
 		return "", false
 	}
 	b := make([]byte, 32)

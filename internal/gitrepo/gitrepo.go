@@ -78,6 +78,56 @@ func (r *Repo) Commit(paths []string, msg string, a Author) error {
 	return err
 }
 
+// SetConfig sets a repository-local git config value.
+func (r *Repo) SetConfig(key, value string) error {
+	_, err := r.run(nil, "config", key, value)
+	return err
+}
+
+// GitDir returns the absolute path of the .git directory.
+func (r *Repo) GitDir() (string, error) {
+	out, err := r.run(nil, "rev-parse", "--absolute-git-dir")
+	return strings.TrimSpace(out), err
+}
+
+// CurrentBranch returns the full ref HEAD points to (e.g. refs/heads/main).
+func (r *Repo) CurrentBranch() (string, error) {
+	out, err := r.run(nil, "symbolic-ref", "HEAD")
+	return strings.TrimSpace(out), err
+}
+
+// Change is one entry of a tree diff.
+type Change struct {
+	Status byte // A, M, D (renames/copies are reported as D+A)
+	Path   string
+}
+
+// ChangedFiles lists files that differ between two commits. An empty old
+// means "empty tree" (first push).
+func (r *Repo) ChangedFiles(old, new string) ([]Change, error) {
+	if old == "" {
+		old = "4b825dc642cb6eb9a060e54bf8d69288fbee4904" // empty tree
+	}
+	out, err := r.run(nil, "diff", "--no-renames", "--name-status", "-z", old, new)
+	if err != nil {
+		return nil, err
+	}
+	f := strings.Split(strings.TrimSuffix(out, "\x00"), "\x00")
+	var cs []Change
+	for i := 0; i+1 < len(f); i += 2 {
+		if f[i] != "" {
+			cs = append(cs, Change{Status: f[i][0], Path: f[i+1]})
+		}
+	}
+	return cs, nil
+}
+
+// Show returns a file's content at a revision.
+func (r *Repo) Show(rev, path string) ([]byte, error) {
+	out, err := r.run(nil, "show", rev+":"+path)
+	return []byte(out), err
+}
+
 // Unstage removes paths from the index (best effort, used after a failed commit).
 func (r *Repo) Unstage(paths []string) {
 	r.run(nil, append([]string{"reset", "-q", "--"}, paths...)...)
