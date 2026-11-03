@@ -47,6 +47,49 @@ func TestSetMetaKeepsComments(t *testing.T) {
 	}
 }
 
+// Untouched front-matter lines must survive byte-for-byte.
+func TestSetMetaByteIdentical(t *testing.T) {
+	in := "---\n" +
+		"id: F-001\n" +
+		"title: SQLi\n" +
+		"custom_key: keep me   # trailing comment\n" +
+		"\n" +
+		"# reviewers block\n" +
+		"reviewers:\n" +
+		"- bob\n" +
+		"- carol\n" +
+		"severity: high  # was medium\n" +
+		"retest:\n" +
+		"  source: old/F-001\n" +
+		"  result: not_fixed\n" +
+		"---\n\n## Description\n\nbody\n"
+	f, err := Parse([]byte(in))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.SetMeta("severity", "critical"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.SetMeta("details", OrderedMap([]string{"Location"}, map[string]string{"Location": "a\nb"})); err != nil {
+		t.Fatal(err)
+	}
+	want := strings.Replace(in, "severity: high  # was medium\n", "severity: critical # was medium\n", 1)
+	want = strings.Replace(want, "---\n\n## Description", "details:\n    Location: |-\n        a\n        b\n---\n\n## Description", 1)
+	if got := string(f.Bytes()); got != want {
+		t.Fatalf("got:\n%s\nwant:\n%s", got, want)
+	}
+	if err := f.SetMeta("reviewers", nil); err != nil {
+		t.Fatal(err)
+	}
+	want2 := strings.Replace(want, "reviewers:\n- bob\n- carol\n", "", 1)
+	if got := string(f.Bytes()); got != want2 {
+		t.Fatalf("after delete got:\n%s\nwant:\n%s", got, want2)
+	}
+	if f.Meta.Severity != "critical" || f.Meta.Reviewers != nil || f.Meta.Retest.Result != "not_fixed" {
+		t.Fatalf("meta %+v", f.Meta)
+	}
+}
+
 func TestSetMetaDelete(t *testing.T) {
 	f, _ := Parse([]byte(commented))
 	if err := f.SetMeta("severity", nil); err != nil {

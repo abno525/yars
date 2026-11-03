@@ -33,24 +33,29 @@ type Meta struct {
 	Extra   map[string]any    `yaml:",inline"`
 }
 
-// SetMeta sets (or, with a nil value, deletes) one top-level front-matter key
-// by patching the YAML node tree, so comments, key order and untouched keys
-// survive. value may be a *yaml.Node or any encodable Go value.
+// SetMeta sets (or, with a nil value, deletes) one top-level front-matter key.
+// Only the lines of that key are rewritten (spliced into the raw text), so
+// every other line — comments, blank lines, indentation, quoting — stays
+// byte-identical. A new key is appended at the end. value may be a
+// *yaml.Node or any encodable Go value.
 func (f *Finding) SetMeta(key string, value any) error {
 	src := f.rawMeta
 	if src == "" || encodeMeta(&f.Meta) != f.metaSnap {
 		src = encodeMeta(&f.Meta)
 	}
+	if src != "" && !strings.HasSuffix(src, "\n") {
+		src += "\n"
+	}
 	var doc yaml.Node
 	if err := yaml.Unmarshal([]byte(src), &doc); err != nil {
 		return err
 	}
-	if doc.Kind == 0 || len(doc.Content) == 0 {
-		doc = yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{{Kind: yaml.MappingNode, Tag: "!!map"}}}
-	}
-	m := doc.Content[0]
-	if m.Kind != yaml.MappingNode {
-		return errors.New("finding: front matter is not a mapping")
+	var m *yaml.Node
+	if doc.Kind != 0 && len(doc.Content) > 0 {
+		m = doc.Content[0]
+		if m.Kind != yaml.MappingNode || m.Style&yaml.FlowStyle != 0 {
+			return errors.New("finding: front matter must be a block mapping")
+		}
 	}
 	var vn *yaml.Node
 	if value != nil {
@@ -63,37 +68,62 @@ func (f *Finding) SetMeta(key string, value any) error {
 			}
 		}
 	}
-	found := false
-	for i := 0; i+1 < len(m.Content); i += 2 {
-		if m.Content[i].Value != key {
+	// Locate the key's line range [start, end): its own line plus following
+	// lines that are indented, blank, or zero-indent sequence items.
+	lines := strings.SplitAfter(src, "\n")
+	start, end := -1, -1
+	var old *yaml.Node
+	for i := 0; m != nil && i+1 < len(m.Content); i += 2 {
+		k := m.Content[i]
+		if k.Value != key {
 			continue
 		}
-		found = true
-		if vn == nil {
-			m.Content = append(m.Content[:i], m.Content[i+2:]...)
-		} else {
-			if vn.LineComment == "" {
-				vn.LineComment = m.Content[i+1].LineComment
-			}
-			m.Content[i+1] = vn
+		if k.Column != 1 {
+			return errors.New("finding: top-level front matter keys must start at column 1")
+		}
+		old, start = m.Content[i+1], k.Line-1
+		end = start + 1
+		for end < len(lines) && lines[end] != "" && strings.ContainsRune(" \t-\n", rune(lines[end][0])) {
+			end++
+		}
+		for end > start+1 && strings.TrimSpace(lines[end-1]) == "" {
+			end--
 		}
 		break
 	}
-	if !found && vn != nil {
-		m.Content = append(m.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key}, vn)
+	if start < 0 && vn == nil {
+		return nil // deleting an absent key
 	}
-	var out bytes.Buffer
-	enc := yaml.NewEncoder(&out)
-	enc.SetIndent(4)
-	if err := enc.Encode(&doc); err != nil {
-		return err
+	snippet := ""
+	if vn != nil {
+		if old != nil && vn.LineComment == "" {
+			vn.LineComment = old.LineComment
+		}
+		one := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map",
+			Content: []*yaml.Node{{Kind: yaml.ScalarNode, Tag: "!!str", Value: key}, vn}}
+		var out bytes.Buffer
+		enc := yaml.NewEncoder(&out)
+		enc.SetIndent(4)
+		if err := enc.Encode(one); err != nil {
+			return err
+		}
+		enc.Close()
+		snippet = out.String()
 	}
-	enc.Close()
+	var b strings.Builder
+	if start >= 0 {
+		b.WriteString(strings.Join(lines[:start], ""))
+		b.WriteString(snippet)
+		b.WriteString(strings.Join(lines[end:], ""))
+	} else {
+		b.WriteString(src)
+		b.WriteString(snippet)
+	}
 	var meta Meta
-	if err := yaml.Unmarshal(out.Bytes(), &meta); err != nil {
+	if err := yaml.Unmarshal([]byte(b.String()), &meta); err != nil {
 		return err
 	}
-	f.Meta, f.rawMeta = meta, out.String()
+	f.Meta, f.rawMeta = meta, b.String()
 	f.metaSnap = encodeMeta(&f.Meta)
 	return nil
 }

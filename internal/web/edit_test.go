@@ -111,6 +111,16 @@ func TestEditConflict409(t *testing.T) {
 	}
 }
 
+// htmx 2 drops 4xx bodies by default; the layout must opt 400/409 into
+// swapping so conflict and validation editors reach the user.
+func TestHtmxSwapsConflictResponses(t *testing.T) {
+	e := setup(t)
+	b := e.do(t, "alice", "GET", "/e/acme", nil, nil).Body.String()
+	if !strings.Contains(b, `name="htmx-config"`) || !strings.Contains(b, `(400|409)`) {
+		t.Fatalf("layout lacks htmx responseHandling for 400/409:\n%s", b[:min(len(b), 600)])
+	}
+}
+
 func TestEditInvalidBody400(t *testing.T) {
 	e := setup(t)
 	rec := e.do(t, "bob", "POST", "/e/acme/f/F-001-sql-injection/s/Impact", url.Values{"body": {"x\n## Remediation\ny"}}, nil)
