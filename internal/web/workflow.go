@@ -65,7 +65,7 @@ func (s *Server) wfFor(ref store.FindingRef, r *http.Request) wfView {
 		}
 		act := wfAction{Label: workflow.Label(a), URL: base + "/action/" + string(a),
 			NeedsReason: a == workflow.Return, Primary: a != workflow.Return}
-		if a == workflow.Submit {
+		if workflow.Gated(a) {
 			if v.Gate = workflow.Gate(m, s.Cfg); len(v.Gate) > 0 {
 				act.Disabled = true
 			}

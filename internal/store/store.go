@@ -313,7 +313,7 @@ func (s *Store) CreateFinding(engID, title string, a gitrepo.Author) (FindingRef
 
 // UpdateSection replaces one section's body and commits. If base is non-empty
 // it must equal BodyHash of the section's current body, else ErrConflict.
-func (s *Store) UpdateSection(engID, dir, section, body, base string, a gitrepo.Author) error {
+func (s *Store) UpdateSection(engID, dir, section, body, base string, a Actor) error {
 	if err := finding.ValidateBody(body); err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalidBody, err)
 	}
@@ -361,8 +361,11 @@ func (s *Store) mutate(engID, dir string, a gitrepo.Author, fn func(f *finding.F
 // mutateContent is mutate for content edits: a change made while the finding
 // is in verification drops existing clearances in the same commit, so the
 // director never approves text no reviewer has seen.
-func (s *Store) mutateContent(engID, dir string, a gitrepo.Author, fn func(f *finding.Finding) (string, error)) error {
-	return s.mutate(engID, dir, a, func(f *finding.Finding) (string, error) {
+func (s *Store) mutateContent(engID, dir string, who Actor, fn func(f *finding.Finding) (string, error)) error {
+	return s.mutate(engID, dir, who.GitAuthor(), func(f *finding.Finding) (string, error) {
+		if u, ok := who.(config.User); ok && !workflow.CanEdit(u, f.Meta) {
+			return "", &workflow.Denied{Reason: "this finding is " + f.Meta.Status + "; only a director can edit it"}
+		}
 		before := string(f.Bytes())
 		msg, err := fn(f)
 		if err != nil {
@@ -376,20 +379,19 @@ func (s *Store) mutateContent(engID, dir string, a gitrepo.Author, fn func(f *fi
 }
 
 // AuthorOf maps an account to its git identity.
-func AuthorOf(u config.User) gitrepo.Author {
-	email := u.Email
-	if email == "" {
-		email = u.Username + "@yars.local"
-	}
-	return gitrepo.Author{Name: u.Username, Email: email}
-}
+func AuthorOf(u config.User) gitrepo.Author { return u.GitAuthor() }
+
+// Actor performs a content edit. A config.User is permission-checked against
+// the freshly loaded finding (workflow.CanEdit) inside the store lock; a bare
+// gitrepo.Author is a trusted internal caller (tools, tests) and is not.
+type Actor interface{ GitAuthor() gitrepo.Author }
 
 // Transition applies a workflow action as u (one commit). Permission and
 // gate failures are *workflow.Denied.
 func (s *Store) Transition(engID, dir string, act workflow.Action, reason string, u config.User) error {
 	return s.mutate(engID, dir, AuthorOf(u), func(f *finding.Finding) (string, error) {
 		m := f.Meta
-		if err := workflow.Check(u, m, act); err != nil {
+		if err := workflow.CheckWithGate(u, m, act, s.cfg); err != nil {
 			return "", err
 		}
 		var errs []error
@@ -397,9 +399,6 @@ func (s *Store) Transition(engID, dir string, act workflow.Action, reason string
 		var msg string
 		switch act {
 		case workflow.Submit:
-			if p := workflow.Gate(m, s.cfg); len(p) > 0 {
-				return "", &workflow.Denied{Reason: "cannot submit: " + strings.Join(p, "; ")}
-			}
 			set("cleared_by", nil)
 			set("returned", nil)
 			msg = "submit for verification"
@@ -491,7 +490,7 @@ func DetailsHash(m finding.Meta) string { return BodyHash(sortedPairs(m.Details)
 // UpdateCVSS sets the CVSS vector (canonicalised) and derived severity, and
 // merges reasons (empty value deletes, absent keys are kept). An empty
 // vector clears CVSS and keeps the last severity as a manual value.
-func (s *Store) UpdateCVSS(engID, dir, vector string, reasons map[string]string, base string, a gitrepo.Author) error {
+func (s *Store) UpdateCVSS(engID, dir, vector string, reasons map[string]string, base string, a Actor) error {
 	var v cvss.Vector
 	if strings.TrimSpace(vector) != "" {
 		var err error
@@ -551,7 +550,7 @@ func SeverityHash(m finding.Meta) string { return BodyHash(m.Severity) }
 
 // UpdateSeverity sets a manual severity; refused when a valid vector exists.
 // A non-empty base must match SeverityHash of the current meta.
-func (s *Store) UpdateSeverity(engID, dir, sev, base string, a gitrepo.Author) error {
+func (s *Store) UpdateSeverity(engID, dir, sev, base string, a Actor) error {
 	if !slices.Contains(s.cfg.Severities, sev) {
 		return fmt.Errorf("%w: unknown severity %q", ErrInvalidValue, sev)
 	}
@@ -567,7 +566,7 @@ func (s *Store) UpdateSeverity(engID, dir, sev, base string, a gitrepo.Author) e
 }
 
 // UpdateDetails replaces the given details rows (other existing rows kept).
-func (s *Store) UpdateDetails(engID, dir string, values map[string]string, base string, a gitrepo.Author) error {
+func (s *Store) UpdateDetails(engID, dir string, values map[string]string, base string, a Actor) error {
 	return s.mutateContent(engID, dir, a, func(f *finding.Finding) (string, error) {
 		if base != "" && DetailsHash(f.Meta) != base {
 			return "", ErrConflict

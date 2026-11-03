@@ -141,7 +141,7 @@ func (s *Server) sectionSave(w http.ResponseWriter, r *http.Request) {
 	}
 	u := auth.UserFrom(r.Context())
 	body := r.FormValue("body")
-	err := s.Store.UpdateSection(ref.EngID, ref.Dir, name, body, r.FormValue("base"), author(u))
+	err := s.Store.UpdateSection(ref.EngID, ref.Dir, name, body, r.FormValue("base"), u)
 	if errors.Is(err, store.ErrConflict) || errors.Is(err, store.ErrInvalidBody) {
 		// Re-show the editor with the user's text so nothing typed is lost.
 		p := s.panelFor(ref, name)

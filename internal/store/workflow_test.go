@@ -122,6 +122,35 @@ func TestEditResetsClearances(t *testing.T) {
 	}
 }
 
+// The edit lock is enforced inside the store (against the freshly loaded
+// finding), not only by the web layer, so an approve racing an edit can't
+// let unreviewed text into a complete finding.
+func TestContentEditDeniedWhenLocked(t *testing.T) {
+	s, dir, fd := ready(t)
+	s.Transition(eng, fd, workflow.Submit, "", uAlice)
+	s.Transition(eng, fd, workflow.Clear, "", uBob)
+	s.Transition(eng, fd, workflow.Approve, "", uDora)
+	before := last(t, dir, "%H")
+	if err := s.UpdateSection(eng, fd, "Impact", "late edit", "", uAlice); !denied(err) {
+		t.Fatalf("section: %v", err)
+	}
+	if err := s.UpdateDetails(eng, fd, map[string]string{"Location": "x"}, "", uAlice); !denied(err) {
+		t.Fatalf("details: %v", err)
+	}
+	if err := s.UpdateCVSS(eng, fd, "", nil, "", uAlice); !denied(err) {
+		t.Fatalf("cvss: %v", err)
+	}
+	if err := s.UpdateSeverity(eng, fd, "low", "", uAlice); !denied(err) {
+		t.Fatalf("severity: %v", err)
+	}
+	if last(t, dir, "%H") != before {
+		t.Fatal("locked finding changed")
+	}
+	if err := s.UpdateSection(eng, fd, "Impact", "director fix", "", uDora); err != nil {
+		t.Fatalf("director edit: %v", err)
+	}
+}
+
 func TestSetReviewersDropsClearance(t *testing.T) {
 	s, dir, fd := ready(t)
 	s.SetReviewers(eng, fd, []string{"bob", "carol"}, uAlice)

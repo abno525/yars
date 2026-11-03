@@ -45,10 +45,13 @@ func TestCheckMatrix(t *testing.T) {
 		{bob, meta("verification", "bob"), Clear, false},
 		{rev2, meta("verification"), Clear, false},
 		{alice, meta("verification"), Clear, false},
-		{dora, meta("verification"), Clear, true},
+		{dora, meta("verification"), Clear, false}, // director not assigned: may not clear
+		{adm, meta("verification"), Clear, false},
 		{bob, meta("draft"), Clear, false},
 
 		{dora, meta("verification", "bob"), Approve, true},
+		{dora, meta("verification", "dora"), Approve, false}, // own clearance doesn't count
+		{dora, meta("verification", "rev2"), Approve, false}, // clearance by a non-reviewer doesn't count
 		{dora, meta("verification"), Approve, false},
 		{bob, meta("verification", "bob"), Approve, false},
 		{adm, meta("verification", "bob"), Approve, true},
@@ -72,6 +75,24 @@ func TestCheckMatrix(t *testing.T) {
 	m.Author = "dora"
 	if Check(dora, m, Clear) == nil {
 		t.Error("author cleared own finding")
+	}
+	// a director assigned as reviewer may clear
+	m = meta("verification")
+	m.Reviewers = []string{"dora"}
+	if err := Check(dora, m, Clear); err != nil {
+		t.Errorf("assigned director clear: %v", err)
+	}
+}
+
+func TestApproveGate(t *testing.T) {
+	m := meta("verification", "bob")
+	m.Severity, m.CVSS = "", "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:N/A:N"
+	if err := CheckWithGate(dora, m, Approve, config.Default()); err == nil || !strings.Contains(err.Error(), "Attack Complexity") {
+		t.Fatalf("approve with unexplained CVSS: %v", err)
+	}
+	m.CVSSReasons = map[string]string{"AC": "race"}
+	if err := CheckWithGate(dora, m, Approve, config.Default()); err != nil {
+		t.Fatalf("approve: %v", err)
 	}
 }
 

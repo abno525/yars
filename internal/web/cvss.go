@@ -210,7 +210,7 @@ func (s *Server) cvssSave(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	err := s.Store.UpdateCVSS(ref.EngID, ref.Dir, vector, reasons, form.Get("base"), author(auth.UserFrom(r.Context())))
+	err := s.Store.UpdateCVSS(ref.EngID, ref.Dir, vector, reasons, form.Get("base"), auth.UserFrom(r.Context()))
 	switch {
 	case errors.Is(err, store.ErrConflict):
 		v.Error = "CVSS was changed by someone else while you were editing. Your selection is kept; saving again will replace theirs."
@@ -244,7 +244,7 @@ func (s *Server) severitySave(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	err := s.Store.UpdateSeverity(ref.EngID, ref.Dir, r.FormValue("severity"), r.FormValue("base"), author(auth.UserFrom(r.Context())))
+	err := s.Store.UpdateSeverity(ref.EngID, ref.Dir, r.FormValue("severity"), r.FormValue("base"), auth.UserFrom(r.Context()))
 	if errors.Is(err, store.ErrConflict) {
 		// Show the current (other person's) severity so the user can decide again.
 		v := s.cvssPanel(ref)

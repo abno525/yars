@@ -14,6 +14,9 @@ type Author struct {
 	Name, Email string
 }
 
+// GitAuthor lets an Author act as a store actor (trusted, no role checks).
+func (a Author) GitAuthor() Author { return a }
+
 type Repo struct {
 	Dir string
 }

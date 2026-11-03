@@ -13,6 +13,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"yars/internal/cvss"
+	"yars/internal/gitrepo"
 )
 
 type Config struct {
@@ -69,6 +70,15 @@ type User struct {
 	Email        string `yaml:"email,omitempty"`
 	Role         string `yaml:"role"`
 	PasswordHash string `yaml:"password_hash"`
+}
+
+// GitAuthor is the account's git identity.
+func (u User) GitAuthor() gitrepo.Author {
+	email := u.Email
+	if email == "" {
+		email = u.Username + "@yars.local"
+	}
+	return gitrepo.Author{Name: u.Username, Email: email}
 }
 
 var Roles = []string{"pentester", "reviewer", "director", "admin"}

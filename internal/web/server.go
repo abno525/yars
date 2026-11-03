@@ -139,6 +139,11 @@ func (s *Server) execStatus(w http.ResponseWriter, status int, name, tmpl string
 }
 
 func (s *Server) fail(w http.ResponseWriter, err error) {
+	var d *workflow.Denied
+	if errors.As(err, &d) {
+		http.Error(w, d.Reason, http.StatusForbidden)
+		return
+	}
 	if errors.Is(err, store.ErrNotFound) {
 		http.NotFound(w, nil)
 		return

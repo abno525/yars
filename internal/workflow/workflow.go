@@ -85,7 +85,7 @@ func Check(u config.User, m finding.Meta, a Action) error {
 		if u.Username == m.Author {
 			return deny("the author cannot clear their own finding")
 		}
-		if !reviewer(u, m) && !manager(u) {
+		if !reviewer(u, m) {
 			return deny("only an assigned reviewer can clear")
 		}
 		if slices.Contains(m.ClearedBy, u.Username) {
@@ -95,8 +95,8 @@ func Check(u config.User, m finding.Meta, a Action) error {
 		if !manager(u) {
 			return deny("only a director can approve")
 		}
-		if len(m.ClearedBy) == 0 {
-			return deny("at least one reviewer must clear the finding first")
+		if !reviewedByOther(u, m) {
+			return deny("at least one assigned reviewer other than you must clear the finding first")
 		}
 	case Reopen, Report:
 		if !manager(u) {
@@ -106,7 +106,33 @@ func Check(u config.User, m finding.Meta, a Action) error {
 	return nil
 }
 
-// Gate lists what blocks a draft from being submitted (empty = ready).
+// reviewedByOther reports whether an assigned reviewer other than u cleared m.
+func reviewedByOther(u config.User, m finding.Meta) bool {
+	for _, c := range m.ClearedBy {
+		if c != u.Username && slices.Contains(m.Reviewers, c) {
+			return true
+		}
+	}
+	return false
+}
+
+// Gated reports whether an action must also pass Gate (content completeness).
+func Gated(a Action) bool { return a == Submit || a == Approve }
+
+// CheckWithGate is Check plus, for submit and approve, the content Gate.
+func CheckWithGate(u config.User, m finding.Meta, a Action, cfg config.Config) error {
+	if err := Check(u, m, a); err != nil {
+		return err
+	}
+	if Gated(a) {
+		if p := Gate(m, cfg); len(p) > 0 {
+			return deny("cannot %s: %s", strings.ToLower(Label(a)), strings.Join(p, "; "))
+		}
+	}
+	return nil
+}
+
+// Gate lists what blocks a draft from being submitted or approved (empty = ready).
 func Gate(m finding.Meta, cfg config.Config) []string {
 	var p []string
 	if len(m.Reviewers) == 0 {
@@ -164,7 +190,7 @@ func Pending(u config.User, m finding.Meta) Inbox {
 	switch {
 	case m.Status == "verification" && reviewer(u, m) && !slices.Contains(m.ClearedBy, u.Username):
 		return InboxReview
-	case m.Status == "verification" && manager(u) && len(m.ClearedBy) > 0:
+	case m.Status == "verification" && manager(u) && reviewedByOther(u, m):
 		return InboxApprove
 	case m.Status == "draft" && m.Author == u.Username && m.Returned != nil:
 		return InboxReturned
