@@ -108,6 +108,14 @@ func TestDerive(t *testing.T) {
 	}
 }
 
+func TestCIAOrderNoneFirst(t *testing.T) {
+	for _, m := range Metrics[5:] {
+		if m.Values[0].Code != "N" || m.Values[1].Code != "L" || m.Values[2].Code != "H" {
+			t.Fatalf("%s order %v", m.Key, m.Values)
+		}
+	}
+}
+
 func TestNames(t *testing.T) {
 	if MetricName("AV") != "Attack Vector" || ValueName("AV", "N") != "Network" || ValueName("S", "C") != "Changed" {
 		t.Error("names wrong")

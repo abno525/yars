@@ -15,8 +15,11 @@ type cvssMetric struct {
 	Key, Name          string
 	Values             []cvss.Value
 	Selected, Standard string
+	SelectedName       string
 	NonStandard        bool
-	Reason             string
+	// Reason is kept for every metric (typed or stored) so a reason survives
+	// toggling the metric back to standard and away again.
+	Reason string
 }
 
 type cvssReason struct{ Metric, Value, Reason string }
@@ -26,6 +29,7 @@ type cvssView struct {
 	Metrics                   []cvssMetric
 	Vector, Score, Rating     string
 	Foreign, Error, Base      string
+	SevBase                   string
 	Complete, HasStored, OOB  bool
 	Missing                   []string
 	Reasons                   []cvssReason
@@ -48,7 +52,7 @@ func (s *Server) buildCVSS(ref store.FindingRef, sel cvss.Vector, reasons map[st
 	m := ref.F.Meta
 	base := "/e/" + ref.EngID + "/f/" + ref.Dir
 	v := cvssView{
-		Base: store.CVSSHash(m), Severity: cvss.Derive(m.CVSS, m.Severity), Severities: s.Cfg.Severities,
+		Base: store.CVSSHash(m), SevBase: store.SeverityHash(m), Severity: cvss.Derive(m.CVSS, m.Severity), Severities: s.Cfg.Severities,
 		ViewURL: base + "/cvss", EditURL: base + "/cvss/edit", CalcURL: base + "/cvss/calc",
 		SaveURL: base + "/cvss", SeverityURL: base + "/severity",
 	}
@@ -59,9 +63,10 @@ func (s *Server) buildCVSS(ref store.FindingRef, sel cvss.Vector, reasons map[st
 	}
 	for _, mt := range cvss.Metrics {
 		std := s.Cfg.CVSS.Standard[mt.Key]
-		cm := cvssMetric{Key: mt.Key, Name: mt.Name, Values: mt.Values, Selected: sel[mt.Key], Standard: std}
+		cm := cvssMetric{Key: mt.Key, Name: mt.Name, Values: mt.Values, Selected: sel[mt.Key], Standard: std,
+			SelectedName: cvss.ValueName(mt.Key, sel[mt.Key]), Reason: reasons[mt.Key]}
 		if cm.Selected != "" && s.Cfg.NonStandard(mt.Key, cm.Selected) {
-			cm.NonStandard, cm.Reason = true, reasons[mt.Key]
+			cm.NonStandard = true
 			v.Reasons = append(v.Reasons, cvssReason{Metric: mt.Name, Value: cvss.ValueName(mt.Key, cm.Selected), Reason: cm.Reason})
 			if strings.TrimSpace(cm.Reason) == "" {
 				v.Missing = append(v.Missing, mt.Name)
@@ -225,7 +230,15 @@ func (s *Server) severitySave(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	err := s.Store.UpdateSeverity(ref.EngID, ref.Dir, r.FormValue("severity"), author(auth.UserFrom(r.Context())))
+	err := s.Store.UpdateSeverity(ref.EngID, ref.Dir, r.FormValue("severity"), r.FormValue("base"), author(auth.UserFrom(r.Context())))
+	if errors.Is(err, store.ErrConflict) {
+		// Show the current (other person's) severity so the user can decide again.
+		v := s.cvssPanel(ref)
+		v.OOB = true
+		v.Error = "Severity was changed by someone else meanwhile; the current value is shown. Pick again to replace it."
+		s.execStatus(w, http.StatusConflict, "finding.html", "cvss_panel", v)
+		return
+	}
 	if errors.Is(err, store.ErrInvalidValue) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return

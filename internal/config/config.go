@@ -37,7 +37,7 @@ func (c Config) NonStandard(key, value string) bool {
 }
 
 func defaultStandard() map[string]string {
-	return map[string]string{"AV": "N", "AC": "L", "PR": "N", "UI": "N", "S": "U"}
+	return map[string]string{"AV": "N", "AC": "L", "PR": "N", "UI": "N", "S": "U", "C": "N", "I": "N", "A": "N"}
 }
 
 // RatingSeverities are the severity names CVSS ratings map to.
@@ -52,6 +52,9 @@ func validate(c *Config) error {
 	}
 	if len(missing) > 0 {
 		return fmt.Errorf("config: severities must include the CVSS ratings; missing %s", strings.Join(missing, ", "))
+	}
+	if c.CVSS.Version != "3.1" {
+		return fmt.Errorf("config: cvss.version %q is not supported (only 3.1)", c.CVSS.Version)
 	}
 	for k, v := range c.CVSS.Standard {
 		if !cvss.Valid(k, v) {

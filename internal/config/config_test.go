@@ -82,7 +82,7 @@ func TestCVSSStandardMerge(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]string{"AV": "N", "AC": "H", "PR": "N", "S": "U", "C": "N"}
+	want := map[string]string{"AV": "N", "AC": "H", "PR": "N", "S": "U", "C": "N", "I": "N", "A": "N"}
 	if !reflect.DeepEqual(c.CVSS.Standard, want) {
 		t.Fatalf("standard %v", c.CVSS.Standard)
 	}
@@ -90,8 +90,15 @@ func TestCVSSStandardMerge(t *testing.T) {
 
 func TestNonStandard(t *testing.T) {
 	c := Default()
-	if !c.NonStandard("AC", "H") || c.NonStandard("AC", "L") || c.NonStandard("C", "H") {
+	if !c.NonStandard("AC", "H") || c.NonStandard("AC", "L") || !c.NonStandard("C", "H") || c.NonStandard("C", "N") {
 		t.Fatal("NonStandard wrong")
+	}
+}
+
+func TestLoadRejectsUnsupportedVersion(t *testing.T) {
+	_, err := Load(writeCfg(t, "cvss:\n  version: \"4.0\"\n"))
+	if err == nil || !strings.Contains(err.Error(), "4.0") {
+		t.Fatalf("err %v", err)
 	}
 }
 

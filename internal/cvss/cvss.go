@@ -17,7 +17,7 @@ type Metric struct {
 	Values    []Value
 }
 
-var cia = []Value{{"H", "High"}, {"L", "Low"}, {"N", "None"}}
+var cia = []Value{{"N", "None"}, {"L", "Low"}, {"H", "High"}}
 
 // Metrics lists the base metrics in canonical vector order.
 var Metrics = []Metric{

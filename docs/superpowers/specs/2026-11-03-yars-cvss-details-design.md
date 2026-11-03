@@ -59,7 +59,9 @@ cvss:
 ```
 - `details_rows` defaults to the list above (placeholders "Row 3..5" until the user names them).
 - A metric is **non-standard** when the finding's value differs from `cvss.standard[metric]`.
-  Metrics with no standard (C, I, A by default) are never non-standard.
+  C, I and A default to standard `N` (user decision 2026-11-03), so any Low/High impact needs
+  an explanation; options are listed None → Low → High. Metrics with no standard (removed
+  via `"-"`) are never non-standard.
 
 ## Behaviour
 - **Calculator panel** (top of finding page, under the title): one button group per base metric
@@ -67,7 +69,8 @@ cvss:
   vector live (server computes via htmx; one Go implementation of the CVSS 3.1 formula is the
   single source of truth, also used by tests and later by the rule engine/MCP). A text box
   accepts a pasted vector (3.0 or 3.1 prefix accepted, stored as 3.1).
-- For each non-standard metric a reason input appears inline next to it. Save commits once:
+- Under the calculator, an "Explanation of non-standard values" table (Metric | Value |
+  Explanation) has one textarea per non-standard metric (user decision 2026-11-03). Save commits once:
   `F-001: set CVSS 8.1`.
 - Missing reason for a non-standard metric: save is allowed, the panel shows a warning, and the
   reasoning table shows "reason missing" in red. Blocking is left to the rule engine / the

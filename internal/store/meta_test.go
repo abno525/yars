@@ -104,18 +104,29 @@ func TestUpdateCVSSClear(t *testing.T) {
 
 func TestUpdateSeverity(t *testing.T) {
 	s, dir, fd := newFinding(t)
-	if err := s.UpdateSeverity(eng, fd, "medium", bob); err != nil {
+	if err := s.UpdateSeverity(eng, fd, "medium", "", bob); err != nil {
 		t.Fatal(err)
 	}
 	if load(t, s, fd).F.Meta.Severity != "medium" || last(t, dir, "%s") != "F-001: set severity medium" {
 		t.Fatal("severity not set")
 	}
-	if err := s.UpdateSeverity(eng, fd, "urgent", bob); !errors.Is(err, ErrInvalidValue) {
+	if err := s.UpdateSeverity(eng, fd, "urgent", "", bob); !errors.Is(err, ErrInvalidValue) {
 		t.Fatalf("err %v", err)
 	}
 	s.UpdateCVSS(eng, fd, "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:N", nil, "", bob)
-	if err := s.UpdateSeverity(eng, fd, "low", bob); !errors.Is(err, ErrInvalidValue) {
+	if err := s.UpdateSeverity(eng, fd, "low", "", bob); !errors.Is(err, ErrInvalidValue) {
 		t.Fatalf("err with vector %v", err)
+	}
+}
+
+func TestUpdateSeverityConflict(t *testing.T) {
+	s, _, fd := newFinding(t)
+	base := SeverityHash(load(t, s, fd).F.Meta)
+	if err := s.UpdateSeverity(eng, fd, "high", base, alice); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpdateSeverity(eng, fd, "low", base, bob); !errors.Is(err, ErrConflict) {
+		t.Fatalf("err %v", err)
 	}
 }
 

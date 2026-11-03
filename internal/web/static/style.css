@@ -79,7 +79,9 @@ table.kv { border-collapse: collapse; width: 100%; }
 .kv th { color: var(--muted); font-weight: 600; font-size: .9rem; }
 .kv td.text { white-space: pre-wrap; }
 .metric { display: grid; grid-template-columns: 14em 1fr; gap: 6px 12px; align-items: center; padding: 6px 0; }
-.metric .reason { grid-column: 2; width: 100%; }
+.reasons th:first-child { width: 14em; }
+.reasons th:nth-child(2) { width: 10em; }
+.reasons textarea { min-height: 3.2em; font-family: inherit; font-size: 16px; }
 .mname { font-weight: 600; }
 .seg { display: inline-flex; flex-wrap: wrap; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; width: fit-content; }
 .seg label { cursor: pointer; }
@@ -96,7 +98,6 @@ table.kv { border-collapse: collapse; width: 100%; }
 .detail-field textarea { min-height: 5em; font-family: inherit; font-size: 16px; font-weight: 400; }
 @media (max-width: 800px) {
   .metric { grid-template-columns: 1fr; }
-  .metric .reason { grid-column: 1; }
   .editor { grid-template-columns: 1fr; }
   .findings td:nth-child(6), .findings th:nth-child(6), .findings td:nth-child(7), .findings th:nth-child(7) { display: none; }
   .switcher select { min-width: 0; max-width: 50vw; }

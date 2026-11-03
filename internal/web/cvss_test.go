@@ -141,6 +141,76 @@ func TestSeverityManual(t *testing.T) {
 	}
 }
 
+func TestCVSSExplanationTableUnderCalculator(t *testing.T) {
+	e := setup(t)
+	b := e.do(t, "alice", "POST", fpath+"/cvss/calc", vecForm(nil), nil).Body.String()
+	tbl := strings.Index(b, "Explanation")
+	paste := strings.Index(b, `name="paste"`)
+	for _, k := range []string{"AC", "C", "I"} {
+		i := strings.Index(b, `<textarea name="reason_`+k+`"`)
+		if i < 0 || i < tbl || tbl < paste {
+			t.Fatalf("reason_%s textarea missing or not in table under calculator:\n%s", k, b)
+		}
+	}
+	if strings.Contains(b, `name="reason_A"`) || strings.Contains(b, `name="reason_AV"`) {
+		t.Fatal("explanation asked for a metric at its standard value")
+	}
+}
+
+func TestCVSSEditorStartsAtNone(t *testing.T) {
+	e := setup(t)
+	b := e.do(t, "alice", "GET", fpath+"/cvss/edit", nil, nil).Body.String()
+	for _, k := range []string{"C", "I", "A"} {
+		if !strings.Contains(b, `name="`+k+`" value="N" checked`) {
+			t.Fatalf("%s not preselected None:\n%s", k, b)
+		}
+	}
+	if strings.Index(b, `name="C" value="N"`) > strings.Index(b, `name="C" value="H"`) {
+		t.Fatal("None is not the first option")
+	}
+}
+
+func TestCVSSReasonKeptWhenToggled(t *testing.T) {
+	e := setup(t)
+	// AC switched back to standard while a typed reason exists: kept as hidden field
+	b := e.do(t, "alice", "POST", fpath+"/cvss/calc", vecForm(map[string]string{"AC": "L", "reason_AC": "typed text"}), nil).Body.String()
+	if !strings.Contains(b, `type="hidden" name="reason_AC" value="typed text"`) {
+		t.Fatalf("typed reason dropped:\n%s", b)
+	}
+	b = e.do(t, "alice", "POST", fpath+"/cvss/calc", vecForm(map[string]string{"AC": "H", "reason_AC": "typed text"}), nil).Body.String()
+	if !strings.Contains(b, `<textarea name="reason_AC" rows="2">typed text</textarea>`) {
+		t.Fatalf("typed reason not restored:\n%s", b)
+	}
+}
+
+func TestCVSSEditorUIGuards(t *testing.T) {
+	e := setup(t)
+	e.do(t, "alice", "POST", fpath+"/cvss", vecForm(nil), nil)
+	b := e.do(t, "alice", "GET", fpath+"/cvss/edit", nil, nil).Body.String()
+	for _, want := range []string{
+		`id="cvss-AV-N"`,                 // radios keep focus across swaps
+		`hx-sync="closest form:replace"`, // fast clicks don't race
+		`keyup[key==`,                    // Enter in paste box applies
+		`hx-confirm=`,                    // clear asks first
+	} {
+		if !strings.Contains(b, want) {
+			t.Fatalf("missing %q:\n%s", want, b)
+		}
+	}
+}
+
+func TestSeverityConflict(t *testing.T) {
+	e := setup(t)
+	b := e.do(t, "alice", "GET", fpath, nil, nil).Body.String()
+	if !strings.Contains(b, `name="base"`) {
+		t.Fatal("severity form has no base")
+	}
+	rec := e.do(t, "bob", "POST", fpath+"/severity", url.Values{"severity": {"low"}, "base": {"0000000000000000"}}, nil)
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "changed by someone else") {
+		t.Fatalf("code %d body:\n%s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestFindingPageHasCVSSPanel(t *testing.T) {
 	e := setup(t)
 	b := e.do(t, "alice", "GET", fpath, nil, nil).Body.String()

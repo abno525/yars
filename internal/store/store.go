@@ -436,12 +436,19 @@ func (s *Store) UpdateCVSS(engID, dir, vector string, reasons map[string]string,
 	})
 }
 
+// SeverityHash identifies the stored severity for optimistic concurrency.
+func SeverityHash(m finding.Meta) string { return BodyHash(m.Severity) }
+
 // UpdateSeverity sets a manual severity; refused when a valid vector exists.
-func (s *Store) UpdateSeverity(engID, dir, sev string, a gitrepo.Author) error {
+// A non-empty base must match SeverityHash of the current meta.
+func (s *Store) UpdateSeverity(engID, dir, sev, base string, a gitrepo.Author) error {
 	if !slices.Contains(s.cfg.Severities, sev) {
 		return fmt.Errorf("%w: unknown severity %q", ErrInvalidValue, sev)
 	}
 	return s.mutate(engID, dir, a, func(f *finding.Finding) (string, error) {
+		if base != "" && SeverityHash(f.Meta) != base {
+			return "", ErrConflict
+		}
 		if _, err := cvss.Parse(f.Meta.CVSS); err == nil {
 			return "", fmt.Errorf("%w: severity is derived from the CVSS vector", ErrInvalidValue)
 		}
