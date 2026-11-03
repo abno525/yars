@@ -14,6 +14,7 @@ import (
 type wfAction struct {
 	Label, URL                     string
 	NeedsReason, Primary, Disabled bool
+	Gated                          bool // submit/approve: blocked by gate and rule errors
 }
 
 type wfReviewer struct {
@@ -34,6 +35,7 @@ type wfView struct {
 	Reviewers    []wfReviewer
 	Candidates   []wfCandidate
 	CanAssign    bool
+	HasGated     bool
 	ReviewersURL string
 	Returned     *finding.Returned
 }
@@ -66,6 +68,7 @@ func (s *Server) wfFor(ref store.FindingRef, r *http.Request) wfView {
 		act := wfAction{Label: workflow.Label(a), URL: base + "/action/" + string(a),
 			NeedsReason: a == workflow.Return, Primary: a != workflow.Return}
 		if workflow.Gated(a) {
+			act.Gated, v.HasGated = true, true
 			if v.Gate = workflow.Gate(m, s.Cfg); len(v.Gate) > 0 {
 				act.Disabled = true
 			}

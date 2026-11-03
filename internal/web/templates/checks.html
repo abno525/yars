@@ -1,0 +1,30 @@
+{{define "checks_panel"}}
+{{if .Enabled}}
+<section class="panel checks" id="checks">
+  <div class="panelhead">
+    <h2>Checks
+      {{if .Errors}}<span class="pill sev-critical">{{.Errors}} error{{if gt .Errors 1}}s{{end}}</span>{{end}}
+      {{if .Warnings}}<span class="pill sev-medium">{{.Warnings}} warning{{if gt .Warnings 1}}s{{end}}</span>{{end}}
+      {{if not .Items}}<span class="pill status-complete">all good</span>{{end}}
+    </h2>
+    <button class="link" hx-post="{{.RunURL}}" hx-target="#checks" hx-swap="outerHTML" hx-indicator="#checks">{{if .Full}}Run again{{else}}Run all checks (scripts + AI){{end}}</button>
+  </div>
+  {{if not .Full}}<p class="muted small">Regex and built-in rules. Script and AI rules run with the button above and when the finding is submitted.</p>{{end}}
+  {{template "hints" .Items}}
+</section>
+{{end}}
+{{end}}
+
+{{define "hints"}}
+{{if .}}
+<ul class="hints">
+  {{range .}}
+  <li class="hint {{.Level}}">
+    <span class="hint-level">{{.Level}}</span>
+    <span>{{.Message}}{{if .Quote}} — <code>{{.Quote}}</code>{{end}}</span>
+    <span class="muted hint-where">{{.Target}} · {{.Rule}}</span>
+  </li>
+  {{end}}
+</ul>
+{{end}}
+{{end}}

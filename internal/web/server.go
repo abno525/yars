@@ -20,6 +20,7 @@ import (
 	"yars/internal/config"
 	"yars/internal/gitrepo"
 	"yars/internal/index"
+	"yars/internal/rules"
 	"yars/internal/store"
 	"yars/internal/workflow"
 )
@@ -35,6 +36,7 @@ type Server struct {
 	Index *index.Index
 	Auth  *auth.Auth
 	Cfg   config.Config
+	Rules *rules.Engine // optional style rules
 
 	pages map[string]*template.Template
 	md    goldmark.Markdown
@@ -68,6 +70,7 @@ type page struct {
 	WF            wfView
 	Inbox         inboxView
 	Chat          chatView
+	Checks        checksView
 	Form          url.Values
 }
 
@@ -78,7 +81,7 @@ func (s *Server) init() {
 	s.pages = map[string]*template.Template{}
 	// Shared templates are parsed into every page so partial handlers can
 	// execute their blocks via any page set.
-	shared := []string{"templates/layout.html", "templates/partials.html", "templates/cvss.html", "templates/details.html", "templates/workflow.html", "templates/chat.html"}
+	shared := []string{"templates/layout.html", "templates/partials.html", "templates/cvss.html", "templates/details.html", "templates/workflow.html", "templates/chat.html", "templates/checks.html"}
 	names, _ := fs.Glob(templateFS, "templates/*.html")
 	for _, n := range names {
 		if slices.Contains(shared, n) {
@@ -105,6 +108,7 @@ func (s *Server) Handler() http.Handler {
 	s.routesDetails(private)
 	s.routesWorkflow(private)
 	s.routesChat(private)
+	private.HandleFunc("POST /e/{eng}/f/{fid}/checks", s.checksRun)
 
 	root := http.NewServeMux()
 	root.HandleFunc("GET /login", s.loginPage)
@@ -314,7 +318,8 @@ func (s *Server) panelFor(ref store.FindingRef, name string) panel {
 		p.HTML = s.renderMD(body)
 	}
 	base := "/e/" + ref.EngID + "/f/" + ref.Dir + "/s/" + url.PathEscape(name)
-	p.EditURL, p.SaveURL, p.PreviewURL = base+"/edit", base, "/e/"+ref.EngID+"/preview"
+	p.EditURL, p.SaveURL = base+"/edit", base
+	p.PreviewURL = "/e/" + ref.EngID + "/preview?" + url.Values{"f": {ref.Dir}, "s": {name}}.Encode()
 	return p
 }
 
@@ -355,6 +360,18 @@ func (s *Server) renderFinding(w http.ResponseWriter, r *http.Request, status in
 	p.CVSS.Locked = locked
 	p.Details = s.detailsFor(p.Finding, nil)
 	p.Details.Locked = locked
+	p.Checks = s.checksFor(r, p.Finding, rules.Fast)
 	p.WF = s.wfFor(p.Finding, r)
+	// fast rule errors also block submit/approve; show them in the bar
+	if errs := rules.Errors(p.Checks.Items); len(errs) > 0 {
+		for i, a := range p.WF.Actions {
+			if a.Gated {
+				p.WF.Actions[i].Disabled = true
+			}
+		}
+		if p.WF.HasGated {
+			p.WF.Gate = append(p.WF.Gate, errs...)
+		}
+	}
 	s.renderStatus(w, status, "finding.html", p)
 }

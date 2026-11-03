@@ -21,6 +21,7 @@ import (
 	"yars/internal/config"
 	"yars/internal/gitrepo"
 	"yars/internal/index"
+	"yars/internal/rules"
 	"yars/internal/store"
 	"yars/internal/web"
 )
@@ -161,7 +162,9 @@ func cmdServe(args []string) error {
 		log.Println("warning: no users; add one with: yars useradd --data", *data, "--role director <name>")
 	}
 	st := store.New(r, cfg)
-	srv := &web.Server{Store: st, Index: index.New(st, r), Auth: auth.New(users), Cfg: cfg}
+	eng := rules.NewEngine(rules.DirFor(r.Dir), cfg)
+	st.Linter = eng
+	srv := &web.Server{Store: st, Index: index.New(st, r), Auth: auth.New(users), Cfg: cfg, Rules: eng}
 	log.Printf("yars serving %s on %s", r.Dir, *addr)
 	return http.ListenAndServe(*addr, srv.Handler())
 }

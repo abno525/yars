@@ -1,6 +1,7 @@
 package web
 
 import (
+	"bytes"
 	"errors"
 	"net/http"
 	"strings"
@@ -172,6 +173,20 @@ func (s *Server) preview(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
+	body := r.FormValue("body")
+	var buf strings.Builder
+	buf.WriteString(string(s.renderMD(body)))
+	// Live style hints for the section being edited (fast rules only).
+	if fid, sec := r.URL.Query().Get("f"), r.URL.Query().Get("s"); s.Rules != nil && fid != "" && sec != "" {
+		if ref, err := s.Store.Finding(r.PathValue("eng"), fid); err == nil {
+			if vs := s.Rules.LintSection(ref.F, sec, body); len(vs) > 0 {
+				var hb bytes.Buffer
+				if err := s.pages["finding.html"].ExecuteTemplate(&hb, "hints", vs); err == nil {
+					buf.WriteString(hb.String())
+				}
+			}
+		}
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Write([]byte(s.renderMD(r.FormValue("body"))))
+	w.Write([]byte(buf.String()))
 }

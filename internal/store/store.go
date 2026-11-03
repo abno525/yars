@@ -4,6 +4,7 @@
 package store
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -27,6 +28,7 @@ import (
 	"yars/internal/cvss"
 	"yars/internal/finding"
 	"yars/internal/gitrepo"
+	"yars/internal/rules"
 	"yars/internal/workflow"
 )
 
@@ -59,6 +61,14 @@ type Store struct {
 	root    *os.Root
 	rootErr error
 	mu      sync.Mutex
+
+	// Linter, when set, runs the style rules; error-level violations block
+	// submit and approve.
+	Linter Linter
+}
+
+type Linter interface {
+	Lint(ctx context.Context, f *finding.Finding, kinds rules.Kind) []rules.Violation
 }
 
 func New(r *gitrepo.Repo, cfg config.Config) *Store {
@@ -567,7 +577,26 @@ func (s *Store) Transition(engID, dir string, act workflow.Action, reason string
 		}
 		return msg, errors.Join(errs...)
 	}
+	// Style rules (scripts, AI) can be slow, so they run outside the lock on
+	// a snapshot; the commit is refused if the finding changed meanwhile.
+	linted := ""
+	if workflow.Gated(act) && s.Linter != nil {
+		ref, err := s.Finding(engID, dir)
+		if err != nil {
+			return err
+		}
+		if err := workflow.CheckWithGate(u, ref.F.Meta, act, s.cfg); err != nil {
+			return err
+		}
+		if errs := rules.Errors(s.Linter.Lint(context.Background(), ref.F, rules.All)); len(errs) > 0 {
+			return &workflow.Denied{Reason: "cannot " + strings.ToLower(workflow.Label(act)) + ": " + strings.Join(errs, "; ")}
+		}
+		linted = string(ref.F.Bytes())
+	}
 	return s.mutateWith(engID, dir, AuthorOf(u), func(f *finding.Finding) (string, []chat.Message, error) {
+		if linted != "" && string(f.Bytes()) != linted {
+			return "", nil, &workflow.Denied{Reason: "the finding changed while its checks ran; try again"}
+		}
 		msg, err := apply(f)
 		if err != nil {
 			return "", nil, err
