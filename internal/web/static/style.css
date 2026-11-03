@@ -91,6 +91,9 @@ table.kv { border-collapse: collapse; width: 100%; }
 .paste { display: flex; gap: 8px; margin-top: 12px; }
 .paste input { flex: 1; font-family: ui-monospace, "SF Mono", Menlo, monospace; }
 .sevform select { margin-left: 8px; }
+.kv.details th { width: 14em; }
+.detail-field { display: flex; flex-direction: column; gap: 6px; font-weight: 600; margin-bottom: 12px; }
+.detail-field textarea { min-height: 5em; font-family: inherit; font-size: 16px; font-weight: 400; }
 @media (max-width: 800px) {
   .metric { grid-template-columns: 1fr; }
   .metric .reason { grid-column: 1; }

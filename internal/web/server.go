@@ -62,6 +62,7 @@ type page struct {
 	Finding       store.FindingRef
 	Panels        []panel
 	CVSS          cvssView
+	Details       detailsView
 	Form          url.Values
 }
 
@@ -72,7 +73,7 @@ func (s *Server) init() {
 	s.pages = map[string]*template.Template{}
 	// Shared templates are parsed into every page so partial handlers can
 	// execute their blocks via any page set.
-	shared := []string{"templates/layout.html", "templates/partials.html", "templates/cvss.html"}
+	shared := []string{"templates/layout.html", "templates/partials.html", "templates/cvss.html", "templates/details.html"}
 	names, _ := fs.Glob(templateFS, "templates/*.html")
 	for _, n := range names {
 		if slices.Contains(shared, n) {
@@ -95,6 +96,7 @@ func (s *Server) Handler() http.Handler {
 	private.HandleFunc("GET /e/{eng}/f/{fid}", s.finding)
 	s.routesEdit(private)
 	s.routesCVSS(private)
+	s.routesDetails(private)
 
 	root := http.NewServeMux()
 	root.HandleFunc("GET /login", s.loginPage)
@@ -321,5 +323,6 @@ func (s *Server) finding(w http.ResponseWriter, r *http.Request) {
 		p.Panels = append(p.Panels, s.panelFor(p.Finding, n))
 	}
 	p.CVSS = s.cvssPanel(p.Finding)
+	p.Details = s.detailsFor(p.Finding, nil)
 	s.render(w, "finding.html", p)
 }

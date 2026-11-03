@@ -11,6 +11,7 @@
     </p>
   </div>
 </div>
+{{template "details_panel" .Details}}
 {{template "cvss_panel" .CVSS}}
 {{range .Panels}}{{template "panel" .}}{{end}}
 {{end}}

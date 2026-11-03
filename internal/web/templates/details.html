@@ -1,0 +1,47 @@
+{{define "details_panel"}}
+<section class="panel" id="details">
+  <div class="panelhead">
+    <h2>Details</h2>
+    <button class="link" hx-get="{{.EditURL}}" hx-target="#details" hx-swap="outerHTML">Edit</button>
+  </div>
+  <table class="kv details">
+    <tbody>
+    {{range .Rows}}
+      <tr><th scope="row">{{.Name}}</th><td class="text">{{if .Value}}{{.Value}}{{else}}<span class="muted">—</span>{{end}}</td></tr>
+    {{end}}
+    </tbody>
+  </table>
+  {{template "details_other" .}}
+</section>
+{{end}}
+
+{{define "details_other"}}
+{{if .Other}}
+  <h3 class="subhead">Other</h3>
+  <table class="kv details">
+    <tbody>
+    {{range .Other}}<tr><th scope="row">{{.Name}}</th><td class="text">{{.Value}}</td></tr>{{end}}
+    </tbody>
+  </table>
+{{end}}
+{{end}}
+
+{{define "details_editor"}}
+<section class="panel editing" id="details">
+  <form hx-post="{{.SaveURL}}" hx-target="#details" hx-swap="outerHTML">
+    <div class="panelhead"><h2>Details</h2></div>
+    {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+    <input type="hidden" name="base" value="{{.Base}}">
+    {{range .Rows}}
+    <label class="detail-field">{{.Name}}
+      <textarea name="{{.Field}}" rows="3">{{.Value}}</textarea>
+    </label>
+    {{end}}
+    {{template "details_other" .}}
+    <div class="actions">
+      <button class="primary">Save</button>
+      <button type="button" hx-get="{{.ViewURL}}" hx-target="#details" hx-swap="outerHTML">Cancel</button>
+    </div>
+  </form>
+</section>
+{{end}}
