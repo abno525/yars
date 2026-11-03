@@ -12,7 +12,7 @@
 <section class="panel" id="cvss">
   <div class="panelhead">
     <h2>CVSS 3.1</h2>
-    <button class="link" hx-get="{{.EditURL}}" hx-target="#cvss" hx-swap="outerHTML">{{if .HasStored}}Edit{{else}}Calculate{{end}}</button>
+    {{if not .Locked}}<button class="link" hx-get="{{.EditURL}}" hx-target="#cvss" hx-swap="outerHTML">{{if .HasStored}}Edit{{else}}Calculate{{end}}</button>{{end}}
   </div>
   {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
   {{if .Foreign}}
@@ -33,6 +33,8 @@
     </table>
     {{end}}
     {{if .Missing}}<p class="error">Non-standard metrics without a reason: {{join .Missing ", "}}</p>{{end}}
+  {{else if .Locked}}
+    <p>Severity: {{if .Severity}}<span class="pill sev-{{.Severity}}">{{.Severity}}</span>{{else}}<span class="muted">not set</span>{{end}}</p>
   {{else}}
     <form class="sevform" hx-post="{{.SeverityURL}}" hx-target="#cvss" hx-swap="outerHTML" hx-trigger="change">
       <input type="hidden" name="base" value="{{.SevBase}}">

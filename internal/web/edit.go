@@ -120,19 +120,23 @@ func (s *Server) sectionRef(w http.ResponseWriter, r *http.Request) (store.Findi
 
 func (s *Server) sectionView(w http.ResponseWriter, r *http.Request) {
 	if ref, name, ok := s.sectionRef(w, r); ok {
-		s.exec(w, "finding.html", "panel", s.panelFor(ref, name))
+		p := s.panelFor(ref, name)
+		if s.locked(r, ref) {
+			p.EditURL = ""
+		}
+		s.exec(w, "finding.html", "panel", p)
 	}
 }
 
 func (s *Server) sectionEdit(w http.ResponseWriter, r *http.Request) {
-	if ref, name, ok := s.sectionRef(w, r); ok {
+	if ref, name, ok := s.sectionRef(w, r); ok && s.allowEdit(w, r, ref) {
 		s.exec(w, "finding.html", "editor", s.panelFor(ref, name))
 	}
 }
 
 func (s *Server) sectionSave(w http.ResponseWriter, r *http.Request) {
 	ref, name, ok := s.sectionRef(w, r)
-	if !ok {
+	if !ok || !s.allowEdit(w, r, ref) {
 		return
 	}
 	u := auth.UserFrom(r.Context())

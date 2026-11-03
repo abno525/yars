@@ -1,0 +1,36 @@
+{{define "workflow_bar"}}
+<section class="wf" id="workflow">
+  <ol class="steps">
+    {{range .Steps}}<li class="step{{if eq . $.Status}} current{{end}}">{{.}}</li>{{end}}
+  </ol>
+  {{if .Returned}}
+  <p class="returned"><strong>Returned by {{.Returned.By}}:</strong> <span class="text">{{.Returned.Reason}}</span></p>
+  {{end}}
+  <div class="wf-row">
+    <span class="muted">Reviewers:</span>
+    {{range .Reviewers}}<span class="rev{{if .Cleared}} cleared{{end}}">{{.Name}}{{if .Cleared}} ✓{{end}}</span>{{else}}<span class="muted">none</span>{{end}}
+    {{if .CanAssign}}
+    <details class="assign">
+      <summary>Change</summary>
+      <form method="post" action="{{.ReviewersURL}}">
+        {{range .Candidates}}<label><input type="checkbox" name="reviewer" value="{{.Name}}"{{if .Checked}} checked{{end}}> {{.Name}}</label>{{else}}<span class="muted">No reviewer accounts.</span>{{end}}
+        <button>Save reviewers</button>
+      </form>
+    </details>
+    {{end}}
+  </div>
+  {{if .Actions}}
+  <div class="wf-actions">
+    {{range .Actions}}
+    <form method="post" action="{{.URL}}" class="wf-action">
+      {{if .NeedsReason}}<textarea name="reason" rows="2" placeholder="Why is it returned? (required)"></textarea>{{end}}
+      <button class="{{if .Primary}}primary{{end}}"{{if .Disabled}} disabled{{end}}>{{.Label}}</button>
+    </form>
+    {{end}}
+  </div>
+  {{end}}
+  {{if .Gate}}
+  <ul class="gate">{{range .Gate}}<li>{{.}}</li>{{end}}</ul>
+  {{end}}
+</section>
+{{end}}

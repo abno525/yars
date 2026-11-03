@@ -96,7 +96,24 @@ table.kv { border-collapse: collapse; width: 100%; }
 .kv.details th { width: 14em; }
 .detail-field { display: flex; flex-direction: column; gap: 6px; font-weight: 600; margin-bottom: 12px; }
 .detail-field textarea { min-height: 5em; font-family: inherit; font-size: 16px; font-weight: 400; }
+.banner { background: var(--surface); border: 1px solid var(--critical); border-radius: 10px; padding: 10px 16px; }
+.wf { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 22px; margin-bottom: 16px; display: grid; gap: 10px; }
+.steps { list-style: none; display: flex; gap: 6px; padding: 0; margin: 0; flex-wrap: wrap; }
+.step { padding: 4px 14px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); text-transform: capitalize; }
+.step.current { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 600; }
+.wf-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.rev { padding: 2px 10px; border-radius: 999px; border: 1px solid var(--border); }
+.rev.cleared { border-color: var(--complete); color: var(--complete); font-weight: 600; }
+.assign summary { cursor: pointer; color: var(--accent); }
+.assign form { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+.wf-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
+.wf-action { display: flex; gap: 8px; align-items: flex-end; }
+.wf-action textarea { min-height: 2.6em; width: 22em; font-family: inherit; }
+.gate { margin: 0; padding-left: 20px; color: var(--verification); }
+.returned { margin: 0; padding: 8px 12px; border-left: 4px solid var(--verification); background: color-mix(in srgb, var(--verification) 10%, transparent); }
+.returned .text { white-space: pre-wrap; }
 @media (max-width: 800px) {
+  .wf-action textarea { width: 100%; }
   .metric { grid-template-columns: 1fr; }
   .editor { grid-template-columns: 1fr; }
   .findings td:nth-child(6), .findings th:nth-child(6), .findings td:nth-child(7), .findings th:nth-child(7) { display: none; }

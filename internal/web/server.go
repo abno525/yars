@@ -21,6 +21,7 @@ import (
 	"yars/internal/gitrepo"
 	"yars/internal/index"
 	"yars/internal/store"
+	"yars/internal/workflow"
 )
 
 //go:embed templates/*.html
@@ -63,6 +64,7 @@ type page struct {
 	Panels        []panel
 	CVSS          cvssView
 	Details       detailsView
+	WF            wfView
 	Form          url.Values
 }
 
@@ -73,7 +75,7 @@ func (s *Server) init() {
 	s.pages = map[string]*template.Template{}
 	// Shared templates are parsed into every page so partial handlers can
 	// execute their blocks via any page set.
-	shared := []string{"templates/layout.html", "templates/partials.html", "templates/cvss.html", "templates/details.html"}
+	shared := []string{"templates/layout.html", "templates/partials.html", "templates/cvss.html", "templates/details.html", "templates/workflow.html"}
 	names, _ := fs.Glob(templateFS, "templates/*.html")
 	for _, n := range names {
 		if slices.Contains(shared, n) {
@@ -97,6 +99,7 @@ func (s *Server) Handler() http.Handler {
 	s.routesEdit(private)
 	s.routesCVSS(private)
 	s.routesDetails(private)
+	s.routesWorkflow(private)
 
 	root := http.NewServeMux()
 	root.HandleFunc("GET /login", s.loginPage)
@@ -144,13 +147,7 @@ func (s *Server) fail(w http.ResponseWriter, err error) {
 
 func canManage(u config.User) bool { return u.Role == "admin" || u.Role == "director" }
 
-func author(u config.User) gitrepo.Author {
-	email := u.Email
-	if email == "" {
-		email = u.Username + "@yars.local"
-	}
-	return gitrepo.Author{Name: u.Username, Email: email}
-}
+func author(u config.User) gitrepo.Author { return store.AuthorOf(u) }
 
 // base builds the common page data; eng may be "" for pages outside an engagement.
 func (s *Server) base(r *http.Request, eng string) (*page, error) {
@@ -309,6 +306,12 @@ func (s *Server) panelFor(ref store.FindingRef, name string) panel {
 }
 
 func (s *Server) finding(w http.ResponseWriter, r *http.Request) {
+	s.renderFinding(w, r, http.StatusOK, "")
+}
+
+// renderFinding renders the full finding page, optionally with an error
+// banner (used when a workflow action is denied).
+func (s *Server) renderFinding(w http.ResponseWriter, r *http.Request, status int, errMsg string) {
 	eng := r.PathValue("eng")
 	p, err := s.base(r, eng)
 	if err != nil {
@@ -319,10 +322,19 @@ func (s *Server) finding(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
+	p.Error = errMsg
+	locked := !workflow.CanEdit(p.User, p.Finding.F.Meta)
 	for _, n := range s.sectionNames(p.Finding) {
-		p.Panels = append(p.Panels, s.panelFor(p.Finding, n))
+		pn := s.panelFor(p.Finding, n)
+		if locked {
+			pn.EditURL = ""
+		}
+		p.Panels = append(p.Panels, pn)
 	}
 	p.CVSS = s.cvssPanel(p.Finding)
+	p.CVSS.Locked = locked
 	p.Details = s.detailsFor(p.Finding, nil)
-	s.render(w, "finding.html", p)
+	p.Details.Locked = locked
+	p.WF = s.wfFor(p.Finding, r)
+	s.renderStatus(w, status, "finding.html", p)
 }

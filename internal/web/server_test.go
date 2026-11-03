@@ -85,6 +85,8 @@ func (e *env) do(t *testing.T, user, method, path string, form url.Values, hdr m
 	return rec
 }
 
+func (e *env) authorOf(u config.User) gitrepo.Author { return store.AuthorOf(u) }
+
 func (e *env) lastCommit(t *testing.T) string {
 	t.Helper()
 	out, err := exec.Command("git", "-C", e.dir, "log", "-1", "--format=%an|%s").Output()

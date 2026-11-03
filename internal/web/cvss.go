@@ -9,6 +9,7 @@ import (
 	"yars/internal/auth"
 	"yars/internal/cvss"
 	"yars/internal/store"
+	"yars/internal/workflow"
 )
 
 type cvssMetric struct {
@@ -31,6 +32,7 @@ type cvssView struct {
 	Foreign, Error, Base      string
 	SevBase                   string
 	Complete, HasStored, OOB  bool
+	Locked                    bool
 	Missing                   []string
 	Reasons                   []cvssReason
 	Severity                  string
@@ -152,14 +154,26 @@ func (s *Server) cvssRef(w http.ResponseWriter, r *http.Request) (store.FindingR
 	return ref, true
 }
 
+// editRef loads the finding and answers 403 unless the user may edit it.
+func (s *Server) editRef(w http.ResponseWriter, r *http.Request) (store.FindingRef, bool) {
+	ref, ok := s.cvssRef(w, r)
+	return ref, ok && s.allowEdit(w, r, ref)
+}
+
+func (s *Server) locked(r *http.Request, ref store.FindingRef) bool {
+	return !workflow.CanEdit(auth.UserFrom(r.Context()), ref.F.Meta)
+}
+
 func (s *Server) cvssGet(w http.ResponseWriter, r *http.Request) {
 	if ref, ok := s.cvssRef(w, r); ok {
-		s.exec(w, "finding.html", "cvss_panel", s.cvssPanel(ref))
+		v := s.cvssPanel(ref)
+		v.Locked = s.locked(r, ref)
+		s.exec(w, "finding.html", "cvss_panel", v)
 	}
 }
 
 func (s *Server) cvssEdit(w http.ResponseWriter, r *http.Request) {
-	if ref, ok := s.cvssRef(w, r); ok {
+	if ref, ok := s.editRef(w, r); ok {
 		s.exec(w, "finding.html", "cvss_editor", s.cvssStart(ref))
 	}
 }
@@ -174,7 +188,7 @@ func (s *Server) cvssCalc(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) cvssSave(w http.ResponseWriter, r *http.Request) {
-	ref, ok := s.cvssRef(w, r)
+	ref, ok := s.editRef(w, r)
 	if !ok {
 		return
 	}
@@ -226,7 +240,7 @@ func (s *Server) panelAfterWrite(w http.ResponseWriter, ref store.FindingRef) {
 }
 
 func (s *Server) severitySave(w http.ResponseWriter, r *http.Request) {
-	ref, ok := s.cvssRef(w, r)
+	ref, ok := s.editRef(w, r)
 	if !ok {
 		return
 	}

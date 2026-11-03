@@ -2,7 +2,7 @@
 <section class="panel" id="details">
   <div class="panelhead">
     <h2>Details</h2>
-    <button class="link" hx-get="{{.EditURL}}" hx-target="#details" hx-swap="outerHTML">Edit</button>
+    {{if not .Locked}}<button class="link" hx-get="{{.EditURL}}" hx-target="#details" hx-swap="outerHTML">Edit</button>{{end}}
   </div>
   <table class="kv details">
     <tbody>

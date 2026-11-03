@@ -7,10 +7,12 @@
     <p class="meta">
       <span class="pill status-{{$f.Meta.Status}}">{{$f.Meta.Status}}</span>
       {{template "sevpill" .CVSS}}
-      <span class="muted">by {{$f.Meta.Author}}{{if $f.Meta.Reviewers}} · reviewers: {{join $f.Meta.Reviewers ", "}}{{end}}</span>
+      <span class="muted">by {{$f.Meta.Author}}</span>
     </p>
   </div>
 </div>
+{{if .Error}}<p class="error banner">{{.Error}}</p>{{end}}
+{{template "workflow_bar" .WF}}
 {{template "details_panel" .Details}}
 {{template "cvss_panel" .CVSS}}
 {{range .Panels}}{{template "panel" .}}{{end}}

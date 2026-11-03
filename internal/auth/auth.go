@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"net/http"
+	"sort"
 	"sync"
 
 	"golang.org/x/crypto/bcrypt"
@@ -31,6 +32,18 @@ func New(users []config.User) *Auth {
 	}
 	a.dummy, _ = bcrypt.GenerateFromPassword([]byte("dummy"), 12)
 	return a
+}
+
+// Users returns all accounts sorted by username.
+func (a *Auth) Users() []config.User {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	out := make([]config.User, 0, len(a.users))
+	for _, u := range a.users {
+		out = append(out, u)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Username < out[j].Username })
+	return out
 }
 
 func HashPassword(pw string) (string, error) {

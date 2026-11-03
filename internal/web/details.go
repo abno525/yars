@@ -17,6 +17,7 @@ type detailsRow struct {
 type detailsView struct {
 	Rows, Other               []detailsRow
 	Base, Error               string
+	Locked                    bool
 	ViewURL, EditURL, SaveURL string
 }
 
@@ -51,18 +52,20 @@ func (s *Server) detailsFor(ref store.FindingRef, typed map[int]string) detailsV
 
 func (s *Server) detailsGet(w http.ResponseWriter, r *http.Request) {
 	if ref, ok := s.cvssRef(w, r); ok {
-		s.exec(w, "finding.html", "details_panel", s.detailsFor(ref, nil))
+		v := s.detailsFor(ref, nil)
+		v.Locked = s.locked(r, ref)
+		s.exec(w, "finding.html", "details_panel", v)
 	}
 }
 
 func (s *Server) detailsEdit(w http.ResponseWriter, r *http.Request) {
-	if ref, ok := s.cvssRef(w, r); ok {
+	if ref, ok := s.editRef(w, r); ok {
 		s.exec(w, "finding.html", "details_editor", s.detailsFor(ref, nil))
 	}
 }
 
 func (s *Server) detailsSave(w http.ResponseWriter, r *http.Request) {
-	ref, ok := s.cvssRef(w, r)
+	ref, ok := s.editRef(w, r)
 	if !ok {
 		return
 	}
