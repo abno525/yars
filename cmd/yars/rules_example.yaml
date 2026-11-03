@@ -1,0 +1,41 @@
+# YARS style rules. Every *.yaml file in .yars/rules/ is a list of rules.
+#
+# Each rule has an id, a level (error blocks submit/approve, warning only
+# informs), an optional message and target, and exactly one check:
+#   regex_forbid / regex_require  Go RE2 regex on the target text
+#   check                         built-in: table-cells-no-backticks,
+#                                 cvss-explained, not-empty
+#   script                        executable in this directory; gets the
+#                                 finding as JSON on stdin, prints a JSON array
+#                                 of {"message","quote","target"}
+#   ai                            plain-English rule checked by the AI
+#                                 provider configured in .yars/config.yaml
+# Targets: title, section:<Name>, sections, details:<Row>, details, text
+# (default: title + all sections + all details rows).
+# Disable a rule with "enabled: false".
+
+- id: title-no-trailing-dot
+  target: title
+  regex_forbid: '\.\s*$'
+  message: The title must not end with a dot
+
+- id: no-backticks-in-tables
+  check: table-cells-no-backticks
+  message: Do not use backticks in table fields
+
+- id: no-backticks-in-location
+  target: details:Location
+  regex_forbid: '`'
+  message: Do not use backticks in Location
+
+- id: cvss-explained
+  check: cvss-explained
+  message: A non-standard CVSS value has to be explained
+
+- id: acronyms-expanded
+  ai: >-
+    Every acronym must be expanded on its first use, for example
+    "Cross-Site Scripting (XSS)". Well-known protocol names such as HTTP,
+    HTTPS, URL, DNS and TLS do not need expanding.
+  target: sections
+  level: warning

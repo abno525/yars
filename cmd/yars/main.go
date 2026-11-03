@@ -3,12 +3,16 @@
 //	yars init <dir>
 //	yars useradd --data <dir> --role <role> [--email e] <username>   (password read from stdin)
 //	yars serve --data <dir> [--addr :8080]
+//	yars lint --data <dir> [--fast] [<engagement>[/<finding-dir>]]
 package main
 
 import (
 	"bufio"
+	"context"
+	_ "embed"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -28,8 +32,69 @@ import (
 
 var system = gitrepo.Author{Name: "yars", Email: "yars@yars.local"}
 
+//go:embed rules_example.yaml
+var exampleRules []byte
+
+// cmdLint checks findings against the style rules. Exit code 1 when any
+// error-level violation is found.
+func cmdLint(args []string, out io.Writer) (int, error) {
+	fs := flag.NewFlagSet("lint", flag.ContinueOnError)
+	data := fs.String("data", ".", "data repo")
+	fast := fs.Bool("fast", false, "only regex and built-in rules (skip scripts and AI)")
+	if err := fs.Parse(args); err != nil {
+		return 2, err
+	}
+	r, err := gitrepo.Open(*data)
+	if err != nil {
+		return 2, err
+	}
+	cfg, err := config.Load(r.Dir)
+	if err != nil {
+		return 2, err
+	}
+	st := store.New(r, cfg)
+	eng := rules.NewEngine(rules.DirFor(r.Dir), cfg)
+	kinds := rules.All
+	if *fast {
+		kinds = rules.Fast
+	}
+	scopeEng, scopeDir, _ := strings.Cut(fs.Arg(0), "/")
+	engs, err := st.ListEngagements()
+	if err != nil {
+		return 2, err
+	}
+	code, checked := 0, 0
+	for _, e := range engs {
+		if scopeEng != "" && e.ID != scopeEng {
+			continue
+		}
+		refs, err := st.ListFindings(e.ID)
+		if err != nil {
+			return 2, err
+		}
+		for _, ref := range refs {
+			if scopeDir != "" && ref.Dir != scopeDir {
+				continue
+			}
+			checked++
+			for _, v := range eng.Lint(context.Background(), ref.F, kinds) {
+				line := fmt.Sprintf("%s/%s %s %s: %s", e.ID, ref.F.Meta.ID, v.Level, v.Rule, v.Message)
+				if v.Quote != "" {
+					line += fmt.Sprintf(" (%q)", v.Quote)
+				}
+				fmt.Fprintln(out, line+" ["+v.Target+"]")
+				if v.Level == "error" {
+					code = 1
+				}
+			}
+		}
+	}
+	fmt.Fprintf(out, "%d finding(s) checked\n", checked)
+	return code, nil
+}
+
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: yars init <dir> | useradd --data <dir> --role <role> <username> | serve --data <dir> [--addr :8080]")
+	fmt.Fprintln(os.Stderr, "usage: yars init <dir> | useradd --data <dir> --role <role> <username> | serve --data <dir> [--addr :8080] | lint --data <dir> [--fast] [eng[/finding]]")
 	os.Exit(2)
 }
 
@@ -45,6 +110,12 @@ func main() {
 		err = cmdUseradd(os.Args[2:])
 	case "serve":
 		err = cmdServe(os.Args[2:])
+	case "lint":
+		code, lerr := cmdLint(os.Args[2:], os.Stdout)
+		if lerr != nil {
+			fmt.Fprintln(os.Stderr, "yars:", lerr)
+		}
+		os.Exit(code)
 	default:
 		usage()
 	}
@@ -73,10 +144,14 @@ func cmdInit(args []string) error {
 		return err
 	}
 	b, _ := yaml.Marshal(config.Default())
+	if err := os.MkdirAll(rules.DirFor(dir), 0o755); err != nil {
+		return err
+	}
 	files := map[string][]byte{
-		config.ConfigPath(dir):                        b,
-		config.UsersPath(dir):                         []byte("[]\n"),
-		filepath.Join(dir, "engagements", ".gitkeep"): nil,
+		config.ConfigPath(dir):                         b,
+		config.UsersPath(dir):                          []byte("[]\n"),
+		filepath.Join(dir, "engagements", ".gitkeep"):  nil,
+		filepath.Join(rules.DirFor(dir), "style.yaml"): exampleRules,
 	}
 	for p, c := range files {
 		if err := os.WriteFile(p, c, 0o644); err != nil {
