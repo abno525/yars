@@ -24,6 +24,7 @@ h2 { font-size: 1.15rem; margin: 0; }
 .brand { font-weight: 700; letter-spacing: .04em; color: var(--text); }
 .spacer { flex: 1; }
 .switcher select { font-size: 1rem; padding: 6px 10px; min-width: 260px; }
+.who, button.link { white-space: nowrap; }
 .role { color: var(--muted); font-size: .85rem; margin-left: 4px; }
 .pagehead { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; }
 .crumbs { margin-bottom: 8px; }

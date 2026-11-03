@@ -45,7 +45,7 @@ type link struct {
 
 type panel struct {
 	Name, Anchor, EditURL, SaveURL, PreviewURL, Raw string
-	HTML                                template.HTML
+	HTML                                            template.HTML
 }
 
 type page struct {
