@@ -25,6 +25,7 @@ import (
 	"yars/internal/cvss"
 	"yars/internal/finding"
 	"yars/internal/gitrepo"
+	"yars/internal/workflow"
 )
 
 var (
@@ -316,7 +317,7 @@ func (s *Store) UpdateSection(engID, dir, section, body, base string, a gitrepo.
 	if err := finding.ValidateBody(body); err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalidBody, err)
 	}
-	return s.mutate(engID, dir, a, func(f *finding.Finding) (string, error) {
+	return s.mutateContent(engID, dir, a, func(f *finding.Finding) (string, error) {
 		if base != "" {
 			cur, _ := f.Section(section)
 			if BodyHash(cur) != base {
@@ -357,6 +358,115 @@ func (s *Store) mutate(engID, dir string, a gitrepo.Author, fn func(f *finding.F
 	return s.commit(map[string][]byte{rel: orig}, ref.F.Meta.ID+": "+msg, a, "")
 }
 
+// mutateContent is mutate for content edits: a change made while the finding
+// is in verification drops existing clearances in the same commit, so the
+// director never approves text no reviewer has seen.
+func (s *Store) mutateContent(engID, dir string, a gitrepo.Author, fn func(f *finding.Finding) (string, error)) error {
+	return s.mutate(engID, dir, a, func(f *finding.Finding) (string, error) {
+		before := string(f.Bytes())
+		msg, err := fn(f)
+		if err != nil {
+			return "", err
+		}
+		if f.Meta.Status == "verification" && len(f.Meta.ClearedBy) > 0 && string(f.Bytes()) != before {
+			return msg, f.SetMeta("cleared_by", nil)
+		}
+		return msg, nil
+	})
+}
+
+// AuthorOf maps an account to its git identity.
+func AuthorOf(u config.User) gitrepo.Author {
+	email := u.Email
+	if email == "" {
+		email = u.Username + "@yars.local"
+	}
+	return gitrepo.Author{Name: u.Username, Email: email}
+}
+
+// Transition applies a workflow action as u (one commit). Permission and
+// gate failures are *workflow.Denied.
+func (s *Store) Transition(engID, dir string, act workflow.Action, reason string, u config.User) error {
+	return s.mutate(engID, dir, AuthorOf(u), func(f *finding.Finding) (string, error) {
+		m := f.Meta
+		if err := workflow.Check(u, m, act); err != nil {
+			return "", err
+		}
+		var errs []error
+		set := func(k string, v any) { errs = append(errs, f.SetMeta(k, v)) }
+		var msg string
+		switch act {
+		case workflow.Submit:
+			if p := workflow.Gate(m, s.cfg); len(p) > 0 {
+				return "", &workflow.Denied{Reason: "cannot submit: " + strings.Join(p, "; ")}
+			}
+			set("cleared_by", nil)
+			set("returned", nil)
+			msg = "submit for verification"
+		case workflow.Return:
+			r := strings.TrimSpace(reason)
+			if r == "" {
+				return "", &workflow.Denied{Reason: "a reason is required to return a finding"}
+			}
+			set("returned", finding.Returned{By: u.Username, Reason: r})
+			set("cleared_by", nil)
+			msg = "return to draft\n\n" + r
+		case workflow.Clear:
+			set("cleared_by", append(slices.Clone(m.ClearedBy), u.Username))
+			msg = "cleared by " + u.Username
+		case workflow.Approve:
+			msg = "approve"
+		case workflow.Reopen:
+			set("cleared_by", nil)
+			msg = "reopen"
+		case workflow.Report:
+			msg = "mark reported"
+		}
+		if _, to := workflow.Target(act); to != m.Status {
+			set("status", to)
+		}
+		return msg, errors.Join(errs...)
+	})
+}
+
+// SetReviewers replaces the reviewer list as u. The author is never a
+// reviewer; clearances of removed reviewers are dropped.
+func (s *Store) SetReviewers(engID, dir string, names []string, u config.User) error {
+	return s.mutate(engID, dir, AuthorOf(u), func(f *finding.Finding) (string, error) {
+		m := f.Meta
+		if !workflow.CanAssign(u, m) {
+			return "", &workflow.Denied{Reason: "only the author or a director can assign reviewers while the finding is open"}
+		}
+		var list []string
+		for _, n := range names {
+			if n = strings.TrimSpace(n); n != "" && n != m.Author && !slices.Contains(list, n) {
+				list = append(list, n)
+			}
+		}
+		sort.Strings(list)
+		var cleared []string
+		for _, c := range m.ClearedBy {
+			if slices.Contains(list, c) {
+				cleared = append(cleared, c)
+			}
+		}
+		var cv any
+		if len(cleared) > 0 {
+			cv = cleared
+		}
+		if list == nil {
+			list = []string{}
+		}
+		if err := errors.Join(f.SetMeta("reviewers", list), f.SetMeta("cleared_by", cv)); err != nil {
+			return "", err
+		}
+		if len(list) == 0 {
+			return "set reviewers (none)", nil
+		}
+		return "set reviewers " + strings.Join(list, ", "), nil
+	})
+}
+
 func sortedPairs(m map[string]string) string {
 	keys := make([]string, 0, len(m))
 	for k := range m {
@@ -389,7 +499,7 @@ func (s *Store) UpdateCVSS(engID, dir, vector string, reasons map[string]string,
 			return fmt.Errorf("%w: %v", ErrInvalidValue, err)
 		}
 	}
-	return s.mutate(engID, dir, a, func(f *finding.Finding) (string, error) {
+	return s.mutateContent(engID, dir, a, func(f *finding.Finding) (string, error) {
 		m := f.Meta
 		if base != "" && CVSSHash(m) != base {
 			return "", ErrConflict
@@ -445,7 +555,7 @@ func (s *Store) UpdateSeverity(engID, dir, sev, base string, a gitrepo.Author) e
 	if !slices.Contains(s.cfg.Severities, sev) {
 		return fmt.Errorf("%w: unknown severity %q", ErrInvalidValue, sev)
 	}
-	return s.mutate(engID, dir, a, func(f *finding.Finding) (string, error) {
+	return s.mutateContent(engID, dir, a, func(f *finding.Finding) (string, error) {
 		if base != "" && SeverityHash(f.Meta) != base {
 			return "", ErrConflict
 		}
@@ -458,7 +568,7 @@ func (s *Store) UpdateSeverity(engID, dir, sev, base string, a gitrepo.Author) e
 
 // UpdateDetails replaces the given details rows (other existing rows kept).
 func (s *Store) UpdateDetails(engID, dir string, values map[string]string, base string, a gitrepo.Author) error {
-	return s.mutate(engID, dir, a, func(f *finding.Finding) (string, error) {
+	return s.mutateContent(engID, dir, a, func(f *finding.Finding) (string, error) {
 		if base != "" && DetailsHash(f.Meta) != base {
 			return "", ErrConflict
 		}
