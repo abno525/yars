@@ -1,0 +1,10 @@
+{{define "content"}}
+<div class="pagehead">
+  <div>
+    <h1>{{.Eng.Name}}</h1>
+    <p class="muted">{{.Eng.Client}}{{if eq .Eng.Type "retest"}} · retest of {{.Eng.Source}}{{end}}</p>
+  </div>
+  <a class="button primary" href="/e/{{.Eng.ID}}/findings/new">New finding</a>
+</div>
+{{template "findings" .}}
+{{end}}

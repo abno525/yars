@@ -1,0 +1,16 @@
+{{define "content"}}
+{{$f := .Finding.F}}
+<nav class="crumbs"><a href="/e/{{.Eng.ID}}">← {{.Eng.Name}}</a></nav>
+<div class="pagehead">
+  <div>
+    <h1><span class="fid">{{$f.Meta.ID}}</span> {{$f.Meta.Title}}</h1>
+    <p class="meta">
+      <span class="pill status-{{$f.Meta.Status}}">{{$f.Meta.Status}}</span>
+      {{if $f.Meta.Severity}}<span class="pill sev-{{$f.Meta.Severity}}">{{$f.Meta.Severity}}</span>{{end}}
+      {{if $f.Meta.CVSS}}<code class="cvss">{{$f.Meta.CVSS}}</code>{{end}}
+      <span class="muted">by {{$f.Meta.Author}}{{if $f.Meta.Reviewers}} · reviewers: {{join $f.Meta.Reviewers ", "}}{{end}}</span>
+    </p>
+  </div>
+</div>
+{{range .Panels}}{{template "panel" .}}{{end}}
+{{end}}

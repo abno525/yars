@@ -1,0 +1,17 @@
+{{define "content"}}
+<div class="pagehead">
+  <h1>Engagements</h1>
+  {{if .CanManage}}<a class="button primary" href="/engagements/new">New engagement</a>{{end}}
+</div>
+{{if .Engagements}}
+<ul class="englist">
+  {{range .Engagements}}
+  <li><a href="/e/{{.ID}}"><strong>{{.Name}}</strong>
+    <span class="muted">{{.Client}}</span>
+    {{if eq .Type "retest"}}<span class="pill retest">retest</span>{{end}}</a></li>
+  {{end}}
+</ul>
+{{else}}
+<p class="muted">No engagements yet.</p>
+{{end}}
+{{end}}

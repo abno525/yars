@@ -1,0 +1,32 @@
+{{define "layout"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{if .Eng.ID}}{{.Eng.Name}} · {{end}}YARS</title>
+<link rel="stylesheet" href="/static/style.css">
+<script src="/static/htmx.min.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="/">YARS</a>
+  {{if .User.Username}}
+    {{if .Engagements}}
+    <form class="switcher" method="get" action="/go">
+      <select name="eng" onchange="this.form.submit()" aria-label="Engagement">
+        {{if not .Eng.ID}}<option value="">Select engagement…</option>{{end}}
+        {{range .Engagements}}<option value="{{.ID}}" {{if eq .ID $.Eng.ID}}selected{{end}}>{{.Name}}{{if eq .Type "retest"}} (retest){{end}}</option>{{end}}
+      </select>
+      <noscript><button>Go</button></noscript>
+    </form>
+    {{end}}
+    <span class="spacer"></span>
+    <span class="who">{{.User.Username}} <span class="role">{{.User.Role}}</span></span>
+    <form method="post" action="/logout"><button class="link">Log out</button></form>
+  {{end}}
+</header>
+<main>
+{{template "content" .}}
+</main>
+</body>
+</html>{{end}}
