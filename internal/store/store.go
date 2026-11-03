@@ -13,6 +13,7 @@ import (
 	"os"
 	"path"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -21,6 +22,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"yars/internal/config"
+	"yars/internal/cvss"
 	"yars/internal/finding"
 	"yars/internal/gitrepo"
 )
@@ -29,6 +31,8 @@ var (
 	ErrNotFound    = errors.New("not found")
 	ErrConflict    = errors.New("section was changed by someone else")
 	ErrInvalidBody = errors.New("invalid section body")
+	// ErrInvalidValue marks a rejected front-matter value (CVSS vector, severity).
+	ErrInvalidValue = errors.New("invalid value")
 )
 
 type Engagement struct {
@@ -312,20 +316,32 @@ func (s *Store) UpdateSection(engID, dir, section, body, base string, a gitrepo.
 	if err := finding.ValidateBody(body); err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalidBody, err)
 	}
+	return s.mutate(engID, dir, a, func(f *finding.Finding) (string, error) {
+		if base != "" {
+			cur, _ := f.Section(section)
+			if BodyHash(cur) != base {
+				return "", ErrConflict
+			}
+		}
+		f.SetSection(section, body)
+		return "edit " + section, nil
+	})
+}
+
+// mutate loads a finding, applies fn, and commits the result as one commit
+// "<ID>: <msg>". No commit is made when the file is unchanged.
+func (s *Store) mutate(engID, dir string, a gitrepo.Author, fn func(f *finding.Finding) (string, error)) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	ref, err := s.Finding(engID, dir)
 	if err != nil {
 		return err
 	}
-	if base != "" {
-		cur, _ := ref.F.Section(section)
-		if BodyHash(cur) != base {
-			return ErrConflict
-		}
-	}
 	before := ref.F.Bytes()
-	ref.F.SetSection(section, body)
+	msg, err := fn(ref.F)
+	if err != nil {
+		return err
+	}
 	after := ref.F.Bytes()
 	if string(before) == string(after) {
 		return nil
@@ -338,5 +354,118 @@ func (s *Store) UpdateSection(engID, dir, section, body, base string, a gitrepo.
 	if err := s.writeFile(rel, after); err != nil {
 		return err
 	}
-	return s.commit(map[string][]byte{rel: orig}, ref.F.Meta.ID+": edit "+section, a, "")
+	return s.commit(map[string][]byte{rel: orig}, ref.F.Meta.ID+": "+msg, a, "")
+}
+
+func sortedPairs(m map[string]string) string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	for _, k := range keys {
+		b.WriteString(k + "\x00" + m[k] + "\x00")
+	}
+	return b.String()
+}
+
+// CVSSHash identifies the CVSS state (vector + reasons) for optimistic concurrency.
+func CVSSHash(m finding.Meta) string {
+	return BodyHash(m.CVSS + "\x00" + sortedPairs(m.CVSSReasons))
+}
+
+// DetailsHash identifies the details table state for optimistic concurrency.
+func DetailsHash(m finding.Meta) string { return BodyHash(sortedPairs(m.Details)) }
+
+// UpdateCVSS sets the CVSS vector (canonicalised) and derived severity, and
+// merges reasons (empty value deletes, absent keys are kept). An empty
+// vector clears CVSS and keeps the last severity as a manual value.
+func (s *Store) UpdateCVSS(engID, dir, vector string, reasons map[string]string, base string, a gitrepo.Author) error {
+	var v cvss.Vector
+	if strings.TrimSpace(vector) != "" {
+		var err error
+		if v, err = cvss.Parse(vector); err != nil {
+			return fmt.Errorf("%w: %v", ErrInvalidValue, err)
+		}
+	}
+	return s.mutate(engID, dir, a, func(f *finding.Finding) (string, error) {
+		m := f.Meta
+		if base != "" && CVSSHash(m) != base {
+			return "", ErrConflict
+		}
+		if v == nil {
+			if m.CVSS == "" {
+				return "clear CVSS", nil
+			}
+			if err := f.SetMeta("severity", cvss.Derive(m.CVSS, m.Severity)); err != nil {
+				return "", err
+			}
+			return "clear CVSS", f.SetMeta("cvss", nil)
+		}
+		score, _ := cvss.Score(v)
+		merged := map[string]string{}
+		for k, r := range m.CVSSReasons {
+			merged[k] = r
+		}
+		for k, r := range reasons {
+			if r = strings.TrimSpace(r); r == "" {
+				delete(merged, k)
+			} else {
+				merged[k] = r
+			}
+		}
+		if err := f.SetMeta("severity", cvss.Rating(score)); err != nil {
+			return "", err
+		}
+		if err := f.SetMeta("cvss", v.String()); err != nil {
+			return "", err
+		}
+		var rv any
+		if len(merged) > 0 {
+			keys := make([]string, 0, len(cvss.Metrics))
+			for _, mt := range cvss.Metrics {
+				keys = append(keys, mt.Key)
+			}
+			rv = finding.OrderedMap(keys, merged)
+		}
+		if err := f.SetMeta("cvss_reasons", rv); err != nil {
+			return "", err
+		}
+		return "set CVSS " + cvss.FormatScore(score), nil
+	})
+}
+
+// UpdateSeverity sets a manual severity; refused when a valid vector exists.
+func (s *Store) UpdateSeverity(engID, dir, sev string, a gitrepo.Author) error {
+	if !slices.Contains(s.cfg.Severities, sev) {
+		return fmt.Errorf("%w: unknown severity %q", ErrInvalidValue, sev)
+	}
+	return s.mutate(engID, dir, a, func(f *finding.Finding) (string, error) {
+		if _, err := cvss.Parse(f.Meta.CVSS); err == nil {
+			return "", fmt.Errorf("%w: severity is derived from the CVSS vector", ErrInvalidValue)
+		}
+		return "set severity " + sev, f.SetMeta("severity", sev)
+	})
+}
+
+// UpdateDetails replaces the given details rows (other existing rows kept).
+func (s *Store) UpdateDetails(engID, dir string, values map[string]string, base string, a gitrepo.Author) error {
+	return s.mutate(engID, dir, a, func(f *finding.Finding) (string, error) {
+		if base != "" && DetailsHash(f.Meta) != base {
+			return "", ErrConflict
+		}
+		merged := map[string]string{}
+		for k, v := range f.Meta.Details {
+			merged[k] = v
+		}
+		for k, v := range values {
+			lines := strings.Split(strings.ReplaceAll(v, "\r\n", "\n"), "\n")
+			for i := range lines {
+				lines[i] = strings.TrimRight(lines[i], " \t")
+			}
+			merged[k] = strings.Trim(strings.Join(lines, "\n"), "\n")
+		}
+		return "edit details", f.SetMeta("details", finding.OrderedMap(s.cfg.DetailsRows, merged))
+	})
 }
