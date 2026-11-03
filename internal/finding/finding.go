@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"errors"
 	"regexp"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -17,15 +18,116 @@ type Retest struct {
 }
 
 type Meta struct {
-	ID        string         `yaml:"id"`
-	Title     string         `yaml:"title"`
-	Status    string         `yaml:"status"`
-	Severity  string         `yaml:"severity"`
-	CVSS      string         `yaml:"cvss"`
-	Author    string         `yaml:"author"`
-	Reviewers []string       `yaml:"reviewers"`
-	Retest    *Retest        `yaml:"retest,omitempty"`
-	Extra     map[string]any `yaml:",inline"`
+	ID        string   `yaml:"id"`
+	Title     string   `yaml:"title"`
+	Status    string   `yaml:"status"`
+	Severity  string   `yaml:"severity"`
+	CVSS      string   `yaml:"cvss"`
+	Author    string   `yaml:"author"`
+	Reviewers []string `yaml:"reviewers"`
+	Retest    *Retest  `yaml:"retest,omitempty"`
+	// CVSSReasons explains non-standard CVSS metric values, keyed by metric (e.g. "AC").
+	CVSSReasons map[string]string `yaml:"cvss_reasons,omitempty"`
+	// Details holds the details table, keyed by configured row name.
+	Details map[string]string `yaml:"details,omitempty"`
+	Extra   map[string]any    `yaml:",inline"`
+}
+
+// SetMeta sets (or, with a nil value, deletes) one top-level front-matter key
+// by patching the YAML node tree, so comments, key order and untouched keys
+// survive. value may be a *yaml.Node or any encodable Go value.
+func (f *Finding) SetMeta(key string, value any) error {
+	src := f.rawMeta
+	if src == "" || encodeMeta(&f.Meta) != f.metaSnap {
+		src = encodeMeta(&f.Meta)
+	}
+	var doc yaml.Node
+	if err := yaml.Unmarshal([]byte(src), &doc); err != nil {
+		return err
+	}
+	if doc.Kind == 0 || len(doc.Content) == 0 {
+		doc = yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{{Kind: yaml.MappingNode, Tag: "!!map"}}}
+	}
+	m := doc.Content[0]
+	if m.Kind != yaml.MappingNode {
+		return errors.New("finding: front matter is not a mapping")
+	}
+	var vn *yaml.Node
+	if value != nil {
+		if n, ok := value.(*yaml.Node); ok {
+			vn = n
+		} else {
+			vn = &yaml.Node{}
+			if err := vn.Encode(value); err != nil {
+				return err
+			}
+		}
+	}
+	found := false
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		if m.Content[i].Value != key {
+			continue
+		}
+		found = true
+		if vn == nil {
+			m.Content = append(m.Content[:i], m.Content[i+2:]...)
+		} else {
+			if vn.LineComment == "" {
+				vn.LineComment = m.Content[i+1].LineComment
+			}
+			m.Content[i+1] = vn
+		}
+		break
+	}
+	if !found && vn != nil {
+		m.Content = append(m.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key}, vn)
+	}
+	var out bytes.Buffer
+	enc := yaml.NewEncoder(&out)
+	enc.SetIndent(4)
+	if err := enc.Encode(&doc); err != nil {
+		return err
+	}
+	enc.Close()
+	var meta Meta
+	if err := yaml.Unmarshal(out.Bytes(), &meta); err != nil {
+		return err
+	}
+	f.Meta, f.rawMeta = meta, out.String()
+	f.metaSnap = encodeMeta(&f.Meta)
+	return nil
+}
+
+// OrderedMap builds a string mapping node with keys in the given order
+// (absent keys skipped), followed by remaining keys of m sorted. Multi-line
+// values use literal block style.
+func OrderedMap(keys []string, m map[string]string) *yaml.Node {
+	n := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+	add := func(k string) {
+		v := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: m[k]}
+		if strings.Contains(m[k], "\n") {
+			v.Style = yaml.LiteralStyle
+		}
+		n.Content = append(n.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: k}, v)
+	}
+	seen := map[string]bool{}
+	for _, k := range keys {
+		if _, ok := m[k]; ok && !seen[k] {
+			add(k)
+			seen[k] = true
+		}
+	}
+	var rest []string
+	for k := range m {
+		if !seen[k] {
+			rest = append(rest, k)
+		}
+	}
+	sort.Strings(rest)
+	for _, k := range rest {
+		add(k)
+	}
+	return n
 }
 
 // Section is a "## Name" block; Body is everything after the heading line
