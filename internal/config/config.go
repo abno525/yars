@@ -21,6 +21,16 @@ type Config struct {
 	Sections    []string   `yaml:"sections"`
 	DetailsRows []string   `yaml:"details_rows"`
 	CVSS        CVSSConfig `yaml:"cvss"`
+	AI          AIConfig   `yaml:"ai"`
+}
+
+// AIConfig selects the LLM used by AI rules. The key itself is read from the
+// environment variable named by APIKeyEnv and never stored in the repo.
+type AIConfig struct {
+	Provider  string `yaml:"provider"` // openai (also LiteLLM / OpenAI-compatible) | anthropic
+	BaseURL   string `yaml:"base_url"`
+	Model     string `yaml:"model"`
+	APIKeyEnv string `yaml:"api_key_env"`
 }
 
 type CVSSConfig struct {
@@ -56,6 +66,9 @@ func validate(c *Config) error {
 	}
 	if c.CVSS.Version != "3.1" {
 		return fmt.Errorf("config: cvss.version %q is not supported (only 3.1)", c.CVSS.Version)
+	}
+	if p := c.AI.Provider; p != "" && p != "openai" && p != "anthropic" {
+		return fmt.Errorf("config: ai.provider %q must be openai or anthropic", p)
 	}
 	for k, v := range c.CVSS.Standard {
 		if !cvss.Valid(k, v) {

@@ -116,6 +116,16 @@ func TestLoadRequiresRatingSeverities(t *testing.T) {
 	}
 }
 
+func TestLoadAIConfig(t *testing.T) {
+	c, err := Load(writeCfg(t, "ai:\n  provider: anthropic\n  model: claude-haiku-5-5\n  api_key_env: K\n"))
+	if err != nil || c.AI.Provider != "anthropic" || c.AI.Model != "claude-haiku-5-5" || c.AI.APIKeyEnv != "K" {
+		t.Fatalf("%+v %v", c.AI, err)
+	}
+	if _, err := Load(writeCfg(t, "ai:\n  provider: gemini\n")); err == nil || !strings.Contains(err.Error(), "gemini") {
+		t.Fatalf("err %v", err)
+	}
+}
+
 func TestValidRole(t *testing.T) {
 	if !ValidRole("director") || ValidRole("boss") {
 		t.Fatal("ValidRole wrong")

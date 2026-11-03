@@ -258,6 +258,7 @@ func (r Rule) v(target, msg, q string) Violation {
 // Run evaluates the set on d. slow may be nil (script/AI rules skipped).
 func (s *Set) Run(ctx context.Context, d Doc, cfg config.Config, kinds Kind, slow SlowRunner) []Violation {
 	out := append([]Violation{}, s.Problems...)
+	seen := map[Violation]bool{}
 	for _, r := range s.Rules {
 		if r.Enabled != nil && !*r.Enabled {
 			continue
@@ -284,7 +285,17 @@ func (s *Set) Run(ctx context.Context, d Doc, cfg config.Config, kinds Kind, slo
 		if len(vs) > MaxPerRule {
 			vs = vs[:MaxPerRule]
 		}
-		out = append(out, vs...)
+		for _, v := range vs {
+			// AI rules run once per target part; collapse repeated notices
+			// (e.g. "no AI provider configured") but keep regex repeats.
+			if r.AI != "" {
+				if seen[v] {
+					continue
+				}
+				seen[v] = true
+			}
+			out = append(out, v)
+		}
 	}
 	return out
 }
