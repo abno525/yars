@@ -3,16 +3,62 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"yars/internal/cvss"
 )
 
 type Config struct {
-	Severities []string `yaml:"severities"`
-	Sections   []string `yaml:"sections"`
+	Severities  []string   `yaml:"severities"`
+	Sections    []string   `yaml:"sections"`
+	DetailsRows []string   `yaml:"details_rows"`
+	CVSS        CVSSConfig `yaml:"cvss"`
+}
+
+type CVSSConfig struct {
+	Version string `yaml:"version"`
+	// Standard is the team's usual value per base metric; a finding value
+	// differing from it is "non-standard" and needs a written reason.
+	Standard map[string]string `yaml:"standard"`
+}
+
+// NonStandard reports whether value differs from the configured standard
+// for metric key. Metrics without a standard are never non-standard.
+func (c Config) NonStandard(key, value string) bool {
+	std, ok := c.CVSS.Standard[key]
+	return ok && value != std
+}
+
+func defaultStandard() map[string]string {
+	return map[string]string{"AV": "N", "AC": "L", "PR": "N", "UI": "N", "S": "U"}
+}
+
+// RatingSeverities are the severity names CVSS ratings map to.
+var RatingSeverities = []string{"critical", "high", "medium", "low", "info"}
+
+func validate(c *Config) error {
+	var missing []string
+	for _, r := range RatingSeverities {
+		if !slices.Contains(c.Severities, r) {
+			missing = append(missing, r)
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("config: severities must include the CVSS ratings; missing %s", strings.Join(missing, ", "))
+	}
+	for k, v := range c.CVSS.Standard {
+		if !cvss.Valid(k, v) {
+			return fmt.Errorf("config: cvss.standard %s: invalid value %q", k, v)
+		}
+	}
+	return nil
 }
 
 type User struct {
@@ -26,8 +72,10 @@ var Roles = []string{"pentester", "reviewer", "director", "admin"}
 
 func Default() Config {
 	return Config{
-		Severities: []string{"critical", "high", "medium", "low", "info"},
-		Sections:   []string{"Description", "Location", "Impact", "Steps to Reproduce", "Remediation", "References"},
+		Severities:  []string{"critical", "high", "medium", "low", "info"},
+		Sections:    []string{"Description", "Impact", "Steps to Reproduce", "Remediation", "References"},
+		DetailsRows: []string{"Location", "Business impact", "Row 3", "Row 4", "Row 5"},
+		CVSS:        CVSSConfig{Version: "3.1", Standard: defaultStandard()},
 	}
 }
 
@@ -52,7 +100,23 @@ func Load(dataDir string) (Config, error) {
 	if len(c.Sections) == 0 {
 		c.Sections = d.Sections
 	}
-	return c, nil
+	if len(c.DetailsRows) == 0 {
+		c.DetailsRows = d.DetailsRows
+	}
+	if c.CVSS.Version == "" {
+		c.CVSS.Version = d.CVSS.Version
+	}
+	std := d.CVSS.Standard
+	for k, v := range c.CVSS.Standard {
+		k, v = strings.ToUpper(k), strings.ToUpper(v)
+		if v == "-" {
+			delete(std, k)
+		} else {
+			std[k] = v
+		}
+	}
+	c.CVSS.Standard = std
+	return c, validate(&c)
 }
 
 func LoadUsers(dataDir string) ([]User, error) {

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -15,7 +16,7 @@ func TestLoadDefaults(t *testing.T) {
 	if !reflect.DeepEqual(c, Default()) {
 		t.Fatalf("got %+v", c)
 	}
-	want := []string{"Description", "Location", "Impact", "Steps to Reproduce", "Remediation", "References"}
+	want := []string{"Description", "Impact", "Steps to Reproduce", "Remediation", "References"}
 	if !reflect.DeepEqual(c.Sections, want) {
 		t.Fatalf("sections %v", c.Sections)
 	}
@@ -49,6 +50,62 @@ func TestUsersRoundTrip(t *testing.T) {
 	out, err := LoadUsers(dir)
 	if err != nil || !reflect.DeepEqual(in, out) {
 		t.Fatalf("got %v %v", out, err)
+	}
+}
+
+func writeCfg(t *testing.T, body string) string {
+	t.Helper()
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, ".yars"), 0o755)
+	os.WriteFile(filepath.Join(dir, ".yars", "config.yaml"), []byte(body), 0o644)
+	return dir
+}
+
+func TestDefaultDetailsAndSections(t *testing.T) {
+	c := Default()
+	want := []string{"Location", "Business impact", "Row 3", "Row 4", "Row 5"}
+	if !reflect.DeepEqual(c.DetailsRows, want) {
+		t.Fatalf("details %v", c.DetailsRows)
+	}
+	for _, s := range c.Sections {
+		if s == "Location" {
+			t.Fatal("Location still a default section")
+		}
+	}
+	if c.CVSS.Version != "3.1" {
+		t.Fatalf("version %q", c.CVSS.Version)
+	}
+}
+
+func TestCVSSStandardMerge(t *testing.T) {
+	c, err := Load(writeCfg(t, "cvss:\n  standard: {AC: H, UI: \"-\", C: N}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"AV": "N", "AC": "H", "PR": "N", "S": "U", "C": "N"}
+	if !reflect.DeepEqual(c.CVSS.Standard, want) {
+		t.Fatalf("standard %v", c.CVSS.Standard)
+	}
+}
+
+func TestNonStandard(t *testing.T) {
+	c := Default()
+	if !c.NonStandard("AC", "H") || c.NonStandard("AC", "L") || c.NonStandard("C", "H") {
+		t.Fatal("NonStandard wrong")
+	}
+}
+
+func TestLoadRejectsBadStandard(t *testing.T) {
+	_, err := Load(writeCfg(t, "cvss:\n  standard: {AV: Z}\n"))
+	if err == nil || !strings.Contains(err.Error(), "AV") {
+		t.Fatalf("err %v", err)
+	}
+}
+
+func TestLoadRequiresRatingSeverities(t *testing.T) {
+	_, err := Load(writeCfg(t, "severities: [high, medium, low]\n"))
+	if err == nil || !strings.Contains(err.Error(), "critical") || !strings.Contains(err.Error(), "info") {
+		t.Fatalf("err %v", err)
 	}
 }
 
