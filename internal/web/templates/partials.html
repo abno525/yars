@@ -17,12 +17,13 @@
         <td class="fid"><a href="/e/{{.EngID}}/f/{{.Dir}}">{{.ID}}</a></td>
         <td><a href="/e/{{.EngID}}/f/{{.Dir}}">{{.Title}}</a></td>
         <td>{{if .Severity}}<span class="pill sev-{{.Severity}}">{{.Severity}}</span>{{end}}</td>
+        <td class="fid">{{.Score}}</td>
         <td><span class="pill status-{{.Status}}">{{.Status}}</span></td>
         <td>{{.Author}}</td>
         <td>{{join .Reviewers ", "}}</td>
       </tr>
     {{else}}
-      <tr><td colspan="6" class="muted empty">No findings match.</td></tr>
+      <tr><td colspan="7" class="muted empty">No findings match.</td></tr>
     {{end}}
     </tbody>
   </table>

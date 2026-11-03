@@ -3,17 +3,32 @@
 package index
 
 import (
+	"cmp"
 	"sort"
 	"strings"
 	"sync"
 
+	"yars/internal/cvss"
 	"yars/internal/gitrepo"
 	"yars/internal/store"
 )
 
+// Row is one finding in the table. Severity is derived from a valid CVSS
+// vector when present; Score is the formatted base score or "".
 type Row struct {
 	EngID, Dir, ID, Title, Status, Severity, Author string
+	Score                                           string
 	Reviewers                                       []string
+	score                                           float64 // -1 when no valid vector
+}
+
+func scoreOf(vec string) (string, float64) {
+	v, err := cvss.Parse(vec)
+	if err != nil {
+		return "", -1
+	}
+	s, _ := cvss.Score(v)
+	return cvss.FormatScore(s), s
 }
 
 // Query filters by exact field values (empty = any) and sorts by
@@ -60,8 +75,10 @@ func (ix *Index) refresh() error {
 		}
 		for _, r := range refs {
 			m := r.F.Meta
+			txt, sc := scoreOf(m.CVSS)
 			rows = append(rows, Row{EngID: e.ID, Dir: r.Dir, ID: m.ID, Title: m.Title, Status: m.Status,
-				Severity: m.Severity, Author: m.Author, Reviewers: m.Reviewers})
+				Severity: cvss.Derive(m.CVSS, m.Severity), Author: m.Author, Reviewers: m.Reviewers,
+				Score: txt, score: sc})
 		}
 	}
 	ix.mu.Lock()
@@ -104,6 +121,8 @@ func (ix *Index) Rows(q Query) ([]Row, error) {
 			return rank(sev, a.Severity) - rank(sev, b.Severity)
 		case "author":
 			return strings.Compare(a.Author, b.Author)
+		case "cvss":
+			return cmp.Compare(a.score, b.score)
 		}
 		return strings.Compare(a.Dir, b.Dir)
 	}

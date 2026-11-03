@@ -110,6 +110,67 @@ func TestSortSeverityOrder(t *testing.T) {
 	}
 }
 
+// setCVSS writes cvss + severity directly (no derivation), like a local edit.
+func setCVSS(t *testing.T, s *store.Store, eng, dir, vec, sev string) {
+	t.Helper()
+	ref, err := s.Finding(eng, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref.F.Meta.CVSS, ref.F.Meta.Severity = vec, sev
+	rel := filepath.Join("engagements", eng, "findings", dir, "finding.md")
+	os.WriteFile(filepath.Join(s.Repo().Dir, rel), ref.F.Bytes(), 0o644)
+	if err := s.Repo().Commit([]string{rel}, "cvss", alice); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func byTitle(t *testing.T, rows []Row, title string) Row {
+	for _, r := range rows {
+		if r.Title == title {
+			return r
+		}
+	}
+	t.Fatalf("no row %s", title)
+	return Row{}
+}
+
+func TestRowsDeriveSeverity(t *testing.T) {
+	ix, s := fixture(t)
+	setCVSS(t, s, "acme", "F-001-a", "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H", "low")
+	rows, _ := ix.Rows(Query{EngID: "acme"})
+	if r := byTitle(t, rows, "A"); r.Severity != "critical" || r.Score != "9.8" {
+		t.Fatalf("row %+v", r)
+	}
+	rows, _ = ix.Rows(Query{EngID: "acme", Severity: "critical"})
+	if titles(rows) != "A,B" {
+		t.Fatalf("filter got %q", titles(rows))
+	}
+}
+
+func TestRowsForeignCVSS(t *testing.T) {
+	ix, s := fixture(t)
+	setCVSS(t, s, "acme", "F-001-a", "8.1", "medium")
+	rows, _ := ix.Rows(Query{EngID: "acme"})
+	if r := byTitle(t, rows, "A"); r.Severity != "medium" || r.Score != "" {
+		t.Fatalf("row %+v", r)
+	}
+}
+
+func TestSortByCVSS(t *testing.T) {
+	ix, s := fixture(t)
+	setCVSS(t, s, "acme", "F-001-a", "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H", "")
+	setCVSS(t, s, "acme", "F-003-c", "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:C/C:L/I:L/A:N", "")
+	rows, _ := ix.Rows(Query{EngID: "acme", Sort: "cvss"})
+	if titles(rows) != "B,C,A" {
+		t.Fatalf("asc got %q", titles(rows))
+	}
+	rows, _ = ix.Rows(Query{EngID: "acme", Sort: "cvss", Desc: true})
+	if titles(rows) != "A,C,B" {
+		t.Fatalf("desc got %q", titles(rows))
+	}
+}
+
 func TestExternalCommitVisible(t *testing.T) {
 	ix, s := fixture(t)
 	if _, err := ix.Rows(Query{EngID: "acme"}); err != nil {
