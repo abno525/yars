@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"yars/internal/cvss"
+	"yars/internal/finding"
 	"yars/internal/gitrepo"
 	"yars/internal/store"
 )
@@ -19,7 +20,8 @@ type Row struct {
 	EngID, Dir, ID, Title, Status, Severity, Author string
 	Score                                           string
 	Reviewers                                       []string
-	score                                           float64 // -1 when no valid vector
+	Meta                                            finding.Meta // full front matter, for workflow classification
+	score                                           float64      // -1 when no valid vector
 }
 
 func scoreOf(vec string) (string, float64) {
@@ -78,7 +80,7 @@ func (ix *Index) refresh() error {
 			txt, sc := scoreOf(m.CVSS)
 			rows = append(rows, Row{EngID: e.ID, Dir: r.Dir, ID: m.ID, Title: m.Title, Status: m.Status,
 				Severity: cvss.Derive(m.CVSS, m.Severity), Author: m.Author, Reviewers: m.Reviewers,
-				Score: txt, score: sc})
+				Score: txt, score: sc, Meta: m})
 		}
 	}
 	ix.mu.Lock()

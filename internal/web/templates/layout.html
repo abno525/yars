@@ -22,6 +22,7 @@
     </form>
     {{end}}
     <span class="spacer"></span>
+    <a class="inboxlink" href="/inbox">Inbox{{with .Inbox.Count}} <span class="badge">{{.}}</span>{{end}}</a>
     <span class="who">{{.User.Username}} <span class="role">{{.User.Role}}</span></span>
     <form method="post" action="/logout"><button class="link">Log out</button></form>
   {{end}}

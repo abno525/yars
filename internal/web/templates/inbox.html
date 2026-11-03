@@ -1,0 +1,31 @@
+{{define "inbox_list"}}
+<table class="findings">
+  <tbody>
+  {{range .}}
+    <tr>
+      <td class="muted">{{.EngName}}</td>
+      <td class="fid"><a href="/e/{{.EngID}}/f/{{.Dir}}">{{.ID}}</a></td>
+      <td><a href="/e/{{.EngID}}/f/{{.Dir}}">{{.Title}}</a></td>
+      <td>{{if .Severity}}<span class="pill sev-{{.Severity}}">{{.Severity}}</span>{{end}}</td>
+      <td class="muted">{{.Author}}</td>
+    </tr>
+  {{else}}
+    <tr><td class="muted empty">Nothing here.</td></tr>
+  {{end}}
+  </tbody>
+</table>
+{{end}}
+
+{{define "content"}}
+<div class="pagehead"><h1>Inbox</h1></div>
+<div class="inbox">
+  <h2>Awaiting my review</h2>
+  {{template "inbox_list" .Inbox.Review}}
+  {{if or .Inbox.Approve (eq .User.Role "director" "admin")}}
+  <h2>Ready to approve</h2>
+  {{template "inbox_list" .Inbox.Approve}}
+  {{end}}
+  <h2>Returned to me</h2>
+  {{template "inbox_list" .Inbox.Returned}}
+</div>
+{{end}}

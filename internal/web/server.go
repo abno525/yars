@@ -65,6 +65,7 @@ type page struct {
 	CVSS          cvssView
 	Details       detailsView
 	WF            wfView
+	Inbox         inboxView
 	Form          url.Values
 }
 
@@ -93,6 +94,7 @@ func (s *Server) Handler() http.Handler {
 	private := http.NewServeMux()
 	private.HandleFunc("GET /{$}", s.home)
 	private.HandleFunc("GET /go", s.goEngagement)
+	private.HandleFunc("GET /inbox", s.inbox)
 	private.HandleFunc("POST /logout", s.logout)
 	private.HandleFunc("GET /e/{eng}", s.engagement)
 	private.HandleFunc("GET /e/{eng}/f/{fid}", s.finding)
@@ -157,6 +159,9 @@ func (s *Server) base(r *http.Request, eng string) (*page, error) {
 		return nil, err
 	}
 	p := &page{User: u, Engagements: engs, CanManage: canManage(u)}
+	if p.Inbox, err = s.inboxFor(u, engs); err != nil {
+		return nil, err
+	}
 	if eng != "" {
 		if p.Eng, err = s.Store.Engagement(eng); err != nil {
 			return nil, err
