@@ -1,0 +1,154 @@
+package workflow
+
+import (
+	"strings"
+	"testing"
+
+	"yars/internal/config"
+	"yars/internal/finding"
+)
+
+var (
+	alice = config.User{Username: "alice", Role: "pentester"}
+	pen2  = config.User{Username: "pen2", Role: "pentester"}
+	bob   = config.User{Username: "bob", Role: "reviewer"}
+	rev2  = config.User{Username: "rev2", Role: "reviewer"}
+	dora  = config.User{Username: "dora", Role: "director"}
+	adm   = config.User{Username: "adm", Role: "admin"}
+)
+
+func meta(status string, cleared ...string) finding.Meta {
+	return finding.Meta{ID: "F-001", Title: "T", Status: status, Severity: "high", Author: "alice",
+		Reviewers: []string{"bob"}, ClearedBy: cleared}
+}
+
+func TestCheckMatrix(t *testing.T) {
+	cases := []struct {
+		u    config.User
+		m    finding.Meta
+		a    Action
+		want bool
+	}{
+		{alice, meta("draft"), Submit, true},
+		{pen2, meta("draft"), Submit, false},
+		{dora, meta("draft"), Submit, true},
+		{adm, meta("draft"), Submit, true},
+		{alice, meta("verification"), Submit, false},
+
+		{bob, meta("verification"), Return, true},
+		{rev2, meta("verification"), Return, false},
+		{alice, meta("verification"), Return, false},
+		{dora, meta("verification"), Return, true},
+		{bob, meta("draft"), Return, false},
+
+		{bob, meta("verification"), Clear, true},
+		{bob, meta("verification", "bob"), Clear, false},
+		{rev2, meta("verification"), Clear, false},
+		{alice, meta("verification"), Clear, false},
+		{dora, meta("verification"), Clear, true},
+		{bob, meta("draft"), Clear, false},
+
+		{dora, meta("verification", "bob"), Approve, true},
+		{dora, meta("verification"), Approve, false},
+		{bob, meta("verification", "bob"), Approve, false},
+		{adm, meta("verification", "bob"), Approve, true},
+
+		{dora, meta("complete"), Reopen, true},
+		{alice, meta("complete"), Reopen, false},
+		{dora, meta("verification"), Reopen, false},
+
+		{dora, meta("complete"), Report, true},
+		{bob, meta("complete"), Report, false},
+		{dora, meta("verification"), Report, false},
+	}
+	for _, c := range cases {
+		err := Check(c.u, c.m, c.a)
+		if (err == nil) != c.want {
+			t.Errorf("%s %s on %s: err=%v want allowed=%v", c.u.Username, c.a, c.m.Status, err, c.want)
+		}
+	}
+	// author who is director still can't clear own finding
+	m := meta("verification")
+	m.Author = "dora"
+	if Check(dora, m, Clear) == nil {
+		t.Error("author cleared own finding")
+	}
+}
+
+func TestGate(t *testing.T) {
+	cfg := config.Default()
+	ok := meta("draft")
+	if p := Gate(ok, cfg); len(p) != 0 {
+		t.Fatalf("valid meta blocked: %v", p)
+	}
+	m := ok
+	m.Reviewers = nil
+	if p := strings.Join(Gate(m, cfg), ";"); !strings.Contains(p, "reviewer") {
+		t.Errorf("no reviewers: %q", p)
+	}
+	m = ok
+	m.Title = " "
+	if p := strings.Join(Gate(m, cfg), ";"); !strings.Contains(p, "title") {
+		t.Errorf("empty title: %q", p)
+	}
+	m = ok
+	m.Severity = ""
+	if p := strings.Join(Gate(m, cfg), ";"); !strings.Contains(p, "severity") {
+		t.Errorf("no severity: %q", p)
+	}
+	m = ok
+	m.Severity, m.CVSS = "", "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:N/A:N"
+	if p := strings.Join(Gate(m, cfg), ";"); !strings.Contains(p, "Attack Complexity") || strings.Contains(p, "severity") {
+		t.Errorf("missing explanation: %q", p)
+	}
+	m.CVSSReasons = map[string]string{"AC": "race"}
+	if p := Gate(m, cfg); len(p) != 0 {
+		t.Errorf("explained vector blocked: %v", p)
+	}
+}
+
+func TestCanEdit(t *testing.T) {
+	if !CanEdit(pen2, meta("draft")) || !CanEdit(bob, meta("verification")) {
+		t.Error("open statuses should be editable")
+	}
+	if CanEdit(alice, meta("complete")) || CanEdit(bob, meta("reported")) {
+		t.Error("locked statuses editable by non-director")
+	}
+	if !CanEdit(dora, meta("complete")) || !CanEdit(adm, meta("reported")) {
+		t.Error("director/admin should edit locked findings")
+	}
+}
+
+func TestCanAssign(t *testing.T) {
+	if !CanAssign(alice, meta("draft")) || !CanAssign(dora, meta("verification")) {
+		t.Error("author/director should assign")
+	}
+	if CanAssign(pen2, meta("draft")) || CanAssign(alice, meta("complete")) {
+		t.Error("assign allowed wrongly")
+	}
+	if !ReviewerCandidate(bob, meta("draft")) || ReviewerCandidate(pen2, meta("draft")) {
+		t.Error("candidate roles wrong")
+	}
+	m := meta("draft")
+	m.Author = "bob"
+	if ReviewerCandidate(bob, m) {
+		t.Error("author as own reviewer")
+	}
+}
+
+func TestPending(t *testing.T) {
+	if Pending(bob, meta("verification")) != InboxReview {
+		t.Error("review")
+	}
+	if Pending(bob, meta("verification", "bob")) != InboxNone {
+		t.Error("cleared reviewer still pending")
+	}
+	if Pending(dora, meta("verification", "bob")) != InboxApprove {
+		t.Error("approve")
+	}
+	m := meta("draft")
+	m.Returned = &finding.Returned{By: "bob", Reason: "x"}
+	if Pending(alice, m) != InboxReturned || Pending(pen2, m) != InboxNone {
+		t.Error("returned")
+	}
+}

@@ -17,6 +17,12 @@ type Retest struct {
 	Result string `yaml:"result"`
 }
 
+// Returned records who sent a finding back to draft and why.
+type Returned struct {
+	By     string `yaml:"by"`
+	Reason string `yaml:"reason"`
+}
+
 type Meta struct {
 	ID        string   `yaml:"id"`
 	Title     string   `yaml:"title"`
@@ -28,6 +34,10 @@ type Meta struct {
 	Retest    *Retest  `yaml:"retest,omitempty"`
 	// CVSSReasons explains non-standard CVSS metric values, keyed by metric (e.g. "AC").
 	CVSSReasons map[string]string `yaml:"cvss_reasons,omitempty"`
+	// ClearedBy lists reviewers who cleared the finding in verification.
+	ClearedBy []string `yaml:"cleared_by,omitempty"`
+	// Returned is set when a reviewer sends the finding back to draft.
+	Returned *Returned `yaml:"returned,omitempty"`
 	// Details holds the details table, keyed by configured row name.
 	Details map[string]string `yaml:"details,omitempty"`
 	Extra   map[string]any    `yaml:",inline"`
