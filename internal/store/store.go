@@ -18,9 +18,11 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
+	"yars/internal/chat"
 	"yars/internal/config"
 	"yars/internal/cvss"
 	"yars/internal/finding"
@@ -332,6 +334,15 @@ func (s *Store) UpdateSection(engID, dir, section, body, base string, a Actor) e
 // mutate loads a finding, applies fn, and commits the result as one commit
 // "<ID>: <msg>". No commit is made when the file is unchanged.
 func (s *Store) mutate(engID, dir string, a gitrepo.Author, fn func(f *finding.Finding) (string, error)) error {
+	return s.mutateWith(engID, dir, a, func(f *finding.Finding) (string, []chat.Message, error) {
+		msg, err := fn(f)
+		return msg, nil, err
+	})
+}
+
+// mutateWith is mutate where fn may also return chat messages to append in
+// the same commit (workflow events).
+func (s *Store) mutateWith(engID, dir string, a gitrepo.Author, fn func(f *finding.Finding) (string, []chat.Message, error)) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	ref, err := s.Finding(engID, dir)
@@ -339,23 +350,150 @@ func (s *Store) mutate(engID, dir string, a gitrepo.Author, fn func(f *finding.F
 		return err
 	}
 	before := ref.F.Bytes()
-	msg, err := fn(ref.F)
+	msg, add, err := fn(ref.F)
 	if err != nil {
 		return err
 	}
 	after := ref.F.Bytes()
-	if string(before) == string(after) {
+	if string(before) == string(after) && len(add) == 0 {
 		return nil
 	}
-	rel := findingPath(engID, dir)
-	orig, err := s.readFile(rel)
+	prev := map[string][]byte{}
+	if string(before) != string(after) {
+		rel := findingPath(engID, dir)
+		orig, err := s.readFile(rel)
+		if err != nil {
+			return err
+		}
+		prev[rel] = orig
+		if err := s.writeFile(rel, after); err != nil {
+			return err
+		}
+	}
+	if err := s.appendChat(engID, dir, add, prev); err != nil {
+		s.restore(prev)
+		return err
+	}
+	return s.commit(prev, ref.F.Meta.ID+": "+msg, a, "")
+}
+
+func chatPath(eng, dir string) string {
+	return path.Join("engagements", eng, "findings", dir, "chat.jsonl")
+}
+
+const gitattributesLine = "chat.jsonl merge=union\n"
+
+// appendChat appends messages to the finding's chat.jsonl (and makes sure
+// .gitattributes declares the union merge), recording previous contents in
+// prev for commit/rollback. Caller holds s.mu.
+func (s *Store) appendChat(engID, dir string, msgs []chat.Message, prev map[string][]byte) error {
+	if len(msgs) == 0 {
+		return nil
+	}
+	var lines []byte
+	for _, m := range msgs {
+		l, err := chat.Line(m)
+		if err != nil {
+			return err
+		}
+		lines = append(lines, l...)
+	}
+	cp := chatPath(engID, dir)
+	old, err := s.readFile(cp)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	prev[cp] = old // nil when the file did not exist
+	if len(old) > 0 && old[len(old)-1] != '\n' {
+		old = append(old, '\n')
+	}
+	if err := s.writeFile(cp, append(slices.Clone(old), lines...)); err != nil {
+		return err
+	}
+	ga, err := s.readFile(".gitattributes")
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	if !strings.Contains(string(ga), strings.TrimSpace(gitattributesLine)) {
+		prev[".gitattributes"] = ga
+		next := string(ga)
+		if next != "" && !strings.HasSuffix(next, "\n") {
+			next += "\n"
+		}
+		if err := s.writeFile(".gitattributes", []byte(next+gitattributesLine)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// restore puts back the previous contents recorded in prev (nil = remove).
+func (s *Store) restore(prev map[string][]byte) {
+	for p, b := range prev {
+		if b == nil {
+			s.root.Remove(p)
+		} else {
+			s.writeFile(p, b)
+		}
+	}
+}
+
+// Chat returns the finding's chat messages (empty when none).
+func (s *Store) Chat(engID, dir string) ([]chat.Message, error) {
+	if !ValidID(engID) || !ValidID(dir) {
+		return nil, ErrNotFound
+	}
+	b, err := s.readFile(chatPath(engID, dir))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if err := s.writeFile(rel, after); err != nil {
-		return err
+	return chat.Parse(b), nil
+}
+
+// ErrInvalidChat wraps rejected chat input.
+var ErrInvalidChat = errors.New("invalid chat message")
+
+// PostChat validates and appends a message as u (one commit). ID, time and
+// user are filled in; the returned message is what was stored.
+func (s *Store) PostChat(engID, dir string, m chat.Message, u config.User) (chat.Message, error) {
+	m.ID, m.TS, m.User, m.Event = chat.NewID(), time.Now().UTC().Truncate(time.Second), u.Username, ""
+	m.Text = strings.TrimSpace(m.Text)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ref, err := s.Finding(engID, dir)
+	if err != nil {
+		return m, err
 	}
-	return s.commit(map[string][]byte{rel: orig}, ref.F.Meta.ID+": "+msg, a, "")
+	if m.Section != "" {
+		if _, ok := ref.F.Section(m.Section); !ok && !slices.Contains(s.cfg.Sections, m.Section) {
+			return m, fmt.Errorf("%w: unknown section %q", ErrInvalidChat, m.Section)
+		}
+	}
+	existing, err := s.Chat(engID, dir)
+	if err != nil {
+		return m, err
+	}
+	if err := chat.Validate(existing, m); err != nil {
+		return m, fmt.Errorf("%w: %v", ErrInvalidChat, err)
+	}
+	kind := "comment"
+	switch {
+	case m.Reply != "":
+		kind = "reply"
+	case m.Resolves != "":
+		kind = "resolve thread"
+	case m.Reopens != "":
+		kind = "reopen thread"
+	}
+	prev := map[string][]byte{}
+	if err := s.appendChat(engID, dir, []chat.Message{m}, prev); err != nil {
+		s.restore(prev)
+		return m, err
+	}
+	return m, s.commit(prev, ref.F.Meta.ID+": "+kind, u.GitAuthor(), "")
 }
 
 // mutateContent is mutate for content edits: a change made while the finding
@@ -389,7 +527,7 @@ type Actor interface{ GitAuthor() gitrepo.Author }
 // Transition applies a workflow action as u (one commit). Permission and
 // gate failures are *workflow.Denied.
 func (s *Store) Transition(engID, dir string, act workflow.Action, reason string, u config.User) error {
-	return s.mutate(engID, dir, AuthorOf(u), func(f *finding.Finding) (string, error) {
+	apply := func(f *finding.Finding) (string, error) {
 		m := f.Meta
 		if err := workflow.CheckWithGate(u, m, act, s.cfg); err != nil {
 			return "", err
@@ -425,6 +563,17 @@ func (s *Store) Transition(engID, dir string, act workflow.Action, reason string
 			set("status", to)
 		}
 		return msg, errors.Join(errs...)
+	}
+	return s.mutateWith(engID, dir, AuthorOf(u), func(f *finding.Finding) (string, []chat.Message, error) {
+		msg, err := apply(f)
+		if err != nil {
+			return "", nil, err
+		}
+		ev := chat.Message{ID: chat.NewID(), TS: time.Now().UTC().Truncate(time.Second), User: u.Username, Event: string(act)}
+		if act == workflow.Return {
+			ev.Text = strings.TrimSpace(reason)
+		}
+		return msg, []chat.Message{ev}, nil
 	})
 }
 
