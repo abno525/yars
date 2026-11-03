@@ -1,0 +1,12 @@
+{{define "content"}}
+<form class="card narrow" method="post" action="/e/{{.Eng.ID}}/findings/new">
+  <h1>New finding</h1>
+  <p class="muted">in <strong>{{.Eng.Name}}</strong></p>
+  {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+  <label>Title <input name="title" value="{{.Form.Get "title"}}" required autofocus></label>
+  <div class="actions">
+    <button class="primary">Create</button>
+    <a class="button" href="/e/{{.Eng.ID}}">Cancel</a>
+  </div>
+</form>
+{{end}}

@@ -1,0 +1,15 @@
+{{define "content"}}
+<form class="card narrow" method="post" action="/engagements/new">
+  <h1>New engagement</h1>
+  {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+  <label>ID <input name="id" value="{{.Form.Get "id"}}" placeholder="2026-11-acme-webapp" pattern="[A-Za-z0-9._\-]+" required autofocus></label>
+  <label>Name <input name="name" value="{{.Form.Get "name"}}" required></label>
+  <label>Client <input name="client" value="{{.Form.Get "client"}}"></label>
+  <label>Start <input name="start" type="date" value="{{.Form.Get "start"}}"></label>
+  <label>End <input name="end" type="date" value="{{.Form.Get "end"}}"></label>
+  <div class="actions">
+    <button class="primary">Create</button>
+    <a class="button" href="/">Cancel</a>
+  </div>
+</form>
+{{end}}

@@ -44,7 +44,7 @@ type link struct {
 }
 
 type panel struct {
-	Name, Anchor, EditURL, SaveURL, Raw string
+	Name, Anchor, EditURL, SaveURL, PreviewURL, Raw string
 	HTML                                template.HTML
 }
 
@@ -285,7 +285,7 @@ func (s *Server) panelFor(ref store.FindingRef, name string) panel {
 		p.HTML = s.renderMD(body)
 	}
 	base := "/e/" + ref.EngID + "/f/" + ref.Dir + "/s/" + url.PathEscape(name)
-	p.EditURL, p.SaveURL = base+"/edit", base
+	p.EditURL, p.SaveURL, p.PreviewURL = base+"/edit", base, "/e/"+ref.EngID+"/preview"
 	return p
 }
 
