@@ -38,6 +38,25 @@ func TestChatPostAndList(t *testing.T) {
 	}
 }
 
+// Replies and resolves only refresh the list, so a draft in the main
+// composer survives; polling must not wipe a half-typed reply.
+func TestThreadActionsKeepComposer(t *testing.T) {
+	e := setup(t)
+	b := e.do(t, "alice", "POST", fpath+"/chat", url.Values{"text": {"root"}}, nil).Body.String()
+	if !strings.Contains(b, `class="reply-form" hx-post="`+fpath+`/chat" hx-target="#chat-list"`) {
+		t.Fatalf("reply form should target the list:\n%s", b)
+	}
+	root := e.chatIDs(t)[0]
+	b = e.do(t, "bob", "POST", fpath+"/chat", url.Values{"text": {"r"}, "reply": {root}}, nil).Body.String()
+	if !strings.HasPrefix(strings.TrimSpace(b), `<div id="chat-list"`) || strings.Contains(b, `id="chat-text"`) {
+		t.Fatalf("reply response should be the list only:\n%s", b)
+	}
+	js := e.do(t, "alice", "GET", "/static/app.js", nil, nil).Body.String()
+	if !strings.Contains(js, "htmx:beforeSwap") || !strings.Contains(js, "chat-list") {
+		t.Fatal("no poll guard for reply drafts")
+	}
+}
+
 func TestChatEscapes(t *testing.T) {
 	e := setup(t)
 	b := e.do(t, "alice", "POST", fpath+"/chat", url.Values{"text": {"look <script>alert(1)</script> here"}}, nil).Body.String()

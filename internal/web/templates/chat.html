@@ -22,6 +22,7 @@
 
 {{define "chat_list"}}
 <div id="chat-list" hx-get="{{.ListURL}}" hx-trigger="every 5s" hx-swap="outerHTML">
+  {{if .ListError}}<p class="error">{{.ListError}}</p>{{end}}
   {{range .Items}}
     {{if .Event}}
     <p class="event"><strong>{{.Event.User}}</strong> {{.Event.What}}{{if .Event.Text}}: <span class="text">{{.Event.Text}}</span>{{end}} <span class="muted">{{.Event.Time}}</span></p>
@@ -29,12 +30,12 @@
     {{if .Resolved}}<details class="thread resolved"><summary>{{.Root.User}}: {{if .Root.Section}}[{{.Root.Section}}] {{end}}<span class="muted">Resolved by {{.ResolvedBy}}</span></summary>{{else}}<div class="thread">{{end}}
       {{template "chat_msg" .Root}}
       {{range .Replies}}<div class="reply">{{template "chat_msg" .}}</div>{{end}}
-      <form class="reply-form" hx-post="{{$.PostURL}}" hx-target="#chat" hx-swap="outerHTML">
+      <form class="reply-form" hx-post="{{$.PostURL}}" hx-target="#chat-list" hx-swap="outerHTML">
         <input type="hidden" name="reply" value="{{.Root.ID}}">
         <input name="text" placeholder="Reply…" aria-label="Reply">
         <button>Reply</button>
       </form>
-      <form hx-post="{{$.PostURL}}" hx-target="#chat" hx-swap="outerHTML">
+      <form hx-post="{{$.PostURL}}" hx-target="#chat-list" hx-swap="outerHTML">
         {{if .Resolved}}<input type="hidden" name="reopens" value="{{.Root.ID}}"><button class="link">Reopen</button>
         {{else}}<input type="hidden" name="resolves" value="{{.Root.ID}}"><button class="link">Resolve</button>{{end}}
       </form>

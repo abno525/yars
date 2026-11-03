@@ -63,6 +63,19 @@ func TestPostChatRejectsBadRefs(t *testing.T) {
 	}
 }
 
+func TestResolveDropsText(t *testing.T) {
+	s, _, fd := newFinding(t)
+	root, _ := s.PostChat(eng, fd, chat.Message{Text: "x"}, uBob)
+	got, err := s.PostChat(eng, fd, chat.Message{Resolves: root.ID, Text: strings.Repeat("A", 50000), Section: "Impact"}, uBob)
+	if err != nil {
+		t.Fatal(err)
+	}
+	msgs, _ := s.Chat(eng, fd)
+	if got.Text != "" || msgs[1].Text != "" || msgs[1].Section != "" {
+		t.Fatalf("resolve kept text (%d chars) / section %q", len(msgs[1].Text), msgs[1].Section)
+	}
+}
+
 func TestPostChatConcurrent(t *testing.T) {
 	s, _, fd := newFinding(t)
 	var wg sync.WaitGroup

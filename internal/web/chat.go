@@ -40,6 +40,7 @@ type chatView struct {
 	ListURL, PostURL     string
 	Sections             []string
 	Error, Text, Section string
+	ListError            string
 }
 
 var eventText = map[string]string{
@@ -120,6 +121,19 @@ func (s *Server) chatPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	v := s.chatFor(ref, msgs)
+	// Thread actions (reply/resolve/reopen) refresh only the list, so a draft
+	// in the main composer is never cleared by them.
+	if m.Reply != "" || m.Resolves != "" || m.Reopens != "" {
+		status := http.StatusOK
+		if errors.Is(err, store.ErrInvalidChat) {
+			status, v.ListError = http.StatusBadRequest, strings.TrimPrefix(err.Error(), store.ErrInvalidChat.Error()+": ")
+		} else if err != nil {
+			s.fail(w, err)
+			return
+		}
+		s.execStatus(w, status, "finding.html", "chat_list", v)
+		return
+	}
 	if errors.Is(err, store.ErrInvalidChat) {
 		v.Error, v.Text, v.Section = strings.TrimPrefix(err.Error(), store.ErrInvalidChat.Error()+": "), m.Text, m.Section
 		s.execStatus(w, http.StatusBadRequest, "finding.html", "chat_panel", v)

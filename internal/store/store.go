@@ -461,6 +461,9 @@ var ErrInvalidChat = errors.New("invalid chat message")
 func (s *Store) PostChat(engID, dir string, m chat.Message, u config.User) (chat.Message, error) {
 	m.ID, m.TS, m.User, m.Event = chat.NewID(), time.Now().UTC().Truncate(time.Second), u.Username, ""
 	m.Text = strings.TrimSpace(m.Text)
+	if m.Resolves != "" || m.Reopens != "" {
+		m.Text, m.Section = "", "" // markers carry no content
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	ref, err := s.Finding(engID, dir)
