@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strings"
 )
@@ -120,6 +121,21 @@ func (r *Repo) ChangedFiles(old, new string) ([]Change, error) {
 		}
 	}
 	return cs, nil
+}
+
+// ListTree returns the entry names directly under dir at rev.
+func (r *Repo) ListTree(rev, dir string) ([]string, error) {
+	out, err := r.run(nil, "ls-tree", "--name-only", "-z", rev, strings.TrimSuffix(dir, "/")+"/")
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	for _, p := range strings.Split(strings.TrimSuffix(out, "\x00"), "\x00") {
+		if p != "" {
+			names = append(names, path.Base(p))
+		}
+	}
+	return names, nil
 }
 
 // Show returns a file's content at a revision.
