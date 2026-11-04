@@ -84,6 +84,28 @@ func TestCreateFindingNumbering(t *testing.T) {
 	}
 }
 
+// Findings are addressed in URLs by number only ("002"); the full directory
+// name still works.
+func TestFindingByNumber(t *testing.T) {
+	s, _ := withEngagement(t)
+	s.CreateFinding("2026-11-acme", "SQL injection in login", alice)
+	s.CreateFinding("2026-11-acme", "Reflected XSS", alice)
+	for _, key := range []string{"002", "2", "F-002-reflected-xss"} {
+		ref, err := s.Finding("2026-11-acme", key)
+		if err != nil || ref.Dir != "F-002-reflected-xss" {
+			t.Errorf("%s: %v %q", key, err, ref.Dir)
+		}
+	}
+	for _, key := range []string{"003", "0", "x2"} {
+		if _, err := s.Finding("2026-11-acme", key); !errors.Is(err, ErrNotFound) {
+			t.Errorf("%s: %v", key, err)
+		}
+	}
+	if ShortID("F-002-reflected-xss") != "002" || ShortID("F-010") != "010" || ShortID("custom-dir") != "custom-dir" {
+		t.Error("ShortID")
+	}
+}
+
 func TestCreateFindingUnknownEngagement(t *testing.T) {
 	s, dir := newStore(t)
 	if _, err := s.CreateFinding("nope", "x", alice); !errors.Is(err, ErrNotFound) {

@@ -79,11 +79,11 @@ func TestSubmitAndClearFlow(t *testing.T) {
 		t.Fatal("not in verification")
 	}
 	b := e.do(t, "bob", "GET", fpath, nil, nil).Body.String()
-	if !strings.Contains(b, fpath+"/action/clear") || !strings.Contains(b, "Return to draft") {
+	if !strings.Contains(b, "/e/acme/f/001/action/clear") || !strings.Contains(b, "Return to draft") {
 		t.Fatalf("bob lacks review actions:\n%s", b)
 	}
 	e.do(t, "bob", "POST", fpath+"/action/clear", url.Values{}, nil)
-	if b := e.do(t, "dora", "GET", fpath, nil, nil).Body.String(); !strings.Contains(b, "bob ✓") || !strings.Contains(b, fpath+"/action/approve") {
+	if b := e.do(t, "dora", "GET", fpath, nil, nil).Body.String(); !strings.Contains(b, "bob ✓") || !strings.Contains(b, "/e/acme/f/001/action/approve") {
 		t.Fatalf("dora page:\n%s", b)
 	}
 	e.do(t, "dora", "POST", fpath+"/action/approve", url.Values{}, nil)
@@ -153,6 +153,26 @@ func TestLockedEditForbidden(t *testing.T) {
 	}
 	if rec := e.do(t, "dora", "GET", fpath+"/s/Impact/edit", nil, nil); rec.Code != 200 {
 		t.Fatalf("director edit code %d", rec.Code)
+	}
+}
+
+// Finding URLs are just the number: /e/acme/f/001.
+func TestShortFindingURLs(t *testing.T) {
+	e := setup(t)
+	if b := e.do(t, "alice", "GET", "/e/acme", nil, nil).Body.String(); !strings.Contains(b, `href="/e/acme/f/001"`) || strings.Contains(b, "/f/F-001") {
+		t.Fatalf("table links not short:\n%s", b)
+	}
+	b := e.do(t, "alice", "GET", "/e/acme/f/001", nil, nil).Body.String()
+	if !strings.Contains(b, "SQL injection") || !strings.Contains(b, `/e/acme/f/001/details/edit`) || strings.Contains(b, "/f/F-001") {
+		t.Fatalf("finding page links not short:\n%s", b)
+	}
+	e.do(t, "alice", "POST", "/e/acme/f/001/reviewers", url.Values{"reviewer": {"bob"}}, nil)
+	e.srv.Store.UpdateSeverity("acme", fdir, "high", "", e.authorOf(wAlice))
+	if rec := e.do(t, "alice", "POST", "/e/acme/f/001/action/submit", nil, nil); rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/e/acme/f/001" {
+		t.Fatalf("submit code %d location %q", rec.Code, rec.Header().Get("Location"))
+	}
+	if rec := e.do(t, "alice", "POST", "/e/acme/findings/new", url.Values{"title": {"XSS"}}, nil); rec.Header().Get("Location") != "/e/acme/f/002" {
+		t.Fatalf("new finding redirect %q", rec.Header().Get("Location"))
 	}
 }
 

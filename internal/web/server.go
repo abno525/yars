@@ -85,7 +85,10 @@ type page struct {
 	Form          url.Values
 }
 
-var funcs = template.FuncMap{"join": strings.Join, "checkedIn": checkedIn, "retestLabel": workflow.RetestLabel}
+var funcs = template.FuncMap{"join": strings.Join, "checkedIn": checkedIn, "retestLabel": workflow.RetestLabel, "fpath": findingURL}
+
+// findingURL is a finding's page: /e/<eng>/f/<number>.
+func findingURL(eng, dir string) string { return "/e/" + eng + "/f/" + store.ShortID(dir) }
 
 func (s *Server) init() {
 	s.md = goldmark.New(goldmark.WithExtensions(extension.GFM))
@@ -349,7 +352,7 @@ func (s *Server) panelFor(ref store.FindingRef, name string) panel {
 	if strings.TrimSpace(body) != "" {
 		p.HTML = s.renderMD(body)
 	}
-	base := "/e/" + ref.EngID + "/f/" + ref.Dir + "/s/" + url.PathEscape(name)
+	base := findingURL(ref.EngID, ref.Dir) + "/s/" + url.PathEscape(name)
 	p.EditURL, p.SaveURL = base+"/edit", base
 	p.PreviewURL = "/e/" + ref.EngID + "/preview?" + url.Values{"f": {ref.Dir}, "s": {name}}.Encode()
 	return p

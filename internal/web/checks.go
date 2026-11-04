@@ -15,7 +15,7 @@ type checksView struct {
 }
 
 func (s *Server) checksFor(r *http.Request, ref store.FindingRef, kinds rules.Kind) checksView {
-	v := checksView{RunURL: "/e/" + ref.EngID + "/f/" + ref.Dir + "/checks", Full: kinds&rules.Slow != 0}
+	v := checksView{RunURL: findingURL(ref.EngID, ref.Dir) + "/checks", Full: kinds&rules.Slow != 0}
 	if s.Rules == nil {
 		return v
 	}

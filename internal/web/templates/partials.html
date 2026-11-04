@@ -14,8 +14,8 @@
     <tbody>
     {{range .Rows}}
       <tr>
-        <td class="fid"><a href="/e/{{.EngID}}/f/{{.Dir}}">{{.ID}}</a></td>
-        <td><a href="/e/{{.EngID}}/f/{{.Dir}}">{{.Title}}</a></td>
+        <td class="fid"><a href="{{fpath .EngID .Dir}}">{{.ID}}</a></td>
+        <td><a href="{{fpath .EngID .Dir}}">{{.Title}}</a></td>
         <td>{{if .Severity}}<span class="pill sev-{{.Severity}}">{{.Severity}}</span>{{end}}</td>
         <td class="fid">{{.Score}}</td>
         <td><span class="pill status-{{.Status}}">{{.Status}}</span></td>

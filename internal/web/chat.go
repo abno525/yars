@@ -83,7 +83,7 @@ func (s *Server) chatMsg(m chat.Message) chatMsg {
 }
 
 func (s *Server) chatFor(ref store.FindingRef, msgs []chat.Message) chatView {
-	base := "/e/" + ref.EngID + "/f/" + ref.Dir + "/chat"
+	base := findingURL(ref.EngID, ref.Dir) + "/chat"
 	v := chatView{Hash: chatHash(msgs), PostURL: base, Sections: s.sectionNames(ref)}
 	v.ListURL = base + "?since=" + v.Hash
 	v.Open, v.BySection = chat.OpenCount(msgs)

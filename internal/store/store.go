@@ -375,9 +375,36 @@ func (s *Store) ListFindings(engID string) ([]FindingRef, error) {
 	return out, nil
 }
 
+var shortRe = regexp.MustCompile(`^F-(\d+)(?:-|$)`)
+
+// ShortID is how a finding appears in URLs: just its number ("001" for
+// F-001-sqli). Directories that don't follow the F-<n> scheme keep their name.
+func ShortID(dir string) string {
+	if m := shortRe.FindStringSubmatch(dir); m != nil {
+		return m[1]
+	}
+	return dir
+}
+
+// Finding loads a finding by directory name or by number ("001" or "1").
 func (s *Store) Finding(engID, dir string) (FindingRef, error) {
 	if !ValidID(engID) || !ValidID(dir) {
 		return FindingRef{}, ErrNotFound
+	}
+	if n, err := strconv.Atoi(dir); err == nil && strings.Trim(dir, "0123456789") == "" {
+		ents, _ := s.readDir(path.Join(engDir(engID), "findings"))
+		dir = ""
+		for _, e := range ents {
+			if m := shortRe.FindStringSubmatch(e.Name()); m != nil && e.IsDir() {
+				if k, _ := strconv.Atoi(m[1]); k == n && n > 0 {
+					dir = e.Name()
+					break
+				}
+			}
+		}
+		if dir == "" {
+			return FindingRef{}, ErrNotFound
+		}
 	}
 	b, err := s.readFile(findingPath(engID, dir))
 	if errors.Is(err, fs.ErrNotExist) {

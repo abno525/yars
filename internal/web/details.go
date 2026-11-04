@@ -30,7 +30,7 @@ func (s *Server) routesDetails(mux *http.ServeMux) {
 // detailsFor builds the view; typed overrides configured row values (by index).
 func (s *Server) detailsFor(ref store.FindingRef, typed map[int]string) detailsView {
 	d := ref.F.Meta.Details
-	base := "/e/" + ref.EngID + "/f/" + ref.Dir + "/details"
+	base := findingURL(ref.EngID, ref.Dir) + "/details"
 	v := detailsView{Base: store.DetailsHash(ref.F.Meta), ViewURL: base, EditURL: base + "/edit", SaveURL: base}
 	known := map[string]bool{}
 	for i, name := range s.Cfg.DetailsRows {

@@ -14,7 +14,7 @@ import (
 func TestCreateFindingFlow(t *testing.T) {
 	e := setup(t)
 	rec := e.do(t, "alice", "POST", "/e/acme/findings/new", url.Values{"title": {"Reflected XSS"}}, nil)
-	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/e/acme/f/F-002-reflected-xss" {
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/e/acme/f/002" {
 		t.Fatalf("code %d loc %q", rec.Code, rec.Header().Get("Location"))
 	}
 	if got := e.lastCommit(t); got != "alice|F-002: create" {

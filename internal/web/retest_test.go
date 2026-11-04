@@ -49,7 +49,7 @@ func TestRetestPanel(t *testing.T) {
 	}
 	p := "/e/rt/f/F-001-sql-injection"
 	b := e.do(t, "alice", "GET", p, nil, nil).Body.String()
-	if !strings.Contains(b, `id="retest"`) || !strings.Contains(b, `href="/e/acme/f/F-001-sql-injection"`) {
+	if !strings.Contains(b, `id="retest"`) || !strings.Contains(b, `href="/e/acme/f/001"`) {
 		t.Fatalf("retest panel missing:\n%s", b)
 	}
 	rec := e.do(t, "alice", "POST", p+"/retest", url.Values{"result": {"partially_fixed"}}, nil)

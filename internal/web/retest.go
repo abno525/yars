@@ -40,9 +40,9 @@ func (s *Server) retestFor(r *http.Request, ref store.FindingRef) *retestView {
 	if rt == nil {
 		return nil
 	}
-	v := &retestView{Result: rt.Result, Source: rt.Source, URL: "/e/" + ref.EngID + "/f/" + ref.Dir + "/retest", Locked: s.locked(r, ref)}
+	v := &retestView{Result: rt.Result, Source: rt.Source, URL: findingURL(ref.EngID, ref.Dir) + "/retest", Locked: s.locked(r, ref)}
 	if eng, dir, ok := strings.Cut(rt.Source, "/"); ok {
-		v.SourceURL = "/e/" + eng + "/f/" + dir
+		v.SourceURL = findingURL(eng, dir)
 		if src, err := s.Store.Finding(eng, dir); err == nil {
 			v.SourceStatus = src.F.Meta.Status
 			v.SourceSev = src.F.Meta.Severity

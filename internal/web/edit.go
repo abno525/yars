@@ -98,7 +98,7 @@ func (s *Server) newFinding(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	http.Redirect(w, r, "/e/"+eng+"/f/"+ref.Dir, http.StatusSeeOther)
+	http.Redirect(w, r, findingURL(eng, ref.Dir), http.StatusSeeOther)
 }
 
 // sectionRef loads the finding and validates that the section is either

@@ -55,7 +55,7 @@ func TestResolvedThreadShowsComment(t *testing.T) {
 func TestThreadActionsKeepComposer(t *testing.T) {
 	e := setup(t)
 	b := e.do(t, "alice", "POST", fpath+"/chat", url.Values{"text": {"root"}}, nil).Body.String()
-	if !strings.Contains(b, `class="reply-form" hx-post="`+fpath+`/chat" hx-target="#chat-list"`) {
+	if !strings.Contains(b, `class="reply-form" hx-post="/e/acme/f/001/chat" hx-target="#chat-list"`) {
 		t.Fatalf("reply form should target the list:\n%s", b)
 	}
 	root := e.chatIDs(t)[0]

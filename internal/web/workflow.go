@@ -48,7 +48,7 @@ func (s *Server) routesWorkflow(mux *http.ServeMux) {
 func (s *Server) wfFor(ref store.FindingRef, r *http.Request) wfView {
 	u := auth.UserFrom(r.Context())
 	m := ref.F.Meta
-	base := "/e/" + ref.EngID + "/f/" + ref.Dir
+	base := findingURL(ref.EngID, ref.Dir)
 	v := wfView{Status: m.Status, Steps: workflow.Statuses, CanAssign: workflow.CanAssign(u, m),
 		ReviewersURL: base + "/reviewers", Returned: m.Returned}
 	for _, n := range m.Reviewers {
@@ -91,7 +91,7 @@ func (s *Server) wfDone(w http.ResponseWriter, r *http.Request, err error) {
 	var d *workflow.Denied
 	switch {
 	case err == nil:
-		http.Redirect(w, r, "/e/"+r.PathValue("eng")+"/f/"+r.PathValue("fid"), http.StatusSeeOther)
+		http.Redirect(w, r, findingURL(r.PathValue("eng"), r.PathValue("fid")), http.StatusSeeOther)
 	case errors.As(err, &d):
 		s.renderFinding(w, r, http.StatusBadRequest, d.Reason)
 	default:
@@ -105,7 +105,11 @@ func (s *Server) wfAction(w http.ResponseWriter, r *http.Request) {
 		s.renderFinding(w, r, http.StatusBadRequest, "unknown action")
 		return
 	}
-	err := s.Store.Transition(r.PathValue("eng"), r.PathValue("fid"), act, r.FormValue("reason"), auth.UserFrom(r.Context()))
+	ref, ok := s.cvssRef(w, r)
+	if !ok {
+		return
+	}
+	err := s.Store.Transition(ref.EngID, ref.Dir, act, r.FormValue("reason"), auth.UserFrom(r.Context()))
 	s.wfDone(w, r, err)
 }
 

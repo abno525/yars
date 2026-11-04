@@ -52,7 +52,7 @@ func (s *Server) routesCVSS(mux *http.ServeMux) {
 // buildCVSS renders sel (selected metric values) and reasons into a view.
 func (s *Server) buildCVSS(ref store.FindingRef, sel cvss.Vector, reasons map[string]string) cvssView {
 	m := ref.F.Meta
-	base := "/e/" + ref.EngID + "/f/" + ref.Dir
+	base := findingURL(ref.EngID, ref.Dir)
 	v := cvssView{
 		Base: store.CVSSHash(m), SevBase: store.SeverityHash(m), Severity: cvss.Derive(m.CVSS, m.Severity), Severities: s.Cfg.Severities,
 		ViewURL: base + "/cvss", EditURL: base + "/cvss/edit", CalcURL: base + "/cvss/calc",
