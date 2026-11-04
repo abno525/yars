@@ -29,6 +29,9 @@ type Server struct {
 	Auth *auth.Auth
 	// HookCmd is the command line the pre-receive hook execs (empty = no hook).
 	HookCmd string
+	// InheritEnv names extra environment variables passed to git and the
+	// hook (e.g. the AI key variable, so AI rules also run on pushes).
+	InheritEnv []string
 
 	mu    sync.Mutex
 	cache map[string]cached
@@ -41,21 +44,25 @@ type cached struct {
 
 // Setup configures the repo for pushes and (re)writes the pre-receive hook.
 func (s *Server) Setup() error {
+	gd, err := s.Repo.GitDir()
+	if err != nil {
+		return err
+	}
+	hooks := filepath.Join(gd, "hooks")
 	for k, v := range map[string]string{
 		"http.receivepack":            "true",
 		"receive.denyCurrentBranch":   "updateInstead",
 		"receive.denyNonFastForwards": "true",
 		"receive.denyDeletes":         "true",
+		"receive.fsckObjects":         "true",
+		// a global/system core.hooksPath would silently skip our hook
+		"core.hooksPath": hooks,
 	} {
 		if err := s.Repo.SetConfig(k, v); err != nil {
 			return err
 		}
 	}
-	gd, err := s.Repo.GitDir()
-	if err != nil {
-		return err
-	}
-	hook := filepath.Join(gd, "hooks", "pre-receive")
+	hook := filepath.Join(hooks, "pre-receive")
 	if s.HookCmd == "" {
 		return nil
 	}
@@ -99,8 +106,12 @@ func (s *Server) Handler() http.Handler {
 			return
 		}
 		name, pw, ok := r.BasicAuth()
-		u, valid := s.check(name, pw)
-		if !ok || !valid {
+		var u config.User
+		valid := false
+		if ok { // no bcrypt for requests without credentials
+			u, valid = s.check(name, pw)
+		}
+		if !valid {
 			w.Header().Set("WWW-Authenticate", `Basic realm="yars", charset="UTF-8"`)
 			http.Error(w, "authentication required", http.StatusUnauthorized)
 			return
@@ -121,8 +132,17 @@ func (s *Server) Handler() http.Handler {
 				fmt.Sprintf("GIT_COMMITTER_NAME=%s", u.Username),
 				"GIT_COMMITTER_EMAIL=" + u.GitAuthor().Email,
 			},
-			InheritEnv: []string{"PATH", "HOME", "TMPDIR"},
+			InheritEnv: s.inherit(),
 		}
-		h.ServeHTTP(w, r)
+		// the identity travels as REMOTE_USER; don't leak the password into
+		// the environment of git and the hook (HTTP_AUTHORIZATION)
+		r2 := r.Clone(r.Context())
+		r2.Header.Del("Authorization")
+		h.ServeHTTP(w, r2)
 	})
+}
+
+func (s *Server) inherit() []string {
+	env := []string{"PATH", "HOME", "TMPDIR", "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "https_proxy", "http_proxy", "no_proxy"}
+	return append(env, s.InheritEnv...)
 }

@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -80,6 +81,20 @@ func TestAuthRequired(t *testing.T) {
 	}
 }
 
+func TestSetupHardening(t *testing.T) {
+	_, r := setup(t)
+	for k, want := range map[string]string{"receive.fsckObjects": "true", "core.hooksPath": filepath.Join(r.Dir, ".git", "hooks")} {
+		out, err := exec.Command("git", "-C", r.Dir, "config", "--local", k).Output()
+		if got := strings.TrimSpace(string(out)); err != nil || got != want {
+			t.Errorf("%s = %q, want %q", k, got, want)
+		}
+	}
+	gs := &Server{Repo: r, InheritEnv: []string{"YARS_AI_KEY"}}
+	if env := gs.inherit(); !slices.Contains(env, "YARS_AI_KEY") || !slices.Contains(env, "HTTPS_PROXY") {
+		t.Errorf("inherited env %v", env)
+	}
+}
+
 func TestCloneAndPush(t *testing.T) {
 	srv, r := setup(t)
 	dst := filepath.Join(t.TempDir(), "clone")
@@ -92,6 +107,9 @@ func TestCloneAndPush(t *testing.T) {
 		t.Fatal("clone lacks engagement")
 	}
 	os.WriteFile(filepath.Join(dst, "engagements", "acme", "notes.txt"), []byte("hi\n"), 0o644)
+	if s, _ := exec.Command("git", "-C", r.Dir, "config", "core.hooksPath").Output(); len(s) == 0 {
+		t.Fatal("hooksPath not set")
+	}
 	gitCmd(t, dst, "add", "-A")
 	gitCmd(t, dst, "commit", "-qm", "note")
 	before, _ := r.Head()

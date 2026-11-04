@@ -35,15 +35,19 @@ type Checker struct {
 
 func manager(u config.User) bool { return u.Role == "director" || u.Role == "admin" }
 
-// Check returns the problems with a push by username (empty = accept).
-func (c *Checker) Check(username string, ups []Update) []string {
-	var u config.User
+func (c *Checker) user(name string) (config.User, bool) {
 	for _, x := range c.Users {
-		if x.Username == username {
-			u = x
+		if x.Username == name {
+			return x, true
 		}
 	}
-	if u.Username == "" {
+	return config.User{}, false
+}
+
+// Check returns the problems with a push by username (empty = accept).
+func (c *Checker) Check(username string, ups []Update) []string {
+	u, ok := c.user(username)
+	if !ok {
 		return []string{"unknown user " + username}
 	}
 	branch, err := c.Repo.CurrentBranch()
@@ -63,6 +67,18 @@ func (c *Checker) Check(username string, ups []Update) []string {
 		old := up.Old
 		if old == zero {
 			old = ""
+		}
+		// every pushed commit must be authored as the pusher (audit trail)
+		authors, err := c.Repo.Authors(old, up.New)
+		if err != nil {
+			ps = append(ps, "server: "+err.Error())
+			continue
+		}
+		want := u.GitAuthor()
+		for _, a := range authors {
+			if a.Email != want.Email && a.Name != u.Username {
+				ps = append(ps, fmt.Sprintf("commit %.8s is authored by %s <%s>; commit as yourself (git config user.email %s)", a.Hash, a.Name, a.Email, want.Email))
+			}
 		}
 		changes, err := c.Repo.ChangedFiles(old, up.New)
 		if err != nil {
@@ -86,36 +102,68 @@ func (c *Checker) show(rev, path string) ([]byte, bool) {
 	return b, err == nil
 }
 
+const outsideMsg = "not allowed here; findings must live under engagements/<engagement>/findings/<finding>/"
+
 // file checks one changed path.
 func (c *Checker) file(u config.User, old, new string, ch gitrepo.Change) []string {
 	p := ch.Path
 	seg := strings.Split(p, "/")
+	if ch.Status != 'D' && ch.Mode != "100644" && ch.Mode != "100755" {
+		return []string{"only regular files are allowed (no symlinks or submodules)"}
+	}
+	for i, s := range seg {
+		if strings.HasPrefix(strings.ToLower(s), ".git") && !(i == 0 && p == ".gitattributes") {
+			return []string{"git control files are not allowed here"}
+		}
+	}
 	switch {
+	case p == ".yars/users.yaml":
+		return []string{"users are managed on the server (yars useradd), not in git"}
 	case seg[0] == ".yars":
 		if !manager(u) {
-			return []string{"only a director or admin can change .yars (config, users, rules)"}
+			return []string{"only a director or admin can change .yars (config, rules)"}
 		}
 		return nil
-	case p == ".gitattributes" || p == "README.md" || p == "engagements/.gitkeep":
+	case p == ".gitattributes":
+		if !manager(u) {
+			return []string{"only a director or admin can change .gitattributes"}
+		}
+		return nil
+	case p == "README.md" || p == "engagements/.gitkeep" || p == ".gitignore":
+		if p == ".gitignore" && !manager(u) {
+			return []string{"only a director or admin can change .gitignore"}
+		}
 		return nil
 	case len(seg) < 3 || seg[0] != "engagements" || !store.ValidID(seg[1]):
-		return []string{"not allowed here; findings must live under engagements/<engagement>/findings/<finding>/"}
+		return []string{outsideMsg}
 	case len(seg) == 3 && seg[2] == "engagement.yaml":
 		if !manager(u) {
 			return []string{"only a director or admin can create or change engagements"}
 		}
 		return nil
-	case len(seg) >= 5 && seg[2] == "findings" && store.ValidID(seg[3]):
+	}
+	// everything else lives inside an existing engagement and finding
+	if _, ok := c.show(new, "engagements/"+seg[1]+"/engagement.yaml"); !ok && ch.Status != 'D' {
+		return []string{"engagement " + seg[1] + " does not exist (a director creates engagements)"}
+	}
+	if len(seg) >= 5 && seg[2] == "findings" && store.ValidID(seg[3]) {
+		fp := strings.Join(seg[:4], "/") + "/finding.md"
 		switch {
 		case len(seg) == 5 && seg[4] == "finding.md":
 			return c.findingFile(u, old, new, ch, seg[1], seg[3])
 		case len(seg) == 5 && seg[4] == "chat.jsonl":
-			return c.chatFile(u, old, new, p)
+			if _, ok := c.show(new, fp); !ok && ch.Status != 'D' {
+				return []string{"chat for a finding that does not exist"}
+			}
+			return c.chatFile(u, old, new, p, fp)
 		case len(seg) >= 6 && seg[4] == "attachments":
+			if _, ok := c.show(new, fp); !ok && ch.Status != 'D' {
+				return []string{"attachment for a finding that does not exist"}
+			}
 			return nil
 		}
 	}
-	return []string{"not allowed here; findings must live under engagements/<engagement>/findings/<finding>/"}
+	return []string{outsideMsg}
 }
 
 func parse(b []byte) (*finding.Finding, []string) {
@@ -132,6 +180,41 @@ func parse(b []byte) (*finding.Finding, []string) {
 	return f, ps
 }
 
+// reviewersOK checks that every reviewer not already assigned is a real
+// reviewer/director account other than the author, without duplicates.
+func (c *Checker) reviewersOK(n finding.Meta, old []string) []string {
+	var ps []string
+	seen := map[string]bool{}
+	for _, r := range n.Reviewers {
+		if seen[r] {
+			ps = append(ps, "duplicate reviewer "+r)
+		}
+		seen[r] = true
+		if slices.Contains(old, r) {
+			continue
+		}
+		ru, ok := c.user(r)
+		if !ok || !workflow.ReviewerCandidate(ru, n) {
+			ps = append(ps, "reviewer "+r+" must be an existing reviewer or director account other than the author")
+		}
+	}
+	return ps
+}
+
+func (c *Checker) severityOK(n finding.Meta) []string {
+	if n.Severity != "" && !slices.Contains(c.Cfg.Severities, n.Severity) {
+		return []string{"unknown severity " + n.Severity}
+	}
+	return nil
+}
+
+// sameExceptClearances reports whether two versions differ only in cleared_by.
+func sameExceptClearances(o, n *finding.Finding) bool {
+	om, nm := o.Meta, n.Meta
+	om.ClearedBy, nm.ClearedBy = nil, nil
+	return reflect.DeepEqual(om, nm) && reflect.DeepEqual(o.Sections, n.Sections) && o.Preamble == n.Preamble
+}
+
 func (c *Checker) findingFile(u config.User, old, new string, ch gitrepo.Change, eng, dir string) []string {
 	if ch.Status == 'D' {
 		if !manager(u) {
@@ -145,11 +228,25 @@ func (c *Checker) findingFile(u config.User, old, new string, ch gitrepo.Change,
 		return ps
 	}
 	n := nf.Meta
+	ps = append(ps, c.severityOK(n)...)
 	ob, existed := c.show(old, ch.Path)
-	if !existed || ch.Status == 'A' {
+	if !existed {
+		// a new finding carries no workflow state
 		if n.Status != "draft" {
 			ps = append(ps, "a new finding must start as draft")
 		}
+		if n.Author != u.Username {
+			if _, ok := c.user(n.Author); !manager(u) || !ok {
+				ps = append(ps, "author must be you ("+u.Username+")")
+			}
+		}
+		if len(n.ClearedBy) > 0 {
+			ps = append(ps, "a new finding cannot have cleared_by")
+		}
+		if n.Returned != nil {
+			ps = append(ps, "a new finding cannot have returned")
+		}
+		ps = append(ps, c.reviewersOK(n, nil)...)
 		if n.ID == "" || !(dir == n.ID || strings.HasPrefix(dir, n.ID+"-")) {
 			ps = append(ps, fmt.Sprintf("id %s does not match the directory %s", n.ID, dir))
 		}
@@ -164,7 +261,10 @@ func (c *Checker) findingFile(u config.User, old, new string, ch gitrepo.Change,
 	}
 	of, _ := parse(ob)
 	if of == nil {
-		return ps // old version was broken; accept a parseable fix
+		if !manager(u) {
+			return append(ps, "the server copy cannot be parsed; only a director can repair it")
+		}
+		return ps
 	}
 	o := of.Meta
 	if bytes.Equal(ob, nb) {
@@ -179,8 +279,16 @@ func (c *Checker) findingFile(u config.User, old, new string, ch gitrepo.Change,
 	if n.Author != o.Author {
 		ps = append(ps, "author cannot change")
 	}
-	if !slices.Equal(n.Reviewers, o.Reviewers) && !workflow.CanAssign(u, o) {
-		ps = append(ps, "only the author or a director can change reviewers")
+	if !slices.Equal(n.Reviewers, o.Reviewers) {
+		if !workflow.CanAssign(u, o) {
+			ps = append(ps, "only the author or a director can change reviewers")
+		}
+		ps = append(ps, c.reviewersOK(n, o.Reviewers)...)
+	}
+	for _, x := range n.ClearedBy {
+		if !slices.Contains(n.Reviewers, x) {
+			ps = append(ps, "cleared_by lists "+x+", who is not a reviewer")
+		}
 	}
 	var act workflow.Action
 	if n.Status != o.Status {
@@ -200,12 +308,27 @@ func (c *Checker) findingFile(u config.User, old, new string, ch gitrepo.Change,
 			if g := workflow.Gate(n, c.Cfg); len(g) > 0 {
 				ps = append(ps, "cannot "+strings.ToLower(workflow.Label(act))+": "+strings.Join(g, "; "))
 			}
-		}
-		if workflow.Gated(act) && c.Linter != nil {
-			if errs := rules.Errors(c.Linter.Lint(context.Background(), nf, rules.All)); len(errs) > 0 {
-				ps = append(ps, "rules: "+strings.Join(errs, "; "))
+			if c.Linter != nil {
+				if errs := rules.Errors(c.Linter.Lint(context.Background(), nf, rules.All)); len(errs) > 0 {
+					ps = append(ps, "rules: "+strings.Join(errs, "; "))
+				}
 			}
 		}
+		switch act {
+		case workflow.Submit, workflow.Reopen, workflow.Return:
+			if len(n.ClearedBy) > 0 {
+				ps = append(ps, "cleared_by must be emptied when the finding goes back for review")
+			}
+		}
+		if act == workflow.Submit && n.Returned != nil {
+			ps = append(ps, "remove returned when resubmitting")
+		}
+		if act == workflow.Return && (n.Returned == nil || n.Returned.By != u.Username || strings.TrimSpace(n.Returned.Reason) == "") {
+			ps = append(ps, "a return needs returned: {by: "+u.Username+", reason: <why>}")
+		}
+	}
+	if n.Returned != nil && !reflect.DeepEqual(n.Returned, o.Returned) && act != workflow.Return {
+		ps = append(ps, "returned may only be set when you return the finding to draft with a reason")
 	}
 	// clearances: only the pusher may add themselves, through a legitimate clear
 	var added []string
@@ -215,30 +338,38 @@ func (c *Checker) findingFile(u config.User, old, new string, ch gitrepo.Change,
 		}
 	}
 	if len(added) > 0 {
-		if len(added) != 1 || added[0] != u.Username {
-			ps = append(ps, "cleared_by may only gain your own name")
+		if len(added) != 1 || added[0] != u.Username || act != "" {
+			ps = append(ps, "cleared_by may only gain your own name, through a clear")
 		} else if err := workflow.Check(u, o, workflow.Clear); err != nil {
 			ps = append(ps, "cleared_by: "+err.Error())
 		}
 	}
-	if n.Returned != nil && !reflect.DeepEqual(n.Returned, o.Returned) {
-		if act != workflow.Return || n.Returned.By != u.Username || strings.TrimSpace(n.Returned.Reason) == "" {
-			ps = append(ps, "returned may only be set when you return the finding to draft with a reason")
+	// any other change during review drops all clearances (as on the web)
+	if o.Status == "verification" && n.Status == "verification" && len(n.ClearedBy) > 0 {
+		if !sameExceptClearances(of, nf) {
+			ps = append(ps, "cleared_by must be emptied when the finding changes during review")
 		}
 	}
 	return ps
 }
 
-func (c *Checker) chatFile(u config.User, old, new, path string) []string {
+func (c *Checker) chatFile(u config.User, old, new, path, findingPath string) []string {
 	ob, _ := c.show(old, path)
 	nb, ok := c.show(new, path)
 	if !ok {
+		if _, fok := c.show(new, findingPath); !fok && manager(u) {
+			return nil // a director deleting the whole finding
+		}
 		return []string{"chat history cannot be deleted"}
+	}
+	if len(ob) > 0 && !bytes.HasSuffix(ob, []byte("\n")) {
+		return []string{"chat is append-only; the server copy must end with a newline"}
 	}
 	if !bytes.HasPrefix(nb, ob) {
 		return []string{"chat is append-only; existing lines cannot change"}
 	}
 	var ps []string
+	existing := chat.Parse(ob)
 	for _, m := range chat.Parse(nb[len(ob):]) {
 		if m.User != u.Username {
 			ps = append(ps, "message "+m.ID+" is from "+m.User+"; you can only add your own messages")
@@ -246,6 +377,10 @@ func (c *Checker) chatFile(u config.User, old, new, path string) []string {
 		if m.Event != "" {
 			ps = append(ps, "message "+m.ID+": workflow events can't be pushed")
 		}
+		if err := chat.Validate(existing, m); err != nil {
+			ps = append(ps, "message "+m.ID+": "+err.Error())
+		}
+		existing = append(existing, m)
 	}
 	return ps
 }

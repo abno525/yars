@@ -37,8 +37,7 @@ func newPushEnv(t *testing.T) *pushEnv {
 	r, _ := gitrepo.Open(dir)
 	hash, _ := auth.HashPassword("pw")
 	users := []config.User{{Username: "alice", Role: "pentester", PasswordHash: hash}, {Username: "dora", Role: "director", PasswordHash: hash}}
-	config.SaveUsers(dir, users)
-	r.Commit([]string{".yars/users.yaml"}, "users", system)
+	config.SaveUsers(dir, users) // untracked: stays on the server
 	st := store.New(r, config.Default())
 	alice := users[0]
 	st.CreateEngagement(store.Engagement{ID: "acme", Name: "ACME"}, users[1].GitAuthor())

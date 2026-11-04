@@ -12,6 +12,39 @@ import (
 	"yars/internal/store"
 )
 
+// Password hashes must never be cloneable: users.yaml stays untracked, and
+// older repos that tracked it are migrated at serve start.
+func TestUsersNotTracked(t *testing.T) {
+	dir := t.TempDir()
+	if err := cmdInit([]string{dir}); err != nil {
+		t.Fatal(err)
+	}
+	r, _ := gitrepo.Open(dir)
+	if r.Tracked(".yars/users.yaml") {
+		t.Fatal("init tracks users.yaml")
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, ".gitignore")); !strings.Contains(string(b), ".yars/users.yaml") {
+		t.Fatal(".gitignore lacks users.yaml")
+	}
+	// legacy repo: users.yaml committed
+	old, _ := gitrepo.Init(t.TempDir())
+	os.MkdirAll(filepath.Join(old.Dir, ".yars"), 0o755)
+	os.WriteFile(filepath.Join(old.Dir, ".yars", "users.yaml"), []byte("[]\n"), 0o600)
+	old.Commit([]string{".yars/users.yaml"}, "legacy", system)
+	if err := untrackUsers(old); err != nil {
+		t.Fatal(err)
+	}
+	if old.Tracked(".yars/users.yaml") {
+		t.Fatal("still tracked after migration")
+	}
+	if _, err := os.Stat(filepath.Join(old.Dir, ".yars", "users.yaml")); err != nil {
+		t.Fatal("users.yaml removed from disk")
+	}
+	if err := untrackUsers(old); err != nil {
+		t.Fatalf("second run: %v", err)
+	}
+}
+
 func TestLintCommand(t *testing.T) {
 	dir := t.TempDir()
 	if err := cmdInit([]string{dir}); err != nil {

@@ -42,3 +42,13 @@ Small issues found by the end-of-milestone reviews and deliberately left for the
 - Script timeout kills only the direct child; grandchildren survive (use a process group).
 - No test for a symlink pointing outside the rules dir; problems for a rule without an id have an empty rule field.
 - Error-level AI rules can flip between runs (LLM variance, in-memory cache only); prompt injection in finding text can pass an AI rule.
+
+## M6 Git
+- Old repos still have password hashes in their git history (users.yaml is untracked from now on; rewrite history if that matters).
+- Credential cache: a removed/re-passworded user keeps fetch access until restart; expired entries are never purged.
+- Hook ignores scanner errors / malformed stdin lines (should fail closed).
+- Intermediate commits of a push aren't path-checked (only authorship and the final tree).
+- Git prints "warning: redirecting to …/git/yars/" (an extra round trip); serve the no-slash form directly.
+- `TestPushForceRejected` doesn't assert the rejection reason; no end-to-end tests for branch delete or tags.
+- A dirty server working tree blocks every push ("unstaged changes") — needs an operator note/log line.
+- No rate limit on failed git Basic auth.

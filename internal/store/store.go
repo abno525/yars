@@ -65,6 +65,23 @@ type Store struct {
 	// Linter, when set, runs the style rules; error-level violations block
 	// submit and approve.
 	Linter Linter
+
+	beforeWrite func() // test hook: runs between reading and writing
+}
+
+// errMoved is returned when HEAD moved (e.g. a git push landed) between
+// reading a finding and writing it; the caller should reload and retry.
+var errMoved = fmt.Errorf("%w: the repository changed meanwhile (a push arrived); reload and try again", ErrConflict)
+
+// unmoved reports whether HEAD is still head0.
+func (s *Store) unmoved(head0 string) error {
+	if s.beforeWrite != nil {
+		s.beforeWrite()
+	}
+	if h, err := s.repo.Head(); err != nil || h != head0 {
+		return errMoved
+	}
+	return nil
 }
 
 type Linter interface {
@@ -355,6 +372,7 @@ func (s *Store) mutate(engID, dir string, a gitrepo.Author, fn func(f *finding.F
 func (s *Store) mutateWith(engID, dir string, a gitrepo.Author, fn func(f *finding.Finding) (string, []chat.Message, error)) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	head0, _ := s.repo.Head()
 	ref, err := s.Finding(engID, dir)
 	if err != nil {
 		return err
@@ -367,6 +385,9 @@ func (s *Store) mutateWith(engID, dir string, a gitrepo.Author, fn func(f *findi
 	after := ref.F.Bytes()
 	if string(before) == string(after) && len(add) == 0 {
 		return nil
+	}
+	if err := s.unmoved(head0); err != nil {
+		return err
 	}
 	prev := map[string][]byte{}
 	if string(before) != string(after) {
@@ -476,6 +497,7 @@ func (s *Store) PostChat(engID, dir string, m chat.Message, u config.User) (chat
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	head0, _ := s.repo.Head()
 	ref, err := s.Finding(engID, dir)
 	if err != nil {
 		return m, err
@@ -500,6 +522,9 @@ func (s *Store) PostChat(engID, dir string, m chat.Message, u config.User) (chat
 		kind = "resolve thread"
 	case m.Reopens != "":
 		kind = "reopen thread"
+	}
+	if err := s.unmoved(head0); err != nil {
+		return m, err
 	}
 	prev := map[string][]byte{}
 	if err := s.appendChat(engID, dir, []chat.Message{m}, prev); err != nil {

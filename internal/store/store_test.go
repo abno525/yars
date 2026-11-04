@@ -229,6 +229,27 @@ func TestDotIDRejected(t *testing.T) {
 	}
 }
 
+// A push (or any external commit) landing while a web edit is being
+// prepared must not be overwritten by that edit.
+func TestWriteAbortsIfRepoMoved(t *testing.T) {
+	s, dir := withEngagement(t)
+	f, _ := s.CreateFinding("2026-11-acme", "SQL injection", alice)
+	s.beforeWrite = func() {
+		os.WriteFile(filepath.Join(dir, "README.md"), []byte("pushed\n"), 0o644)
+		git(t, dir, "add", "README.md")
+		git(t, dir, "-c", "user.name=x", "-c", "user.email=x@x", "commit", "-qm", "push")
+	}
+	err := s.UpdateSection("2026-11-acme", f.Dir, "Impact", "web text", "", bob)
+	if !errors.Is(err, ErrConflict) {
+		t.Fatalf("err %v", err)
+	}
+	s.beforeWrite = nil
+	ref, _ := s.Finding("2026-11-acme", f.Dir)
+	if b, _ := ref.F.Section("Impact"); strings.Contains(b, "web text") {
+		t.Fatal("stale write landed")
+	}
+}
+
 func TestUpdateSectionUnchangedIsNoop(t *testing.T) {
 	s, dir := withEngagement(t)
 	f, _ := s.CreateFinding("2026-11-acme", "SQL injection", alice)

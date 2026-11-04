@@ -37,6 +37,32 @@ var system = gitrepo.Author{Name: "yars", Email: "yars@yars.local"}
 //go:embed rules_example.yaml
 var exampleRules []byte
 
+const usersIgnore = "# password hashes stay on the server\n.yars/users.yaml\n"
+
+// untrackUsers makes sure .yars/users.yaml is ignored and not tracked, so a
+// clone never carries password hashes (older repos committed it; their
+// history still does — rewrite it if that matters).
+func untrackUsers(r *gitrepo.Repo) error {
+	gi := filepath.Join(r.Dir, ".gitignore")
+	b, _ := os.ReadFile(gi)
+	if !strings.Contains(string(b), ".yars/users.yaml") {
+		next := string(b)
+		if next != "" && !strings.HasSuffix(next, "\n") {
+			next += "\n"
+		}
+		if err := os.WriteFile(gi, []byte(next+usersIgnore), 0o644); err != nil {
+			return err
+		}
+		if err := r.Commit([]string{".gitignore"}, "ignore users.yaml (password hashes stay on the server)", system); err != nil {
+			return err
+		}
+	}
+	if r.Tracked(".yars/users.yaml") {
+		return r.Untrack(".yars/users.yaml", "stop tracking users.yaml (password hashes stay on the server)", system)
+	}
+	return nil
+}
+
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
 
 // hookCmd is the command line the git pre-receive hook execs.
@@ -219,7 +245,7 @@ func cmdInit(args []string) error {
 	}
 	files := map[string][]byte{
 		config.ConfigPath(dir):                         b,
-		config.UsersPath(dir):                          []byte("[]\n"),
+		filepath.Join(dir, ".gitignore"):               []byte(usersIgnore),
 		filepath.Join(dir, "engagements", ".gitkeep"):  nil,
 		filepath.Join(rules.DirFor(dir), "style.yaml"): exampleRules,
 	}
@@ -228,7 +254,11 @@ func cmdInit(args []string) error {
 			return err
 		}
 	}
-	if err := r.Commit([]string{".yars", "engagements"}, "init", system); err != nil {
+	// users.yaml holds password hashes: kept on the server only, never in git
+	if err := config.SaveUsers(dir, []config.User{}); err != nil {
+		return err
+	}
+	if err := r.Commit([]string{".yars/config.yaml", ".yars/rules", ".gitignore", "engagements"}, "init", system); err != nil {
 		return err
 	}
 	fmt.Println("initialised", dir)
@@ -279,7 +309,7 @@ func cmdUseradd(args []string) error {
 	if err := config.SaveUsers(r.Dir, users); err != nil {
 		return err
 	}
-	if err := r.Commit([]string{".yars/users.yaml"}, "user "+name+": add", system); err != nil {
+	if err := untrackUsers(r); err != nil {
 		return err
 	}
 	fmt.Fprintln(os.Stderr, "\nadded", name, "as", *role)
@@ -314,7 +344,13 @@ func cmdServe(args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := untrackUsers(r); err != nil {
+		return fmt.Errorf("untrack users.yaml: %w", err)
+	}
 	gs := &gitserve.Server{Repo: r, Auth: au, HookCmd: hookCmd(exe, r.Dir)}
+	if cfg.AI.APIKeyEnv != "" {
+		gs.InheritEnv = []string{cfg.AI.APIKeyEnv} // AI rules run on pushes too
+	}
 	if err := gs.Setup(); err != nil {
 		return fmt.Errorf("git setup: %w", err)
 	}

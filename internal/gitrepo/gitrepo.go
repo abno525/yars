@@ -99,8 +99,9 @@ func (r *Repo) CurrentBranch() (string, error) {
 
 // Change is one entry of a tree diff.
 type Change struct {
-	Status byte // A, M, D (renames/copies are reported as D+A)
-	Path   string
+	Status byte   // A, M, D, T (renames/copies are reported as D+A)
+	Path   string //
+	Mode   string // new file mode (e.g. 100644, 120000 for symlinks); 000000 when deleted
 }
 
 // ChangedFiles lists files that differ between two commits. An empty old
@@ -109,18 +110,59 @@ func (r *Repo) ChangedFiles(old, new string) ([]Change, error) {
 	if old == "" {
 		old = "4b825dc642cb6eb9a060e54bf8d69288fbee4904" // empty tree
 	}
-	out, err := r.run(nil, "diff", "--no-renames", "--name-status", "-z", old, new)
+	out, err := r.run(nil, "diff", "--no-renames", "--raw", "-z", old, new)
 	if err != nil {
 		return nil, err
 	}
 	f := strings.Split(strings.TrimSuffix(out, "\x00"), "\x00")
 	var cs []Change
 	for i := 0; i+1 < len(f); i += 2 {
-		if f[i] != "" {
-			cs = append(cs, Change{Status: f[i][0], Path: f[i+1]})
+		meta := strings.Fields(strings.TrimPrefix(f[i], ":"))
+		if len(meta) < 5 {
+			continue
 		}
+		cs = append(cs, Change{Status: meta[4][0], Path: f[i+1], Mode: meta[1]})
 	}
 	return cs, nil
+}
+
+// CommitAuthor identifies who a commit claims to be authored by.
+type CommitAuthor struct{ Hash, Name, Email string }
+
+// Authors lists the authors of commits in old..new (all of new when old is "").
+func (r *Repo) Authors(old, new string) ([]CommitAuthor, error) {
+	rng := new
+	if old != "" {
+		rng = old + ".." + new
+	}
+	out, err := r.run(nil, "log", "--format=%H%x00%an%x00%ae", rng)
+	if err != nil {
+		return nil, err
+	}
+	var as []CommitAuthor
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		if p := strings.Split(line, "\x00"); len(p) == 3 {
+			as = append(as, CommitAuthor{p[0], p[1], p[2]})
+		}
+	}
+	return as, nil
+}
+
+// Tracked reports whether path is in the index.
+func (r *Repo) Tracked(path string) bool {
+	out, err := r.run(nil, "ls-files", "--", path)
+	return err == nil && strings.TrimSpace(out) != ""
+}
+
+// Untrack removes path from the index (keeping the file) and commits.
+func (r *Repo) Untrack(path, msg string, a Author) error {
+	if _, err := r.run(nil, "rm", "-q", "--cached", "--", path); err != nil {
+		return err
+	}
+	env := []string{"GIT_AUTHOR_NAME=" + a.Name, "GIT_AUTHOR_EMAIL=" + a.Email, "GIT_COMMITTER_NAME=" + a.Name, "GIT_COMMITTER_EMAIL=" + a.Email}
+	// commit just the staged removal (a pathspec would re-read the file from disk)
+	_, err := r.run(env, "commit", "-q", "-m", msg)
+	return err
 }
 
 // ListTree returns the entry names directly under dir at rev.
@@ -140,7 +182,7 @@ func (r *Repo) ListTree(rev, dir string) ([]string, error) {
 
 // Show returns a file's content at a revision.
 func (r *Repo) Show(rev, path string) ([]byte, error) {
-	out, err := r.run(nil, "show", rev+":"+path)
+	out, err := r.run(nil, "cat-file", "blob", rev+":"+path)
 	return []byte(out), err
 }
 
