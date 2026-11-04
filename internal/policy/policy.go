@@ -33,7 +33,7 @@ type Checker struct {
 	Linter store.Linter
 }
 
-func manager(u config.User) bool { return u.Role == "director" || u.Role == "admin" }
+func manager(u config.User) bool { return workflow.AtLeast(u, "director") }
 
 func (c *Checker) user(name string) (config.User, bool) {
 	for _, x := range c.Users {
@@ -121,24 +121,24 @@ func (c *Checker) file(u config.User, old, new string, ch gitrepo.Change) []stri
 		return []string{"accounts and API tokens are managed on the server (yars useradd / yars token), not in git"}
 	case seg[0] == ".yars":
 		if !manager(u) {
-			return []string{"only a director or admin can change .yars (config, rules)"}
+			return []string{"only a director can change .yars (config, rules)"}
 		}
 		return nil
 	case p == ".gitattributes":
 		if !manager(u) {
-			return []string{"only a director or admin can change .gitattributes"}
+			return []string{"only a director can change .gitattributes"}
 		}
 		return nil
 	case p == "README.md" || p == "engagements/.gitkeep" || p == ".gitignore":
 		if p == ".gitignore" && !manager(u) {
-			return []string{"only a director or admin can change .gitignore"}
+			return []string{"only a director can change .gitignore"}
 		}
 		return nil
 	case len(seg) < 3 || seg[0] != "engagements" || !store.ValidID(seg[1]):
 		return []string{outsideMsg}
 	case len(seg) == 3 && seg[2] == "engagement.yaml":
 		if !manager(u) {
-			return []string{"only a director or admin can create or change engagements"}
+			return []string{"only a director can create or change engagements"}
 		}
 		return nil
 	}
@@ -240,7 +240,7 @@ func sameExceptClearances(o, n *finding.Finding, self string) bool {
 func (c *Checker) findingFile(u config.User, old, new string, ch gitrepo.Change, eng, dir string) []string {
 	if ch.Status == 'D' {
 		if !manager(u) {
-			return []string{"only a director or admin can delete a finding"}
+			return []string{"only a director can delete a finding"}
 		}
 		return nil
 	}

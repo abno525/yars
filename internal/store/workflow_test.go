@@ -69,8 +69,8 @@ func TestDirectorClearsUnassigned(t *testing.T) {
 	if err := s.Transition(eng, fd, workflow.Approve, "", uDora); !denied(err) {
 		t.Fatalf("director approved own review: %v", err)
 	}
-	adm := config.User{Username: "adm", Role: "admin"}
-	if err := s.Transition(eng, fd, workflow.Approve, "", adm); err != nil {
+	dir2 := config.User{Username: "dir2", Role: "director"}
+	if err := s.Transition(eng, fd, workflow.Approve, "", dir2); err != nil {
 		t.Fatal(err)
 	}
 }

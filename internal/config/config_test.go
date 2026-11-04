@@ -134,7 +134,22 @@ func TestLoadAIConfig(t *testing.T) {
 }
 
 func TestValidRole(t *testing.T) {
-	if !ValidRole("director") || ValidRole("boss") {
+	if !ValidRole("director") || ValidRole("boss") || ValidRole("admin") {
 		t.Fatal("ValidRole wrong")
+	}
+	if !reflect.DeepEqual(Roles, []string{"pentester", "reviewer", "director"}) {
+		t.Fatalf("roles %v", Roles)
+	}
+}
+
+// An account with a role YARS doesn't know (e.g. the old "admin") would
+// silently lose all rights, so loading fails and says how to fix it.
+func TestLoadUsersRejectsUnknownRole(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, ".yars"), 0o755)
+	os.WriteFile(UsersPath(dir), []byte("- username: boss\n  role: admin\n"), 0o600)
+	_, err := LoadUsers(dir)
+	if err == nil || !strings.Contains(err.Error(), "boss") || !strings.Contains(err.Error(), "pentester, reviewer, director") {
+		t.Fatalf("err %v", err)
 	}
 }

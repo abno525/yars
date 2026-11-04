@@ -60,7 +60,7 @@ func Label(a Action) string {
 }
 
 // AtLeast reports whether u's role is role or a stronger one. Roles only add
-// power, in the order of config.Roles: pentester < reviewer < director < admin.
+// power, in the order of config.Roles: pentester < reviewer < director.
 func AtLeast(u config.User, role string) bool {
 	have, want := slices.Index(config.Roles, u.Role), slices.Index(config.Roles, role)
 	return have >= 0 && want >= 0 && have >= want

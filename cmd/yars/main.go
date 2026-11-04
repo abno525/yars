@@ -59,7 +59,7 @@ func cmdExport(args []string, out io.Writer) (int, error) {
 	exID := fs.String("exporter", "", "exporter id (file name in .yars/exporters without .yaml)")
 	outPath := fs.String("out", "", "output file (default: <engagement>.<ext> in the current directory)")
 	mark := fs.Bool("mark", false, "mark exported complete findings reported")
-	as := fs.String("as", "", "director/admin account used with --mark")
+	as := fs.String("as", "", "director account used with --mark")
 	fs.SetOutput(out)
 	if err := fs.Parse(args); err != nil {
 		return 2, err
@@ -138,7 +138,7 @@ func cmdExport(args []string, out io.Writer) (int, error) {
 			}
 		}
 		if u.Username == "" {
-			return 1, fmt.Errorf("--mark needs --as <director or admin account>")
+			return 1, fmt.Errorf("--mark needs --as <director account>")
 		}
 		for _, p := range picked {
 			if p.F.Meta.Status == "complete" {
@@ -161,7 +161,7 @@ func runMCP(args []string, in io.Reader, out io.Writer) error {
 	fs := flag.NewFlagSet("mcp", flag.ContinueOnError)
 	data := fs.String("data", ".", "local clone of the data repo")
 	user := fs.String("user", "", "your YARS username (commits are authored as this user)")
-	role := fs.String("role", "pentester", "your role (pentester, reviewer, director, admin)")
+	role := fs.String("role", "pentester", "your role (pentester, reviewer, director)")
 	email := fs.String("email", "", "git email (default <user>@yars.local, must match your YARS account)")
 	fs.SetOutput(os.Stderr)
 	if err := fs.Parse(args); err != nil {
@@ -491,7 +491,7 @@ func cmdInit(args []string) error {
 func cmdUseradd(args []string) error {
 	fs := flag.NewFlagSet("useradd", flag.ExitOnError)
 	data := fs.String("data", ".", "data repo")
-	role := fs.String("role", "pentester", "pentester|reviewer|director|admin")
+	role := fs.String("role", "pentester", "pentester|reviewer|director")
 	email := fs.String("email", "", "email for git authorship")
 	fs.Parse(args)
 	if fs.NArg() != 1 {

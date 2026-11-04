@@ -108,7 +108,7 @@ func (s *Server) retestForm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !ok {
-		http.Error(w, "only a director or admin can start a retest", http.StatusForbidden)
+		http.Error(w, "only a director can start a retest", http.StatusForbidden)
 		return
 	}
 	p.Form = map[string][]string{"id": {p.Eng.ID + "-retest"}, "name": {p.Eng.Name + " — retest"}, "client": {p.Eng.Client}}
@@ -128,7 +128,7 @@ func (s *Server) retestCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !ok {
-		http.Error(w, "only a director or admin can start a retest", http.StatusForbidden)
+		http.Error(w, "only a director can start a retest", http.StatusForbidden)
 		return
 	}
 	r.ParseForm()

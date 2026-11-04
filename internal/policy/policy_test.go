@@ -124,7 +124,7 @@ func has(ps []string, sub string) bool {
 
 func TestPolicyYarsDir(t *testing.T) {
 	f := newFx(t)
-	if ps := f.push("alice", func(d string) { write(d, ".yars/users.yaml", "- username: alice\n  role: admin\n") }); !has(ps, ".yars") {
+	if ps := f.push("alice", func(d string) { write(d, ".yars/users.yaml", "- username: alice\n  role: director\n") }); !has(ps, ".yars") {
 		t.Fatalf("pentester changed .yars: %v", ps)
 	}
 	f.reclone()

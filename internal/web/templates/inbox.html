@@ -20,7 +20,7 @@
 <div class="inbox">
   <h2>Awaiting my review</h2>
   {{template "inbox_list" .Inbox.Review}}
-  {{if or .Inbox.Approve (eq .User.Role "director" "admin")}}
+  {{if or .Inbox.Approve (eq .User.Role "director")}}
   <h2>Ready to approve</h2>
   {{template "inbox_list" .Inbox.Approve}}
   {{end}}

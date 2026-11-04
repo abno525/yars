@@ -181,7 +181,7 @@ func (s *Server) fail(w http.ResponseWriter, err error) {
 	http.Error(w, "internal error", http.StatusInternalServerError)
 }
 
-func canManage(u config.User) bool { return u.Role == "admin" || u.Role == "director" }
+func canManage(u config.User) bool { return workflow.AtLeast(u, "director") }
 
 func author(u config.User) gitrepo.Author { return store.AuthorOf(u) }
 

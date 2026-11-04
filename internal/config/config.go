@@ -102,7 +102,8 @@ func (u User) GitAuthor() gitrepo.Author {
 	return gitrepo.Author{Name: u.Username, Email: email}
 }
 
-var Roles = []string{"pentester", "reviewer", "director", "admin"}
+// Roles in increasing power; each role can do everything the ones before it can.
+var Roles = []string{"pentester", "reviewer", "director"}
 
 func Default() Config {
 	return Config{
@@ -164,6 +165,12 @@ func LoadUsers(dataDir string) ([]User, error) {
 	users := []User{}
 	if err := yaml.Unmarshal(b, &users); err != nil {
 		return nil, err
+	}
+	for _, u := range users {
+		if !ValidRole(u.Role) {
+			return nil, fmt.Errorf("%s: user %s has unknown role %q (roles: %s); edit the file and set one of them",
+				UsersPath(dataDir), u.Username, u.Role, strings.Join(Roles, ", "))
+		}
 	}
 	return users, nil
 }

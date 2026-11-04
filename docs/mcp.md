@@ -4,7 +4,7 @@ YARS speaks the Model Context Protocol, so Claude Code (or any MCP client) can r
 
 ## Remote: talk to the YARS server
 
-An admin (or you, with shell access to the server) creates a token:
+Whoever has shell access to the server creates a token:
 
 ```sh
 yars token add --data /srv/yars-data alice     # prints yars_… once; active immediately

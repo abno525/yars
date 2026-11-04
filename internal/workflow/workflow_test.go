@@ -14,7 +14,7 @@ var (
 	bob   = config.User{Username: "bob", Role: "reviewer"}
 	rev2  = config.User{Username: "rev2", Role: "reviewer"}
 	dora  = config.User{Username: "dora", Role: "director"}
-	adm   = config.User{Username: "adm", Role: "admin"}
+	adm   = config.User{Username: "dir2", Role: "director"} // a second director
 )
 
 func meta(status string, cleared ...string) finding.Meta {
@@ -164,7 +164,7 @@ func TestCanEdit(t *testing.T) {
 		t.Error("locked statuses editable by non-director")
 	}
 	if !CanEdit(dora, meta("complete")) || !CanEdit(adm, meta("reported")) {
-		t.Error("director/admin should edit locked findings")
+		t.Error("directors should edit locked findings")
 	}
 }
 
