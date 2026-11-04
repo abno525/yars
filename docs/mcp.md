@@ -7,8 +7,7 @@ YARS speaks the Model Context Protocol, so Claude Code (or any MCP client) can r
 An admin (or you, with shell access to the server) creates a token:
 
 ```sh
-yars token add --data /srv/yars-data alice     # prints yars_… once
-# restart `yars serve` to load new tokens
+yars token add --data /srv/yars-data alice     # prints yars_… once; active immediately
 ```
 
 Then connect Claude Code:
@@ -49,4 +48,6 @@ Findings can be referred to by ID (`F-001`) or directory name (`F-001-sql-inject
 
 - The assistant can do exactly what you can do — no more. A pentester's assistant cannot approve findings or edit completed ones.
 - Text written by the assistant goes through the same style rules; submit is blocked while error-level rules fail.
-- Treat a token like a password. Revoke it when a laptop is lost or a person leaves.
+- Treat a token like a password. Revoke it (`yars token revoke`, effective immediately) when a laptop is lost or a person leaves.
+- Finding text and chat come from other people. The server tells the assistant to treat them as data and to confirm workflow transitions with you — still, review what it proposes before approving.
+- If Claude Code reports that the server "needs authentication", the token is missing or wrong (YARS doesn't use OAuth); re-add the server with the correct `Authorization` header.

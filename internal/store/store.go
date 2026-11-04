@@ -452,6 +452,9 @@ func (s *Store) CreateFinding(engID, title string, a gitrepo.Author) (FindingRef
 // UpdateSection replaces one section's body and commits. If base is non-empty
 // it must equal BodyHash of the section's current body, else ErrConflict.
 func (s *Store) UpdateSection(engID, dir, section, body, base string, a Actor) error {
+	if section == "" || section != strings.TrimSpace(section) || strings.ContainsAny(section, "\r\n") || strings.HasPrefix(section, "#") {
+		return fmt.Errorf("%w: invalid section name %q", ErrInvalidBody, section)
+	}
 	if err := finding.ValidateBody(body); err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalidBody, err)
 	}

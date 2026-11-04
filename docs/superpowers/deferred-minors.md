@@ -74,3 +74,11 @@ Small issues found by the end-of-milestone reviews and deliberately left for the
 - No limit on concurrent exports (100 MB buffers each).
 - Confluence push embeds images as data URIs, which Confluence may not render (needs the attachments API).
 - This pandoc build can't run docx under `--sandbox`; the fallback runs unsandboxed (images/HTML are pre-sanitised).
+
+## M9 MCP
+- `create_finding` doesn't apply `UpdateTitle`'s one-line/200-char check.
+- Lookup by ID matches front-matter `id`, not the dir prefix; duplicates pick the first silently (should be "ambiguous").
+- JSON-RPC: batches get -32700 (should be -32600); `jsonrpc` field unchecked; a stdio line over 8 MB ends the session.
+- HTTP: `Bearer` matched case-sensitively; no OAuth protected-resource metadata (Claude Code may show "needs authentication" on a bad token — documented).
+- Token CLI: revoking an unknown user succeeds silently; no per-token revoke or token ids in `list`; `.gitignore` migration can duplicate the comment line.
+- Test gaps: non-author pentester `set_field reviewers`/`clear` via MCP; revoke on a running server over HTTP end-to-end.

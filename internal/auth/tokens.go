@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -27,20 +28,52 @@ type TokenInfo struct {
 type Tokens struct {
 	mu      sync.Mutex
 	entries []TokenInfo
+	path    string
+	stamp   string // size+mtime of the file when last read
 }
 
 func TokensPath(dataDir string) string { return filepath.Join(dataDir, ".yars", "tokens.yaml") }
 
+func stampOf(path string) string {
+	info, err := os.Stat(path)
+	if err != nil {
+		return "missing"
+	}
+	return info.ModTime().String() + "/" + fmt.Sprint(info.Size())
+}
+
 func LoadTokens(dataDir string) (*Tokens, error) {
-	t := &Tokens{}
-	b, err := os.ReadFile(TokensPath(dataDir))
+	t := &Tokens{path: TokensPath(dataDir)}
+	return t, t.reload()
+}
+
+// reload re-reads the file; caller holds t.mu or owns t exclusively.
+func (t *Tokens) reload() error {
+	t.stamp = stampOf(t.path)
+	b, err := os.ReadFile(t.path)
 	if errors.Is(err, fs.ErrNotExist) {
-		return t, nil
+		t.entries = nil
+		return nil
 	}
 	if err != nil {
-		return nil, err
+		return err
 	}
-	return t, yaml.Unmarshal(b, &t.entries)
+	var es []TokenInfo
+	if err := yaml.Unmarshal(b, &es); err != nil {
+		return err
+	}
+	t.entries = es
+	return nil
+}
+
+// fresh reloads the file when another process (yars token add/revoke)
+// changed it, so revocation takes effect without a restart.
+func (t *Tokens) fresh() {
+	if t.path != "" && stampOf(t.path) != t.stamp {
+		if err := t.reload(); err != nil {
+			t.entries = nil // fail closed
+		}
+	}
 }
 
 func hashToken(tok string) string {
@@ -56,7 +89,13 @@ func (t *Tokens) save(dataDir string) error {
 	if err := os.WriteFile(TokensPath(dataDir), b, 0o600); err != nil {
 		return err
 	}
-	return os.Chmod(TokensPath(dataDir), 0o600)
+	if err := os.Chmod(TokensPath(dataDir), 0o600); err != nil {
+		return err
+	}
+	if t.path == TokensPath(dataDir) {
+		t.stamp = stampOf(t.path)
+	}
+	return nil
 }
 
 // Add creates a token for user, stores its hash and returns the token.
@@ -68,6 +107,7 @@ func (t *Tokens) Add(dataDir, user string) (string, error) {
 	tok := "yars_" + hex.EncodeToString(b)
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	t.fresh()
 	t.entries = append(t.entries, TokenInfo{User: user, Hash: hashToken(tok), Created: time.Now().UTC().Format(time.RFC3339)})
 	return tok, t.save(dataDir)
 }
@@ -76,6 +116,7 @@ func (t *Tokens) Add(dataDir, user string) (string, error) {
 func (t *Tokens) Revoke(dataDir, user string) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	t.fresh()
 	var keep []TokenInfo
 	for _, e := range t.entries {
 		if e.User != user {
@@ -91,6 +132,7 @@ func (t *Tokens) User(token string) (string, bool) {
 	h := []byte(hashToken(token))
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	t.fresh()
 	user, ok := "", false
 	for _, e := range t.entries {
 		if subtle.ConstantTimeCompare(h, []byte(e.Hash)) == 1 {
@@ -103,5 +145,6 @@ func (t *Tokens) User(token string) (string, bool) {
 func (t *Tokens) List() []TokenInfo {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	t.fresh()
 	return append([]TokenInfo(nil), t.entries...)
 }

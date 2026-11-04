@@ -7,6 +7,24 @@ import (
 	"testing"
 )
 
+// The server's token set picks up `yars token add/revoke` run from another
+// process without a restart (a lost laptop must be revocable at once).
+func TestTokensReloadOnChange(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, ".yars"), 0o755)
+	server, _ := LoadTokens(dir)
+	cli, _ := LoadTokens(dir)
+	tok, _ := cli.Add(dir, "alice")
+	if u, ok := server.User(tok); !ok || u != "alice" {
+		t.Fatal("new token not picked up")
+	}
+	cli2, _ := LoadTokens(dir)
+	cli2.Revoke(dir, "alice")
+	if _, ok := server.User(tok); ok {
+		t.Fatal("revoked token still accepted by the running server")
+	}
+}
+
 func TestTokens(t *testing.T) {
 	dir := t.TempDir()
 	os.MkdirAll(filepath.Join(dir, ".yars"), 0o755)

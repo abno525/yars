@@ -179,7 +179,9 @@ func runMCP(args []string, in io.Reader, out io.Writer) error {
 		return err
 	}
 	st := store.New(r, cfg)
-	srv := &mcp.Server{Store: st, Index: index.New(st, r), Rules: rules.NewEngine(rules.DirFor(r.Dir), cfg), Cfg: cfg}
+	eng := rules.NewEngine(rules.DirFor(r.Dir), cfg)
+	st.Linter = eng // same submit/approve gate as the server, before you push
+	srv := &mcp.Server{Store: st, Index: index.New(st, r), Rules: eng, Cfg: cfg}
 	return srv.ServeStdio(context.Background(), config.User{Username: *user, Role: *role, Email: *email}, in, out)
 }
 
@@ -226,7 +228,7 @@ func cmdToken(args []string, out io.Writer) (int, error) {
 		if err != nil {
 			return 1, err
 		}
-		fmt.Fprintf(out, "token for %s (shown once; restart yars serve to load it):\n%s\n", name, tok)
+		fmt.Fprintf(out, "token for %s (shown once; active immediately):\n%s\n", name, tok)
 		return 0, nil
 	}
 	return 2, fmt.Errorf("unknown token command %q", args[0])

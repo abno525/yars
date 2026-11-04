@@ -181,6 +181,17 @@ var tools = []tool{
 				Name string `json:"name"`
 				Base string `json:"base"`
 			}
+			type msg struct {
+				User string `json:"user"`
+				Text string `json:"text"`
+			}
+			type thread struct {
+				ID      string `json:"id"`
+				User    string `json:"user"`
+				Section string `json:"section,omitempty"`
+				Text    string `json:"text"`
+				Replies []msg  `json:"replies"`
+			}
 			out := struct {
 				Engagement  string            `json:"engagement"`
 				Dir         string            `json:"dir"`
@@ -189,10 +200,10 @@ var tools = []tool{
 				CVSSBase    string            `json:"cvss_base"`
 				DetailsBase string            `json:"details_base"`
 				CanEdit     bool              `json:"can_edit"`
-				Threads     []string          `json:"open_threads"`
+				Threads     []thread          `json:"open_threads"`
 				Violations  []rules.Violation `json:"violations"`
 			}{Engagement: ref.EngID, Dir: ref.Dir, Markdown: string(ref.F.Bytes()), CVSSBase: store.CVSSHash(ref.F.Meta),
-				DetailsBase: store.DetailsHash(ref.F.Meta), CanEdit: workflow.CanEdit(u, ref.F.Meta), Threads: []string{}, Violations: []rules.Violation{}}
+				DetailsBase: store.DetailsHash(ref.F.Meta), CanEdit: workflow.CanEdit(u, ref.F.Meta), Threads: []thread{}, Violations: []rules.Violation{}}
 			for _, sct := range ref.F.Sections {
 				out.Sections = append(out.Sections, sec{sct.Name, store.BodyHash(sct.Body)})
 			}
@@ -200,15 +211,11 @@ var tools = []tool{
 			for _, it := range chat.Timeline(msgs) {
 				if it.Thread != nil && !it.Thread.Resolved {
 					t := it.Thread
-					line := fmt.Sprintf("[%s] %s", t.Root.ID, t.Root.User)
-					if t.Root.Section != "" {
-						line += " on " + t.Root.Section
-					}
-					line += ": " + t.Root.Text
+					th := thread{ID: t.Root.ID, User: t.Root.User, Section: t.Root.Section, Text: t.Root.Text, Replies: []msg{}}
 					for _, r := range t.Replies {
-						line += "\n  ↳ " + r.User + ": " + r.Text
+						th.Replies = append(th.Replies, msg{r.User, r.Text})
 					}
-					out.Threads = append(out.Threads, line)
+					out.Threads = append(out.Threads, th)
 				}
 			}
 			if s.Rules != nil {
@@ -239,6 +246,16 @@ var tools = []tool{
 			if err := a.need("section"); err != nil {
 				return "", err
 			}
+			// same rule as the web: a configured section or one already in the file
+			valid := slices.Clone(s.Cfg.Sections)
+			for _, sct := range ref.F.Sections {
+				if !slices.Contains(valid, sct.Name) {
+					valid = append(valid, sct.Name)
+				}
+			}
+			if !slices.Contains(valid, a.str("section")) {
+				return "", fmt.Errorf("unknown section %q; valid sections: %s", a.str("section"), strings.Join(valid, ", "))
+			}
 			if err := s.Store.UpdateSection(ref.EngID, ref.Dir, a.str("section"), a.str("body"), a.str("base"), u); err != nil {
 				return "", err
 			}
@@ -246,6 +263,7 @@ var tools = []tool{
 		}},
 	{name: "set_field", desc: "Set a field: title, severity (no CVSS vector), cvss (vector or empty to clear), cvss_reason.<METRIC> (explanation for a non-standard value, e.g. cvss_reason.AC), details.<Row> (details table, e.g. details.Location), reviewers (comma-separated usernames), retest_result (fixed | not_fixed | partially_fixed). Use transition for status.",
 		required: []param{pEng, pFinding, {"field", "field name"}, {"value", "new value"}},
+		optional: []param{{"base", "cvss_base (cvss, cvss_reason.*) or details_base (details.*) from read_finding; refuses the edit if someone changed it meanwhile"}},
 		run:      setField},
 	{name: "transition", desc: "Move a finding through the workflow: submit (draft→verification), return (verification→draft, needs reason), clear (reviewer sign-off), approve (director: verification→complete), reopen (complete→verification).",
 		required: []param{pEng, pFinding, {"action", "submit | return | clear | approve | reopen"}},
@@ -332,7 +350,7 @@ func setField(s *Server, ctx context.Context, u config.User, a args) (string, er
 	if err := a.need("field"); err != nil {
 		return "", err
 	}
-	field, value := a.str("field"), a.str("value")
+	field, value, base := a.str("field"), a.str("value"), a.str("base")
 	st, eng, dir := s.Store, ref.EngID, ref.Dir
 	switch {
 	case field == "title":
@@ -340,15 +358,25 @@ func setField(s *Server, ctx context.Context, u config.User, a args) (string, er
 	case field == "severity":
 		err = st.UpdateSeverity(eng, dir, value, "", u)
 	case field == "cvss":
-		err = st.UpdateCVSS(eng, dir, value, nil, "", u)
+		err = st.UpdateCVSS(eng, dir, value, nil, base, u)
 	case strings.HasPrefix(field, "cvss_reason."):
 		key := strings.ToUpper(strings.TrimPrefix(field, "cvss_reason."))
+		if !slices.ContainsFunc(cvss.Metrics, func(m cvss.Metric) bool { return m.Key == key }) {
+			return "", fmt.Errorf("%s is not a CVSS base metric (AV, AC, PR, UI, S, C, I, A)", key)
+		}
 		if _, err := cvss.Parse(ref.F.Meta.CVSS); err != nil {
 			return "", errors.New("set a CVSS vector first")
 		}
-		err = st.UpdateCVSS(eng, dir, ref.F.Meta.CVSS, map[string]string{key: value}, "", u)
+		if base == "" { // the vector was read outside the lock: never write back a stale one
+			base = store.CVSSHash(ref.F.Meta)
+		}
+		err = st.UpdateCVSS(eng, dir, ref.F.Meta.CVSS, map[string]string{key: value}, base, u)
 	case strings.HasPrefix(field, "details."):
-		err = st.UpdateDetails(eng, dir, map[string]string{strings.TrimPrefix(field, "details."): value}, "", u)
+		row := strings.TrimPrefix(field, "details.")
+		if !slices.Contains(s.Cfg.DetailsRows, row) {
+			return "", fmt.Errorf("unknown details row %q; rows: %s", row, strings.Join(s.Cfg.DetailsRows, ", "))
+		}
+		err = st.UpdateDetails(eng, dir, map[string]string{row: value}, base, u)
 	case field == "reviewers":
 		var names []string
 		for _, n := range strings.Split(value, ",") {
