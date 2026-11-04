@@ -73,17 +73,20 @@ type page struct {
 	Chat          chatView
 	Checks        checksView
 	CloneURL      string
+	Retest        *retestView
+	IsRetest      bool
+	Source        store.Engagement
 	Form          url.Values
 }
 
-var funcs = template.FuncMap{"join": strings.Join}
+var funcs = template.FuncMap{"join": strings.Join, "checkedIn": checkedIn, "retestLabel": workflow.RetestLabel}
 
 func (s *Server) init() {
 	s.md = goldmark.New(goldmark.WithExtensions(extension.GFM))
 	s.pages = map[string]*template.Template{}
 	// Shared templates are parsed into every page so partial handlers can
 	// execute their blocks via any page set.
-	shared := []string{"templates/layout.html", "templates/partials.html", "templates/cvss.html", "templates/details.html", "templates/workflow.html", "templates/chat.html", "templates/checks.html"}
+	shared := []string{"templates/layout.html", "templates/partials.html", "templates/cvss.html", "templates/details.html", "templates/workflow.html", "templates/chat.html", "templates/checks.html", "templates/retest.html"}
 	names, _ := fs.Glob(templateFS, "templates/*.html")
 	for _, n := range names {
 		if slices.Contains(shared, n) {
@@ -111,6 +114,7 @@ func (s *Server) Handler() http.Handler {
 	s.routesWorkflow(private)
 	s.routesChat(private)
 	private.HandleFunc("POST /e/{eng}/f/{fid}/checks", s.checksRun)
+	s.routesRetest(private)
 
 	root := http.NewServeMux()
 	root.HandleFunc("GET /login", s.loginPage)
@@ -271,7 +275,13 @@ func (s *Server) engagement(w http.ResponseWriter, r *http.Request) {
 		p.StatusFilters = append(p.StatusFilters, link{Label: label, Active: st == query.Status,
 			URL: mk(func(v url.Values) { setOrDel(v, "status", st) })})
 	}
-	for _, c := range columns {
+	cols := columns
+	if p.Eng.Type == "retest" {
+		p.IsRetest = true
+		cols = append(append(slices.Clone(columns[:5]), struct{ Key, Label string }{"result", "Result"}), columns[5:]...)
+		p.Source, _ = s.Store.Engagement(p.Eng.Source)
+	}
+	for _, c := range cols {
 		c := c
 		active := c.Key == query.Sort || (query.Sort == "" && c.Key == "id")
 		desc := active && !query.Desc
@@ -372,6 +382,7 @@ func (s *Server) renderFinding(w http.ResponseWriter, r *http.Request, status in
 	p.CVSS.Locked = locked
 	p.Details = s.detailsFor(p.Finding, nil)
 	p.Details.Locked = locked
+	p.Retest = s.retestFor(r, p.Finding)
 	p.Checks = s.checksFor(r, p.Finding, rules.Fast)
 	p.WF = s.wfFor(p.Finding, r)
 	// fast rule errors also block submit/approve; show them in the bar

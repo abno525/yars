@@ -134,6 +134,14 @@ main:has(.finding-grid) { max-width: 1560px; }
 .htmx-request.checks { opacity: .6; }
 .clonehint { margin-top: 32px; }
 .clonehint pre { background: var(--bg); padding: 10px 14px; border-radius: 8px; overflow-x: auto; }
+.result-fixed { background: var(--complete); }
+.result-not_fixed { background: var(--critical); }
+.result-partially_fixed { background: var(--medium); }
+.retest-banner { margin: 6px 0 0; padding: 4px 12px; border-radius: 999px; display: inline-block; background: color-mix(in srgb, var(--retest) 15%, transparent); color: var(--retest); font-weight: 600; }
+.result-seg input:checked + span { background: var(--retest); }
+.form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.form-grid label { display: flex; flex-direction: column; gap: 6px; }
+.pick td { padding: 8px 10px; }
 .inboxlink { color: var(--text); white-space: nowrap; }
 .badge { display: inline-block; min-width: 1.5em; padding: 0 6px; border-radius: 999px; background: var(--critical); color: #fff; font-size: .8rem; font-weight: 700; text-align: center; }
 .inbox h2 { margin: 24px 0 8px; }

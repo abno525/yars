@@ -2,9 +2,13 @@
 <div class="pagehead">
   <div>
     <h1>{{.Eng.Name}}</h1>
-    <p class="muted">{{.Eng.Client}}{{if eq .Eng.Type "retest"}} · retest of {{.Eng.Source}}{{end}}</p>
+    <p class="muted">{{.Eng.Client}}</p>
+    {{if .IsRetest}}<p class="retest-banner">Retest of <a href="/e/{{.Eng.Source}}">{{if .Source.Name}}{{.Source.Name}}{{else}}{{.Eng.Source}}{{end}}</a></p>{{end}}
   </div>
-  <a class="button primary" href="/e/{{.Eng.ID}}/findings/new">New finding</a>
+  <div class="actions">
+    {{if .CanManage}}<a class="button" href="/e/{{.Eng.ID}}/retest/new">New retest</a>{{end}}
+    <a class="button primary" href="/e/{{.Eng.ID}}/findings/new">New finding</a>
+  </div>
 </div>
 {{template "findings" .}}
 {{end}}

@@ -21,6 +21,8 @@ type Row struct {
 	EngID, Dir, ID, Title, Status, Severity, Author string
 	Score                                           string
 	OpenThreads                                     int
+	IsRetest                                        bool   // copied into a retest engagement
+	RetestResult                                    string // fixed | not_fixed | partially_fixed | ""
 	Reviewers                                       []string
 	Meta                                            finding.Meta // full front matter, for workflow classification
 	score                                           float64      // -1 when no valid vector
@@ -85,6 +87,9 @@ func (ix *Index) refresh() error {
 			rows = append(rows, Row{EngID: e.ID, Dir: r.Dir, ID: m.ID, Title: m.Title, Status: m.Status,
 				Severity: cvss.Derive(m.CVSS, m.Severity), Author: m.Author, Reviewers: m.Reviewers,
 				Score: txt, score: sc, Meta: m, OpenThreads: open})
+			if m.Retest != nil {
+				rows[len(rows)-1].IsRetest, rows[len(rows)-1].RetestResult = true, m.Retest.Result
+			}
 		}
 	}
 	ix.mu.Lock()
@@ -131,6 +136,8 @@ func (ix *Index) Rows(q Query) ([]Row, error) {
 			return cmp.Compare(a.score, b.score)
 		case "chat":
 			return cmp.Compare(a.OpenThreads, b.OpenThreads)
+		case "result":
+			return strings.Compare(a.RetestResult, b.RetestResult)
 		}
 		return strings.Compare(a.Dir, b.Dir)
 	}
