@@ -234,6 +234,98 @@ func (s *Store) CreateEngagement(e Engagement, a gitrepo.Author) error {
 	return s.commit(map[string][]byte{rel: nil}, "engagement "+e.ID+": create", a, dir)
 }
 
+// CreateRetest creates engagement e (type retest) from source, copying the
+// findings in dirs as fresh drafts with a retest link. The source engagement
+// is never modified. One commit; only directors/admins.
+func (s *Store) CreateRetest(e Engagement, source string, dirs []string, u config.User) error {
+	if u.Role != "director" && u.Role != "admin" {
+		return &workflow.Denied{Reason: "only a director or admin can start a retest"}
+	}
+	if !ValidID(e.ID) {
+		return fmt.Errorf("%w: invalid engagement id %q", ErrInvalidValue, e.ID)
+	}
+	if strings.TrimSpace(e.Name) == "" {
+		return fmt.Errorf("%w: name is required", ErrInvalidValue)
+	}
+	if len(dirs) == 0 {
+		return fmt.Errorf("%w: select at least one finding", ErrInvalidValue)
+	}
+	if _, err := s.Engagement(source); err != nil {
+		return err
+	}
+	if s.rootErr != nil {
+		return s.rootErr
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	dir := engDir(e.ID)
+	if _, err := s.root.Lstat(dir); err == nil {
+		return fmt.Errorf("%w: engagement %s already exists", ErrInvalidValue, e.ID)
+	}
+	type copyOf struct {
+		dir string
+		f   *finding.Finding
+	}
+	var copies []copyOf
+	for _, d := range dirs {
+		ref, err := s.Finding(source, d)
+		if err != nil {
+			return fmt.Errorf("%w: finding %s: %v", ErrInvalidValue, d, err)
+		}
+		f := ref.F
+		var errs []error
+		set := func(k string, v any) { errs = append(errs, f.SetMeta(k, v)) }
+		set("status", "draft")
+		set("author", u.Username)
+		set("reviewers", []string{})
+		set("cleared_by", nil)
+		set("returned", nil)
+		set("retest", finding.Retest{Source: source + "/" + d, Result: ""})
+		if err := errors.Join(errs...); err != nil {
+			return err
+		}
+		copies = append(copies, copyOf{d, f})
+	}
+	e.Type, e.Source = "retest", source
+	b, err := yaml.Marshal(e)
+	if err != nil {
+		return err
+	}
+	prev := map[string][]byte{}
+	write := func(rel string, data []byte) error {
+		if err := s.root.MkdirAll(path.Dir(rel), 0o755); err != nil {
+			return err
+		}
+		prev[rel] = nil
+		return s.writeFile(rel, data)
+	}
+	if err := write(path.Join(dir, "engagement.yaml"), b); err != nil {
+		s.root.RemoveAll(dir)
+		return err
+	}
+	for _, c := range copies {
+		if err := write(findingPath(e.ID, c.dir), c.f.Bytes()); err != nil {
+			s.root.RemoveAll(dir)
+			return err
+		}
+	}
+	msg := fmt.Sprintf("engagement %s: retest of %s (%d findings)", e.ID, source, len(copies))
+	return s.commit(prev, msg, u.GitAuthor(), dir)
+}
+
+// SetRetestResult records the outcome of a retested finding.
+func (s *Store) SetRetestResult(engID, dir, result string, a Actor) error {
+	if !slices.Contains(workflow.RetestResults, result) {
+		return fmt.Errorf("%w: retest result must be fixed, not_fixed or partially_fixed", ErrInvalidValue)
+	}
+	return s.mutateContent(engID, dir, a, func(f *finding.Finding) (string, error) {
+		if f.Meta.Retest == nil {
+			return "", fmt.Errorf("%w: %s is not a retest finding", ErrInvalidValue, f.Meta.ID)
+		}
+		return "retest result " + result, f.SetMeta("retest", finding.Retest{Source: f.Meta.Retest.Source, Result: result})
+	})
+}
+
 // ListFindings returns parseable findings of an engagement, sorted by dir.
 // Unparseable finding files are logged and skipped so one bad local edit
 // cannot hide the whole table.

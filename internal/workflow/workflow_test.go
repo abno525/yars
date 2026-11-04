@@ -128,6 +128,21 @@ func TestGate(t *testing.T) {
 	}
 }
 
+func TestGateNeedsRetestResult(t *testing.T) {
+	m := meta("draft")
+	m.Retest = &finding.Retest{Source: "old/F-001-x"}
+	if p := strings.Join(Gate(m, config.Default()), ";"); !strings.Contains(p, "retest result") {
+		t.Fatalf("got %q", p)
+	}
+	m.Retest.Result = "partially_fixed"
+	if p := Gate(m, config.Default()); len(p) != 0 {
+		t.Fatalf("got %v", p)
+	}
+	if RetestLabel("not_fixed") != "Not fixed" || len(RetestResults) != 3 {
+		t.Fatal("labels")
+	}
+}
+
 func TestCanEdit(t *testing.T) {
 	if !CanEdit(pen2, meta("draft")) || !CanEdit(bob, meta("verification")) {
 		t.Error("open statuses should be editable")

@@ -398,6 +398,24 @@ func TestPolicySymlinkAndSeverity(t *testing.T) {
 	}
 }
 
+func TestRetestPolicyCompatible(t *testing.T) {
+	f := newFx(t)
+	if err := f.st.CreateRetest(store.Engagement{ID: "rt", Name: "RT"}, "acme", []string{"F-001-sqli"}, user("dora")); err != nil {
+		t.Fatal(err)
+	}
+	f.reclone()
+	path := filepath.Join("engagements", "rt", "findings", "F-001-sqli", "finding.md")
+	ps := f.push("dora", func(d string) {
+		b, _ := os.ReadFile(filepath.Join(d, path))
+		fd, _ := finding.Parse(b)
+		fd.SetMeta("retest", finding.Retest{Source: "acme/F-001-sqli", Result: "fixed"})
+		os.WriteFile(filepath.Join(d, path), fd.Bytes(), 0o644)
+	})
+	if len(ps) != 0 {
+		t.Fatalf("retest result push rejected: %v", ps)
+	}
+}
+
 func TestPolicyUsersFileNeverPushed(t *testing.T) {
 	f := newFx(t)
 	if ps := f.push("dora", func(d string) { write(d, ".yars/users.yaml", "[]\n") }); !has(ps, "users") {

@@ -141,6 +141,9 @@ func Gate(m finding.Meta, cfg config.Config) []string {
 	if strings.TrimSpace(m.Title) == "" {
 		p = append(p, "the title is empty")
 	}
+	if m.Retest != nil && !slices.Contains(RetestResults, m.Retest.Result) {
+		p = append(p, "set the retest result (fixed, not fixed or partially fixed)")
+	}
 	v, err := cvss.Parse(m.CVSS)
 	if err != nil && strings.TrimSpace(m.Severity) == "" {
 		p = append(p, "set a CVSS vector or a severity")
@@ -153,6 +156,13 @@ func Gate(m finding.Meta, cfg config.Config) []string {
 		}
 	}
 	return p
+}
+
+// RetestResults are the valid outcomes of a retested finding.
+var RetestResults = []string{"fixed", "not_fixed", "partially_fixed"}
+
+func RetestLabel(r string) string {
+	return map[string]string{"fixed": "Fixed", "not_fixed": "Not fixed", "partially_fixed": "Partially fixed"}[r]
 }
 
 // CanEdit reports whether u may change the finding's content.
