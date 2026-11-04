@@ -23,24 +23,63 @@ type Returned struct {
 	Reason string `yaml:"reason"`
 }
 
+// Meta is the front matter (content) plus the workflow state, which the
+// store fills in from the database. State fields are never read from or
+// written to the file (yaml:"-").
 type Meta struct {
-	ID        string   `yaml:"id"`
-	Title     string   `yaml:"title"`
-	Status    string   `yaml:"status"`
-	Severity  string   `yaml:"severity"`
-	CVSS      string   `yaml:"cvss"`
-	Author    string   `yaml:"author"`
-	Reviewers []string `yaml:"reviewers"`
-	Retest    *Retest  `yaml:"retest,omitempty"`
+	ID       string `yaml:"id"`
+	Title    string `yaml:"title"`
+	Severity string `yaml:"severity"`
+	CVSS     string `yaml:"cvss"`
+	Author   string `yaml:"author"`
 	// CVSSReasons explains non-standard CVSS metric values, keyed by metric (e.g. "AC").
 	CVSSReasons map[string]string `yaml:"cvss_reasons,omitempty"`
-	// ClearedBy lists reviewers who cleared the finding in verification.
-	ClearedBy []string `yaml:"cleared_by,omitempty"`
-	// Returned is set when a reviewer sends the finding back to draft.
-	Returned *Returned `yaml:"returned,omitempty"`
 	// Details holds the details table, keyed by configured row name.
 	Details map[string]string `yaml:"details,omitempty"`
 	Extra   map[string]any    `yaml:",inline"`
+
+	// Workflow state (from the database).
+	Status    string    `yaml:"-"`
+	Reviewers []string  `yaml:"-"`
+	ClearedBy []string  `yaml:"-"` // reviewers whose clearance matches the current content
+	Returned  *Returned `yaml:"-"` // set when a reviewer sends the finding back to draft
+	Retest    *Retest   `yaml:"-"` // only in retests
+}
+
+// StateKeys are front-matter keys that used to hold workflow state.
+var StateKeys = []string{"cleared_by", "retest", "returned", "reviewers", "status"}
+
+// LegacyState is workflow state found in a file written before it moved to
+// the database (read by the migration; rejected on push).
+type LegacyState struct {
+	Keys      []string  // which state keys the file has, sorted
+	Status    string    `yaml:"status"`
+	Reviewers []string  `yaml:"reviewers"`
+	ClearedBy []string  `yaml:"cleared_by"`
+	Returned  *Returned `yaml:"returned"`
+	Retest    *Retest   `yaml:"retest"`
+}
+
+// Legacy reports workflow-state keys in the file's front matter.
+func (f *Finding) Legacy() (LegacyState, bool) {
+	var l LegacyState
+	for _, k := range StateKeys {
+		if _, ok := f.Meta.Extra[k]; ok {
+			l.Keys = append(l.Keys, k)
+		}
+	}
+	if len(l.Keys) == 0 {
+		return l, false
+	}
+	keys := l.Keys
+	_ = yaml.Unmarshal([]byte(encodeExtra(f.Meta.Extra)), &l)
+	l.Keys = keys
+	return l, true
+}
+
+func encodeExtra(m map[string]any) string {
+	b, _ := yaml.Marshal(m)
+	return string(b)
 }
 
 // SetMeta sets (or, with a nil value, deletes) one top-level front-matter key.
@@ -355,7 +394,7 @@ func (f *Finding) SetSection(name, body string) {
 // New returns an empty draft finding with the given sections.
 func New(id, title, author string, sections []string) *Finding {
 	f := &Finding{
-		Meta:     Meta{ID: id, Title: title, Status: "draft", Author: author, Reviewers: []string{}},
+		Meta:     Meta{ID: id, Title: title, Status: "draft", Author: author},
 		Preamble: "\n",
 	}
 	for i, name := range sections {

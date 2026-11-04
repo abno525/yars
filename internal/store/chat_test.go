@@ -3,7 +3,6 @@ package store
 import (
 	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -13,8 +12,12 @@ import (
 	"yars/internal/workflow"
 )
 
+func chatMsg(text string) chat.Message { return chat.Message{Text: text} }
+
+// Chat lives in the database: posting makes no commit and writes no file.
 func TestPostChat(t *testing.T) {
 	s, dir, fd := newFinding(t)
+	before := last(t, dir, "%H")
 	root, err := s.PostChat(eng, fd, chat.Message{Text: "Is this exploitable unauthenticated?", Section: "Impact"}, uBob)
 	if err != nil {
 		t.Fatal(err)
@@ -22,44 +25,33 @@ func TestPostChat(t *testing.T) {
 	if root.ID == "" || root.User != "bob" || root.TS.IsZero() {
 		t.Fatalf("root %+v", root)
 	}
-	if got := last(t, dir, "%an|%s"); got != "bob|F-001: comment" {
-		t.Fatalf("commit %q", got)
-	}
 	if _, err := s.PostChat(eng, fd, chat.Message{Text: "Yes", Reply: root.ID}, uAlice); err != nil {
 		t.Fatal(err)
-	}
-	if got := last(t, dir, "%an|%s"); got != "alice|F-001: reply" {
-		t.Fatalf("commit %q", got)
 	}
 	if _, err := s.PostChat(eng, fd, chat.Message{Resolves: root.ID}, uBob); err != nil {
 		t.Fatal(err)
 	}
-	if got := last(t, dir, "%s"); got != "F-001: resolve thread" {
-		t.Fatalf("commit %q", got)
-	}
 	msgs, err := s.Chat(eng, fd)
-	if err != nil || len(msgs) != 3 {
-		t.Fatalf("msgs %d %v", len(msgs), err)
+	if err != nil || len(msgs) != 3 || msgs[0].Section != "Impact" || msgs[1].Reply != root.ID {
+		t.Fatalf("msgs %+v %v", msgs, err)
 	}
-	ga, _ := os.ReadFile(filepath.Join(dir, ".gitattributes"))
-	if !strings.Contains(string(ga), "chat.jsonl merge=union") {
-		t.Fatalf(".gitattributes %q", ga)
+	if last(t, dir, "%H") != before {
+		t.Fatal("chat made a git commit")
 	}
-	if out, _ := exec.Command("git", "-C", dir, "status", "--porcelain").Output(); len(out) != 0 {
-		t.Fatalf("uncommitted: %s", out)
+	if _, err := os.Stat(filepath.Join(dir, "engagements", eng, "findings", fd, "chat.jsonl")); err == nil {
+		t.Fatal("chat.jsonl written")
 	}
 }
 
 func TestPostChatRejectsBadRefs(t *testing.T) {
-	s, dir, fd := newFinding(t)
-	before := last(t, dir, "%H")
+	s, _, fd := newFinding(t)
 	for _, m := range []chat.Message{{Text: "x", Reply: "missing"}, {Resolves: "missing"}, {Text: " "}, {Text: "x", Section: "Nope"}} {
 		if _, err := s.PostChat(eng, fd, m, uBob); !errors.Is(err, ErrInvalidChat) {
 			t.Errorf("%+v: err %v", m, err)
 		}
 	}
-	if last(t, dir, "%H") != before {
-		t.Fatal("commit made")
+	if msgs, _ := s.Chat(eng, fd); len(msgs) != 0 {
+		t.Fatalf("stored %d rejected messages", len(msgs))
 	}
 }
 
@@ -95,14 +87,10 @@ func TestPostChatConcurrent(t *testing.T) {
 }
 
 func TestTransitionWritesEvent(t *testing.T) {
-	s, dir, fd := ready(t)
+	s, _, fd := ready(t)
 	s.Transition(eng, fd, workflow.Submit, "", uAlice)
 	if err := s.Transition(eng, fd, workflow.Return, "needs PoC", uBob); err != nil {
 		t.Fatal(err)
-	}
-	files, _ := exec.Command("git", "-C", dir, "show", "--name-only", "--format=", "HEAD").Output()
-	if !strings.Contains(string(files), "finding.md") || !strings.Contains(string(files), "chat.jsonl") {
-		t.Fatalf("files in commit: %s", files)
 	}
 	msgs, _ := s.Chat(eng, fd)
 	if len(msgs) != 2 || msgs[0].Event != "submit" || msgs[1].Event != "return" || msgs[1].Text != "needs PoC" || msgs[1].User != "bob" {

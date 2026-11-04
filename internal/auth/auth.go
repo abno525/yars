@@ -1,17 +1,19 @@
-// Package auth implements local accounts with in-memory sessions.
+// Package auth implements local accounts and sessions, stored in the YARS
+// database. Accounts are read on every check, so changes made with the CLI
+// (useradd, role, passwd, userdel) apply without a restart.
 package auth
 
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"net/http"
-	"sort"
-	"sync"
 
 	"golang.org/x/crypto/bcrypt"
 
 	"yars/internal/config"
+	"yars/internal/db"
 )
 
 const CookieName = "yars_session"
@@ -19,31 +21,26 @@ const CookieName = "yars_session"
 type ctxKey struct{}
 
 type Auth struct {
-	mu       sync.Mutex
-	users    map[string]config.User
-	sessions map[string]string // token -> username
-	dummy    []byte
+	db    *db.DB
+	dummy []byte
 }
 
-func New(users []config.User) *Auth {
-	a := &Auth{users: map[string]config.User{}, sessions: map[string]string{}}
-	for _, u := range users {
-		a.users[u.Username] = u
-	}
+func New(d *db.DB) *Auth {
+	a := &Auth{db: d}
 	a.dummy, _ = bcrypt.GenerateFromPassword([]byte("dummy"), 12)
 	return a
 }
 
 // Users returns all accounts sorted by username.
 func (a *Auth) Users() []config.User {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	out := make([]config.User, 0, len(a.users))
-	for _, u := range a.users {
-		out = append(out, u)
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Username < out[j].Username })
-	return out
+	us, _ := a.db.Users()
+	return us
+}
+
+// Lookup returns one account.
+func (a *Auth) Lookup(name string) (config.User, bool) {
+	u, ok, _ := a.db.User(name)
+	return u, ok
 }
 
 func HashPassword(pw string) (string, error) {
@@ -51,12 +48,16 @@ func HashPassword(pw string) (string, error) {
 	return string(h), err
 }
 
+// hashSecret is how session and API tokens are stored: never in plain text.
+func hashSecret(tok string) string {
+	h := sha256.Sum256([]byte(tok))
+	return hex.EncodeToString(h[:])
+}
+
 // Check verifies credentials without creating a session (git HTTP auth).
 // Unknown users take as long as wrong passwords.
 func (a *Auth) Check(username, pw string) (config.User, bool) {
-	a.mu.Lock()
-	u, ok := a.users[username]
-	a.mu.Unlock()
+	u, ok := a.Lookup(username)
 	hash := a.dummy
 	if ok {
 		hash = []byte(u.PasswordHash)
@@ -77,31 +78,24 @@ func (a *Auth) Login(username, pw string) (string, bool) {
 		return "", false
 	}
 	tok := hex.EncodeToString(b)
-	a.mu.Lock()
-	a.sessions[tok] = username
-	a.mu.Unlock()
+	if err := a.db.CreateSession(hashSecret(tok), username); err != nil {
+		return "", false
+	}
 	return tok, true
 }
 
-func (a *Auth) Logout(token string) {
-	a.mu.Lock()
-	delete(a.sessions, token)
-	a.mu.Unlock()
-}
+func (a *Auth) Logout(token string) { a.db.DeleteSession(hashSecret(token)) }
 
 func (a *Auth) User(r *http.Request) (config.User, bool) {
 	c, err := r.Cookie(CookieName)
 	if err != nil {
 		return config.User{}, false
 	}
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	name, ok := a.sessions[c.Value]
+	name, ok, _ := a.db.SessionUser(hashSecret(c.Value))
 	if !ok {
 		return config.User{}, false
 	}
-	u, ok := a.users[name]
-	return u, ok
+	return a.Lookup(name)
 }
 
 func (a *Auth) Require(next http.Handler) http.Handler {
@@ -122,7 +116,8 @@ func UserFrom(ctx context.Context) config.User {
 
 // SetCookie writes the session cookie for token.
 func SetCookie(w http.ResponseWriter, token string) {
-	http.SetCookie(w, &http.Cookie{Name: CookieName, Value: token, Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode})
+	http.SetCookie(w, &http.Cookie{Name: CookieName, Value: token, Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode,
+		MaxAge: int(db.SessionIdle.Seconds())})
 }
 
 func ClearCookie(w http.ResponseWriter) {

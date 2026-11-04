@@ -31,11 +31,16 @@ func TestParseBasic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if f.Meta.ID != "F-001" || f.Meta.Status != "draft" {
+	if f.Meta.ID != "F-001" || f.Meta.Severity != "high" {
 		t.Fatalf("meta: %+v", f.Meta)
 	}
-	if !reflect.DeepEqual(f.Meta.Reviewers, []string{"bob"}) {
-		t.Fatalf("reviewers: %v", f.Meta.Reviewers)
+	// workflow state lives in the database: keys in a file are legacy
+	if f.Meta.Status != "" || f.Meta.Reviewers != nil {
+		t.Fatalf("state read from the file: %+v", f.Meta)
+	}
+	l, ok := f.Legacy()
+	if !ok || l.Status != "draft" || !reflect.DeepEqual(l.Reviewers, []string{"bob"}) || !reflect.DeepEqual(l.Keys, []string{"reviewers", "status"}) {
+		t.Fatalf("legacy %+v %v", l, ok)
 	}
 	var names []string
 	for _, s := range f.Sections {
@@ -160,9 +165,25 @@ func TestFrontMatterPreservedVerbatim(t *testing.T) {
 	if got := string(f.Bytes()); got != want {
 		t.Fatalf("got\n%s\nwant\n%s", got, want)
 	}
-	f.Meta.Status = "verification"
-	if !strings.Contains(string(f.Bytes()), "status: verification") {
+	// state filled in from the database is never written back to the file
+	f.Meta.Status, f.Meta.Reviewers, f.Meta.ClearedBy = "verification", []string{"carol"}, []string{"carol"}
+	f.Meta.Returned = &Returned{By: "carol", Reason: "x"}
+	if got := string(f.Bytes()); got != want {
+		t.Fatalf("state leaked into the file:\n%s", got)
+	}
+	f.Meta.Severity = "low"
+	if !strings.Contains(string(f.Bytes()), "severity: low") {
 		t.Fatal("deliberate meta change not written")
+	}
+}
+
+func TestNoLegacyStateInCleanFile(t *testing.T) {
+	f, _ := Parse([]byte("---\nid: F-001\ntitle: T\nseverity: high\n---\n## Impact\nx\n"))
+	if _, ok := f.Legacy(); ok {
+		t.Fatal("clean file reported as legacy")
+	}
+	if b := string(New("F-002", "X", "alice", []string{"Impact"}).Bytes()); strings.Contains(b, "status") || strings.Contains(b, "reviewers") {
+		t.Fatalf("new finding writes state:\n%s", b)
 	}
 }
 

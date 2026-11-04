@@ -1,10 +1,12 @@
 // Package index keeps an in-memory table of all findings, rebuilt whenever
-// the data repo's HEAD changes (web edits or external commits).
+// the data repo's HEAD (content) or the database (workflow state, chat)
+// changes.
 package index
 
 import (
 	"cmp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -58,8 +60,25 @@ type Index struct {
 
 func New(s *store.Store, r *gitrepo.Repo) *Index { return &Index{store: s, repo: r} }
 
-func (ix *Index) refresh() error {
+// version identifies the data the index was built from: the git HEAD
+// (content) plus the database change counter (workflow state, chat).
+func (ix *Index) version() (string, error) {
 	head, err := ix.repo.Head()
+	if err != nil {
+		return "", err
+	}
+	if d := ix.store.DB(); d != nil {
+		seq, err := d.Seq()
+		if err != nil {
+			return "", err
+		}
+		head += "+" + strconv.FormatInt(seq, 10)
+	}
+	return head, nil
+}
+
+func (ix *Index) refresh() error {
+	head, err := ix.version()
 	if err != nil {
 		return err
 	}
@@ -79,11 +98,14 @@ func (ix *Index) refresh() error {
 		if err != nil {
 			return err
 		}
+		chats, err := ix.store.EngagementChat(e.ID)
+		if err != nil {
+			return err
+		}
 		for _, r := range refs {
 			m := r.F.Meta
 			txt, sc := scoreOf(m.CVSS)
-			msgs, _ := ix.store.Chat(e.ID, r.Dir)
-			open, _ := chat.OpenCount(msgs)
+			open, _ := chat.OpenCount(chats[m.ID])
 			rows = append(rows, Row{EngID: e.ID, Dir: r.Dir, ID: m.ID, Title: m.Title, Status: m.Status,
 				Severity: cvss.Derive(m.CVSS, m.Severity), Author: m.Author, Reviewers: m.Reviewers,
 				Score: txt, score: sc, Meta: m, OpenThreads: open})

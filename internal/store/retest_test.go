@@ -171,11 +171,12 @@ func TestCreateRetestValidation(t *testing.T) {
 func TestSetRetestResult(t *testing.T) {
 	s, dir := srcFixture(t)
 	s.CreateRetest(Engagement{ID: "rt", Name: "RT"}, eng, []string{"F-001-sql-injection"}, "", uDora)
+	before := last(t, dir, "%H")
 	if err := s.SetRetestResult("rt", "F-001-sql-injection", "fixed", uDora); err != nil {
 		t.Fatal(err)
 	}
-	if got := last(t, dir, "%s"); got != "F-001: retest result fixed" {
-		t.Fatalf("commit %q", got)
+	if last(t, dir, "%H") != before {
+		t.Fatal("retest result made a commit (it is workflow state)")
 	}
 	ref, _ := s.Finding("rt", "F-001-sql-injection")
 	if ref.F.Meta.Retest.Result != "fixed" || ref.F.Meta.Retest.Source != eng+"/F-001-sql-injection" {

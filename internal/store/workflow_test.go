@@ -2,11 +2,14 @@ package store
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
 	"yars/internal/config"
+	"yars/internal/gitrepo"
 	"yars/internal/workflow"
 )
 
@@ -35,27 +38,50 @@ func ready(t *testing.T) (*Store, string, string) {
 	return s, dir, fd
 }
 
+// events returns the workflow events recorded in the finding's chat.
+func events(t *testing.T, s *Store, fd string) []string {
+	t.Helper()
+	msgs, err := s.Chat(eng, fd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []string
+	for _, m := range msgs {
+		if m.Event != "" {
+			out = append(out, m.User+":"+m.Event+":"+m.Text)
+		}
+	}
+	return out
+}
+
 func TestTransitionSubmitGate(t *testing.T) {
-	s, dir, fd := newFinding(t)
-	before := last(t, dir, "%H")
+	s, _, fd := newFinding(t)
 	err := s.Transition(eng, fd, workflow.Submit, "", uAlice)
 	if !denied(err) || !strings.Contains(err.Error(), "reviewer") {
 		t.Fatalf("err %v", err)
 	}
-	if last(t, dir, "%H") != before {
-		t.Fatal("commit made")
-	}
-	s, dir, fd = ready(t)
+	s, dir, fd := ready(t)
+	before := last(t, dir, "%H")
 	if err := s.Transition(eng, fd, workflow.Submit, "", uAlice); err != nil {
 		t.Fatal(err)
 	}
-	if load(t, s, fd).F.Meta.Status != "verification" || last(t, dir, "%an|%s") != "alice|F-001: submit for verification" {
+	if load(t, s, fd).F.Meta.Status != "verification" {
 		t.Fatal("submit not recorded")
+	}
+	// workflow state is in the database: no commit, the file is untouched
+	if last(t, dir, "%H") != before {
+		t.Fatal("a transition made a git commit")
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, "engagements", eng, "findings", fd, "finding.md")); strings.Contains(string(b), "status") {
+		t.Fatalf("state written to the file:\n%s", b)
+	}
+	if got := events(t, s, fd); !reflect.DeepEqual(got, []string{"alice:submit:"}) {
+		t.Fatalf("events %v", got)
 	}
 }
 
-// A director who reviews without being assigned joins the reviewers in the
-// same commit, so their clearance counts for another director's approval.
+// A director who reviews without being assigned joins the reviewers, so
+// their clearance counts for another director's approval.
 func TestDirectorClearsUnassigned(t *testing.T) {
 	s, _, fd := ready(t)
 	s.Transition(eng, fd, workflow.Submit, "", uAlice)
@@ -76,19 +102,16 @@ func TestDirectorClearsUnassigned(t *testing.T) {
 }
 
 func TestTransitionFlow(t *testing.T) {
-	s, dir, fd := ready(t)
+	s, _, fd := ready(t)
 	s.Transition(eng, fd, workflow.Submit, "", uAlice)
 	if err := s.Transition(eng, fd, workflow.Clear, "", uBob); err != nil {
 		t.Fatal(err)
-	}
-	if got := last(t, dir, "%an|%s"); got != "bob|F-001: cleared by bob" {
-		t.Fatalf("commit %q", got)
 	}
 	if err := s.Transition(eng, fd, workflow.Approve, "", uDora); err != nil {
 		t.Fatal(err)
 	}
 	m := load(t, s, fd).F.Meta
-	if m.Status != "complete" || !reflect.DeepEqual(m.ClearedBy, []string{"bob"}) || last(t, dir, "%s") != "F-001: approve" {
+	if m.Status != "complete" || !reflect.DeepEqual(m.ClearedBy, []string{"bob"}) {
 		t.Fatalf("meta %+v", m)
 	}
 	if err := s.Transition(eng, fd, workflow.Reopen, "", uDora); err != nil {
@@ -97,17 +120,20 @@ func TestTransitionFlow(t *testing.T) {
 	if m := load(t, s, fd).F.Meta; m.Status != "verification" || len(m.ClearedBy) != 0 {
 		t.Fatalf("reopen %+v", m)
 	}
+	want := []string{"alice:submit:", "bob:clear:", "dora:approve:", "dora:reopen:"}
+	if got := events(t, s, fd); !reflect.DeepEqual(got, want) {
+		t.Fatalf("events %v", got)
+	}
 }
 
 func TestTransitionReturnNeedsReason(t *testing.T) {
-	s, dir, fd := ready(t)
+	s, _, fd := ready(t)
 	s.Transition(eng, fd, workflow.Submit, "", uAlice)
-	before := last(t, dir, "%H")
 	if err := s.Transition(eng, fd, workflow.Return, "  ", uBob); !denied(err) {
 		t.Fatalf("err %v", err)
 	}
-	if last(t, dir, "%H") != before {
-		t.Fatal("commit made")
+	if load(t, s, fd).F.Meta.Status != "verification" {
+		t.Fatal("returned without a reason")
 	}
 	if err := s.Transition(eng, fd, workflow.Return, "fix steps", uBob); err != nil {
 		t.Fatal(err)
@@ -116,8 +142,8 @@ func TestTransitionReturnNeedsReason(t *testing.T) {
 	if m.Status != "draft" || m.Returned == nil || m.Returned.Reason != "fix steps" || m.Returned.By != "bob" {
 		t.Fatalf("meta %+v", m)
 	}
-	if body := last(t, dir, "%s%n%b"); !strings.Contains(body, "F-001: return to draft") || !strings.Contains(body, "fix steps") {
-		t.Fatalf("commit %q", body)
+	if got := events(t, s, fd); got[len(got)-1] != "bob:return:fix steps" {
+		t.Fatalf("events %v", got)
 	}
 	// resubmitting clears the returned marker
 	s.Transition(eng, fd, workflow.Submit, "", uAlice)
@@ -126,26 +152,39 @@ func TestTransitionReturnNeedsReason(t *testing.T) {
 	}
 }
 
-func TestEditResetsClearances(t *testing.T) {
-	s, _, fd := ready(t)
+// A clearance is bound to the content the reviewer saw: any later change —
+// through YARS or straight into git (a push) — voids it.
+func TestEditVoidsClearances(t *testing.T) {
+	s, dir, fd := ready(t)
 	s.Transition(eng, fd, workflow.Submit, "", uAlice)
 	s.Transition(eng, fd, workflow.Clear, "", uBob)
+	if c := load(t, s, fd).F.Meta.ClearedBy; !reflect.DeepEqual(c, []string{"bob"}) {
+		t.Fatalf("cleared %v", c)
+	}
 	if err := s.UpdateSection(eng, fd, "Impact", "changed after review", "", alice); err != nil {
 		t.Fatal(err)
 	}
 	if c := load(t, s, fd).F.Meta.ClearedBy; len(c) != 0 {
-		t.Fatalf("cleared_by kept: %v", c)
+		t.Fatalf("clearance survived an edit: %v", c)
 	}
 	s.Transition(eng, fd, workflow.Clear, "", uBob)
-	s.UpdateDetails(eng, fd, map[string]string{"Location": "x"}, "", alice)
+	// an edit that bypasses the store (as a git push would)
+	p := filepath.Join(dir, "engagements", eng, "findings", fd, "finding.md")
+	b, _ := os.ReadFile(p)
+	os.WriteFile(p, append(b, []byte("\npushed text\n")...), 0o644)
+	if err := s.Repo().Commit([]string{"engagements/" + eng + "/findings/" + fd + "/finding.md"}, "push", gitrepo.Author{Name: "alice", Email: "alice@yars.local"}); err != nil {
+		t.Fatal(err)
+	}
 	if c := load(t, s, fd).F.Meta.ClearedBy; len(c) != 0 {
-		t.Fatalf("cleared_by kept after details edit: %v", c)
+		t.Fatalf("clearance survived a pushed edit: %v", c)
+	}
+	if err := s.Transition(eng, fd, workflow.Approve, "", uDora); !denied(err) {
+		t.Fatalf("approved content nobody reviewed: %v", err)
 	}
 }
 
-// The edit lock is enforced inside the store (against the freshly loaded
-// finding), not only by the web layer, so an approve racing an edit can't
-// let unreviewed text into a complete finding.
+// The edit lock is enforced inside the store (against freshly loaded state),
+// not only by the web layer.
 func TestContentEditDeniedWhenLocked(t *testing.T) {
 	s, dir, fd := ready(t)
 	s.Transition(eng, fd, workflow.Submit, "", uAlice)
@@ -173,7 +212,7 @@ func TestContentEditDeniedWhenLocked(t *testing.T) {
 }
 
 func TestSetReviewersDropsClearance(t *testing.T) {
-	s, dir, fd := ready(t)
+	s, _, fd := ready(t)
 	s.SetReviewers(eng, fd, []string{"bob", "carol"}, uAlice)
 	s.Transition(eng, fd, workflow.Submit, "", uAlice)
 	s.Transition(eng, fd, workflow.Clear, "", uBob)
@@ -184,9 +223,6 @@ func TestSetReviewersDropsClearance(t *testing.T) {
 	m := load(t, s, fd).F.Meta
 	if !reflect.DeepEqual(m.Reviewers, []string{"carol"}) || !reflect.DeepEqual(m.ClearedBy, []string{"carol"}) {
 		t.Fatalf("meta %+v", m)
-	}
-	if got := last(t, dir, "%s"); got != "F-001: set reviewers carol" {
-		t.Fatalf("commit %q", got)
 	}
 }
 
@@ -200,5 +236,44 @@ func TestSetReviewersDropsAuthor(t *testing.T) {
 	}
 	if err := s.SetReviewers(eng, fd, []string{"bob"}, config.User{Username: "pen2", Role: "pentester"}); !denied(err) {
 		t.Fatalf("non-author assigned: %v", err)
+	}
+}
+
+// State is keyed by finding ID, so renaming the folder (e.g. by a push)
+// keeps it.
+func TestStateSurvivesRename(t *testing.T) {
+	s, dir, fd := ready(t)
+	s.Transition(eng, fd, workflow.Submit, "", uAlice)
+	base := filepath.Join(dir, "engagements", eng, "findings")
+	if err := os.Rename(filepath.Join(base, fd), filepath.Join(base, "F-001-renamed")); err != nil {
+		t.Fatal(err)
+	}
+	if m := load(t, s, "F-001-renamed").F.Meta; m.Status != "verification" || !reflect.DeepEqual(m.Reviewers, []string{"bob"}) {
+		t.Fatalf("state lost on rename: %+v", m)
+	}
+}
+
+// Without a database (a local clone used through stdio MCP) content can be
+// read and edited, but workflow and chat say where to go instead.
+func TestNoDatabase(t *testing.T) {
+	dir := t.TempDir()
+	r, _ := gitrepo.Init(dir)
+	s := New(r, config.Default(), nil)
+	s.CreateEngagement(Engagement{ID: eng, Name: "x"}, alice)
+	ref, err := s.CreateFinding(eng, "SQLi", alice)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := load(t, s, ref.Dir).F.Meta.Status; got != "draft" {
+		t.Fatalf("status %q", got)
+	}
+	if err := s.Transition(eng, ref.Dir, workflow.Submit, "", uAlice); !errors.Is(err, ErrNoDB) {
+		t.Fatalf("transition: %v", err)
+	}
+	if _, err := s.PostChat(eng, ref.Dir, chatMsg("hi"), uAlice); !errors.Is(err, ErrNoDB) {
+		t.Fatalf("chat: %v", err)
+	}
+	if err := s.UpdateSection(eng, ref.Dir, "Impact", "x", "", alice); err != nil {
+		t.Fatalf("content edit: %v", err)
 	}
 }

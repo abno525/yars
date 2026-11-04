@@ -1,6 +1,8 @@
 // Package store maps the data repo layout to engagements and findings.
-// Every write is a single git commit. All file access goes through an
-// os.Root so symlinks cannot reach outside the repository.
+// Content (finding.md, attachments) lives in git: every content write is a
+// single commit. Workflow state and chat live in the YARS database. All file
+// access goes through an os.Root so symlinks cannot reach outside the
+// repository.
 package store
 
 import (
@@ -26,6 +28,7 @@ import (
 	"yars/internal/chat"
 	"yars/internal/config"
 	"yars/internal/cvss"
+	"yars/internal/db"
 	"yars/internal/finding"
 	"yars/internal/gitrepo"
 	"yars/internal/rules"
@@ -38,6 +41,9 @@ var (
 	ErrInvalidBody = errors.New("invalid section body")
 	// ErrInvalidValue marks a rejected front-matter value (CVSS vector, severity).
 	ErrInvalidValue = errors.New("invalid value")
+	// ErrNoDB: workflow and chat need the YARS database, which only the server
+	// has (a local clone holds content only).
+	ErrNoDB = errors.New("workflow state and chat are kept on the YARS server; use its web UI or its /mcp endpoint")
 )
 
 type Engagement struct {
@@ -57,6 +63,7 @@ type FindingRef struct {
 
 type Store struct {
 	repo    *gitrepo.Repo
+	db      *db.DB // nil on a local clone: content only
 	cfg     config.Config
 	root    *os.Root
 	rootErr error
@@ -88,9 +95,38 @@ type Linter interface {
 	Lint(ctx context.Context, f *finding.Finding, kinds rules.Kind) []rules.Violation
 }
 
-func New(r *gitrepo.Repo, cfg config.Config) *Store {
+// New opens the store on repo r. d holds workflow state and chat; nil means
+// content only (state reads as draft, state and chat writes return ErrNoDB).
+func New(r *gitrepo.Repo, cfg config.Config, d *db.DB) *Store {
 	root, err := os.OpenRoot(r.Dir)
-	return &Store{repo: r, cfg: cfg, root: root, rootErr: err}
+	return &Store{repo: r, db: d, cfg: cfg, root: root, rootErr: err}
+}
+
+// DB is the database (nil on a local clone).
+func (s *Store) DB() *db.DB { return s.db }
+
+// contentHash identifies a version of finding.md; a clearance counts only
+// while the file still has the hash it was given for.
+func contentHash(raw []byte) string { return BodyHash(string(raw)) }
+
+// applyState fills the workflow fields of m from st.
+func applyState(m *finding.Meta, st db.State, hash string) {
+	m.Status, m.Reviewers, m.ClearedBy, m.Returned, m.Retest = st.Status, nil, nil, nil, nil
+	if m.Status == "" {
+		m.Status = "draft"
+	}
+	for _, r := range st.Reviewers {
+		m.Reviewers = append(m.Reviewers, r.Name)
+		if r.ClearedHash != "" && r.ClearedHash == hash {
+			m.ClearedBy = append(m.ClearedBy, r.Name)
+		}
+	}
+	if st.ReturnedBy != "" {
+		m.Returned = &finding.Returned{By: st.ReturnedBy, Reason: st.ReturnedReason}
+	}
+	if st.RetestSource != "" {
+		m.Retest = &finding.Retest{Source: st.RetestSource, Result: st.RetestResult}
+	}
 }
 
 func (s *Store) Config() config.Config { return s.cfg }
@@ -277,18 +313,10 @@ func (s *Store) CreateRetest(e Engagement, source string, dirs []string, assigne
 			return fmt.Errorf("%w: finding %s: %v", ErrInvalidValue, d, err)
 		}
 		f := ref.F
-		var errs []error
-		set := func(k string, v any) { errs = append(errs, f.SetMeta(k, v)) }
-		set("status", "draft")
 		if assignee != "" {
-			set("author", assignee)
-		}
-		set("reviewers", []string{})
-		set("cleared_by", nil)
-		set("returned", nil)
-		set("retest", finding.Retest{Source: source + "/" + d, Result: ""})
-		if err := errors.Join(errs...); err != nil {
-			return err
+			if err := f.SetMeta("author", assignee); err != nil {
+				return err
+			}
 		}
 		copies = append(copies, copyOf{d, f})
 	}
@@ -316,7 +344,21 @@ func (s *Store) CreateRetest(e Engagement, source string, dirs []string, assigne
 		}
 	}
 	msg := fmt.Sprintf("engagement %s: retest of %s (%d findings)", e.ID, source, len(copies))
-	return s.commit(prev, msg, u.GitAuthor(), dir)
+	if err := s.commit(prev, msg, u.GitAuthor(), dir); err != nil {
+		return err
+	}
+	if s.db == nil {
+		return nil
+	}
+	// each copy starts as a fresh draft that links to the original
+	return s.db.Tx(func(tx *db.Tx) error {
+		for _, c := range copies {
+			if err := tx.PutState(e.ID, c.f.Meta.ID, db.State{Status: "draft", RetestSource: source + "/" + c.dir}); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 // UpdateTitle changes a finding's title (single line, 1–200 characters).
@@ -330,16 +372,55 @@ func (s *Store) UpdateTitle(engID, dir, title string, a Actor) error {
 	})
 }
 
-// SetRetestResult records the outcome of a retested finding.
+// SetRetestResult records the outcome of a retested finding (database).
 func (s *Store) SetRetestResult(engID, dir, result string, a Actor) error {
 	if !slices.Contains(workflow.RetestResults, result) {
 		return fmt.Errorf("%w: retest result must be fixed, not_fixed or partially_fixed", ErrInvalidValue)
 	}
-	return s.mutateContent(engID, dir, a, func(f *finding.Finding) (string, error) {
-		if f.Meta.Retest == nil {
-			return "", fmt.Errorf("%w: %s is not a retest finding", ErrInvalidValue, f.Meta.ID)
+	return s.changeState(engID, dir, func(ref FindingRef, st *db.State, _ string) ([]chat.Message, error) {
+		if u, ok := a.(config.User); ok && !workflow.CanEdit(u, ref.F.Meta) {
+			return nil, &workflow.Denied{Reason: "this finding is " + ref.F.Meta.Status + "; only a director can edit it"}
 		}
-		return "retest result " + result, f.SetMeta("retest", finding.Retest{Source: f.Meta.Retest.Source, Result: result})
+		if st.RetestSource == "" {
+			return nil, fmt.Errorf("%w: %s is not a retest finding", ErrInvalidValue, ref.F.Meta.ID)
+		}
+		st.RetestResult = result
+		return nil, nil
+	})
+}
+
+// changeState loads a finding and its state under the store lock, lets fn
+// change the state, and stores it — with any workflow events fn returns —
+// in one database transaction. No git commit is made.
+func (s *Store) changeState(engID, dir string, fn func(ref FindingRef, st *db.State, hash string) ([]chat.Message, error)) error {
+	if s.db == nil {
+		return ErrNoDB
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ref, raw, err := s.read(engID, dir, nil)
+	if err != nil {
+		return err
+	}
+	fid := ref.F.Meta.ID
+	st, err := s.db.State(engID, fid)
+	if err != nil {
+		return err
+	}
+	msgs, err := fn(ref, &st, contentHash(raw))
+	if err != nil {
+		return err
+	}
+	return s.db.Tx(func(tx *db.Tx) error {
+		if err := tx.PutState(engID, fid, st); err != nil {
+			return err
+		}
+		for _, m := range msgs {
+			if err := tx.AddMessage(engID, fid, m); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 }
 
@@ -357,12 +438,18 @@ func (s *Store) ListFindings(engID string) ([]FindingRef, error) {
 	if err != nil {
 		return nil, err
 	}
+	states := map[string]db.State{}
+	if s.db != nil {
+		if states, err = s.db.States(engID); err != nil {
+			return nil, err
+		}
+	}
 	var out []FindingRef
 	for _, e := range ents {
 		if !e.IsDir() || !ValidID(e.Name()) {
 			continue
 		}
-		ref, err := s.Finding(engID, e.Name())
+		ref, _, err := s.read(engID, e.Name(), states)
 		if err != nil {
 			if !errors.Is(err, ErrNotFound) {
 				log.Printf("skip %s/%s: %v", engID, e.Name(), err)
@@ -386,10 +473,19 @@ func ShortID(dir string) string {
 	return dir
 }
 
-// Finding loads a finding by directory name or by number ("001" or "1").
+// Finding loads a finding by directory name or by number ("001" or "1"),
+// with its workflow state from the database.
 func (s *Store) Finding(engID, dir string) (FindingRef, error) {
+	ref, _, err := s.read(engID, dir, nil)
+	return ref, err
+}
+
+// read loads a finding and returns its raw file too. states, when non-nil,
+// holds the engagement's stored states (bulk listing); otherwise the
+// finding's state is queried.
+func (s *Store) read(engID, dir string, states map[string]db.State) (FindingRef, []byte, error) {
 	if !ValidID(engID) || !ValidID(dir) {
-		return FindingRef{}, ErrNotFound
+		return FindingRef{}, nil, ErrNotFound
 	}
 	if n, err := strconv.Atoi(dir); err == nil && strings.Trim(dir, "0123456789") == "" {
 		ents, _ := s.readDir(path.Join(engDir(engID), "findings"))
@@ -403,21 +499,32 @@ func (s *Store) Finding(engID, dir string) (FindingRef, error) {
 			}
 		}
 		if dir == "" {
-			return FindingRef{}, ErrNotFound
+			return FindingRef{}, nil, ErrNotFound
 		}
 	}
 	b, err := s.readFile(findingPath(engID, dir))
 	if errors.Is(err, fs.ErrNotExist) {
-		return FindingRef{}, ErrNotFound
+		return FindingRef{}, nil, ErrNotFound
 	}
 	if err != nil {
-		return FindingRef{}, err
+		return FindingRef{}, nil, err
 	}
 	f, err := finding.Parse(b)
 	if err != nil {
-		return FindingRef{}, fmt.Errorf("%s/%s: %w", engID, dir, err)
+		return FindingRef{}, nil, fmt.Errorf("%s/%s: %w", engID, dir, err)
 	}
-	return FindingRef{EngID: engID, Dir: dir, F: f}, nil
+	st := db.State{Status: "draft"}
+	if s.db != nil {
+		if states != nil {
+			if got, ok := states[f.Meta.ID]; ok {
+				st = got
+			}
+		} else if st, err = s.db.State(engID, f.Meta.ID); err != nil {
+			return FindingRef{}, nil, err
+		}
+	}
+	applyState(&f.Meta, st, contentHash(b))
+	return FindingRef{EngID: engID, Dir: dir, F: f}, b, nil
 }
 
 var numRe = regexp.MustCompile(`^F-(\d+)`)
@@ -500,112 +607,29 @@ func (s *Store) UpdateSection(engID, dir, section, body, base string, a Actor) e
 // mutate loads a finding, applies fn, and commits the result as one commit
 // "<ID>: <msg>". No commit is made when the file is unchanged.
 func (s *Store) mutate(engID, dir string, a gitrepo.Author, fn func(f *finding.Finding) (string, error)) error {
-	return s.mutateWith(engID, dir, a, func(f *finding.Finding) (string, []chat.Message, error) {
-		msg, err := fn(f)
-		return msg, nil, err
-	})
-}
-
-// mutateWith is mutate where fn may also return chat messages to append in
-// the same commit (workflow events).
-func (s *Store) mutateWith(engID, dir string, a gitrepo.Author, fn func(f *finding.Finding) (string, []chat.Message, error)) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	head0, _ := s.repo.Head()
-	ref, err := s.Finding(engID, dir)
+	ref, before, err := s.read(engID, dir, nil)
 	if err != nil {
 		return err
 	}
-	before := ref.F.Bytes()
-	msg, add, err := fn(ref.F)
+	msg, err := fn(ref.F)
 	if err != nil {
 		return err
 	}
 	after := ref.F.Bytes()
-	if string(before) == string(after) && len(add) == 0 {
+	if string(before) == string(after) {
 		return nil
 	}
 	if err := s.unmoved(head0); err != nil {
 		return err
 	}
-	prev := map[string][]byte{}
-	if string(before) != string(after) {
-		rel := findingPath(engID, dir)
-		orig, err := s.readFile(rel)
-		if err != nil {
-			return err
-		}
-		prev[rel] = orig
-		if err := s.writeFile(rel, after); err != nil {
-			return err
-		}
-	}
-	if err := s.appendChat(engID, dir, add, prev); err != nil {
-		s.restore(prev)
+	rel := findingPath(engID, ref.Dir)
+	if err := s.writeFile(rel, after); err != nil {
 		return err
 	}
-	return s.commit(prev, ref.F.Meta.ID+": "+msg, a, "")
-}
-
-func chatPath(eng, dir string) string {
-	return path.Join("engagements", eng, "findings", dir, "chat.jsonl")
-}
-
-const gitattributesLine = "chat.jsonl merge=union\n"
-
-// appendChat appends messages to the finding's chat.jsonl (and makes sure
-// .gitattributes declares the union merge), recording previous contents in
-// prev for commit/rollback. Caller holds s.mu.
-func (s *Store) appendChat(engID, dir string, msgs []chat.Message, prev map[string][]byte) error {
-	if len(msgs) == 0 {
-		return nil
-	}
-	var lines []byte
-	for _, m := range msgs {
-		l, err := chat.Line(m)
-		if err != nil {
-			return err
-		}
-		lines = append(lines, l...)
-	}
-	cp := chatPath(engID, dir)
-	old, err := s.readFile(cp)
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return err
-	}
-	prev[cp] = old // nil when the file did not exist
-	if len(old) > 0 && old[len(old)-1] != '\n' {
-		old = append(old, '\n')
-	}
-	if err := s.writeFile(cp, append(slices.Clone(old), lines...)); err != nil {
-		return err
-	}
-	ga, err := s.readFile(".gitattributes")
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return err
-	}
-	if !strings.Contains(string(ga), strings.TrimSpace(gitattributesLine)) {
-		prev[".gitattributes"] = ga
-		next := string(ga)
-		if next != "" && !strings.HasSuffix(next, "\n") {
-			next += "\n"
-		}
-		if err := s.writeFile(".gitattributes", []byte(next+gitattributesLine)); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// restore puts back the previous contents recorded in prev (nil = remove).
-func (s *Store) restore(prev map[string][]byte) {
-	for p, b := range prev {
-		if b == nil {
-			s.root.Remove(p)
-		} else {
-			s.writeFile(p, b)
-		}
-	}
+	return s.commit(map[string][]byte{rel: before}, ref.F.Meta.ID+": "+msg, a, "")
 }
 
 var attachmentRe = regexp.MustCompile(`^attachments/[A-Za-z0-9][A-Za-z0-9._-]*$`)
@@ -627,35 +651,41 @@ func (s *Store) ReadAttachment(engID, dir, rel string) ([]byte, error) {
 	return s.readFile(p)
 }
 
-// Chat returns the finding's chat messages (empty when none).
+// Chat returns the finding's chat messages and workflow events (empty when
+// none, or without a database).
 func (s *Store) Chat(engID, dir string) ([]chat.Message, error) {
-	if !ValidID(engID) || !ValidID(dir) {
-		return nil, ErrNotFound
-	}
-	b, err := s.readFile(chatPath(engID, dir))
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
+	ref, err := s.Finding(engID, dir)
+	if err != nil || s.db == nil {
 		return nil, err
 	}
-	return chat.Parse(b), nil
+	return s.db.Messages(engID, ref.F.Meta.ID)
+}
+
+// EngagementChat returns the chat of every finding in an engagement, keyed
+// by finding ID (one query; used for tables and the index).
+func (s *Store) EngagementChat(engID string) (map[string][]chat.Message, error) {
+	if s.db == nil {
+		return map[string][]chat.Message{}, nil
+	}
+	return s.db.AllMessages(engID)
 }
 
 // ErrInvalidChat wraps rejected chat input.
 var ErrInvalidChat = errors.New("invalid chat message")
 
-// PostChat validates and appends a message as u (one commit). ID, time and
-// user are filled in; the returned message is what was stored.
+// PostChat validates and stores a message as u (database, no commit). ID,
+// time and user are filled in; the returned message is what was stored.
 func (s *Store) PostChat(engID, dir string, m chat.Message, u config.User) (chat.Message, error) {
 	m.ID, m.TS, m.User, m.Event = chat.NewID(), time.Now().UTC().Truncate(time.Second), u.Username, ""
 	m.Text = strings.TrimSpace(m.Text)
 	if m.Resolves != "" || m.Reopens != "" {
 		m.Text, m.Section = "", "" // markers carry no content
 	}
+	if s.db == nil {
+		return m, ErrNoDB
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	head0, _ := s.repo.Head()
 	ref, err := s.Finding(engID, dir)
 	if err != nil {
 		return m, err
@@ -665,50 +695,25 @@ func (s *Store) PostChat(engID, dir string, m chat.Message, u config.User) (chat
 			return m, fmt.Errorf("%w: unknown section %q", ErrInvalidChat, m.Section)
 		}
 	}
-	existing, err := s.Chat(engID, dir)
+	existing, err := s.db.Messages(engID, ref.F.Meta.ID)
 	if err != nil {
 		return m, err
 	}
 	if err := chat.Validate(existing, m); err != nil {
 		return m, fmt.Errorf("%w: %v", ErrInvalidChat, err)
 	}
-	kind := "comment"
-	switch {
-	case m.Reply != "":
-		kind = "reply"
-	case m.Resolves != "":
-		kind = "resolve thread"
-	case m.Reopens != "":
-		kind = "reopen thread"
-	}
-	if err := s.unmoved(head0); err != nil {
-		return m, err
-	}
-	prev := map[string][]byte{}
-	if err := s.appendChat(engID, dir, []chat.Message{m}, prev); err != nil {
-		s.restore(prev)
-		return m, err
-	}
-	return m, s.commit(prev, ref.F.Meta.ID+": "+kind, u.GitAuthor(), "")
+	return m, s.db.Tx(func(tx *db.Tx) error { return tx.AddMessage(engID, ref.F.Meta.ID, m) })
 }
 
-// mutateContent is mutate for content edits: a change made while the finding
-// is in verification drops existing clearances in the same commit, so the
-// director never approves text no reviewer has seen.
+// mutateContent is mutate for content edits by u, refused once the finding
+// is locked. Clearances need no reset: they are bound to the content hash,
+// so any change voids them.
 func (s *Store) mutateContent(engID, dir string, who Actor, fn func(f *finding.Finding) (string, error)) error {
 	return s.mutate(engID, dir, who.GitAuthor(), func(f *finding.Finding) (string, error) {
 		if u, ok := who.(config.User); ok && !workflow.CanEdit(u, f.Meta) {
 			return "", &workflow.Denied{Reason: "this finding is " + f.Meta.Status + "; only a director can edit it"}
 		}
-		before := string(f.Bytes())
-		msg, err := fn(f)
-		if err != nil {
-			return "", err
-		}
-		if f.Meta.Status == "verification" && len(f.Meta.ClearedBy) > 0 && string(f.Bytes()) != before {
-			return msg, f.SetMeta("cleared_by", nil)
-		}
-		return msg, nil
+		return fn(f)
 	})
 }
 
@@ -720,55 +725,18 @@ func AuthorOf(u config.User) gitrepo.Author { return u.GitAuthor() }
 // gitrepo.Author is a trusted internal caller (tools, tests) and is not.
 type Actor interface{ GitAuthor() gitrepo.Author }
 
-// Transition applies a workflow action as u (one commit). Permission and
-// gate failures are *workflow.Denied.
+// Transition applies a workflow action as u: the state changes in the
+// database together with a workflow event in the chat (no git commit).
+// Permission and gate failures are *workflow.Denied.
 func (s *Store) Transition(engID, dir string, act workflow.Action, reason string, u config.User) error {
-	apply := func(f *finding.Finding) (string, error) {
-		m := f.Meta
-		if err := workflow.CheckWithGate(u, m, act, s.cfg); err != nil {
-			return "", err
-		}
-		var errs []error
-		set := func(k string, v any) { errs = append(errs, f.SetMeta(k, v)) }
-		var msg string
-		switch act {
-		case workflow.Submit:
-			set("cleared_by", nil)
-			set("returned", nil)
-			msg = "submit for verification"
-		case workflow.Return:
-			r := strings.TrimSpace(reason)
-			if r == "" {
-				return "", &workflow.Denied{Reason: "a reason is required to return a finding"}
-			}
-			set("returned", finding.Returned{By: u.Username, Reason: r})
-			set("cleared_by", nil)
-			msg = "return to draft\n\n" + r
-		case workflow.Clear:
-			if !slices.Contains(m.Reviewers, u.Username) {
-				// a director reviewing unassigned joins the reviewers
-				set("reviewers", append(slices.Clone(m.Reviewers), u.Username))
-			}
-			set("cleared_by", append(slices.Clone(m.ClearedBy), u.Username))
-			msg = "cleared by " + u.Username
-		case workflow.Approve:
-			msg = "approve"
-		case workflow.Reopen:
-			set("cleared_by", nil)
-			msg = "reopen"
-		case workflow.Report:
-			msg = "mark reported"
-		}
-		if _, to := workflow.Target(act); to != m.Status {
-			set("status", to)
-		}
-		return msg, errors.Join(errs...)
+	if s.db == nil {
+		return ErrNoDB
 	}
 	// Style rules (scripts, AI) can be slow, so they run outside the lock on
-	// a snapshot; the commit is refused if the finding changed meanwhile.
+	// a snapshot; the change is refused if the finding changed meanwhile.
 	linted := ""
 	if workflow.Gated(act) && s.Linter != nil {
-		ref, err := s.Finding(engID, dir)
+		ref, raw, err := s.read(engID, dir, nil)
 		if err != nil {
 			return err
 		}
@@ -778,31 +746,56 @@ func (s *Store) Transition(engID, dir string, act workflow.Action, reason string
 		if errs := rules.Errors(s.Linter.Lint(context.Background(), ref.F, rules.All)); len(errs) > 0 {
 			return &workflow.Denied{Reason: "cannot " + strings.ToLower(workflow.Label(act)) + ": " + strings.Join(errs, "; ")}
 		}
-		linted = string(ref.F.Bytes())
+		linted = contentHash(raw)
 	}
-	return s.mutateWith(engID, dir, AuthorOf(u), func(f *finding.Finding) (string, []chat.Message, error) {
-		if linted != "" && string(f.Bytes()) != linted {
-			return "", nil, &workflow.Denied{Reason: "the finding changed while its checks ran; try again"}
+	return s.changeState(engID, dir, func(ref FindingRef, st *db.State, hash string) ([]chat.Message, error) {
+		if linted != "" && hash != linted {
+			return nil, &workflow.Denied{Reason: "the finding changed while its checks ran; try again"}
 		}
-		msg, err := apply(f)
-		if err != nil {
-			return "", nil, err
+		if err := workflow.CheckWithGate(u, ref.F.Meta, act, s.cfg); err != nil {
+			return nil, err
+		}
+		uncleared := func() {
+			for i := range st.Reviewers {
+				st.Reviewers[i].ClearedHash = ""
+			}
 		}
 		ev := chat.Message{ID: chat.NewID(), TS: time.Now().UTC().Truncate(time.Second), User: u.Username, Event: string(act)}
-		if act == workflow.Return {
-			ev.Text = strings.TrimSpace(reason)
+		switch act {
+		case workflow.Submit:
+			uncleared()
+			st.ReturnedBy, st.ReturnedReason = "", ""
+		case workflow.Return:
+			r := strings.TrimSpace(reason)
+			if r == "" {
+				return nil, &workflow.Denied{Reason: "a reason is required to return a finding"}
+			}
+			uncleared()
+			st.ReturnedBy, st.ReturnedReason, ev.Text = u.Username, r, r
+		case workflow.Clear:
+			// the clearance is for exactly this content; a director reviewing
+			// unassigned joins the reviewers
+			i := slices.IndexFunc(st.Reviewers, func(r db.Reviewer) bool { return r.Name == u.Username })
+			if i < 0 {
+				st.Reviewers = append(st.Reviewers, db.Reviewer{Name: u.Username})
+				i = len(st.Reviewers) - 1
+			}
+			st.Reviewers[i].ClearedHash = hash
+		case workflow.Reopen:
+			uncleared()
 		}
-		return msg, []chat.Message{ev}, nil
+		_, st.Status = workflow.Target(act)
+		return []chat.Message{ev}, nil
 	})
 }
 
 // SetReviewers replaces the reviewer list as u. The author is never a
-// reviewer; clearances of removed reviewers are dropped.
+// reviewer; clearances of reviewers who stay are kept.
 func (s *Store) SetReviewers(engID, dir string, names []string, u config.User) error {
-	return s.mutate(engID, dir, AuthorOf(u), func(f *finding.Finding) (string, error) {
-		m := f.Meta
+	return s.changeState(engID, dir, func(ref FindingRef, st *db.State, _ string) ([]chat.Message, error) {
+		m := ref.F.Meta
 		if !workflow.CanAssign(u, m) {
-			return "", &workflow.Denied{Reason: "only the author or a director can assign reviewers while the finding is open"}
+			return nil, &workflow.Denied{Reason: "only the author or a director can assign reviewers while the finding is open"}
 		}
 		var list []string
 		for _, n := range names {
@@ -811,26 +804,18 @@ func (s *Store) SetReviewers(engID, dir string, names []string, u config.User) e
 			}
 		}
 		sort.Strings(list)
-		var cleared []string
-		for _, c := range m.ClearedBy {
-			if slices.Contains(list, c) {
-				cleared = append(cleared, c)
+		var next []db.Reviewer
+		for _, n := range list {
+			r := db.Reviewer{Name: n}
+			for _, old := range st.Reviewers {
+				if old.Name == n {
+					r.ClearedHash = old.ClearedHash
+				}
 			}
+			next = append(next, r)
 		}
-		var cv any
-		if len(cleared) > 0 {
-			cv = cleared
-		}
-		if list == nil {
-			list = []string{}
-		}
-		if err := errors.Join(f.SetMeta("reviewers", list), f.SetMeta("cleared_by", cv)); err != nil {
-			return "", err
-		}
-		if len(list) == 0 {
-			return "set reviewers (none)", nil
-		}
-		return "set reviewers " + strings.Join(list, ", "), nil
+		st.Reviewers = next
+		return nil, nil
 	})
 }
 
