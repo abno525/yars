@@ -319,6 +319,17 @@ func (s *Store) CreateRetest(e Engagement, source string, dirs []string, assigne
 	return s.commit(prev, msg, u.GitAuthor(), dir)
 }
 
+// UpdateTitle changes a finding's title (single line, 1–200 characters).
+func (s *Store) UpdateTitle(engID, dir, title string, a Actor) error {
+	title = strings.TrimSpace(title)
+	if title == "" || strings.ContainsAny(title, "\r\n") || len([]rune(title)) > 200 {
+		return fmt.Errorf("%w: the title must be one line of 1–200 characters", ErrInvalidValue)
+	}
+	return s.mutateContent(engID, dir, a, func(f *finding.Finding) (string, error) {
+		return "edit title", f.SetMeta("title", title)
+	})
+}
+
 // SetRetestResult records the outcome of a retested finding.
 func (s *Store) SetRetestResult(engID, dir, result string, a Actor) error {
 	if !slices.Contains(workflow.RetestResults, result) {

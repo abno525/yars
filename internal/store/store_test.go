@@ -250,6 +250,23 @@ func TestWriteAbortsIfRepoMoved(t *testing.T) {
 	}
 }
 
+func TestUpdateTitle(t *testing.T) {
+	s, dir := withEngagement(t)
+	f, _ := s.CreateFinding("2026-11-acme", "SQL injection", alice)
+	if err := s.UpdateTitle("2026-11-acme", f.Dir, "  SQL injection in login  ", bob); err != nil {
+		t.Fatal(err)
+	}
+	ref, _ := s.Finding("2026-11-acme", f.Dir)
+	if ref.F.Meta.Title != "SQL injection in login" || last(t, dir, "%s") != "F-001: edit title" {
+		t.Fatalf("title %q", ref.F.Meta.Title)
+	}
+	for _, bad := range []string{"", "  ", "two\nlines", strings.Repeat("x", 201)} {
+		if err := s.UpdateTitle("2026-11-acme", f.Dir, bad, bob); !errors.Is(err, ErrInvalidValue) {
+			t.Errorf("%q: %v", bad, err)
+		}
+	}
+}
+
 func TestReadAttachment(t *testing.T) {
 	s, dir := withEngagement(t)
 	f, _ := s.CreateFinding("2026-11-acme", "SQL injection", alice)
