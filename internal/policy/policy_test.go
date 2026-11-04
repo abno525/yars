@@ -307,7 +307,9 @@ func TestPolicyStaleClearance(t *testing.T) {
 	f.toVerification()
 	f.st.Transition("acme", "F-001-sqli", workflow.Clear, "", user("bob"))
 	f.reclone()
-	edit := func(d string) { editMeta(d, func(fd *finding.Finding) { fd.SetSection("Impact", "rewritten after review") }) }
+	edit := func(d string) {
+		editMeta(d, func(fd *finding.Finding) { fd.SetSection("Impact", "rewritten after review") })
+	}
 	if ps := f.push("alice", edit); !has(ps, "cleared_by") {
 		t.Fatalf("edit kept stale clearance: %v", ps)
 	}
