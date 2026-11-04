@@ -33,11 +33,11 @@ var templateFS embed.FS
 var staticFS embed.FS
 
 type Server struct {
-	Store *store.Store
-	Index *index.Index
-	Auth  *auth.Auth
-	Cfg   config.Config
-	Rules *rules.Engine // optional style rules
+	Store  *store.Store
+	Index  *index.Index
+	Auth   *auth.Auth
+	Cfg    config.Config
+	Rules  *rules.Engine  // optional style rules
 	Git    http.Handler   // optional git smart HTTP endpoint, mounted at /git/
 	Export *export.Runner // optional exporters
 
