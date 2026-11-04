@@ -35,7 +35,7 @@ func legacyRepo(t *testing.T) string {
 			`{"id":"bbbbbbbbbbbb","ts":"2026-11-04T10:05:00Z","user":"alice","event":"submit"}` + "\n",
 		"engagements/acme/findings/F-002-xss/finding.md": "---\nid: F-002\ntitle: XSS\nstatus: draft\nauthor: alice\nreviewers: []\nreturned: {by: bob, reason: add steps}\n---\n\n## Impact\n\nx\n",
 		"engagements/rt/engagement.yaml":                 "name: RT\ntype: retest\nsource: acme\n",
-		"engagements/rt/findings/F-001-sqli/finding.md":  "---\nid: F-001\ntitle: SQLi\nstatus: draft\nauthor: alice\nretest: {source: acme/F-001-sqli, result: not_fixed}\n---\n\n## Impact\n\nx\n",
+		"engagements/rt/findings/F-001-sqli/finding.md":  "---\nid: F-001\ntitle: SQLi\nstatus: reported\nauthor: alice\nretest: {source: acme/F-001-sqli, result: not_fixed}\n---\n\n## Impact\n\nx\n",
 	}
 	var paths []string
 	for p, body := range files {
@@ -100,6 +100,13 @@ func TestMigrate(t *testing.T) {
 	if ref, _ := st.Finding("rt", "F-001-sqli"); ref.F.Meta.Retest == nil || ref.F.Meta.Retest.Result != "not_fixed" || ref.F.Meta.Retest.Source != "acme/F-001-sqli" {
 		t.Fatalf("retest %+v", ref.F.Meta.Retest)
 	}
+	// already reported findings stay reported, approved for their content
+	if ref, _ := st.Finding("rt", "F-001-sqli"); ref.F.Meta.Status != "reported" {
+		t.Fatalf("status %q", ref.F.Meta.Status)
+	}
+	if s, _ := d.State("rt", "F-001"); s.ApprovedHash == "" {
+		t.Fatal("approval not bound to the migrated content")
+	}
 	// chat moved into the database, files removed from git
 	msgs, _ := st.Chat("acme", "F-001-sqli")
 	if len(msgs) != 2 || msgs[0].Text != "PoC?" || msgs[1].Event != "submit" {
@@ -125,6 +132,32 @@ func TestMigrate(t *testing.T) {
 	}
 	if msgs, _ := st.Chat("acme", "F-001-sqli"); len(msgs) != 2 {
 		t.Fatalf("chat duplicated: %d", len(msgs))
+	}
+}
+
+// If the migration commit fails, the working tree is left exactly as it was
+// (a dirty tree would make every push fail), and a re-run finishes the job
+// without duplicating chat.
+func TestMigrateInterrupted(t *testing.T) {
+	dir := legacyRepo(t)
+	hook := filepath.Join(dir, ".git", "hooks", "pre-commit")
+	os.MkdirAll(filepath.Dir(hook), 0o755)
+	os.WriteFile(hook, []byte("#!/bin/sh\nexit 1\n"), 0o755)
+	var out bytes.Buffer
+	if err := cmdMigrate([]string{"--data", dir}, &out); err == nil {
+		t.Fatal("migrate succeeded despite a failing commit")
+	}
+	if st, _ := exec.Command("git", "-C", dir, "status", "--porcelain", "--untracked-files=no").Output(); len(st) != 0 {
+		t.Fatalf("tree left dirty:\n%s", st)
+	}
+	os.Remove(hook)
+	if err := cmdMigrate([]string{"--data", dir}, &out); err != nil {
+		t.Fatalf("re-run: %v\n%s", err, out.String())
+	}
+	r, _ := gitrepo.Open(dir)
+	st := store.New(r, config.Default(), openDB(t, dir))
+	if msgs, _ := st.Chat("acme", "F-001-sqli"); len(msgs) != 2 {
+		t.Fatalf("chat after re-run: %d", len(msgs))
 	}
 }
 

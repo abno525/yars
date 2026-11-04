@@ -161,6 +161,9 @@ func cmdMigrate(args []string, out io.Writer) error {
 				next := f.Bytes()
 				hash := store.ContentHash(next)
 				st := db.State{Status: l.Status}
+				if st.Status == "complete" || st.Status == "reported" {
+					st.ApprovedHash = hash // approved for exactly this content
+				}
 				for _, n := range l.Reviewers {
 					rv := db.Reviewer{Name: n}
 					for _, c := range l.ClearedBy {
@@ -208,12 +211,22 @@ func cmdMigrate(args []string, out io.Writer) error {
 	// 3. files: strip state, drop chat files and the merge rule, ignore the
 	// database; one commit
 	var paths []string
-	restore := func() {
-		for _, rw := range rewrites {
-			os.WriteFile(filepath.Join(r.Dir, rw.rel), rw.orig, 0o644)
+	// everything changed on disk is put back if the commit fails, so an
+	// interrupted migration leaves a clean tree (pushes need one)
+	backup := map[string][]byte{}
+	save := func(rel string) {
+		if b, err := os.ReadFile(filepath.Join(r.Dir, rel)); err == nil {
+			backup[rel] = b
 		}
 	}
+	restore := func() {
+		for rel, b := range backup {
+			os.WriteFile(filepath.Join(r.Dir, rel), b, 0o644)
+		}
+		r.Unstage(paths)
+	}
 	for _, rw := range rewrites {
+		backup[rw.rel] = rw.orig
 		if err := os.WriteFile(filepath.Join(r.Dir, rw.rel), rw.next, 0o644); err != nil {
 			restore()
 			return err
@@ -221,12 +234,15 @@ func cmdMigrate(args []string, out io.Writer) error {
 		paths = append(paths, rw.rel)
 	}
 	for _, p := range removed {
+		save(p)
 		if r.Tracked(p) {
 			paths = append(paths, p)
 		}
 		os.Remove(filepath.Join(r.Dir, p))
 	}
 	gaPath := filepath.Join(r.Dir, ".gitattributes")
+	save(".gitattributes")
+	save(".gitignore")
 	if b, err := os.ReadFile(gaPath); err == nil && strings.Contains(string(b), chatUnion) {
 		var keep []string
 		for _, l := range strings.Split(string(b), "\n") {
@@ -242,6 +258,7 @@ func cmdMigrate(args []string, out io.Writer) error {
 		paths = append(paths, ".gitattributes")
 	}
 	if changed, err := writeIgnore(r.Dir); err != nil {
+		restore()
 		return err
 	} else if changed {
 		paths = append(paths, ".gitignore")

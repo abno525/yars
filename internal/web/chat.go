@@ -62,7 +62,7 @@ type chatView struct {
 
 var eventText = map[string]string{
 	"submit": "submitted it for verification", "return": "returned it to draft", "clear": "cleared it",
-	"approve": "approved it", "reopen": "reopened it", "report": "marked it reported",
+	"approve": "approved it", "reopen": "reopened it", "report": "marked it reported", "retest": "set the retest result",
 }
 
 func (s *Server) routesChat(mux *http.ServeMux) {

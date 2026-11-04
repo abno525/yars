@@ -129,6 +129,20 @@ func applyState(m *finding.Meta, st db.State, hash string) {
 	if st.RetestSource != "" {
 		m.Retest = &finding.Retest{Source: st.RetestSource, Result: st.RetestResult}
 	}
+	if (st.Status == "complete" || st.Status == "reported") && !Approved(st, hash) {
+		// the content changed after approval without a director's edit
+		// through YARS (e.g. a push that raced the approve): review again
+		m.Status = "verification"
+	}
+}
+
+// Approved reports whether st is complete or reported for exactly this
+// content (hash of finding.md).
+func Approved(st db.State, hash string) bool {
+	if st.Status != "complete" && st.Status != "reported" {
+		return false
+	}
+	return st.ApprovedHash == "" || st.ApprovedHash == hash
 }
 
 func (s *Store) Config() config.Config { return s.cfg }
@@ -269,7 +283,19 @@ func (s *Store) CreateEngagement(e Engagement, a gitrepo.Author) error {
 		s.root.RemoveAll(dir)
 		return err
 	}
-	return s.commit(map[string][]byte{rel: nil}, "engagement "+e.ID+": create", a, dir)
+	if err := s.commit(map[string][]byte{rel: nil}, "engagement "+e.ID+": create", a, dir); err != nil {
+		return err
+	}
+	return s.purge(e.ID)
+}
+
+// purge drops leftover state and chat of a deleted engagement with the same
+// id, so a new engagement never inherits them.
+func (s *Store) purge(engID string) error {
+	if s.db == nil {
+		return nil
+	}
+	return s.db.Tx(func(tx *db.Tx) error { return tx.Purge(engID) })
 }
 
 // CreateRetest creates engagement e (type retest) from source, copying the
@@ -354,6 +380,9 @@ func (s *Store) CreateRetest(e Engagement, source string, dirs []string, assigne
 	}
 	// each copy starts as a fresh draft that links to the original
 	return s.db.Tx(func(tx *db.Tx) error {
+		if err := tx.Purge(e.ID); err != nil {
+			return err
+		}
 		for _, c := range copies {
 			if err := tx.PutState(e.ID, c.f.Meta.ID, db.State{Status: "draft", RetestSource: source + "/" + c.dir}); err != nil {
 				return err
@@ -386,8 +415,23 @@ func (s *Store) SetRetestResult(engID, dir, result string, a Actor) error {
 		if st.RetestSource == "" {
 			return nil, fmt.Errorf("%w: %s is not a retest finding", ErrInvalidValue, ref.F.Meta.ID)
 		}
+		if st.RetestResult == result {
+			return nil, nil
+		}
+		var u string
+		if cu, ok := a.(config.User); ok {
+			u = cu.Username
+		} else {
+			u = a.GitAuthor().Name
+		}
 		st.RetestResult = result
-		return nil, nil
+		if st.Status == "verification" {
+			// reviewers cleared a different outcome
+			for i := range st.Reviewers {
+				st.Reviewers[i].ClearedHash = ""
+			}
+		}
+		return []chat.Message{{ID: chat.NewID(), TS: time.Now().UTC().Truncate(time.Second), User: u, Event: "retest", Text: workflow.RetestLabel(result)}}, nil
 	})
 }
 
@@ -404,16 +448,19 @@ func (s *Store) changeState(engID, dir string, fn func(ref FindingRef, st *db.St
 	if err != nil {
 		return err
 	}
-	fid := ref.F.Meta.ID
-	st, err := s.db.State(engID, fid)
-	if err != nil {
-		return err
-	}
-	msgs, err := fn(ref, &st, contentHash(raw))
-	if err != nil {
-		return err
-	}
+	fid, hash := ref.F.Meta.ID, contentHash(raw)
+	// read-modify-write inside one write transaction, so another process
+	// (yars export --mark) can't interleave
 	return s.db.Tx(func(tx *db.Tx) error {
+		st, err := tx.State(engID, fid)
+		if err != nil {
+			return err
+		}
+		applyState(&ref.F.Meta, st, hash)
+		msgs, err := fn(ref, &st, hash)
+		if err != nil {
+			return err
+		}
 		if err := tx.PutState(engID, fid, st); err != nil {
 			return err
 		}
@@ -569,7 +616,21 @@ func (s *Store) CreateFinding(engID, title string, a gitrepo.Author) (FindingRef
 			}
 		}
 	}
-	id := fmt.Sprintf("F-%03d", max+1)
+	n := max + 1
+	id := fmt.Sprintf("F-%03d", n)
+	// never reuse the number of a deleted finding: it would inherit that
+	// finding's workflow state and chat
+	for s.db != nil {
+		known, err := s.db.Known(engID, id)
+		if err != nil {
+			return FindingRef{}, err
+		}
+		if !known {
+			break
+		}
+		n++
+		id = fmt.Sprintf("F-%03d", n)
+	}
 	dir := id + "-" + Slug(title)
 	f := finding.New(id, strings.TrimSpace(title), a.Name, s.cfg.Sections)
 	if err := s.root.MkdirAll(path.Join(fdir, dir), 0o755); err != nil {
@@ -609,6 +670,12 @@ func (s *Store) UpdateSection(engID, dir, section, body, base string, a Actor) e
 // mutate loads a finding, applies fn, and commits the result as one commit
 // "<ID>: <msg>". No commit is made when the file is unchanged.
 func (s *Store) mutate(engID, dir string, a gitrepo.Author, fn func(f *finding.Finding) (string, error)) error {
+	return s.mutateThen(engID, dir, a, fn, nil)
+}
+
+// mutateThen is mutate with a step that runs after the commit, still under
+// the store lock, with the file's hash before and after.
+func (s *Store) mutateThen(engID, dir string, a gitrepo.Author, fn func(f *finding.Finding) (string, error), then func(ref FindingRef, oldHash, newHash string) error) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	head0, _ := s.repo.Head()
@@ -631,7 +698,13 @@ func (s *Store) mutate(engID, dir string, a gitrepo.Author, fn func(f *finding.F
 	if err := s.writeFile(rel, after); err != nil {
 		return err
 	}
-	return s.commit(map[string][]byte{rel: before}, ref.F.Meta.ID+": "+msg, a, "")
+	if err := s.commit(map[string][]byte{rel: before}, ref.F.Meta.ID+": "+msg, a, ""); err != nil {
+		return err
+	}
+	if then != nil {
+		return then(ref, contentHash(before), contentHash(after))
+	}
+	return nil
 }
 
 var attachmentRe = regexp.MustCompile(`^attachments/[A-Za-z0-9][A-Za-z0-9._-]*$`)
@@ -711,11 +784,35 @@ func (s *Store) PostChat(engID, dir string, m chat.Message, u config.User) (chat
 // is locked. Clearances need no reset: they are bound to the content hash,
 // so any change voids them.
 func (s *Store) mutateContent(engID, dir string, who Actor, fn func(f *finding.Finding) (string, error)) error {
-	return s.mutate(engID, dir, who.GitAuthor(), func(f *finding.Finding) (string, error) {
+	return s.mutateThen(engID, dir, who.GitAuthor(), func(f *finding.Finding) (string, error) {
 		if u, ok := who.(config.User); ok && !workflow.CanEdit(u, f.Meta) {
 			return "", &workflow.Denied{Reason: "this finding is " + f.Meta.Status + "; only a director can edit it"}
 		}
 		return fn(f)
+	}, s.carryApproval)
+}
+
+// carryApproval moves an approval to the new content after an edit of a
+// complete or reported finding (allowed for directors only), so the edit
+// doesn't send it back to verification.
+func (s *Store) carryApproval(ref FindingRef, oldHash, newHash string) error {
+	return CarryApproval(s.db, ref.EngID, ref.F.Meta.ID, oldHash, newHash)
+}
+
+// CarryApproval moves the approval of eng/fid from oldHash to newHash when
+// the finding was approved for oldHash (used after a director's edit,
+// through YARS or by push).
+func CarryApproval(d *db.DB, eng, fid, oldHash, newHash string) error {
+	if d == nil {
+		return nil
+	}
+	return d.Tx(func(tx *db.Tx) error {
+		st, err := tx.State(eng, fid)
+		if err != nil || !Approved(st, oldHash) || st.ApprovedHash == "" {
+			return err
+		}
+		st.ApprovedHash = newHash
+		return tx.PutState(eng, fid, st)
 	})
 }
 
@@ -785,6 +882,9 @@ func (s *Store) Transition(engID, dir string, act workflow.Action, reason string
 			st.Reviewers[i].ClearedHash = hash
 		case workflow.Reopen:
 			uncleared()
+			st.ApprovedHash = ""
+		case workflow.Approve:
+			st.ApprovedHash = hash // approval is for exactly this content
 		}
 		_, st.Status = workflow.Target(act)
 		return []chat.Message{ev}, nil

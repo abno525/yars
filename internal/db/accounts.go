@@ -75,8 +75,21 @@ func (d *DB) DeleteUser(name string) error {
 	return d.update(name, "DELETE FROM users WHERE username = ?", name)
 }
 
+// SetPassword changes the password and ends every session of the account
+// (a reset after a compromise must lock the old cookies out). API tokens
+// are kept; revoke them separately.
 func (d *DB) SetPassword(name, hash string) error {
-	return d.update(name, "UPDATE users SET password_hash = ? WHERE username = ?", hash, name)
+	return d.Tx(func(tx *Tx) error {
+		res, err := tx.Exec("UPDATE users SET password_hash = ? WHERE username = ?", hash, name)
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n != 1 {
+			return fmt.Errorf("no user %s", name)
+		}
+		_, err = tx.Exec("DELETE FROM sessions WHERE username = ?", name)
+		return err
+	})
 }
 
 func (d *DB) SetRole(name, role string) error {

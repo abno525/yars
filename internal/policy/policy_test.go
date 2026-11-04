@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"yars/internal/chat"
 	"yars/internal/config"
 	"yars/internal/db"
 	"yars/internal/finding"
@@ -263,6 +264,49 @@ func TestPolicyEditDuringReview(t *testing.T) {
 		t.Fatalf("edit during review rejected: %v", ps)
 	}
 }
+
+// A pushed new finding can't take the number of a deleted one: it would
+// inherit that finding's status, reviewers and chat.
+func TestPolicyDeletedIDNotReused(t *testing.T) {
+	f := newFx(t)
+	f.st.PostChat("acme", "F-001-sqli", chatMsg("old"), user("bob"))
+	git(t, f.srv.Dir, "rm", "-rq", fdir)
+	git(t, f.srv.Dir, "commit", "-qm", "director deletes F-001")
+	f.reclone()
+	if ps := f.push("alice", newFinding("F-001-new", "id: F-001\ntitle: New\nauthor: alice\n")); !has(ps, "F-001") || !has(ps, "deleted") {
+		t.Fatalf("reused id accepted: %v", ps)
+	}
+	// a director renaming a folder keeps the id: allowed
+	g := newFx(t)
+	if ps := g.push("dora", func(d string) {
+		os.Rename(filepath.Join(d, fdir), filepath.Join(d, "engagements/acme/findings/F-001-renamed"))
+	}); len(ps) != 0 {
+		t.Fatalf("rename rejected: %v", ps)
+	}
+}
+
+// A director's push to an approved finding keeps it approved: the hook
+// carries the approval to the new content.
+func TestPolicyDirectorEditCarriesApproval(t *testing.T) {
+	f := newFx(t)
+	st := f.st
+	st.SetReviewers("acme", "F-001-sqli", []string{"bob"}, user("alice"))
+	st.UpdateSeverity("acme", "F-001-sqli", "high", "", user("alice").GitAuthor())
+	st.Transition("acme", "F-001-sqli", workflow.Submit, "", user("alice"))
+	st.Transition("acme", "F-001-sqli", workflow.Clear, "", user("bob"))
+	st.Transition("acme", "F-001-sqli", workflow.Approve, "", user("dora"))
+	f.reclone()
+	if ps := f.push("dora", func(d string) {
+		editMeta(d, func(fd *finding.Finding) { fd.SetSection("Impact", "director polish") })
+	}); len(ps) != 0 {
+		t.Fatalf("director edit rejected: %v", ps)
+	}
+	if len(f.c.Carry) != 1 || f.c.Carry[0].Fid != "F-001" {
+		t.Fatalf("carry %+v", f.c.Carry)
+	}
+}
+
+func chatMsg(text string) chat.Message { return chat.Message{Text: text} }
 
 func TestPolicyEngagementMustExist(t *testing.T) {
 	f := newFx(t)

@@ -46,6 +46,7 @@ var migrations = []string{
 		returned_reason TEXT NOT NULL DEFAULT '',
 		retest_source   TEXT NOT NULL DEFAULT '',
 		retest_result   TEXT NOT NULL DEFAULT '',
+		approved_hash   TEXT NOT NULL DEFAULT '',
 		PRIMARY KEY (eng, fid)
 	);
 	CREATE TABLE reviewers (

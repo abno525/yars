@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"yars/internal/chat"
 	"yars/internal/config"
 )
 
@@ -118,6 +119,42 @@ func TestTokens(t *testing.T) {
 	}
 	if _, ok, _ := d.SessionUser("sess"); ok {
 		t.Fatal("session outlived its user")
+	}
+}
+
+// A password reset (e.g. after a compromise) ends every existing session.
+func TestSetPasswordEndsSessions(t *testing.T) {
+	d, _ := open(t)
+	d.AddUser(config.User{Username: "bob", Role: "reviewer", PasswordHash: "h1"})
+	d.CreateSession("s1", "bob")
+	if err := d.SetPassword("bob", "h2"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, _ := d.SessionUser("s1"); ok {
+		t.Fatal("session survived a password change")
+	}
+}
+
+// IDs that ever had workflow state or chat are known, even after their
+// folder is gone; a new engagement with an old name starts clean.
+func TestKnownAndPurge(t *testing.T) {
+	d, _ := open(t)
+	if k, _ := d.Known("acme", "F-001"); k {
+		t.Fatal("unknown id reported known")
+	}
+	d.Tx(func(tx *Tx) error { return tx.AddMessage("acme", "F-001", chat.Message{ID: "m1", User: "bob", Text: "x"}) })
+	if k, _ := d.Known("acme", "F-001"); !k {
+		t.Fatal("id with chat not known")
+	}
+	d.Tx(func(tx *Tx) error { return tx.PutState("acme", "F-002", State{Status: "complete"}) })
+	if err := d.Tx(func(tx *Tx) error { return tx.Purge("acme") }); err != nil {
+		t.Fatal(err)
+	}
+	if k1, _ := d.Known("acme", "F-001"); k1 {
+		t.Fatal("chat survived purge")
+	}
+	if k2, _ := d.Known("acme", "F-002"); k2 {
+		t.Fatal("state survived purge")
 	}
 }
 

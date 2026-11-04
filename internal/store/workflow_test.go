@@ -239,6 +239,92 @@ func TestSetReviewersDropsAuthor(t *testing.T) {
 	}
 }
 
+// A new finding never reuses the number of a deleted one, or it would
+// inherit that finding's status, reviewers and chat.
+func TestNewFindingSkipsUsedIDs(t *testing.T) {
+	s, dir, fd := ready(t)
+	s.PostChat(eng, fd, chatMsg("old discussion"), uBob)
+	git(t, dir, "rm", "-rq", "engagements/"+eng+"/findings/"+fd)
+	git(t, dir, "commit", "-qm", "delete F-001")
+	ref, err := s.CreateFinding(eng, "New issue", alice)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ref.F.Meta.ID == "F-001" {
+		t.Fatal("deleted finding's number reused")
+	}
+	if msgs, _ := s.Chat(eng, ref.Dir); len(msgs) != 0 {
+		t.Fatal("new finding inherited chat")
+	}
+}
+
+// An engagement created under the name of a deleted one starts clean.
+func TestRecreatedEngagementStartsClean(t *testing.T) {
+	s, dir, fd := ready(t)
+	s.Transition(eng, fd, workflow.Submit, "", uAlice)
+	s.PostChat(eng, fd, chatMsg("old"), uBob)
+	git(t, dir, "rm", "-rq", "engagements/"+eng)
+	git(t, dir, "commit", "-qm", "delete engagement")
+	if err := s.CreateEngagement(Engagement{ID: eng, Name: "again"}, alice); err != nil {
+		t.Fatal(err)
+	}
+	ref, _ := s.CreateFinding(eng, "Fresh", alice)
+	m := load(t, s, ref.Dir).F.Meta
+	if m.Status != "draft" || len(m.Reviewers) != 0 {
+		t.Fatalf("inherited state %+v", m)
+	}
+	if msgs, _ := s.Chat(eng, ref.Dir); len(msgs) != 0 {
+		t.Fatal("inherited chat")
+	}
+}
+
+// Approval is bound to the approved content: if the text changes behind
+// the store's back (a push racing the approve), the finding is back in
+// verification. A director's own edit through YARS keeps it complete.
+func TestApprovalBoundToContent(t *testing.T) {
+	s, dir, fd := ready(t)
+	s.Transition(eng, fd, workflow.Submit, "", uAlice)
+	s.Transition(eng, fd, workflow.Clear, "", uBob)
+	if err := s.Transition(eng, fd, workflow.Approve, "", uDora); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpdateSection(eng, fd, "Impact", "director polish", "", uDora); err != nil {
+		t.Fatal(err)
+	}
+	if m := load(t, s, fd).F.Meta; m.Status != "complete" {
+		t.Fatalf("director edit reopened the finding: %s", m.Status)
+	}
+	p := filepath.Join(dir, "engagements", eng, "findings", fd, "finding.md")
+	b, _ := os.ReadFile(p)
+	os.WriteFile(p, append(b, []byte("\nsneaked in\n")...), 0o644)
+	git(t, dir, "commit", "-qam", "push that raced the approve")
+	if m := load(t, s, fd).F.Meta; m.Status != "verification" || len(m.ClearedBy) != 0 {
+		t.Fatalf("unreviewed change stayed complete: %+v", m)
+	}
+}
+
+// Changing a retest result during review voids the clearances: reviewers
+// cleared a different outcome.
+func TestRetestResultChangeVoidsClearance(t *testing.T) {
+	s, _ := srcFixture(t)
+	s.CreateRetest(Engagement{ID: "rt", Name: "RT"}, eng, []string{"F-001-sql-injection"}, "", uDora)
+	rt := "F-001-sql-injection"
+	s.SetReviewers("rt", rt, []string{"bob"}, uAlice)
+	s.SetRetestResult("rt", rt, "fixed", uAlice)
+	s.UpdateSeverity("rt", rt, "high", "", alice)
+	if err := s.Transition("rt", rt, workflow.Submit, "", uAlice); err != nil {
+		t.Fatal(err)
+	}
+	s.Transition("rt", rt, workflow.Clear, "", uBob)
+	if err := s.SetRetestResult("rt", rt, "not_fixed", uAlice); err != nil {
+		t.Fatal(err)
+	}
+	ref, _ := s.Finding("rt", rt)
+	if len(ref.F.Meta.ClearedBy) != 0 {
+		t.Fatalf("clearance kept after the result changed: %v", ref.F.Meta.ClearedBy)
+	}
+}
+
 // State is keyed by finding ID, so renaming the folder (e.g. by a push)
 // keeps it.
 func TestStateSurvivesRename(t *testing.T) {

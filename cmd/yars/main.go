@@ -362,6 +362,14 @@ func cmdHook(args []string, in io.Reader, errOut io.Writer) int {
 	if len(ps) > 0 {
 		return 1
 	}
+	// A director's edit keeps an approved finding approved. (If the push
+	// then fails to land, the approval points at content that never
+	// arrived and the finding falls back to verification: the safe side.)
+	for _, cr := range c.Carry {
+		if err := store.CarryApproval(d, cr.Eng, cr.Fid, cr.OldHash, cr.NewHash); err != nil {
+			return fail("server: " + err.Error())
+		}
+	}
 	return 0
 }
 

@@ -30,7 +30,14 @@ type Checker struct {
 	Cfg   config.Config
 	Users []config.User
 	DB    *db.DB // workflow state (nil: every finding counts as a draft)
+
+	// Carry lists approved findings a director changed in the checked push;
+	// once the push is accepted the hook moves their approval to the new
+	// content (store.CarryApproval).
+	Carry []Carry
 }
+
+type Carry struct{ Eng, Fid, OldHash, NewHash string }
 
 func manager(u config.User) bool { return workflow.AtLeast(u, "director") }
 
@@ -194,8 +201,10 @@ func (c *Checker) severityOK(n finding.Meta) []string {
 	return nil
 }
 
-// status is the finding's workflow status from the database.
-func (c *Checker) status(eng, fid string) string {
+// status is the finding's workflow status for content raw, from the
+// database (a complete finding whose content changed after approval counts
+// as in verification, as everywhere else).
+func (c *Checker) status(eng, fid string, raw []byte) string {
 	if c.DB == nil {
 		return "draft"
 	}
@@ -203,7 +212,28 @@ func (c *Checker) status(eng, fid string) string {
 	if err != nil {
 		return "complete" // fail closed: only a director may edit
 	}
+	if (st.Status == "complete" || st.Status == "reported") && !store.Approved(st, store.ContentHash(raw)) {
+		return "verification"
+	}
 	return st.Status
+}
+
+// reusesDeletedID reports whether a new finding takes the id of a finding
+// that no longer exists but still has workflow state or chat. A folder
+// renamed within the push (the id still existed before) is fine.
+func (c *Checker) reusesDeletedID(old, eng, id string) bool {
+	if c.DB == nil || id == "" {
+		return false
+	}
+	if before, err := c.Repo.ListTree(old, "engagements/"+eng+"/findings"); err == nil && old != "" {
+		for _, o := range before {
+			if o == id || strings.HasPrefix(o, id+"-") {
+				return false
+			}
+		}
+	}
+	known, err := c.DB.Known(eng, id)
+	return err != nil || known
 }
 
 func (c *Checker) findingFile(u config.User, old, new string, ch gitrepo.Change, eng, dir string) []string {
@@ -237,6 +267,9 @@ func (c *Checker) findingFile(u config.User, old, new string, ch gitrepo.Change,
 				}
 			}
 		}
+		if c.reusesDeletedID(old, eng, n.ID) {
+			ps = append(ps, "id "+n.ID+" belonged to a deleted finding (its review history is kept); use a new number")
+		}
 		return ps
 	}
 	of, _ := finding.Parse(ob)
@@ -250,7 +283,7 @@ func (c *Checker) findingFile(u config.User, old, new string, ch gitrepo.Change,
 		return ps
 	}
 	o := of.Meta
-	o.Status = c.status(eng, o.ID)
+	o.Status = c.status(eng, o.ID, ob)
 	if !workflow.CanEdit(u, o) {
 		return append(ps, "the finding is "+o.Status+"; only a director can change it")
 	}
@@ -259,6 +292,9 @@ func (c *Checker) findingFile(u config.User, old, new string, ch gitrepo.Change,
 	}
 	if n.Author != o.Author {
 		ps = append(ps, "author cannot change")
+	}
+	if o.Status == "complete" || o.Status == "reported" {
+		c.Carry = append(c.Carry, Carry{eng, o.ID, store.ContentHash(ob), store.ContentHash(nb)})
 	}
 	return ps
 }

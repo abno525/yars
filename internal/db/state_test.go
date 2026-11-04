@@ -19,7 +19,7 @@ func TestStateDefaultsToDraft(t *testing.T) {
 func TestStateRoundTrip(t *testing.T) {
 	d, _ := open(t)
 	want := State{Status: "verification", Reviewers: []Reviewer{{Name: "bob", ClearedHash: "h1"}, {Name: "carol"}},
-		ReturnedBy: "bob", ReturnedReason: "add PoC", RetestSource: "old/F-001-x", RetestResult: "fixed"}
+		ReturnedBy: "bob", ReturnedReason: "add PoC", RetestSource: "old/F-001-x", RetestResult: "fixed", ApprovedHash: "h9"}
 	if err := d.Tx(func(tx *Tx) error { return tx.PutState("acme", "F-001", want) }); err != nil {
 		t.Fatal(err)
 	}

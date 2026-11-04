@@ -1,6 +1,7 @@
 package db
 
 import (
+	"database/sql"
 	"time"
 
 	"yars/internal/chat"
@@ -18,20 +19,35 @@ type State struct {
 	Reviewers                  []Reviewer
 	ReturnedBy, ReturnedReason string
 	RetestSource, RetestResult string
+	// ApprovedHash is the finding.md hash at approval; a complete finding
+	// whose content no longer matches is back in verification.
+	ApprovedHash string
 }
 
 func scanState(sc interface{ Scan(...any) error }) (string, State, error) {
 	var fid string
 	var s State
-	err := sc.Scan(&fid, &s.Status, &s.ReturnedBy, &s.ReturnedReason, &s.RetestSource, &s.RetestResult)
+	err := sc.Scan(&fid, &s.Status, &s.ReturnedBy, &s.ReturnedReason, &s.RetestSource, &s.RetestResult, &s.ApprovedHash)
 	return fid, s, err
 }
 
-const stateCols = "fid, status, returned_by, returned_reason, retest_source, retest_result"
+const stateCols = "fid, status, returned_by, returned_reason, retest_source, retest_result, approved_hash"
+
+// querier is what both *DB and *Tx can run reads on.
+type querier interface {
+	Query(string, ...any) (*sql.Rows, error)
+	QueryRow(string, ...any) *sql.Row
+}
 
 // State returns one finding's workflow state.
-func (d *DB) State(eng, fid string) (State, error) {
-	all, err := d.states(eng, fid)
+func (d *DB) State(eng, fid string) (State, error) { return stateOf(d, eng, fid) }
+
+// State reads one finding's state inside the transaction, so a
+// read-modify-write can't lose a concurrent writer's change.
+func (tx *Tx) State(eng, fid string) (State, error) { return stateOf(tx, eng, fid) }
+
+func stateOf(q querier, eng, fid string) (State, error) {
+	all, err := states(q, eng, fid)
 	if err != nil {
 		return State{}, err
 	}
@@ -42,9 +58,30 @@ func (d *DB) State(eng, fid string) (State, error) {
 }
 
 // States returns the stored state of every finding in an engagement, by ID.
-func (d *DB) States(eng string) (map[string]State, error) { return d.states(eng, "") }
+func (d *DB) States(eng string) (map[string]State, error) { return states(d, eng, "") }
 
-func (d *DB) states(eng, fid string) (map[string]State, error) {
+// Known reports whether a finding ID has (or had) workflow state or chat.
+// A new finding must not reuse such an ID, or it would inherit them.
+func (d *DB) Known(eng, fid string) (bool, error) {
+	var n int
+	err := d.QueryRow(`SELECT (SELECT count(*) FROM finding_state WHERE eng = ?1 AND fid = ?2)
+		+ (SELECT count(*) FROM reviewers WHERE eng = ?1 AND fid = ?2)
+		+ (SELECT count(*) FROM chat WHERE eng = ?1 AND fid = ?2)`, eng, fid).Scan(&n)
+	return n > 0, err
+}
+
+// Purge drops all workflow state and chat of an engagement (used when an
+// engagement is created under the name of one that no longer exists).
+func (tx *Tx) Purge(eng string) error {
+	for _, t := range []string{"finding_state", "reviewers", "chat"} {
+		if _, err := tx.Exec("DELETE FROM "+t+" WHERE eng = ?", eng); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func states(d querier, eng, fid string) (map[string]State, error) {
 	q, args := "SELECT "+stateCols+" FROM finding_state WHERE eng = ?", []any{eng}
 	rq, rargs := "SELECT fid, username, COALESCE(cleared_hash, '') FROM reviewers WHERE eng = ?", []any{eng}
 	if fid != "" {
@@ -94,11 +131,12 @@ func (tx *Tx) PutState(eng, fid string, s State) error {
 	if s.Status == "" {
 		s.Status = "draft"
 	}
-	_, err := tx.Exec(`INSERT INTO finding_state(eng, fid, status, returned_by, returned_reason, retest_source, retest_result)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
+	_, err := tx.Exec(`INSERT INTO finding_state(eng, fid, status, returned_by, returned_reason, retest_source, retest_result, approved_hash)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(eng, fid) DO UPDATE SET status = excluded.status, returned_by = excluded.returned_by,
-		returned_reason = excluded.returned_reason, retest_source = excluded.retest_source, retest_result = excluded.retest_result`,
-		eng, fid, s.Status, s.ReturnedBy, s.ReturnedReason, s.RetestSource, s.RetestResult)
+		returned_reason = excluded.returned_reason, retest_source = excluded.retest_source, retest_result = excluded.retest_result,
+		approved_hash = excluded.approved_hash`,
+		eng, fid, s.Status, s.ReturnedBy, s.ReturnedReason, s.RetestSource, s.RetestResult, s.ApprovedHash)
 	if err != nil {
 		return err
 	}

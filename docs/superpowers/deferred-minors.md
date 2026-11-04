@@ -82,3 +82,14 @@ Small issues found by the end-of-milestone reviews and deliberately left for the
 - HTTP: `Bearer` matched case-sensitively; no OAuth protected-resource metadata (Claude Code may show "needs authentication" on a bad token — documented).
 - Token CLI: revoking an unknown user succeeds silently; no per-token revoke or token ids in `list`; `.gitignore` migration can duplicate the comment line.
 - Test gaps: non-author pentester `set_field reviewers`/`clear` via MCP; revoke on a running server over HTTP end-to-end.
+
+## M10 SQLite
+- Migration: a token in tokens.yaml for a user missing from users.yaml aborts the migration (should skip with a warning).
+- Migration: chat dedupe is by global message id; a finding folder copied with its chat.jsonl loses the second copy's chat (dedupe on eng+finding+id or report it).
+- CreateRetest commits the copies, then writes their retest links in a separate transaction; if that fails the copies look like plain drafts. With no database it succeeds silently.
+- Saving an unchanged section of a pushed file in non-canonical format rewrites it and voids clearances (compare `Parse(raw).Bytes()` with the new bytes).
+- Hook: a transient database error is reported as "the finding is complete; only a director can change it" (should be "server busy, retry").
+- Sessions: expired rows are only deleted when looked up; the cookie MaxAge (14 days) is set at login only, so an active user is logged out 14 days after login.
+- Attachments are not covered by the clearance hash or the complete-lock (also true before M10).
+- Clear binds to the content at click time, not to the version the reviewer viewed (send the viewed hash with Clear and reject on mismatch).
+- A director's push to an approved finding moves the approval in pre-receive; if the push then fails to land, the finding falls back to verification (safe, but surprising).
