@@ -40,7 +40,7 @@ func setupDB(t *testing.T) (*httptest.Server, *gitrepo.Repo, *db.DB) {
 	}
 	hash, _ := auth.HashPassword("pw")
 	d.AddUser(config.User{Username: "alice", Role: "pentester", PasswordHash: hash})
-	gs := &Server{Repo: r, Auth: auth.New(d)}
+	gs := &Server{Repo: r, Auth: auth.New(d), Sync: st.SyncPointers}
 	if err := gs.Setup(); err != nil {
 		t.Fatal(err)
 	}
@@ -120,8 +120,16 @@ func TestAuthRequired(t *testing.T) {
 	if c := get(refs, "alice", "pw"); c != 200 {
 		t.Errorf("good auth: %d", c)
 	}
-	if c := get("/git/other/info/refs?service=git-upload-pack", "alice", "pw"); c != 404 {
-		t.Errorf("other repo: %d", c)
+	for _, p := range []string{"/git/other", "/git/e/nope", "/git/e/..", "/git/e/.git", "/git/e/-x"} {
+		if c := get(p+"/info/refs?service=git-upload-pack", "alice", "pw"); c != 404 {
+			t.Errorf("%s: %d", p, c)
+		}
+	}
+	if c := get("/git/e/acme/info/refs?service=git-upload-pack", "alice", "pw"); c != 200 {
+		t.Errorf("engagement repo: %d", c)
+	}
+	if c := get("/git/e/acme/info/refs?service=git-upload-pack", "", ""); c != 401 {
+		t.Errorf("engagement repo without auth: %d", c)
 	}
 }
 
@@ -139,30 +147,43 @@ func TestSetupHardening(t *testing.T) {
 	}
 }
 
+// A recursive clone of the main repo brings every engagement; a push goes to
+// the engagement's own repository and updates the server's copy.
 func TestCloneAndPush(t *testing.T) {
 	srv, r := setup(t)
 	dst := filepath.Join(t.TempDir(), "clone")
 	url := strings.Replace(srv.URL, "http://", "http://alice:pw@", 1) + "/git/yars"
-	out, err := exec.Command("git", "clone", "-q", url, dst).CombinedOutput()
-	if err != nil {
+	cmd := exec.Command("git", "clone", "-q", "--recurse-submodules", url, dst)
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("clone: %v %s", err, out)
 	}
-	if _, err := os.Stat(filepath.Join(dst, "engagements", "acme", "engagement.yaml")); err != nil {
+	ed := filepath.Join(dst, "engagements", "acme")
+	if _, err := os.Stat(filepath.Join(ed, "engagement.yaml")); err != nil {
 		t.Fatal("clone lacks engagement")
 	}
-	os.WriteFile(filepath.Join(dst, "engagements", "acme", "notes.txt"), []byte("hi\n"), 0o644)
-	if s, _ := exec.Command("git", "-C", r.Dir, "config", "core.hooksPath").Output(); len(s) == 0 {
-		t.Fatal("hooksPath not set")
-	}
-	gitCmd(t, dst, "add", "-A")
-	gitCmd(t, dst, "commit", "-qm", "note")
-	before, _ := r.Head()
-	gitCmd(t, dst, "push", "-q", "origin", "HEAD")
-	after, _ := r.Head()
+	gitCmd(t, ed, "switch", "-q", "main")
+	os.WriteFile(filepath.Join(ed, "notes.txt"), []byte("hi\n"), 0o644)
+	gitCmd(t, ed, "add", "-A")
+	gitCmd(t, ed, "commit", "-qm", "note")
+	er, _ := gitrepo.Open(filepath.Join(r.Dir, "engagements", "acme"))
+	before, _ := er.Head()
+	gitCmd(t, ed, "push", "-q", "origin", "HEAD")
+	after, _ := er.Head()
 	if before == after {
-		t.Fatal("server HEAD did not move")
+		t.Fatal("engagement repo HEAD did not move")
 	}
-	if b, err := os.ReadFile(filepath.Join(r.Dir, "engagements", "acme", "notes.txt")); err != nil || string(b) != "hi\n" {
+	if b, err := os.ReadFile(filepath.Join(er.Dir, "notes.txt")); err != nil || string(b) != "hi\n" {
 		t.Fatalf("working tree not updated: %v", err)
+	}
+	for _, d := range []string{r.Dir, er.Dir} {
+		if s, _ := exec.Command("git", "-C", d, "config", "core.hooksPath").Output(); len(s) == 0 {
+			t.Fatalf("hooksPath not set in %s", d)
+		}
+	}
+	// the main repo's pointer follows on the next fetch of /git/yars
+	gitCmd(t, dst, "pull", "-q", "--no-rebase")
+	if link, _ := r.Gitlink("HEAD", "engagements/acme"); link != after {
+		t.Fatalf("pointer %s, engagement at %s", link, after)
 	}
 }

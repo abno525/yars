@@ -26,7 +26,8 @@ type Update struct{ Old, New, Ref string }
 // and workflow state (never the pushed ones, so a push can't relax its own
 // checks).
 type Checker struct {
-	Repo  *gitrepo.Repo
+	Repo  *gitrepo.Repo // the repository being pushed to
+	Eng   string        // its engagement id; "" = the main repo
 	Cfg   config.Config
 	Users []config.User
 	DB    *db.DB // workflow state (nil: every finding counts as a draft)
@@ -92,7 +93,16 @@ func (c *Checker) Check(username string, ups []Update) []string {
 			continue
 		}
 		for _, ch := range changes {
-			for _, p := range c.file(u, old, up.New, ch) {
+			var probs []string
+			if c.Eng == "" {
+				probs = c.mainFile(u, old, up.New, ch)
+			} else {
+				// rules are written against data-dir paths
+				logical := ch
+				logical.Path = "engagements/" + c.Eng + "/" + ch.Path
+				probs = c.file(u, old, up.New, logical)
+			}
+			for _, p := range probs {
 				ps = append(ps, ch.Path+": "+p)
 			}
 		}
@@ -100,12 +110,36 @@ func (c *Checker) Check(username string, ups []Update) []string {
 	return ps
 }
 
+// mainFile checks a change in the main repo: settings only; engagement
+// pointers and .gitmodules belong to the server.
+func (c *Checker) mainFile(u config.User, old, new string, ch gitrepo.Change) []string {
+	if ch.Mode == "160000" || ch.Path == ".gitmodules" {
+		return []string{"engagement pointers are managed by the server; push to the engagement's own repository (/git/e/<id>)"}
+	}
+	if strings.HasPrefix(ch.Path, "engagements/") && ch.Path != "engagements/.gitkeep" {
+		return []string{"findings live in the engagement's own repository; push there (/git/e/<id>)"}
+	}
+	return c.file(u, old, new, ch)
+}
+
+// real maps a data-dir path to a path in the pushed repository.
+func (c *Checker) real(p string) string {
+	if c.Eng == "" {
+		return p
+	}
+	return strings.TrimPrefix(p, "engagements/"+c.Eng+"/")
+}
+
 func (c *Checker) show(rev, path string) ([]byte, bool) {
 	if rev == "" {
 		return nil, false
 	}
-	b, err := c.Repo.Show(rev, path)
+	b, err := c.Repo.Show(rev, c.real(path))
 	return b, err == nil
+}
+
+func (c *Checker) listTree(rev, dir string) ([]string, error) {
+	return c.Repo.ListTree(rev, c.real(dir))
 }
 
 const outsideMsg = "not allowed here; findings must live under engagements/<engagement>/findings/<finding>/"
@@ -225,7 +259,7 @@ func (c *Checker) reusesDeletedID(old, eng, id string) bool {
 	if c.DB == nil || id == "" {
 		return false
 	}
-	if before, err := c.Repo.ListTree(old, "engagements/"+eng+"/findings"); err == nil && old != "" {
+	if before, err := c.listTree(old, "engagements/"+eng+"/findings"); err == nil && old != "" {
 		for _, o := range before {
 			if o == id || strings.HasPrefix(o, id+"-") {
 				return false
@@ -260,7 +294,7 @@ func (c *Checker) findingFile(u config.User, old, new string, ch gitrepo.Change,
 		if n.ID == "" || !(dir == n.ID || strings.HasPrefix(dir, n.ID+"-")) {
 			ps = append(ps, fmt.Sprintf("id %s does not match the directory %s", n.ID, dir))
 		}
-		if others, err := c.Repo.ListTree(new, "engagements/"+eng+"/findings"); err == nil && n.ID != "" {
+		if others, err := c.listTree(new, "engagements/"+eng+"/findings"); err == nil && n.ID != "" {
 			for _, o := range others {
 				if o != dir && (o == n.ID || strings.HasPrefix(o, n.ID+"-")) {
 					ps = append(ps, "duplicate id "+n.ID+" (also "+o+")")
