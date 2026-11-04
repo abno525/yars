@@ -122,11 +122,11 @@ func TestPandocRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Filename != "acme.docx" || !bytes.Contains(res.Data, []byte("# F-001 SQL injection")) {
+	if res.Filename != "acme.docx" || !bytes.Contains(res.Data, []byte("<h1>F-001 SQL injection</h1>")) {
 		t.Fatalf("result %s %q", res.Filename, res.Data[:min(len(res.Data), 80)])
 	}
 	args, _ := os.ReadFile(filepath.Join(pdir, "args.txt"))
-	for _, want := range []string{"-f\ngfm", "-t\ndocx", "--reference-doc=" + filepath.Join(edir, "ref.docx"), "--toc", "title=ACME Web"} {
+	for _, want := range []string{"-f\nhtml", "-t\ndocx", "--reference-doc=" + filepath.Join(edir, "ref.docx"), "--toc", "title=ACME Web"} {
 		if !strings.Contains(string(args), want) {
 			t.Errorf("args lack %q:\n%s", want, args)
 		}
@@ -145,6 +145,16 @@ func TestPandocReal(t *testing.T) {
 	}
 	if !bytes.HasPrefix(res.Data, []byte("PK")) {
 		t.Fatal("not a docx (zip)")
+	}
+	// multi-line details keep their line break in the document
+	docx := filepath.Join(t.TempDir(), "r.docx")
+	os.WriteFile(docx, res.Data, 0o644)
+	txt, err := exec.Command(p, "-t", "plain", docx).Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(txt), "loginparam") || !strings.Contains(string(txt), "param user") || !strings.Contains(string(txt), "id=1'") {
+		t.Fatalf("content:\n%s", txt)
 	}
 }
 

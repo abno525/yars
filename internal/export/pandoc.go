@@ -27,7 +27,10 @@ func (r *Runner) pandoc(ctx context.Context, e Exporter, in Input) (Result, erro
 	}
 	defer os.RemoveAll(tmp)
 	out := filepath.Join(tmp, "report."+ext)
-	args := []string{"-f", "gfm", "-o", out, "--standalone", "--metadata", "title=" + in.Engagement.Name}
+	// pandoc reads the same sanitised XHTML as the Confluence export: raw
+	// HTML from findings is already stripped, and <br/> in table cells
+	// becomes a real line break in every output format.
+	args := []string{"-f", "html", "-o", out, "--standalone", "--metadata", "title=" + in.Engagement.Name}
 	if e.Format != "pdf" { // pdf: pandoc picks the writer from the extension
 		args = append(args, "-t", e.Format)
 	}
@@ -49,7 +52,7 @@ func (r *Runner) pandoc(ctx context.Context, e Exporter, in Input) (Result, erro
 	args = append(args, e.Args...)
 	cmd := exec.CommandContext(ctx, r.PandocPath, args...)
 	cmd.Dir = tmp
-	cmd.Stdin = strings.NewReader(Markdown(in))
+	cmd.Stdin = strings.NewReader("<html><body>\n" + XHTML(in, false) + "</body></html>\n")
 	stderr := &capWriter{max: 1 << 20}
 	cmd.Stderr = stderr
 	cmd.WaitDelay = 2e9

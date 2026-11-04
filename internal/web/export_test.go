@@ -38,7 +38,7 @@ func TestExportDownload(t *testing.T) {
 		t.Fatalf("export page:\n%s", b)
 	}
 	rec := e.do(t, "dora", "POST", "/e/acme/export", url.Values{"exporter": {"docx"}, "finding": {"F-001-sql-injection"}}, nil)
-	if rec.Code != 200 || !strings.Contains(rec.Header().Get("Content-Disposition"), `attachment; filename="acme.docx"`) || !strings.Contains(rec.Body.String(), "# F-001 SQL injection") {
+	if rec.Code != 200 || !strings.Contains(rec.Header().Get("Content-Disposition"), `attachment; filename="acme.docx"`) || !strings.Contains(rec.Body.String(), "<h1>F-001 SQL injection</h1>") {
 		t.Fatalf("code %d headers %v", rec.Code, rec.Header())
 	}
 	if e.status(t) != "reported" || e.lastCommit(t) != "dora|F-001: mark reported" {
