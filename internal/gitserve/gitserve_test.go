@@ -12,22 +12,35 @@ import (
 
 	"yars/internal/auth"
 	"yars/internal/config"
+	"yars/internal/db"
 	"yars/internal/gitrepo"
 	"yars/internal/store"
 )
 
 func setup(t *testing.T) (*httptest.Server, *gitrepo.Repo) {
 	t.Helper()
+	srv, r, _ := setupDB(t)
+	return srv, r
+}
+
+func setupDB(t *testing.T) (*httptest.Server, *gitrepo.Repo, *db.DB) {
+	t.Helper()
 	r, err := gitrepo.Init(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	st := store.New(r, config.Default())
+	d, err := db.Open(filepath.Join(t.TempDir(), "yars.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { d.Close() })
+	st := store.New(r, config.Default(), d)
 	if err := st.CreateEngagement(store.Engagement{ID: "acme", Name: "ACME"}, gitrepo.Author{Name: "a", Email: "a@a"}); err != nil {
 		t.Fatal(err)
 	}
 	hash, _ := auth.HashPassword("pw")
-	gs := &Server{Repo: r, Auth: auth.New([]config.User{{Username: "alice", Role: "pentester", PasswordHash: hash}})}
+	d.AddUser(config.User{Username: "alice", Role: "pentester", PasswordHash: hash})
+	gs := &Server{Repo: r, Auth: auth.New(d)}
 	if err := gs.Setup(); err != nil {
 		t.Fatal(err)
 	}
@@ -35,7 +48,38 @@ func setup(t *testing.T) (*httptest.Server, *gitrepo.Repo) {
 	mux.Handle("/git/", gs.Handler())
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-	return srv, r
+	return srv, r, d
+}
+
+// The credential cache must not outlive the account: a deleted user or a
+// changed password stops working at once.
+func TestCacheFollowsAccountChanges(t *testing.T) {
+	srv, _, d := setupDB(t)
+	get := func(pw string) int {
+		req, _ := http.NewRequest("GET", srv.URL+"/git/yars/info/refs?service=git-upload-pack", nil)
+		req.SetBasicAuth("alice", pw)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+	if c := get("pw"); c != 200 {
+		t.Fatalf("login %d", c)
+	}
+	h, _ := auth.HashPassword("new")
+	d.SetPassword("alice", h)
+	if c := get("pw"); c != 401 {
+		t.Fatalf("old password still works from the cache: %d", c)
+	}
+	if c := get("new"); c != 200 {
+		t.Fatalf("new password %d", c)
+	}
+	d.DeleteUser("alice")
+	if c := get("new"); c != 401 {
+		t.Fatalf("deleted account still works from the cache: %d", c)
+	}
 }
 
 func gitCmd(t *testing.T, dir string, args ...string) string {

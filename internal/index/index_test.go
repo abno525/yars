@@ -9,26 +9,35 @@ import (
 
 	"yars/internal/chat"
 	"yars/internal/config"
+	"yars/internal/db"
 	"yars/internal/gitrepo"
 	"yars/internal/store"
 )
 
 var alice = gitrepo.Author{Name: "alice", Email: "a@x"}
 
-// setStatusSeverity rewrites a finding's front matter directly on disk and
-// commits it, the way a local editor would.
+// setMeta rewrites a finding's severity directly on disk and commits it (the
+// way a local editor would) and sets its status in the database.
 func setMeta(t *testing.T, s *store.Store, eng, dir, status, sev string) {
 	t.Helper()
 	ref, err := s.Finding(eng, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	ref.F.Meta.Status, ref.F.Meta.Severity = status, sev
+	ref.F.Meta.Severity = sev
 	rel := filepath.Join("engagements", eng, "findings", dir, "finding.md")
 	if err := os.WriteFile(filepath.Join(s.Repo().Dir, rel), ref.F.Bytes(), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Repo().Commit([]string{rel}, "meta", alice); err != nil {
+		t.Fatal(err)
+	}
+	setStatus(t, s, eng, ref.F.Meta.ID, status)
+}
+
+func setStatus(t *testing.T, s *store.Store, eng, fid, status string) {
+	t.Helper()
+	if err := s.DB().Tx(func(tx *db.Tx) error { return tx.PutState(eng, fid, db.State{Status: status}) }); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -39,7 +48,12 @@ func fixture(t *testing.T) (*Index, *store.Store) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := store.New(r, config.Default())
+	d, err := db.Open(filepath.Join(t.TempDir(), "yars.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { d.Close() })
+	s := store.New(r, config.Default(), d)
 	for _, e := range []string{"acme", "other"} {
 		if err := s.CreateEngagement(store.Engagement{ID: e, Name: e}, alice); err != nil {
 			t.Fatal(err)
@@ -181,6 +195,19 @@ func TestRowsOpenThreads(t *testing.T) {
 	rows, _ := ix.Rows(Query{EngID: "acme", Sort: "chat", Desc: true})
 	if rows[0].Title != "B" || rows[0].OpenThreads != 1 || rows[1].OpenThreads != 0 {
 		t.Fatalf("rows %+v", rows)
+	}
+}
+
+// A workflow change is a database write with no commit; the index must
+// still see it.
+func TestStateChangeVisibleWithoutCommit(t *testing.T) {
+	ix, s := fixture(t)
+	if rows, _ := ix.Rows(Query{EngID: "acme", Status: "complete"}); len(rows) != 0 {
+		t.Fatalf("rows %+v", rows)
+	}
+	setStatus(t, s, "acme", "F-002", "complete")
+	if rows, _ := ix.Rows(Query{EngID: "acme", Status: "complete"}); titles(rows) != "B" {
+		t.Fatalf("got %q", titles(rows))
 	}
 }
 

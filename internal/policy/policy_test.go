@@ -9,6 +9,7 @@ import (
 
 	"yars/internal/chat"
 	"yars/internal/config"
+	"yars/internal/db"
 	"yars/internal/finding"
 	"yars/internal/gitrepo"
 	"yars/internal/store"
@@ -58,14 +59,19 @@ func newFx(t *testing.T) *fx {
 	if err != nil {
 		t.Fatal(err)
 	}
-	st := store.New(r, config.Default())
+	d, err := db.Open(filepath.Join(t.TempDir(), "yars.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { d.Close() })
+	st := store.New(r, config.Default(), d)
 	a := user("alice").GitAuthor()
 	st.CreateEngagement(store.Engagement{ID: "acme", Name: "ACME"}, a)
 	ref, err := st.CreateFinding("acme", "SQLi", a)
 	if err != nil || ref.Dir != "F-001-sqli" {
 		t.Fatalf("%v %s", err, ref.Dir)
 	}
-	f := &fx{t: t, srv: r, st: st, c: &Checker{Repo: r, Cfg: config.Default(), Users: users}}
+	f := &fx{t: t, srv: r, st: st, c: &Checker{Repo: r, Cfg: config.Default(), Users: users, DB: d}}
 	f.reclone()
 	return f
 }
@@ -122,14 +128,29 @@ func has(ps []string, sub string) bool {
 	return strings.Contains(strings.Join(ps, "\n"), sub)
 }
 
+func newFinding(dir, meta string) func(string) {
+	return func(d string) {
+		write(d, "engagements/acme/findings/"+dir+"/finding.md", "---\n"+meta+"---\n\n## Description\n\nx\n")
+	}
+}
+
 func TestPolicyYarsDir(t *testing.T) {
 	f := newFx(t)
-	if ps := f.push("alice", func(d string) { write(d, ".yars/users.yaml", "- username: alice\n  role: director\n") }); !has(ps, ".yars") {
+	if ps := f.push("alice", func(d string) { write(d, ".yars/rules/x.yaml", "[]\n") }); !has(ps, ".yars") {
 		t.Fatalf("pentester changed .yars: %v", ps)
 	}
 	f.reclone()
 	if ps := f.push("dora", func(d string) { write(d, ".yars/rules/x.yaml", "[]\n") }); len(ps) != 0 {
 		t.Fatalf("director rejected: %v", ps)
+	}
+}
+
+func TestPolicyServerFilesNeverPushed(t *testing.T) {
+	for _, p := range []string{".yars/users.yaml", ".yars/tokens.yaml", ".yars/yars.db", ".yars/yars.db-wal"} {
+		f := newFx(t)
+		if ps := f.push("dora", func(d string) { write(d, p, "x\n") }); !has(ps, "server") {
+			t.Errorf("%s pushed: %v", p, ps)
+		}
 	}
 }
 
@@ -150,53 +171,42 @@ func TestPolicyPaths(t *testing.T) {
 
 func TestPolicyNewFinding(t *testing.T) {
 	f := newFx(t)
-	nf := func(dir, meta string) func(string) {
-		return func(d string) {
-			write(d, "engagements/acme/findings/"+dir+"/finding.md", "---\n"+meta+"---\n\n## Description\n\nx\n")
-		}
-	}
-	if ps := f.push("alice", nf("F-002-xss", "id: F-002\ntitle: XSS\nstatus: verification\nauthor: alice\n")); !has(ps, "draft") {
-		t.Fatalf("non-draft new finding: %v", ps)
-	}
-	f.reclone()
-	if ps := f.push("alice", nf("F-002-xss", "id: F-003\ntitle: XSS\nstatus: draft\nauthor: alice\n")); !has(ps, "F-003") {
+	if ps := f.push("alice", newFinding("F-002-xss", "id: F-003\ntitle: XSS\nauthor: alice\n")); !has(ps, "F-003") {
 		t.Fatalf("id/dir mismatch: %v", ps)
 	}
 	f.reclone()
-	if ps := f.push("alice", nf("F-001-dup", "id: F-001\ntitle: Dup\nstatus: draft\nauthor: alice\n")); !has(ps, "duplicate") {
+	if ps := f.push("alice", newFinding("F-001-dup", "id: F-001\ntitle: Dup\nauthor: alice\n")); !has(ps, "duplicate") {
 		t.Fatalf("duplicate id: %v", ps)
 	}
 	f.reclone()
-	if ps := f.push("alice", nf("F-002-xss", "id: F-002\ntitle: XSS\nstatus: draft\nauthor: alice\n")); len(ps) != 0 {
+	if ps := f.push("alice", newFinding("F-002-xss", "id: F-002\ntitle: XSS\nauthor: pen2\n")); !has(ps, "author") {
+		t.Fatalf("someone else's finding: %v", ps)
+	}
+	f.reclone()
+	if ps := f.push("alice", newFinding("F-002-xss", "id: F-002\ntitle: XSS\nauthor: alice\n")); len(ps) != 0 {
 		t.Fatalf("valid new finding: %v", ps)
 	}
 }
 
-func TestPolicyStatusAndClearance(t *testing.T) {
+// Workflow state lives in the YARS database; a push can't carry it, in a
+// new finding or an existing one.
+func TestPolicyStateKeysRejected(t *testing.T) {
 	f := newFx(t)
-	// draft -> complete directly
-	if ps := f.push("dora", func(d string) { editMeta(d, set("status", "complete")) }); !has(ps, "draft → complete") {
-		t.Fatalf("skip to complete: %v", ps)
+	if ps := f.push("alice", newFinding("F-002-xss", "id: F-002\ntitle: XSS\nstatus: complete\nauthor: alice\n")); !has(ps, "managed in YARS") {
+		t.Fatalf("new finding with status: %v", ps)
 	}
-	// submit failing the gate (no reviewers)
-	f.reclone()
-	if ps := f.push("alice", func(d string) { editMeta(d, set("status", "verification")) }); !has(ps, "reviewer") {
-		t.Fatalf("gate: %v", ps)
+	cases := map[string]any{
+		"status":     "complete",
+		"reviewers":  []string{"bob"},
+		"cleared_by": []string{"bob"},
+		"returned":   finding.Returned{By: "bob", Reason: "x"},
+		"retest":     finding.Retest{Source: "x/F-001", Result: "fixed"},
 	}
-	// get to verification via the store
-	st := f.st
-	st.SetReviewers("acme", "F-001-sqli", []string{"bob"}, user("alice"))
-	st.UpdateSeverity("acme", "F-001-sqli", "high", "", user("alice").GitAuthor())
-	if err := st.Transition("acme", "F-001-sqli", workflow.Submit, "", user("alice")); err != nil {
-		t.Fatal(err)
-	}
-	f.reclone()
-	if ps := f.push("alice", func(d string) { editMeta(d, set("cleared_by", []string{"bob"})) }); !has(ps, "cleared_by") {
-		t.Fatalf("alice cleared for bob: %v", ps)
-	}
-	f.reclone()
-	if ps := f.push("bob", func(d string) { editMeta(d, set("cleared_by", []string{"bob"})) }); len(ps) != 0 {
-		t.Fatalf("legit clear: %v", ps)
+	for k, v := range cases {
+		f.reclone()
+		if ps := f.push("dora", func(d string) { editMeta(d, set(k, v)) }); !has(ps, "managed in YARS") || !has(ps, k) {
+			t.Errorf("%s pushed: %v", k, ps)
+		}
 	}
 	f.reclone()
 	if ps := f.push("alice", func(d string) { editMeta(d, set("author", "pen2")) }); !has(ps, "author") {
@@ -204,6 +214,17 @@ func TestPolicyStatusAndClearance(t *testing.T) {
 	}
 }
 
+// Chat lives in the database; chat.jsonl files are not accepted any more.
+func TestPolicyChatFileRejected(t *testing.T) {
+	f := newFx(t)
+	line := `{"id":"aaaaaaaaaaaa","ts":"2026-11-04T10:00:00Z","user":"alice","text":"hi"}` + "\n"
+	if ps := f.push("alice", func(d string) { write(d, fdir+"/chat.jsonl", line) }); !has(ps, "chat") {
+		t.Fatalf("chat file accepted: %v", ps)
+	}
+}
+
+// The lock is judged on the state in the database: once approved, only a
+// director may change the content by push.
 func TestPolicyLockedEdit(t *testing.T) {
 	f := newFx(t)
 	st := f.st
@@ -227,159 +248,76 @@ func TestPolicyLockedEdit(t *testing.T) {
 	}
 }
 
-func TestPolicyChatAppendOnly(t *testing.T) {
+// A content edit during review is accepted; the reviewer's clearance simply
+// stops counting (it was given for the old content).
+func TestPolicyEditDuringReview(t *testing.T) {
 	f := newFx(t)
-	f.push("alice", func(string) {}) // no-op
-	line := func(id, u string) string {
-		return `{"id":"` + id + `","ts":"2026-11-04T10:00:00Z","user":"` + u + `","text":"hi"}` + "\n"
-	}
-	// seed one message on the server
-	if _, err := f.st.PostChat("acme", "F-001-sqli", chatMsg("seed"), user("bob")); err != nil {
-		t.Fatal(err)
-	}
+	st := f.st
+	st.SetReviewers("acme", "F-001-sqli", []string{"bob"}, user("alice"))
+	st.UpdateSeverity("acme", "F-001-sqli", "high", "", user("alice").GitAuthor())
+	st.Transition("acme", "F-001-sqli", workflow.Submit, "", user("alice"))
+	st.Transition("acme", "F-001-sqli", workflow.Clear, "", user("bob"))
 	f.reclone()
-	chat := fdir + "/chat.jsonl"
-	if ps := f.push("alice", func(d string) { write(d, chat, line("aaaaaaaaaaaa", "alice")) }); !has(ps, "append-only") {
-		t.Fatalf("rewrite accepted: %v", ps)
+	if ps := f.push("alice", func(d string) {
+		editMeta(d, func(fd *finding.Finding) { fd.SetSection("Impact", "changed") })
+	}); len(ps) != 0 {
+		t.Fatalf("edit during review rejected: %v", ps)
 	}
+}
+
+// A pushed new finding can't take the number of a deleted one: it would
+// inherit that finding's status, reviewers and chat.
+func TestPolicyDeletedIDNotReused(t *testing.T) {
+	f := newFx(t)
+	f.st.PostChat("acme", "F-001-sqli", chatMsg("old"), user("bob"))
+	git(t, f.srv.Dir, "rm", "-rq", fdir)
+	git(t, f.srv.Dir, "commit", "-qm", "director deletes F-001")
 	f.reclone()
-	appendLine := func(l string) func(string) {
-		return func(d string) {
-			b, _ := os.ReadFile(filepath.Join(d, chat))
-			write(d, chat, string(b)+l)
-		}
+	if ps := f.push("alice", newFinding("F-001-new", "id: F-001\ntitle: New\nauthor: alice\n")); !has(ps, "F-001") || !has(ps, "deleted") {
+		t.Fatalf("reused id accepted: %v", ps)
 	}
-	if ps := f.push("alice", appendLine(line("bbbbbbbbbbbb", "bob"))); !has(ps, "bob") {
-		t.Fatalf("impersonation accepted: %v", ps)
+	// a director renaming a folder keeps the id: allowed
+	g := newFx(t)
+	if ps := g.push("dora", func(d string) {
+		os.Rename(filepath.Join(d, fdir), filepath.Join(d, "engagements/acme/findings/F-001-renamed"))
+	}); len(ps) != 0 {
+		t.Fatalf("rename rejected: %v", ps)
 	}
+}
+
+// A director's push to an approved finding keeps it approved: the hook
+// carries the approval to the new content.
+func TestPolicyDirectorEditCarriesApproval(t *testing.T) {
+	f := newFx(t)
+	st := f.st
+	st.SetReviewers("acme", "F-001-sqli", []string{"bob"}, user("alice"))
+	st.UpdateSeverity("acme", "F-001-sqli", "high", "", user("alice").GitAuthor())
+	st.Transition("acme", "F-001-sqli", workflow.Submit, "", user("alice"))
+	st.Transition("acme", "F-001-sqli", workflow.Clear, "", user("bob"))
+	st.Transition("acme", "F-001-sqli", workflow.Approve, "", user("dora"))
 	f.reclone()
-	if ps := f.push("alice", appendLine(`{"id":"cccccccccccc","ts":"2026-11-04T10:00:00Z","user":"alice","event":"approve"}`+"\n")); !has(ps, "event") {
-		t.Fatalf("event accepted: %v", ps)
+	if ps := f.push("dora", func(d string) {
+		editMeta(d, func(fd *finding.Finding) { fd.SetSection("Impact", "director polish") })
+	}); len(ps) != 0 {
+		t.Fatalf("director edit rejected: %v", ps)
 	}
-	f.reclone()
-	if ps := f.push("alice", appendLine(line("dddddddddddd", "alice"))); len(ps) != 0 {
-		t.Fatalf("own message rejected: %v", ps)
+	if len(f.c.Carry) != 1 || f.c.Carry[0].Fid != "F-001" {
+		t.Fatalf("carry %+v", f.c.Carry)
 	}
 }
 
 func chatMsg(text string) chat.Message { return chat.Message{Text: text} }
 
-func newFinding(dir, meta string) func(string) {
-	return func(d string) {
-		write(d, "engagements/acme/findings/"+dir+"/finding.md", "---\n"+meta+"---\n\n## Description\n\nx\n")
-	}
-}
-
-// toVerification puts F-001 into verification with bob as reviewer via the store.
-func (f *fx) toVerification() {
-	f.t.Helper()
-	st := f.st
-	st.SetReviewers("acme", "F-001-sqli", []string{"bob"}, user("alice"))
-	st.UpdateSeverity("acme", "F-001-sqli", "high", "", user("alice").GitAuthor())
-	if err := st.Transition("acme", "F-001-sqli", workflow.Submit, "", user("alice")); err != nil {
-		f.t.Fatal(err)
-	}
-	f.reclone()
-}
-
-func TestPolicyNewFindingForgedState(t *testing.T) {
-	f := newFx(t)
-	cases := map[string]string{
-		"cleared_by": "id: F-002\ntitle: X\nstatus: draft\nauthor: alice\nreviewers: [bob]\ncleared_by: [bob]\n",
-		"author":     "id: F-002\ntitle: X\nstatus: draft\nauthor: pen2\n",
-		"returned":   "id: F-002\ntitle: X\nstatus: draft\nauthor: alice\nreturned: {by: bob, reason: x}\n",
-		"reviewer":   "id: F-002\ntitle: X\nstatus: draft\nauthor: alice\nreviewers: [pen2]\n",
-	}
-	for want, meta := range cases {
-		f.reclone()
-		if ps := f.push("alice", newFinding("F-002-x", meta)); !has(ps, want) {
-			t.Errorf("%s: %v", want, ps)
-		}
-	}
-	f.reclone()
-	if ps := f.push("alice", newFinding("F-002-x", "id: F-002\ntitle: X\nstatus: draft\nauthor: alice\nreviewers: [bob]\n")); len(ps) != 0 {
-		t.Fatalf("valid new finding: %v", ps)
-	}
-}
-
-func TestPolicyStaleClearance(t *testing.T) {
-	f := newFx(t)
-	f.toVerification()
-	f.st.Transition("acme", "F-001-sqli", workflow.Clear, "", user("bob"))
-	f.reclone()
-	edit := func(d string) {
-		editMeta(d, func(fd *finding.Finding) { fd.SetSection("Impact", "rewritten after review") })
-	}
-	if ps := f.push("alice", edit); !has(ps, "cleared_by") {
-		t.Fatalf("edit kept stale clearance: %v", ps)
-	}
-	f.reclone()
-	if ps := f.push("alice", func(d string) {
-		edit(d)
-		editMeta(d, set("cleared_by", nil))
-	}); len(ps) != 0 {
-		t.Fatalf("edit dropping clearance: %v", ps)
-	}
-	// return by push: must drop clearances and record who/why
-	f.reclone()
-	if ps := f.push("bob", func(d string) { editMeta(d, set("status", "draft")) }); !has(ps, "reason") {
-		t.Fatalf("return without reason/clearing: %v", ps)
-	}
-	f.reclone()
-	if ps := f.push("bob", func(d string) {
-		editMeta(d, set("status", "draft"))
-		editMeta(d, set("cleared_by", nil))
-		editMeta(d, set("returned", finding.Returned{By: "bob", Reason: "needs PoC"}))
-	}); len(ps) != 0 {
-		t.Fatalf("valid return: %v", ps)
-	}
-}
-
-// A director may review by push without being assigned: they add themselves
-// to reviewers and cleared_by in one push, and nothing else may change.
-func TestPolicyDirectorClearsUnassigned(t *testing.T) {
-	f := newFx(t)
-	f.toVerification()
-	f.reclone()
-	selfClear := func(d string) {
-		editMeta(d, set("reviewers", []string{"bob", "dora"}))
-		editMeta(d, set("cleared_by", []string{"dora"}))
-	}
-	if ps := f.push("dora", selfClear); len(ps) != 0 {
-		t.Fatalf("director self-review rejected: %v", ps)
-	}
-	// clearing must not ride along with any other reviewer change
-	f = newFx(t)
-	f.toVerification()
-	f.reclone()
-	if ps := f.push("dora", func(d string) {
-		editMeta(d, set("reviewers", []string{"dora"}))
-		editMeta(d, set("cleared_by", []string{"dora"}))
-	}); !has(ps, "cleared_by") {
-		t.Fatalf("clear plus reviewer swap accepted: %v", ps)
-	}
-}
-
 func TestPolicyEngagementMustExist(t *testing.T) {
 	f := newFx(t)
 	if ps := f.push("alice", func(d string) {
-		write(d, "engagements/ghost/findings/F-001-x/finding.md", "---\nid: F-001\ntitle: X\nstatus: draft\nauthor: alice\n---\n")
+		write(d, "engagements/nope/findings/F-001-x/finding.md", "---\nid: F-001\ntitle: X\nauthor: alice\n---\n")
 	}); !has(ps, "engagement") {
-		t.Fatalf("finding in missing engagement: %v", ps)
+		t.Fatalf("finding in unknown engagement: %v", ps)
 	}
 	f.reclone()
-	if ps := f.push("alice", func(d string) { write(d, "engagements/acme/findings/F-009-nope/chat.jsonl", "") }); !has(ps, "finding") {
-		t.Fatalf("chat for missing finding: %v", ps)
-	}
-}
-
-func TestPolicyReviewerValidity(t *testing.T) {
-	f := newFx(t)
-	for _, r := range []string{"ghost", "pen2", "alice"} {
-		f.reclone()
-		if ps := f.push("alice", func(d string) { editMeta(d, set("reviewers", []string{r})) }); !has(ps, r) {
-			t.Errorf("reviewer %s accepted: %v", r, ps)
-		}
+	if ps := f.push("alice", func(d string) { write(d, "engagements/acme/findings/F-009-nope/attachments/a.png", "x") }); !has(ps, "finding") {
+		t.Fatalf("attachment without finding: %v", ps)
 	}
 }
 
@@ -406,7 +344,7 @@ func TestPolicyUnparseableOld(t *testing.T) {
 	write(f.srv.Dir, fdir+"/finding.md", "not a finding\n")
 	git(t, f.srv.Dir, "commit", "-qam", "break")
 	f.reclone()
-	good := "---\nid: F-001\ntitle: X\nstatus: complete\nauthor: alice\n---\n"
+	good := "---\nid: F-001\ntitle: X\nauthor: alice\n---\n"
 	if ps := f.push("alice", func(d string) { write(d, fdir+"/finding.md", good) }); !has(ps, "director") {
 		t.Fatalf("fix of broken finding by pentester: %v", ps)
 	}
@@ -414,7 +352,7 @@ func TestPolicyUnparseableOld(t *testing.T) {
 
 func TestPolicySymlinkAndSeverity(t *testing.T) {
 	f := newFx(t)
-	if ps := f.push("alice", func(d string) { os.Symlink("../../../../.git/config", filepath.Join(d, fdir, "chat.jsonl")) }); !has(ps, "regular file") {
+	if ps := f.push("alice", func(d string) { os.Symlink("../../../../.git/config", filepath.Join(d, fdir, "attachments-link")) }); !has(ps, "regular file") {
 		t.Fatalf("symlink accepted: %v", ps)
 	}
 	f.reclone()
@@ -423,46 +361,9 @@ func TestPolicySymlinkAndSeverity(t *testing.T) {
 	}
 }
 
-func TestPolicyRetestField(t *testing.T) {
-	f := newFx(t)
-	if err := f.st.CreateRetest(store.Engagement{ID: "rt", Name: "RT"}, "acme", []string{"F-001-sqli"}, "", user("dora")); err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join("engagements", "rt", "findings", "F-001-sqli", "finding.md")
-	edit := func(fn func(*finding.Finding)) func(string) {
-		return func(d string) {
-			b, _ := os.ReadFile(filepath.Join(d, path))
-			fd, _ := finding.Parse(b)
-			fn(fd)
-			os.WriteFile(filepath.Join(d, path), fd.Bytes(), 0o644)
-		}
-	}
-	cases := map[string]func(*finding.Finding){
-		"removed": func(fd *finding.Finding) { fd.SetMeta("retest", nil) },
-		"source":  func(fd *finding.Finding) { fd.SetMeta("retest", finding.Retest{Source: "acme/F-009-x"}) },
-		"banana": func(fd *finding.Finding) {
-			fd.SetMeta("retest", finding.Retest{Source: "acme/F-001-sqli", Result: "banana"})
-		},
-	}
-	for name, fn := range cases {
-		f.reclone()
-		if ps := f.push("alice", edit(fn)); !has(ps, "retest") {
-			t.Errorf("%s accepted: %v", name, ps)
-		}
-	}
-	// a normal finding can't gain a retest block
-	f.reclone()
-	if ps := f.push("alice", func(d string) { editMeta(d, set("retest", finding.Retest{Source: "x/F-001"})) }); !has(ps, "retest") {
-		t.Errorf("retest added: %v", ps)
-	}
-	// a pentester can't push a new finding carrying a retest block
-	f.reclone()
-	if ps := f.push("alice", newFinding("F-002-x", "id: F-002\ntitle: X\nstatus: draft\nauthor: alice\nretest: {source: acme/F-001-sqli, result: fixed}\n")); !has(ps, "retest") {
-		t.Errorf("new finding with retest accepted: %v", ps)
-	}
-}
-
-func TestRetestPolicyCompatible(t *testing.T) {
+// Content of a retest finding is edited like any other; its retest link and
+// result are in the database.
+func TestRetestContentPush(t *testing.T) {
 	f := newFx(t)
 	if err := f.st.CreateRetest(store.Engagement{ID: "rt", Name: "RT"}, "acme", []string{"F-001-sqli"}, "", user("dora")); err != nil {
 		t.Fatal(err)
@@ -472,18 +373,11 @@ func TestRetestPolicyCompatible(t *testing.T) {
 	ps := f.push("alice", func(d string) {
 		b, _ := os.ReadFile(filepath.Join(d, path))
 		fd, _ := finding.Parse(b)
-		fd.SetMeta("retest", finding.Retest{Source: "acme/F-001-sqli", Result: "fixed"})
+		fd.SetSection("Impact", "still exploitable")
 		os.WriteFile(filepath.Join(d, path), fd.Bytes(), 0o644)
 	})
 	if len(ps) != 0 {
-		t.Fatalf("retest result push rejected: %v", ps)
-	}
-}
-
-func TestPolicyUsersFileNeverPushed(t *testing.T) {
-	f := newFx(t)
-	if ps := f.push("dora", func(d string) { write(d, ".yars/users.yaml", "[]\n") }); !has(ps, "users") {
-		t.Fatalf("users.yaml pushed: %v", ps)
+		t.Fatalf("retest content push rejected: %v", ps)
 	}
 }
 

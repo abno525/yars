@@ -1,8 +1,11 @@
-// Command yars: git-backed pentest findings tracker.
+// Command yars: git-backed pentest findings tracker. Finding content lives
+// in git; accounts, workflow state and chat in .yars/yars.db (server only).
 //
 //	yars init <dir>
 //	yars useradd --data <dir> --role <role> [--email e] <username>   (password read from stdin)
+//	yars passwd|userdel --data <dir> <username>; yars role --data <dir> <username> <role>
 //	yars serve --data <dir> [--addr :8080]
+//	yars migrate --data <dir>   (move state and chat from files into the database)
 //	yars lint --data <dir> [--all] [<engagement>[/<finding-dir>]]
 package main
 
@@ -26,6 +29,7 @@ import (
 
 	"yars/internal/auth"
 	"yars/internal/config"
+	"yars/internal/db"
 	"yars/internal/export"
 	"yars/internal/finding"
 	"yars/internal/gitrepo"
@@ -86,7 +90,14 @@ func cmdExport(args []string, out io.Writer) (int, error) {
 	if ex == nil {
 		return 2, fmt.Errorf("unknown exporter %q", *exID)
 	}
-	st := store.New(r, cfg)
+	d, err := existingDB(r.Dir)
+	if err != nil {
+		return 2, err
+	}
+	if d != nil {
+		defer d.Close()
+	}
+	st := store.New(r, cfg, d)
 	e, err := st.Engagement(fs.Arg(0))
 	if err != nil {
 		return 2, err
@@ -130,14 +141,11 @@ func cmdExport(args []string, out io.Writer) (int, error) {
 		fmt.Fprintln(out, "wrote", dst)
 	}
 	if *mark && ex.Marks() {
-		users, _ := config.LoadUsers(r.Dir)
-		u := config.User{}
-		for _, x := range users {
-			if x.Username == *as {
-				u = x
-			}
+		if d == nil {
+			return 1, fmt.Errorf("--mark needs the server's data directory (workflow state is in its database)")
 		}
-		if u.Username == "" {
+		u, ok, _ := d.User(*as)
+		if !ok {
 			return 1, fmt.Errorf("--mark needs --as <director account>")
 		}
 		for _, p := range picked {
@@ -153,10 +161,24 @@ func cmdExport(args []string, out io.Writer) (int, error) {
 	return 0, nil
 }
 
-const usersIgnore = "# password hashes and API tokens stay on the server\n.yars/users.yaml\n.yars/tokens.yaml\n"
+// serverIgnore keeps server-only files out of git: the database (accounts,
+// tokens, sessions, workflow state, chat) and the pre-database account files.
+const serverIgnore = "# accounts, tokens, chat and workflow state stay on the server\n.yars/yars.db*\n.yars/users.yaml\n.yars/tokens.yaml\n"
 
-// runMCP serves MCP over stdio on a local clone as the given user. The
-// server-side push policy re-checks everything when the commits are pushed.
+// dataDB opens (creating if needed) the data directory's database.
+func dataDB(dir string) (*db.DB, error) { return db.Open(db.Path(dir)) }
+
+// existingDB opens the database only when there is one (a clone has none).
+func existingDB(dir string) (*db.DB, error) {
+	if _, err := os.Stat(db.Path(dir)); err != nil {
+		return nil, nil
+	}
+	return dataDB(dir)
+}
+
+// runMCP serves MCP over stdio on a local clone as the given user: content
+// only (workflow and chat are on the server). The server-side push policy
+// re-checks everything when the commits are pushed.
 func runMCP(args []string, in io.Reader, out io.Writer) error {
 	fs := flag.NewFlagSet("mcp", flag.ContinueOnError)
 	data := fs.String("data", ".", "local clone of the data repo")
@@ -178,9 +200,9 @@ func runMCP(args []string, in io.Reader, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	st := store.New(r, cfg)
+	st := store.New(r, cfg, nil)
 	eng := rules.NewEngine(rules.DirFor(r.Dir), cfg)
-	st.Linter = eng // same submit/approve gate as the server, before you push
+	st.Linter = eng
 	srv := &mcp.Server{Store: st, Index: index.New(st, r), Rules: eng, Cfg: cfg}
 	return srv.ServeStdio(context.Background(), config.User{Username: *user, Role: *role, Email: *email}, in, out)
 }
@@ -199,13 +221,15 @@ func cmdToken(args []string, out io.Writer) (int, error) {
 	if err != nil {
 		return 2, err
 	}
-	if err := untrackUsers(r); err != nil { // makes sure tokens.yaml is ignored
+	if err := ensureIgnored(r); err != nil {
 		return 1, err
 	}
-	tk, err := auth.LoadTokens(r.Dir)
+	d, err := dataDB(r.Dir)
 	if err != nil {
 		return 1, err
 	}
+	defer d.Close()
+	tk := auth.NewTokens(d)
 	switch args[0] {
 	case "list":
 		for _, t := range tk.List() {
@@ -217,14 +241,13 @@ func cmdToken(args []string, out io.Writer) (int, error) {
 			return 2, fmt.Errorf("usage: yars token %s --data <dir> <user>", args[0])
 		}
 		name := fs.Arg(0)
-		users, _ := config.LoadUsers(r.Dir)
-		if !slices.ContainsFunc(users, func(u config.User) bool { return u.Username == name }) && args[0] == "add" {
+		if _, ok, _ := d.User(name); !ok && args[0] == "add" {
 			return 1, fmt.Errorf("unknown user %s", name)
 		}
 		if args[0] == "revoke" {
-			return 0, tk.Revoke(r.Dir, name)
+			return 0, tk.Revoke(name)
 		}
-		tok, err := tk.Add(r.Dir, name)
+		tok, err := tk.Add(name)
 		if err != nil {
 			return 1, err
 		}
@@ -234,26 +257,35 @@ func cmdToken(args []string, out io.Writer) (int, error) {
 	return 2, fmt.Errorf("unknown token command %q", args[0])
 }
 
-// untrackUsers makes sure .yars/users.yaml is ignored and not tracked, so a
-// clone never carries password hashes (older repos committed it; their
-// history still does — rewrite it if that matters).
-func untrackUsers(r *gitrepo.Repo) error {
-	gi := filepath.Join(r.Dir, ".gitignore")
+// writeIgnore adds the server-only lines to .gitignore; it reports whether
+// the file changed.
+func writeIgnore(dir string) (bool, error) {
+	gi := filepath.Join(dir, ".gitignore")
 	b, _ := os.ReadFile(gi)
-	if !strings.Contains(string(b), ".yars/users.yaml") || !strings.Contains(string(b), ".yars/tokens.yaml") {
-		next := string(b)
-		if next != "" && !strings.HasSuffix(next, "\n") {
-			next += "\n"
-		}
-		for _, l := range strings.Split(strings.TrimSpace(usersIgnore), "\n") {
-			if !strings.Contains(next, l) {
-				next += l + "\n"
+	next := string(b)
+	for _, l := range strings.Split(strings.TrimSpace(serverIgnore), "\n") {
+		if !strings.Contains(next, l) {
+			if next != "" && !strings.HasSuffix(next, "\n") {
+				next += "\n"
 			}
+			next += l + "\n"
 		}
-		if err := os.WriteFile(gi, []byte(next), 0o644); err != nil {
-			return err
-		}
-		if err := r.Commit([]string{".gitignore"}, "ignore users.yaml (password hashes stay on the server)", system); err != nil {
+	}
+	if next == string(b) {
+		return false, nil
+	}
+	return true, os.WriteFile(gi, []byte(next), 0o644)
+}
+
+// ensureIgnored makes sure server-only files are ignored and not tracked,
+// so a clone never carries password hashes, tokens or the database (older
+// repos committed users.yaml; their history still does — rewrite it if that
+// matters).
+func ensureIgnored(r *gitrepo.Repo) error {
+	if changed, err := writeIgnore(r.Dir); err != nil {
+		return err
+	} else if changed {
+		if err := r.Commit([]string{".gitignore"}, "ignore server-only files (accounts, tokens, database)", system); err != nil {
 			return err
 		}
 	}
@@ -306,7 +338,12 @@ func cmdHook(args []string, in io.Reader, errOut io.Writer) int {
 	if err != nil {
 		return fail(err.Error())
 	}
-	users, err := config.LoadUsers(r.Dir)
+	d, err := dataDB(r.Dir)
+	if err != nil {
+		return fail(err.Error())
+	}
+	defer d.Close()
+	users, err := d.Users()
 	if err != nil {
 		return fail(err.Error())
 	}
@@ -317,13 +354,21 @@ func cmdHook(args []string, in io.Reader, errOut io.Writer) int {
 			ups = append(ups, policy.Update{Old: f[0], New: f[1], Ref: f[2]})
 		}
 	}
-	c := &policy.Checker{Repo: r, Cfg: cfg, Users: users, Linter: rules.NewEngine(rules.DirFor(r.Dir), cfg)}
+	c := &policy.Checker{Repo: r, Cfg: cfg, Users: users, DB: d}
 	ps := c.Check(user, ups)
 	for _, p := range ps {
 		fmt.Fprintln(errOut, "yars: "+p)
 	}
 	if len(ps) > 0 {
 		return 1
+	}
+	// A director's edit keeps an approved finding approved. (If the push
+	// then fails to land, the approval points at content that never
+	// arrived and the finding falls back to verification: the safe side.)
+	for _, cr := range c.Carry {
+		if err := store.CarryApproval(d, cr.Eng, cr.Fid, cr.OldHash, cr.NewHash); err != nil {
+			return fail("server: " + err.Error())
+		}
 	}
 	return 0
 }
@@ -346,7 +391,14 @@ func cmdLint(args []string, out io.Writer) (int, error) {
 	if err != nil {
 		return 2, err
 	}
-	st := store.New(r, cfg)
+	d, err := existingDB(r.Dir)
+	if err != nil {
+		return 2, err
+	}
+	if d != nil {
+		defer d.Close()
+	}
+	st := store.New(r, cfg, d)
 	eng := rules.NewEngine(rules.DirFor(r.Dir), cfg)
 	kinds := rules.Fast
 	if *all {
@@ -388,7 +440,18 @@ func cmdLint(args []string, out io.Writer) (int, error) {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: yars init <dir> | useradd --data <dir> --role <role> <username> | serve --data <dir> [--addr :8080] | lint --data <dir> [--all] [eng[/finding]] | export --data <dir> --exporter <id> <eng> | token add|list|revoke --data <dir> <user> | mcp --data <clone> --user <name>")
+	fmt.Fprintln(os.Stderr, `usage:
+  yars init <dir>
+  yars serve --data <dir> [--addr :8080]
+  yars useradd --data <dir> --role pentester|reviewer|director [--email e] <user>   (password from stdin)
+  yars passwd --data <dir> <user>   (password from stdin)
+  yars role --data <dir> <user> pentester|reviewer|director
+  yars userdel --data <dir> <user>
+  yars token add|list|revoke --data <dir> [<user>]
+  yars migrate --data <dir>
+  yars lint --data <dir> [--all] [eng[/finding]]
+  yars export --data <dir> --exporter <id> <eng>
+  yars mcp --data <clone> --user <name>`)
 	os.Exit(2)
 }
 
@@ -401,7 +464,15 @@ func main() {
 	case "init":
 		err = cmdInit(os.Args[2:])
 	case "useradd":
-		err = cmdUseradd(os.Args[2:])
+		err = cmdUseradd(os.Args[2:], os.Stdin, os.Stderr)
+	case "passwd":
+		err = cmdPasswd(os.Args[2:], os.Stdin, os.Stderr)
+	case "role":
+		err = cmdRole(os.Args[2:], os.Stderr)
+	case "userdel":
+		err = cmdUserdel(os.Args[2:], os.Stderr)
+	case "migrate":
+		err = cmdMigrate(os.Args[2:], os.Stdout)
 	case "serve":
 		err = cmdServe(os.Args[2:])
 	case "export":
@@ -459,7 +530,7 @@ func cmdInit(args []string) error {
 	}
 	files := map[string][]byte{
 		config.ConfigPath(dir):                         b,
-		filepath.Join(dir, ".gitignore"):               []byte(usersIgnore),
+		filepath.Join(dir, ".gitignore"):               []byte(serverIgnore),
 		filepath.Join(dir, "engagements", ".gitkeep"):  nil,
 		filepath.Join(rules.DirFor(dir), "style.yaml"): exampleRules,
 	}
@@ -477,10 +548,12 @@ func cmdInit(args []string) error {
 			return err
 		}
 	}
-	// users.yaml holds password hashes: kept on the server only, never in git
-	if err := config.SaveUsers(dir, []config.User{}); err != nil {
+	// the database (accounts, workflow state, chat) stays on the server only
+	d, err := dataDB(dir)
+	if err != nil {
 		return err
 	}
+	d.Close()
 	if err := r.Commit([]string{".yars/config.yaml", ".yars/rules", ".yars/exporters", ".gitignore", "engagements"}, "init", system); err != nil {
 		return err
 	}
@@ -488,54 +561,115 @@ func cmdInit(args []string) error {
 	return nil
 }
 
-func cmdUseradd(args []string) error {
-	fs := flag.NewFlagSet("useradd", flag.ExitOnError)
+// accountCmd parses "--data <dir> <args…>" (want positional arguments) and
+// opens the data directory's database.
+func accountCmd(name string, args []string, want int, setup func(*flag.FlagSet)) (*flag.FlagSet, *db.DB, error) {
+	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	data := fs.String("data", ".", "data repo")
-	role := fs.String("role", "pentester", "pentester|reviewer|director")
-	email := fs.String("email", "", "email for git authorship")
-	fs.Parse(args)
-	if fs.NArg() != 1 {
-		usage()
+	if setup != nil {
+		setup(fs)
 	}
+	if err := fs.Parse(args); err != nil {
+		return nil, nil, err
+	}
+	if fs.NArg() != want {
+		return nil, nil, fmt.Errorf("wrong arguments; see yars help")
+	}
+	r, err := gitrepo.Open(*data)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := ensureIgnored(r); err != nil {
+		return nil, nil, err
+	}
+	d, err := dataDB(r.Dir)
+	return fs, d, err
+}
+
+func readPassword(in io.Reader, out io.Writer) (string, error) {
+	fmt.Fprint(out, "password: ")
+	line, err := bufio.NewReader(in).ReadString('\n')
+	pw := strings.TrimRight(line, "\r\n")
+	if pw == "" {
+		return "", fmt.Errorf("empty password (%v)", err)
+	}
+	return auth.HashPassword(pw)
+}
+
+func cmdUseradd(args []string, in io.Reader, out io.Writer) error {
+	var role, email *string
+	fs, d, err := accountCmd("useradd", args, 1, func(fs *flag.FlagSet) {
+		role = fs.String("role", "pentester", "pentester|reviewer|director")
+		email = fs.String("email", "", "email for git authorship")
+	})
+	if err != nil {
+		return err
+	}
+	defer d.Close()
 	name := fs.Arg(0)
 	if !config.ValidRole(*role) {
-		fmt.Fprintf(os.Stderr, "yars: invalid role %q (want %s)\n", *role, strings.Join(config.Roles, ", "))
-		os.Exit(2)
+		return fmt.Errorf("invalid role %q (want %s)", *role, strings.Join(config.Roles, ", "))
 	}
 	if !store.ValidID(name) {
 		return fmt.Errorf("invalid username %q", name)
 	}
-	r, err := gitrepo.Open(*data)
+	if _, ok, _ := d.User(name); ok {
+		return fmt.Errorf("user %s already exists", name)
+	}
+	hash, err := readPassword(in, out)
 	if err != nil {
 		return err
 	}
-	users, err := config.LoadUsers(r.Dir)
+	if err := d.AddUser(config.User{Username: name, Email: *email, Role: *role, PasswordHash: hash}); err != nil {
+		return err
+	}
+	fmt.Fprintln(out, "\nadded", name, "as", *role)
+	return nil
+}
+
+func cmdPasswd(args []string, in io.Reader, out io.Writer) error {
+	fs, d, err := accountCmd("passwd", args, 1, nil)
 	if err != nil {
 		return err
 	}
-	for _, u := range users {
-		if u.Username == name {
-			return fmt.Errorf("user %s already exists", name)
-		}
+	defer d.Close()
+	if _, ok, _ := d.User(fs.Arg(0)); !ok {
+		return fmt.Errorf("no user %s", fs.Arg(0))
 	}
-	fmt.Fprint(os.Stderr, "password: ")
-	line, err := bufio.NewReader(os.Stdin).ReadString('\n')
-	pw := strings.TrimRight(line, "\r\n")
-	if pw == "" {
-		return fmt.Errorf("empty password (%v)", err)
-	}
-	hash, err := auth.HashPassword(pw)
+	hash, err := readPassword(in, out)
 	if err != nil {
 		return err
 	}
-	users = append(users, config.User{Username: name, Email: *email, Role: *role, PasswordHash: hash})
-	if err := config.SaveUsers(r.Dir, users); err != nil {
+	if err := d.SetPassword(fs.Arg(0), hash); err != nil {
 		return err
 	}
-	if err := untrackUsers(r); err != nil {
+	fmt.Fprintln(out, "\npassword changed for", fs.Arg(0))
+	return nil
+}
+
+func cmdRole(args []string, out io.Writer) error {
+	fs, d, err := accountCmd("role", args, 2, nil)
+	if err != nil {
 		return err
 	}
-	fmt.Fprintln(os.Stderr, "\nadded", name, "as", *role)
+	defer d.Close()
+	if err := d.SetRole(fs.Arg(0), fs.Arg(1)); err != nil {
+		return err
+	}
+	fmt.Fprintln(out, fs.Arg(0), "is now", fs.Arg(1))
+	return nil
+}
+
+func cmdUserdel(args []string, out io.Writer) error {
+	fs, d, err := accountCmd("userdel", args, 1, nil)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	if err := d.DeleteUser(fs.Arg(0)); err != nil {
+		return err
+	}
+	fmt.Fprintln(out, "deleted", fs.Arg(0), "(their sessions and API tokens too)")
 	return nil
 }
 
@@ -552,23 +686,26 @@ func cmdServe(args []string) error {
 	if err != nil {
 		return err
 	}
-	users, err := config.LoadUsers(r.Dir)
+	if items := legacyItems(r.Dir); len(items) > 0 {
+		return fmt.Errorf("this data directory still keeps accounts, workflow state or chat in files (%s); run: yars migrate --data %s", strings.Join(items, ", "), *data)
+	}
+	d, err := dataDB(r.Dir)
 	if err != nil {
 		return err
 	}
-	if len(users) == 0 {
+	if users, _ := d.Users(); len(users) == 0 {
 		log.Println("warning: no users; add one with: yars useradd --data", *data, "--role director <name>")
 	}
-	st := store.New(r, cfg)
+	st := store.New(r, cfg, d)
 	eng := rules.NewEngine(rules.DirFor(r.Dir), cfg)
 	st.Linter = eng
-	au := auth.New(users)
+	au := auth.New(d)
 	exe, err := os.Executable()
 	if err != nil {
 		return err
 	}
-	if err := untrackUsers(r); err != nil {
-		return fmt.Errorf("untrack users.yaml: %w", err)
+	if err := ensureIgnored(r); err != nil {
+		return fmt.Errorf("ignore server files: %w", err)
 	}
 	gs := &gitserve.Server{Repo: r, Auth: au, HookCmd: hookCmd(exe, r.Dir)}
 	if cfg.AI.APIKeyEnv != "" {
@@ -577,22 +714,11 @@ func cmdServe(args []string) error {
 	if err := gs.Setup(); err != nil {
 		return fmt.Errorf("git setup: %w", err)
 	}
-	tokens, err := auth.LoadTokens(r.Dir)
-	if err != nil {
-		return err
-	}
+	tokens := auth.NewTokens(d)
 	ix := index.New(st, r)
 	mcpSrv := &mcp.Server{Store: st, Index: ix, Rules: eng, Cfg: cfg, Users: au.Users}
-	lookup := func(name string) (config.User, bool) {
-		for _, u := range au.Users() {
-			if u.Username == name {
-				return u, true
-			}
-		}
-		return config.User{}, false
-	}
 	srv := &web.Server{Store: st, Index: ix, Auth: au, Cfg: cfg, Rules: eng, Git: gs.Handler(), Export: exportRunner(r.Dir),
-		MCP: mcpSrv.HTTPHandler(tokens, lookup)}
+		MCP: mcpSrv.HTTPHandler(tokens, au.Lookup)}
 	log.Printf("yars serving %s on %s", r.Dir, *addr)
 	return http.ListenAndServe(*addr, srv.Handler())
 }

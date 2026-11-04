@@ -73,7 +73,9 @@ func (s *Server) Setup() error {
 }
 
 // check verifies Basic credentials, caching successes for 10 minutes so git's
-// several requests per operation don't each pay for bcrypt.
+// several requests per operation don't each pay for bcrypt. A cached login
+// still needs the account to exist with the same password hash, and uses the
+// account's current role.
 func (s *Server) check(user, pw string) (config.User, bool) {
 	h := sha256.Sum256([]byte(user + ":" + pw))
 	key := hex.EncodeToString(h[:])
@@ -84,7 +86,12 @@ func (s *Server) check(user, pw string) (config.User, bool) {
 	c, ok := s.cache[key]
 	s.mu.Unlock()
 	if ok && time.Now().Before(c.exp) {
-		return c.user, true
+		if cur, found := s.Auth.Lookup(user); found && cur.PasswordHash == c.user.PasswordHash {
+			return cur, true
+		}
+		s.mu.Lock()
+		delete(s.cache, key)
+		s.mu.Unlock()
 	}
 	u, ok := s.Auth.Check(user, pw)
 	if ok {

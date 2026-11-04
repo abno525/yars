@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"yars/internal/config"
+	"yars/internal/db"
 	"yars/internal/gitrepo"
 )
 
@@ -22,7 +23,12 @@ func newStore(t *testing.T) (*Store, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return New(r, config.Default()), dir
+	d, err := db.Open(filepath.Join(t.TempDir(), "yars.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { d.Close() })
+	return New(r, config.Default(), d), dir
 }
 
 func last(t *testing.T, dir, format string) string {

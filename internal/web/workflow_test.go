@@ -3,8 +3,6 @@ package web
 import (
 	"net/http"
 	"net/url"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -90,9 +88,25 @@ func TestSubmitAndClearFlow(t *testing.T) {
 	if e.status(t) != "complete" {
 		t.Fatal("not complete")
 	}
-	if got := e.lastCommit(t); got != "dora|F-001: approve" {
-		t.Fatalf("commit %q", got)
+	if got := e.events(t); got != "alice:submit bob:clear dora:approve" {
+		t.Fatalf("events %q", got)
 	}
+}
+
+// events lists the finding's workflow events as "user:event".
+func (e *env) events(t *testing.T) string {
+	t.Helper()
+	msgs, err := e.srv.Store.Chat("acme", fdir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []string
+	for _, m := range msgs {
+		if m.Event != "" {
+			out = append(out, m.User+":"+m.Event)
+		}
+	}
+	return strings.Join(out, " ")
 }
 
 func TestReturnRequiresReason(t *testing.T) {
@@ -185,12 +199,12 @@ func TestReviewersAssignAll(t *testing.T) {
 	if rec := e.do(t, "alice", "POST", fpath+"/reviewers", url.Values{"all": {"1"}}, nil); rec.Code != http.StatusSeeOther {
 		t.Fatalf("code %d", rec.Code)
 	}
-	md, err := os.ReadFile(filepath.Join(e.dir, "engagements/acme/findings/F-001-sql-injection/finding.md"))
+	ref, err := e.srv.Store.Finding("acme", fdir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(md), "- bob\n") || !strings.Contains(string(md), "- carol\n") || strings.Contains(string(md), "- dora\n") {
-		t.Fatalf("not exactly the reviewers assigned:\n%s", md)
+	if got := strings.Join(ref.F.Meta.Reviewers, ","); got != "bob,carol" {
+		t.Fatalf("reviewers %q", got)
 	}
 }
 

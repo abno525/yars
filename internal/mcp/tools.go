@@ -12,6 +12,7 @@ import (
 	"yars/internal/chat"
 	"yars/internal/config"
 	"yars/internal/cvss"
+	"yars/internal/finding"
 	"yars/internal/index"
 	"yars/internal/rules"
 	"yars/internal/store"
@@ -170,7 +171,7 @@ var tools = []tool{
 			}
 			return asJSON(out)
 		}},
-	{name: "read_finding", desc: "Read one finding: the raw finding.md (YAML front matter + ## sections), section names with base hashes for safe edits, open chat threads and style-rule violations.",
+	{name: "read_finding", desc: "Read one finding: its workflow state (status, reviewers, clearances, return reason, retest), the raw finding.md content (YAML front matter + ## sections; workflow state is not in the file), section names with base hashes for safe edits, open chat threads and style-rule violations.",
 		required: []param{pEng, pFinding},
 		run: func(s *Server, ctx context.Context, u config.User, a args) (string, error) {
 			ref, err := s.ref(a)
@@ -192,9 +193,23 @@ var tools = []tool{
 				Text    string `json:"text"`
 				Replies []msg  `json:"replies"`
 			}
+			type state struct {
+				Status       string             `json:"status"`
+				Reviewers    []string           `json:"reviewers"`
+				ClearedBy    []string           `json:"cleared_by"`
+				Returned     *finding.Returned  `json:"returned,omitempty"`
+				RetestSource string             `json:"retest_source,omitempty"`
+				RetestResult string             `json:"retest_result,omitempty"`
+			}
+			m := ref.F.Meta
+			st := state{Status: m.Status, Reviewers: append([]string{}, m.Reviewers...), ClearedBy: append([]string{}, m.ClearedBy...), Returned: m.Returned}
+			if m.Retest != nil {
+				st.RetestSource, st.RetestResult = m.Retest.Source, m.Retest.Result
+			}
 			out := struct {
 				Engagement  string            `json:"engagement"`
 				Dir         string            `json:"dir"`
+				State       state             `json:"state"`
 				Markdown    string            `json:"finding_md"`
 				Sections    []sec             `json:"sections"`
 				CVSSBase    string            `json:"cvss_base"`
@@ -202,7 +217,7 @@ var tools = []tool{
 				CanEdit     bool              `json:"can_edit"`
 				Threads     []thread          `json:"open_threads"`
 				Violations  []rules.Violation `json:"violations"`
-			}{Engagement: ref.EngID, Dir: ref.Dir, Markdown: string(ref.F.Bytes()), CVSSBase: store.CVSSHash(ref.F.Meta),
+			}{Engagement: ref.EngID, Dir: ref.Dir, State: st, Markdown: string(ref.F.Bytes()), CVSSBase: store.CVSSHash(ref.F.Meta),
 				DetailsBase: store.DetailsHash(ref.F.Meta), CanEdit: workflow.CanEdit(u, ref.F.Meta), Threads: []thread{}, Violations: []rules.Violation{}}
 			for _, sct := range ref.F.Sections {
 				out.Sections = append(out.Sections, sec{sct.Name, store.BodyHash(sct.Body)})

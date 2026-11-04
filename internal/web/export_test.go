@@ -44,8 +44,8 @@ func TestExportDownload(t *testing.T) {
 		t.Fatalf("result page code %d:\n%s", rec.Code, page)
 	}
 	link := page[i : i+strings.Index(page[i:], `"`)]
-	if e.status(t) != "reported" || e.lastCommit(t) != "dora|F-001: mark reported" {
-		t.Fatalf("not reported: %s / %s", e.status(t), e.lastCommit(t))
+	if e.status(t) != "reported" || !strings.Contains(e.events(t), "dora:report") {
+		t.Fatalf("not reported: %s / %s", e.status(t), e.events(t))
 	}
 	if rec := e.do(t, "alice", "GET", link, nil, nil); rec.Code != http.StatusNotFound {
 		t.Fatalf("other user downloaded: %d", rec.Code)

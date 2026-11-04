@@ -33,8 +33,8 @@ func TestChatPostAndList(t *testing.T) {
 	if !strings.Contains(b, "Yes, see step 2.") || !strings.Contains(b, "resolved by bob") {
 		t.Fatalf("body:\n%s", b)
 	}
-	if got := e.lastCommit(t); got != "bob|F-001: resolve thread" {
-		t.Fatalf("commit %q", got)
+	if got := e.lastCommit(t); got != "alice|F-001: create" {
+		t.Fatalf("chat made a commit: %q", got)
 	}
 }
 

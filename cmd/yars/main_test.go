@@ -3,45 +3,87 @@ package main
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"yars/internal/config"
+	"yars/internal/db"
 	"yars/internal/gitrepo"
 	"yars/internal/store"
 )
 
-// Password hashes must never be cloneable: users.yaml stays untracked, and
-// older repos that tracked it are migrated at serve start.
-func TestUsersNotTracked(t *testing.T) {
+// init creates the database next to the config: private and never in git.
+func TestInitCreatesDatabase(t *testing.T) {
 	dir := t.TempDir()
 	if err := cmdInit([]string{dir}); err != nil {
 		t.Fatal(err)
 	}
-	r, _ := gitrepo.Open(dir)
-	if r.Tracked(".yars/users.yaml") {
-		t.Fatal("init tracks users.yaml")
+	info, err := os.Stat(db.Path(dir))
+	if err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("database %v %v", info, err)
 	}
-	if b, _ := os.ReadFile(filepath.Join(dir, ".gitignore")); !strings.Contains(string(b), ".yars/users.yaml") {
-		t.Fatal(".gitignore lacks users.yaml")
+	if out, _ := exec.Command("git", "-C", dir, "status", "--porcelain").Output(); len(out) != 0 {
+		t.Fatalf("database not ignored: %s", out)
 	}
-	// legacy repo: users.yaml committed
-	old, _ := gitrepo.Init(t.TempDir())
-	os.MkdirAll(filepath.Join(old.Dir, ".yars"), 0o755)
-	os.WriteFile(filepath.Join(old.Dir, ".yars", "users.yaml"), []byte("[]\n"), 0o600)
-	old.Commit([]string{".yars/users.yaml"}, "legacy", system)
-	if err := untrackUsers(old); err != nil {
+	if _, err := os.Stat(filepath.Join(dir, ".yars", "users.yaml")); err == nil {
+		t.Fatal("init still writes users.yaml")
+	}
+}
+
+func openDB(t *testing.T, dir string) *db.DB {
+	t.Helper()
+	d, err := db.Open(db.Path(dir))
+	if err != nil {
 		t.Fatal(err)
 	}
-	if old.Tracked(".yars/users.yaml") {
-		t.Fatal("still tracked after migration")
+	t.Cleanup(func() { d.Close() })
+	return d
+}
+
+// Accounts live in the database and are managed with useradd, passwd, role
+// and userdel.
+func TestUserCommands(t *testing.T) {
+	dir := t.TempDir()
+	if err := cmdInit([]string{dir}); err != nil {
+		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(old.Dir, ".yars", "users.yaml")); err != nil {
-		t.Fatal("users.yaml removed from disk")
+	var out bytes.Buffer
+	if err := cmdUseradd([]string{"--data", dir, "--role", "reviewer", "bob"}, strings.NewReader("pw1\n"), &out); err != nil {
+		t.Fatal(err)
 	}
-	if err := untrackUsers(old); err != nil {
-		t.Fatalf("second run: %v", err)
+	if err := cmdUseradd([]string{"--data", dir, "--role", "reviewer", "bob"}, strings.NewReader("pw1\n"), &out); err == nil {
+		t.Fatal("duplicate user")
+	}
+	if err := cmdUseradd([]string{"--data", dir, "--role", "admin", "eve"}, strings.NewReader("pw\n"), &out); err == nil {
+		t.Fatal("unknown role accepted")
+	}
+	d := openDB(t, dir)
+	u, ok, _ := d.User("bob")
+	if !ok || u.Role != "reviewer" || u.PasswordHash == "" || u.PasswordHash == "pw1" {
+		t.Fatalf("bob %+v", u)
+	}
+	if err := cmdPasswd([]string{"--data", dir, "bob"}, strings.NewReader("pw2\n"), &out); err != nil {
+		t.Fatal(err)
+	}
+	if u2, _, _ := d.User("bob"); u2.PasswordHash == u.PasswordHash {
+		t.Fatal("password unchanged")
+	}
+	if err := cmdRole([]string{"--data", dir, "bob", "director"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if u3, _, _ := d.User("bob"); u3.Role != "director" {
+		t.Fatalf("role %q", u3.Role)
+	}
+	if err := cmdUserdel([]string{"--data", dir, "bob"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, _ := d.User("bob"); ok {
+		t.Fatal("bob not deleted")
+	}
+	if err := cmdUserdel([]string{"--data", dir, "bob"}, &out); err == nil {
+		t.Fatal("deleting a missing user succeeded")
 	}
 }
 
@@ -56,7 +98,7 @@ func TestExportCLI(t *testing.T) {
 		}
 	}
 	r, _ := gitrepo.Open(dir)
-	st := store.New(r, config.Default())
+	st := store.New(r, config.Default(), openDB(t, dir))
 	a := gitrepo.Author{Name: "t", Email: "t@t"}
 	st.CreateEngagement(store.Engagement{ID: "acme", Name: "ACME"}, a)
 	st.CreateFinding("acme", "SQL injection", a)
@@ -82,7 +124,7 @@ func TestLintCommand(t *testing.T) {
 		t.Fatalf("example rules not written: %v", err)
 	}
 	r, _ := gitrepo.Open(dir)
-	st := store.New(r, config.Default())
+	st := store.New(r, config.Default(), nil)
 	a := gitrepo.Author{Name: "t", Email: "t@t"}
 	st.CreateEngagement(store.Engagement{ID: "acme", Name: "ACME"}, a)
 	st.CreateFinding("acme", "Bad title.", a)

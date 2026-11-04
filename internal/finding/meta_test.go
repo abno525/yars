@@ -85,8 +85,9 @@ func TestSetMetaByteIdentical(t *testing.T) {
 	if got := string(f.Bytes()); got != want2 {
 		t.Fatalf("after delete got:\n%s\nwant:\n%s", got, want2)
 	}
-	if f.Meta.Severity != "critical" || f.Meta.Reviewers != nil || f.Meta.Retest.Result != "not_fixed" {
-		t.Fatalf("meta %+v", f.Meta)
+	l, _ := f.Legacy()
+	if f.Meta.Severity != "critical" || l.Reviewers != nil || l.Retest == nil || l.Retest.Result != "not_fixed" {
+		t.Fatalf("meta %+v legacy %+v", f.Meta, l)
 	}
 }
 

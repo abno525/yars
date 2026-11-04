@@ -1,21 +1,19 @@
-// Package policy decides whether a git push may update the data repo: the
-// same workflow, permission and style rules as the web UI, applied to the
-// difference between the old and new trees.
+// Package policy decides whether a git push may update the data repo. A
+// push carries content only: workflow state and chat live in the YARS
+// database, so the rules here are about paths, authorship and whether the
+// finding may still be edited.
 package policy
 
 import (
 	"bytes"
-	"context"
 	"fmt"
-	"reflect"
 	"slices"
 	"strings"
 
-	"yars/internal/chat"
 	"yars/internal/config"
+	"yars/internal/db"
 	"yars/internal/finding"
 	"yars/internal/gitrepo"
-	"yars/internal/rules"
 	"yars/internal/store"
 	"yars/internal/workflow"
 )
@@ -24,14 +22,22 @@ const zero = "0000000000000000000000000000000000000000"
 
 type Update struct{ Old, New, Ref string }
 
-// Checker evaluates pushes against the server's current config, users and
-// rules (never the pushed ones, so a push can't relax its own checks).
+// Checker evaluates pushes against the server's current config, accounts
+// and workflow state (never the pushed ones, so a push can't relax its own
+// checks).
 type Checker struct {
-	Repo   *gitrepo.Repo
-	Cfg    config.Config
-	Users  []config.User
-	Linter store.Linter
+	Repo  *gitrepo.Repo
+	Cfg   config.Config
+	Users []config.User
+	DB    *db.DB // workflow state (nil: every finding counts as a draft)
+
+	// Carry lists approved findings a director changed in the checked push;
+	// once the push is accepted the hook moves their approval to the new
+	// content (store.CarryApproval).
+	Carry []Carry
 }
+
+type Carry struct{ Eng, Fid, OldHash, NewHash string }
 
 func manager(u config.User) bool { return workflow.AtLeast(u, "director") }
 
@@ -104,6 +110,11 @@ func (c *Checker) show(rev, path string) ([]byte, bool) {
 
 const outsideMsg = "not allowed here; findings must live under engagements/<engagement>/findings/<finding>/"
 
+// serverOnly are files that exist only on the server and are never in git.
+func serverOnly(p string) bool {
+	return p == ".yars/users.yaml" || p == ".yars/tokens.yaml" || strings.HasPrefix(p, ".yars/yars.db")
+}
+
 // file checks one changed path.
 func (c *Checker) file(u config.User, old, new string, ch gitrepo.Change) []string {
 	p := ch.Path
@@ -117,8 +128,8 @@ func (c *Checker) file(u config.User, old, new string, ch gitrepo.Change) []stri
 		}
 	}
 	switch {
-	case p == ".yars/users.yaml" || p == ".yars/tokens.yaml":
-		return []string{"accounts and API tokens are managed on the server (yars useradd / yars token), not in git"}
+	case serverOnly(p):
+		return []string{"accounts, tokens and the database stay on the server (yars useradd / yars token), not in git"}
 	case seg[0] == ".yars":
 		if !manager(u) {
 			return []string{"only a director can change .yars (config, rules)"}
@@ -152,10 +163,10 @@ func (c *Checker) file(u config.User, old, new string, ch gitrepo.Change) []stri
 		case len(seg) == 5 && seg[4] == "finding.md":
 			return c.findingFile(u, old, new, ch, seg[1], seg[3])
 		case len(seg) == 5 && seg[4] == "chat.jsonl":
-			if _, ok := c.show(new, fp); !ok && ch.Status != 'D' {
-				return []string{"chat for a finding that does not exist"}
+			if ch.Status == 'D' {
+				return nil // removing a leftover from before the database
 			}
-			return c.chatFile(u, old, new, p, fp)
+			return []string{"chat lives in YARS now (web UI or /mcp), not in git"}
 		case len(seg) >= 6 && seg[4] == "attachments":
 			if _, ok := c.show(new, fp); !ok && ch.Status != 'D' {
 				return []string{"attachment for a finding that does not exist"}
@@ -177,28 +188,10 @@ func parse(b []byte) (*finding.Finding, []string) {
 			ps = append(ps, "section "+s.Name+": "+err.Error())
 		}
 	}
-	return f, ps
-}
-
-// reviewersOK checks that every reviewer not already assigned is a real
-// reviewer/director account other than the author, without duplicates.
-func (c *Checker) reviewersOK(n finding.Meta, old []string) []string {
-	var ps []string
-	seen := map[string]bool{}
-	for _, r := range n.Reviewers {
-		if seen[r] {
-			ps = append(ps, "duplicate reviewer "+r)
-		}
-		seen[r] = true
-		if slices.Contains(old, r) {
-			continue
-		}
-		ru, ok := c.user(r)
-		if !ok || !workflow.ReviewerCandidate(ru, n) {
-			ps = append(ps, "reviewer "+r+" must be an existing reviewer or director account other than the author")
-		}
+	if l, ok := f.Legacy(); ok {
+		ps = append(ps, "workflow state is managed in YARS, not in the file; remove "+strings.Join(l.Keys, ", ")+" from the front matter")
 	}
-	return ps
+	return f, ps
 }
 
 func (c *Checker) severityOK(n finding.Meta) []string {
@@ -208,33 +201,39 @@ func (c *Checker) severityOK(n finding.Meta) []string {
 	return nil
 }
 
-// retestChange allows only the result of an existing retest link to change.
-func retestChange(o, n *finding.Retest) []string {
-	switch {
-	case o == nil && n == nil:
-		return nil
-	case o == nil:
-		return []string{"a retest block cannot be added to a finding"}
-	case n == nil:
-		return []string{"the retest block cannot be removed"}
-	case n.Source != o.Source:
-		return []string{"the retest source cannot change"}
-	case n.Result != "" && !slices.Contains(workflow.RetestResults, n.Result):
-		return []string{"retest result " + n.Result + " must be fixed, not_fixed or partially_fixed"}
+// status is the finding's workflow status for content raw, from the
+// database (a complete finding whose content changed after approval counts
+// as in verification, as everywhere else).
+func (c *Checker) status(eng, fid string, raw []byte) string {
+	if c.DB == nil {
+		return "draft"
 	}
-	return nil
+	st, err := c.DB.State(eng, fid)
+	if err != nil {
+		return "complete" // fail closed: only a director may edit
+	}
+	if (st.Status == "complete" || st.Status == "reported") && !store.Approved(st, store.ContentHash(raw)) {
+		return "verification"
+	}
+	return st.Status
 }
 
-// sameExceptClearances reports whether two versions differ only in cleared_by.
-// A reviewer list that only gained self (a director reviewing unassigned)
-// also counts as unchanged.
-func sameExceptClearances(o, n *finding.Finding, self string) bool {
-	om, nm := o.Meta, n.Meta
-	om.ClearedBy, nm.ClearedBy = nil, nil
-	if slices.Equal(nm.Reviewers, append(slices.Clone(om.Reviewers), self)) {
-		nm.Reviewers = om.Reviewers
+// reusesDeletedID reports whether a new finding takes the id of a finding
+// that no longer exists but still has workflow state or chat. A folder
+// renamed within the push (the id still existed before) is fine.
+func (c *Checker) reusesDeletedID(old, eng, id string) bool {
+	if c.DB == nil || id == "" {
+		return false
 	}
-	return reflect.DeepEqual(om, nm) && reflect.DeepEqual(o.Sections, n.Sections) && o.Preamble == n.Preamble
+	if before, err := c.Repo.ListTree(old, "engagements/"+eng+"/findings"); err == nil && old != "" {
+		for _, o := range before {
+			if o == id || strings.HasPrefix(o, id+"-") {
+				return false
+			}
+		}
+	}
+	known, err := c.DB.Known(eng, id)
+	return err != nil || known
 }
 
 func (c *Checker) findingFile(u config.User, old, new string, ch gitrepo.Change, eng, dir string) []string {
@@ -253,25 +252,11 @@ func (c *Checker) findingFile(u config.User, old, new string, ch gitrepo.Change,
 	ps = append(ps, c.severityOK(n)...)
 	ob, existed := c.show(old, ch.Path)
 	if !existed {
-		// a new finding carries no workflow state
-		if n.Status != "draft" {
-			ps = append(ps, "a new finding must start as draft")
-		}
 		if n.Author != u.Username {
 			if _, ok := c.user(n.Author); !manager(u) || !ok {
 				ps = append(ps, "author must be you ("+u.Username+")")
 			}
 		}
-		if len(n.ClearedBy) > 0 {
-			ps = append(ps, "a new finding cannot have cleared_by")
-		}
-		if n.Returned != nil {
-			ps = append(ps, "a new finding cannot have returned")
-		}
-		if n.Retest != nil && !manager(u) {
-			ps = append(ps, "a new finding cannot carry a retest block (directors start retests)")
-		}
-		ps = append(ps, c.reviewersOK(n, nil)...)
 		if n.ID == "" || !(dir == n.ID || strings.HasPrefix(dir, n.ID+"-")) {
 			ps = append(ps, fmt.Sprintf("id %s does not match the directory %s", n.ID, dir))
 		}
@@ -282,19 +267,23 @@ func (c *Checker) findingFile(u config.User, old, new string, ch gitrepo.Change,
 				}
 			}
 		}
+		if c.reusesDeletedID(old, eng, n.ID) {
+			ps = append(ps, "id "+n.ID+" belonged to a deleted finding (its review history is kept); use a new number")
+		}
 		return ps
 	}
-	of, _ := parse(ob)
+	of, _ := finding.Parse(ob)
 	if of == nil {
 		if !manager(u) {
 			return append(ps, "the server copy cannot be parsed; only a director can repair it")
 		}
 		return ps
 	}
-	o := of.Meta
 	if bytes.Equal(ob, nb) {
 		return ps
 	}
+	o := of.Meta
+	o.Status = c.status(eng, o.ID, ob)
 	if !workflow.CanEdit(u, o) {
 		return append(ps, "the finding is "+o.Status+"; only a director can change it")
 	}
@@ -304,113 +293,8 @@ func (c *Checker) findingFile(u config.User, old, new string, ch gitrepo.Change,
 	if n.Author != o.Author {
 		ps = append(ps, "author cannot change")
 	}
-	ps = append(ps, retestChange(o.Retest, n.Retest)...)
-	if !slices.Equal(n.Reviewers, o.Reviewers) {
-		if !workflow.CanAssign(u, o) {
-			ps = append(ps, "only the author or a director can change reviewers")
-		}
-		ps = append(ps, c.reviewersOK(n, o.Reviewers)...)
-	}
-	for _, x := range n.ClearedBy {
-		if !slices.Contains(n.Reviewers, x) {
-			ps = append(ps, "cleared_by lists "+x+", who is not a reviewer")
-		}
-	}
-	var act workflow.Action
-	if n.Status != o.Status {
-		for _, a := range workflow.Actions {
-			if from, to := workflow.Target(a); from == o.Status && to == n.Status && a != workflow.Clear {
-				act = a
-			}
-		}
-		if act == "" {
-			return append(ps, fmt.Sprintf("status change %s → %s is not allowed", o.Status, n.Status))
-		}
-		// permissions are judged on the old state, the gate on the new content
-		if err := workflow.Check(u, o, act); err != nil {
-			return append(ps, err.Error())
-		}
-		if workflow.Gated(act) {
-			if g := workflow.Gate(n, c.Cfg); len(g) > 0 {
-				ps = append(ps, "cannot "+strings.ToLower(workflow.Label(act))+": "+strings.Join(g, "; "))
-			}
-			if c.Linter != nil {
-				if errs := rules.Errors(c.Linter.Lint(context.Background(), nf, rules.All)); len(errs) > 0 {
-					ps = append(ps, "rules: "+strings.Join(errs, "; "))
-				}
-			}
-		}
-		switch act {
-		case workflow.Submit, workflow.Reopen, workflow.Return:
-			if len(n.ClearedBy) > 0 {
-				ps = append(ps, "cleared_by must be emptied when the finding goes back for review")
-			}
-		}
-		if act == workflow.Submit && n.Returned != nil {
-			ps = append(ps, "remove returned when resubmitting")
-		}
-		if act == workflow.Return && (n.Returned == nil || n.Returned.By != u.Username || strings.TrimSpace(n.Returned.Reason) == "") {
-			ps = append(ps, "a return needs returned: {by: "+u.Username+", reason: <why>}")
-		}
-	}
-	if n.Returned != nil && !reflect.DeepEqual(n.Returned, o.Returned) && act != workflow.Return {
-		ps = append(ps, "returned may only be set when you return the finding to draft with a reason")
-	}
-	// clearances: only the pusher may add themselves, through a legitimate clear
-	var added []string
-	for _, x := range n.ClearedBy {
-		if !slices.Contains(o.ClearedBy, x) {
-			added = append(added, x)
-		}
-	}
-	if len(added) > 0 {
-		if len(added) != 1 || added[0] != u.Username || act != "" {
-			ps = append(ps, "cleared_by may only gain your own name, through a clear")
-		} else if err := workflow.Check(u, o, workflow.Clear); err != nil {
-			ps = append(ps, "cleared_by: "+err.Error())
-		}
-	}
-	// any other change during review drops all clearances (as on the web)
-	if o.Status == "verification" && n.Status == "verification" && len(n.ClearedBy) > 0 {
-		self := ""
-		if len(added) == 1 && added[0] == u.Username && !slices.Contains(o.Reviewers, u.Username) {
-			self = u.Username
-		}
-		if !sameExceptClearances(of, nf, self) {
-			ps = append(ps, "cleared_by must be emptied when the finding changes during review")
-		}
-	}
-	return ps
-}
-
-func (c *Checker) chatFile(u config.User, old, new, path, findingPath string) []string {
-	ob, _ := c.show(old, path)
-	nb, ok := c.show(new, path)
-	if !ok {
-		if _, fok := c.show(new, findingPath); !fok && manager(u) {
-			return nil // a director deleting the whole finding
-		}
-		return []string{"chat history cannot be deleted"}
-	}
-	if len(ob) > 0 && !bytes.HasSuffix(ob, []byte("\n")) {
-		return []string{"chat is append-only; the server copy must end with a newline"}
-	}
-	if !bytes.HasPrefix(nb, ob) {
-		return []string{"chat is append-only; existing lines cannot change"}
-	}
-	var ps []string
-	existing := chat.Parse(ob)
-	for _, m := range chat.Parse(nb[len(ob):]) {
-		if m.User != u.Username {
-			ps = append(ps, "message "+m.ID+" is from "+m.User+"; you can only add your own messages")
-		}
-		if m.Event != "" {
-			ps = append(ps, "message "+m.ID+": workflow events can't be pushed")
-		}
-		if err := chat.Validate(existing, m); err != nil {
-			ps = append(ps, "message "+m.ID+": "+err.Error())
-		}
-		existing = append(existing, m)
+	if o.Status == "complete" || o.Status == "reported" {
+		c.Carry = append(c.Carry, Carry{eng, o.ID, store.ContentHash(ob), store.ContentHash(nb)})
 	}
 	return ps
 }

@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -15,6 +14,7 @@ import (
 
 	"yars/internal/auth"
 	"yars/internal/config"
+	"yars/internal/db"
 	"yars/internal/gitrepo"
 	"yars/internal/index"
 	"yars/internal/store"
@@ -41,7 +41,12 @@ func newFx(t *testing.T) *fx {
 		t.Fatal(err)
 	}
 	cfg := config.Default()
-	st := store.New(r, cfg)
+	d, err := db.Open(filepath.Join(t.TempDir(), "yars.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { d.Close() })
+	st := store.New(r, cfg, d)
 	st.CreateEngagement(store.Engagement{ID: "acme", Name: "ACME"}, dora.GitAuthor())
 	st.CreateFinding("acme", "SQL injection", alice.GitAuthor())
 	users := []config.User{alice, pen2, bob, dora}
@@ -114,6 +119,27 @@ func TestMCPInitializeAndList(t *testing.T) {
 	}
 	if pong := f.rpc(alice, "ping", nil); pong["error"] != nil {
 		t.Fatalf("ping %v", pong)
+	}
+}
+
+// The file is content only; read_finding reports workflow state separately.
+func TestMCPReadState(t *testing.T) {
+	f := newFx(t)
+	f.ok(alice, "set_field", map[string]any{"engagement": "acme", "finding": "F-001", "field": "reviewers", "value": "bob"})
+	var rd struct {
+		Markdown string `json:"finding_md"`
+		State    struct {
+			Status    string   `json:"status"`
+			Reviewers []string `json:"reviewers"`
+			ClearedBy []string `json:"cleared_by"`
+		} `json:"state"`
+	}
+	json.Unmarshal([]byte(f.ok(alice, "read_finding", map[string]any{"engagement": "acme", "finding": "F-001"})), &rd)
+	if rd.State.Status != "draft" || strings.Join(rd.State.Reviewers, ",") != "bob" || rd.State.ClearedBy == nil {
+		t.Fatalf("state %+v", rd.State)
+	}
+	if strings.Contains(rd.Markdown, "status") || strings.Contains(rd.Markdown, "reviewers") {
+		t.Fatalf("state in the file:\n%s", rd.Markdown)
 	}
 }
 
@@ -251,15 +277,19 @@ func TestMCPTransitionAndChat(t *testing.T) {
 	tr(alice, "submit")
 	tr(bob, "clear")
 	tr(dora, "approve")
-	if got := f.lastCommit(); got != "dora|F-001: approve" {
-		t.Fatalf("commit %q", got)
+	if ref, err := f.s.Store.Finding("acme", "001"); err != nil || ref.F.Meta.Status != "complete" {
+		t.Fatalf("status: %v", err)
 	}
 	out := f.ok(bob, "add_chat_message", map[string]any{"engagement": "acme", "finding": "F-001", "text": "Looks good", "section": "Impact"})
 	var msg struct{ ID string }
 	json.Unmarshal([]byte(out), &msg)
 	f.ok(alice, "resolve_thread", map[string]any{"engagement": "acme", "finding": "F-001", "thread": msg.ID})
-	if got := f.lastCommit(); got != "alice|F-001: resolve thread" {
-		t.Fatalf("commit %q", got)
+	msgs, _ := f.s.Store.Chat("acme", "001")
+	if len(msgs) == 0 {
+		t.Fatal("no chat")
+	}
+	if last := msgs[len(msgs)-1]; last.User != "alice" || last.Resolves != msg.ID {
+		t.Fatalf("last message %+v", last)
 	}
 }
 
@@ -339,9 +369,10 @@ func TestMCPCreateAndLint(t *testing.T) {
 
 func (f *fx) httpServer(t *testing.T) (*httptest.Server, *auth.Tokens, string) {
 	t.Helper()
-	os.MkdirAll(filepath.Join(f.dir, ".yars"), 0o755)
-	tk, _ := auth.LoadTokens(f.dir)
-	tok, err := tk.Add(f.dir, "bob")
+	d := f.s.Store.DB()
+	d.AddUser(bob)
+	tk := auth.NewTokens(d)
+	tok, err := tk.Add("bob")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -390,7 +421,7 @@ func TestMCPHTTPAuth(t *testing.T) {
 	if c, _ := post(t, srv.URL, tok, list); c != 200 {
 		t.Errorf("good token: %d", c)
 	}
-	tk.Revoke(f.dir, "bob")
+	tk.Revoke("bob")
 	if c, _ := post(t, srv.URL, tok, list); c != 401 {
 		t.Errorf("revoked token: %d", c)
 	}
@@ -406,8 +437,8 @@ func TestMCPHTTPCall(t *testing.T) {
 	if c != 200 || !strings.Contains(body, `"id":7`) || strings.Contains(body, "isError") {
 		t.Fatalf("%d %s", c, body)
 	}
-	if got := f.lastCommit(); got != "bob|F-001: comment" {
-		t.Fatalf("commit %q", got)
+	if msgs, _ := f.s.Store.Chat("acme", "001"); len(msgs) != 1 || msgs[0].User != "bob" || msgs[0].Text != "via http" {
+		t.Fatalf("chat %+v", msgs)
 	}
 	if c, body := post(t, srv.URL, tok, `{"jsonrpc":"2.0","method":"notifications/initialized"}`); c != 202 || body != "" {
 		t.Fatalf("notification: %d %q", c, body)
