@@ -108,7 +108,7 @@ func Default() Config {
 	return Config{
 		Severities:  []string{"critical", "high", "medium", "low", "info"},
 		Sections:    []string{"Description", "Impact", "Steps to Reproduce", "Remediation", "References"},
-		DetailsRows: []string{"Location", "Business impact", "Row 3", "Row 4", "Row 5"},
+		DetailsRows: []string{"Location", "Cause", "Result", "Attack condition", "Business impact"},
 		CVSS:        CVSSConfig{Version: "3.1", Standard: defaultStandard()},
 	}
 }

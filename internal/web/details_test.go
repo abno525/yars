@@ -14,9 +14,9 @@ import (
 func TestDetailsView(t *testing.T) {
 	e := setup(t)
 	b := e.do(t, "alice", "GET", fpath, nil, nil).Body.String()
-	loc, bi, r3 := strings.Index(b, "Location"), strings.Index(b, "Business impact"), strings.Index(b, "Row 3")
+	loc, ac, bi := strings.Index(b, "Location"), strings.Index(b, "Attack condition"), strings.Index(b, "Business impact")
 	desc, det, cv := strings.Index(b, "<h2>Description</h2>"), strings.Index(b, `id="details"`), strings.Index(b, `id="cvss"`)
-	if loc < 0 || !(loc < bi && bi < r3 && r3 < desc) || det < 0 || det > cv {
+	if loc < 0 || !(loc < ac && ac < bi && bi < desc) || det < 0 || det > cv {
 		t.Fatalf("order wrong:\n%s", b)
 	}
 }

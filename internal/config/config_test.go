@@ -63,7 +63,7 @@ func writeCfg(t *testing.T, body string) string {
 
 func TestDefaultDetailsAndSections(t *testing.T) {
 	c := Default()
-	want := []string{"Location", "Business impact", "Row 3", "Row 4", "Row 5"}
+	want := []string{"Location", "Cause", "Result", "Attack condition", "Business impact"}
 	if !reflect.DeepEqual(c.DetailsRows, want) {
 		t.Fatalf("details %v", c.DetailsRows)
 	}
