@@ -718,6 +718,10 @@ func (s *Store) Transition(engID, dir string, act workflow.Action, reason string
 			set("cleared_by", nil)
 			msg = "return to draft\n\n" + r
 		case workflow.Clear:
+			if !slices.Contains(m.Reviewers, u.Username) {
+				// a director reviewing unassigned joins the reviewers
+				set("reviewers", append(slices.Clone(m.Reviewers), u.Username))
+			}
 			set("cleared_by", append(slices.Clone(m.ClearedBy), u.Username))
 			msg = "cleared by " + u.Username
 		case workflow.Approve:

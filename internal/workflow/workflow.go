@@ -59,7 +59,14 @@ func Label(a Action) string {
 		Approve: "Approve", Reopen: "Reopen", Report: "Mark reported"}[a]
 }
 
-func manager(u config.User) bool { return u.Role == "director" || u.Role == "admin" }
+// AtLeast reports whether u's role is role or a stronger one. Roles only add
+// power, in the order of config.Roles: pentester < reviewer < director < admin.
+func AtLeast(u config.User, role string) bool {
+	have, want := slices.Index(config.Roles, u.Role), slices.Index(config.Roles, role)
+	return have >= 0 && want >= 0 && have >= want
+}
+
+func manager(u config.User) bool { return AtLeast(u, "director") }
 
 func reviewer(u config.User, m finding.Meta) bool { return slices.Contains(m.Reviewers, u.Username) }
 
@@ -85,8 +92,8 @@ func Check(u config.User, m finding.Meta, a Action) error {
 		if u.Username == m.Author {
 			return deny("the author cannot clear their own finding")
 		}
-		if !reviewer(u, m) {
-			return deny("only an assigned reviewer can clear")
+		if !reviewer(u, m) && !manager(u) {
+			return deny("only an assigned reviewer or a director can clear")
 		}
 		if slices.Contains(m.ClearedBy, u.Username) {
 			return deny("you already cleared this finding")
@@ -183,7 +190,7 @@ func CanAssign(u config.User, m finding.Meta) bool {
 
 // ReviewerCandidate reports whether u may be assigned as a reviewer of m.
 func ReviewerCandidate(u config.User, m finding.Meta) bool {
-	return (u.Role == "reviewer" || u.Role == "director") && u.Username != m.Author
+	return AtLeast(u, "reviewer") && u.Username != m.Author
 }
 
 type Inbox string

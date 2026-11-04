@@ -21,6 +21,9 @@
     {{template "cvss_panel" .CVSS}}
     {{range .Panels}}{{template "panel" .}}{{end}}
   </div>
-  {{template "chat_panel" .Chat}}
+  <div class="side">
+    {{template "activity" .Chat}}
+    {{template "chat_panel" .Chat}}
+  </div>
 </div>
 {{end}}

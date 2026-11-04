@@ -20,14 +20,23 @@
 </aside>
 {{end}}
 
+{{define "activity"}}
+<section class="activity" id="activity"{{if .OOB}} hx-swap-oob="true"{{end}}>
+  <div class="panelhead"><h2>Status changes</h2></div>
+  {{range .Events}}
+  <p class="event"><strong>{{.User}}</strong> {{.What}}{{if .Text}}: <span class="text">{{.Text}}</span>{{end}} <span class="muted">{{.Time}}</span></p>
+  {{else}}
+  <p class="muted">None yet.</p>
+  {{end}}
+</section>
+{{end}}
+
 {{define "chat_list"}}
 <div id="chat-list" hx-get="{{.ListURL}}" hx-trigger="every 5s" hx-swap="outerHTML">
   {{if .ListError}}<p class="error">{{.ListError}}</p>{{end}}
   {{range .Items}}
-    {{if .Event}}
-    <p class="event"><strong>{{.Event.User}}</strong> {{.Event.What}}{{if .Event.Text}}: <span class="text">{{.Event.Text}}</span>{{end}} <span class="muted">{{.Event.Time}}</span></p>
-    {{else}}{{with .Thread}}
-    {{if .Resolved}}<details class="thread resolved"><summary>{{.Root.User}}: {{if .Root.Section}}[{{.Root.Section}}] {{end}}<span class="muted">Resolved by {{.ResolvedBy}}</span></summary>{{else}}<div class="thread">{{end}}
+    {{with .Thread}}
+    {{if .Resolved}}<details class="thread resolved"><summary><strong>{{.Root.User}}</strong>{{if .Root.Section}} <span class="tag">{{.Root.Section}}</span>{{end}} <span class="excerpt">{{.Root.Excerpt}}</span> <span class="muted">· {{if .Replies}}{{len .Replies}} {{if eq (len .Replies) 1}}reply{{else}}replies{{end}} · {{end}}resolved by {{.ResolvedBy}}</span></summary>{{else}}<div class="thread">{{end}}
       {{template "chat_msg" .Root}}
       {{range .Replies}}<div class="reply">{{template "chat_msg" .}}</div>{{end}}
       <form class="reply-form" hx-post="{{$.PostURL}}" hx-target="#chat-list" hx-swap="outerHTML">
@@ -40,11 +49,12 @@
         {{else}}<input type="hidden" name="resolves" value="{{.Root.ID}}"><button class="link">Resolve</button>{{end}}
       </form>
     {{if .Resolved}}</details>{{else}}</div>{{end}}
-    {{end}}{{end}}
+    {{end}}
   {{else}}
     <p class="muted">No messages yet.</p>
   {{end}}
 </div>
+{{if .OOB}}{{template "activity" .}}{{end}}
 {{end}}
 
 {{define "chat_msg"}}

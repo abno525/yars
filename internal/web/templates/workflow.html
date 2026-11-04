@@ -17,6 +17,11 @@
         <button>Save reviewers</button>
       </form>
     </details>
+    {{if .Candidates}}
+    <form method="post" action="{{.ReviewersURL}}" class="assign-all">
+      <button name="all" value="1" title="Assign every account with the reviewer role">Assign all reviewers</button>
+    </form>
+    {{end}}
     {{end}}
   </div>
   {{if .Actions}}

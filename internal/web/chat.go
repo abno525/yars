@@ -13,7 +13,21 @@ import (
 
 type chatMsg struct {
 	ID, User, Time, Section string
+	Excerpt                 string // one-line plain text, shown on collapsed threads
 	HTML                    template.HTML
+}
+
+const excerptLen = 140
+
+// excerpt turns Markdown into a short single line: emphasis and code marks
+// are dropped, whitespace collapsed, and long text cut with an ellipsis.
+func excerpt(md string) string {
+	s := strings.NewReplacer("**", "", "__", "", "`", "", "*", "", "#", "", ">", "").Replace(md)
+	r := []rune(strings.Join(strings.Fields(s), " "))
+	if len(r) > excerptLen {
+		return strings.TrimSpace(string(r[:excerptLen])) + "…"
+	}
+	return string(r)
 }
 
 type chatThread struct {
@@ -34,6 +48,8 @@ type chatEvent struct {
 
 type chatView struct {
 	Items                []chatItem
+	Events               []chatEvent // status changes, shown in their own box above the chat
+	OOB                  bool        // partial response: also refresh the status box out of band
 	Open                 int
 	BySection            map[string]int
 	Hash                 string
@@ -63,7 +79,7 @@ func chatHash(msgs []chat.Message) string {
 }
 
 func (s *Server) chatMsg(m chat.Message) chatMsg {
-	return chatMsg{ID: m.ID, User: m.User, Time: m.TS.Local().Format("2006-01-02 15:04"), Section: m.Section, HTML: s.renderMD(m.Text)}
+	return chatMsg{ID: m.ID, User: m.User, Time: m.TS.Local().Format("2006-01-02 15:04"), Section: m.Section, Excerpt: excerpt(m.Text), HTML: s.renderMD(m.Text)}
 }
 
 func (s *Server) chatFor(ref store.FindingRef, msgs []chat.Message) chatView {
@@ -78,7 +94,7 @@ func (s *Server) chatFor(ref store.FindingRef, msgs []chat.Message) chatView {
 			if what == "" {
 				what = e.Event
 			}
-			v.Items = append(v.Items, chatItem{Event: &chatEvent{User: e.User, Time: e.TS.Local().Format("2006-01-02 15:04"), What: what, Text: e.Text}})
+			v.Events = append(v.Events, chatEvent{User: e.User, Time: e.TS.Local().Format("2006-01-02 15:04"), What: what, Text: e.Text})
 			continue
 		}
 		t := &chatThread{Root: s.chatMsg(it.Thread.Root), Resolved: it.Thread.Resolved, ResolvedBy: it.Thread.ResolvedBy}
@@ -104,7 +120,9 @@ func (s *Server) chatList(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	s.exec(w, "finding.html", "chat_list", s.chatFor(ref, msgs))
+	v := s.chatFor(ref, msgs)
+	v.OOB = true
+	s.exec(w, "finding.html", "chat_list", v)
 }
 
 func (s *Server) chatPost(w http.ResponseWriter, r *http.Request) {
@@ -121,6 +139,7 @@ func (s *Server) chatPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	v := s.chatFor(ref, msgs)
+	v.OOB = true
 	// Thread actions (reply/resolve/reopen) refresh only the list, so a draft
 	// in the main composer is never cleared by them.
 	if m.Reply != "" || m.Resolves != "" || m.Reopens != "" {

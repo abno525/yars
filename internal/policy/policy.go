@@ -226,9 +226,14 @@ func retestChange(o, n *finding.Retest) []string {
 }
 
 // sameExceptClearances reports whether two versions differ only in cleared_by.
-func sameExceptClearances(o, n *finding.Finding) bool {
+// A reviewer list that only gained self (a director reviewing unassigned)
+// also counts as unchanged.
+func sameExceptClearances(o, n *finding.Finding, self string) bool {
 	om, nm := o.Meta, n.Meta
 	om.ClearedBy, nm.ClearedBy = nil, nil
+	if slices.Equal(nm.Reviewers, append(slices.Clone(om.Reviewers), self)) {
+		nm.Reviewers = om.Reviewers
+	}
 	return reflect.DeepEqual(om, nm) && reflect.DeepEqual(o.Sections, n.Sections) && o.Preamble == n.Preamble
 }
 
@@ -367,7 +372,11 @@ func (c *Checker) findingFile(u config.User, old, new string, ch gitrepo.Change,
 	}
 	// any other change during review drops all clearances (as on the web)
 	if o.Status == "verification" && n.Status == "verification" && len(n.ClearedBy) > 0 {
-		if !sameExceptClearances(of, nf) {
+		self := ""
+		if len(added) == 1 && added[0] == u.Username && !slices.Contains(o.Reviewers, u.Username) {
+			self = u.Username
+		}
+		if !sameExceptClearances(of, nf, self) {
 			ps = append(ps, "cleared_by must be emptied when the finding changes during review")
 		}
 	}

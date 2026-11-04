@@ -98,8 +98,11 @@ table.kv { border-collapse: collapse; width: 100%; }
 .detail-field textarea { min-height: 5em; font-family: inherit; font-size: 16px; font-weight: 400; }
 main:has(.finding-grid) { max-width: 1560px; }
 .finding-grid { display: grid; grid-template-columns: minmax(0, 1fr) 400px; gap: 16px; align-items: start; }
-.chat { position: sticky; top: 64px; max-height: calc(100vh - 80px); overflow-y: auto; background: var(--surface);
-  border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; }
+.side { position: sticky; top: 64px; max-height: calc(100vh - 80px); display: flex; flex-direction: column; gap: 12px; }
+.activity, .chat { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; }
+.activity { flex: none; max-height: 30vh; overflow-y: auto; display: grid; gap: 6px; align-content: start; }
+.activity .panelhead { margin-bottom: 2px; }
+.chat { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 .composer textarea { min-height: 4.5em; font-family: inherit; font-size: 16px; }
 .composer-row { display: flex; gap: 8px; margin-top: 8px; }
 .composer-row select { flex: 1; min-width: 0; }
@@ -107,6 +110,7 @@ main:has(.finding-grid) { max-width: 1560px; }
 .thread { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
 .thread.resolved { opacity: .75; }
 .thread.resolved summary { cursor: pointer; }
+.thread.resolved[open] .excerpt { display: none; } /* full text shows when expanded */
 .msg-head { font-size: .9rem; }
 .msg .md p { margin: 4px 0; }
 .reply { border-left: 3px solid var(--border); padding-left: 10px; margin-top: 8px; }
@@ -121,7 +125,8 @@ main:has(.finding-grid) { max-width: 1560px; }
 .open-count { display: inline-block; min-width: 1.4em; padding: 0 5px; border-radius: 999px; background: var(--verification); color: #fff; font-size: .75rem; text-align: center; }
 @media (max-width: 1100px) {
   .finding-grid { grid-template-columns: 1fr; }
-  .chat { position: static; max-height: none; }
+  .side { position: static; max-height: none; }
+  .activity { max-height: none; }
 }
 .hints { list-style: none; padding: 0; margin: 8px 0 0; display: grid; gap: 6px; }
 .hint { display: grid; grid-template-columns: 5.5em 1fr; gap: 2px 10px; padding: 6px 10px; border-radius: 8px;

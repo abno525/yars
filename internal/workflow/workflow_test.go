@@ -45,8 +45,9 @@ func TestCheckMatrix(t *testing.T) {
 		{bob, meta("verification", "bob"), Clear, false},
 		{rev2, meta("verification"), Clear, false},
 		{alice, meta("verification"), Clear, false},
-		{dora, meta("verification"), Clear, false}, // director not assigned: may not clear
-		{adm, meta("verification"), Clear, false},
+		{dora, meta("verification"), Clear, true}, // roles only add power: a director may review unassigned
+		{adm, meta("verification"), Clear, true},
+		{dora, meta("verification", "dora"), Clear, false},
 		{bob, meta("draft"), Clear, false},
 
 		{dora, meta("verification", "bob"), Approve, true},
@@ -75,6 +76,18 @@ func TestCheckMatrix(t *testing.T) {
 	m.Author = "dora"
 	if Check(dora, m, Clear) == nil {
 		t.Error("author cleared own finding")
+	}
+	// every role from reviewer up can be assigned as a reviewer
+	for _, u := range []config.User{bob, dora, adm} {
+		if !ReviewerCandidate(u, meta("draft")) {
+			t.Errorf("%s (%s) should be a reviewer candidate", u.Username, u.Role)
+		}
+	}
+	if ReviewerCandidate(pen2, meta("draft")) {
+		t.Error("pentester is a reviewer candidate")
+	}
+	if !AtLeast(adm, "director") || !AtLeast(dora, "reviewer") || AtLeast(bob, "director") || AtLeast(config.User{Role: "bogus"}, "pentester") {
+		t.Error("AtLeast ladder wrong")
 	}
 	// a director assigned as reviewer may clear
 	m = meta("verification")

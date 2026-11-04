@@ -30,11 +30,23 @@ func TestChatPostAndList(t *testing.T) {
 	e.do(t, "bob", "POST", fpath+"/chat", url.Values{"text": {"Yes, see step 2."}, "reply": {root}}, nil)
 	rec = e.do(t, "bob", "POST", fpath+"/chat", url.Values{"resolves": {root}}, nil)
 	b := rec.Body.String()
-	if !strings.Contains(b, "Yes, see step 2.") || !strings.Contains(b, "Resolved by bob") {
+	if !strings.Contains(b, "Yes, see step 2.") || !strings.Contains(b, "resolved by bob") {
 		t.Fatalf("body:\n%s", b)
 	}
 	if got := e.lastCommit(t); got != "bob|F-001: resolve thread" {
 		t.Fatalf("commit %q", got)
+	}
+}
+
+// A collapsed (resolved) thread still shows what the comment said.
+func TestResolvedThreadShowsComment(t *testing.T) {
+	e := setup(t)
+	long := "**Please** rename the `login` parameter in step 2 " + strings.Repeat("and explain more ", 20)
+	e.do(t, "bob", "POST", fpath+"/chat", url.Values{"text": {long}}, nil)
+	b := e.do(t, "bob", "POST", fpath+"/chat", url.Values{"resolves": {e.chatIDs(t)[0]}}, nil).Body.String()
+	sum := b[strings.Index(b, "<summary>"):strings.Index(b, "</summary>")]
+	if !strings.Contains(sum, "Please rename the login parameter in step 2") || !strings.Contains(sum, "…") || strings.Contains(sum, "**") {
+		t.Fatalf("summary lacks a plain excerpt:\n%s", sum)
 	}
 }
 
@@ -93,9 +105,22 @@ func TestReturnShowsInChat(t *testing.T) {
 	e.toVerification(t)
 	e.do(t, "bob", "POST", fpath+"/action/return", url.Values{"reason": {"Add a screenshot"}}, nil)
 	b := e.do(t, "alice", "GET", fpath, nil, nil).Body.String()
-	chat := b[strings.Index(b, `id="chat"`):]
-	if !strings.Contains(chat, "returned it to draft") || !strings.Contains(chat, "Add a screenshot") {
-		t.Fatalf("chat:\n%s", chat)
+	// status changes live in their own box above the chat, not in it
+	act, chat := strings.Index(b, `id="activity"`), strings.Index(b, `id="chat"`)
+	if act < 0 || chat < act {
+		t.Fatalf("no status box above the chat:\n%s", b)
+	}
+	box := b[act:chat]
+	if !strings.Contains(box, "returned it to draft") || !strings.Contains(box, "Add a screenshot") || !strings.Contains(box, "submitted it") {
+		t.Fatalf("status box:\n%s", box)
+	}
+	if strings.Contains(b[chat:], "returned it to draft") {
+		t.Fatal("status change still listed in the chat")
+	}
+	// the chat poll refreshes the box out of band, so others' changes show up
+	poll := e.do(t, "alice", "GET", fpath+"/chat", nil, nil).Body.String()
+	if !strings.Contains(poll, `id="activity" hx-swap-oob="true"`) || !strings.Contains(poll, "returned it to draft") {
+		t.Fatalf("poll lacks the status box:\n%s", poll)
 	}
 }
 

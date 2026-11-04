@@ -50,6 +50,7 @@ func setup(t *testing.T) *env {
 		{Username: "alice", Role: "pentester", PasswordHash: pwHash},
 		{Username: "bob", Role: "reviewer", PasswordHash: pwHash},
 		{Username: "dora", Role: "director", PasswordHash: pwHash},
+		{Username: "carol", Role: "reviewer", PasswordHash: pwHash},
 	}
 	au := auth.New(users)
 	s := &Server{Store: st, Index: index.New(st, r), Auth: au, Cfg: cfg}

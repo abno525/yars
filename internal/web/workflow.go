@@ -116,6 +116,15 @@ func (s *Server) wfReviewers(w http.ResponseWriter, r *http.Request) {
 	}
 	r.ParseForm()
 	names := r.PostForm["reviewer"]
+	if r.PostForm.Get("all") != "" {
+		// keep whoever is assigned and add every reviewer-role account
+		names = slices.Clone(ref.F.Meta.Reviewers)
+		for _, c := range s.Auth.Users() {
+			if c.Role == "reviewer" && workflow.ReviewerCandidate(c, ref.F.Meta) && !slices.Contains(names, c.Username) {
+				names = append(names, c.Username)
+			}
+		}
+	}
 	for _, n := range names {
 		ok := false
 		for _, c := range s.Auth.Users() {

@@ -335,6 +335,31 @@ func TestPolicyStaleClearance(t *testing.T) {
 	}
 }
 
+// A director may review by push without being assigned: they add themselves
+// to reviewers and cleared_by in one push, and nothing else may change.
+func TestPolicyDirectorClearsUnassigned(t *testing.T) {
+	f := newFx(t)
+	f.toVerification()
+	f.reclone()
+	selfClear := func(d string) {
+		editMeta(d, set("reviewers", []string{"bob", "dora"}))
+		editMeta(d, set("cleared_by", []string{"dora"}))
+	}
+	if ps := f.push("dora", selfClear); len(ps) != 0 {
+		t.Fatalf("director self-review rejected: %v", ps)
+	}
+	// clearing must not ride along with any other reviewer change
+	f = newFx(t)
+	f.toVerification()
+	f.reclone()
+	if ps := f.push("dora", func(d string) {
+		editMeta(d, set("reviewers", []string{"dora"}))
+		editMeta(d, set("cleared_by", []string{"dora"}))
+	}); !has(ps, "cleared_by") {
+		t.Fatalf("clear plus reviewer swap accepted: %v", ps)
+	}
+}
+
 func TestPolicyEngagementMustExist(t *testing.T) {
 	f := newFx(t)
 	if ps := f.push("alice", func(d string) {

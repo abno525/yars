@@ -3,6 +3,8 @@ package web
 import (
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -151,6 +153,24 @@ func TestLockedEditForbidden(t *testing.T) {
 	}
 	if rec := e.do(t, "dora", "GET", fpath+"/s/Impact/edit", nil, nil); rec.Code != 200 {
 		t.Fatalf("director edit code %d", rec.Code)
+	}
+}
+
+// One press assigns every reviewer-role account (directors stay as they were).
+func TestReviewersAssignAll(t *testing.T) {
+	e := setup(t)
+	if b := e.do(t, "alice", "GET", fpath, nil, nil).Body.String(); !strings.Contains(b, `name="all"`) {
+		t.Fatal("no assign-all button")
+	}
+	if rec := e.do(t, "alice", "POST", fpath+"/reviewers", url.Values{"all": {"1"}}, nil); rec.Code != http.StatusSeeOther {
+		t.Fatalf("code %d", rec.Code)
+	}
+	md, err := os.ReadFile(filepath.Join(e.dir, "engagements/acme/findings/F-001-sql-injection/finding.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(md), "- bob\n") || !strings.Contains(string(md), "- carol\n") || strings.Contains(string(md), "- dora\n") {
+		t.Fatalf("not exactly the reviewers assigned:\n%s", md)
 	}
 }
 

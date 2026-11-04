@@ -54,6 +54,27 @@ func TestTransitionSubmitGate(t *testing.T) {
 	}
 }
 
+// A director who reviews without being assigned joins the reviewers in the
+// same commit, so their clearance counts for another director's approval.
+func TestDirectorClearsUnassigned(t *testing.T) {
+	s, _, fd := ready(t)
+	s.Transition(eng, fd, workflow.Submit, "", uAlice)
+	if err := s.Transition(eng, fd, workflow.Clear, "", uDora); err != nil {
+		t.Fatal(err)
+	}
+	m := load(t, s, fd).F.Meta
+	if !reflect.DeepEqual(m.Reviewers, []string{"bob", "dora"}) || !reflect.DeepEqual(m.ClearedBy, []string{"dora"}) {
+		t.Fatalf("reviewers %v cleared %v", m.Reviewers, m.ClearedBy)
+	}
+	if err := s.Transition(eng, fd, workflow.Approve, "", uDora); !denied(err) {
+		t.Fatalf("director approved own review: %v", err)
+	}
+	adm := config.User{Username: "adm", Role: "admin"}
+	if err := s.Transition(eng, fd, workflow.Approve, "", adm); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestTransitionFlow(t *testing.T) {
 	s, dir, fd := ready(t)
 	s.Transition(eng, fd, workflow.Submit, "", uAlice)
