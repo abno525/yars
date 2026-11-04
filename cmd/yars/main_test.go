@@ -45,6 +45,34 @@ func TestUsersNotTracked(t *testing.T) {
 	}
 }
 
+func TestExportCLI(t *testing.T) {
+	dir := t.TempDir()
+	if err := cmdInit([]string{dir}); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{"docx.yaml", "confluence.yaml"} {
+		if _, err := os.Stat(filepath.Join(dir, ".yars", "exporters", f)); err != nil {
+			t.Fatalf("default exporter %s missing", f)
+		}
+	}
+	r, _ := gitrepo.Open(dir)
+	st := store.New(r, config.Default())
+	a := gitrepo.Author{Name: "t", Email: "t@t"}
+	st.CreateEngagement(store.Engagement{ID: "acme", Name: "ACME"}, a)
+	st.CreateFinding("acme", "SQL injection", a)
+	out := filepath.Join(t.TempDir(), "r.html")
+	var log bytes.Buffer
+	if code, err := cmdExport([]string{"--data", dir, "--exporter", "confluence", "--out", out, "acme", "F-001-sql-injection"}, &log); err != nil || code != 0 {
+		t.Fatalf("code %d err %v: %s", code, err, log.String())
+	}
+	if b, _ := os.ReadFile(out); !strings.Contains(string(b), "SQL injection") {
+		t.Fatalf("output %q", b)
+	}
+	if code, _ := cmdExport([]string{"--data", dir, "--exporter", "nope", "acme"}, &log); code == 0 {
+		t.Fatal("unknown exporter accepted")
+	}
+}
+
 func TestLintCommand(t *testing.T) {
 	dir := t.TempDir()
 	if err := cmdInit([]string{dir}); err != nil {

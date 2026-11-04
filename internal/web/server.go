@@ -18,6 +18,7 @@ import (
 
 	"yars/internal/auth"
 	"yars/internal/config"
+	"yars/internal/export"
 	"yars/internal/gitrepo"
 	"yars/internal/index"
 	"yars/internal/rules"
@@ -37,7 +38,8 @@ type Server struct {
 	Auth  *auth.Auth
 	Cfg   config.Config
 	Rules *rules.Engine // optional style rules
-	Git   http.Handler  // optional git smart HTTP endpoint, mounted at /git/
+	Git    http.Handler   // optional git smart HTTP endpoint, mounted at /git/
+	Export *export.Runner // optional exporters
 
 	pages map[string]*template.Template
 	md    goldmark.Markdown
@@ -76,6 +78,7 @@ type page struct {
 	Retest        *retestView
 	IsRetest      bool
 	Users         []config.User
+	ExportV       exportView
 	Source        store.Engagement
 	Form          url.Values
 }
@@ -116,6 +119,7 @@ func (s *Server) Handler() http.Handler {
 	s.routesChat(private)
 	private.HandleFunc("POST /e/{eng}/f/{fid}/checks", s.checksRun)
 	s.routesRetest(private)
+	s.routesExport(private)
 
 	root := http.NewServeMux()
 	root.HandleFunc("GET /login", s.loginPage)

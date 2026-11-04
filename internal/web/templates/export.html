@@ -1,0 +1,47 @@
+{{define "content"}}
+<nav class="crumbs"><a href="/e/{{.Eng.ID}}">← {{.Eng.Name}}</a></nav>
+<form class="card" method="post" action="/e/{{.Eng.ID}}/export">
+  <h1>Export {{.Eng.Name}}</h1>
+  {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+  {{with .ExportV}}
+  {{if .Done}}<p class="ok">Published: <a href="{{.Done}}" target="_blank" rel="noopener">{{.Done}}</a>{{if .Marked}} · marked reported: {{join .Marked ", "}}{{end}}</p>{{end}}
+  {{if not .Enabled}}<p class="muted">Exporting is not configured on this server.</p>{{end}}
+  {{range .LoadErrors}}<p class="error">Exporter config error: {{.}}</p>{{end}}
+  {{if .Exporters}}
+  <h2 class="subhead">Format</h2>
+  <div class="exporters">
+    {{$sel := .Selected}}
+    {{range .Exporters}}
+    <label class="exporter">
+      <input type="radio" name="exporter" value="{{.ID}}"{{if eq .ID $sel}} checked{{end}}>
+      <span><strong>{{.Name}}</strong><br><span class="muted small">{{.Type}}{{if .Format}} · {{.Format}}{{end}}{{if .Confluence}}{{if .Confluence.BaseURL}} · publishes to Confluence{{end}}{{end}}{{if .Marks}}{{if $.ExportV.CanMark}} · marks complete findings reported{{end}}{{end}}</span></span>
+    </label>
+    {{end}}
+  </div>
+  {{else if .Enabled}}
+  <p class="muted">No exporters configured. Add one to <code>.yars/exporters/</code>.</p>
+  {{end}}
+  {{end}}
+  <h2 class="subhead">Findings</h2>
+  <table class="findings pick">
+    <tbody>
+    {{range .Rows}}
+      <tr>
+        <td><input type="checkbox" name="finding" value="{{.Dir}}" id="pick-{{.Dir}}"{{if checkedIn $.Form "finding" .Dir}} checked{{end}}></td>
+        <td class="fid"><label for="pick-{{.Dir}}">{{.ID}}</label></td>
+        <td><label for="pick-{{.Dir}}">{{.Title}}</label></td>
+        <td>{{if .Severity}}<span class="pill sev-{{.Severity}}">{{.Severity}}</span>{{end}}</td>
+        <td><span class="pill status-{{.Status}}">{{.Status}}</span></td>
+      </tr>
+    {{else}}
+      <tr><td class="muted empty">No findings.</td></tr>
+    {{end}}
+    </tbody>
+  </table>
+  {{if not .ExportV.CanMark}}<p class="muted small">Your export is a preview; only a director marks findings reported.</p>{{end}}
+  <div class="actions">
+    <button class="primary"{{if not .ExportV.Exporters}} disabled{{end}}>Export</button>
+    <a class="button" href="/e/{{.Eng.ID}}">Cancel</a>
+  </div>
+</form>
+{{end}}

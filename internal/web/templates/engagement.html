@@ -6,6 +6,7 @@
     {{if .IsRetest}}<p class="retest-banner">Retest of <a href="/e/{{.Eng.Source}}">{{if .Source.Name}}{{.Source.Name}}{{else}}{{.Eng.Source}}{{end}}</a></p>{{end}}
   </div>
   <div class="actions">
+    <a class="button" href="/e/{{.Eng.ID}}/export">Export</a>
     {{if .CanManage}}<a class="button" href="/e/{{.Eng.ID}}/retest/new">New retest</a>{{end}}
     <a class="button primary" href="/e/{{.Eng.ID}}/findings/new">New finding</a>
   </div>

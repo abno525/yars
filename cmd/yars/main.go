@@ -16,13 +16,17 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
 	"yars/internal/auth"
 	"yars/internal/config"
+	"yars/internal/export"
 	"yars/internal/gitrepo"
 	"yars/internal/gitserve"
 	"yars/internal/index"
@@ -30,12 +34,117 @@ import (
 	"yars/internal/rules"
 	"yars/internal/store"
 	"yars/internal/web"
+	"yars/internal/workflow"
 )
 
 var system = gitrepo.Author{Name: "yars", Email: "yars@yars.local"}
 
 //go:embed rules_example.yaml
 var exampleRules []byte
+
+func exportRunner(dataDir string) *export.Runner {
+	pandoc, _ := exec.LookPath("pandoc")
+	return &export.Runner{Dir: filepath.Join(dataDir, ".yars", "exporters"), PandocPath: pandoc,
+		HTTP: &http.Client{Timeout: 60 * time.Second}, Getenv: os.Getenv}
+}
+
+// cmdExport runs an exporter from the command line:
+//
+//	yars export --data <dir> --exporter <id> [--out file] [--mark --as <user>] <eng> [<finding-dir>…]
+func cmdExport(args []string, out io.Writer) (int, error) {
+	fs := flag.NewFlagSet("export", flag.ContinueOnError)
+	data := fs.String("data", ".", "data repo")
+	exID := fs.String("exporter", "", "exporter id (file name in .yars/exporters without .yaml)")
+	outPath := fs.String("out", "", "output file (default: <engagement>.<ext> in the current directory)")
+	mark := fs.Bool("mark", false, "mark exported complete findings reported")
+	as := fs.String("as", "", "director/admin account used with --mark")
+	fs.SetOutput(out)
+	if err := fs.Parse(args); err != nil {
+		return 2, err
+	}
+	if fs.NArg() < 1 {
+		return 2, fmt.Errorf("usage: yars export --exporter <id> <engagement> [<finding-dir>…]")
+	}
+	r, err := gitrepo.Open(*data)
+	if err != nil {
+		return 2, err
+	}
+	cfg, err := config.Load(r.Dir)
+	if err != nil {
+		return 2, err
+	}
+	run := exportRunner(r.Dir)
+	exs, _ := export.Load(run.Dir)
+	var ex *export.Exporter
+	for i := range exs {
+		if exs[i].ID == *exID {
+			ex = &exs[i]
+		}
+	}
+	if ex == nil {
+		return 2, fmt.Errorf("unknown exporter %q", *exID)
+	}
+	st := store.New(r, cfg)
+	e, err := st.Engagement(fs.Arg(0))
+	if err != nil {
+		return 2, err
+	}
+	refs, err := st.ListFindings(e.ID)
+	if err != nil {
+		return 2, err
+	}
+	var picked []store.FindingRef
+	for _, ref := range refs {
+		if (fs.NArg() > 1 && slices.Contains(fs.Args()[1:], ref.Dir)) || (fs.NArg() == 1 && slices.Contains(ex.Statuses, ref.F.Meta.Status)) {
+			picked = append(picked, ref)
+		}
+	}
+	if len(picked) == 0 {
+		return 2, fmt.Errorf("no findings selected")
+	}
+	in := export.Input{Engagement: e, Cfg: cfg}
+	for _, p := range picked {
+		in.Findings = append(in.Findings, p.F)
+	}
+	res, err := run.Run(context.Background(), *ex, in)
+	if err != nil {
+		return 1, err
+	}
+	if res.URL != "" {
+		fmt.Fprintln(out, "published:", res.URL)
+	} else {
+		dst := *outPath
+		if dst == "" {
+			dst = res.Filename
+		}
+		if err := os.WriteFile(dst, res.Data, 0o644); err != nil {
+			return 1, err
+		}
+		fmt.Fprintln(out, "wrote", dst)
+	}
+	if *mark && ex.Marks() {
+		users, _ := config.LoadUsers(r.Dir)
+		u := config.User{}
+		for _, x := range users {
+			if x.Username == *as {
+				u = x
+			}
+		}
+		if u.Username == "" {
+			return 1, fmt.Errorf("--mark needs --as <director or admin account>")
+		}
+		for _, p := range picked {
+			if p.F.Meta.Status == "complete" {
+				if err := st.Transition(e.ID, p.Dir, workflow.Report, "", u); err != nil {
+					fmt.Fprintln(out, "not marked", p.F.Meta.ID+":", err)
+				} else {
+					fmt.Fprintln(out, "marked reported", p.F.Meta.ID)
+				}
+			}
+		}
+	}
+	return 0, nil
+}
 
 const usersIgnore = "# password hashes stay on the server\n.yars/users.yaml\n"
 
@@ -204,6 +313,12 @@ func main() {
 		err = cmdUseradd(os.Args[2:])
 	case "serve":
 		err = cmdServe(os.Args[2:])
+	case "export":
+		code, xerr := cmdExport(os.Args[2:], os.Stdout)
+		if xerr != nil {
+			fmt.Fprintln(os.Stderr, "yars:", xerr)
+		}
+		os.Exit(code)
 	case "hook":
 		os.Exit(cmdHook(os.Args[2:], os.Stdin, os.Stderr))
 	case "lint":
@@ -254,11 +369,20 @@ func cmdInit(args []string) error {
 			return err
 		}
 	}
+	exDir := filepath.Join(dir, ".yars", "exporters")
+	if err := os.MkdirAll(exDir, 0o755); err != nil {
+		return err
+	}
+	for name, body := range exampleExporters {
+		if err := os.WriteFile(filepath.Join(exDir, name), []byte(body), 0o644); err != nil {
+			return err
+		}
+	}
 	// users.yaml holds password hashes: kept on the server only, never in git
 	if err := config.SaveUsers(dir, []config.User{}); err != nil {
 		return err
 	}
-	if err := r.Commit([]string{".yars/config.yaml", ".yars/rules", ".gitignore", "engagements"}, "init", system); err != nil {
+	if err := r.Commit([]string{".yars/config.yaml", ".yars/rules", ".yars/exporters", ".gitignore", "engagements"}, "init", system); err != nil {
 		return err
 	}
 	fmt.Println("initialised", dir)
@@ -354,7 +478,7 @@ func cmdServe(args []string) error {
 	if err := gs.Setup(); err != nil {
 		return fmt.Errorf("git setup: %w", err)
 	}
-	srv := &web.Server{Store: st, Index: index.New(st, r), Auth: au, Cfg: cfg, Rules: eng, Git: gs.Handler()}
+	srv := &web.Server{Store: st, Index: index.New(st, r), Auth: au, Cfg: cfg, Rules: eng, Git: gs.Handler(), Export: exportRunner(r.Dir)}
 	log.Printf("yars serving %s on %s", r.Dir, *addr)
 	return http.ListenAndServe(*addr, srv.Handler())
 }
