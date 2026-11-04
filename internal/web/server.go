@@ -40,6 +40,7 @@ type Server struct {
 	Rules  *rules.Engine  // optional style rules
 	Git    http.Handler   // optional git smart HTTP endpoint, mounted at /git/
 	Export *export.Runner // optional exporters
+	MCP    http.Handler   // optional MCP endpoint, mounted at /mcp
 
 	pages   map[string]*template.Template
 	exports exportCache
@@ -129,6 +130,9 @@ func (s *Server) Handler() http.Handler {
 	root.Handle("/", s.Auth.Require(private))
 	if s.Git != nil {
 		root.Handle("/git/", s.Git) // HTTP Basic auth, no cookies
+	}
+	if s.MCP != nil {
+		root.Handle("/mcp", s.MCP) // Bearer tokens, no cookies
 	}
 	// Reject cross-origin state-changing requests (CSRF, incl. login CSRF).
 	return http.NewCrossOriginProtection().Handler(root)

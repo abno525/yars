@@ -117,8 +117,8 @@ func (c *Checker) file(u config.User, old, new string, ch gitrepo.Change) []stri
 		}
 	}
 	switch {
-	case p == ".yars/users.yaml":
-		return []string{"users are managed on the server (yars useradd), not in git"}
+	case p == ".yars/users.yaml" || p == ".yars/tokens.yaml":
+		return []string{"accounts and API tokens are managed on the server (yars useradd / yars token), not in git"}
 	case seg[0] == ".yars":
 		if !manager(u) {
 			return []string{"only a director or admin can change .yars (config, rules)"}

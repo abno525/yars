@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -103,6 +104,51 @@ func TestPushEndToEnd(t *testing.T) {
 	}
 	if after, _ := p.repo.Head(); after != before {
 		t.Fatal("server HEAD moved after a rejected push")
+	}
+}
+
+// An AI editing the local clone through MCP stdio commits as the user; the
+// push of that commit passes the server policy.
+func TestMCPStdioThenPush(t *testing.T) {
+	p := newPushEnv(t)
+	in := strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}` + "\n" +
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"update_section","arguments":{"engagement":"acme","finding":"F-001","section":"Impact","body":"Written by the assistant."}}}` + "\n")
+	var out bytes.Buffer
+	if err := runMCP([]string{"--data", p.clone, "--user", "alice"}, in, &out); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out.String(), "isError") {
+		t.Fatalf("mcp error: %s", out.String())
+	}
+	if o, err := p.git("push", "-q", "origin", "HEAD"); err != nil {
+		t.Fatalf("push rejected: %v\n%s", err, o)
+	}
+	ref, _ := p.st.Finding("acme", "F-001-sqli")
+	if b, _ := ref.F.Section("Impact"); !strings.Contains(b, "Written by the assistant.") {
+		t.Fatalf("server not updated: %q", b)
+	}
+}
+
+func TestTokensUntracked(t *testing.T) {
+	dir := t.TempDir()
+	if err := cmdInit([]string{dir}); err != nil {
+		t.Fatal(err)
+	}
+	config.SaveUsers(dir, []config.User{{Username: "alice", Role: "pentester"}})
+	var out bytes.Buffer
+	if code, _ := cmdToken([]string{"add", "--data", dir, "mallory"}, &out); code == 0 {
+		t.Fatal("token for unknown user")
+	}
+	if code, err := cmdToken([]string{"add", "--data", dir, "alice"}, &out); code != 0 || err != nil || !strings.Contains(out.String(), "yars_") {
+		t.Fatalf("token add: %d %v %s", code, err, out.String())
+	}
+	r, _ := gitrepo.Open(dir)
+	if r.Tracked(".yars/tokens.yaml") {
+		t.Fatal("tokens tracked")
+	}
+	st, _ := exec.Command("git", "-C", dir, "status", "--porcelain").Output()
+	if len(st) != 0 {
+		t.Fatalf("tokens file not ignored: %s", st)
 	}
 }
 

@@ -4,10 +4,16 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"yars/internal/auth"
 	"yars/internal/config"
 	"yars/internal/gitrepo"
 	"yars/internal/index"
@@ -264,6 +270,86 @@ func TestMCPCreateAndLint(t *testing.T) {
 	}
 	if out := f.ok(pen2, "lint_finding", map[string]any{"engagement": "acme", "finding": "F-002"}); !strings.Contains(out, "[]") && !strings.Contains(out, "no rules") {
 		t.Fatalf("lint without rules: %s", out)
+	}
+}
+
+func (f *fx) httpServer(t *testing.T) (*httptest.Server, *auth.Tokens, string) {
+	t.Helper()
+	os.MkdirAll(filepath.Join(f.dir, ".yars"), 0o755)
+	tk, _ := auth.LoadTokens(f.dir)
+	tok, err := tk.Add(f.dir, "bob")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lookup := func(name string) (config.User, bool) {
+		for _, u := range f.s.Users() {
+			if u.Username == name {
+				return u, true
+			}
+		}
+		return config.User{}, false
+	}
+	srv := httptest.NewServer(f.s.HTTPHandler(tk, lookup))
+	t.Cleanup(srv.Close)
+	return srv, tk, tok
+}
+
+func post(t *testing.T, url, token, body string) (int, string) {
+	t.Helper()
+	req, _ := http.NewRequest("POST", url, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, string(b)
+}
+
+func TestMCPHTTPAuth(t *testing.T) {
+	f := newFx(t)
+	srv, tk, tok := f.httpServer(t)
+	list := `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`
+	if c, _ := post(t, srv.URL, "", list); c != 401 {
+		t.Errorf("no token: %d", c)
+	}
+	if c, _ := post(t, srv.URL, "yars_nope", list); c != 401 {
+		t.Errorf("bad token: %d", c)
+	}
+	if resp, _ := http.Get(srv.URL); resp.StatusCode != 405 {
+		t.Errorf("GET: %d", resp.StatusCode)
+	}
+	if c, _ := post(t, srv.URL, tok, list); c != 200 {
+		t.Errorf("good token: %d", c)
+	}
+	tk.Revoke(f.dir, "bob")
+	if c, _ := post(t, srv.URL, tok, list); c != 401 {
+		t.Errorf("revoked token: %d", c)
+	}
+	if c, _ := post(t, srv.URL, tok, `{"jsonrpc":"2.0","id":1,"method":"ping","params":"`+strings.Repeat("x", 3<<20)+`"}`); c != 401 && c != 413 {
+		t.Errorf("huge body: %d", c)
+	}
+}
+
+func TestMCPHTTPCall(t *testing.T) {
+	f := newFx(t)
+	srv, _, tok := f.httpServer(t)
+	c, body := post(t, srv.URL, tok, `{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"add_chat_message","arguments":{"engagement":"acme","finding":"F-001","text":"via http"}}}`)
+	if c != 200 || !strings.Contains(body, `"id":7`) || strings.Contains(body, "isError") {
+		t.Fatalf("%d %s", c, body)
+	}
+	if got := f.lastCommit(); got != "bob|F-001: comment" {
+		t.Fatalf("commit %q", got)
+	}
+	if c, body := post(t, srv.URL, tok, `{"jsonrpc":"2.0","method":"notifications/initialized"}`); c != 202 || body != "" {
+		t.Fatalf("notification: %d %q", c, body)
+	}
+	if c, _ := post(t, srv.URL, tok, `{"jsonrpc":"2.0","id":1,"method":"ping","params":"`+strings.Repeat("x", 3<<20)+`"}`); c != 413 {
+		t.Fatalf("huge body: %d", c)
 	}
 }
 

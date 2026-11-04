@@ -31,6 +31,7 @@ import (
 	"yars/internal/gitrepo"
 	"yars/internal/gitserve"
 	"yars/internal/index"
+	"yars/internal/mcp"
 	"yars/internal/policy"
 	"yars/internal/rules"
 	"yars/internal/store"
@@ -152,7 +153,84 @@ func cmdExport(args []string, out io.Writer) (int, error) {
 	return 0, nil
 }
 
-const usersIgnore = "# password hashes stay on the server\n.yars/users.yaml\n"
+const usersIgnore = "# password hashes and API tokens stay on the server\n.yars/users.yaml\n.yars/tokens.yaml\n"
+
+// runMCP serves MCP over stdio on a local clone as the given user. The
+// server-side push policy re-checks everything when the commits are pushed.
+func runMCP(args []string, in io.Reader, out io.Writer) error {
+	fs := flag.NewFlagSet("mcp", flag.ContinueOnError)
+	data := fs.String("data", ".", "local clone of the data repo")
+	user := fs.String("user", "", "your YARS username (commits are authored as this user)")
+	role := fs.String("role", "pentester", "your role (pentester, reviewer, director, admin)")
+	email := fs.String("email", "", "git email (default <user>@yars.local, must match your YARS account)")
+	fs.SetOutput(os.Stderr)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if !store.ValidID(*user) || !config.ValidRole(*role) {
+		return fmt.Errorf("usage: yars mcp --data <clone> --user <name> [--role pentester]")
+	}
+	r, err := gitrepo.Open(*data)
+	if err != nil {
+		return err
+	}
+	cfg, err := config.Load(r.Dir)
+	if err != nil {
+		return err
+	}
+	st := store.New(r, cfg)
+	srv := &mcp.Server{Store: st, Index: index.New(st, r), Rules: rules.NewEngine(rules.DirFor(r.Dir), cfg), Cfg: cfg}
+	return srv.ServeStdio(context.Background(), config.User{Username: *user, Role: *role, Email: *email}, in, out)
+}
+
+// cmdToken manages MCP API tokens: yars token add|list|revoke --data <dir> [<user>]
+func cmdToken(args []string, out io.Writer) (int, error) {
+	if len(args) == 0 {
+		return 2, fmt.Errorf("usage: yars token add|list|revoke --data <dir> [<user>]")
+	}
+	fs := flag.NewFlagSet("token", flag.ContinueOnError)
+	data := fs.String("data", ".", "data repo")
+	if err := fs.Parse(args[1:]); err != nil {
+		return 2, err
+	}
+	r, err := gitrepo.Open(*data)
+	if err != nil {
+		return 2, err
+	}
+	if err := untrackUsers(r); err != nil { // makes sure tokens.yaml is ignored
+		return 1, err
+	}
+	tk, err := auth.LoadTokens(r.Dir)
+	if err != nil {
+		return 1, err
+	}
+	switch args[0] {
+	case "list":
+		for _, t := range tk.List() {
+			fmt.Fprintf(out, "%s\tcreated %s\n", t.User, t.Created)
+		}
+		return 0, nil
+	case "add", "revoke":
+		if fs.NArg() != 1 {
+			return 2, fmt.Errorf("usage: yars token %s --data <dir> <user>", args[0])
+		}
+		name := fs.Arg(0)
+		users, _ := config.LoadUsers(r.Dir)
+		if !slices.ContainsFunc(users, func(u config.User) bool { return u.Username == name }) && args[0] == "add" {
+			return 1, fmt.Errorf("unknown user %s", name)
+		}
+		if args[0] == "revoke" {
+			return 0, tk.Revoke(r.Dir, name)
+		}
+		tok, err := tk.Add(r.Dir, name)
+		if err != nil {
+			return 1, err
+		}
+		fmt.Fprintf(out, "token for %s (shown once; restart yars serve to load it):\n%s\n", name, tok)
+		return 0, nil
+	}
+	return 2, fmt.Errorf("unknown token command %q", args[0])
+}
 
 // untrackUsers makes sure .yars/users.yaml is ignored and not tracked, so a
 // clone never carries password hashes (older repos committed it; their
@@ -160,12 +238,17 @@ const usersIgnore = "# password hashes stay on the server\n.yars/users.yaml\n"
 func untrackUsers(r *gitrepo.Repo) error {
 	gi := filepath.Join(r.Dir, ".gitignore")
 	b, _ := os.ReadFile(gi)
-	if !strings.Contains(string(b), ".yars/users.yaml") {
+	if !strings.Contains(string(b), ".yars/users.yaml") || !strings.Contains(string(b), ".yars/tokens.yaml") {
 		next := string(b)
 		if next != "" && !strings.HasSuffix(next, "\n") {
 			next += "\n"
 		}
-		if err := os.WriteFile(gi, []byte(next+usersIgnore), 0o644); err != nil {
+		for _, l := range strings.Split(strings.TrimSpace(usersIgnore), "\n") {
+			if !strings.Contains(next, l) {
+				next += l + "\n"
+			}
+		}
+		if err := os.WriteFile(gi, []byte(next), 0o644); err != nil {
 			return err
 		}
 		if err := r.Commit([]string{".gitignore"}, "ignore users.yaml (password hashes stay on the server)", system); err != nil {
@@ -303,7 +386,7 @@ func cmdLint(args []string, out io.Writer) (int, error) {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: yars init <dir> | useradd --data <dir> --role <role> <username> | serve --data <dir> [--addr :8080] | lint --data <dir> [--all] [eng[/finding]]")
+	fmt.Fprintln(os.Stderr, "usage: yars init <dir> | useradd --data <dir> --role <role> <username> | serve --data <dir> [--addr :8080] | lint --data <dir> [--all] [eng[/finding]] | export --data <dir> --exporter <id> <eng> | token add|list|revoke --data <dir> <user> | mcp --data <clone> --user <name>")
 	os.Exit(2)
 }
 
@@ -323,6 +406,14 @@ func main() {
 		code, xerr := cmdExport(os.Args[2:], os.Stdout)
 		if xerr != nil {
 			fmt.Fprintln(os.Stderr, "yars:", xerr)
+		}
+		os.Exit(code)
+	case "mcp":
+		err = runMCP(os.Args[2:], os.Stdin, os.Stdout)
+	case "token":
+		code, terr := cmdToken(os.Args[2:], os.Stdout)
+		if terr != nil {
+			fmt.Fprintln(os.Stderr, "yars:", terr)
 		}
 		os.Exit(code)
 	case "hook":
@@ -484,7 +575,22 @@ func cmdServe(args []string) error {
 	if err := gs.Setup(); err != nil {
 		return fmt.Errorf("git setup: %w", err)
 	}
-	srv := &web.Server{Store: st, Index: index.New(st, r), Auth: au, Cfg: cfg, Rules: eng, Git: gs.Handler(), Export: exportRunner(r.Dir)}
+	tokens, err := auth.LoadTokens(r.Dir)
+	if err != nil {
+		return err
+	}
+	ix := index.New(st, r)
+	mcpSrv := &mcp.Server{Store: st, Index: ix, Rules: eng, Cfg: cfg, Users: au.Users}
+	lookup := func(name string) (config.User, bool) {
+		for _, u := range au.Users() {
+			if u.Username == name {
+				return u, true
+			}
+		}
+		return config.User{}, false
+	}
+	srv := &web.Server{Store: st, Index: ix, Auth: au, Cfg: cfg, Rules: eng, Git: gs.Handler(), Export: exportRunner(r.Dir),
+		MCP: mcpSrv.HTTPHandler(tokens, lookup)}
 	log.Printf("yars serving %s on %s", r.Dir, *addr)
 	return http.ListenAndServe(*addr, srv.Handler())
 }
