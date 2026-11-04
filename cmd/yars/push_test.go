@@ -21,9 +21,29 @@ import (
 
 type pushEnv struct {
 	t     *testing.T
-	repo  *gitrepo.Repo
+	repo  *gitrepo.Repo // the server's acme engagement repo
 	st    *store.Store
-	clone string
+	clone string // recursive clone of the main repo
+	url   string
+}
+
+// Each engagement can be cloned on its own; its history holds only that
+// engagement's commits.
+func TestEngagementCloneHistory(t *testing.T) {
+	p := newPushEnv(t)
+	dst := filepath.Join(t.TempDir(), "acme")
+	cmd := exec.Command("git", "clone", "-q", strings.Replace(p.url, "http://", "http://alice:pw@", 1)+"/git/e/acme", dst)
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("clone: %v %s", err, out)
+	}
+	log, _ := exec.Command("git", "-C", dst, "log", "--format=%s").Output()
+	if string(log) != "F-001: create\nengagement acme: create\n" {
+		t.Fatalf("history:\n%s", log)
+	}
+	if _, err := os.Stat(filepath.Join(dst, "findings", "F-001-sqli", "finding.md")); err != nil {
+		t.Fatal("finding missing from the engagement clone")
+	}
 }
 
 func newPushEnv(t *testing.T) *pushEnv {
@@ -48,7 +68,7 @@ func newPushEnv(t *testing.T) *pushEnv {
 	st.CreateEngagement(store.Engagement{ID: "acme", Name: "ACME"}, users[1].GitAuthor())
 	st.CreateFinding("acme", "SQLi", alice.GitAuthor())
 
-	gs := &gitserve.Server{Repo: r, Auth: auth.New(d), HookCmd: hookCmd(bin, dir)}
+	gs := &gitserve.Server{Repo: r, Auth: auth.New(d), HookCmd: hookCmd(bin, dir), Sync: st.SyncPointers}
 	if err := gs.Setup(); err != nil {
 		t.Fatal(err)
 	}
@@ -57,16 +77,25 @@ func newPushEnv(t *testing.T) *pushEnv {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
+	// download everything: the main repo with every engagement as a submodule
 	clone := filepath.Join(t.TempDir(), "clone")
 	url := strings.Replace(srv.URL, "http://", "http://alice:pw@", 1) + "/git/yars"
-	if out, err := exec.Command("git", "clone", "-q", url, clone).CombinedOutput(); err != nil {
+	cmd := exec.Command("git", "clone", "-q", "--recurse-submodules", url, clone)
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("clone: %v %s", err, out)
 	}
-	return &pushEnv{t: t, repo: r, st: st, clone: clone}
+	er, _ := st.EngRepo("acme")
+	p := &pushEnv{t: t, repo: er, st: st, clone: clone, url: srv.URL}
+	if out, err := p.git("switch", "-q", "main"); err != nil {
+		t.Fatalf("switch: %v %s", err, out)
+	}
+	return p
 }
 
+// git runs in the acme engagement inside the recursive clone.
 func (p *pushEnv) git(args ...string) (string, error) {
-	cmd := exec.Command("git", append([]string{"-C", p.clone, "-c", "user.name=alice", "-c", "user.email=a@a", "-c", "commit.gpgsign=false"}, args...)...)
+	cmd := exec.Command("git", append([]string{"-C", filepath.Join(p.clone, "engagements", "acme"), "-c", "user.name=alice", "-c", "user.email=a@a", "-c", "commit.gpgsign=false"}, args...)...)
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 	out, err := cmd.CombinedOutput()
 	return string(out), err

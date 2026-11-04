@@ -121,6 +121,34 @@ func TestMigrate(t *testing.T) {
 	if st, _ := exec.Command("git", "-C", dir, "status", "--porcelain").Output(); len(st) != 0 {
 		t.Fatalf("uncommitted after migrate: %s", st)
 	}
+	// every engagement became its own repository, keeping its history, and
+	// the main repo points at it
+	for _, e := range []string{"acme", "rt"} {
+		er, err := st.EngRepo(e)
+		if err != nil {
+			t.Fatalf("%s is not a repository: %v", e, err)
+		}
+		log, _ := exec.Command("git", "-C", er.Dir, "log", "--format=%s").Output()
+		if !strings.Contains(string(log), "old layout") || strings.Contains(string(log), "init") {
+			t.Fatalf("%s history:\n%s", e, log)
+		}
+		if b, _ := os.ReadFile(filepath.Join(er.Dir, "engagement.yaml")); len(b) == 0 {
+			t.Fatalf("%s lost engagement.yaml", e)
+		}
+		head, _ := er.Head()
+		if link, _ := r.Gitlink("HEAD", "engagements/"+e); link != head {
+			t.Fatalf("%s pointer %q, head %q", e, link, head)
+		}
+		if st, _ := exec.Command("git", "-C", er.Dir, "status", "--porcelain").Output(); len(st) != 0 {
+			t.Fatalf("%s dirty after split: %s", e, st)
+		}
+	}
+	if gm, _ := os.ReadFile(filepath.Join(dir, ".gitmodules")); !strings.Contains(string(gm), "url = ../e/acme") {
+		t.Fatalf(".gitmodules:\n%s", gm)
+	}
+	if files, _ := exec.Command("git", "-C", dir, "ls-files", "engagements/acme/findings").Output(); len(files) != 0 {
+		t.Fatalf("main repo still tracks finding files:\n%s", files)
+	}
 	// a second run changes nothing
 	head, _ := r.Head()
 	out.Reset()

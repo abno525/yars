@@ -89,7 +89,8 @@ func (f *fx) ok(u config.User, tool string, args map[string]any) string {
 }
 
 func (f *fx) lastCommit() string {
-	out, _ := exec.Command("git", "-C", f.dir, "log", "-1", "--format=%an|%s").Output()
+	// finding commits go to the engagement's own repository
+	out, _ := exec.Command("git", "-C", filepath.Join(f.dir, "engagements", "acme"), "log", "-1", "--format=%an|%s").Output()
 	return strings.TrimSpace(string(out))
 }
 

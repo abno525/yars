@@ -303,6 +303,23 @@ func hookCmd(bin, dataDir string) string {
 	return shellQuote(bin) + " hook pre-receive --data " + shellQuote(abs)
 }
 
+// engOfGitDir returns the engagement whose repository gitDir belongs to
+// (<data>/engagements/<id>/.git), or "" for the main repo.
+func engOfGitDir(dataDir, gitDir string) string {
+	if gitDir == "" {
+		return ""
+	}
+	rel, err := filepath.Rel(filepath.Join(dataDir, "engagements"), gitDir)
+	if err != nil {
+		return ""
+	}
+	seg := strings.Split(filepath.ToSlash(rel), "/")
+	if len(seg) == 2 && seg[1] == ".git" && store.ValidID(seg[0]) {
+		return seg[0]
+	}
+	return ""
+}
+
 // cmdHook implements "yars hook pre-receive": reads "<old> <new> <ref>"
 // lines from git, checks them against the server's rules and prints one
 // "yars: <problem>" line per rejection reason. Exit 1 rejects the push.
@@ -354,7 +371,15 @@ func cmdHook(args []string, in io.Reader, errOut io.Writer) int {
 			ups = append(ups, policy.Update{Old: f[0], New: f[1], Ref: f[2]})
 		}
 	}
+	// which repository is being pushed to: the main repo or engagements/<id>
 	c := &policy.Checker{Repo: r, Cfg: cfg, Users: users, DB: d}
+	if eng := engOfGitDir(r.Dir, os.Getenv("GIT_DIR")); eng != "" {
+		er, err := gitrepo.Open(filepath.Join(r.Dir, "engagements", eng))
+		if err != nil {
+			return fail(err.Error())
+		}
+		c.Repo, c.Eng = er, eng
+	}
 	ps := c.Check(user, ups)
 	for _, p := range ps {
 		fmt.Fprintln(errOut, "yars: "+p)
@@ -707,7 +732,10 @@ func cmdServe(args []string) error {
 	if err := ensureIgnored(r); err != nil {
 		return fmt.Errorf("ignore server files: %w", err)
 	}
-	gs := &gitserve.Server{Repo: r, Auth: au, HookCmd: hookCmd(exe, r.Dir)}
+	if err := st.SyncPointers(); err != nil {
+		return fmt.Errorf("update engagement pointers: %w", err)
+	}
+	gs := &gitserve.Server{Repo: r, Auth: au, HookCmd: hookCmd(exe, r.Dir), Sync: st.SyncPointers}
 	if cfg.AI.APIKeyEnv != "" {
 		gs.InheritEnv = []string{cfg.AI.APIKeyEnv} // AI rules run on pushes too
 	}

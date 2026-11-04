@@ -17,8 +17,9 @@
 {{if .CloneURL}}
 <section class="panel clonehint">
   <h2>Work locally</h2>
-  <p class="muted small">Clone the findings repo with your YARS login, edit Markdown in any editor (or with AI), then push. Pushes are checked with the same rules as the website.</p>
-  <pre><code>git clone {{.CloneURL}}</code></pre>
+  <p class="muted small">Download everything with your YARS login: settings plus every engagement (each engagement is its own repository). Before committing inside an engagement folder, switch to its main branch; pushes are checked with the same rules as the website.</p>
+  <pre><code>git clone --recurse-submodules {{.CloneURL}}
+cd yars/engagements/&lt;engagement&gt; &amp;&amp; git switch main</code></pre>
 </section>
 {{end}}
 {{end}}
