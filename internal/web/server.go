@@ -75,6 +75,7 @@ type page struct {
 	CloneURL      string
 	Retest        *retestView
 	IsRetest      bool
+	Users         []config.User
 	Source        store.Engagement
 	Form          url.Values
 }

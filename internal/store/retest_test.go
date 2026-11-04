@@ -49,7 +49,7 @@ func treeHash(t *testing.T, root string) map[string][32]byte {
 func TestCreateRetest(t *testing.T) {
 	s, dir := srcFixture(t)
 	e := Engagement{ID: "2027-01-acme-retest", Name: "ACME retest"}
-	if err := s.CreateRetest(e, eng, []string{"F-001-sql-injection", "F-003-csrf"}, uDora); err != nil {
+	if err := s.CreateRetest(e, eng, []string{"F-001-sql-injection", "F-003-csrf"}, "", uDora); err != nil {
 		t.Fatal(err)
 	}
 	if got := last(t, dir, "%an|%s"); got != "dora|engagement 2027-01-acme-retest: retest of 2026-11-acme (2 findings)" {
@@ -64,7 +64,7 @@ func TestCreateRetest(t *testing.T) {
 		t.Fatalf("refs %+v", refs)
 	}
 	m := refs[0].F.Meta
-	if m.Status != "draft" || m.Author != "dora" || len(m.Reviewers) != 0 || len(m.ClearedBy) != 0 || m.Returned != nil {
+	if m.Status != "draft" || m.Author != "alice" || len(m.Reviewers) != 0 || len(m.ClearedBy) != 0 || m.Returned != nil {
 		t.Fatalf("meta %+v", m)
 	}
 	if m.Retest == nil || m.Retest.Source != eng+"/F-001-sql-injection" || m.Retest.Result != "" {
@@ -86,11 +86,31 @@ func TestCreateRetest(t *testing.T) {
 	}
 }
 
+// Copies keep the original author by default, so the tester can submit
+// them; an explicit retester overrides it.
+func TestCreateRetestAuthorship(t *testing.T) {
+	s, _ := srcFixture(t)
+	if err := s.CreateRetest(Engagement{ID: "rt1", Name: "RT"}, eng, []string{"F-001-sql-injection"}, "", uDora); err != nil {
+		t.Fatal(err)
+	}
+	ref, _ := s.Finding("rt1", "F-001-sql-injection")
+	if ref.F.Meta.Author != "alice" {
+		t.Fatalf("author %q", ref.F.Meta.Author)
+	}
+	if err := s.CreateRetest(Engagement{ID: "rt2", Name: "RT"}, eng, []string{"F-001-sql-injection", "F-001-sql-injection"}, "carol", uDora); err != nil {
+		t.Fatal(err)
+	}
+	ref, _ = s.Finding("rt2", "F-001-sql-injection")
+	if ref.F.Meta.Author != "carol" {
+		t.Fatalf("assigned author %q", ref.F.Meta.Author)
+	}
+}
+
 func TestRetestLeavesSourceUntouched(t *testing.T) {
 	s, dir := srcFixture(t)
 	src := filepath.Join(dir, "engagements", eng)
 	before := treeHash(t, src)
-	s.CreateRetest(Engagement{ID: "rt", Name: "RT"}, eng, []string{"F-001-sql-injection", "F-002-xss", "F-003-csrf"}, uDora)
+	s.CreateRetest(Engagement{ID: "rt", Name: "RT"}, eng, []string{"F-001-sql-injection", "F-002-xss", "F-003-csrf"}, "", uDora)
 	after := treeHash(t, src)
 	if len(before) != len(after) {
 		t.Fatal("file count changed")
@@ -104,11 +124,11 @@ func TestRetestLeavesSourceUntouched(t *testing.T) {
 
 func TestRetestOfRetest(t *testing.T) {
 	s, _ := srcFixture(t)
-	s.CreateRetest(Engagement{ID: "rt1", Name: "RT1"}, eng, []string{"F-001-sql-injection"}, uDora)
+	s.CreateRetest(Engagement{ID: "rt1", Name: "RT1"}, eng, []string{"F-001-sql-injection"}, "", uDora)
 	if err := s.SetRetestResult("rt1", "F-001-sql-injection", "not_fixed", uDora); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.CreateRetest(Engagement{ID: "rt2", Name: "RT2"}, "rt1", []string{"F-001-sql-injection"}, uDora); err != nil {
+	if err := s.CreateRetest(Engagement{ID: "rt2", Name: "RT2"}, "rt1", []string{"F-001-sql-injection"}, "", uDora); err != nil {
 		t.Fatal(err)
 	}
 	ref, _ := s.Finding("rt2", "F-001-sql-injection")
@@ -133,7 +153,7 @@ func TestCreateRetestValidation(t *testing.T) {
 		{Engagement{ID: "rt", Name: ""}, eng, []string{"F-001-sql-injection"}},
 	}
 	for _, c := range cases {
-		if err := s.CreateRetest(c.e, c.src, c.dirs, uDora); err == nil {
+		if err := s.CreateRetest(c.e, c.src, c.dirs, "", uDora); err == nil {
 			t.Errorf("%s accepted", c.e.Name)
 		}
 	}
@@ -143,14 +163,14 @@ func TestCreateRetestValidation(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "engagements", "rt")); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatal("partial engagement left behind")
 	}
-	if err := s.CreateRetest(Engagement{ID: "rt", Name: "RT"}, eng, []string{"F-001-sql-injection"}, uAlice); err == nil {
+	if err := s.CreateRetest(Engagement{ID: "rt", Name: "RT"}, eng, []string{"F-001-sql-injection"}, "", uAlice); err == nil {
 		t.Fatal("pentester created a retest")
 	}
 }
 
 func TestSetRetestResult(t *testing.T) {
 	s, dir := srcFixture(t)
-	s.CreateRetest(Engagement{ID: "rt", Name: "RT"}, eng, []string{"F-001-sql-injection"}, uDora)
+	s.CreateRetest(Engagement{ID: "rt", Name: "RT"}, eng, []string{"F-001-sql-injection"}, "", uDora)
 	if err := s.SetRetestResult("rt", "F-001-sql-injection", "fixed", uDora); err != nil {
 		t.Fatal(err)
 	}

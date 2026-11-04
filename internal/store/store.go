@@ -237,7 +237,11 @@ func (s *Store) CreateEngagement(e Engagement, a gitrepo.Author) error {
 // CreateRetest creates engagement e (type retest) from source, copying the
 // findings in dirs as fresh drafts with a retest link. The source engagement
 // is never modified. One commit; only directors/admins.
-func (s *Store) CreateRetest(e Engagement, source string, dirs []string, u config.User) error {
+//
+// assignee becomes the author of every copy (the retester); "" keeps each
+// finding's original author.
+func (s *Store) CreateRetest(e Engagement, source string, dirs []string, assignee string, u config.User) error {
+	dirs = slices.Compact(slices.Sorted(slices.Values(dirs)))
 	if u.Role != "director" && u.Role != "admin" {
 		return &workflow.Denied{Reason: "only a director or admin can start a retest"}
 	}
@@ -276,7 +280,9 @@ func (s *Store) CreateRetest(e Engagement, source string, dirs []string, u confi
 		var errs []error
 		set := func(k string, v any) { errs = append(errs, f.SetMeta(k, v)) }
 		set("status", "draft")
-		set("author", u.Username)
+		if assignee != "" {
+			set("author", assignee)
+		}
 		set("reviewers", []string{})
 		set("cleared_by", nil)
 		set("returned", nil)

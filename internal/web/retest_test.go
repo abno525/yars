@@ -22,8 +22,11 @@ func TestNewRetestFlow(t *testing.T) {
 	if !strings.Contains(b, `id="pick-F-001-sql-injection" checked`) || strings.Contains(b, `id="pick-F-002-open-redirect" checked`) {
 		t.Fatalf("form selection:\n%s", b)
 	}
-	if !strings.Contains(b, `value="acme-retest"`) {
-		t.Fatal("id not prefilled")
+	if !strings.Contains(b, `value="acme-retest"`) || !strings.Contains(b, `name="assignee"`) {
+		t.Fatal("id not prefilled or no retester field")
+	}
+	if rec := e.do(t, "dora", "POST", "/e/acme/retest/new", url.Values{"id": {"x"}, "name": {"X"}, "finding": {"F-001-sql-injection"}, "assignee": {"mallory"}}, nil); rec.Code != http.StatusBadRequest {
+		t.Fatalf("unknown assignee code %d", rec.Code)
 	}
 	form := url.Values{"id": {"acme-rt"}, "name": {"ACME retest"}, "finding": {"F-001-sql-injection", "F-002-open-redirect"}}
 	rec := e.do(t, "dora", "POST", "/e/acme/retest/new", form, nil)
@@ -41,7 +44,7 @@ func TestNewRetestFlow(t *testing.T) {
 
 func TestRetestPanel(t *testing.T) {
 	e := setup(t)
-	if err := e.srv.Store.CreateRetest(store.Engagement{ID: "rt", Name: "RT"}, "acme", []string{"F-001-sql-injection"}, wDora); err != nil {
+	if err := e.srv.Store.CreateRetest(store.Engagement{ID: "rt", Name: "RT"}, "acme", []string{"F-001-sql-injection"}, "", wDora); err != nil {
 		t.Fatal(err)
 	}
 	p := "/e/rt/f/F-001-sql-injection"
@@ -52,6 +55,9 @@ func TestRetestPanel(t *testing.T) {
 	rec := e.do(t, "alice", "POST", p+"/retest", url.Values{"result": {"partially_fixed"}}, nil)
 	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `value="partially_fixed" checked`) {
 		t.Fatalf("code %d body:\n%s", rec.Code, rec.Body.String())
+	}
+	if rec.Header().Get("HX-Refresh") != "true" {
+		t.Fatal("result change doesn't refresh the page (workflow bar/gate stay stale)")
 	}
 	if rec := e.do(t, "alice", "POST", p+"/retest", url.Values{"result": {"maybe"}}, nil); rec.Code != http.StatusBadRequest {
 		t.Fatalf("invalid result code %d", rec.Code)
@@ -68,7 +74,7 @@ func TestRetestPanel(t *testing.T) {
 func TestRetestPanelLocked(t *testing.T) {
 	e := setup(t)
 	st := e.srv.Store
-	st.CreateRetest(store.Engagement{ID: "rt", Name: "RT"}, "acme", []string{"F-001-sql-injection"}, wDora)
+	st.CreateRetest(store.Engagement{ID: "rt", Name: "RT"}, "acme", []string{"F-001-sql-injection"}, "", wDora)
 	d := "F-001-sql-injection"
 	st.SetRetestResult("rt", d, "fixed", wDora)
 	st.SetReviewers("rt", d, []string{"bob"}, wDora)

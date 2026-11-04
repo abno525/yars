@@ -9,6 +9,13 @@
     <label>Client <input name="client" value="{{.Form.Get "client"}}"></label>
     <label>Start <input name="start" type="date" value="{{.Form.Get "start"}}"></label>
     <label>End <input name="end" type="date" value="{{.Form.Get "end"}}"></label>
+    <label>Retester
+      <select name="assignee">
+        <option value="">Keep original authors</option>
+        {{$cur := .Form.Get "assignee"}}
+        {{range .Users}}<option value="{{.Username}}"{{if eq .Username $cur}} selected{{end}}>{{.Username}} ({{.Role}})</option>{{end}}
+      </select>
+    </label>
   </div>
   <h2 class="subhead">Findings to retest</h2>
   <table class="findings pick">

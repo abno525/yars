@@ -52,3 +52,11 @@ Small issues found by the end-of-milestone reviews and deliberately left for the
 - `TestPushForceRejected` doesn't assert the rejection reason; no end-to-end tests for branch delete or tags.
 - A dirty server working tree blocks every push ("unstaged changes") — needs an operator note/log line.
 - No rate limit on failed git Basic auth.
+
+## M7 Retests
+- A `retest.source` without "/" renders an empty link and status pill.
+- "Result" sorts alphabetically (Not fixed before Partially fixed).
+- Retest result form has no optimistic-concurrency base (last writer wins).
+- Non-validation errors from creating a retest were shown raw (now routed to the generic error page — verify the copy).
+- Banner links to `/e/` when a hand-made retest engagement has no `source`.
+- Attachments aren't copied; section Markdown referencing `attachments/…` breaks in copies.

@@ -208,6 +208,23 @@ func (c *Checker) severityOK(n finding.Meta) []string {
 	return nil
 }
 
+// retestChange allows only the result of an existing retest link to change.
+func retestChange(o, n *finding.Retest) []string {
+	switch {
+	case o == nil && n == nil:
+		return nil
+	case o == nil:
+		return []string{"a retest block cannot be added to a finding"}
+	case n == nil:
+		return []string{"the retest block cannot be removed"}
+	case n.Source != o.Source:
+		return []string{"the retest source cannot change"}
+	case n.Result != "" && !slices.Contains(workflow.RetestResults, n.Result):
+		return []string{"retest result " + n.Result + " must be fixed, not_fixed or partially_fixed"}
+	}
+	return nil
+}
+
 // sameExceptClearances reports whether two versions differ only in cleared_by.
 func sameExceptClearances(o, n *finding.Finding) bool {
 	om, nm := o.Meta, n.Meta
@@ -246,6 +263,9 @@ func (c *Checker) findingFile(u config.User, old, new string, ch gitrepo.Change,
 		if n.Returned != nil {
 			ps = append(ps, "a new finding cannot have returned")
 		}
+		if n.Retest != nil && !manager(u) {
+			ps = append(ps, "a new finding cannot carry a retest block (directors start retests)")
+		}
 		ps = append(ps, c.reviewersOK(n, nil)...)
 		if n.ID == "" || !(dir == n.ID || strings.HasPrefix(dir, n.ID+"-")) {
 			ps = append(ps, fmt.Sprintf("id %s does not match the directory %s", n.ID, dir))
@@ -279,6 +299,7 @@ func (c *Checker) findingFile(u config.User, old, new string, ch gitrepo.Change,
 	if n.Author != o.Author {
 		ps = append(ps, "author cannot change")
 	}
+	ps = append(ps, retestChange(o.Retest, n.Retest)...)
 	if !slices.Equal(n.Reviewers, o.Reviewers) {
 		if !workflow.CanAssign(u, o) {
 			ps = append(ps, "only the author or a director can change reviewers")

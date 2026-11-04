@@ -398,14 +398,53 @@ func TestPolicySymlinkAndSeverity(t *testing.T) {
 	}
 }
 
+func TestPolicyRetestField(t *testing.T) {
+	f := newFx(t)
+	if err := f.st.CreateRetest(store.Engagement{ID: "rt", Name: "RT"}, "acme", []string{"F-001-sqli"}, "", user("dora")); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join("engagements", "rt", "findings", "F-001-sqli", "finding.md")
+	edit := func(fn func(*finding.Finding)) func(string) {
+		return func(d string) {
+			b, _ := os.ReadFile(filepath.Join(d, path))
+			fd, _ := finding.Parse(b)
+			fn(fd)
+			os.WriteFile(filepath.Join(d, path), fd.Bytes(), 0o644)
+		}
+	}
+	cases := map[string]func(*finding.Finding){
+		"removed": func(fd *finding.Finding) { fd.SetMeta("retest", nil) },
+		"source":  func(fd *finding.Finding) { fd.SetMeta("retest", finding.Retest{Source: "acme/F-009-x"}) },
+		"banana": func(fd *finding.Finding) {
+			fd.SetMeta("retest", finding.Retest{Source: "acme/F-001-sqli", Result: "banana"})
+		},
+	}
+	for name, fn := range cases {
+		f.reclone()
+		if ps := f.push("alice", edit(fn)); !has(ps, "retest") {
+			t.Errorf("%s accepted: %v", name, ps)
+		}
+	}
+	// a normal finding can't gain a retest block
+	f.reclone()
+	if ps := f.push("alice", func(d string) { editMeta(d, set("retest", finding.Retest{Source: "x/F-001"})) }); !has(ps, "retest") {
+		t.Errorf("retest added: %v", ps)
+	}
+	// a pentester can't push a new finding carrying a retest block
+	f.reclone()
+	if ps := f.push("alice", newFinding("F-002-x", "id: F-002\ntitle: X\nstatus: draft\nauthor: alice\nretest: {source: acme/F-001-sqli, result: fixed}\n")); !has(ps, "retest") {
+		t.Errorf("new finding with retest accepted: %v", ps)
+	}
+}
+
 func TestRetestPolicyCompatible(t *testing.T) {
 	f := newFx(t)
-	if err := f.st.CreateRetest(store.Engagement{ID: "rt", Name: "RT"}, "acme", []string{"F-001-sqli"}, user("dora")); err != nil {
+	if err := f.st.CreateRetest(store.Engagement{ID: "rt", Name: "RT"}, "acme", []string{"F-001-sqli"}, "", user("dora")); err != nil {
 		t.Fatal(err)
 	}
 	f.reclone()
 	path := filepath.Join("engagements", "rt", "findings", "F-001-sqli", "finding.md")
-	ps := f.push("dora", func(d string) {
+	ps := f.push("alice", func(d string) {
 		b, _ := os.ReadFile(filepath.Join(d, path))
 		fd, _ := finding.Parse(b)
 		fd.SetMeta("retest", finding.Retest{Source: "acme/F-001-sqli", Result: "fixed"})

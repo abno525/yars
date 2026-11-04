@@ -2,11 +2,13 @@ package web
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"slices"
 	"strings"
 
 	"yars/internal/auth"
+	"yars/internal/config"
 	"yars/internal/index"
 	"yars/internal/store"
 	"yars/internal/workflow"
@@ -78,6 +80,9 @@ func (s *Server) retestSave(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		status, v.Error = http.StatusBadRequest, err.Error()
+	} else {
+		// the result feeds the submit gate: reload so the workflow bar updates
+		w.Header().Set("HX-Refresh", "true")
 	}
 	s.execStatus(w, status, "finding.html", "retest_panel", v)
 }
@@ -112,6 +117,7 @@ func (s *Server) retestForm(w http.ResponseWriter, r *http.Request) {
 			p.Form["finding"] = append(p.Form["finding"], row.Dir)
 		}
 	}
+	p.Users = s.Auth.Users()
 	s.render(w, "new_retest.html", p)
 }
 
@@ -129,10 +135,20 @@ func (s *Server) retestCreate(w http.ResponseWriter, r *http.Request) {
 	p.Form = r.PostForm
 	e := store.Engagement{ID: strings.TrimSpace(r.FormValue("id")), Name: strings.TrimSpace(r.FormValue("name")),
 		Client: strings.TrimSpace(r.FormValue("client")), Start: r.FormValue("start"), End: r.FormValue("end")}
-	err = s.Store.CreateRetest(e, p.Eng.ID, r.PostForm["finding"], p.User)
-	if err != nil {
+	assignee := r.FormValue("assignee")
+	if assignee != "" && !slices.ContainsFunc(s.Auth.Users(), func(x config.User) bool { return x.Username == assignee }) {
+		err = fmt.Errorf("%w: unknown retester %s", store.ErrInvalidValue, assignee)
+	} else {
+		err = s.Store.CreateRetest(e, p.Eng.ID, r.PostForm["finding"], assignee, p.User)
+	}
+	if errors.Is(err, store.ErrInvalidValue) {
 		p.Error = strings.TrimPrefix(err.Error(), store.ErrInvalidValue.Error()+": ")
+		p.Users = s.Auth.Users()
 		s.renderStatus(w, http.StatusBadRequest, "new_retest.html", p)
+		return
+	}
+	if err != nil {
+		s.fail(w, err)
 		return
 	}
 	http.Redirect(w, r, "/e/"+e.ID, http.StatusSeeOther)
