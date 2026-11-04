@@ -15,6 +15,7 @@ import (
 	"log"
 	"os"
 	"path"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"sort"
@@ -80,13 +81,135 @@ type Store struct {
 // reading a finding and writing it; the caller should reload and retry.
 var errMoved = fmt.Errorf("%w: the repository changed meanwhile (a push arrived); reload and try again", ErrConflict)
 
-// unmoved reports whether HEAD is still head0.
-func (s *Store) unmoved(head0 string) error {
+// unmoved reports whether the engagement repo's HEAD is still head0.
+func (s *Store) unmoved(engID, head0 string) error {
 	if s.beforeWrite != nil {
 		s.beforeWrite()
 	}
-	if h, err := s.repo.Head(); err != nil || h != head0 {
+	if h, err := s.engHead(engID); err != nil || h != head0 {
 		return errMoved
+	}
+	return nil
+}
+
+// System is the author of commits YARS makes on its own (pointer updates).
+var System = gitrepo.Author{Name: "yars", Email: "yars@yars.local"}
+
+// EngRepo opens an engagement's own repository (engagements/<id>).
+func (s *Store) EngRepo(id string) (*gitrepo.Repo, error) {
+	if !ValidID(id) {
+		return nil, ErrNotFound
+	}
+	return gitrepo.Open(filepath.Join(s.repo.Dir, "engagements", id))
+}
+
+func (s *Store) engHead(id string) (string, error) {
+	r, err := s.EngRepo(id)
+	if err != nil {
+		return "", err
+	}
+	return r.Head()
+}
+
+// Version identifies the content of all repositories (main and every
+// engagement); it changes with any commit, by YARS or by push.
+func (s *Store) Version() (string, error) {
+	v, err := s.repo.Head()
+	if err != nil {
+		return "", err
+	}
+	ents, _ := s.readDir("engagements")
+	for _, e := range ents {
+		if e.IsDir() && ValidID(e.Name()) {
+			h, _ := s.engHead(e.Name())
+			v += "|" + e.Name() + "=" + h
+		}
+	}
+	return v, nil
+}
+
+// SyncPointers moves the main repo's submodule pointers to every
+// engagement's current HEAD, in one commit (none when nothing moved).
+func (s *Store) SyncPointers() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ents, err := s.readDir("engagements")
+	if err != nil {
+		return nil
+	}
+	var paths, ids []string
+	for _, e := range ents {
+		if !e.IsDir() || !ValidID(e.Name()) {
+			continue
+		}
+		h, err := s.engHead(e.Name())
+		if err != nil || h == "" {
+			continue
+		}
+		p := "engagements/" + e.Name()
+		if link, _ := s.repo.Gitlink("HEAD", p); link != h {
+			paths, ids = append(paths, p), append(ids, e.Name())
+		}
+	}
+	if len(paths) == 0 {
+		return nil
+	}
+	return s.repo.Commit(paths, "engagements: update "+strings.Join(ids, ", "), System)
+}
+
+// addSubmodule records a new engagement repo in the main repo: a
+// .gitmodules entry and the pointer, in one commit.
+func (s *Store) addSubmodule(id, msg string, a gitrepo.Author) error {
+	b, err := s.readFile(".gitmodules")
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	gm := string(b)
+	if !strings.Contains(gm, `[submodule "engagements/`+id+`"]`) {
+		if gm != "" && !strings.HasSuffix(gm, "\n") {
+			gm += "\n"
+		}
+		gm += SubmoduleEntry(id)
+		if err := s.writeFile(".gitmodules", []byte(gm)); err != nil {
+			return err
+		}
+	}
+	paths := []string{".gitmodules", "engagements/" + id}
+	if err := s.repo.Commit(paths, msg, a); err != nil {
+		// leave the main repo exactly as it was
+		s.repo.Unstage(paths)
+		if b == nil {
+			s.root.Remove(".gitmodules")
+		} else {
+			s.writeFile(".gitmodules", b)
+		}
+		return err
+	}
+	return nil
+}
+
+// SubmoduleEntry is the .gitmodules section for an engagement. ignore = all
+// keeps local commits in the main repo from picking up pointer changes the
+// server would refuse (the server moves pointers itself).
+func SubmoduleEntry(id string) string {
+	return fmt.Sprintf("[submodule \"engagements/%s\"]\n\tpath = engagements/%s\n\turl = ../e/%s\n\tbranch = main\n\tignore = all\n", id, id, id)
+}
+
+// newEngagementRepo turns engagements/<id> (already holding files) into its
+// own repository with one commit of files, and adds it to the main repo.
+// On failure the folder is removed.
+func (s *Store) newEngagementRepo(id string, files []string, msg string, a gitrepo.Author) error {
+	dir := engDir(id)
+	r, err := gitrepo.Init(filepath.Join(s.repo.Dir, "engagements", id))
+	if err == nil {
+		err = r.Commit(files, msg, a)
+	}
+	if err == nil {
+		err = s.addSubmodule(id, "engagement "+id+": add", a)
+	}
+	if err != nil {
+		s.root.RemoveAll(dir)
+		return err
 	}
 	return nil
 }
@@ -229,7 +352,8 @@ func (s *Store) Engagement(id string) (Engagement, error) {
 	return e, nil
 }
 
-// commit commits paths; on failure it restores each path's previous content
+// commit commits paths (data-dir relative, all in one engagement) in that
+// engagement's repo; on failure it restores each path's previous content
 // (nil = file did not exist) so the tree is left clean.
 func (s *Store) commit(prev map[string][]byte, msg string, a gitrepo.Author, cleanupDir string) error {
 	var paths []string
@@ -237,11 +361,22 @@ func (s *Store) commit(prev map[string][]byte, msg string, a gitrepo.Author, cle
 		paths = append(paths, p)
 	}
 	sort.Strings(paths)
-	err := s.repo.Commit(paths, msg, a)
+	repo, rel := s.repo, paths
+	if seg := strings.SplitN(paths[0], "/", 3); len(seg) == 3 && seg[0] == "engagements" {
+		r, err := s.EngRepo(seg[1])
+		if err != nil {
+			return err
+		}
+		repo, rel = r, nil
+		for _, p := range paths {
+			rel = append(rel, strings.TrimPrefix(p, "engagements/"+seg[1]+"/"))
+		}
+	}
+	err := repo.Commit(rel, msg, a)
 	if err == nil {
 		return nil
 	}
-	s.repo.Unstage(paths)
+	repo.Unstage(rel)
 	for _, p := range paths {
 		if prev[p] == nil {
 			s.root.Remove(p)
@@ -278,12 +413,11 @@ func (s *Store) CreateEngagement(e Engagement, a gitrepo.Author) error {
 	if err := s.root.MkdirAll(path.Join(dir, "findings"), 0o755); err != nil {
 		return err
 	}
-	rel := path.Join(dir, "engagement.yaml")
-	if err := s.writeFile(rel, b); err != nil {
+	if err := s.writeFile(path.Join(dir, "engagement.yaml"), b); err != nil {
 		s.root.RemoveAll(dir)
 		return err
 	}
-	if err := s.commit(map[string][]byte{rel: nil}, "engagement "+e.ID+": create", a, dir); err != nil {
+	if err := s.newEngagementRepo(e.ID, []string{"engagement.yaml"}, "engagement "+e.ID+": create", a); err != nil {
 		return err
 	}
 	return s.purge(e.ID)
@@ -353,26 +487,27 @@ func (s *Store) CreateRetest(e Engagement, source string, dirs []string, assigne
 	if err != nil {
 		return err
 	}
-	prev := map[string][]byte{}
+	var files []string // relative to the new engagement repo
 	write := func(rel string, data []byte) error {
-		if err := s.root.MkdirAll(path.Dir(rel), 0o755); err != nil {
+		p := path.Join(dir, rel)
+		if err := s.root.MkdirAll(path.Dir(p), 0o755); err != nil {
 			return err
 		}
-		prev[rel] = nil
-		return s.writeFile(rel, data)
+		files = append(files, rel)
+		return s.writeFile(p, data)
 	}
-	if err := write(path.Join(dir, "engagement.yaml"), b); err != nil {
+	if err := write("engagement.yaml", b); err != nil {
 		s.root.RemoveAll(dir)
 		return err
 	}
 	for _, c := range copies {
-		if err := write(findingPath(e.ID, c.dir), c.f.Bytes()); err != nil {
+		if err := write(path.Join("findings", c.dir, "finding.md"), c.f.Bytes()); err != nil {
 			s.root.RemoveAll(dir)
 			return err
 		}
 	}
 	msg := fmt.Sprintf("engagement %s: retest of %s (%d findings)", e.ID, source, len(copies))
-	if err := s.commit(prev, msg, u.GitAuthor(), dir); err != nil {
+	if err := s.newEngagementRepo(e.ID, files, msg, u.GitAuthor()); err != nil {
 		return err
 	}
 	if s.db == nil {
@@ -678,7 +813,7 @@ func (s *Store) mutate(engID, dir string, a gitrepo.Author, fn func(f *finding.F
 func (s *Store) mutateThen(engID, dir string, a gitrepo.Author, fn func(f *finding.Finding) (string, error), then func(ref FindingRef, oldHash, newHash string) error) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	head0, _ := s.repo.Head()
+	head0, _ := s.engHead(engID)
 	ref, before, err := s.read(engID, dir, nil)
 	if err != nil {
 		return err
@@ -691,7 +826,7 @@ func (s *Store) mutateThen(engID, dir string, a gitrepo.Author, fn func(f *findi
 	if string(before) == string(after) {
 		return nil
 	}
-	if err := s.unmoved(head0); err != nil {
+	if err := s.unmoved(engID, head0); err != nil {
 		return err
 	}
 	rel := findingPath(engID, ref.Dir)

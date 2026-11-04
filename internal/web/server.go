@@ -233,13 +233,18 @@ func (s *Server) home(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.Git != nil {
-		scheme := "http"
-		if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
-			scheme = "https"
-		}
-		p.CloneURL = scheme + "://" + r.Host + "/git/yars"
+		p.CloneURL = gitBase(r) + "/git/yars"
 	}
 	s.render(w, "engagements.html", p)
+}
+
+// gitBase is the server's base URL as the browser sees it.
+func gitBase(r *http.Request) string {
+	scheme := "http"
+	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+		scheme = "https"
+	}
+	return scheme + "://" + r.Host
 }
 
 func (s *Server) goEngagement(w http.ResponseWriter, r *http.Request) {
@@ -307,6 +312,9 @@ func (s *Server) engagement(w http.ResponseWriter, r *http.Request) {
 	if r.Header.Get("HX-Request") == "true" {
 		s.exec(w, "engagement.html", "findings", p)
 		return
+	}
+	if s.Git != nil {
+		p.CloneURL = gitBase(r) + "/git/e/" + p.Eng.ID
 	}
 	s.render(w, "engagement.html", p)
 }

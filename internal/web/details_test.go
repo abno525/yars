@@ -63,7 +63,10 @@ func TestDetailsOtherKeys(t *testing.T) {
 	ref.F.SetMeta("details", map[string]string{"Old row": "legacy"})
 	rel := filepath.Join("engagements", "acme", "findings", "F-001-sql-injection", "finding.md")
 	os.WriteFile(filepath.Join(e.dir, rel), ref.F.Bytes(), 0o644)
-	e.srv.Store.Repo().Commit([]string{rel}, "ext", gitrepo.Author{Name: "x", Email: "x@x"})
+	er, _ := e.srv.Store.EngRepo("acme")
+	if err := er.Commit([]string{"findings/F-001-sql-injection/finding.md"}, "ext", gitrepo.Author{Name: "x", Email: "x@x"}); err != nil {
+		t.Fatal(err)
+	}
 
 	b := e.do(t, "alice", "GET", fpath, nil, nil).Body.String()
 	if !strings.Contains(b, "Other") || !strings.Contains(b, "Old row") {

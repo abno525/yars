@@ -23,7 +23,7 @@ type Repo struct {
 }
 
 func (r *Repo) run(env []string, args ...string) (string, error) {
-	cmd := exec.Command("git", append([]string{"-C", r.Dir, "-c", "commit.gpgsign=false"}, args...)...)
+	cmd := exec.Command("git", append([]string{"-C", r.Dir, "-c", "commit.gpgsign=false", "-c", "advice.addEmbeddedRepo=false"}, args...)...)
 	cmd.Env = append(os.Environ(), env...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
@@ -77,6 +77,20 @@ func (r *Repo) Commit(paths []string, msg string, a Author) error {
 	// --only: commit exactly these paths, never anything else staged.
 	_, err := r.run(env, append([]string{"commit", "-q", "--only", "-m", msg, "--"}, paths...)...)
 	return err
+}
+
+// Gitlink returns the commit a submodule path points to at rev ("" when the
+// path is not a gitlink there).
+func (r *Repo) Gitlink(rev, p string) (string, error) {
+	out, err := r.run(nil, "ls-tree", rev, "--", p)
+	if err != nil {
+		return "", err
+	}
+	f := strings.Fields(out)
+	if len(f) >= 3 && f[0] == "160000" && f[1] == "commit" {
+		return f[2], nil
+	}
+	return "", nil
 }
 
 // SetConfig sets a repository-local git config value.

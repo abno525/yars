@@ -31,7 +31,21 @@ func newStore(t *testing.T) (*Store, string) {
 	return New(r, config.Default(), d), dir
 }
 
+// last formats the newest commit of the repo at dir. For the data dir it
+// looks at the test engagement's own repo (where finding commits go) when
+// that exists; pass an engagement dir or mainLast for others.
 func last(t *testing.T, dir, format string) string {
+	t.Helper()
+	if _, err := os.Stat(filepath.Join(dir, "engagements", eng, ".git")); err == nil {
+		dir = filepath.Join(dir, "engagements", eng)
+	}
+	return logOf(t, dir, format)
+}
+
+// mainLast formats the newest commit of the main repo.
+func mainLast(t *testing.T, dir, format string) string { t.Helper(); return logOf(t, dir, format) }
+
+func logOf(t *testing.T, dir, format string) string {
 	t.Helper()
 	out, err := exec.Command("git", "-C", dir, "log", "-1", "--format="+format).Output()
 	if err != nil {
@@ -59,6 +73,75 @@ func TestCreateEngagementAndList(t *testing.T) {
 	}
 	if err := s.CreateEngagement(Engagement{ID: "2026-11-acme"}, alice); err == nil {
 		t.Fatal("duplicate engagement allowed")
+	}
+}
+
+// Each engagement is its own repository; the main repo records it as a
+// submodule (gitlink + .gitmodules entry) and gets no finding commits.
+func TestEngagementIsOwnRepo(t *testing.T) {
+	s, dir := withEngagement(t)
+	f, _ := s.CreateFinding(eng, "SQLi", alice)
+	s.UpdateSection(eng, f.Dir, "Impact", "DB read", "", bob)
+	engDir := filepath.Join(dir, "engagements", eng)
+	if got := git(t, engDir, "log", "--format=%s"); got != "F-001: edit Impact\nF-001: create\nengagement "+eng+": create" {
+		t.Fatalf("engagement history:\n%s", got)
+	}
+	if got := git(t, dir, "log", "--format=%s"); strings.Contains(got, "F-001") {
+		t.Fatalf("finding commits in the main repo:\n%s", got)
+	}
+	if got := git(t, dir, "ls-tree", "HEAD", "engagements/"+eng); !strings.HasPrefix(got, "160000 commit ") {
+		t.Fatalf("no gitlink: %q", got)
+	}
+	gm, _ := os.ReadFile(filepath.Join(dir, ".gitmodules"))
+	if !strings.Contains(string(gm), `[submodule "engagements/`+eng+`"]`) || !strings.Contains(string(gm), "url = ../e/"+eng) || !strings.Contains(string(gm), "branch = main") {
+		t.Fatalf(".gitmodules:\n%s", gm)
+	}
+}
+
+// If adding the engagement to the main repo fails, the main repo is left
+// exactly as it was (a dirty main repo would refuse every settings push).
+func TestCreateEngagementRollsBackMain(t *testing.T) {
+	s, dir := withEngagement(t)
+	before, _ := os.ReadFile(filepath.Join(dir, ".gitmodules"))
+	lock := filepath.Join(dir, ".git", "index.lock")
+	os.WriteFile(lock, nil, 0o644)
+	if err := s.CreateEngagement(Engagement{ID: "beta", Name: "B"}, alice); err == nil {
+		t.Fatal("expected failure")
+	}
+	os.Remove(lock)
+	if after, _ := os.ReadFile(filepath.Join(dir, ".gitmodules")); string(after) != string(before) {
+		t.Fatalf(".gitmodules left changed:\n%s", after)
+	}
+	if st := git(t, dir, "status", "--porcelain"); st != "" {
+		t.Fatalf("main repo dirty:\n%s", st)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "engagements", "beta")); err == nil {
+		t.Fatal("half-created engagement left behind")
+	}
+	if err := s.CreateEngagement(Engagement{ID: "beta", Name: "B"}, alice); err != nil {
+		t.Fatalf("retry: %v", err)
+	}
+}
+
+// The main repo's pointers catch up in one commit; a second sync is a no-op.
+func TestSyncPointers(t *testing.T) {
+	s, dir := withEngagement(t)
+	s.CreateFinding(eng, "SQLi", alice)
+	if err := s.SyncPointers(); err != nil {
+		t.Fatal(err)
+	}
+	head := git(t, dir, "rev-parse", "HEAD")
+	if got := git(t, dir, "log", "-1", "--format=%an|%s"); got != "yars|engagements: update "+eng {
+		t.Fatalf("sync commit %q", got)
+	}
+	if link := git(t, dir, "rev-parse", "HEAD:engagements/"+eng); link != git(t, filepath.Join(dir, "engagements", eng), "rev-parse", "HEAD") {
+		t.Fatal("pointer not at the engagement's HEAD")
+	}
+	if err := s.SyncPointers(); err != nil {
+		t.Fatal(err)
+	}
+	if git(t, dir, "rev-parse", "HEAD") != head {
+		t.Fatal("second sync made a commit")
 	}
 }
 
@@ -221,12 +304,13 @@ func TestSymlinkEscapeBlocked(t *testing.T) {
 func TestCommitOnlyOwnPaths(t *testing.T) {
 	s, dir := withEngagement(t)
 	f, _ := s.CreateFinding("2026-11-acme", "SQL injection", alice)
-	os.WriteFile(filepath.Join(dir, "unrelated.txt"), []byte("x"), 0o644)
-	git(t, dir, "add", "unrelated.txt")
+	ed := filepath.Join(dir, "engagements", eng)
+	os.WriteFile(filepath.Join(ed, "unrelated.txt"), []byte("x"), 0o644)
+	git(t, ed, "add", "unrelated.txt")
 	if err := s.UpdateSection("2026-11-acme", f.Dir, "Impact", "x", "", bob); err != nil {
 		t.Fatal(err)
 	}
-	if files := git(t, dir, "show", "--name-only", "--format=", "HEAD"); strings.Contains(files, "unrelated") {
+	if files := git(t, ed, "show", "--name-only", "--format=", "HEAD"); strings.Contains(files, "unrelated") {
 		t.Fatalf("commit swept in staged file: %s", files)
 	}
 }
@@ -234,13 +318,14 @@ func TestCommitOnlyOwnPaths(t *testing.T) {
 func TestFailedCommitRollsBack(t *testing.T) {
 	s, dir := withEngagement(t)
 	f, _ := s.CreateFinding("2026-11-acme", "SQL injection", alice)
-	lock := filepath.Join(dir, ".git", "index.lock")
+	ed := filepath.Join(dir, "engagements", eng)
+	lock := filepath.Join(ed, ".git", "index.lock")
 	os.WriteFile(lock, nil, 0o644)
 	if err := s.UpdateSection("2026-11-acme", f.Dir, "Impact", "x", "", bob); err == nil {
 		t.Fatal("expected commit failure")
 	}
 	os.Remove(lock)
-	if st := git(t, dir, "status", "--porcelain"); st != "" {
+	if st := git(t, ed, "status", "--porcelain"); st != "" {
 		t.Fatalf("dirty tree after failed commit: %s", st)
 	}
 }
@@ -262,10 +347,11 @@ func TestDotIDRejected(t *testing.T) {
 func TestWriteAbortsIfRepoMoved(t *testing.T) {
 	s, dir := withEngagement(t)
 	f, _ := s.CreateFinding("2026-11-acme", "SQL injection", alice)
+	ed := filepath.Join(dir, "engagements", eng)
 	s.beforeWrite = func() {
-		os.WriteFile(filepath.Join(dir, "README.md"), []byte("pushed\n"), 0o644)
-		git(t, dir, "add", "README.md")
-		git(t, dir, "-c", "user.name=x", "-c", "user.email=x@x", "commit", "-qm", "push")
+		os.WriteFile(filepath.Join(ed, "README.md"), []byte("pushed\n"), 0o644)
+		git(t, ed, "add", "README.md")
+		git(t, ed, "-c", "user.name=x", "-c", "user.email=x@x", "commit", "-qm", "push")
 	}
 	err := s.UpdateSection("2026-11-acme", f.Dir, "Impact", "web text", "", bob)
 	if !errors.Is(err, ErrConflict) {

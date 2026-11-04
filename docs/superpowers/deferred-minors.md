@@ -93,3 +93,12 @@ Small issues found by the end-of-milestone reviews and deliberately left for the
 - Attachments are not covered by the clearance hash or the complete-lock (also true before M10).
 - Clear binds to the content at click time, not to the version the reviewer viewed (send the viewed hash with Clear and reject on mismatch).
 - A director's push to an approved finding moves the approval in pre-receive; if the push then fails to land, the finding falls back to verification (safe, but surprising).
+
+## M11 Repo per engagement
+- `Store.commit` returns before its rollback when the engagement repo can't be opened; routing looks only at the first path (every caller passes one engagement today).
+- `Store.Version()` runs ~2 git processes per engagement on every index refresh check (read `.git/HEAD` + ref files, or cache by mtime).
+- Two first requests to a new engagement repo can race in `setupRepo` (config.lock → 500); the `ready` map is never invalidated.
+- Migration import commits (fallback path) sweep in files the main repo's `.gitignore` excluded.
+- SyncPointers commits in the main repo under the store lock only; a concurrent push to main can hit index/HEAD lock contention (transient 500 or push failure).
+- A push to the main repo can be refused as non-fast-forward right after the server moved pointers (pull first — documented).
+- Docs: no guidance for pre-M11 clones with unpushed work (they get modify/delete conflicts after the migration); `git pull --recurse-submodules` puts submodules back on a detached HEAD.

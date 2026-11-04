@@ -1,6 +1,7 @@
-// Package gitserve exposes the data repo over git smart HTTP (git
+// Package gitserve exposes the data repos over git smart HTTP (git
 // http-backend) behind YARS accounts, and installs the pre-receive hook that
-// enforces workflow and style rules on pushes.
+// enforces the push rules: the main repo at /git/yars (settings plus every
+// engagement as a submodule) and each engagement's own repo at /git/e/<id>.
 package gitserve
 
 import (
@@ -12,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -32,9 +34,13 @@ type Server struct {
 	// InheritEnv names extra environment variables passed to git and the
 	// hook (e.g. the AI key variable, so AI rules also run on pushes).
 	InheritEnv []string
+	// Sync, when set, brings the main repo's engagement pointers up to date;
+	// it runs before the main repo is fetched.
+	Sync func() error
 
 	mu    sync.Mutex
 	cache map[string]cached
+	ready map[string]bool // repos already configured for pushes
 }
 
 type cached struct {
@@ -42,9 +48,26 @@ type cached struct {
 	exp  time.Time
 }
 
-// Setup configures the repo for pushes and (re)writes the pre-receive hook.
+// Setup configures the main repo and every engagement repo for pushes and
+// (re)writes their pre-receive hooks. Engagement repos created later are
+// set up on their first request.
 func (s *Server) Setup() error {
-	gd, err := s.Repo.GitDir()
+	if err := s.setupRepo(s.Repo); err != nil {
+		return err
+	}
+	ents, _ := os.ReadDir(filepath.Join(s.Repo.Dir, "engagements"))
+	for _, e := range ents {
+		if r, ok := s.engRepo(e.Name()); ok {
+			if err := s.setupRepo(r); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (s *Server) setupRepo(r *gitrepo.Repo) error {
+	gd, err := r.GitDir()
 	if err != nil {
 		return err
 	}
@@ -58,18 +81,42 @@ func (s *Server) Setup() error {
 		// a global/system core.hooksPath would silently skip our hook
 		"core.hooksPath": hooks,
 	} {
-		if err := s.Repo.SetConfig(k, v); err != nil {
+		if err := r.SetConfig(k, v); err != nil {
 			return err
 		}
 	}
-	hook := filepath.Join(hooks, "pre-receive")
-	if s.HookCmd == "" {
-		return nil
+	if s.HookCmd != "" {
+		cmd := s.HookCmd
+		// an engagement repo's hook names its engagement (ids are [A-Za-z0-9._-])
+		if filepath.Dir(r.Dir) == filepath.Join(s.Repo.Dir, "engagements") && engIDRe.MatchString(filepath.Base(r.Dir)) {
+			cmd += " --eng " + filepath.Base(r.Dir)
+		}
+		hook := filepath.Join(hooks, "pre-receive")
+		if err := os.MkdirAll(hooks, 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(hook, []byte("#!/bin/sh\nexec "+cmd+"\n"), 0o755); err != nil {
+			return err
+		}
 	}
-	if err := os.MkdirAll(filepath.Dir(hook), 0o755); err != nil {
-		return err
+	s.mu.Lock()
+	if s.ready == nil {
+		s.ready = map[string]bool{}
 	}
-	return os.WriteFile(hook, []byte("#!/bin/sh\nexec "+s.HookCmd+"\n"), 0o755)
+	s.ready[r.Dir] = true
+	s.mu.Unlock()
+	return nil
+}
+
+var engIDRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+
+// engRepo opens engagements/<id> when it is a repository of its own.
+func (s *Server) engRepo(id string) (*gitrepo.Repo, bool) {
+	if !engIDRe.MatchString(id) || strings.Contains(id, "..") {
+		return nil, false
+	}
+	r, err := gitrepo.Open(filepath.Join(s.Repo.Dir, "engagements", id))
+	return r, err == nil
 }
 
 // check verifies Basic credentials, caching successes for 10 minutes so git's
@@ -102,16 +149,42 @@ func (s *Server) check(user, pw string) (config.User, bool) {
 	return u, ok
 }
 
-// Handler serves /git/yars/... via git http-backend.
+// mainServicePath accepts only git's own request paths under the main
+// repo's URL, so nested repositories (engagements/<id>) can't be reached
+// through it.
+func mainServicePath(rest string) bool {
+	switch rest {
+	case "", "/info/refs", "/git-upload-pack", "/git-receive-pack", "/HEAD":
+		return true
+	}
+	return strings.HasPrefix(rest, "/objects/") && !strings.Contains(rest, "..")
+}
+
+// route maps a request path to its repository and URL root: /git/yars is
+// the main repo, /git/e/<id> an engagement repo.
+func (s *Server) route(p string) (*gitrepo.Repo, string, bool) {
+	root := "/git/" + RepoName
+	if rest, ok := strings.CutPrefix(p, root); ok && mainServicePath(rest) {
+		return s.Repo, root, true
+	}
+	rest, ok := strings.CutPrefix(p, "/git/e/")
+	if !ok {
+		return nil, "", false
+	}
+	id, _, _ := strings.Cut(rest, "/")
+	r, ok := s.engRepo(id)
+	if !ok {
+		return nil, "", false
+	}
+	return r, "/git/e/" + id, true
+}
+
+// Handler serves /git/yars/... and /git/e/<id>/... via git http-backend.
 func (s *Server) Handler() http.Handler {
 	gitPath, gitErr := exec.LookPath("git")
-	root := "/git/" + RepoName
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		rest, ok := strings.CutPrefix(r.URL.Path, root)
-		if !ok || (rest != "" && rest[0] != '/') {
-			http.NotFound(w, r)
-			return
-		}
+		// authenticate first: without a login nothing reveals which
+		// engagements exist
 		name, pw, ok := r.BasicAuth()
 		var u config.User
 		valid := false
@@ -123,17 +196,38 @@ func (s *Server) Handler() http.Handler {
 			http.Error(w, "authentication required", http.StatusUnauthorized)
 			return
 		}
+		repo, root, ok := s.route(r.URL.Path)
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
 		if gitErr != nil {
 			http.Error(w, "git not available", http.StatusInternalServerError)
 			return
+		}
+		s.mu.Lock()
+		ready := s.ready[repo.Dir]
+		s.mu.Unlock()
+		if !ready {
+			if err := s.setupRepo(repo); err != nil {
+				http.Error(w, "repository setup failed", http.StatusInternalServerError)
+				return
+			}
+		}
+		if repo == s.Repo && s.Sync != nil && strings.HasSuffix(r.URL.Path, "/info/refs") {
+			// clones and fetches of the main repo see current engagement pointers
+			if err := s.Sync(); err != nil {
+				http.Error(w, "could not update engagement pointers", http.StatusInternalServerError)
+				return
+			}
 		}
 		h := &cgi.Handler{
 			Path: gitPath,
 			Root: root,
 			Args: []string{"http-backend"},
-			Dir:  s.Repo.Dir,
+			Dir:  repo.Dir,
 			Env: []string{
-				"GIT_PROJECT_ROOT=" + s.Repo.Dir,
+				"GIT_PROJECT_ROOT=" + repo.Dir,
 				"GIT_HTTP_EXPORT_ALL=1",
 				"REMOTE_USER=" + u.Username,
 				fmt.Sprintf("GIT_COMMITTER_NAME=%s", u.Username),

@@ -34,6 +34,34 @@ func TestCommitAuthor(t *testing.T) {
 	}
 }
 
+// Committing a nested repository's folder records it as a submodule
+// pointer (gitlink) at the nested repo's HEAD.
+func TestCommitNestedRepoIsGitlink(t *testing.T) {
+	main, _ := Init(t.TempDir())
+	sub, err := Init(filepath.Join(main.Dir, "engagements", "acme"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(sub.Dir, "engagement.yaml"), []byte("name: A\n"), 0o644)
+	if err := sub.Commit([]string{"engagement.yaml"}, "create", Author{"a", "a@a"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := main.Commit([]string{"engagements/acme"}, "add acme", Author{"a", "a@a"}); err != nil {
+		t.Fatal(err)
+	}
+	head, _ := sub.Head()
+	if got, _ := main.Gitlink("HEAD", "engagements/acme"); got != head {
+		t.Fatalf("gitlink %q want %q", got, head)
+	}
+	out, _ := exec.Command("git", "-C", main.Dir, "ls-tree", "HEAD", "engagements/acme").Output()
+	if !strings.HasPrefix(string(out), "160000 commit "+head) {
+		t.Fatalf("ls-tree %q", out)
+	}
+	if got, _ := main.Gitlink("HEAD", "engagements/none"); got != "" {
+		t.Fatalf("missing gitlink %q", got)
+	}
+}
+
 func TestHeadChanges(t *testing.T) {
 	dir := t.TempDir()
 	r, err := Init(dir)

@@ -37,6 +37,9 @@ func treeHash(t *testing.T, root string) map[string][32]byte {
 	t.Helper()
 	out := map[string][32]byte{}
 	filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err == nil && d.IsDir() && d.Name() == ".git" {
+			return filepath.SkipDir // git maintains its own files in the background
+		}
 		if err == nil && !d.IsDir() {
 			b, _ := os.ReadFile(p)
 			out[p] = sha256.Sum256(b)
@@ -52,7 +55,7 @@ func TestCreateRetest(t *testing.T) {
 	if err := s.CreateRetest(e, eng, []string{"F-001-sql-injection", "F-003-csrf"}, "", uDora); err != nil {
 		t.Fatal(err)
 	}
-	if got := last(t, dir, "%an|%s"); got != "dora|engagement 2027-01-acme-retest: retest of 2026-11-acme (2 findings)" {
+	if got := logOf(t, filepath.Join(dir, "engagements", "2027-01-acme-retest"), "%an|%s"); got != "dora|engagement 2027-01-acme-retest: retest of 2026-11-acme (2 findings)" {
 		t.Fatalf("commit %q", got)
 	}
 	ne, err := s.Engagement("2027-01-acme-retest")

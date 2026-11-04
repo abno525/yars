@@ -137,7 +137,7 @@ func TestUpdateDetailsRoundTrip(t *testing.T) {
 	ref := load(t, s, fd)
 	ref.F.SetMeta("details", map[string]string{"Old row": "legacy"})
 	os.WriteFile(path, ref.F.Bytes(), 0o644)
-	git(t, dir, "commit", "-qam", "seed")
+	git(t, filepath.Join(dir, "engagements", eng), "commit", "-qam", "seed")
 
 	vals := map[string]string{
 		"Location":        "<script>x</script>\r\n- a: b\n# c  ",

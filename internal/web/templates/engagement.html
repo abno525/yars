@@ -12,4 +12,11 @@
   </div>
 </div>
 {{template "findings" .}}
+{{if .CloneURL}}
+<section class="panel clonehint">
+  <h2>Work locally on this engagement</h2>
+  <p class="muted small">This engagement is its own git repository: its history shows only its own changes. Clone it with your YARS login, edit, commit and push.</p>
+  <pre><code>git clone {{.CloneURL}}</code></pre>
+</section>
+{{end}}
 {{end}}

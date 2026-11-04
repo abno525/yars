@@ -121,6 +121,34 @@ func TestMigrate(t *testing.T) {
 	if st, _ := exec.Command("git", "-C", dir, "status", "--porcelain").Output(); len(st) != 0 {
 		t.Fatalf("uncommitted after migrate: %s", st)
 	}
+	// every engagement became its own repository, keeping its history, and
+	// the main repo points at it
+	for _, e := range []string{"acme", "rt"} {
+		er, err := st.EngRepo(e)
+		if err != nil {
+			t.Fatalf("%s is not a repository: %v", e, err)
+		}
+		log, _ := exec.Command("git", "-C", er.Dir, "log", "--format=%s").Output()
+		if !strings.Contains(string(log), "old layout") || strings.Contains(string(log), "init") {
+			t.Fatalf("%s history:\n%s", e, log)
+		}
+		if b, _ := os.ReadFile(filepath.Join(er.Dir, "engagement.yaml")); len(b) == 0 {
+			t.Fatalf("%s lost engagement.yaml", e)
+		}
+		head, _ := er.Head()
+		if link, _ := r.Gitlink("HEAD", "engagements/"+e); link != head {
+			t.Fatalf("%s pointer %q, head %q", e, link, head)
+		}
+		if st, _ := exec.Command("git", "-C", er.Dir, "status", "--porcelain").Output(); len(st) != 0 {
+			t.Fatalf("%s dirty after split: %s", e, st)
+		}
+	}
+	if gm, _ := os.ReadFile(filepath.Join(dir, ".gitmodules")); !strings.Contains(string(gm), "url = ../e/acme") {
+		t.Fatalf(".gitmodules:\n%s", gm)
+	}
+	if files, _ := exec.Command("git", "-C", dir, "ls-files", "engagements/acme/findings").Output(); len(files) != 0 {
+		t.Fatalf("main repo still tracks finding files:\n%s", files)
+	}
 	// a second run changes nothing
 	head, _ := r.Head()
 	out.Reset()
@@ -158,6 +186,41 @@ func TestMigrateInterrupted(t *testing.T) {
 	st := store.New(r, config.Default(), openDB(t, dir))
 	if msgs, _ := st.Chat("acme", "F-001-sqli"); len(msgs) != 2 {
 		t.Fatalf("chat after re-run: %d", len(msgs))
+	}
+}
+
+// Migration finishes what an earlier run left half done: an engagement that
+// is already its own repository but not registered in the main repo, and an
+// engagement folder with no files at all.
+func TestMigrateCompletesSplit(t *testing.T) {
+	dir := legacyRepo(t)
+	os.MkdirAll(filepath.Join(dir, "engagements", "empty", "findings"), 0o755)
+	var out bytes.Buffer
+	if err := cmdMigrate([]string{"--data", dir}, &out); err != nil {
+		t.Fatalf("%v\n%s", err, out.String())
+	}
+	// simulate an interrupted earlier run: acme is a repo but unregistered
+	gitIn(dir, "rm", "-q", "--cached", "engagements/acme")
+	gm, _ := os.ReadFile(filepath.Join(dir, ".gitmodules"))
+	os.WriteFile(filepath.Join(dir, ".gitmodules"), []byte(strings.Replace(string(gm), store.SubmoduleEntry("acme"), "", 1)), 0o644)
+	gitIn(dir, "-c", "user.name=x", "-c", "user.email=x@x", "commit", "-qam", "lose acme")
+	if items := legacyItems(dir); len(items) == 0 {
+		t.Fatal("unregistered engagement not detected")
+	}
+	if err := cmdMigrate([]string{"--data", dir}, &out); err != nil {
+		t.Fatalf("%v\n%s", err, out.String())
+	}
+	r, _ := gitrepo.Open(dir)
+	for _, e := range []string{"acme", "rt", "empty"} {
+		if link, _ := r.Gitlink("HEAD", "engagements/"+e); link == "" {
+			t.Errorf("%s not registered", e)
+		}
+	}
+	if gm, _ := os.ReadFile(filepath.Join(dir, ".gitmodules")); !strings.Contains(string(gm), "url = ../e/acme") || !strings.Contains(string(gm), "ignore = all") {
+		t.Fatalf(".gitmodules:\n%s", gm)
+	}
+	if st, _ := exec.Command("git", "-C", dir, "status", "--porcelain").Output(); len(st) != 0 {
+		t.Fatalf("main repo dirty:\n%s", st)
 	}
 }
 

@@ -119,7 +119,10 @@ func TestFindingForeignCVSS(t *testing.T) {
 	ref.F.SetMeta("severity", "medium")
 	rel := filepath.Join("engagements", "acme", "findings", "F-001-sql-injection", "finding.md")
 	os.WriteFile(filepath.Join(e.dir, rel), ref.F.Bytes(), 0o644)
-	e.srv.Store.Repo().Commit([]string{rel}, "ext", gitrepo.Author{Name: "x", Email: "x@x"})
+	er, _ := e.srv.Store.EngRepo("acme")
+	if err := er.Commit([]string{"findings/F-001-sql-injection/finding.md"}, "ext", gitrepo.Author{Name: "x", Email: "x@x"}); err != nil {
+		t.Fatal(err)
+	}
 
 	rec := e.do(t, "alice", "GET", fpath, nil, nil)
 	b := rec.Body.String()
