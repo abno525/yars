@@ -52,7 +52,7 @@ func TestCreateRetest(t *testing.T) {
 	if err := s.CreateRetest(e, eng, []string{"F-001-sql-injection", "F-003-csrf"}, "", uDora); err != nil {
 		t.Fatal(err)
 	}
-	if got := last(t, dir, "%an|%s"); got != "dora|engagement 2027-01-acme-retest: retest of 2026-11-acme (2 findings)" {
+	if got := logOf(t, filepath.Join(dir, "engagements", "2027-01-acme-retest"), "%an|%s"); got != "dora|engagement 2027-01-acme-retest: retest of 2026-11-acme (2 findings)" {
 		t.Fatalf("commit %q", got)
 	}
 	ne, err := s.Engagement("2027-01-acme-retest")

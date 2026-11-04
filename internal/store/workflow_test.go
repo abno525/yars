@@ -172,7 +172,8 @@ func TestEditVoidsClearances(t *testing.T) {
 	p := filepath.Join(dir, "engagements", eng, "findings", fd, "finding.md")
 	b, _ := os.ReadFile(p)
 	os.WriteFile(p, append(b, []byte("\npushed text\n")...), 0o644)
-	if err := s.Repo().Commit([]string{"engagements/" + eng + "/findings/" + fd + "/finding.md"}, "push", gitrepo.Author{Name: "alice", Email: "alice@yars.local"}); err != nil {
+	er, _ := s.EngRepo(eng)
+	if err := er.Commit([]string{"findings/" + fd + "/finding.md"}, "push", gitrepo.Author{Name: "alice", Email: "alice@yars.local"}); err != nil {
 		t.Fatal(err)
 	}
 	if c := load(t, s, fd).F.Meta.ClearedBy; len(c) != 0 {
@@ -244,8 +245,9 @@ func TestSetReviewersDropsAuthor(t *testing.T) {
 func TestNewFindingSkipsUsedIDs(t *testing.T) {
 	s, dir, fd := ready(t)
 	s.PostChat(eng, fd, chatMsg("old discussion"), uBob)
-	git(t, dir, "rm", "-rq", "engagements/"+eng+"/findings/"+fd)
-	git(t, dir, "commit", "-qm", "delete F-001")
+	ed := filepath.Join(dir, "engagements", eng)
+	git(t, ed, "rm", "-rq", "findings/"+fd)
+	git(t, ed, "commit", "-qm", "delete F-001")
 	ref, err := s.CreateFinding(eng, "New issue", alice)
 	if err != nil {
 		t.Fatal(err)
@@ -297,7 +299,7 @@ func TestApprovalBoundToContent(t *testing.T) {
 	p := filepath.Join(dir, "engagements", eng, "findings", fd, "finding.md")
 	b, _ := os.ReadFile(p)
 	os.WriteFile(p, append(b, []byte("\nsneaked in\n")...), 0o644)
-	git(t, dir, "commit", "-qam", "push that raced the approve")
+	git(t, filepath.Join(dir, "engagements", eng), "commit", "-qam", "push that raced the approve")
 	if m := load(t, s, fd).F.Meta; m.Status != "verification" || len(m.ClearedBy) != 0 {
 		t.Fatalf("unreviewed change stayed complete: %+v", m)
 	}

@@ -25,11 +25,15 @@ func setMeta(t *testing.T, s *store.Store, eng, dir, status, sev string) {
 		t.Fatal(err)
 	}
 	ref.F.Meta.Severity = sev
-	rel := filepath.Join("engagements", eng, "findings", dir, "finding.md")
-	if err := os.WriteFile(filepath.Join(s.Repo().Dir, rel), ref.F.Bytes(), 0o644); err != nil {
+	er, err := s.EngRepo(eng)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Repo().Commit([]string{rel}, "meta", alice); err != nil {
+	rel := filepath.Join("findings", dir, "finding.md")
+	if err := os.WriteFile(filepath.Join(er.Dir, rel), ref.F.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := er.Commit([]string{rel}, "meta", alice); err != nil {
 		t.Fatal(err)
 	}
 	setStatus(t, s, eng, ref.F.Meta.ID, status)
@@ -133,9 +137,10 @@ func setCVSS(t *testing.T, s *store.Store, eng, dir, vec, sev string) {
 		t.Fatal(err)
 	}
 	ref.F.Meta.CVSS, ref.F.Meta.Severity = vec, sev
-	rel := filepath.Join("engagements", eng, "findings", dir, "finding.md")
-	os.WriteFile(filepath.Join(s.Repo().Dir, rel), ref.F.Bytes(), 0o644)
-	if err := s.Repo().Commit([]string{rel}, "cvss", alice); err != nil {
+	er, _ := s.EngRepo(eng)
+	rel := filepath.Join("findings", dir, "finding.md")
+	os.WriteFile(filepath.Join(er.Dir, rel), ref.F.Bytes(), 0o644)
+	if err := er.Commit([]string{rel}, "cvss", alice); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -219,8 +224,9 @@ func TestExternalCommitVisible(t *testing.T) {
 	dir := filepath.Join(s.Repo().Dir, "engagements", "acme", "findings", "F-009-ext")
 	os.MkdirAll(dir, 0o755)
 	os.WriteFile(filepath.Join(dir, "finding.md"), []byte("---\nid: F-009\ntitle: Ext\nstatus: draft\n---\n"), 0o644)
+	er, _ := s.EngRepo("acme")
 	for _, args := range [][]string{{"add", "-A"}, {"-c", "user.name=x", "-c", "user.email=x@x", "commit", "-qm", "ext"}} {
-		if out, err := exec.Command("git", append([]string{"-C", s.Repo().Dir}, args...)...).CombinedOutput(); err != nil {
+		if out, err := exec.Command("git", append([]string{"-C", er.Dir}, args...)...).CombinedOutput(); err != nil {
 			t.Fatalf("%v %s", err, out)
 		}
 	}

@@ -63,7 +63,7 @@ func New(s *store.Store, r *gitrepo.Repo) *Index { return &Index{store: s, repo:
 // version identifies the data the index was built from: the git HEAD
 // (content) plus the database change counter (workflow state, chat).
 func (ix *Index) version() (string, error) {
-	head, err := ix.repo.Head()
+	head, err := ix.store.Version()
 	if err != nil {
 		return "", err
 	}
