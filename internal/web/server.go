@@ -41,8 +41,9 @@ type Server struct {
 	Git    http.Handler   // optional git smart HTTP endpoint, mounted at /git/
 	Export *export.Runner // optional exporters
 
-	pages map[string]*template.Template
-	md    goldmark.Markdown
+	pages   map[string]*template.Template
+	exports exportCache
+	md      goldmark.Markdown
 }
 
 type link struct {

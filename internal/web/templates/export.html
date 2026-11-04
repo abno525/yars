@@ -4,7 +4,10 @@
   <h1>Export {{.Eng.Name}}</h1>
   {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
   {{with .ExportV}}
-  {{if .Done}}<p class="ok">Published: <a href="{{.Done}}" target="_blank" rel="noopener">{{.Done}}</a>{{if .Marked}} · marked reported: {{join .Marked ", "}}{{end}}</p>{{end}}
+  {{if .Pushed}}<p class="ok">Published to Confluence{{if .Done}}: <a href="{{.Done}}" target="_blank" rel="noopener">{{.Done}}</a>{{end}}</p>{{end}}
+  {{if .Download}}<p class="ok">Ready: <a class="button primary" href="{{.Download}}">Download {{.Filename}}</a> <span class="muted small">(link valid 10 minutes)</span></p>{{end}}
+  {{if .Marked}}<p class="ok">Marked reported: {{join .Marked ", "}}</p>{{end}}
+  {{if .Failed}}<p class="error">Not marked: {{join .Failed "; "}}</p>{{end}}
   {{if not .Enabled}}<p class="muted">Exporting is not configured on this server.</p>{{end}}
   {{range .LoadErrors}}<p class="error">Exporter config error: {{.}}</p>{{end}}
   {{if .Exporters}}

@@ -38,11 +38,39 @@ func TestExportDownload(t *testing.T) {
 		t.Fatalf("export page:\n%s", b)
 	}
 	rec := e.do(t, "dora", "POST", "/e/acme/export", url.Values{"exporter": {"docx"}, "finding": {"F-001-sql-injection"}}, nil)
-	if rec.Code != 200 || !strings.Contains(rec.Header().Get("Content-Disposition"), `attachment; filename="acme.docx"`) || !strings.Contains(rec.Body.String(), "<h1>F-001 SQL injection</h1>") {
-		t.Fatalf("code %d headers %v", rec.Code, rec.Header())
+	page := rec.Body.String()
+	i := strings.Index(page, "/e/acme/export/download/")
+	if rec.Code != 200 || i < 0 || !strings.Contains(page, "Marked reported: F-001") {
+		t.Fatalf("result page code %d:\n%s", rec.Code, page)
 	}
+	link := page[i : i+strings.Index(page[i:], `"`)]
 	if e.status(t) != "reported" || e.lastCommit(t) != "dora|F-001: mark reported" {
 		t.Fatalf("not reported: %s / %s", e.status(t), e.lastCommit(t))
+	}
+	if rec := e.do(t, "alice", "GET", link, nil, nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("other user downloaded: %d", rec.Code)
+	}
+	dl := e.do(t, "dora", "GET", link, nil, nil)
+	if dl.Code != 200 || !strings.Contains(dl.Header().Get("Content-Disposition"), `attachment; filename="acme.docx"`) || !strings.Contains(dl.Body.String(), "<h1>F-001 SQL injection</h1>") {
+		t.Fatalf("download code %d headers %v", dl.Code, dl.Header())
+	}
+}
+
+func TestExportEmbedsOnlyAttachments(t *testing.T) {
+	e := setup(t)
+	e.exporters(t, fakePandoc)
+	att := filepath.Join(e.dir, "engagements", "acme", "findings", fdir, "attachments")
+	os.MkdirAll(att, 0o755)
+	os.WriteFile(filepath.Join(att, "shot.png"), []byte("PNGDATA"), 0o644)
+	e.srv.Store.UpdateSection("acme", fdir, "Impact", "![s](attachments/shot.png) ![x](/etc/hostname)", "", e.authorOf(wAlice))
+	page := e.do(t, "alice", "POST", "/e/acme/export", url.Values{"exporter": {"docx"}, "finding": {fdir}}, nil).Body.String()
+	i := strings.Index(page, "/e/acme/export/download/")
+	if i < 0 {
+		t.Fatalf("no link:\n%s", page)
+	}
+	b := e.do(t, "alice", "GET", page[i:i+strings.Index(page[i:], `"`)], nil, nil).Body.String()
+	if !strings.Contains(b, "data:image/png;base64,UE5HREFUQQ==") || strings.Contains(b, "/etc/hostname\"") {
+		t.Fatalf("report:\n%s", b)
 	}
 }
 

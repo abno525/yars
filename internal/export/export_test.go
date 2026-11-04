@@ -1,6 +1,7 @@
 package export
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -71,25 +72,103 @@ func TestLoad(t *testing.T) {
 	}
 }
 
-func TestMarkdownLayout(t *testing.T) {
-	md := Markdown(input(t))
-	i1, i2, i3 := strings.Index(md, "# F-001 SQL injection"), strings.Index(md, "# F-003 XSS"), strings.Index(md, "# F-002 Missing HSTS")
+func TestXHTMLLayout(t *testing.T) {
+	x := XHTML(input(t), false)
+	i1, i2, i3 := strings.Index(x, "<h1>F-001 SQL injection</h1>"), strings.Index(x, "<h1>F-003 XSS</h1>"), strings.Index(x, "<h1>F-002 Missing HSTS</h1>")
 	if i1 < 0 || !(i1 < i2 && i2 < i3) {
-		t.Fatalf("order/headings:\n%s", md)
+		t.Fatalf("order/headings:\n%s", x)
 	}
 	for _, want := range []string{
-		"| Severity | high |",
-		"| CVSS | 7.4 (CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:N) |",
-		"| Location | https://x/login<br>param user |",
-		"| Attack Complexity | High | race with refresh |",
-		"| Retest result | Not fixed |",
-		"## Description",
-		"### Detail",
-		"DB read | all rows.", // section bodies are Markdown, not table cells
+		"<tr><th>Severity</th><td>high</td></tr>",
+		"<tr><th>CVSS</th><td>7.4 (CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:N)</td></tr>",
+		"<tr><th>Location</th><td>https://x/login<br />param user</td></tr>",
+		"<tr><td>Attack Complexity</td><td>High</td><td>race with refresh</td></tr>",
+		"<tr><th>Retest result</th><td>Not fixed</td></tr>",
+		"<h2>Description</h2>",
+		"<h3>Detail</h3>",
+		"DB read | all rows.",
 	} {
-		if !strings.Contains(md, want) {
-			t.Errorf("missing %q in:\n%s", want, md)
+		if !strings.Contains(x, want) {
+			t.Errorf("missing %q in:\n%s", want, x)
 		}
+	}
+}
+
+func pngBytes() []byte {
+	return []byte("\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\rIDATx\x9cc\xf8\xff\xff?\x00\x05\xfe\x02\xfe\xa7\x35\x81\x84\x00\x00\x00\x00IEND\xaeB`\x82")
+}
+
+// imageInput has one finding with a local-file image, a remote image and a
+// legitimate attachment.
+func imageInput(t *testing.T, remote string) Input {
+	in := input(t)
+	in.Findings[1].SetSection("Impact", "![leak](/etc/hostname)\n\n![ssrf]("+remote+")\n\n![shot](attachments/shot.png)")
+	in.Attachment = func(f *finding.Finding, rel string) ([]byte, bool) {
+		if f.Meta.ID == "F-001" && rel == "attachments/shot.png" {
+			return pngBytes(), true
+		}
+		return nil, false
+	}
+	return in
+}
+
+func TestXHTMLImages(t *testing.T) {
+	x := XHTML(imageInput(t, "http://169.254.169.254/x.png"), false)
+	if strings.Contains(x, "/etc/hostname\"") || strings.Contains(x, "169.254.169.254") {
+		t.Fatalf("foreign image kept:\n%s", x)
+	}
+	if !strings.Contains(x, `src="data:image/png;base64,`) || strings.Count(x, "image removed") != 2 {
+		t.Fatalf("attachment not inlined / others not removed:\n%s", x)
+	}
+}
+
+func TestPandocSandboxImages(t *testing.T) {
+	p, err := exec.LookPath("pandoc")
+	if err != nil {
+		t.Skip("pandoc not installed")
+	}
+	hits := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { hits++; w.Write(pngBytes()) }))
+	defer srv.Close()
+	r, _ := runner(t, p)
+	res, err := r.Run(context.Background(), Exporter{ID: "docx", Type: "pandoc", Format: "docx"}, imageInput(t, srv.URL+"/x.png"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hits != 0 {
+		t.Fatalf("pandoc fetched a remote image (%d hits)", hits)
+	}
+	zr, err := zip.NewReader(bytes.NewReader(res.Data), int64(len(res.Data)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	media := 0
+	for _, f := range zr.File {
+		if strings.HasPrefix(f.Name, "word/media/") {
+			media++
+		}
+	}
+	if media != 1 {
+		t.Fatalf("want exactly the attachment embedded, got %d media files", media)
+	}
+}
+
+func TestLoadValidatesConfig(t *testing.T) {
+	bad := map[string]string{
+		"lua.yaml":   "type: pandoc\nformat: docx\nargs: [--lua-filter=/tmp/x.lua]\n",
+		"out.yaml":   "type: pandoc\nformat: docx\nargs: [-o, /tmp/x]\n",
+		"env.yaml":   "type: confluence\nconfluence: {base_url: https://x, space: S, user_env: CONFLUENCE_USER, token_env: YARS_AI_KEY}\n",
+		"ext.yaml":   "type: script\nscript: s.sh\nextension: ../../x\n",
+		"space.yaml": "type: confluence\nconfluence: {base_url: https://x, user_env: CONFLUENCE_USER, token_env: CONFLUENCE_TOKEN}\n",
+	}
+	dir := t.TempDir()
+	for n, b := range bad {
+		writeFile(t, dir, n, b, 0o644)
+	}
+	writeFile(t, dir, "ok.yaml", "type: pandoc\nformat: docx\nargs: [--toc, --toc-depth=2, --number-sections]\n", 0o644)
+	es, errs := Load(dir)
+	if len(es) != 1 || es[0].ID != "ok" || len(errs) != len(bad) {
+		t.Fatalf("exporters %v errors %v", es, errs)
 	}
 }
 
@@ -236,17 +315,47 @@ func TestConfluencePush(t *testing.T) {
 	}
 }
 
+func TestConfluenceRepublish(t *testing.T) {
+	var method, path string
+	var got map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "GET" {
+			io.WriteString(w, `{"results":[{"id":"99","version":{"number":3}}]}`)
+			return
+		}
+		method, path = r.Method, r.URL.Path
+		b, _ := io.ReadAll(r.Body)
+		json.Unmarshal(b, &got)
+		io.WriteString(w, `{"id":"99","_links":{"base":"https://w","webui":"/p/99"}}`)
+	}))
+	defer srv.Close()
+	r, _ := runner(t, "")
+	r.Getenv = func(k string) string { return map[string]string{"CONFLUENCE_U": "u", "CONFLUENCE_T": "t"}[k] }
+	e := Exporter{ID: "c", Type: "confluence", Confluence: &ConfluenceConf{BaseURL: strings.Replace(srv.URL, "127.0.0.1", "localhost", 1), Space: "S", UserEnv: "CONFLUENCE_U", TokenEnv: "CONFLUENCE_T"}}
+	res, err := r.Run(context.Background(), e, input(t))
+	if err != nil || res.URL != "https://w/p/99" || !res.Pushed {
+		t.Fatalf("%v %+v", err, res)
+	}
+	if method != "PUT" || path != "/rest/api/content/99" || got["version"].(map[string]any)["number"].(float64) != 4 {
+		t.Fatalf("update: %s %s %v", method, path, got["version"])
+	}
+}
+
 func TestConfluencePushErrors(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(401)
-		io.WriteString(w, `{"message":"bad token tok123"}`)
+		if r.Method == "GET" {
+			io.WriteString(w, `{"results":[]}`)
+			return
+		}
+		w.WriteHeader(400)
+		io.WriteString(w, `{"message":"bad token tok123 for bot"}`)
 	}))
 	defer srv.Close()
 	r, _ := runner(t, "")
 	r.Getenv = func(k string) string { return map[string]string{"CU": "bot", "CT": "tok123"}[k] }
 	e := Exporter{ID: "c", Type: "confluence", Confluence: &ConfluenceConf{BaseURL: strings.Replace(srv.URL, "127.0.0.1", "localhost", 1), Space: "S", UserEnv: "CU", TokenEnv: "CT"}}
 	_, err := r.Run(context.Background(), e, input(t))
-	if err == nil || strings.Contains(err.Error(), "tok123") || !strings.Contains(err.Error(), "401") {
+	if err == nil || strings.Contains(err.Error(), "tok123") || !strings.Contains(err.Error(), "400") || !strings.Contains(err.Error(), "bad token") {
 		t.Fatalf("err %v", err)
 	}
 	e.Confluence.BaseURL = "http://evil.example/wiki"

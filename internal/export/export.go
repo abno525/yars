@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -78,12 +79,23 @@ func Load(dir string) ([]Exporter, []error) {
 			e.Statuses = []string{"complete"}
 		}
 		switch {
-		case e.Type == "pandoc" && e.Format == "":
-			err = errors.New("pandoc exporter needs a format")
-		case e.Type == "script" && (e.Script == "" || e.Extension == ""):
-			err = errors.New("script exporter needs script and extension")
+		case e.Type == "pandoc" && !safeWord.MatchString(e.Format):
+			err = errors.New("pandoc exporter needs a format like docx, pdf or html")
+		case e.Type == "script" && (e.Script == "" || !safeWord.MatchString(e.Extension)):
+			err = errors.New("script exporter needs script and a plain extension (letters/digits)")
 		case e.Type != "pandoc" && e.Type != "script" && e.Type != "confluence":
 			err = fmt.Errorf("unknown type %q (pandoc, confluence or script)", e.Type)
+		default:
+			err = validateArgs(e.Args)
+		}
+		if err == nil && e.Confluence != nil && e.Confluence.BaseURL != "" {
+			c := e.Confluence
+			switch {
+			case c.Space == "" || c.UserEnv == "" || c.TokenEnv == "":
+				err = errors.New("confluence push needs space, user_env and token_env")
+			case !strings.HasPrefix(c.UserEnv, "CONFLUENCE_") || !strings.HasPrefix(c.TokenEnv, "CONFLUENCE_"):
+				err = errors.New("confluence user_env/token_env must start with CONFLUENCE_ (other server secrets are off limits)")
+			}
 		}
 		if err != nil {
 			errs = append(errs, fmt.Errorf("%s: %v", file, err))
@@ -94,10 +106,41 @@ func Load(dir string) ([]Exporter, []error) {
 	return out, errs
 }
 
+var safeWord = regexp.MustCompile(`^[a-z0-9_]+$`)
+
+// pandoc args are limited to presentation options: nothing that reads or
+// writes files, runs filters or changes the output path.
+var plainArgs = map[string]bool{"--toc": true, "--table-of-contents": true, "--number-sections": true, "-N": true,
+	"--no-highlight": true, "--section-divs": true, "--standalone": true}
+var valueArgs = []string{"--toc-depth=", "--shift-heading-level-by=", "--highlight-style=", "--pdf-engine=", "--variable=",
+	"--metadata=", "--columns=", "--dpi=", "--wrap=", "--top-level-division=", "--number-offset="}
+
+func validateArgs(args []string) error {
+	for _, a := range args {
+		if plainArgs[a] {
+			continue
+		}
+		ok := false
+		for _, p := range valueArgs {
+			if v, found := strings.CutPrefix(a, p); found {
+				pathy := p == "--highlight-style=" || p == "--pdf-engine="
+				ok = !(pathy && strings.ContainsAny(v, `/\`))
+			}
+		}
+		if !ok {
+			return fmt.Errorf("pandoc argument %q is not allowed (presentation options only, e.g. --toc, --toc-depth=2, --number-sections, --variable=k:v)", a)
+		}
+	}
+	return nil
+}
+
 type Input struct {
 	Engagement store.Engagement
 	Findings   []*finding.Finding
 	Cfg        config.Config
+	// Attachment reads "attachments/<file>" of a finding (nil: images are
+	// dropped). Only these files are ever embedded into a report.
+	Attachment func(f *finding.Finding, rel string) ([]byte, bool)
 }
 
 // ordered returns findings by severity (config order), then ID.
@@ -172,42 +215,11 @@ func reasons(f *finding.Finding, cfg config.Config) [][3]string {
 	return out
 }
 
-func cell(s string) string {
-	s = strings.ReplaceAll(strings.TrimSpace(s), "|", `\|`)
-	return strings.ReplaceAll(s, "\n", "<br>")
-}
-
-// Markdown renders the report as GFM for pandoc.
-func Markdown(in Input) string {
-	var b strings.Builder
-	for _, f := range in.ordered() {
-		m := f.Meta
-		fmt.Fprintf(&b, "# %s %s\n\n| | |\n|---|---|\n", m.ID, m.Title)
-		for _, r := range summary(f, in.Cfg) {
-			fmt.Fprintf(&b, "| %s | %s |\n", cell(r.Label), cell(r.Value))
-		}
-		if rs := reasons(f, in.Cfg); len(rs) > 0 {
-			b.WriteString("\n**CVSS explanation**\n\n| Metric | Value | Explanation |\n|---|---|---|\n")
-			for _, r := range rs {
-				fmt.Fprintf(&b, "| %s | %s | %s |\n", cell(r[0]), cell(r[1]), cell(r[2]))
-			}
-		}
-		b.WriteString("\n")
-		for _, s := range f.Sections {
-			body := strings.Trim(s.Body, "\n")
-			if strings.TrimSpace(body) == "" {
-				continue
-			}
-			fmt.Fprintf(&b, "## %s\n\n%s\n\n", s.Name, body)
-		}
-	}
-	return b.String()
-}
-
 type Result struct {
 	Filename, ContentType string
 	Data                  []byte
-	URL                   string // Confluence push: the created page
+	Pushed                bool   // published remotely (Confluence) instead of a file
+	URL                   string // Confluence push: the page
 }
 
 // Runner executes exporters. Dir is .yars/exporters.

@@ -567,6 +567,25 @@ func (s *Store) restore(prev map[string][]byte) {
 	}
 }
 
+var attachmentRe = regexp.MustCompile(`^attachments/[A-Za-z0-9][A-Za-z0-9._-]*$`)
+
+// ReadAttachment returns a file from the finding's attachments/ folder
+// (one level, no dot-files; max 20 MB). Reads go through os.Root.
+func (s *Store) ReadAttachment(engID, dir, rel string) ([]byte, error) {
+	if !ValidID(engID) || !ValidID(dir) || !attachmentRe.MatchString(rel) || strings.Contains(rel, "..") {
+		return nil, ErrNotFound
+	}
+	p := path.Join("engagements", engID, "findings", dir, rel)
+	if s.rootErr != nil {
+		return nil, s.rootErr
+	}
+	info, err := s.root.Lstat(p)
+	if err != nil || !info.Mode().IsRegular() || info.Size() > 20<<20 {
+		return nil, ErrNotFound
+	}
+	return s.readFile(p)
+}
+
 // Chat returns the finding's chat messages (empty when none).
 func (s *Store) Chat(engID, dir string) ([]chat.Message, error) {
 	if !ValidID(engID) || !ValidID(dir) {

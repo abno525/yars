@@ -3,6 +3,7 @@ package export
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,8 +11,11 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"path"
 	"regexp"
 	"strings"
+
+	"yars/internal/finding"
 
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/extension"
@@ -38,6 +42,26 @@ func macros(x string) string {
 			lang = `<ac:parameter ac:name="language">` + sub[1] + `</ac:parameter>`
 		}
 		return `<ac:structured-macro ac:name="code">` + lang + `<ac:plain-text-body><![CDATA[` + body + `]]></ac:plain-text-body></ac:structured-macro>`
+	})
+}
+
+var imgTag = regexp.MustCompile(`<img src="([^"]*)" alt="([^"]*)"(?: title="[^"]*")? ?/?>`)
+var attachmentRef = regexp.MustCompile(`^attachments/[A-Za-z0-9][A-Za-z0-9._-]*$`)
+var imageTypes = map[string]string{".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp"}
+
+// images inlines the finding's own attachments as data URIs and removes every
+// other image, so a report can never pull in server files or remote URLs.
+func images(x string, f *finding.Finding, in Input) string {
+	return imgTag.ReplaceAllStringFunc(x, func(m string) string {
+		sub := imgTag.FindStringSubmatch(m)
+		src, alt := html.UnescapeString(sub[1]), sub[2]
+		ct := imageTypes[strings.ToLower(path.Ext(src))]
+		if attachmentRef.MatchString(src) && ct != "" && in.Attachment != nil {
+			if data, ok := in.Attachment(f, src); ok {
+				return `<img src="data:` + ct + `;base64,` + base64.StdEncoding.EncodeToString(data) + `" alt="` + alt + `" />`
+			}
+		}
+		return `<em>[image removed: ` + alt + `]</em>`
 	})
 }
 
@@ -70,7 +94,7 @@ func XHTML(in Input, confluenceMacros bool) string {
 			}
 			var buf bytes.Buffer
 			md.Convert([]byte(body), &buf)
-			out := buf.String()
+			out := images(buf.String(), f, in)
 			if confluenceMacros {
 				out = macros(out)
 			}
@@ -96,35 +120,72 @@ func (r *Runner) confluence(ctx context.Context, e Exporter, in Input) (Result, 
 	if user == "" || token == "" {
 		return Result{}, fmt.Errorf("confluence credentials missing: set %s and %s on the server", c.UserEnv, c.TokenEnv)
 	}
+	base := strings.TrimRight(c.BaseURL, "/") + "/rest/api/content"
+	title := in.Engagement.Name + " — findings"
+	call := func(method, url string, body []byte) ([]byte, error) {
+		req, err := http.NewRequestWithContext(ctx, method, url, bytes.NewReader(body))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json")
+		req.SetBasicAuth(user, token)
+		resp, err := r.HTTP.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("confluence push failed: %v", errors.Unwrap(err))
+		}
+		defer resp.Body.Close()
+		data, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		if resp.StatusCode/100 != 2 {
+			var e struct{ Message string }
+			json.Unmarshal(data, &e)
+			msg := e.Message
+			for _, secret := range []string{token, user} { // never echo credentials
+				if secret != "" {
+					msg = strings.ReplaceAll(msg, secret, "***")
+				}
+			}
+			if len(msg) > 300 {
+				msg = msg[:300] + "…"
+			}
+			return nil, fmt.Errorf("confluence push failed: HTTP %d %s", resp.StatusCode, msg)
+		}
+		return data, nil
+	}
 	payload := map[string]any{
 		"type":  "page",
-		"title": in.Engagement.Name + " — findings",
+		"title": title,
 		"space": map[string]string{"key": c.Space},
 		"body":  map[string]any{"storage": map[string]string{"value": XHTML(in, true), "representation": "storage"}},
 	}
 	if c.ParentID != "" {
 		payload["ancestors"] = []map[string]string{{"id": c.ParentID}}
 	}
+	// re-publishing updates the existing page (Confluence titles are unique per space)
+	method, target := "POST", base
+	q := url.Values{"title": {title}, "spaceKey": {c.Space}, "expand": {"version"}}
+	if data, err := call("GET", base+"?"+q.Encode(), nil); err == nil {
+		var found struct {
+			Results []struct {
+				ID      string
+				Version struct{ Number int }
+			}
+		}
+		if json.Unmarshal(data, &found) == nil && len(found.Results) > 0 {
+			p := found.Results[0]
+			method, target = "PUT", base+"/"+url.PathEscape(p.ID)
+			payload["id"] = p.ID
+			payload["version"] = map[string]int{"number": p.Version.Number + 1}
+		}
+	}
 	body, _ := json.Marshal(payload)
-	req, err := http.NewRequestWithContext(ctx, "POST", strings.TrimRight(c.BaseURL, "/")+"/rest/api/content", bytes.NewReader(body))
+	data, err := call(method, target, body)
 	if err != nil {
 		return Result{}, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.SetBasicAuth(user, token)
-	resp, err := r.HTTP.Do(req)
-	if err != nil {
-		return Result{}, fmt.Errorf("confluence push failed: %v", errors.Unwrap(err))
-	}
-	defer resp.Body.Close()
-	data, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if resp.StatusCode/100 != 2 {
-		// the body may echo credentials: report only the status
-		return Result{}, fmt.Errorf("confluence push failed: HTTP %d", resp.StatusCode)
 	}
 	var out struct {
 		Links struct{ Base, Webui string } `json:"_links"`
 	}
 	json.Unmarshal(data, &out)
-	return Result{URL: out.Links.Base + out.Links.Webui}, nil
+	return Result{Pushed: true, URL: out.Links.Base + out.Links.Webui}, nil
 }

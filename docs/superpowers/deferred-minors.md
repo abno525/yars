@@ -60,3 +60,17 @@ Small issues found by the end-of-milestone reviews and deliberately left for the
 - Non-validation errors from creating a retest were shown raw (now routed to the generic error page — verify the copy).
 - Banner links to `/e/` when a hand-made retest engagement has no `source`.
 - Attachments aren't copied; section Markdown referencing `attachments/…` breaks in copies.
+
+## M8 Exporters
+- Formats with pandoc extensions (`docx+styles`) are rejected rather than supported.
+- `#` headings inside finding bodies render at the same level as finding titles (breaks TOC).
+- Control characters (ANSI escapes from pasted output) make Confluence storage XML invalid; task-list checkboxes may be rejected by Confluence.
+- CLI `yars export`: `--mark/--as` validated after writing; marking failures exit 0; unknown dirs silently dropped; config load errors show as "unknown exporter"; flags after the engagement are treated as dirs.
+- Duplicate `finding=` values duplicate a finding in the report.
+- Client disconnect is reported as "pandoc timed out"; a full stderr cap can stall pandoc until the timeout.
+- Script exporter JSON has capitalised engagement keys (`ID`, `Name`).
+- `safePath` rejects a missing file literally named `..foo`; weak path-escape tests (depend on /etc/hostname).
+- Content types rely on the system mime table (octet-stream fallback).
+- No limit on concurrent exports (100 MB buffers each).
+- Confluence push embeds images as data URIs, which Confluence may not render (needs the attachments API).
+- This pandoc build can't run docx under `--sandbox`; the fallback runs unsandboxed (images/HTML are pre-sanitised).

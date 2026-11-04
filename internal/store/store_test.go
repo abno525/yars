@@ -250,6 +250,22 @@ func TestWriteAbortsIfRepoMoved(t *testing.T) {
 	}
 }
 
+func TestReadAttachment(t *testing.T) {
+	s, dir := withEngagement(t)
+	f, _ := s.CreateFinding("2026-11-acme", "SQL injection", alice)
+	att := filepath.Join(dir, "engagements", "2026-11-acme", "findings", f.Dir, "attachments")
+	os.MkdirAll(att, 0o755)
+	os.WriteFile(filepath.Join(att, "a.png"), []byte("img"), 0o644)
+	if b, err := s.ReadAttachment("2026-11-acme", f.Dir, "attachments/a.png"); err != nil || string(b) != "img" {
+		t.Fatalf("%q %v", b, err)
+	}
+	for _, bad := range []string{"../finding.md", "attachments/../finding.md", "finding.md", "attachments/.hidden", "attachments/sub/a.png"} {
+		if _, err := s.ReadAttachment("2026-11-acme", f.Dir, bad); err == nil {
+			t.Errorf("%s readable", bad)
+		}
+	}
+}
+
 func TestUpdateSectionUnchangedIsNoop(t *testing.T) {
 	s, dir := withEngagement(t)
 	f, _ := s.CreateFinding("2026-11-acme", "SQL injection", alice)

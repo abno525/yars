@@ -27,6 +27,7 @@ import (
 	"yars/internal/auth"
 	"yars/internal/config"
 	"yars/internal/export"
+	"yars/internal/finding"
 	"yars/internal/gitrepo"
 	"yars/internal/gitserve"
 	"yars/internal/index"
@@ -102,15 +103,20 @@ func cmdExport(args []string, out io.Writer) (int, error) {
 	if len(picked) == 0 {
 		return 2, fmt.Errorf("no findings selected")
 	}
-	in := export.Input{Engagement: e, Cfg: cfg}
+	dirOf := map[*finding.Finding]string{}
+	in := export.Input{Engagement: e, Cfg: cfg, Attachment: func(f *finding.Finding, rel string) ([]byte, bool) {
+		b, err := st.ReadAttachment(e.ID, dirOf[f], rel)
+		return b, err == nil
+	}}
 	for _, p := range picked {
 		in.Findings = append(in.Findings, p.F)
+		dirOf[p.F] = p.Dir
 	}
 	res, err := run.Run(context.Background(), *ex, in)
 	if err != nil {
 		return 1, err
 	}
-	if res.URL != "" {
+	if res.Pushed {
 		fmt.Fprintln(out, "published:", res.URL)
 	} else {
 		dst := *outPath
