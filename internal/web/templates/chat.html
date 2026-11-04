@@ -59,7 +59,7 @@
 
 {{define "chat_msg"}}
 <div class="msg">
-  <div class="msg-head"><strong>{{.User}}</strong>{{if .Section}} <span class="tag">{{.Section}}</span>{{end}} <span class="muted">{{.Time}}</span></div>
   <div class="md">{{.HTML}}</div>
+  <div class="msg-head"><strong>{{.User}}</strong>{{if .Section}} <a class="tag" href="#s-{{.Anchor}}" title="Go to {{.Section}}">{{.Section}}</a>{{end}} <span class="muted">{{.Time}}</span></div>
 </div>
 {{end}}

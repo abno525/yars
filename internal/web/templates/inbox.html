@@ -3,10 +3,9 @@
   <tbody>
   {{range .}}
     <tr>
-      <td class="muted">{{.EngName}}</td>
-      <td class="fid"><a href="{{fpath .EngID .Dir}}">{{.ID}}</a></td>
       <td><a href="{{fpath .EngID .Dir}}">{{.Title}}</a></td>
       <td>{{if .Severity}}<span class="pill sev-{{.Severity}}">{{.Severity}}</span>{{end}}</td>
+      <td class="muted">{{.EngName}} · <span class="fid">{{.ID}}</span></td>
       <td class="muted">{{.Author}}</td>
     </tr>
   {{else}}

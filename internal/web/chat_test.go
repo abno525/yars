@@ -38,6 +38,18 @@ func TestChatPostAndList(t *testing.T) {
 	}
 }
 
+// A message shows the comment first, then who wrote it, then the section,
+// which links to that section's panel.
+func TestChatMessageLayout(t *testing.T) {
+	e := setup(t)
+	b := e.do(t, "bob", "POST", fpath+"/chat", url.Values{"text": {"Impact overstated?"}, "section": {"Steps to Reproduce"}}, nil).Body.String()
+	msg := b[strings.Index(b, `class="msg"`):]
+	text, who, sec := strings.Index(msg, "Impact overstated?"), strings.Index(msg, "<strong>bob</strong>"), strings.Index(msg, `href="#s-steps-to-reproduce"`)
+	if text < 0 || !(text < who && who < sec) {
+		t.Fatalf("order text %d user %d section %d:\n%s", text, who, sec, msg)
+	}
+}
+
 // A collapsed (resolved) thread still shows what the comment said.
 func TestResolvedThreadShowsComment(t *testing.T) {
 	e := setup(t)

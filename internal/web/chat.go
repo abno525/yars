@@ -14,6 +14,7 @@ import (
 type chatMsg struct {
 	ID, User, Time, Section string
 	Excerpt                 string // one-line plain text, shown on collapsed threads
+	Anchor                  string // the section panel's id suffix, for jumping to it
 	HTML                    template.HTML
 }
 
@@ -79,7 +80,7 @@ func chatHash(msgs []chat.Message) string {
 }
 
 func (s *Server) chatMsg(m chat.Message) chatMsg {
-	return chatMsg{ID: m.ID, User: m.User, Time: m.TS.Local().Format("2006-01-02 15:04"), Section: m.Section, Excerpt: excerpt(m.Text), HTML: s.renderMD(m.Text)}
+	return chatMsg{ID: m.ID, User: m.User, Time: m.TS.Local().Format("2006-01-02 15:04"), Section: m.Section, Anchor: anchor(m.Section), Excerpt: excerpt(m.Text), HTML: s.renderMD(m.Text)}
 }
 
 func (s *Server) chatFor(ref store.FindingRef, msgs []chat.Message) chatView {
