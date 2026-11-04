@@ -169,12 +169,30 @@ func (s *Store) addSubmodule(id, msg string, a gitrepo.Author) error {
 		if gm != "" && !strings.HasSuffix(gm, "\n") {
 			gm += "\n"
 		}
-		gm += fmt.Sprintf("[submodule \"engagements/%s\"]\n\tpath = engagements/%s\n\turl = ../e/%s\n\tbranch = main\n", id, id, id)
+		gm += SubmoduleEntry(id)
 		if err := s.writeFile(".gitmodules", []byte(gm)); err != nil {
 			return err
 		}
 	}
-	return s.repo.Commit([]string{".gitmodules", "engagements/" + id}, msg, a)
+	paths := []string{".gitmodules", "engagements/" + id}
+	if err := s.repo.Commit(paths, msg, a); err != nil {
+		// leave the main repo exactly as it was
+		s.repo.Unstage(paths)
+		if b == nil {
+			s.root.Remove(".gitmodules")
+		} else {
+			s.writeFile(".gitmodules", b)
+		}
+		return err
+	}
+	return nil
+}
+
+// SubmoduleEntry is the .gitmodules section for an engagement. ignore = all
+// keeps local commits in the main repo from picking up pointer changes the
+// server would refuse (the server moves pointers itself).
+func SubmoduleEntry(id string) string {
+	return fmt.Sprintf("[submodule \"engagements/%s\"]\n\tpath = engagements/%s\n\turl = ../e/%s\n\tbranch = main\n\tignore = all\n", id, id, id)
 }
 
 // newEngagementRepo turns engagements/<id> (already holding files) into its

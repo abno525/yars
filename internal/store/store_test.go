@@ -98,6 +98,31 @@ func TestEngagementIsOwnRepo(t *testing.T) {
 	}
 }
 
+// If adding the engagement to the main repo fails, the main repo is left
+// exactly as it was (a dirty main repo would refuse every settings push).
+func TestCreateEngagementRollsBackMain(t *testing.T) {
+	s, dir := withEngagement(t)
+	before, _ := os.ReadFile(filepath.Join(dir, ".gitmodules"))
+	lock := filepath.Join(dir, ".git", "index.lock")
+	os.WriteFile(lock, nil, 0o644)
+	if err := s.CreateEngagement(Engagement{ID: "beta", Name: "B"}, alice); err == nil {
+		t.Fatal("expected failure")
+	}
+	os.Remove(lock)
+	if after, _ := os.ReadFile(filepath.Join(dir, ".gitmodules")); string(after) != string(before) {
+		t.Fatalf(".gitmodules left changed:\n%s", after)
+	}
+	if st := git(t, dir, "status", "--porcelain"); st != "" {
+		t.Fatalf("main repo dirty:\n%s", st)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "engagements", "beta")); err == nil {
+		t.Fatal("half-created engagement left behind")
+	}
+	if err := s.CreateEngagement(Engagement{ID: "beta", Name: "B"}, alice); err != nil {
+		t.Fatalf("retry: %v", err)
+	}
+}
+
 // The main repo's pointers catch up in one commit; a second sync is a no-op.
 func TestSyncPointers(t *testing.T) {
 	s, dir := withEngagement(t)

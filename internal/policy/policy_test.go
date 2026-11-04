@@ -117,7 +117,12 @@ func (f *fx) pushAs(u, as string, edit func(dir string)) []string {
 	edit(f.clone)
 	git(f.t, f.clone, "add", "-A")
 	git(f.t, f.clone, "-c", "user.name="+as, "-c", "user.email="+as+"@yars.local", "commit", "-qm", "change", "--allow-empty")
-	newRev := git(f.t, f.clone, "rev-parse", "HEAD")
+	return f.check(u, git(f.t, f.clone, "rev-parse", "HEAD"))
+}
+
+// check returns the problems with pushing commit newRev (made in the clone) as u.
+func (f *fx) check(u, newRev string) []string {
+	f.t.Helper()
 	srv := f.repo()
 	git(f.t, srv.Dir, "fetch", "-q", "--no-recurse-submodules", f.clone, "+HEAD:refs/test/candidate")
 	old, _ := srv.Head()
@@ -350,8 +355,11 @@ func TestPolicyMainRepo(t *testing.T) {
 	git(t, other, "init", "-q")
 	git(t, other, "commit", "-q", "--allow-empty", "-m", "x")
 	sha := git(t, other, "rev-parse", "HEAD")
+	// build the commit with plumbing (porcelain ignores submodules here)
 	git(t, f.clone, "update-index", "--cacheinfo", "160000,"+sha+",engagements/acme")
-	if ps := f.push("dora", func(string) {}); !has(ps, "server") {
+	tree := git(t, f.clone, "write-tree")
+	rev := git(t, f.clone, "-c", "user.name=dora", "-c", "user.email=dora@yars.local", "commit-tree", tree, "-p", "HEAD", "-m", "move pointer")
+	if ps := f.check("dora", rev); !has(ps, "server") {
 		t.Fatalf("pointer moved by push: %v", ps)
 	}
 }

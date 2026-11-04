@@ -61,8 +61,13 @@ func legacyItems(dir string) []string {
 	}
 	ents, _ := os.ReadDir(filepath.Join(dir, "engagements"))
 	for _, e := range ents {
-		if e.IsDir() && store.ValidID(e.Name()) && !ownRepo(dir, e.Name()) {
+		if !e.IsDir() || !store.ValidID(e.Name()) {
+			continue
+		}
+		if !ownRepo(dir, e.Name()) {
 			items = append(items, "engagements/"+e.Name()+" (not its own repository yet)")
+		} else if !registered(dir, e.Name()) {
+			items = append(items, "engagements/"+e.Name()+" (not registered in the main repository)")
 		}
 	}
 	for _, fd := range findingDirs(dir) {
@@ -358,20 +363,55 @@ func splitEngagements(r *gitrepo.Repo, out io.Writer) error {
 				return err
 			}
 		}
-		if !strings.Contains(string(gm), `[submodule "`+p+`"]`) {
+		fmt.Fprintln(out, "engagement", id, "is now its own repository")
+	}
+	// Register every engagement repository (converted now or by an earlier,
+	// interrupted run): it needs a commit, a .gitmodules entry and a pointer.
+	ents, _ = os.ReadDir(filepath.Join(r.Dir, "engagements"))
+	orig := gm
+	gm = append([]byte(nil), gm...)
+	for _, e := range ents {
+		id := e.Name()
+		if !e.IsDir() || !store.ValidID(id) || !ownRepo(r.Dir, id) {
+			continue
+		}
+		p, abs := "engagements/"+id, filepath.Join(r.Dir, "engagements", id)
+		if head, _ := gitIn(abs, "rev-parse", "-q", "--verify", "HEAD"); head == "" {
+			// an engagement folder with no files still gets a first commit
+			if _, err := gitIn(abs, "-c", "user.name="+system.Name, "-c", "user.email="+system.Email, "commit", "-q", "--allow-empty", "-m", "engagement "+id+": start"); err != nil {
+				return err
+			}
+		}
+		entry := strings.Contains(string(gm), `[submodule "`+p+`"]`)
+		if !entry {
 			if len(gm) > 0 && gm[len(gm)-1] != '\n' {
 				gm = append(gm, '\n')
 			}
-			gm = append(gm, fmt.Sprintf("[submodule %q]\n\tpath = %s\n\turl = ../e/%s\n\tbranch = main\n", p, p, id)...)
+			gm = append(gm, store.SubmoduleEntry(id)...)
 		}
-		paths = append(paths, p)
-		fmt.Fprintln(out, "engagement", id, "is now its own repository")
+		if link, _ := r.Gitlink("HEAD", p); !entry || link == "" {
+			paths = append(paths, p)
+		}
 	}
 	if len(paths) == 0 {
 		return nil
 	}
-	if err := os.WriteFile(filepath.Join(r.Dir, ".gitmodules"), gm, 0o644); err != nil {
+	gmPath := filepath.Join(r.Dir, ".gitmodules")
+	if err := os.WriteFile(gmPath, gm, 0o644); err != nil {
 		return err
 	}
-	return r.Commit(append([]string{".gitmodules"}, paths...), "migrate: one repository per engagement", system)
+	if err := r.Commit(append([]string{".gitmodules"}, paths...), "migrate: one repository per engagement", system); err != nil {
+		os.WriteFile(gmPath, orig, 0o644) // a re-run finishes the job
+		return err
+	}
+	return nil
+}
+
+// registered reports whether the main repo points at engagements/<id> and
+// .gitmodules has its entry.
+func registered(dir, id string) bool {
+	p := "engagements/" + id
+	gm, _ := os.ReadFile(filepath.Join(dir, ".gitmodules"))
+	tree, _ := gitIn(dir, "ls-tree", "HEAD", "--", p)
+	return strings.Contains(string(gm), `[submodule "`+p+`"]`) && strings.HasPrefix(tree, "160000 ")
 }

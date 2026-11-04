@@ -37,6 +37,9 @@ func treeHash(t *testing.T, root string) map[string][32]byte {
 	t.Helper()
 	out := map[string][32]byte{}
 	filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err == nil && d.IsDir() && d.Name() == ".git" {
+			return filepath.SkipDir // git maintains its own files in the background
+		}
 		if err == nil && !d.IsDir() {
 			b, _ := os.ReadFile(p)
 			out[p] = sha256.Sum256(b)

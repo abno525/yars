@@ -14,6 +14,23 @@ import (
 	"yars/internal/store"
 )
 
+// The hook maps GIT_DIR to its engagement even when the data path goes
+// through a symlink (git hands the hook the physical path).
+func TestEngOfGitDirSymlink(t *testing.T) {
+	real := t.TempDir()
+	os.MkdirAll(filepath.Join(real, "engagements", "acme", ".git"), 0o755)
+	link := filepath.Join(t.TempDir(), "data")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skip("no symlinks here")
+	}
+	if got := engOfGitDir(link, filepath.Join(real, "engagements", "acme", ".git")); got != "acme" {
+		t.Fatalf("got %q", got)
+	}
+	if got := engOfGitDir(link, filepath.Join(real, ".git")); got != "" {
+		t.Fatalf("main repo mapped to %q", got)
+	}
+}
+
 // init creates the database next to the config: private and never in git.
 func TestInitCreatesDatabase(t *testing.T) {
 	dir := t.TempDir()

@@ -131,6 +131,34 @@ func TestAuthRequired(t *testing.T) {
 	if c := get("/git/e/acme/info/refs?service=git-upload-pack", "", ""); c != 401 {
 		t.Errorf("engagement repo without auth: %d", c)
 	}
+	// without a login nothing tells which engagements exist
+	if c := get("/git/e/nope/info/refs?service=git-upload-pack", "", ""); c != 401 {
+		t.Errorf("unknown engagement without auth: %d", c)
+	}
+	// engagement repos are reachable only through /git/e/<id> (which sets
+	// them up with the push checks), never through the main repo's URL
+	for _, p := range []string{"/git/yars/engagements/acme/info/refs?service=git-receive-pack", "/git/yars/engagements/acme/HEAD"} {
+		if c := get(p, "alice", "pw"); c != 404 {
+			t.Errorf("%s: %d", p, c)
+		}
+	}
+}
+
+// An engagement repo's hook names its engagement, so the hook never has to
+// guess the repo from paths (which symlinks can make differ).
+func TestEngagementHookNamesEngagement(t *testing.T) {
+	_, r := setup(t)
+	gs := &Server{Repo: r, HookCmd: "'/bin/yars' hook pre-receive --data '/d'"}
+	if err := gs.Setup(); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(filepath.Join(r.Dir, "engagements", "acme", ".git", "hooks", "pre-receive"))
+	if !strings.Contains(string(b), "--data '/d' --eng acme") {
+		t.Fatalf("engagement hook:\n%s", b)
+	}
+	if b, _ := os.ReadFile(filepath.Join(r.Dir, ".git", "hooks", "pre-receive")); strings.Contains(string(b), "--eng") {
+		t.Fatalf("main hook names an engagement:\n%s", b)
+	}
 }
 
 func TestSetupHardening(t *testing.T) {

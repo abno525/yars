@@ -86,11 +86,16 @@ func (s *Server) setupRepo(r *gitrepo.Repo) error {
 		}
 	}
 	if s.HookCmd != "" {
+		cmd := s.HookCmd
+		// an engagement repo's hook names its engagement (ids are [A-Za-z0-9._-])
+		if filepath.Dir(r.Dir) == filepath.Join(s.Repo.Dir, "engagements") && engIDRe.MatchString(filepath.Base(r.Dir)) {
+			cmd += " --eng " + filepath.Base(r.Dir)
+		}
 		hook := filepath.Join(hooks, "pre-receive")
 		if err := os.MkdirAll(hooks, 0o755); err != nil {
 			return err
 		}
-		if err := os.WriteFile(hook, []byte("#!/bin/sh\nexec "+s.HookCmd+"\n"), 0o755); err != nil {
+		if err := os.WriteFile(hook, []byte("#!/bin/sh\nexec "+cmd+"\n"), 0o755); err != nil {
 			return err
 		}
 	}
@@ -144,11 +149,22 @@ func (s *Server) check(user, pw string) (config.User, bool) {
 	return u, ok
 }
 
+// mainServicePath accepts only git's own request paths under the main
+// repo's URL, so nested repositories (engagements/<id>) can't be reached
+// through it.
+func mainServicePath(rest string) bool {
+	switch rest {
+	case "", "/info/refs", "/git-upload-pack", "/git-receive-pack", "/HEAD":
+		return true
+	}
+	return strings.HasPrefix(rest, "/objects/") && !strings.Contains(rest, "..")
+}
+
 // route maps a request path to its repository and URL root: /git/yars is
 // the main repo, /git/e/<id> an engagement repo.
 func (s *Server) route(p string) (*gitrepo.Repo, string, bool) {
 	root := "/git/" + RepoName
-	if rest, ok := strings.CutPrefix(p, root); ok && (rest == "" || rest[0] == '/') {
+	if rest, ok := strings.CutPrefix(p, root); ok && mainServicePath(rest) {
 		return s.Repo, root, true
 	}
 	rest, ok := strings.CutPrefix(p, "/git/e/")
@@ -167,11 +183,8 @@ func (s *Server) route(p string) (*gitrepo.Repo, string, bool) {
 func (s *Server) Handler() http.Handler {
 	gitPath, gitErr := exec.LookPath("git")
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		repo, root, ok := s.route(r.URL.Path)
-		if !ok {
-			http.NotFound(w, r)
-			return
-		}
+		// authenticate first: without a login nothing reveals which
+		// engagements exist
 		name, pw, ok := r.BasicAuth()
 		var u config.User
 		valid := false
@@ -181,6 +194,11 @@ func (s *Server) Handler() http.Handler {
 		if !valid {
 			w.Header().Set("WWW-Authenticate", `Basic realm="yars", charset="UTF-8"`)
 			http.Error(w, "authentication required", http.StatusUnauthorized)
+			return
+		}
+		repo, root, ok := s.route(r.URL.Path)
+		if !ok {
+			http.NotFound(w, r)
 			return
 		}
 		if gitErr != nil {

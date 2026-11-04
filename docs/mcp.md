@@ -27,7 +27,7 @@ git submodule foreach git switch -q main      # each engagement is its own repo;
 claude mcp add yars -- yars mcp --data . --user alice
 ```
 
-Each engagement folder (`engagements/<id>`) is a separate git repository: commit and `git push` inside it. To work on one engagement only, clone it alone: `git clone https://alice:…@yars.example.com/git/e/<id>`.
+Each engagement folder (`engagements/<id>`) is a separate git repository: commit and `git push` inside it. Settings (`.yars/`, directors only) are pushed from the top folder; `git pull` there first, because the server moves the engagement pointers itself. To work on one engagement only, clone it alone: `git clone https://alice:…@yars.example.com/git/e/<id>`.
 
 The assistant edits your clone and commits as `alice`. Nothing reaches the team until you `git push`; the server then re-checks every change (paths, authorship, whether the finding may still be edited) and rejects anything the website would reject. Set `--role reviewer` (or director) if you are not a pentester, so the local checks match yours.
 

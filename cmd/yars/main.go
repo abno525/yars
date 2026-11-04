@@ -309,6 +309,13 @@ func engOfGitDir(dataDir, gitDir string) string {
 	if gitDir == "" {
 		return ""
 	}
+	// compare physical paths: git gives the hook a symlink-free GIT_DIR
+	if p, err := filepath.EvalSymlinks(dataDir); err == nil {
+		dataDir = p
+	}
+	if p, err := filepath.EvalSymlinks(gitDir); err == nil {
+		gitDir = p
+	}
 	rel, err := filepath.Rel(filepath.Join(dataDir, "engagements"), gitDir)
 	if err != nil {
 		return ""
@@ -330,6 +337,7 @@ func cmdHook(args []string, in io.Reader, errOut io.Writer) int {
 	}
 	fs := flag.NewFlagSet("hook", flag.ContinueOnError)
 	data := fs.String("data", ".", "data repo")
+	engFlag := fs.String("eng", "", "the engagement whose repository is pushed (set in its hook)")
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2
 	}
@@ -373,7 +381,14 @@ func cmdHook(args []string, in io.Reader, errOut io.Writer) int {
 	}
 	// which repository is being pushed to: the main repo or engagements/<id>
 	c := &policy.Checker{Repo: r, Cfg: cfg, Users: users, DB: d}
-	if eng := engOfGitDir(r.Dir, os.Getenv("GIT_DIR")); eng != "" {
+	eng := *engFlag
+	if eng == "" {
+		eng = engOfGitDir(r.Dir, os.Getenv("GIT_DIR"))
+	}
+	if eng != "" && !store.ValidID(eng) {
+		return fail("bad engagement " + eng)
+	}
+	if eng != "" {
 		er, err := gitrepo.Open(filepath.Join(r.Dir, "engagements", eng))
 		if err != nil {
 			return fail(err.Error())

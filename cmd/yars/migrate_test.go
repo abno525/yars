@@ -189,6 +189,41 @@ func TestMigrateInterrupted(t *testing.T) {
 	}
 }
 
+// Migration finishes what an earlier run left half done: an engagement that
+// is already its own repository but not registered in the main repo, and an
+// engagement folder with no files at all.
+func TestMigrateCompletesSplit(t *testing.T) {
+	dir := legacyRepo(t)
+	os.MkdirAll(filepath.Join(dir, "engagements", "empty", "findings"), 0o755)
+	var out bytes.Buffer
+	if err := cmdMigrate([]string{"--data", dir}, &out); err != nil {
+		t.Fatalf("%v\n%s", err, out.String())
+	}
+	// simulate an interrupted earlier run: acme is a repo but unregistered
+	gitIn(dir, "rm", "-q", "--cached", "engagements/acme")
+	gm, _ := os.ReadFile(filepath.Join(dir, ".gitmodules"))
+	os.WriteFile(filepath.Join(dir, ".gitmodules"), []byte(strings.Replace(string(gm), store.SubmoduleEntry("acme"), "", 1)), 0o644)
+	gitIn(dir, "-c", "user.name=x", "-c", "user.email=x@x", "commit", "-qam", "lose acme")
+	if items := legacyItems(dir); len(items) == 0 {
+		t.Fatal("unregistered engagement not detected")
+	}
+	if err := cmdMigrate([]string{"--data", dir}, &out); err != nil {
+		t.Fatalf("%v\n%s", err, out.String())
+	}
+	r, _ := gitrepo.Open(dir)
+	for _, e := range []string{"acme", "rt", "empty"} {
+		if link, _ := r.Gitlink("HEAD", "engagements/"+e); link == "" {
+			t.Errorf("%s not registered", e)
+		}
+	}
+	if gm, _ := os.ReadFile(filepath.Join(dir, ".gitmodules")); !strings.Contains(string(gm), "url = ../e/acme") || !strings.Contains(string(gm), "ignore = all") {
+		t.Fatalf(".gitmodules:\n%s", gm)
+	}
+	if st, _ := exec.Command("git", "-C", dir, "status", "--porcelain").Output(); len(st) != 0 {
+		t.Fatalf("main repo dirty:\n%s", st)
+	}
+}
+
 // serve refuses old data instead of silently showing every finding as draft.
 func TestServeRefusesLegacyData(t *testing.T) {
 	dir := legacyRepo(t)
