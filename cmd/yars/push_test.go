@@ -12,6 +12,7 @@ import (
 
 	"yars/internal/auth"
 	"yars/internal/config"
+	"yars/internal/db"
 	"yars/internal/finding"
 	"yars/internal/gitrepo"
 	"yars/internal/gitserve"
@@ -38,13 +39,16 @@ func newPushEnv(t *testing.T) *pushEnv {
 	r, _ := gitrepo.Open(dir)
 	hash, _ := auth.HashPassword("pw")
 	users := []config.User{{Username: "alice", Role: "pentester", PasswordHash: hash}, {Username: "dora", Role: "director", PasswordHash: hash}}
-	config.SaveUsers(dir, users) // untracked: stays on the server
-	st := store.New(r, config.Default())
+	d := openDB(t, dir)
+	for _, u := range users {
+		d.AddUser(u) // the database stays on the server
+	}
+	st := store.New(r, config.Default(), d)
 	alice := users[0]
 	st.CreateEngagement(store.Engagement{ID: "acme", Name: "ACME"}, users[1].GitAuthor())
 	st.CreateFinding("acme", "SQLi", alice.GitAuthor())
 
-	gs := &gitserve.Server{Repo: r, Auth: auth.New(users), HookCmd: hookCmd(bin, dir)}
+	gs := &gitserve.Server{Repo: r, Auth: auth.New(d), HookCmd: hookCmd(bin, dir)}
 	if err := gs.Setup(); err != nil {
 		t.Fatal(err)
 	}
@@ -99,11 +103,27 @@ func TestPushEndToEnd(t *testing.T) {
 	before, _ := p.repo.Head()
 	p.editFinding(func(f *finding.Finding) { f.SetMeta("status", "complete") })
 	out, err := p.git("push", "origin", "HEAD")
-	if err == nil || !strings.Contains(out, "remote: yars:") || !strings.Contains(out, "draft → complete") {
+	if err == nil || !strings.Contains(out, "remote: yars:") || !strings.Contains(out, "managed in YARS") {
 		t.Fatalf("forbidden push: err=%v\n%s", err, out)
 	}
 	if after, _ := p.repo.Head(); after != before {
 		t.Fatal("server HEAD moved after a rejected push")
+	}
+}
+
+// The hook reads workflow state from the database: once a finding is
+// approved, a pentester's push to it is refused.
+func TestPushLockedByDatabaseState(t *testing.T) {
+	p := newPushEnv(t)
+	d := p.st.DB()
+	if err := d.Tx(func(tx *db.Tx) error {
+		return tx.PutState("acme", "F-001", db.State{Status: "complete"})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	p.editFinding(func(f *finding.Finding) { f.SetSection("Impact", "late") })
+	if out, err := p.git("push", "origin", "HEAD"); err == nil || !strings.Contains(out, "complete") {
+		t.Fatalf("locked finding pushed: err=%v\n%s", err, out)
 	}
 }
 
@@ -134,7 +154,7 @@ func TestTokensUntracked(t *testing.T) {
 	if err := cmdInit([]string{dir}); err != nil {
 		t.Fatal(err)
 	}
-	config.SaveUsers(dir, []config.User{{Username: "alice", Role: "pentester"}})
+	openDB(t, dir).AddUser(config.User{Username: "alice", Role: "pentester"})
 	var out bytes.Buffer
 	if code, _ := cmdToken([]string{"add", "--data", dir, "mallory"}, &out); code == 0 {
 		t.Fatal("token for unknown user")

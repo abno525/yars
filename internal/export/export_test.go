@@ -39,7 +39,7 @@ func input(t *testing.T) Input {
 	high.SetMeta("cvss_reasons", map[string]string{"AC": "race with refresh"})
 	high.SetMeta("details", finding.OrderedMap([]string{"Location", "Business impact"}, map[string]string{"Location": "https://x/login\nparam user", "Business impact": "Account takeover"}))
 	rt := mk(t, "F-003", "XSS", "medium", "complete", nil)
-	rt.SetMeta("retest", finding.Retest{Source: "old/F-003-xss", Result: "not_fixed"})
+	rt.Meta.Retest = &finding.Retest{Source: "old/F-003-xss", Result: "not_fixed"} // state, filled from the database
 	return Input{Engagement: store.Engagement{ID: "acme", Name: "ACME Web", Client: "ACME"}, Findings: []*finding.Finding{low, high, rt}, Cfg: config.Default()}
 }
 

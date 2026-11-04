@@ -105,9 +105,11 @@ func New(r *gitrepo.Repo, cfg config.Config, d *db.DB) *Store {
 // DB is the database (nil on a local clone).
 func (s *Store) DB() *db.DB { return s.db }
 
-// contentHash identifies a version of finding.md; a clearance counts only
+// ContentHash identifies a version of finding.md; a clearance counts only
 // while the file still has the hash it was given for.
-func contentHash(raw []byte) string { return BodyHash(string(raw)) }
+func ContentHash(raw []byte) string { return BodyHash(string(raw)) }
+
+func contentHash(raw []byte) string { return ContentHash(raw) }
 
 // applyState fills the workflow fields of m from st.
 func applyState(m *finding.Meta, st db.State, hash string) {

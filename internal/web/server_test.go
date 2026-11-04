@@ -6,12 +6,14 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 
 	"yars/internal/auth"
 	"yars/internal/config"
+	"yars/internal/db"
 	"yars/internal/gitrepo"
 	"yars/internal/index"
 	"yars/internal/store"
@@ -38,7 +40,12 @@ func setup(t *testing.T) *env {
 		t.Fatal(err)
 	}
 	cfg := config.Default()
-	st := store.New(r, cfg)
+	d, err := db.Open(filepath.Join(t.TempDir(), "yars.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { d.Close() })
+	st := store.New(r, cfg, d)
 	a := gitrepo.Author{Name: "alice", Email: "alice@yars.local"}
 	if err := st.CreateEngagement(store.Engagement{ID: "acme", Name: "ACME Web"}, a); err != nil {
 		t.Fatal(err)
@@ -52,7 +59,12 @@ func setup(t *testing.T) *env {
 		{Username: "dora", Role: "director", PasswordHash: pwHash},
 		{Username: "carol", Role: "reviewer", PasswordHash: pwHash},
 	}
-	au := auth.New(users)
+	for _, u := range users {
+		if err := d.AddUser(u); err != nil {
+			t.Fatal(err)
+		}
+	}
+	au := auth.New(d)
 	s := &Server{Store: st, Index: index.New(st, r), Auth: au, Cfg: cfg}
 	e := &env{srv: s, h: s.Handler(), dir: dir, toks: map[string]string{}}
 	for _, u := range users {

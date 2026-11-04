@@ -17,7 +17,7 @@ claude mcp add --transport http yars https://yars.example.com/mcp \
   --header "Authorization: Bearer yars_…"
 ```
 
-Changes are committed on the server immediately, authored by you. `yars token list` / `yars token revoke --data … alice` manage tokens. Tokens are stored hashed in `.yars/tokens.yaml`, which is never committed.
+Content changes are committed on the server immediately, authored by you; workflow changes and chat go into the server's database. `yars token list` / `yars token revoke --data … alice` manage tokens. Tokens are stored hashed in the server's database (`.yars/yars.db`), which is never committed.
 
 ## Local: work on your clone
 
@@ -26,7 +26,9 @@ git clone https://alice:…@yars.example.com/git/yars findings && cd findings
 claude mcp add yars -- yars mcp --data . --user alice
 ```
 
-The assistant edits your clone and commits as `alice`. Nothing reaches the team until you `git push`; the server then re-checks every change (workflow, permissions, style rules) and rejects anything the website would reject. Set `--role reviewer` (or director) if you are not a pentester, so the local checks match yours.
+The assistant edits your clone and commits as `alice`. Nothing reaches the team until you `git push`; the server then re-checks every change (paths, authorship, whether the finding may still be edited) and rejects anything the website would reject. Set `--role reviewer` (or director) if you are not a pentester, so the local checks match yours.
+
+A clone holds **content only**. Workflow state (status, reviewers, clearances) and chat live in the server's database, so in local mode the `transition`, `reviewers`, `retest_result`, chat and resolve tools answer that you need the server — use the remote setup above for those.
 
 ## Tools
 
@@ -34,7 +36,7 @@ The assistant edits your clone and commits as `alice`. Nothing reaches the team 
 |---|---|
 | `list_engagements` | All engagements (pentests and retests) |
 | `list_findings` | Findings of an engagement; filter by status or severity |
-| `read_finding` | The raw `finding.md`, section base hashes, open chat threads, rule violations |
+| `read_finding` | Workflow state, the raw `finding.md` (content only), section base hashes, open chat threads, rule violations |
 | `create_finding` | New draft in an engagement |
 | `update_section` | Replace one `##` section (pass `base` from `read_finding` to avoid overwriting a colleague) |
 | `set_field` | `title`, `severity`, `cvss`, `cvss_reason.<METRIC>`, `details.<Row>`, `reviewers`, `retest_result` |

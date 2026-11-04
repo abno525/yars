@@ -1,0 +1,269 @@
+package main
+
+import (
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"io/fs"
+	"os"
+	"path"
+	"path/filepath"
+	"strings"
+
+	"gopkg.in/yaml.v3"
+
+	"yars/internal/chat"
+	"yars/internal/config"
+	"yars/internal/db"
+	"yars/internal/finding"
+	"yars/internal/gitrepo"
+	"yars/internal/store"
+)
+
+const chatUnion = "chat.jsonl merge=union"
+
+// findingDirs lists engagements/<eng>/findings/<dir> folders (repo-relative).
+func findingDirs(dir string) [][2]string {
+	var out [][2]string
+	engs, _ := os.ReadDir(filepath.Join(dir, "engagements"))
+	for _, e := range engs {
+		if !e.IsDir() || !store.ValidID(e.Name()) {
+			continue
+		}
+		fds, _ := os.ReadDir(filepath.Join(dir, "engagements", e.Name(), "findings"))
+		for _, f := range fds {
+			if f.IsDir() && store.ValidID(f.Name()) {
+				out = append(out, [2]string{e.Name(), f.Name()})
+			}
+		}
+	}
+	return out
+}
+
+func exists(p string) bool {
+	_, err := os.Lstat(p)
+	return err == nil
+}
+
+// legacyItems lists what in dir still uses the layout from before the
+// database (empty = nothing to migrate).
+func legacyItems(dir string) []string {
+	var items []string
+	for _, f := range []string{"users.yaml", "tokens.yaml"} {
+		if exists(filepath.Join(dir, ".yars", f)) {
+			items = append(items, ".yars/"+f)
+		}
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, ".gitattributes")); strings.Contains(string(b), chatUnion) {
+		items = append(items, ".gitattributes (chat merge rule)")
+	}
+	for _, fd := range findingDirs(dir) {
+		base := path.Join("engagements", fd[0], "findings", fd[1])
+		if exists(filepath.Join(dir, base, "chat.jsonl")) {
+			items = append(items, base+"/chat.jsonl")
+		}
+		if b, err := os.ReadFile(filepath.Join(dir, base, "finding.md")); err == nil {
+			if f, err := finding.Parse(b); err == nil {
+				if _, ok := f.Legacy(); ok {
+					items = append(items, base+"/finding.md (workflow state)")
+				}
+			}
+		}
+	}
+	return items
+}
+
+type legacyToken struct {
+	User    string `yaml:"user"`
+	Hash    string `yaml:"sha256"`
+	Created string `yaml:"created"`
+}
+
+// cmdMigrate moves accounts, workflow state and chat from the files into the
+// database: one database transaction, then one git commit. Running it again
+// changes nothing.
+func cmdMigrate(args []string, out io.Writer) error {
+	flags := flag.NewFlagSet("migrate", flag.ContinueOnError)
+	data := flags.String("data", ".", "data repo")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	r, err := gitrepo.Open(*data)
+	if err != nil {
+		return err
+	}
+	d, err := db.Open(db.Path(r.Dir))
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+
+	// 1. accounts and tokens
+	users, err := config.LoadUsers(r.Dir)
+	if err != nil {
+		return fmt.Errorf("users.yaml: %w", err)
+	}
+	for _, u := range users {
+		if _, ok, err := d.User(u.Username); err != nil {
+			return err
+		} else if !ok {
+			if err := d.AddUser(u); err != nil {
+				return err
+			}
+			fmt.Fprintln(out, "account", u.Username)
+		}
+	}
+	var toks []legacyToken
+	if b, err := os.ReadFile(filepath.Join(r.Dir, ".yars", "tokens.yaml")); err == nil {
+		if err := yaml.Unmarshal(b, &toks); err != nil {
+			return fmt.Errorf("tokens.yaml: %w", err)
+		}
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	for _, tk := range toks {
+		if _, ok, _ := d.TokenUser(tk.Hash); !ok {
+			if err := d.AddToken(tk.User, tk.Hash); err != nil {
+				return fmt.Errorf("token of %s: %w", tk.User, err)
+			}
+			fmt.Fprintln(out, "API token of", tk.User)
+		}
+	}
+
+	// 2. workflow state and chat
+	type rewrite struct {
+		rel        string
+		orig, next []byte
+	}
+	var rewrites []rewrite
+	var removed []string
+	err = d.Tx(func(tx *db.Tx) error {
+		for _, fd := range findingDirs(r.Dir) {
+			eng, base := fd[0], path.Join("engagements", fd[0], "findings", fd[1])
+			rel := base + "/finding.md"
+			raw, err := os.ReadFile(filepath.Join(r.Dir, rel))
+			if err != nil {
+				continue
+			}
+			f, err := finding.Parse(raw)
+			if err != nil {
+				fmt.Fprintln(out, "skip", rel+":", err)
+				continue
+			}
+			fid := f.Meta.ID
+			if l, ok := f.Legacy(); ok {
+				for _, k := range l.Keys {
+					if err := f.SetMeta(k, nil); err != nil {
+						return err
+					}
+				}
+				next := f.Bytes()
+				hash := store.ContentHash(next)
+				st := db.State{Status: l.Status}
+				for _, n := range l.Reviewers {
+					rv := db.Reviewer{Name: n}
+					for _, c := range l.ClearedBy {
+						if c == n {
+							rv.ClearedHash = hash // cleared for this content
+						}
+					}
+					st.Reviewers = append(st.Reviewers, rv)
+				}
+				if l.Returned != nil {
+					st.ReturnedBy, st.ReturnedReason = l.Returned.By, l.Returned.Reason
+				}
+				if l.Retest != nil {
+					st.RetestSource, st.RetestResult = l.Retest.Source, l.Retest.Result
+				}
+				if err := tx.PutState(eng, fid, st); err != nil {
+					return err
+				}
+				rewrites = append(rewrites, rewrite{rel, raw, next})
+				fmt.Fprintln(out, "state of", eng+"/"+fid)
+			}
+			cp := base + "/chat.jsonl"
+			if cb, err := os.ReadFile(filepath.Join(r.Dir, cp)); err == nil {
+				var have int
+				for _, m := range chat.Parse(cb) {
+					if err := tx.QueryRow("SELECT count(*) FROM chat WHERE id = ?", m.ID).Scan(&have); err != nil {
+						return err
+					}
+					if have == 0 {
+						if err := tx.AddMessage(eng, fid, m); err != nil {
+							return err
+						}
+					}
+				}
+				removed = append(removed, cp)
+				fmt.Fprintln(out, "chat of", eng+"/"+fid)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	// 3. files: strip state, drop chat files and the merge rule, ignore the
+	// database; one commit
+	var paths []string
+	restore := func() {
+		for _, rw := range rewrites {
+			os.WriteFile(filepath.Join(r.Dir, rw.rel), rw.orig, 0o644)
+		}
+	}
+	for _, rw := range rewrites {
+		if err := os.WriteFile(filepath.Join(r.Dir, rw.rel), rw.next, 0o644); err != nil {
+			restore()
+			return err
+		}
+		paths = append(paths, rw.rel)
+	}
+	for _, p := range removed {
+		if r.Tracked(p) {
+			paths = append(paths, p)
+		}
+		os.Remove(filepath.Join(r.Dir, p))
+	}
+	gaPath := filepath.Join(r.Dir, ".gitattributes")
+	if b, err := os.ReadFile(gaPath); err == nil && strings.Contains(string(b), chatUnion) {
+		var keep []string
+		for _, l := range strings.Split(string(b), "\n") {
+			if strings.TrimSpace(l) != chatUnion && l != "" {
+				keep = append(keep, l)
+			}
+		}
+		if len(keep) == 0 {
+			os.Remove(gaPath)
+		} else {
+			os.WriteFile(gaPath, []byte(strings.Join(keep, "\n")+"\n"), 0o644)
+		}
+		paths = append(paths, ".gitattributes")
+	}
+	if changed, err := writeIgnore(r.Dir); err != nil {
+		return err
+	} else if changed {
+		paths = append(paths, ".gitignore")
+	}
+	if len(paths) > 0 {
+		if err := r.Commit(paths, "migrate: workflow state and chat moved to the database", system); err != nil {
+			restore()
+			return err
+		}
+	}
+	for _, f := range []string{"users.yaml", "tokens.yaml"} {
+		p := filepath.Join(r.Dir, ".yars", f)
+		if r.Tracked(".yars/" + f) {
+			if err := r.Untrack(".yars/"+f, "stop tracking "+f+" (accounts live in the database)", system); err != nil {
+				return err
+			}
+		}
+		os.Remove(p)
+	}
+	if items := legacyItems(r.Dir); len(items) > 0 {
+		return fmt.Errorf("still not migrated: %s", strings.Join(items, ", "))
+	}
+	fmt.Fprintln(out, "migrated", r.Dir)
+	return nil
+}
