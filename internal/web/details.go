@@ -35,7 +35,7 @@ func (s *Server) detailsFor(ref store.FindingRef, typed map[int]string) detailsV
 	v := detailsView{Base: store.DetailsHash(ref.F.Meta), ViewURL: base, EditURL: base + "/edit", SaveURL: base,
 		ReadOnly: s.Store.Archived(ref.EngID)}
 	known := map[string]bool{}
-	for i, name := range s.Cfg.DetailsRows {
+	for i, name := range s.conf().DetailsRows {
 		val := d[name]
 		if t, ok := typed[i]; ok {
 			val = t
@@ -74,7 +74,7 @@ func (s *Server) detailsSave(w http.ResponseWriter, r *http.Request) {
 	r.ParseForm()
 	typed := map[int]string{}
 	values := map[string]string{}
-	for i, name := range s.Cfg.DetailsRows {
+	for i, name := range s.conf().DetailsRows {
 		f := "row_" + strconv.Itoa(i)
 		if r.PostForm.Has(f) {
 			typed[i] = r.PostForm.Get(f)

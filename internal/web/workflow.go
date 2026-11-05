@@ -198,7 +198,7 @@ func (s *Server) wfFor(ref store.FindingRef, r *http.Request) wfView {
 			NeedsReason: workflow.NeedsReason(a), Primary: !workflow.NeedsReason(a)}
 		if workflow.Gated(a) {
 			act.Gated, v.HasGated = true, true
-			if v.Gate = workflow.Gate(m, s.Cfg); len(v.Gate) > 0 {
+			if v.Gate = workflow.Gate(m, s.conf()); len(v.Gate) > 0 {
 				act.Disabled = true
 			}
 		}

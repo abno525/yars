@@ -1,0 +1,42 @@
+{{define "content"}}
+{{$t := .Tpl}}
+<div class="titlerow">
+  <div class="titlecol">
+    <nav class="crumbs"><a href="/templates">Templates</a><span class="sep" aria-hidden="true">/</span><span class="idchip">{{$t.Slug}}</span></nav>
+    <h1 title="{{$t.Title}}">{{$t.Title}}</h1>
+  </div>
+  <div class="actions">
+    <span class="mono usedcount">used {{$t.Used}}</span>
+    {{if $t.CanEdit}}<form method="post" action="/templates/{{$t.Slug}}/delete"><button class="btn danger w128" onclick="return confirm('Delete template?')">Delete</button></form>{{else}}<span class="slot w128"></span>{{end}}
+  </div>
+</div>
+{{if $t.CanEdit}}
+<form class="panel" method="post" action="/templates/{{$t.Slug}}">
+  <div class="panelhead"><h2>Template</h2><span class="pstate error" title="{{$t.Error}}">{{$t.Error}}</span></div>
+  <div class="fgrid tplmeta">
+    <label class="field">Title<input name="title" value="{{$t.Title}}" required></label>
+    <label class="field">Severity
+      <select name="severity">
+        <option value=""{{if not $t.Severity}} selected{{end}}>—</option>
+        {{range $t.Severities}}<option value="{{.}}"{{if eq . $t.Severity}} selected{{end}}>{{.}}</option>{{end}}
+      </select>
+    </label>
+    <label class="field">CVSS vector<input class="monoin" name="cvss" value="{{$t.CVSS}}"></label>
+    <div class="field"><span class="flabel">Score</span><span class="fvalue"><span class="tag score">{{score0 $t.Score}}</span>{{if $t.Severity}}<span class="tag sev-{{$t.Severity}}">{{$t.Severity}}</span>{{end}}</span></div>
+  </div>
+  <div class="pfoot flush"><button class="btn save sm w96">Save</button></div>
+</form>
+{{else}}
+<section class="panel">
+  <div class="panelhead"><h2>Template</h2></div>
+  <div class="fgrid tplmeta">
+    <div class="field"><span class="flabel">Severity</span><span class="fvalue">{{if $t.Severity}}<span class="tag sev-{{$t.Severity}}">{{$t.Severity}}</span>{{else}}—{{end}}</span></div>
+    <div class="field"><span class="flabel">CVSS vector</span><span class="fvalue mono" title="{{$t.CVSS}}">{{if $t.CVSS}}{{$t.CVSS}}{{else}}—{{end}}</span></div>
+    <div class="field"><span class="flabel">Score</span><span class="fvalue"><span class="tag score">{{score0 $t.Score}}</span></span></div>
+  </div>
+</section>
+{{end}}
+<div class="finding-main">
+  {{range $t.Panels}}{{template "panel" .}}{{end}}
+</div>
+{{end}}

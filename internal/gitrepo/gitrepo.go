@@ -8,7 +8,9 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 )
 
 type Author struct {
@@ -200,6 +202,78 @@ func (r *Repo) ListTree(rev, dir string) ([]string, error) {
 func (r *Repo) Show(rev, path string) ([]byte, error) {
 	out, err := r.run(nil, "cat-file", "blob", rev+":"+path)
 	return []byte(out), err
+}
+
+// LogEntry is one commit that touched a file, with the file's path in it.
+type LogEntry struct {
+	Hash, Author, Subject, Path string
+	Time                        time.Time
+}
+
+// LogFollow lists the commits touching p (following renames), newest
+// first: one git process.
+func (r *Repo) LogFollow(p string) ([]LogEntry, error) {
+	out, err := r.run(nil, "-c", "core.quotePath=false", "log", "--follow", "--name-only", "--format=%x1e%H%x1f%an%x1f%at%x1f%s", "--", p)
+	if err != nil {
+		return nil, err
+	}
+	var es []LogEntry
+	for _, chunk := range strings.Split(out, "\x1e") {
+		head, rest, _ := strings.Cut(chunk, "\n")
+		f := strings.Split(head, "\x1f")
+		if len(f) != 4 {
+			continue
+		}
+		e := LogEntry{Hash: f[0], Author: f[1], Subject: f[3]}
+		if sec, err := strconv.ParseInt(f[2], 10, 64); err == nil {
+			e.Time = time.Unix(sec, 0)
+		}
+		for _, l := range strings.Split(rest, "\n") {
+			if l = strings.TrimSpace(l); l != "" {
+				e.Path = l
+				break
+			}
+		}
+		es = append(es, e)
+	}
+	return es, nil
+}
+
+// Blobs reads files at revisions ("<rev>:<path>" each) in one git process;
+// a missing one is nil.
+func (r *Repo) Blobs(specs []string) ([][]byte, error) {
+	if len(specs) == 0 {
+		return nil, nil
+	}
+	cmd := exec.Command("git", "-C", r.Dir, "cat-file", "--batch")
+	cmd.Stdin = strings.NewReader(strings.Join(specs, "\n") + "\n")
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	spawned.Add(1)
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("git cat-file: %w: %s", err, strings.TrimSpace(stderr.String()))
+	}
+	out := stdout.Bytes()
+	res := make([][]byte, 0, len(specs))
+	for range specs {
+		nl := bytes.IndexByte(out, '\n')
+		if nl < 0 {
+			return nil, fmt.Errorf("git cat-file: short output")
+		}
+		hdr := strings.Fields(string(out[:nl]))
+		out = out[nl+1:]
+		if len(hdr) != 3 {
+			res = append(res, nil) // "<spec> missing"
+			continue
+		}
+		n, err := strconv.Atoi(hdr[2])
+		if err != nil || n+1 > len(out) {
+			return nil, fmt.Errorf("git cat-file: bad header %q", hdr)
+		}
+		res = append(res, bytes.Clone(out[:n]))
+		out = out[n+1:]
+	}
+	return res, nil
 }
 
 // Unstage removes paths from the index (best effort, used after a failed commit).

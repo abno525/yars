@@ -12,18 +12,23 @@
     </div>
   </div>
   <div class="actions">
-    <span class="slot w128"></span>
+    {{$fu := fpath .Eng.ID .Finding.Dir}}
+    {{if .CanMerge}}<a class="btn secondary w128" href="{{$fu}}/merge">Merge into</a>{{else}}<span class="slot w128"></span>{{end}}
+    {{if .Tpl.CanEdit}}<a class="btn secondary w152" href="{{$fu}}/template">Save as template</a>{{else}}<span class="slot w152"></span>{{end}}
+    <a class="btn secondary w128" href="{{$fu}}/history">History</a>
     {{if $wd}}<span class="slot w128"></span>{{else}}<a class="btn secondary w128" href="/e/{{.Eng.ID}}/export">Export</a>{{end}}
   </div>
 </div>
 {{template "archive_bar" .Archive}}
 {{if .Error}}<p class="error banner">{{.Error}}</p>{{end}}
 {{template "workflow_bar" .WF}}
+{{template "retest_panel" .Retest}}
 <div class="finding-grid" data-sse-url="/events?eng={{.Eng.ID}}&amp;f={{$f.Meta.ID}}">
   <div class="finding-main">
-    {{template "retest_panel" .Retest}}
     {{template "checks_panel" .Checks}}
+    {{if .Dups.Rows}}{{template "dups_panel" .Dups}}{{end}}
     {{template "details_panel" .Details}}
+    {{template "assets_panel" .Assets}}
     {{template "cvss_panel" .CVSS}}
     {{range .Panels}}{{template "panel" .}}{{end}}
   </div>
@@ -32,4 +37,19 @@
     {{template "chat_panel" .Chat}}
   </div>
 </div>
+<dialog class="redact" id="redact" aria-label="Redact">
+  <div class="panelhead">
+    <h2>Redact <span class="mono" data-redact-name></span></h2>
+    <div class="panel-tools">
+      <span class="mono rcount" data-redact-count>0</span>
+      <button type="button" class="btn ghost sm w96" data-redact-undo>Undo</button>
+    </div>
+  </div>
+  <div class="rstage"><canvas data-redact-canvas></canvas></div>
+  <div class="pfoot">
+    <span class="pstate error" data-redact-error></span>
+    <button type="button" class="btn secondary sm w96" data-redact-cancel>Cancel</button>
+    <button type="button" class="btn primary sm w112" data-redact-save>Save</button>
+  </div>
+</dialog>
 {{end}}

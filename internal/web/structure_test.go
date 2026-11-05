@@ -1,0 +1,130 @@
+package web
+
+import (
+	"net/http"
+	"net/url"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+)
+
+// structForm is the structure form as the page fills it from cfg.
+func (e *env) structForm() url.Values {
+	c := e.srv.conf()
+	v := url.Values{"section": c.Sections, "detail": c.DetailsRows, "severity": c.Severities, "report": c.ReportSections, "version": {c.CVSS.Version}}
+	for k, x := range c.CVSS.Standard {
+		v.Set("std_"+k, x)
+	}
+	return v
+}
+
+func TestStructurePage(t *testing.T) {
+	e := setup(t)
+	if rec := e.do(t, "alice", "GET", "/admin/structure", nil, nil); rec.Code != http.StatusForbidden {
+		t.Fatalf("non-admin %d", rec.Code)
+	}
+	b := e.do(t, "dora", "GET", "/admin/structure", nil, nil).Body.String()
+	for _, want := range []string{`class="atab on" href="/admin/structure"`, `name="section" value="Description"`, `name="detail" value="Location"`, `name="severity" value="critical"`, `name="report" value="Scope"`, `name="std_AV" value="N" checked`, "<th", `class="btn save w128"`} {
+		if !strings.Contains(b, want) {
+			t.Fatalf("missing %q:\n%s", want, b)
+		}
+	}
+	noInline(t, "structure", b)
+	// rating severities can't be renamed or removed
+	if !strings.Contains(b, `name="severity" value="critical" readonly`) {
+		t.Fatalf("critical editable:\n%s", b)
+	}
+}
+
+func TestStructureEditOps(t *testing.T) {
+	e := setup(t)
+	v := e.structForm()
+	v.Set("op", "up:section:1") // Impact above Description
+	rec := e.do(t, "dora", "POST", "/admin/structure", v, nil)
+	b := rec.Body.String()
+	if rec.Code != 200 || strings.Index(b, `value="Impact"`) > strings.Index(b, `value="Description"`) || !strings.Contains(b, "1 change") {
+		t.Fatalf("up %d:\n%s", rec.Code, b)
+	}
+	v = e.structForm()
+	v.Set("op", "add:detail")
+	v.Set("new_detail", "Affected users")
+	if b := e.do(t, "dora", "POST", "/admin/structure", v, nil).Body.String(); !strings.Contains(b, `name="detail" value="Affected users"`) {
+		t.Fatalf("add:\n%s", b)
+	}
+	v = e.structForm()
+	v.Set("op", "del:section:4")
+	if b := e.do(t, "dora", "POST", "/admin/structure", v, nil).Body.String(); strings.Contains(b, `name="section" value="References"`) {
+		t.Fatalf("del:\n%s", b)
+	}
+	// nothing was written by the edits
+	if _, err := os.Stat(filepath.Join(e.dir, ".yars", "config.yaml")); !os.IsNotExist(err) {
+		t.Fatal("config written before Save")
+	}
+}
+
+func TestStructureSave(t *testing.T) {
+	e := setup(t)
+	v := e.structForm()
+	v["section"] = []string{"Description", "Impact", "Steps to reproduce", "Remediation"}
+	v["severity"] = append(v["severity"], "note")
+	v.Set("std_PR", "L")
+	v.Set("std_A", "-")
+	v.Set("op", "save")
+	rec := e.do(t, "dora", "POST", "/admin/structure", v, nil)
+	if rec.Code != http.StatusSeeOther || !strings.HasPrefix(rec.Header().Get("Location"), "/admin/structure?saved=") {
+		t.Fatalf("save %d %q:\n%s", rec.Code, rec.Header().Get("Location"), rec.Body.String())
+	}
+	out, _ := exec.Command("git", "-C", e.dir, "log", "-1", "--format=%an|%s").Output()
+	if strings.TrimSpace(string(out)) != "dora|config: report structure" {
+		t.Fatalf("commit %q", out)
+	}
+	c := e.srv.conf()
+	if !slices.Contains(c.Sections, "Steps to reproduce") || !slices.Contains(c.Severities, "note") || c.CVSS.Standard["PR"] != "L" {
+		t.Fatalf("not applied: %+v", c)
+	}
+	if _, ok := c.CVSS.Standard["A"]; ok {
+		t.Fatalf("A still has a standard: %v", c.CVSS.Standard)
+	}
+	if !slices.Equal(e.srv.Store.Config().Sections, c.Sections) {
+		t.Fatal("store config not applied")
+	}
+	// the saved state shows the commit
+	b := e.do(t, "dora", "GET", rec.Header().Get("Location"), nil, nil).Body.String()
+	if !strings.Contains(b, "Saved") || !strings.Contains(b, ".yars/config.yaml") {
+		t.Fatalf("saved state:\n%s", b)
+	}
+	// new findings get the new sections
+	e.srv.Store.CreateFinding("acme", "XSS", e.authorOf(wAlice))
+	if b := e.do(t, "alice", "GET", "/e/acme/f/002", nil, nil).Body.String(); !strings.Contains(b, "<h2>Steps to reproduce</h2>") {
+		t.Fatal("new section not on new finding")
+	}
+}
+
+func TestStructureSaveInvalid(t *testing.T) {
+	e := setup(t)
+	v := e.structForm()
+	v["severity"] = []string{"critical", "high", "medium", "low"} // info missing
+	v.Set("op", "save")
+	rec := e.do(t, "dora", "POST", "/admin/structure", v, nil)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "info") {
+		t.Fatalf("invalid %d:\n%s", rec.Code, rec.Body.String())
+	}
+	if _, err := os.Stat(filepath.Join(e.dir, ".yars", "config.yaml")); !os.IsNotExist(err) {
+		t.Fatal("invalid config kept")
+	}
+	v = e.structForm()
+	v["section"] = []string{"A", "A"}
+	v.Set("op", "save")
+	if rec := e.do(t, "dora", "POST", "/admin/structure", v, nil); rec.Code != http.StatusBadRequest {
+		t.Fatalf("duplicate %d", rec.Code)
+	}
+	v = e.structForm()
+	v.Set("std_AV", "Q")
+	v.Set("op", "save")
+	if rec := e.do(t, "dora", "POST", "/admin/structure", v, nil); rec.Code != http.StatusBadRequest {
+		t.Fatalf("bad standard %d", rec.Code)
+	}
+}

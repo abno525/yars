@@ -22,6 +22,7 @@ import (
 	"yars/internal/events"
 	"yars/internal/export"
 	"yars/internal/gitrepo"
+	"yars/internal/history"
 	"yars/internal/index"
 	"yars/internal/render"
 	"yars/internal/rules"
@@ -60,6 +61,8 @@ type Server struct {
 	MigrateStatus func() []string
 
 	pages     map[string]*template.Template
+	cfgMu     sync.RWMutex // guards Cfg once Admin › Structure saves it
+	history   *history.Cache
 	started   time.Time
 	secretMu  sync.Mutex
 	aiTest    atomic.Pointer[aiTestResult] // the last Test on the AI page
@@ -67,6 +70,7 @@ type Server struct {
 	exports   exportCache
 	inboxes   inboxCache
 	md        *render.Markdown
+	presence  *presence // who has which section open in an editor
 	hookOnce  sync.Once
 	heartbeat time.Duration // event stream keep-alive (0 = defaultHeartbeat)
 	pageSize  int           // board rows per page (0 = boardPage)
@@ -90,6 +94,9 @@ type panel struct {
 	HTML, Current                                   template.HTML
 	Conflict                                        bool // saved meanwhile by someone else: Current is theirs
 	ReadOnly                                        bool // archived engagement: no Comment either
+	Presence                                        presView
+	Attach                                          *attachView
+	Diff                                            *conflictDiff
 }
 
 type page struct {
@@ -129,6 +136,16 @@ type page struct {
 	ExportV       exportView
 	Source        store.Engagement
 	Form          url.Values
+	Tpl           tplView     // templates, the template picker
+	History       historyView // a finding's history
+	ETab          engTabs     // the engagement tabs (Findings, Overview, Report, Settings)
+	Overview      overviewView
+	Report        reportView
+	EngSettings   engSettingsView
+	Assets        assetsView // a finding's affected assets
+	Dups          dupView    // possible duplicates of a finding
+	Merge         mergeView  // the Merge confirm page
+	CanMerge      bool       // the finding page: Merge into
 }
 
 var funcs = template.FuncMap{"join": strings.Join, "checkedIn": checkedIn, "retestLabel": workflow.RetestLabel, "fpath": findingURL,
@@ -141,6 +158,7 @@ func (s *Server) init() {
 	s.hookOnce.Do(func() {
 		s.started = time.Now()
 		s.md = render.New(render.Size)
+		s.history = history.NewCache(256)
 		if s.Tokens == nil && s.Store != nil && s.Store.DB() != nil {
 			s.Tokens = auth.NewTokens(s.Store.DB())
 		}
@@ -148,6 +166,7 @@ func (s *Server) init() {
 		if s.Events == nil {
 			s.Events = events.New()
 		}
+		s.presence = newPresence(func() *events.Hub { return s.Events })
 		if s.Store != nil {
 			s.Store.OnChange(s.publishChange)
 		}
@@ -158,7 +177,7 @@ func (s *Server) init() {
 	s.pages = map[string]*template.Template{}
 	// Shared templates are parsed into every page so partial handlers can
 	// execute their blocks via any page set.
-	shared := []string{"templates/layout.html", "templates/partials.html", "templates/cvss.html", "templates/details.html", "templates/workflow.html", "templates/chat.html", "templates/checks.html", "templates/retest.html", "templates/board.html"}
+	shared := []string{"templates/layout.html", "templates/partials.html", "templates/cvss.html", "templates/details.html", "templates/workflow.html", "templates/chat.html", "templates/checks.html", "templates/retest.html", "templates/board.html", "templates/assets.html"}
 	names, _ := fs.Glob(templateFS, "templates/*.html")
 	for _, n := range names {
 		if slices.Contains(shared, n) {
@@ -191,6 +210,12 @@ func (s *Server) Handler() http.Handler {
 	s.routesBulk(private)
 	s.routesAdmin(private)
 	s.routesSettings(private)
+	s.routesTemplates(private)
+	s.routesHistory(private)
+	s.routesEngTabs(private)
+	s.routesAssets(private)
+	s.routesAttach(private)
+	s.routesMerge(private)
 	private.HandleFunc("POST /e/{eng}/reopen", s.engReopen)
 
 	root := http.NewServeMux()
@@ -255,6 +280,21 @@ func (s *Server) fail(w http.ResponseWriter, err error) {
 }
 
 func canManage(u config.User) bool { return workflow.AtLeast(u, "director") }
+
+// conf is the current configuration.
+func (s *Server) conf() config.Config {
+	s.cfgMu.RLock()
+	defer s.cfgMu.RUnlock()
+	return s.Cfg
+}
+
+// setConfig applies a saved configuration to the pages and the store.
+func (s *Server) setConfig(c config.Config) {
+	s.cfgMu.Lock()
+	s.Cfg = c
+	s.cfgMu.Unlock()
+	s.Store.SetConfig(c)
+}
 
 func author(u config.User) gitrepo.Author { return store.AuthorOf(u) }
 
@@ -423,6 +463,10 @@ func (s *Server) engagement(w http.ResponseWriter, r *http.Request) {
 	if s.Git != nil {
 		p.CloneURL = gitBase(r) + "/git/e/" + p.Eng.ID
 	}
+	if err := s.tabsFor(p, "findings"); err != nil {
+		s.fail(w, err)
+		return
+	}
 	s.render(w, "engagement.html", p)
 }
 
@@ -449,7 +493,7 @@ func (s *Server) sectionNames(ref store.FindingRef) []string {
 		names = append(names, sec.Name)
 		seen[sec.Name] = true
 	}
-	for _, n := range s.Cfg.Sections {
+	for _, n := range s.conf().Sections {
 		if !seen[n] {
 			names = append(names, n)
 		}
@@ -461,8 +505,9 @@ func (s *Server) panelFor(ref store.FindingRef, name string) panel {
 	body, _ := ref.F.Section(name)
 	p := panel{Name: name, Anchor: anchor(name), Raw: strings.Trim(body, "\n"), Base: store.BodyHash(body)}
 	if strings.TrimSpace(body) != "" {
-		p.HTML = s.renderMD(body)
+		p.HTML = linkAttachments(s.renderMD(body), ref)
 	}
+	p.Presence = presView{URL: presURL(ref, name)}
 	base := findingURL(ref.EngID, ref.Dir) + "/s/" + url.PathEscape(name)
 	p.EditURL, p.SaveURL = base+"/edit", base
 	p.PreviewURL = "/e/" + ref.EngID + "/preview?" + url.Values{"f": {ref.Dir}, "s": {name}}.Encode()
@@ -487,6 +532,7 @@ func (s *Server) renderFinding(w http.ResponseWriter, r *http.Request, status in
 		return
 	}
 	p.Error = errMsg
+	p.Tpl.CanEdit = canEditTemplates(p.User)
 	stamp := s.chatStamp(p.Finding)
 	msgs, err := s.loadChat(p.Finding)
 	if err != nil {
@@ -497,6 +543,7 @@ func (s *Server) renderFinding(w http.ResponseWriter, r *http.Request, status in
 	locked := s.locked(r, p.Finding)
 	for _, n := range s.sectionNames(p.Finding) {
 		pn := s.panelFor(p.Finding, n)
+		pn.Presence = s.presenceFor(r, p.Finding, n)
 		pn.Open = p.Chat.BySection[n]
 		pn.ReadOnly = p.Archive.On
 		if locked {
@@ -508,6 +555,13 @@ func (s *Server) renderFinding(w http.ResponseWriter, r *http.Request, status in
 	p.CVSS.Locked = locked
 	p.Details = s.detailsFor(p.Finding, nil)
 	p.Details.Locked = locked
+	p.Assets = s.assetsFor(p.Finding, nil)
+	p.Assets.Locked = locked
+	p.CanMerge = s.canMerge(r, p.Finding)
+	if p.Dups, err = s.dupsFor(r, p.Finding); err != nil {
+		s.fail(w, err)
+		return
+	}
 	p.Retest = s.retestFor(r, p.Finding)
 	// fast rule errors also block submit/approve; show them in the bar
 	p.WF, p.Checks = s.wfGated(r, p.Finding)

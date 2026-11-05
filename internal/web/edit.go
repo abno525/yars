@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"yars/internal/auth"
+	"yars/internal/finding"
+	"yars/internal/history"
 	"yars/internal/store"
 )
 
@@ -19,7 +21,78 @@ func (s *Server) routesEdit(mux *http.ServeMux) {
 	mux.HandleFunc("GET /e/{eng}/f/{fid}/s/{section}", s.sectionView)
 	mux.HandleFunc("GET /e/{eng}/f/{fid}/s/{section}/edit", s.sectionEdit)
 	mux.HandleFunc("POST /e/{eng}/f/{fid}/s/{section}", s.sectionSave)
+	mux.HandleFunc("GET /e/{eng}/f/{fid}/s/{section}/presence", s.presenceGet)
+	mux.HandleFunc("POST /e/{eng}/f/{fid}/s/{section}/presence", s.presenceBeat)
 	mux.HandleFunc("POST /e/{eng}/preview", s.preview)
+}
+
+// conflictDiff sets the user's text beside the saved one after a conflict.
+type conflictDiff struct {
+	By, At             string // who last changed the section, and when
+	MineBase, TheirsAt string // short hashes: what the user started from, what is saved
+	Mine, Theirs       []histLine
+}
+
+// lastChange finds who last changed a section (the newest version whose
+// text differs from the one before it) — from the cached file history.
+func (s *Server) lastChange(ref store.FindingRef, section string) (string, string) {
+	vs, err := s.versions(ref)
+	if err != nil || len(vs) == 0 {
+		return "", ""
+	}
+	sec := func(raw []byte) string {
+		f, err := finding.Parse(raw)
+		if err != nil {
+			return "\x00"
+		}
+		b, _ := f.Section(section)
+		return strings.Trim(b, "\n")
+	}
+	cur, j := sec(vs[0].Raw), 0
+	for j+1 < len(vs) && sec(vs[j+1].Raw) == cur {
+		j++
+	}
+	return vs[j].Author, vs[j].Time.Local().Format("15:04")
+}
+
+func (s *Server) conflictOf(ref store.FindingRef, section, mine, base string) *conflictDiff {
+	theirs, _ := ref.F.Section(section)
+	d := &conflictDiff{MineBase: short(base), TheirsAt: short(store.BodyHash(theirs))}
+	d.By, d.At = s.lastChange(ref, section)
+	norm := func(t string) string { return strings.Trim(strings.ReplaceAll(t, "\r\n", "\n"), "\n") }
+	for _, l := range history.Diff(norm(theirs), norm(mine)) {
+		switch l.Op {
+		case '+':
+			d.Mine = append(d.Mine, histLine{Class: "add", Op: "+", Text: l.Text, No: l.New})
+		case '-':
+			d.Theirs = append(d.Theirs, histLine{Class: "add", Op: "+", Text: l.Text, No: l.Old})
+		default:
+			d.Mine = append(d.Mine, histLine{Text: l.Text, No: l.New})
+			d.Theirs = append(d.Theirs, histLine{Text: l.Text, No: l.Old})
+		}
+	}
+	return d
+}
+
+func short(h string) string {
+	if len(h) > 7 {
+		return h[:7]
+	}
+	return h
+}
+
+// editorPanel is a section's editor: the panel plus who else is editing it
+// and the finding's attachments.
+func (s *Server) editorPanel(w http.ResponseWriter, r *http.Request, ref store.FindingRef, name string) (panel, bool) {
+	p := s.panelFor(ref, name)
+	p.Presence = s.presenceFor(r, ref, name)
+	a, err := s.attachFor(ref)
+	if err != nil {
+		s.fail(w, err)
+		return p, false
+	}
+	p.Attach = a
+	return p, true
 }
 
 func (s *Server) newEngagementForm(w http.ResponseWriter, r *http.Request) {
@@ -75,9 +148,15 @@ func (s *Server) newFindingForm(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
+	q := r.URL.Query()
+	if p.Tpl, err = s.pickerView(p.Eng.ID, q.Get("q"), q.Get("t"), q.Get("mode")); err != nil {
+		s.fail(w, err)
+		return
+	}
 	s.render(w, "new_finding.html", p)
 }
 
+// newFinding creates a blank finding, or one from the picked template.
 func (s *Server) newFinding(w http.ResponseWriter, r *http.Request) {
 	eng := r.PathValue("eng")
 	p, err := s.base(r, eng)
@@ -88,12 +167,31 @@ func (s *Server) newFinding(w http.ResponseWriter, r *http.Request) {
 	r.ParseForm()
 	p.Form = r.PostForm
 	title := strings.TrimSpace(r.FormValue("title"))
-	if title == "" {
-		p.Error = "Title is required."
+	mode, tpl := r.FormValue("mode"), r.FormValue("template")
+	bad := func(msg string) {
+		p.Error = msg
+		if p.Tpl, err = s.pickerView(eng, r.FormValue("q"), tpl, mode); err != nil {
+			s.fail(w, err)
+			return
+		}
 		s.renderStatus(w, http.StatusBadRequest, "new_finding.html", p)
+	}
+	if title == "" {
+		bad("Title is required.")
 		return
 	}
-	ref, err := s.Store.CreateFinding(eng, title, author(p.User))
+	var ref store.FindingRef
+	if mode == "template" && tpl != "" {
+		ref, err = s.Store.CreateFindingFrom(eng, title, tpl, author(p.User))
+		if errors.Is(err, store.ErrNotFound) {
+			if _, eerr := s.Store.Engagement(eng); eerr == nil {
+				bad("Template " + tpl + " not found.")
+				return
+			}
+		}
+	} else {
+		ref, err = s.Store.CreateFinding(eng, title, author(p.User))
+	}
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -121,7 +219,10 @@ func (s *Server) sectionRef(w http.ResponseWriter, r *http.Request) (store.Findi
 
 func (s *Server) sectionView(w http.ResponseWriter, r *http.Request) {
 	if ref, name, ok := s.sectionRef(w, r); ok {
+		// Cancel comes here: the editor is closed
+		s.presence.leave(presKey{ref.EngID, ref.F.Meta.ID, name}, auth.UserFrom(r.Context()).Username)
 		p := s.panelFor(ref, name)
+		p.Presence = s.presenceFor(r, ref, name)
 		if s.locked(r, ref) {
 			p.EditURL = ""
 		}
@@ -131,7 +232,10 @@ func (s *Server) sectionView(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) sectionEdit(w http.ResponseWriter, r *http.Request) {
 	if ref, name, ok := s.sectionRef(w, r); ok && s.allowEdit(w, r, ref) {
-		s.exec(w, "finding.html", "editor", s.panelFor(ref, name))
+		s.presence.touch(presKey{ref.EngID, ref.F.Meta.ID, name}, auth.UserFrom(r.Context()).Username)
+		if p, ok := s.editorPanel(w, r, ref, name); ok {
+			s.exec(w, "finding.html", "editor", p)
+		}
 	}
 }
 
@@ -145,13 +249,23 @@ func (s *Server) sectionSave(w http.ResponseWriter, r *http.Request) {
 	err := s.Store.UpdateSection(ref.EngID, ref.Dir, name, body, r.FormValue("base"), u)
 	if errors.Is(err, store.ErrConflict) || errors.Is(err, store.ErrInvalidBody) {
 		// Re-show the editor with the user's text so nothing typed is lost.
-		p := s.panelFor(ref, name)
+		if cur, ferr := s.Store.Finding(ref.EngID, ref.Dir); ferr == nil {
+			ref = cur
+		}
+		p, ok := s.editorPanel(w, r, ref, name)
+		if !ok {
+			return
+		}
 		p.Raw, p.Error = body, err.Error()
 		status := http.StatusBadRequest
 		if errors.Is(err, store.ErrConflict) {
 			status = http.StatusConflict
-			p.Error = "Section changed by someone else"
 			p.Current, p.Conflict = p.HTML, true
+			p.Diff = s.conflictOf(ref, name, body, r.FormValue("base"))
+			p.Error = "Changed by someone else"
+			if p.Diff.By != "" {
+				p.Error = "Changed by " + p.Diff.By
+			}
 		}
 		s.execStatus(w, status, "finding.html", "editor", p)
 		return
@@ -160,12 +274,15 @@ func (s *Server) sectionSave(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
+	s.presence.leave(presKey{ref.EngID, ref.F.Meta.ID, name}, u.Username)
 	ref, err = s.Store.Finding(ref.EngID, ref.Dir)
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
-	s.exec(w, "finding.html", "panel", s.panelFor(ref, name))
+	p := s.panelFor(ref, name)
+	p.Presence = s.presenceFor(r, ref, name)
+	s.exec(w, "finding.html", "panel", p)
 }
 
 func (s *Server) preview(w http.ResponseWriter, r *http.Request) {
@@ -175,7 +292,11 @@ func (s *Server) preview(w http.ResponseWriter, r *http.Request) {
 	}
 	body := r.FormValue("body")
 	var buf strings.Builder
-	buf.WriteString(string(s.renderMD(body)))
+	h := s.renderMD(body)
+	if fid := r.URL.Query().Get("f"); fid != "" {
+		h = linkAttachments(h, store.FindingRef{EngID: r.PathValue("eng"), Dir: fid})
+	}
+	buf.WriteString(string(h))
 	// Live style hints for the section being edited (fast rules only).
 	if fid, sec := r.URL.Query().Get("f"), r.URL.Query().Get("s"); s.Rules != nil && fid != "" && sec != "" {
 		if ref, err := s.Store.Finding(r.PathValue("eng"), fid); err == nil {

@@ -245,11 +245,14 @@ var tools = []tool{
 				Sections    []sec             `json:"sections"`
 				CVSSBase    string            `json:"cvss_base"`
 				DetailsBase string            `json:"details_base"`
+				Assets      []finding.Asset   `json:"assets"`
+				AssetsBase  string            `json:"assets_base"`
 				CanEdit     bool              `json:"can_edit"`
 				Threads     []thread          `json:"open_threads"`
 				Violations  []rules.Violation `json:"violations"`
 			}{Engagement: ref.EngID, Dir: ref.Dir, State: st, Markdown: string(ref.F.Bytes()), CVSSBase: store.CVSSHash(ref.F.Meta),
-				DetailsBase: store.DetailsHash(ref.F.Meta), CanEdit: workflow.CanEdit(u, ref.F.Meta), Threads: []thread{}, Violations: []rules.Violation{}}
+				DetailsBase: store.DetailsHash(ref.F.Meta), Assets: append([]finding.Asset{}, ref.F.Meta.Assets...), AssetsBase: store.AssetsHash(ref.F.Meta),
+				CanEdit: workflow.CanEdit(u, ref.F.Meta), Threads: []thread{}, Violations: []rules.Violation{}}
 			for _, sct := range ref.F.Sections {
 				out.Sections = append(out.Sections, sec{sct.Name, store.BodyHash(sct.Body)})
 			}
@@ -307,9 +310,9 @@ var tools = []tool{
 			}
 			return "updated " + a.str("section"), nil
 		}},
-	{name: "set_field", action: "edit", desc: "Set a field: title, severity (no CVSS vector), cvss (vector or empty to clear), cvss_reason.<METRIC> (explanation for a non-standard value, e.g. cvss_reason.AC), details.<Row> (details table, e.g. details.Location), reviewers (comma-separated usernames), retest_result (fixed | not_fixed | partially_fixed). Use transition for status.",
+	{name: "set_field", action: "edit", desc: "Set a field: title, severity (no CVSS vector), cvss (vector or empty to clear), cvss_reason.<METRIC> (explanation for a non-standard value, e.g. cvss_reason.AC), details.<Row> (details table, e.g. details.Location), reviewers (comma-separated usernames), retest_result (fixed | not_fixed | partially_fixed), assets (the whole affected-asset list as JSON: [{\"host\":\"app.example\",\"url\":\"https://app.example/x\",\"port\":\"443\",\"note\":\"…\"}], [] to clear). Use transition for status.",
 		required: []param{pEng, pFinding, {"field", "field name"}, {"value", "new value"}},
-		optional: []param{{"base", "cvss_base (cvss, cvss_reason.*) or details_base (details.*) from read_finding; refuses the edit if someone changed it meanwhile"}},
+		optional: []param{{"base", "cvss_base (cvss, cvss_reason.*), details_base (details.*) or assets_base (assets) from read_finding; refuses the edit if someone changed it meanwhile"}},
 		run:      setField},
 	{name: "transition", action: "status", desc: "Move a finding through the workflow: submit (draft→verification), return (verification→draft, needs reason), clear or sign_off (reviewer sign-off), approve (director: verification→complete), reopen (complete→verification), report (director: complete→reported), withdraw (author while draft or verification, director also when complete or reported; needs reason; takes it out of the report), revise (author or director: withdrawn→draft).",
 		required: []param{pEng, pFinding, {"action", "submit | return | clear | sign_off | approve | reopen | report | withdraw | revise"}},
@@ -458,6 +461,12 @@ func setField(s *Server, ctx context.Context, u config.User, a args) (string, er
 		err = st.SetReviewers(eng, dir, names, u)
 	case field == "retest_result":
 		err = st.SetRetestResult(eng, dir, value, u)
+	case field == "assets":
+		var list []finding.Asset
+		if jerr := json.Unmarshal([]byte(value), &list); jerr != nil {
+			return "", fmt.Errorf("assets must be a JSON list of {host, url, port, note}: %v", jerr)
+		}
+		err = st.UpdateAssets(eng, dir, list, base, u)
 	case field == "status":
 		return "", errors.New("use the transition tool to change the status")
 	default:

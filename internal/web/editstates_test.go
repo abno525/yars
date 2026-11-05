@@ -1,0 +1,217 @@
+package web
+
+import (
+	"bytes"
+	"image"
+	"image/color"
+	"image/png"
+	"mime/multipart"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strings"
+	"testing"
+	"time"
+
+	"yars/internal/auth"
+	"yars/internal/config"
+	"yars/internal/events"
+	"yars/internal/gitrepo"
+	"yars/internal/store"
+)
+
+func testPNG(t *testing.T, c color.Color) []byte {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, 3, 3))
+	img.Set(1, 1, c)
+	var b bytes.Buffer
+	if err := png.Encode(&b, img); err != nil {
+		t.Fatal(err)
+	}
+	return b.Bytes()
+}
+
+// sendFile posts a multipart form with one file field "file".
+func (e *env) sendFile(t *testing.T, user, path, name string, data []byte) *httptest.ResponseRecorder {
+	t.Helper()
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	fw, _ := mw.CreateFormFile("file", name)
+	fw.Write(data)
+	mw.Close()
+	req := httptest.NewRequest("POST", path, &buf)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	req.Header.Set("HX-Request", "true")
+	req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: e.toks[user]})
+	rec := httptest.NewRecorder()
+	e.h.ServeHTTP(rec, req)
+	return rec
+}
+
+func TestPresence(t *testing.T) {
+	e := setup(t)
+	sub := e.srv.Events.Subscribe("acme", "F-001", 16)
+	defer e.srv.Events.Unsubscribe(sub)
+	// opening the editor says alice is editing Impact
+	if rec := e.do(t, "alice", "GET", fpath+"/s/Impact/edit", nil, nil); rec.Code != 200 || !strings.Contains(rec.Body.String(), `data-presence="/e/acme/f/001/s/Impact/presence"`) {
+		t.Fatalf("editor %d:\n%s", rec.Code, rec.Body.String())
+	} else if !strings.Contains(rec.Body.String(), `hx-get="/e/acme/f/001/s/Impact/presence" hx-target="this"`) {
+		// inside the editor form the slot would inherit the form's
+		// hx-target and replace the whole editor (typed text lost)
+		t.Fatalf("presence slot in the editor does not target itself:\n%s", rec.Body.String())
+	}
+	select {
+	case ev := <-sub.C():
+		if ev.Kind != events.Presence {
+			t.Fatalf("event %+v", ev)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("no presence event")
+	}
+	b := e.do(t, "bob", "GET", fpath, nil, nil).Body.String()
+	if !strings.Contains(b, `<strong>alice</strong> is editing`) {
+		t.Fatalf("bob does not see alice editing:\n%s", b)
+	}
+	if !strings.Contains(b, `hx-get="/e/acme/f/001/s/Impact/presence"`) || !strings.Contains(b, "sse:presence") {
+		t.Fatal("presence slot is not live")
+	}
+	noInline(t, "finding page", b)
+	// nobody is shown to themself
+	slot := e.do(t, "alice", "GET", fpath+"/s/Impact/presence", nil, nil).Body.String()
+	if strings.Contains(slot, "alice") || !strings.Contains(slot, `class="slot w216 pres"`) {
+		t.Fatalf("own presence:\n%s", slot)
+	}
+	// other sections are untouched
+	if s := e.do(t, "bob", "GET", fpath+"/s/Remediation/presence", nil, nil).Body.String(); strings.Contains(s, "alice") {
+		t.Fatalf("wrong section:\n%s", s)
+	}
+	// heartbeat keeps it; 60 s without one drops it
+	if rec := e.do(t, "alice", "POST", fpath+"/s/Impact/presence", url.Values{}, nil); rec.Code != http.StatusNoContent {
+		t.Fatalf("heartbeat %d", rec.Code)
+	}
+	e.srv.presence.now = func() time.Time { return time.Now().Add(61 * time.Second) }
+	if s := e.do(t, "bob", "GET", fpath+"/s/Impact/presence", nil, nil).Body.String(); strings.Contains(s, "alice") {
+		t.Fatalf("expired presence shown:\n%s", s)
+	}
+	e.srv.presence.now = time.Now
+	// saving ends it
+	e.do(t, "alice", "POST", fpath+"/s/Impact/presence", url.Values{}, nil)
+	ref, _ := e.srv.Store.Finding("acme", "F-001-sql-injection")
+	body, _ := ref.F.Section("Impact")
+	e.do(t, "alice", "POST", fpath+"/s/Impact", url.Values{"body": {"new"}, "base": {store.BodyHash(body)}}, nil)
+	if s := e.do(t, "bob", "GET", fpath+"/s/Impact/presence", nil, nil).Body.String(); strings.Contains(s, "alice") {
+		t.Fatalf("presence after save:\n%s", s)
+	}
+	js := e.do(t, "alice", "GET", "/static/sse.js", nil, nil).Body.String()
+	if !strings.Contains(js, "'presence'") {
+		t.Fatal("sse.js does not pass presence events on")
+	}
+}
+
+// An expired session answers htmx requests with 401 (the page keeps the
+// text as a draft); full pages still go to the login.
+func TestSessionExpiredHX(t *testing.T) {
+	e := setup(t)
+	rec := e.do(t, "", "POST", fpath+"/s/Impact", url.Values{"body": {"x"}}, map[string]string{"HX-Request": "true"})
+	if rec.Code != http.StatusUnauthorized || !strings.Contains(rec.Body.String(), "Session expired") {
+		t.Fatalf("htmx without session %d %q", rec.Code, rec.Body.String())
+	}
+	if rec := e.do(t, "", "GET", fpath, nil, nil); rec.Code != http.StatusSeeOther {
+		t.Fatalf("page without session %d", rec.Code)
+	}
+	js := e.do(t, "alice", "GET", "/static/app.js", nil, nil).Body.String()
+	for _, want := range []string{"401", "yars-draft:", "data-draft-restore", "Session expired"} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("app.js lacks %s", want)
+		}
+	}
+	ed := e.do(t, "alice", "GET", fpath+"/s/Impact/edit", nil, nil).Body.String()
+	if !strings.Contains(ed, `data-draft-restore`) || !strings.Contains(ed, `class="btn secondary sm w96 invisible"`) {
+		t.Fatalf("editor has no draft restore slot:\n%s", ed)
+	}
+}
+
+func TestAttachmentsUploadServeRedact(t *testing.T) {
+	e := setup(t)
+	ed := e.do(t, "alice", "GET", fpath+"/s/Impact/edit", nil, nil).Body.String()
+	for _, want := range []string{`class="attstrip`, `data-upload="/e/acme/f/001/attachments"`, `accept="image/*,text/*"`} {
+		if !strings.Contains(ed, want) {
+			t.Fatalf("editor lacks %s:\n%s", want, ed)
+		}
+	}
+	img := testPNG(t, color.White)
+	rec := e.sendFile(t, "alice", fpath+"/attachments", "shot one.png", img)
+	if rec.Code != 200 || rec.Header().Get("X-Yars-Name") != "shot-one.png" || !strings.Contains(rec.Body.String(), "shot-one.png") {
+		t.Fatalf("upload %d %q:\n%s", rec.Code, rec.Header().Get("X-Yars-Name"), rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `data-insert="![shot-one.png](attachments/shot-one.png)"`) || !strings.Contains(rec.Body.String(), `data-redact=`) {
+		t.Fatalf("strip:\n%s", rec.Body.String())
+	}
+	noInline(t, "strip", rec.Body.String())
+	if got := e.lastCommit(t); got != "alice|F-001: attach shot-one.png" {
+		t.Fatalf("commit %q", got)
+	}
+	get := e.do(t, "bob", "GET", fpath+"/attachments/shot-one.png", nil, nil)
+	if get.Code != 200 || get.Header().Get("Content-Type") != "image/png" || get.Header().Get("X-Content-Type-Options") != "nosniff" || !bytes.Equal(get.Body.Bytes(), img) {
+		t.Fatalf("serve %d %q", get.Code, get.Header().Get("Content-Type"))
+	}
+	if rec := e.sendFile(t, "alice", fpath+"/attachments", "page.html", []byte("<html><script>alert(1)</script>")); rec.Code != 200 {
+		t.Fatalf("text upload %d", rec.Code)
+	}
+	get = e.do(t, "bob", "GET", fpath+"/attachments/page.html", nil, nil)
+	if !strings.HasPrefix(get.Header().Get("Content-Type"), "text/plain") || !strings.Contains(get.Header().Get("Content-Security-Policy"), "sandbox") {
+		t.Fatalf("text served as %q csp %q", get.Header().Get("Content-Type"), get.Header().Get("Content-Security-Policy"))
+	}
+	if rec := e.sendFile(t, "alice", fpath+"/attachments", "a.zip", []byte("PK\x03\x04zzzz")); rec.Code != http.StatusUnsupportedMediaType {
+		t.Fatalf("zip %d", rec.Code)
+	}
+	if rec := e.sendFile(t, "alice", fpath+"/attachments", "big.txt", bytes.Repeat([]byte("a"), store.MaxAttachment+10)); rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("big %d", rec.Code)
+	}
+	// redact: the redacted image replaces the file in a new commit
+	black := testPNG(t, color.Black)
+	rec = e.sendFile(t, "alice", fpath+"/attachments/shot-one.png/redact", "blob", black)
+	if rec.Code != 200 {
+		t.Fatalf("redact %d %s", rec.Code, rec.Body.String())
+	}
+	if got := e.lastCommit(t); got != "alice|F-001: redact shot-one.png" {
+		t.Fatalf("commit %q", got)
+	}
+	if b := e.do(t, "bob", "GET", fpath+"/attachments/shot-one.png", nil, nil).Body.Bytes(); !bytes.Equal(b, black) {
+		t.Fatal("not replaced")
+	}
+	// the finding page links images to the attachment route and has the
+	// redact dialog
+	e.srv.Store.UpdateSection("acme", "F-001-sql-injection", "Impact", "![s](attachments/shot-one.png)", "", gitrepo.Author{Name: "alice", Email: "a@x"})
+	p := e.do(t, "bob", "GET", fpath, nil, nil).Body.String()
+	if !strings.Contains(p, `src="/e/acme/f/001/attachments/shot-one.png"`) || !strings.Contains(p, `id="redact"`) {
+		t.Fatalf("finding page:\n%s", p)
+	}
+	noInline(t, "finding page", p)
+	// read only: an archived engagement refuses uploads
+	if err := e.srv.Store.Archive("acme", config.User{Username: "dora", Role: "director"}); err != nil {
+		t.Fatal(err)
+	}
+	if rec := e.sendFile(t, "alice", fpath+"/attachments", "x.txt", []byte("x")); rec.Code != http.StatusForbidden {
+		t.Fatalf("archived %d", rec.Code)
+	}
+}
+
+func TestConflictDiffAndHTTPBlocks(t *testing.T) {
+	e := setup(t)
+	a := gitrepo.Author{Name: "carol", Email: "carol@yars.local"}
+	e.srv.Store.UpdateSection("acme", "F-001-sql-injection", "Impact", "line one\ntheirs", "", a)
+	rec := e.do(t, "bob", "POST", fpath+"/s/Impact", url.Values{"body": {"line one\nmine"}, "base": {"0000000000000000"}}, nil)
+	c := rec.Body.String()
+	for _, want := range []string{"Changed by carol", ">Show diff<", ">Mine<", `class="ln add"`, "mine", "theirs", ">Keep mine<", ">Take theirs<"} {
+		if !strings.Contains(c, want) {
+			t.Fatalf("conflict lacks %s:\n%s", want, c)
+		}
+	}
+	noInline(t, "conflict", c)
+	e.srv.Store.UpdateSection("acme", "F-001-sql-injection", "Impact", "```http\nGET /x HTTP/1.1\nHost: a\n```", "", a)
+	p := e.do(t, "bob", "GET", fpath, nil, nil).Body.String()
+	if !strings.Contains(p, `<pre class="http">`) || !strings.Contains(p, `<span class="h-m">GET</span>`) {
+		t.Fatalf("http block:\n%s", p)
+	}
+}

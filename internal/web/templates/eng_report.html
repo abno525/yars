@@ -1,0 +1,14 @@
+{{define "content"}}
+{{template "enghead" .}}
+<div class="reportgrid">
+  <div class="finding-main">
+    {{range .Report.Panels}}{{template "panel" .}}{{end}}
+  </div>
+  <aside class="sidecol">
+    <section class="panel compact">
+      <div class="panelhead"><h2>Severity totals</h2><span class="mono">{{.Report.Total}}</span></div>
+      {{template "chart" .Report.Severity}}
+    </section>
+  </aside>
+</div>
+{{end}}

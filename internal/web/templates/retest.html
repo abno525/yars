@@ -1,22 +1,33 @@
 {{define "retest_panel"}}
 {{with .}}
-<section class="panel retest-panel" id="retest">
-  <div class="panelhead">
-    <h2>Retest result</h2>
-    <span class="meta">
-      {{if .SourceMissing}}<span class="muted">{{.Source}} (not found)</span>{{else}}<a href="{{.SourceURL}}">{{.Source}}</a>
-      {{if .SourceSev}}<span class="tag sev-{{.SourceSev}}">{{.SourceSev}}</span>{{end}}
-      <span class="tag status-{{.SourceStatus}}">{{.SourceStatus}}</span>{{end}}
-    </span>
-  </div>
-  {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
-  {{if .Locked}}
+<div class="retestgrid" id="retest">
+  <section class="panel compact orig">
+    <div class="panelhead">
+      <div class="panelname"><h2>Original</h2><span class="mono clip" title="{{.Source}}">{{.Source}}</span>{{if not .SourceMissing}}<span class="tag status-{{.SourceStatus}}">{{.SourceStatus}}</span>{{end}}</div>
+      {{if .SourceMissing}}<span class="slot w96"></span>{{else}}<a class="btn secondary sm w96" href="{{.SourceURL}}">Open</a>{{end}}
+    </div>
+    {{if .SourceMissing}}<p class="muted">—</p>{{else}}
+    {{if or .Details .Vector .SourceSev}}
+    <table class="kv flush"><tbody>
+      {{if .SourceSev}}<tr><th scope="row">Severity</th><td><span class="tag sev-{{.SourceSev}}">{{.SourceSev}}</span></td></tr>{{end}}
+      {{range .Details}}<tr><th scope="row">{{.Name}}</th><td class="text">{{.Value}}</td></tr>{{end}}
+      {{if .Vector}}<tr><th scope="row">CVSS</th><td class="mono">{{.Vector}} · {{.Score}}</td></tr>{{end}}
+    </tbody></table>
+    {{end}}
+    {{range .Sections}}<div class="osec flush"><h3>{{.Name}}</h3><div class="md">{{.HTML}}</div></div>{{end}}
+    {{end}}
+  </section>
+  <section class="panel resultp{{if not .Result}} needs{{end}}">
+    <div class="panelhead"><h2>Retest result</h2><span class="req">{{if not .Result}}Needs result{{end}}</span></div>
+    {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+    {{if .Locked}}
     <p>{{range .Options}}{{if .Checked}}<span class="tag result-{{.Code}}">{{.Label}}</span>{{end}}{{end}}</p>
-  {{else}}
-  <form class="seg result-seg" hx-post="{{.URL}}" hx-trigger="change" hx-target="#retest" hx-swap="outerHTML">
-    {{range .Options}}<label><input type="radio" name="result" value="{{.Code}}"{{if .Checked}} checked{{end}}><span>{{.Label}}</span></label>{{end}}
-  </form>
-  {{end}}
-</section>
+    {{else}}
+    <form class="seg result-seg" role="radiogroup" aria-label="Retest result" hx-post="{{.URL}}" hx-trigger="change" hx-target="#retest" hx-swap="outerHTML">
+      {{range .Options}}<label><input type="radio" name="result" value="{{.Code}}"{{if .Checked}} checked{{end}}><span>{{.Label}}</span></label>{{end}}
+    </form>
+    {{end}}
+  </section>
+</div>
 {{end}}
 {{end}}

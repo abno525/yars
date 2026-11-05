@@ -44,6 +44,7 @@ function yarsToast(text, err) {
 // Errors that htmx does not swap (403, 500, …) become visible as a toast.
 document.addEventListener('htmx:responseError', function (evt) {
   var xhr = evt.detail.xhr;
+  if (xhr && xhr.status === 401) { yarsExpired(); return; }
   var text = (xhr && xhr.responseText || '').trim();
   if (/^\s*</.test(text)) {
     // DOMParser runs no scripts or handlers; only the text is kept
@@ -188,3 +189,221 @@ document.addEventListener('htmx:confirm', function (evt) {
   evt.preventDefault();
   if (window.confirm('Discard changes?')) evt.detail.issueRequest(true);
 });
+
+/* ---------- section editor states ---------- */
+
+// Unsaved: the editor's heading shows a dot while its text differs.
+document.addEventListener('input', function (evt) {
+  var form = evt.target.closest && evt.target.closest('form[data-guard]');
+  if (form) form.classList.toggle('dirty', yarsDirty(form.parentNode));
+});
+
+// Presence: an open editor tells the server every 20 s that it is still
+// open (the server forgets it after 60 s without one).
+setInterval(function () {
+  if (document.hidden) return;
+  document.querySelectorAll('form[data-presence]').forEach(function (f) {
+    fetch(f.getAttribute('data-presence'), {method: 'POST', credentials: 'same-origin', headers: {'HX-Request': 'true'}})
+      .then(function (r) { if (r.status === 401) yarsExpired(); })
+      .catch(function () { /* offline: the next beat tries again */ });
+  });
+}, 20000);
+
+// Session expired (an htmx request or a heartbeat got 401): every editor's
+// unsaved text is kept in localStorage under "yars-draft:<save URL>", and
+// the editor offers it back (Restore) when it is opened again.
+function yarsDraftKey(form) { return 'yars-draft:' + (form.getAttribute('hx-post') || ''); }
+function yarsDraft(form) {
+  try { var d = JSON.parse(localStorage.getItem(yarsDraftKey(form)) || 'null'); return d && typeof d.text === 'string' ? d : null; } catch (e) { return null; }
+}
+var yarsExpiredAt = 0;
+function yarsExpired() {
+  document.querySelectorAll('form[data-guard]').forEach(function (form) {
+    var ta = form.querySelector('textarea[name=body]');
+    if (!ta || !yarsDirty(form.parentNode)) return;
+    try { localStorage.setItem(yarsDraftKey(form), JSON.stringify({text: ta.value, at: Date.now()})); } catch (e) { /* not kept */ }
+    var st = form.querySelector('[data-pstate]');
+    if (st) { st.textContent = 'Session expired · not saved'; st.classList.add('error'); }
+  });
+  if (Date.now() - yarsExpiredAt > 10000) { yarsExpiredAt = Date.now(); yarsToast('Session expired', true); }
+}
+function yarsDraftOffer(root) {
+  var forms = root.matches && root.matches('form[data-guard]') ? [root] : root.querySelectorAll ? root.querySelectorAll('form[data-guard]') : [];
+  Array.prototype.forEach.call(forms, function (form) {
+    form.classList.toggle('dirty', yarsDirty(form.parentNode));
+    var btn = form.querySelector('[data-draft-restore]');
+    var ta = form.querySelector('textarea[name=body]');
+    if (!btn || !ta) return;
+    var d = yarsDraft(form);
+    if (!d || d.text === ta.value) return;
+    btn.classList.remove('invisible');
+    var st = form.querySelector('[data-pstate]');
+    if (st && !st.textContent) st.textContent = 'Draft ' + new Date(d.at).toTimeString().slice(0, 5);
+  });
+}
+document.addEventListener('htmx:load', function (evt) { yarsDraftOffer(evt.detail.elt); });
+document.addEventListener('click', function (evt) {
+  var b = evt.target.closest && evt.target.closest('[data-draft-restore]');
+  if (!b) return;
+  var form = b.closest('form');
+  var ta = form && form.querySelector('textarea[name=body]');
+  var d = form && yarsDraft(form);
+  if (!ta || !d) return;
+  ta.value = d.text;
+  ta.setAttribute('data-dirty', '');
+  form.classList.add('dirty');
+  b.classList.add('invisible');
+  if (window.htmx) htmx.trigger(ta, 'keyup');
+});
+// a saved or cancelled editor drops its draft
+document.addEventListener('htmx:afterRequest', function (evt) {
+  var el = evt.detail.elt;
+  if (!evt.detail.successful || !el || !el.matches) return;
+  var form = el.matches('form[data-guard]') ? el : el.hasAttribute('data-guard-cancel') ? el.closest('form[data-guard]') : null;
+  if (form) { try { localStorage.removeItem(yarsDraftKey(form)); } catch (e) { /* none kept */ } }
+});
+
+// Attachments: Add file uploads into the finding's attachments/ (images go
+// through Redact first, so a redacted original never reaches the server);
+// Insert puts the Markdown link at the cursor.
+function yarsInsert(form, text) {
+  var ta = form && form.querySelector('textarea[name=body]');
+  if (!ta) return;
+  var s = ta.selectionStart || 0, e = ta.selectionEnd || 0, v = ta.value;
+  var pre = s > 0 && v.charAt(s - 1) !== '\n' ? '\n' : '';
+  ta.value = v.slice(0, s) + pre + text + '\n' + v.slice(e);
+  ta.selectionStart = ta.selectionEnd = s + pre.length + text.length + 1;
+  ta.focus();
+  form.classList.add('dirty');
+  if (window.htmx) htmx.trigger(ta, 'keyup');
+}
+function yarsUpload(strip, url, blob, name, insert) {
+  var fd = new FormData();
+  fd.append('file', blob, name);
+  return fetch(url, {method: 'POST', body: fd, credentials: 'same-origin', headers: {'HX-Request': 'true'}}).then(function (r) {
+    return r.text().then(function (t) {
+      if (r.status === 401) { yarsExpired(); return false; }
+      if (!r.ok) { yarsToast(name + ': ' + (t.trim() || ('Error ' + r.status)), true); return false; }
+      var form = strip.closest('form');
+      // the server's own template output (all values escaped)
+      var tmp = document.createElement('div');
+      tmp.innerHTML = t;
+      var fresh = tmp.querySelector('.attstrip');
+      if (fresh) { strip.replaceWith(fresh); if (window.htmx) htmx.process(fresh); }
+      var md = r.headers.get('X-Yars-Insert');
+      if (insert && md) yarsInsert(form, md);
+      return true;
+    });
+  }).catch(function () { yarsToast('Connection lost', true); return false; });
+}
+document.addEventListener('change', function (evt) {
+  var inp = evt.target;
+  if (!inp.matches || !inp.matches('input[data-file]')) return;
+  var strip = inp.closest('.attstrip');
+  var f = inp.files && inp.files[0];
+  inp.value = '';
+  if (!strip || !f) return;
+  if (f.size > 10 * 1024 * 1024) { yarsToast(f.name + ': larger than 10 MB', true); return; }
+  if (/^image\/(png|jpeg|gif|webp|bmp)$/.test(f.type)) {
+    yarsRedactOpen({file: f, name: f.name, type: f.type, strip: strip, url: strip.getAttribute('data-upload'), upload: true});
+    return;
+  }
+  yarsUpload(strip, strip.getAttribute('data-upload'), f, f.name, true);
+});
+document.addEventListener('click', function (evt) {
+  var b = evt.target.closest && evt.target.closest('[data-insert], [data-redact]');
+  if (!b) return;
+  if (b.hasAttribute('data-insert')) { yarsInsert(b.closest('form'), b.getAttribute('data-insert')); return; }
+  var name = b.getAttribute('data-name') || '';
+  var type = /\.jpe?g$/i.test(name) ? 'image/jpeg' : /\.webp$/i.test(name) ? 'image/webp' : 'image/png';
+  yarsRedactOpen({src: b.getAttribute('data-src'), name: name, type: type, strip: b.closest('.attstrip'), url: b.getAttribute('data-redact'), upload: false});
+});
+
+// Redact: draw black boxes on the image in a canvas; Save sends the
+// redacted copy (or, for a new file without boxes, the file itself).
+var yarsRx = null;
+function yarsRedactDraw() {
+  var r = yarsRx;
+  var ctx = r.cv.getContext('2d');
+  ctx.drawImage(r.img, 0, 0);
+  ctx.fillStyle = '#000000';
+  r.boxes.forEach(function (b) { ctx.fillRect(b.x, b.y, b.w, b.h); });
+  if (r.drag) {
+    ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#F26B1D';
+    ctx.lineWidth = Math.max(2, r.cv.width / 400);
+    ctx.setLineDash([8, 6]);
+    ctx.strokeRect(r.drag.x, r.drag.y, r.drag.w, r.drag.h);
+    ctx.setLineDash([]);
+  }
+  r.dlg.querySelector('[data-redact-count]').textContent = r.boxes.length + (r.boxes.length === 1 ? ' box' : ' boxes');
+}
+function yarsRedactClose() {
+  if (!yarsRx) return;
+  if (yarsRx.objURL) URL.revokeObjectURL(yarsRx.objURL);
+  if (yarsRx.dlg.open) yarsRx.dlg.close();
+  yarsRx = null;
+}
+function yarsRedactOpen(o) {
+  var dlg = document.getElementById('redact');
+  if (!dlg || !dlg.showModal) {
+    if (o.upload) yarsUpload(o.strip, o.url, o.file, o.name, true);
+    return;
+  }
+  var img = new Image();
+  var objURL = o.file ? URL.createObjectURL(o.file) : '';
+  img.onload = function () {
+    var cv = dlg.querySelector('[data-redact-canvas]');
+    cv.width = img.naturalWidth;
+    cv.height = img.naturalHeight;
+    yarsRx = {o: o, img: img, cv: cv, dlg: dlg, boxes: [], drag: null, objURL: objURL};
+    dlg.querySelector('[data-redact-name]').textContent = o.name;
+    dlg.querySelector('[data-redact-error]').textContent = '';
+    dlg.querySelector('[data-redact-save]').disabled = false;
+    yarsRedactDraw();
+    dlg.showModal();
+  };
+  img.onerror = function () { if (objURL) URL.revokeObjectURL(objURL); yarsToast(o.name + ': not an image', true); };
+  img.src = objURL || (o.src + (o.src.indexOf('?') < 0 ? '?' : '&') + 't=' + Date.now());
+}
+function yarsRedactPoint(evt) {
+  var cv = yarsRx.cv, rect = cv.getBoundingClientRect();
+  return {x: (evt.clientX - rect.left) * cv.width / rect.width, y: (evt.clientY - rect.top) * cv.height / rect.height};
+}
+document.addEventListener('pointerdown', function (evt) {
+  if (!yarsRx || evt.target !== yarsRx.cv) return;
+  var p = yarsRedactPoint(evt);
+  yarsRx.start = p;
+  yarsRx.drag = {x: p.x, y: p.y, w: 0, h: 0};
+  yarsRx.cv.setPointerCapture(evt.pointerId);
+});
+document.addEventListener('pointermove', function (evt) {
+  if (!yarsRx || !yarsRx.drag) return;
+  var p = yarsRedactPoint(evt), s = yarsRx.start;
+  yarsRx.drag = {x: Math.min(s.x, p.x), y: Math.min(s.y, p.y), w: Math.abs(p.x - s.x), h: Math.abs(p.y - s.y)};
+  yarsRedactDraw();
+});
+document.addEventListener('pointerup', function () {
+  if (!yarsRx || !yarsRx.drag) return;
+  var d = yarsRx.drag;
+  yarsRx.drag = null;
+  if (d.w > 2 && d.h > 2) yarsRx.boxes.push(d);
+  yarsRedactDraw();
+});
+document.addEventListener('click', function (evt) {
+  if (!yarsRx || !evt.target.closest) return;
+  if (evt.target.closest('[data-redact-undo]')) { yarsRx.boxes.pop(); yarsRedactDraw(); return; }
+  if (evt.target.closest('[data-redact-cancel]')) { yarsRedactClose(); return; }
+  var save = evt.target.closest('[data-redact-save]');
+  if (!save) return;
+  var r = yarsRx;
+  var done = function (ok) { if (ok) yarsRedactClose(); else save.disabled = false; };
+  save.disabled = true;
+  if (r.o.upload && r.boxes.length === 0) { yarsUpload(r.o.strip, r.o.url, r.o.file, r.o.name, true).then(done); return; }
+  r.cv.toBlob(function (blob) {
+    if (!blob) { r.dlg.querySelector('[data-redact-error]').textContent = 'Not saved'; save.disabled = false; return; }
+    yarsUpload(r.o.strip, r.o.url, blob, r.o.name, r.o.upload).then(done);
+  }, r.o.type || 'image/png', 0.92);
+});
+document.addEventListener('close', function (evt) {
+  if (yarsRx && evt.target === yarsRx.dlg) yarsRedactClose();
+}, true);

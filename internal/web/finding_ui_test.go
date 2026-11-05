@@ -246,7 +246,9 @@ func TestFindingPageNoInlineStyles(t *testing.T) {
 	e := setup(t)
 	b := e.do(t, "alice", "GET", fpath, nil, nil).Body.String()
 	noInline(t, "draft", b)
-	if !strings.Contains(b, `class="slot w128"`) || !strings.Contains(b, `class="btn secondary w128" href="/e/acme/export"`) {
+	// a pentester gets an empty slot where Save as template is; History fills
+	// the slot it used to keep
+	if !strings.Contains(b, `class="slot w152"`) || !strings.Contains(b, `class="btn secondary w128" href="/e/acme/f/001/history"`) || !strings.Contains(b, `class="btn secondary w128" href="/e/acme/export"`) {
 		t.Fatalf("title row slots:\n%s", b)
 	}
 	e.toVerification(t)

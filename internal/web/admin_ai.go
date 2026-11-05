@@ -86,7 +86,7 @@ func (s *Server) aiStored() (config.AIConfig, string) {
 func (s *Server) aiPage(w http.ResponseWriter, r *http.Request, status int, errMsg string) {
 	s.adminPage(w, r, "ai", status, func(p *page) error {
 		stored, key := s.aiStored()
-		eff := s.Cfg.AI
+		eff := s.conf().AI
 		if stored.Provider != "" {
 			eff.Provider = stored.Provider
 		}
@@ -96,7 +96,7 @@ func (s *Server) aiPage(w http.ResponseWriter, r *http.Request, status int, errM
 		if stored.Model != "" {
 			eff.Model = stored.Model
 		}
-		v := aiAdmin{BaseURL: eff.BaseURL, Model: eff.Model, EnvName: s.Cfg.AI.APIKeyEnv, Error: errMsg, Test: s.aiTest.Load()}
+		v := aiAdmin{BaseURL: eff.BaseURL, Model: eff.Model, EnvName: eff.APIKeyEnv, Error: errMsg, Test: s.aiTest.Load()}
 		if key != "" {
 			v.KeyEnding = ending(key)
 		}

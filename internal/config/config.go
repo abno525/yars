@@ -18,11 +18,14 @@ import (
 )
 
 type Config struct {
-	Severities  []string   `yaml:"severities"`
-	Sections    []string   `yaml:"sections"`
-	DetailsRows []string   `yaml:"details_rows"`
-	CVSS        CVSSConfig `yaml:"cvss"`
-	AI          AIConfig   `yaml:"ai"`
+	Severities  []string `yaml:"severities"`
+	Sections    []string `yaml:"sections"`
+	DetailsRows []string `yaml:"details_rows"`
+	// ReportSections are the engagement's report-level sections (executive
+	// summary, scope, …), stored as report/<slug>.md in the engagement.
+	ReportSections []string   `yaml:"report_sections"`
+	CVSS           CVSSConfig `yaml:"cvss"`
+	AI             AIConfig   `yaml:"ai"`
 }
 
 // AIConfig selects the LLM used by AI rules. The key itself is read from the
@@ -116,10 +119,11 @@ var Roles = []string{"pentester", "reviewer", "director"}
 
 func Default() Config {
 	return Config{
-		Severities:  []string{"critical", "high", "medium", "low", "info"},
-		Sections:    []string{"Description", "Impact", "Steps to Reproduce", "Remediation", "References"},
-		DetailsRows: []string{"Location", "Cause", "Result", "Attack condition", "Business impact"},
-		CVSS:        CVSSConfig{Version: "3.1", Standard: defaultStandard()},
+		Severities:     []string{"critical", "high", "medium", "low", "info"},
+		Sections:       []string{"Description", "Impact", "Steps to Reproduce", "Remediation", "References"},
+		DetailsRows:    []string{"Location", "Cause", "Result", "Attack condition", "Business impact"},
+		ReportSections: []string{"Executive summary", "Scope", "Methodology"},
+		CVSS:           CVSSConfig{Version: "3.1", Standard: defaultStandard()},
 	}
 }
 
@@ -146,6 +150,9 @@ func Load(dataDir string) (Config, error) {
 	}
 	if len(c.DetailsRows) == 0 {
 		c.DetailsRows = d.DetailsRows
+	}
+	if len(c.ReportSections) == 0 {
+		c.ReportSections = d.ReportSections
 	}
 	if c.CVSS.Version == "" {
 		c.CVSS.Version = d.CVSS.Version

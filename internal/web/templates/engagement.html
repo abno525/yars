@@ -1,17 +1,5 @@
 {{define "content"}}
-<div class="titlerow">
-  <div class="titlecol">
-    <h1 title="{{.Eng.Name}}">{{.Eng.Name}}</h1>
-    <p class="sub">{{.Eng.Client}}{{if .Eng.Start}}{{if .Eng.Client}} · {{end}}{{.Eng.Start}}{{if .Eng.End}} – {{.Eng.End}}{{end}}{{end}}{{if .IsRetest}}{{if or .Eng.Client .Eng.Start}} · {{end}}Retest of <a href="/e/{{.Eng.Source}}">{{if .Source.Name}}{{.Source.Name}}{{else}}{{.Eng.Source}}{{end}}</a>{{end}}</p>
-  </div>
-  <div class="actions">
-    <a class="btn secondary w128" href="/e/{{.Eng.ID}}/export">Export</a>
-    {{if .CanManage}}<a class="btn secondary w128" href="/e/{{.Eng.ID}}/retest/new">New retest</a>{{else}}<span class="slot w128"></span>{{end}}
-    {{if .Archive.On}}{{if .Archive.CanReopen}}<form method="post" action="/e/{{.Eng.ID}}/reopen"><button class="btn secondary w128">Reopen</button></form>{{else}}<span class="slot w128"></span>{{end}}
-    {{else}}<a class="btn primary w128" href="/e/{{.Eng.ID}}/findings/new">New finding</a>{{end}}
-  </div>
-</div>
-{{template "archive_bar" .Archive}}
+{{template "enghead" .}}
 <section class="bars" aria-label="Engagement progress">
   <div class="barcol">
     <div class="barhead"><span class="barname">Progress</span><span class="barval">{{.Bars.Reported}} of {{.Bars.Total}} reported</span></div>

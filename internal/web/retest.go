@@ -9,6 +9,7 @@ import (
 
 	"yars/internal/auth"
 	"yars/internal/config"
+	"yars/internal/cvss"
 	"yars/internal/index"
 	"yars/internal/store"
 	"yars/internal/workflow"
@@ -26,6 +27,10 @@ type retestView struct {
 	Options                   []retestOption
 	URL, Error                string
 	Locked                    bool
+	// the original, shown beside the result
+	Details       []detailsRow
+	Vector, Score string
+	Sections      []tplSection
 }
 
 func (s *Server) routesRetest(mux *http.ServeMux) {
@@ -43,14 +48,30 @@ func (s *Server) retestFor(r *http.Request, ref store.FindingRef) *retestView {
 	v := &retestView{Result: rt.Result, Source: rt.Source, URL: findingURL(ref.EngID, ref.Dir) + "/retest", Locked: s.locked(r, ref)}
 	if eng, dir, ok := strings.Cut(rt.Source, "/"); ok {
 		v.SourceURL = findingURL(eng, dir)
-		if src, err := s.Store.Finding(eng, dir); err == nil {
-			v.SourceStatus = src.F.Meta.Status
-			v.SourceSev = src.F.Meta.Severity
+		// the original is shown only to those on its engagement's team
+		if src, err := s.Store.Finding(eng, dir); err == nil && s.Store.CanSee(auth.UserFrom(r.Context()), eng) {
+			m := src.F.Meta
+			v.SourceStatus = m.Status
+			v.SourceSev = cvss.Derive(m.CVSS, m.Severity)
+			for _, name := range s.conf().DetailsRows {
+				if x := strings.TrimSpace(m.Details[name]); x != "" {
+					v.Details = append(v.Details, detailsRow{Name: name, Value: x})
+				}
+			}
+			if vec, err := cvss.Parse(m.CVSS); err == nil {
+				n, _ := cvss.Score(vec)
+				v.Vector, v.Score = vec.String(), cvss.FormatScore(n)
+			}
+			for _, sec := range src.F.Sections {
+				if strings.TrimSpace(sec.Body) != "" {
+					v.Sections = append(v.Sections, tplSection{Name: sec.Name, HTML: s.renderMD(sec.Body)})
+				}
+			}
 		} else {
 			v.SourceMissing = true
 		}
 	}
-	for _, c := range workflow.RetestResults {
+	for _, c := range []string{"fixed", "partially_fixed", "not_fixed"} { // the board's order
 		v.Options = append(v.Options, retestOption{Code: c, Label: workflow.RetestLabel(c), Checked: c == rt.Result})
 	}
 	return v

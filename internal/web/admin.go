@@ -22,19 +22,20 @@ type adminTab struct {
 var adminTabs = []struct{ Key, Label, URL string }{
 	{"users", "Users", "/admin/users"}, {"engagements", "Engagements", "/admin/engagements"}, {"rules", "Rules", "/admin/rules"},
 	{"ai", "AI", "/admin/ai"}, {"system", "System", "/admin/system"}, {"health", "Health", "/admin/health"},
-	{"activity", "Activity", "/admin/activity"}, {"structure", "Structure", ""}, {"exports", "Exports", ""},
+	{"activity", "Activity", "/admin/activity"}, {"structure", "Structure", "/admin/structure"}, {"exports", "Exports", ""},
 }
 
 type adminView struct {
-	Tab      string
-	Tabs     []adminTab
-	Rules    rulesAdmin
-	Users    usersAdmin
-	Engs     engsAdmin
-	AI       aiAdmin
-	System   systemAdmin
-	Health   healthAdmin
-	Activity activityAdmin
+	Tab       string
+	Tabs      []adminTab
+	Rules     rulesAdmin
+	Users     usersAdmin
+	Engs      engsAdmin
+	AI        aiAdmin
+	System    systemAdmin
+	Health    healthAdmin
+	Activity  activityAdmin
+	Structure structView
 }
 
 func (s *Server) routesAdmin(mux *http.ServeMux) {
@@ -47,6 +48,7 @@ func (s *Server) routesAdmin(mux *http.ServeMux) {
 	s.routesAdminAI(mux)
 	s.routesAdminSystem(mux)
 	s.routesAdminActivity(mux)
+	s.routesAdminStructure(mux)
 }
 
 // adminOnly answers 403 to users who may not administer.

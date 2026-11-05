@@ -103,7 +103,7 @@ func TestEditConflict409(t *testing.T) {
 	e := setup(t)
 	form := url.Values{"body": {"bob text"}, "base": {"0000000000000000"}}
 	rec := e.do(t, "bob", "POST", "/e/acme/f/F-001-sql-injection/s/Impact", form, nil)
-	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "changed by someone else") {
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "Changed by alice") {
 		t.Fatalf("code %d body %s", rec.Code, rec.Body.String())
 	}
 	if !strings.Contains(rec.Body.String(), "bob text") {

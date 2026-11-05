@@ -1,45 +1,51 @@
 {{define "content"}}
-<form class="card" method="post" action="/e/{{.Eng.ID}}/retest/new">
+<form class="newretest" method="post" action="/e/{{.Eng.ID}}/retest/new">
   <div class="titlerow">
     <div class="titlecol">
       <nav class="crumbs"><a href="/e/{{.Eng.ID}}">{{.Eng.Name}}</a><span class="sep" aria-hidden="true">/</span><span class="idchip">Retest</span></nav>
       <h1 title="New retest of {{.Eng.Name}}">New retest of {{.Eng.Name}}</h1>
     </div>
-    <div class="actions">
-      <a class="btn secondary w128" href="/e/{{.Eng.ID}}">Cancel</a>
-      <button class="btn primary w152">Create retest</button>
+  </div>
+  <div class="errslot">{{if .Error}}<p class="error" title="{{.Error}}">{{.Error}}</p>{{end}}</div>
+  <section class="panel">
+    <div class="panelhead"><h2>Retest</h2></div>
+    <div class="fgrid three">
+      <label class="field">Name<input name="name" value="{{.Form.Get "name"}}" required></label>
+      <label class="field">ID<input class="monoin" name="id" value="{{.Form.Get "id"}}" pattern="[A-Za-z0-9._\-]+" required></label>
+      <label class="field">Client<input name="client" value="{{.Form.Get "client"}}"></label>
+      <label class="field">Start<input class="monoin" name="start" type="date" value="{{.Form.Get "start"}}"></label>
+      <label class="field">End<input class="monoin" name="end" type="date" value="{{.Form.Get "end"}}"></label>
+      <label class="field">Retester
+        <select name="assignee">
+          <option value="">Keep original authors</option>
+          {{$cur := .Form.Get "assignee"}}
+          {{range .Users}}<option value="{{.Username}}"{{if eq .Username $cur}} selected{{end}}>{{.Username}} ({{.Role}})</option>{{end}}
+        </select>
+      </label>
     </div>
+  </section>
+  <section class="panel pickpanel">
+    <table class="table stable picktable flush">
+      <thead><tr><th class="c-pick"><span class="sr">Pick</span></th><th class="c-fid">ID</th><th>Title</th><th class="c-sev">Severity</th><th class="c-sev">Original status</th></tr></thead>
+      <tbody>
+      {{range .Rows}}
+        <tr>
+          <td><input type="checkbox" name="finding" value="{{.Dir}}" id="pick-{{.Dir}}"{{if checkedIn $.Form "finding" .Dir}} checked{{end}}></td>
+          <td class="fid"><label for="pick-{{.Dir}}">{{.ID}}</label></td>
+          <td class="title"><label for="pick-{{.Dir}}" title="{{.Title}}">{{.Title}}</label></td>
+          <td>{{if .Severity}}<span class="tag sev-{{.Severity}}">{{.Severity}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
+          <td><span class="tag status-{{.Status}}">{{.Status}}</span></td>
+        </tr>
+      {{else}}
+        <tr><td colspan="5" class="muted">—</td></tr>
+      {{end}}
+      </tbody>
+    </table>
+    <div class="panelhead"><h2>Findings to retest</h2><span class="mono selof" data-of="{{len .Rows}}"></span></div>
+  </section>
+  <div class="actions">
+    <button class="btn primary w160">Create retest</button>
+    <a class="btn secondary w112" href="/e/{{.Eng.ID}}">Cancel</a>
   </div>
-  {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
-  <div class="form-grid">
-    <label>ID <input name="id" value="{{.Form.Get "id"}}" pattern="[A-Za-z0-9._\-]+" required></label>
-    <label>Name <input name="name" value="{{.Form.Get "name"}}" required></label>
-    <label>Client <input name="client" value="{{.Form.Get "client"}}"></label>
-    <label>Start <input name="start" type="date" value="{{.Form.Get "start"}}"></label>
-    <label>End <input name="end" type="date" value="{{.Form.Get "end"}}"></label>
-    <label>Retester
-      <select name="assignee">
-        <option value="">Keep original authors</option>
-        {{$cur := .Form.Get "assignee"}}
-        {{range .Users}}<option value="{{.Username}}"{{if eq .Username $cur}} selected{{end}}>{{.Username}} ({{.Role}})</option>{{end}}
-      </select>
-    </label>
-  </div>
-  <h2 class="subhead">Findings to retest</h2>
-  <table class="table pick">
-    <tbody>
-    {{range .Rows}}
-      <tr>
-        <td><input type="checkbox" name="finding" value="{{.Dir}}" id="pick-{{.Dir}}"{{if checkedIn $.Form "finding" .Dir}} checked{{end}}></td>
-        <td class="fid"><label for="pick-{{.Dir}}">{{.ID}}</label></td>
-        <td class="title"><label for="pick-{{.Dir}}">{{.Title}}</label></td>
-        <td>{{if .Severity}}<span class="tag sev-{{.Severity}}">{{.Severity}}</span>{{end}}</td>
-        <td><span class="tag status-{{.Status}}">{{.Status}}</span></td>
-      </tr>
-    {{else}}
-      <tr><td class="muted empty">No findings.</td></tr>
-    {{end}}
-    </tbody>
-  </table>
 </form>
 {{end}}

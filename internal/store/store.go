@@ -68,9 +68,11 @@ type FindingRef struct {
 type Store struct {
 	repo    *gitrepo.Repo
 	db      *db.DB // nil on a local clone: content only
-	cfg     config.Config
 	root    *os.Root
 	rootErr error
+
+	cfgMu sync.RWMutex
+	cfg   config.Config // read through Config()
 
 	// Git work is serialized per repository: one lock per engagement repo
 	// (created on first use) and one for the main repo. Lock order: an
@@ -465,8 +467,20 @@ func Approved(st db.State, hash string) bool {
 	return st.ApprovedHash == "" || st.ApprovedHash == hash
 }
 
-func (s *Store) Config() config.Config { return s.cfg }
-func (s *Store) Repo() *gitrepo.Repo   { return s.repo }
+// Config is the current configuration (Admin › Structure can replace it).
+func (s *Store) Config() config.Config {
+	s.cfgMu.RLock()
+	defer s.cfgMu.RUnlock()
+	return s.cfg
+}
+
+// SetConfig replaces the configuration (after config.yaml was saved).
+func (s *Store) SetConfig(c config.Config) {
+	s.cfgMu.Lock()
+	s.cfg = c
+	s.cfgMu.Unlock()
+}
+func (s *Store) Repo() *gitrepo.Repo { return s.repo }
 
 var idRe = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 
@@ -996,6 +1010,15 @@ func Slug(title string) string {
 }
 
 func (s *Store) CreateFinding(engID, title string, a gitrepo.Author) (FindingRef, error) {
+	sections := s.Config().Sections
+	return s.createFinding(engID, title, a, func(id string) (*finding.Finding, error) {
+		return finding.New(id, strings.TrimSpace(title), a.Name, sections), nil
+	})
+}
+
+// createFinding adds a finding with the next free number; build makes its
+// file from that id.
+func (s *Store) createFinding(engID, title string, a gitrepo.Author, build func(id string) (*finding.Finding, error)) (FindingRef, error) {
 	if e, err := s.Engagement(engID); err != nil {
 		return FindingRef{}, err
 	} else if e.Archived {
@@ -1030,7 +1053,10 @@ func (s *Store) CreateFinding(engID, title string, a gitrepo.Author) (FindingRef
 		id = fmt.Sprintf("F-%03d", n)
 	}
 	dir := id + "-" + Slug(title)
-	f := finding.New(id, strings.TrimSpace(title), a.Name, s.cfg.Sections)
+	f, err := build(id)
+	if err != nil {
+		return FindingRef{}, err
+	}
 	if err := s.root.MkdirAll(path.Join(fdir, dir), 0o755); err != nil {
 		return FindingRef{}, err
 	}
@@ -1163,7 +1189,7 @@ func (s *Store) EngagementChat(engID string) (map[string][]chat.Message, error) 
 var ErrInvalidChat = errors.New("invalid chat message")
 
 // PanelTargets are the non-text parts of a finding a comment may point at.
-var PanelTargets = []string{"Details", "CVSS"}
+var PanelTargets = []string{"Details", "Assets", "CVSS"}
 
 // HideThread hides (on) or shows a resolved thread of the finding for u
 // only. Open threads can't be hidden; showing is always allowed.
@@ -1224,7 +1250,7 @@ func (s *Store) PostChat(engID, dir string, m chat.Message, u config.User) (chat
 		return m, err
 	}
 	if m.Section != "" {
-		if _, ok := ref.F.Section(m.Section); !ok && !slices.Contains(s.cfg.Sections, m.Section) && !slices.Contains(PanelTargets, m.Section) {
+		if _, ok := ref.F.Section(m.Section); !ok && !slices.Contains(s.Config().Sections, m.Section) && !slices.Contains(PanelTargets, m.Section) {
 			return m, fmt.Errorf("%w: unknown section %q", ErrInvalidChat, m.Section)
 		}
 	}
@@ -1318,7 +1344,7 @@ func (s *Store) Transition(engID, dir string, act workflow.Action, reason string
 		if err != nil {
 			return err
 		}
-		if err := workflow.CheckWithGate(u, ref.F.Meta, act, s.cfg); err != nil {
+		if err := workflow.CheckWithGate(u, ref.F.Meta, act, s.Config()); err != nil {
 			return err
 		}
 		vs, err := s.undismissed(engID, ref.F.Meta.ID, s.Linter.Lint(context.Background(), ref.F, rules.All))
@@ -1334,7 +1360,7 @@ func (s *Store) Transition(engID, dir string, act workflow.Action, reason string
 		if linted != "" && hash != linted {
 			return nil, &workflow.Denied{Reason: "the finding changed while its checks ran; try again"}
 		}
-		if err := workflow.CheckWithGate(u, ref.F.Meta, act, s.cfg); err != nil {
+		if err := workflow.CheckWithGate(u, ref.F.Meta, act, s.Config()); err != nil {
 			return nil, err
 		}
 		uncleared := func() {
@@ -1524,7 +1550,7 @@ func SeverityHash(m finding.Meta) string { return BodyHash(m.Severity) }
 // UpdateSeverity sets a manual severity; refused when a valid vector exists.
 // A non-empty base must match SeverityHash of the current meta.
 func (s *Store) UpdateSeverity(engID, dir, sev, base string, a Actor) error {
-	if !slices.Contains(s.cfg.Severities, sev) {
+	if !slices.Contains(s.Config().Severities, sev) {
 		return fmt.Errorf("%w: unknown severity %q", ErrInvalidValue, sev)
 	}
 	return s.mutateContent(engID, dir, a, func(f *finding.Finding) (string, error) {
@@ -1555,6 +1581,6 @@ func (s *Store) UpdateDetails(engID, dir string, values map[string]string, base 
 			}
 			merged[k] = strings.Trim(strings.Join(lines, "\n"), "\n")
 		}
-		return "edit details", f.SetMeta("details", finding.OrderedMap(s.cfg.DetailsRows, merged))
+		return "edit details", f.SetMeta("details", finding.OrderedMap(s.Config().DetailsRows, merged))
 	})
 }

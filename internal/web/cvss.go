@@ -54,9 +54,10 @@ func (s *Server) routesCVSS(mux *http.ServeMux) {
 // buildCVSS renders sel (selected metric values) and reasons into a view.
 func (s *Server) buildCVSS(ref store.FindingRef, sel cvss.Vector, reasons map[string]string) cvssView {
 	m := ref.F.Meta
+	cfg := s.conf()
 	base := findingURL(ref.EngID, ref.Dir)
 	v := cvssView{
-		Base: store.CVSSHash(m), SevBase: store.SeverityHash(m), Severity: cvss.Derive(m.CVSS, m.Severity), Severities: s.Cfg.Severities,
+		Base: store.CVSSHash(m), SevBase: store.SeverityHash(m), Severity: cvss.Derive(m.CVSS, m.Severity), Severities: cfg.Severities,
 		ViewURL: base + "/cvss", EditURL: base + "/cvss/edit", CalcURL: base + "/cvss/calc",
 		SaveURL: base + "/cvss", SeverityURL: base + "/severity", ReadOnly: s.Store.Archived(ref.EngID),
 	}
@@ -66,10 +67,10 @@ func (s *Server) buildCVSS(ref store.FindingRef, sel cvss.Vector, reasons map[st
 		v.Foreign = m.CVSS
 	}
 	for _, mt := range cvss.Metrics {
-		std := s.Cfg.CVSS.Standard[mt.Key]
+		std := cfg.CVSS.Standard[mt.Key]
 		cm := cvssMetric{Key: mt.Key, Name: mt.Name, Values: mt.Values, Selected: sel[mt.Key], Standard: std,
 			SelectedName: cvss.ValueName(mt.Key, sel[mt.Key]), StandardName: cvss.ValueName(mt.Key, std), Reason: reasons[mt.Key]}
-		if cm.Selected != "" && s.Cfg.NonStandard(mt.Key, cm.Selected) {
+		if cm.Selected != "" && cfg.NonStandard(mt.Key, cm.Selected) {
 			cm.NonStandard = true
 			v.Reasons = append(v.Reasons, cvssReason{Key: mt.Key, Metric: mt.Name, Standard: cm.StandardName, Value: cvss.ValueName(mt.Key, cm.Selected), Reason: cm.Reason})
 			if strings.TrimSpace(cm.Reason) == "" {
@@ -105,7 +106,7 @@ func (s *Server) cvssStart(ref store.FindingRef) cvssView {
 	if err != nil {
 		sel = cvss.Vector{}
 		for _, mt := range cvss.Metrics {
-			if std, ok := s.Cfg.CVSS.Standard[mt.Key]; ok {
+			if std, ok := s.conf().CVSS.Standard[mt.Key]; ok {
 				sel[mt.Key] = std
 			}
 		}

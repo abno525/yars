@@ -143,7 +143,7 @@ func newRuleForm() ruleForm {
 
 // fill completes a form with its choices.
 func (s *Server) fill(f *ruleForm) {
-	f.Targets = targetOptions(s.Cfg, f.Target)
+	f.Targets = targetOptions(s.conf(), f.Target)
 	f.Builtins = rules.Builtins
 	if f.Errs == nil {
 		f.Errs = map[string]string{}

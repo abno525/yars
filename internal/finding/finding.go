@@ -36,6 +36,7 @@ type Meta struct {
 	CVSSReasons map[string]string `yaml:"cvss_reasons,omitempty"`
 	// Details holds the details table, keyed by configured row name.
 	Details map[string]string `yaml:"details,omitempty"`
+	Assets  []Asset           `yaml:"assets,omitempty"`
 	Extra   map[string]any    `yaml:",inline"`
 
 	// Workflow state (from the database).
@@ -45,6 +46,21 @@ type Meta struct {
 	Returned  *Returned `yaml:"-"` // set when a reviewer sends the finding back to draft
 	Withdrawn *Returned `yaml:"-"` // who withdrew the finding and why (status withdrawn)
 	Retest    *Retest   `yaml:"-"` // only in retests
+}
+
+// Asset is one affected asset: a host and/or URL, an optional port and a
+// note.
+type Asset struct {
+	Host string `yaml:"host,omitempty" json:"host,omitempty"`
+	URL  string `yaml:"url,omitempty" json:"url,omitempty"`
+	Port string `yaml:"port,omitempty" json:"port,omitempty"`
+	Note string `yaml:"note,omitempty" json:"note,omitempty"`
+}
+
+// Key identifies an asset regardless of its note and letter case.
+func (a Asset) Key() string {
+	n := func(s string) string { return strings.ToLower(strings.TrimSpace(s)) }
+	return n(a.Host) + "\x00" + n(a.URL) + "\x00" + n(a.Port)
 }
 
 // StateKeys are front-matter keys that used to hold workflow state.

@@ -112,6 +112,11 @@ func (a *Auth) Require(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		u, ok := a.User(r)
 		if !ok {
+			// htmx requests from an open page: the page keeps what was typed
+			if r.Header.Get("HX-Request") == "true" {
+				http.Error(w, "Session expired", http.StatusUnauthorized)
+				return
+			}
 			http.Redirect(w, r, "/login", http.StatusSeeOther)
 			return
 		}

@@ -40,6 +40,8 @@ type Row struct {
 	// classification. Shared between copies of the row: read only.
 	Meta  *finding.Meta
 	score float64 // -1 when no valid vector
+	// trigrams of the title and of the assets (possible duplicates)
+	tgrams, agrams Grams
 }
 
 func scoreOf(vec string) (string, float64) {
@@ -57,7 +59,7 @@ func rowOf(engID string, ref store.FindingRef, msgs []chat.Message) Row {
 	open, _ := chat.OpenCount(msgs)
 	r := Row{EngID: engID, Dir: ref.Dir, ID: m.ID, Title: m.Title, Status: m.Status,
 		Severity: cvss.Derive(m.CVSS, m.Severity), Author: m.Author, Reviewers: m.Reviewers,
-		Score: txt, score: sc, Meta: &m, OpenThreads: open}
+		Score: txt, score: sc, Meta: &m, OpenThreads: open, tgrams: Trigrams(m.Title), agrams: assetGrams(m.Assets)}
 	if m.Retest != nil {
 		r.IsRetest, r.RetestResult = true, m.Retest.Result
 	}
@@ -198,6 +200,8 @@ type Index struct {
 	sumGen        uint64
 	sums          map[string]Summary // per engagement, for sumGen
 	summaryBuilds atomic.Int64       // summaries computed (for tests)
+	use           map[string]int     // template use, for useGen (under sumMu)
+	useGen        uint64
 }
 
 func New(s *store.Store, r *gitrepo.Repo) *Index {
@@ -442,6 +446,36 @@ func (ix *Index) Gen() (uint64, error) {
 	ix.mu.RLock()
 	defer ix.mu.RUnlock()
 	return ix.gen, nil
+}
+
+// TemplateUse counts the findings made from each template (their
+// "template" front-matter key), over every engagement, withdrawn included.
+// The map is cached per table generation: read only.
+func (ix *Index) TemplateUse() (map[string]int, error) {
+	if err := ix.refresh(); err != nil {
+		return nil, err
+	}
+	ix.mu.RLock()
+	gen, engs := ix.gen, ix.engs
+	ix.mu.RUnlock()
+	ix.sumMu.Lock()
+	defer ix.sumMu.Unlock()
+	if ix.useGen == gen && ix.use != nil {
+		return ix.use, nil
+	}
+	use := map[string]int{}
+	for _, e := range engs {
+		for _, r := range e.rows {
+			if r.Meta == nil {
+				continue
+			}
+			if t, ok := r.Meta.Extra[store.TemplateKey].(string); ok && t != "" {
+				use[t]++
+			}
+		}
+	}
+	ix.use, ix.useGen = use, gen
+	return use, nil
 }
 
 // Engagements lists the engagements (sorted by id), cached with the rows.

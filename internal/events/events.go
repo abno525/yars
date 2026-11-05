@@ -12,6 +12,7 @@ const (
 	Content  = "content"  // the finding's content (a commit by YARS)
 	Push     = "push"     // a git push to an engagement ("" = the main repo)
 	Check    = "check"    // a check run started, progressed or ended; a dismissal
+	Presence = "presence" // someone started, kept or stopped editing a section
 )
 
 // Event says what changed. ID is set by the hub (increasing, from 1); Seq

@@ -41,6 +41,38 @@
     {{end}}
 {{end}}
 
+{{define "enghead"}}
+<div class="titlerow">
+  <div class="titlecol">
+    <h1 title="{{.Eng.Name}}">{{.Eng.Name}}</h1>
+    <p class="sub">{{.Eng.Client}}{{if .Eng.Start}}{{if .Eng.Client}} · {{end}}{{.Eng.Start}}{{if .Eng.End}} – {{.Eng.End}}{{end}}{{end}}{{if .IsRetest}}{{if or .Eng.Client .Eng.Start}} · {{end}}Retest of <a href="/e/{{.Eng.Source}}">{{if .Source.Name}}{{.Source.Name}}{{else}}{{.Eng.Source}}{{end}}</a>{{end}}</p>
+  </div>
+  <div class="actions">
+    <a class="btn secondary w128" href="/e/{{.Eng.ID}}/export">Export</a>
+    {{if .CanManage}}<a class="btn secondary w128" href="/e/{{.Eng.ID}}/retest/new">New retest</a>{{else}}<span class="slot w128"></span>{{end}}
+    {{if .Archive.On}}{{if .Archive.CanReopen}}<form method="post" action="/e/{{.Eng.ID}}/reopen"><button class="btn secondary w128">Reopen</button></form>{{else}}<span class="slot w128"></span>{{end}}
+    {{else}}<a class="btn primary w128" href="/e/{{.Eng.ID}}/findings/new">New finding</a>{{end}}
+  </div>
+</div>
+{{template "archive_bar" .Archive}}
+<nav class="etabs" aria-label="Engagement">{{range .ETab.Items}}<a class="etab{{if .Active}} on{{end}}" href="{{.URL}}"{{if .Active}} aria-current="page"{{end}}>{{.Label}}</a>{{end}}</nav>
+{{end}}
+
+{{define "chart"}}
+<table class="sevchart table stable flush">
+  <thead><tr><th class="c-tag">Key</th><th>Share</th><th class="c-num">Findings</th></tr></thead>
+  <tbody>
+  {{range .}}
+    <tr>
+      <td><span class="tag {{if eq .Key "draft" "verification" "complete" "reported" "withdrawn"}}status{{else}}sev{{end}}-{{.Key}}">{{.Key}}</span></td>
+      <td><svg class="hbar" viewBox="0 0 100 12" preserveAspectRatio="none" aria-hidden="true"><rect class="seg-empty" x="0" y="0" width="100" height="12"></rect><rect class="seg-{{.Key}}" x="0" y="0" width="{{.W}}" height="12"></rect></svg></td>
+      <td class="num{{if .Zero}} muted{{end}}">{{.N}}</td>
+    </tr>
+  {{end}}
+  </tbody>
+</table>
+{{end}}
+
 {{define "archive_bar"}}
 {{if .On}}
 <div class="archbar" role="status">
@@ -70,23 +102,39 @@
 
 {{define "editor"}}
 <section class="panel editing{{if .Conflict}} conflict{{end}}" id="s-{{.Anchor}}">
-  <form class="flush" hx-post="{{.SaveURL}}" hx-target="#s-{{.Anchor}}" hx-swap="outerHTML" data-guard>
+  <form class="flush" hx-post="{{.SaveURL}}" hx-target="#s-{{.Anchor}}" hx-swap="outerHTML" data-guard{{if .Presence.URL}} data-presence="{{.Presence.URL}}"{{end}}>
     <div class="panelhead">
-      <h2 title="{{.Name}}">{{.Name}}</h2>
-      <div class="seg modes" role="group" aria-label="View">
-        <button type="button" data-mode="write" aria-pressed="false">Write</button><button type="button" data-mode="split" aria-pressed="true">Split</button><button type="button" data-mode="preview" aria-pressed="false">Preview</button>
+      <h2 title="{{.Name}}">{{.Name}}<span class="dirtydot" title="Unsaved"></span></h2>
+      <div class="panel-tools">
+        {{if .Presence.URL}}{{template "presence" .Presence}}{{end}}
+        <div class="seg modes" role="group" aria-label="View">
+          <button type="button" data-mode="write" aria-pressed="false">Write</button><button type="button" data-mode="split" aria-pressed="true">Split</button><button type="button" data-mode="preview" aria-pressed="false">Preview</button>
+        </div>
       </div>
     </div>
     {{if .Conflict}}
     <div class="cbar flush">
-      <strong title="{{.Error}}">{{.Error}}</strong>
+      <span class="cwho"><strong title="{{.Error}}">{{.Error}}</strong>{{with .Diff}}<span class="mono">{{.At}}</span>{{end}}</span>
       <div class="actions">
-        <button type="button" class="btn secondary sm w112" data-theirs="t-{{.Anchor}}" aria-pressed="true">Show theirs</button>
-        <button type="button" class="btn secondary sm w112" hx-get="{{.EditURL}}" hx-target="#s-{{.Anchor}}" hx-swap="outerHTML" hx-confirm="Discard your text?">Take theirs</button>
-        <button class="btn save sm w112">Keep mine</button>
+        <button type="button" class="btn secondary sm w96" data-theirs="t-{{.Anchor}}" aria-pressed="true">Show diff</button>
+        <button type="button" class="btn secondary sm w96" hx-get="{{.EditURL}}" hx-target="#s-{{.Anchor}}" hx-swap="outerHTML" hx-confirm="Discard your text?">Take theirs</button>
+        <button class="btn save sm w96">Keep mine</button>
       </div>
     </div>
+    {{with .Diff}}
+    <div class="cdiff flush" id="t-{{$.Anchor}}">
+      <div class="ccol">
+        <div class="dhead"><h3>Mine</h3><span class="mono">base {{.MineBase}}</span></div>
+        <div class="lines">{{range .Mine}}<div class="ln{{with .Class}} {{.}}{{end}}"><span class="lno">{{.No}}</span><span class="lop">{{.Op}}</span><span class="ltext">{{.Text}}</span></div>{{end}}</div>
+      </div>
+      <div class="ccol">
+        <div class="dhead"><h3 title="{{.By}}">{{if .By}}{{.By}} · {{.At}}{{else}}Saved{{end}}</h3><span class="mono">{{.TheirsAt}}</span></div>
+        <div class="lines">{{range .Theirs}}<div class="ln{{with .Class}} {{.}}{{end}}"><span class="lno">{{.No}}</span><span class="lop">{{.Op}}</span><span class="ltext">{{.Text}}</span></div>{{end}}</div>
+      </div>
+    </div>
+    {{else}}
     <div class="theirs md flush" id="t-{{.Anchor}}">{{if .Current}}{{.Current}}{{else}}<p class="muted">Empty</p>{{end}}</div>
+    {{end}}
     {{else if .Error}}<p class="error editerr">{{.Error}}</p>{{end}}
     <input type="hidden" name="base" value="{{.Base}}">
     <div class="editor" data-view="split">
@@ -94,8 +142,10 @@
         hx-post="{{.PreviewURL}}" hx-trigger="keyup changed delay:300ms, load" hx-target="#p-{{.Anchor}}" hx-swap="innerHTML">{{.Raw}}</textarea>
       <div class="preview md" id="p-{{.Anchor}}"></div>
     </div>
+    {{with .Attach}}{{template "attach_strip" .}}{{end}}
     <div class="pfoot flush">
-      <span class="pstate">{{if .Conflict}}Conflict{{end}}</span>
+      <span class="pstate" data-pstate>{{if .Conflict}}Conflict{{end}}</span>
+      <button type="button" class="btn secondary sm w96 invisible" data-draft-restore>Restore</button>
       <button type="button" class="btn secondary sm w96" hx-get="{{.SaveURL}}" hx-target="#s-{{.Anchor}}" hx-swap="outerHTML" data-guard-cancel>Cancel</button>
       <button class="btn save sm w96"{{if .Conflict}} disabled{{end}}>Save</button>
     </div>
@@ -108,6 +158,7 @@
   <div class="panelhead">
     <div class="panelname"><h2>{{.Name}}</h2>{{if .Open}}<span class="open-count">{{.Open}}</span>{{end}}</div>
     <span class="panel-tools">
+      {{if .Presence.URL}}{{template "presence" .Presence}}{{end}}
       {{if .ReadOnly}}<span class="slot w96"></span>{{else}}<button class="btn ghost sm w96" type="button" data-section="{{.Name}}" onclick="yarsComment(this.dataset.section)">Comment</button>{{end}}
       {{if .EditURL}}<button class="btn ghost sm w96" hx-get="{{.EditURL}}" hx-target="#s-{{.Anchor}}" hx-swap="outerHTML">Edit</button>{{else}}<span class="slot w96 lockslot">{{template "lock"}}</span>{{end}}
     </span>

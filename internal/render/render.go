@@ -10,6 +10,8 @@ import (
 
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/extension"
+	"github.com/yuin/goldmark/renderer"
+	"github.com/yuin/goldmark/util"
 
 	"yars/internal/lru"
 )
@@ -28,7 +30,9 @@ type Markdown struct {
 
 // New returns a renderer that keeps the last size results.
 func New(size int) *Markdown {
-	return &Markdown{md: goldmark.New(goldmark.WithExtensions(extension.GFM)), cache: lru.New[[sha256.Size]byte, template.HTML](size)}
+	md := goldmark.New(goldmark.WithExtensions(extension.GFM),
+		goldmark.WithRendererOptions(renderer.WithNodeRenderers(util.Prioritized(codeRenderer{}, 100))))
+	return &Markdown{md: md, cache: lru.New[[sha256.Size]byte, template.HTML](size)}
 }
 
 // HTML is src rendered; text that fails to render is shown escaped.

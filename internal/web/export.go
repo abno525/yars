@@ -393,7 +393,7 @@ func (s *Server) picked(eng string, dirs []string, statuses []string) ([]store.F
 
 // exportInput is the report input for refs, reading their attachments.
 func (s *Server) exportInput(eng store.Engagement, refs []store.FindingRef) export.Input {
-	in := export.Input{Engagement: eng, Cfg: s.Cfg}
+	in := export.Input{Engagement: eng, Cfg: s.conf()}
 	dirOf := map[*finding.Finding]string{}
 	for _, ref := range refs {
 		in.Findings = append(in.Findings, ref.F)

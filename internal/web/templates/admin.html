@@ -12,8 +12,67 @@
     {{if eq .Admin.Tab "system"}}{{template "admin_system" .Admin.System}}{{end}}
     {{if eq .Admin.Tab "health"}}{{template "admin_health" .Admin.Health}}{{end}}
     {{if eq .Admin.Tab "activity"}}{{template "admin_activity" .Admin.Activity}}{{end}}
+    {{if eq .Admin.Tab "structure"}}{{template "admin_structure" .Admin.Structure}}{{end}}
   </div>
 </div>
+{{end}}
+
+{{define "admin_structure"}}
+{{if .Saved}}
+<div class="savedbar" role="status">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>
+  <strong>Saved</strong><span class="hashchip">{{.Saved}}</span><span class="mono clip">.yars/config.yaml</span>
+</div>
+{{end}}
+<form class="structform" method="post" action="/admin/structure">
+  <div class="structhead">
+    <span class="pstate error" title="{{.Error}}">{{.Error}}</span>
+    <span class="mono chgslot">{{.Changes}}</span>
+    <a class="btn secondary w128" href="/admin/structure">Discard</a>
+    <button class="btn save w128" name="op" value="save">Save</button>
+  </div>
+  <div class="structgrid">
+    {{range .Lists}}{{$l := .}}
+    <section class="panel compact slist">
+      <div class="panelhead"><h2>{{.Title}} <span class="qcnt{{if not .Items}} zero{{end}}">{{len .Items}}</span></h2></div>
+      <div class="sitems flush">
+      {{range $i, $it := .Items}}
+        <div class="sitem">
+          {{if .Sev}}<span class="sw seg-{{.Value}}"></span>{{end}}
+          <input name="{{$l.Field}}" value="{{.Value}}"{{if .Locked}} readonly{{end}} aria-label="{{$l.Title}} {{.Value}}">
+          <span class="mono sused">{{.Used}}</span>
+          <button class="btn ghost sm icon" name="op" value="up:{{$l.Key}}:{{$i}}" aria-label="Up"{{if eq $i 0}} disabled{{end}}>↑</button>
+          <button class="btn ghost sm icon" name="op" value="down:{{$l.Key}}:{{$i}}" aria-label="Down"{{if .Last}} disabled{{end}}>↓</button>
+          {{if .Locked}}{{template "lock"}}{{else}}<button class="btn ghost sm icon rm" name="op" value="del:{{$l.Key}}:{{$i}}" aria-label="Remove">×</button>{{end}}
+        </div>
+      {{end}}
+      </div>
+      <div class="sadd flush">
+        <input class="grow" name="new_{{.Key}}" placeholder="{{.Placeholder}}" aria-label="{{.Placeholder}}">
+        <button class="btn secondary sm w96" name="op" value="add:{{.Key}}">Add</button>
+      </div>
+    </section>
+    {{end}}
+  </div>
+  <section class="panel">
+    <div class="panelhead"><h2>CVSS</h2>
+      <label class="verpick">Version<select name="version"><option value="3.1"{{if eq .Version "3.1"}} selected{{end}}>3.1</option></select></label>
+    </div>
+    <table class="table stable cvsstd flush">
+      <thead><tr><th class="c-metric">Metric</th><th class="c-key">Key</th><th>Standard value</th><th class="c-num">Non-standard</th></tr></thead>
+      <tbody>
+      {{range .Metrics}}{{$m := .}}
+        <tr{{if ne .Std .Was}} class="editing"{{end}}>
+          <td class="strong clip">{{.Name}}</td>
+          <td class="mono">{{.Key}}</td>
+          <td><div class="seg stdseg">{{range .Values}}<label><input type="radio" name="std_{{$m.Key}}" value="{{.Code}}"{{if eq .Code $m.Std}} checked{{end}}><span title="{{.Name}}">{{.Code}}</span></label>{{end}}<label><input type="radio" name="std_{{$m.Key}}" value="-"{{if not $m.Std}} checked{{end}}><span>—</span></label></div></td>
+          <td class="num">{{if .NonStd}}<span class="badge">{{.NonStd}}</span>{{else}}<span class="badge0">0</span>{{end}}</td>
+        </tr>
+      {{end}}
+      </tbody>
+    </table>
+  </section>
+</form>
 {{end}}
 
 {{define "cbx_mark"}}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>{{end}}

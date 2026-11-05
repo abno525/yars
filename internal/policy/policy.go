@@ -205,6 +205,18 @@ func (c *Checker) file(u config.User, old, new string, ch gitrepo.Change) []stri
 	if _, ok := c.show(new, "engagements/"+seg[1]+"/engagement.yaml"); !ok && ch.Status != 'D' {
 		return []string{"engagement " + seg[1] + " does not exist (a director creates engagements)"}
 	}
+	// report-level sections: Markdown bodies the team writes
+	if slug, ok := strings.CutSuffix(seg[len(seg)-1], ".md"); len(seg) == 4 && seg[2] == "report" && ok && store.ValidID(slug) {
+		if ch.Status == 'D' {
+			return nil
+		}
+		if b, ok := c.show(new, p); ok {
+			if err := finding.ValidateBody(string(b)); err != nil {
+				return []string{err.Error()}
+			}
+		}
+		return nil
+	}
 	if len(seg) >= 5 && seg[2] == "findings" && store.ValidID(seg[3]) {
 		fp := strings.Join(seg[:4], "/") + "/finding.md"
 		switch {
