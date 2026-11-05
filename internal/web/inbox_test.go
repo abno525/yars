@@ -44,7 +44,7 @@ func TestInboxLists(t *testing.T) {
 
 	e.do(t, "bob", "POST", fpath+"/action/clear", url.Values{}, nil)
 	b = e.do(t, "bob", "GET", "/inbox", nil, nil).Body.String()
-	if strings.Contains(section(b, "Awaiting my review"), "SQL injection") || strings.Contains(b, `class="badge"`) {
+	if strings.Contains(section(b, "Awaiting my review"), "SQL injection") || strings.Contains(b, `Inbox <span class="badge"`) {
 		t.Fatalf("bob still pending:\n%s", b)
 	}
 	b = e.do(t, "dora", "GET", "/inbox", nil, nil).Body.String()

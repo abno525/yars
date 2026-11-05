@@ -609,6 +609,13 @@ func (s *Server) record(u config.User, eng, dest string, refs []store.FindingRef
 		log.Printf("export history: %v", derr)
 	}
 	d.Audit(u.Username, "export", eng, fmt.Sprintf("%s, %d findings", strings.TrimPrefix(dest, "download:"), len(refs)))
+	if !strings.HasPrefix(dest, "download:") { // sent to a destination
+		ev := store.Event{Kind: store.EventExport, Actor: u.Username, Eng: eng, Destination: dest, OK: rec.OK, Error: rec.Error, URL: rec.URL}
+		for _, it := range items {
+			ev.Findings = append(ev.Findings, it.ID)
+		}
+		s.Store.Emit(ev)
+	}
 	return id
 }
 

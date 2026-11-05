@@ -18,7 +18,7 @@ import (
 // Path is where the database lives inside a data directory (git-ignored).
 func Path(dataDir string) string { return filepath.Join(dataDir, ".yars", "yars.db") }
 
-const schemaVersion = 7
+const schemaVersion = 8
 
 // SchemaVersion is the database schema this build writes.
 const SchemaVersion = schemaVersion
@@ -209,6 +209,50 @@ var migrations = []string{
 		sent_as     TEXT NOT NULL DEFAULT ''
 	);
 	CREATE INDEX export_history_eng ON export_history(eng, id);`,
+	// v8: outbound webhooks with their delivery queue, in-app notifications,
+	// and whether a user ever chose notification channels (until then every
+	// event shows in app)
+	`CREATE TABLE webhooks (
+		id         INTEGER PRIMARY KEY,
+		url        TEXT NOT NULL,
+		events     TEXT NOT NULL DEFAULT '[]',
+		secret_enc TEXT NOT NULL,
+		last4      TEXT NOT NULL DEFAULT '',
+		enabled    INTEGER NOT NULL DEFAULT 1,
+		created    TEXT NOT NULL,
+		created_by TEXT NOT NULL DEFAULT ''
+	);
+	CREATE TABLE webhook_deliveries (
+		id       INTEGER PRIMARY KEY,
+		hook_id  INTEGER NOT NULL REFERENCES webhooks(id) ON DELETE CASCADE,
+		event    TEXT NOT NULL,
+		payload  TEXT NOT NULL,
+		created  TEXT NOT NULL,
+		state    TEXT NOT NULL DEFAULT 'pending',
+		attempts INTEGER NOT NULL DEFAULT 0,
+		next_at  TEXT NOT NULL,
+		status   INTEGER NOT NULL DEFAULT 0,
+		error    TEXT NOT NULL DEFAULT '',
+		finished TEXT NOT NULL DEFAULT ''
+	);
+	CREATE INDEX webhook_deliveries_due ON webhook_deliveries(state, next_at);
+	CREATE INDEX webhook_deliveries_hook ON webhook_deliveries(hook_id, id);
+	CREATE TABLE notifications (
+		id       INTEGER PRIMARY KEY,
+		username TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
+		event    TEXT NOT NULL,
+		eng      TEXT NOT NULL DEFAULT '',
+		dir      TEXT NOT NULL DEFAULT '',
+		fid      TEXT NOT NULL DEFAULT '',
+		title    TEXT NOT NULL DEFAULT '',
+		actor    TEXT NOT NULL DEFAULT '',
+		text     TEXT NOT NULL DEFAULT '',
+		ts       TEXT NOT NULL,
+		read     INTEGER NOT NULL DEFAULT 0
+	);
+	CREATE INDEX notifications_user ON notifications(username, read, id);
+	ALTER TABLE users ADD COLUMN notify_set INTEGER NOT NULL DEFAULT 0;
+	UPDATE users SET notify_set = 1 WHERE username IN (SELECT username FROM notify_prefs);`,
 }
 
 type DB struct {

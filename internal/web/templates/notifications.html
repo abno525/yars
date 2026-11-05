@@ -1,0 +1,39 @@
+{{define "content"}}
+<div class="titlerow">
+  <h1>Notifications</h1>
+  <form class="actions" method="post" action="/notifications/read">
+    <span class="{{if .Unread}}qcnt{{else}}qcnt zero{{end}}">{{.Unread}}</span>
+    <button class="btn secondary w152"{{if not .Unread}} disabled{{end}}>Mark all read</button>
+  </form>
+</div>
+<section class="panel">
+  <table class="table stable notetable">
+    <thead><tr><th class="c-time">When</th><th class="c-ev">Event</th><th class="c-fnd">Finding</th><th class="c-who2">By</th><th>Text</th></tr></thead>
+    <tbody>
+      {{range .Notes.Rows}}
+      <tr{{if not .Read}} class="unread"{{end}}>
+        <td class="mono">{{.At}}</td>
+        <td><span class="tag nev-{{.Event}}">{{.Label}}</span></td>
+        <td><a href="/notifications/{{.ID}}" title="{{.Eng}} · {{.Fid}} {{.Title}}"><span class="fid">{{.Eng}} · {{.Fid}}</span> {{.Title}}</a></td>
+        <td>{{.By}}</td>
+        <td class="muted" title="{{.Text}}">{{.Text}}</td>
+      </tr>
+      {{else}}
+      <tr><td colspan="5" class="muted">—</td></tr>
+      {{end}}
+    </tbody>
+  </table>
+</section>
+{{end}}
+
+{{define "goto_results"}}
+{{if .Query}}
+<div class="gh"><span>Findings</span><span class="mono">{{.Total}}</span></div>
+{{range $i, $r := .Rows}}
+<a class="res{{if eq $i 0}} sel{{end}}" href="{{fpath .EngID .Dir}}">
+  <span class="resline"><span class="mono">{{.EngID}} · {{.ID}}</span><span class="restitle">{{.Title}}</span></span>
+  {{if .Severity}}<span class="tag sev-{{.Severity}}">{{.Severity}}</span>{{else}}<span class="tag status-{{.Status}}">{{.Status}}</span>{{end}}
+</a>
+{{end}}
+{{end}}
+{{end}}

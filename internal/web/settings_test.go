@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"yars/internal/auth"
+	"yars/internal/config"
 	"yars/internal/db"
 	"yars/internal/store"
 )
@@ -196,6 +197,9 @@ func TestConnectionsMasked(t *testing.T) {
 
 func TestNotificationPrefs(t *testing.T) {
 	e := setup(t)
+	c := e.srv.conf() // the email column needs mail settings
+	c.SMTP = config.SMTPConfig{Host: "mail.example", Port: 25, From: "yars@example.com"}
+	e.srv.setConfig(c)
 	rec := e.do(t, "alice", "POST", "/settings/notifications", url.Values{"n": {"returned.app", "returned.email", "review.app", "bogus.app", "review.fax"}}, nil)
 	if rec.Code != http.StatusSeeOther {
 		t.Fatalf("save %d", rec.Code)

@@ -139,6 +139,7 @@ func (s *Store) runCheck(id int64, ref FindingRef) {
 		delete(s.running, checkKey(eng, fid))
 		s.checksMu.Unlock()
 		s.notify(Change{Eng: eng, Fid: fid, Kind: ChangeCheck})
+		s.emitCheck(id, ref)
 	}()
 	progress := func(done, total int) {
 		if s.db.RunProgress(id, done, total) == nil {
@@ -159,6 +160,27 @@ func (s *Store) runCheck(id int64, ref FindingRef) {
 		return
 	}
 	s.notify(Change{Eng: eng, Fid: fid, Kind: ChangeChat, Seq: seq})
+}
+
+// emitCheck tells the subscribers that run id of ref ended, with its counts.
+func (s *Store) emitCheck(id int64, ref FindingRef) {
+	run, err := s.db.Run(id)
+	if err != nil {
+		return
+	}
+	ev := findingEvent(EventCheck, run.By, ref)
+	ev.State = run.State
+	if res, err := s.db.RunResults(id); err == nil {
+		for _, r := range res {
+			switch r.Level {
+			case "error":
+				ev.Errors++
+			case "warning":
+				ev.Warnings++
+			}
+		}
+	}
+	s.Emit(ev)
 }
 
 // checkText is the comment for a violation: its message and the quote.

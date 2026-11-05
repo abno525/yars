@@ -22,7 +22,7 @@ type adminTab struct {
 var adminTabs = []struct{ Key, Label, URL string }{
 	{"users", "Users", "/admin/users"}, {"engagements", "Engagements", "/admin/engagements"}, {"rules", "Rules", "/admin/rules"},
 	{"ai", "AI", "/admin/ai"}, {"system", "System", "/admin/system"}, {"health", "Health", "/admin/health"},
-	{"activity", "Activity", "/admin/activity"}, {"structure", "Structure", "/admin/structure"}, {"exports", "Exports", ""},
+	{"activity", "Activity", "/admin/activity"}, {"structure", "Structure", "/admin/structure"}, {"webhooks", "Webhooks", "/admin/webhooks"},
 }
 
 type adminView struct {
@@ -36,6 +36,7 @@ type adminView struct {
 	Health    healthAdmin
 	Activity  activityAdmin
 	Structure structView
+	Hooks     hooksAdmin
 }
 
 func (s *Server) routesAdmin(mux *http.ServeMux) {
@@ -49,6 +50,7 @@ func (s *Server) routesAdmin(mux *http.ServeMux) {
 	s.routesAdminSystem(mux)
 	s.routesAdminActivity(mux)
 	s.routesAdminStructure(mux)
+	s.routesAdminWebhooks(mux)
 }
 
 // adminOnly answers 403 to users who may not administer.

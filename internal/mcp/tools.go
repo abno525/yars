@@ -41,18 +41,25 @@ type param struct{ name, desc string }
 type tool struct {
 	name, desc string
 	// action is what a scoped token needs to call the tool ("" = read)
-	action   string
-	required []param
-	optional []param
-	boolArgs []param
-	run      func(s *Server, ctx context.Context, u config.User, a args) (string, error)
+	action string
+	// serverOnly: the tool needs the server's database (workflow, chat,
+	// checks, notifications); on a local clone it answers ErrNoDB
+	serverOnly bool
+	required   []param
+	optional   []param
+	boolArgs   []param
+	run        func(s *Server, ctx context.Context, u config.User, a args) (string, error)
 }
 
 // actionOf is the token action a call needs: the tool's, except that
-// set_field on reviewers needs "reviewers".
+// set_field on reviewers needs "reviewers" and marking a finding reported
+// (the delivery to the client) needs "export".
 func actionOf(t tool, a args) string {
 	if t.name == "set_field" && a.str("field") == "reviewers" {
 		return "reviewers"
+	}
+	if t.name == "transition" && a.str("action") == string(workflow.Report) {
+		return "export"
 	}
 	if t.action == "" {
 		return db.ScopeRead
@@ -83,6 +90,43 @@ func (t tool) schema() map[string]any {
 	}
 	return s
 }
+
+// ParamDoc describes one argument of a tool.
+type ParamDoc struct {
+	Name, Type, Desc string
+	Required         bool
+}
+
+// ToolDoc describes a tool for the developer docs: generated from the
+// definitions below, so it can't drift. Action is the token action it needs
+// ("read" for reading tools).
+type ToolDoc struct {
+	Name, Desc, Action string
+	ServerOnly         bool
+	Params             []ParamDoc
+}
+
+// Catalog lists the tools in the order tools/list returns them.
+func Catalog() []ToolDoc {
+	var out []ToolDoc
+	for _, t := range tools {
+		d := ToolDoc{Name: t.name, Desc: t.desc, Action: actionOf(t, args{}), ServerOnly: t.serverOnly}
+		for _, p := range t.required {
+			d.Params = append(d.Params, ParamDoc{p.name, "string", p.desc, true})
+		}
+		for _, p := range t.optional {
+			d.Params = append(d.Params, ParamDoc{p.name, "string", p.desc, false})
+		}
+		for _, p := range t.boolArgs {
+			d.Params = append(d.Params, ParamDoc{p.name, "boolean", p.desc, false})
+		}
+		out = append(out, d)
+	}
+	return out
+}
+
+// ProtocolVersions are the MCP versions the server speaks, newest first.
+func ProtocolVersions() []string { return slices.Clone(protocols) }
 
 var (
 	pEng     = param{"engagement", "engagement ID, e.g. 2026-11-acme-webapp"}
@@ -272,13 +316,43 @@ var tools = []tool{
 			}
 			return asJSON(out)
 		}},
-	{name: "create_finding", action: "create", desc: "Create a new draft finding in an engagement.",
-		required: []param{pEng, {"title", "finding title"}},
+	{name: "list_templates", desc: "List the finding templates (.yars/templates): slug, title, severity and how many findings were made from each. Pass a slug to create_finding as template.",
+		run: func(s *Server, ctx context.Context, u config.User, a args) (string, error) {
+			ts, err := s.Store.Templates()
+			if err != nil {
+				return "", err
+			}
+			uses, err := s.Index.TemplateUse()
+			if err != nil {
+				return "", err
+			}
+			type tpl struct {
+				Slug     string `json:"slug"`
+				Title    string `json:"title"`
+				Severity string `json:"severity,omitempty"`
+				CVSS     string `json:"cvss,omitempty"`
+				Uses     int    `json:"uses"`
+			}
+			out := []tpl{}
+			for _, t := range ts {
+				m := t.F.Meta
+				out = append(out, tpl{t.Slug, m.Title, m.Severity, m.CVSS, uses[t.Slug]})
+			}
+			return asJSON(out)
+		}},
+	{name: "create_finding", action: "create", desc: "Create a new draft finding in an engagement, empty or from a template (its sections, severity, CVSS and details).",
+		required: []param{pEng, {"title", "finding title"}}, optional: []param{{"template", "template slug from list_templates"}},
 		run: func(s *Server, ctx context.Context, u config.User, a args) (string, error) {
 			if err := a.need("engagement", "title"); err != nil {
 				return "", err
 			}
-			ref, err := s.Store.CreateFinding(a.str("engagement"), a.str("title"), u.GitAuthor())
+			var ref store.FindingRef
+			var err error
+			if slug := a.str("template"); slug != "" {
+				ref, err = s.Store.CreateFindingFrom(a.str("engagement"), a.str("title"), slug, u.GitAuthor())
+			} else {
+				ref, err = s.Store.CreateFinding(a.str("engagement"), a.str("title"), u.GitAuthor())
+			}
 			if err != nil {
 				return "", err
 			}
@@ -314,7 +388,7 @@ var tools = []tool{
 		required: []param{pEng, pFinding, {"field", "field name"}, {"value", "new value"}},
 		optional: []param{{"base", "cvss_base (cvss, cvss_reason.*), details_base (details.*) or assets_base (assets) from read_finding; refuses the edit if someone changed it meanwhile"}},
 		run:      setField},
-	{name: "transition", action: "status", desc: "Move a finding through the workflow: submit (draft→verification), return (verification→draft, needs reason), clear or sign_off (reviewer sign-off), approve (director: verification→complete), reopen (complete→verification), report (director: complete→reported), withdraw (author while draft or verification, director also when complete or reported; needs reason; takes it out of the report), revise (author or director: withdrawn→draft).",
+	{name: "transition", action: "status", serverOnly: true, desc: "Move a finding through the workflow: submit (draft→verification), return (verification→draft, needs reason), clear or sign_off (reviewer sign-off), approve (director: verification→complete), reopen (complete→verification), report (director: complete→reported), withdraw (author while draft or verification, director also when complete or reported; needs reason; takes it out of the report), revise (author or director: withdrawn→draft).",
 		required: []param{pEng, pFinding, {"action", "submit | return | clear | sign_off | approve | reopen | report | withdraw | revise"}},
 		optional: []param{{"reason", "required for return and withdraw"}},
 		run: func(s *Server, ctx context.Context, u config.User, a args) (string, error) {
@@ -335,7 +409,7 @@ var tools = []tool{
 			_, to := workflow.Target(act)
 			return string(act) + " done; status is now " + to, nil
 		}},
-	{name: "add_chat_message", action: "comment", desc: "Post a message in the finding's chat, optionally about a section or as a reply to a thread.",
+	{name: "add_chat_message", action: "comment", serverOnly: true, desc: "Post a message in the finding's chat, optionally about a section or as a reply to a thread. @name mentions notify that person.",
 		required: []param{pEng, pFinding, {"text", "Markdown message"}},
 		optional: []param{{"section", "section the message is about"}, {"reply", "thread ID to reply to"}},
 		run: func(s *Server, ctx context.Context, u config.User, a args) (string, error) {
@@ -349,7 +423,7 @@ var tools = []tool{
 			}
 			return asJSON(map[string]string{"id": m.ID})
 		}},
-	{name: "resolve_thread", action: "comment", desc: "Mark a chat thread as resolved.",
+	{name: "resolve_thread", action: "comment", serverOnly: true, desc: "Mark a chat thread as resolved.",
 		required: []param{pEng, pFinding, {"thread", "thread ID"}},
 		run: func(s *Server, ctx context.Context, u config.User, a args) (string, error) {
 			ref, err := s.ref(a)
@@ -395,6 +469,97 @@ var tools = []tool{
 					m.Dismissed, m.DismissedBy = true, d.By
 				}
 				out = append(out, m)
+			}
+			return asJSON(out)
+		}},
+	{name: "start_check", action: "checks", serverOnly: true, desc: "Start a stored check run of every rule (fast, script and AI) on a finding, as the Check button does. It runs in the background; each new violation is posted as a chat comment. Read the outcome with get_check_results.",
+		required: []param{pEng, pFinding},
+		run: func(s *Server, ctx context.Context, u config.User, a args) (string, error) {
+			ref, err := s.ref(a)
+			if err != nil {
+				return "", err
+			}
+			run, err := s.Store.StartCheck(ref.EngID, ref.Dir, u)
+			if err != nil {
+				return "", err
+			}
+			return asJSON(map[string]any{"run_id": run.ID, "state": run.State, "done": run.Done, "total": run.Total})
+		}},
+	{name: "get_check_results", serverOnly: true, desc: "The finding's latest check run: state (running, done, failed), progress, whether the finding changed since (stale), and its results with dismissals.",
+		required: []param{pEng, pFinding},
+		run: func(s *Server, ctx context.Context, u config.User, a args) (string, error) {
+			ref, err := s.ref(a)
+			if err != nil {
+				return "", err
+			}
+			st, err := s.Store.CheckStatus(ref.EngID, ref.Dir)
+			if err != nil {
+				return "", err
+			}
+			type result struct {
+				Rule      string `json:"rule"`
+				Level     string `json:"level"`
+				Message   string `json:"message"`
+				Target    string `json:"target"`
+				Quote     string `json:"quote,omitempty"`
+				Thread    string `json:"thread,omitempty"`
+				Dismissed bool   `json:"dismissed,omitempty"`
+			}
+			out := struct {
+				HasRun   bool     `json:"has_run"`
+				RunID    int64    `json:"run_id,omitempty"`
+				State    string   `json:"state,omitempty"`
+				Running  bool     `json:"running,omitempty"`
+				Stale    bool     `json:"stale"`
+				Done     int      `json:"done"`
+				Total    int      `json:"total"`
+				Error    string   `json:"error,omitempty"`
+				By       string   `json:"by,omitempty"`
+				Started  string   `json:"started,omitempty"`
+				Finished string   `json:"finished,omitempty"`
+				Results  []result `json:"results"`
+			}{HasRun: st.HasRun, Stale: st.Stale, Running: st.Running, Results: []result{}}
+			if st.HasRun {
+				r := st.Run
+				out.RunID, out.State, out.Done, out.Total, out.Error, out.By, out.Started, out.Finished = r.ID, r.State, r.Done, r.Total, r.Error, r.By, r.Started, r.Finished
+			}
+			for _, x := range st.Results {
+				_, dis := st.Dismissed[db.DismissKey(x.Rule, x.QuoteHash)]
+				out.Results = append(out.Results, result{x.Rule, x.Level, x.Message, x.Target, x.Quote, x.Thread, dis})
+			}
+			return asJSON(out)
+		}},
+	{name: "list_notifications", serverOnly: true, desc: "Your notifications, newest first (at most 50): returned to you, review requested, replies, approvals, mentions, finished checks.",
+		boolArgs: []param{{"unread", "only unread ones"}},
+		run: func(s *Server, ctx context.Context, u config.User, a args) (string, error) {
+			d := s.Store.DB()
+			if d == nil {
+				return "", store.ErrNoDB
+			}
+			l, err := d.Notifications(u.Username, 50)
+			if err != nil {
+				return "", err
+			}
+			unread, _ := a["unread"].(bool)
+			tk, hasTok := tokenFrom(ctx)
+			type note struct {
+				ID         int64  `json:"id"`
+				Event      string `json:"event"`
+				Engagement string `json:"engagement"`
+				Finding    string `json:"finding,omitempty"`
+				Dir        string `json:"dir,omitempty"`
+				Title      string `json:"title,omitempty"`
+				By         string `json:"by,omitempty"`
+				Text       string `json:"text,omitempty"`
+				At         string `json:"at"`
+				Read       bool   `json:"read"`
+			}
+			out := []note{}
+			for _, n := range l {
+				if (unread && n.Read) || (hasTok && !tk.AllowsEng(n.Eng)) || !s.Store.CanSee(u, n.Eng) {
+					continue
+				}
+				out = append(out, note{n.ID, n.Event, n.Eng, n.Fid, n.Dir, n.Title, n.Actor, n.Text, n.TS, n.Read})
 			}
 			return asJSON(out)
 		}},

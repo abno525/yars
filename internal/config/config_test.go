@@ -116,6 +116,25 @@ func TestLoadRequiresRatingSeverities(t *testing.T) {
 	}
 }
 
+func TestLoadSMTPAndBaseURL(t *testing.T) {
+	c, err := Load(writeCfg(t, "base_url: https://yars.example.com/\nsmtp:\n  host: mail.example\n  port: 587\n  from: yars@example.com\n  username: yars\n  password_env: YARS_SMTP\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.BaseURL != "https://yars.example.com" || !c.SMTP.Configured() || c.SMTP.Port != 587 || c.SMTP.PasswordEnv != "YARS_SMTP" || c.SMTP.Username != "yars" {
+		t.Fatalf("%+v %q", c.SMTP, c.BaseURL)
+	}
+	if c, _ := Load(writeCfg(t, "smtp:\n  host: mail.example\n")); c.SMTP.Configured() || c.SMTP.Port != 25 {
+		t.Fatalf("no from: %+v", c.SMTP)
+	}
+	if Default().SMTP.Configured() {
+		t.Fatal("default has mail")
+	}
+	if _, err := Load(writeCfg(t, "base_url: ftp://x\n")); err == nil || !strings.Contains(err.Error(), "base_url") {
+		t.Fatalf("err %v", err)
+	}
+}
+
 func TestLoadAIConfig(t *testing.T) {
 	c, err := Load(writeCfg(t, "ai:\n  provider: anthropic\n  model: claude-haiku-5-5\n  api_key_env: K\n"))
 	if err != nil || c.AI.Provider != "anthropic" || c.AI.Model != "claude-haiku-5-5" || c.AI.APIKeyEnv != "K" {

@@ -101,6 +101,64 @@ document.addEventListener('htmx:afterSettle', function () {
   if (n) n.replaceWith(n.cloneNode(true));
 });
 
+/* ---------- Go to (Ctrl-K) ---------- */
+
+// The palette searches findings as you type (htmx fills #goto-results);
+// Up and Down move the selection, Enter opens it, Esc closes.
+function yarsGotoOpen() {
+  var dlg = document.getElementById('goto');
+  if (!dlg || !dlg.showModal || dlg.open) return;
+  dlg.showModal();
+  var btn = document.querySelector('[data-goto]');
+  if (btn) btn.setAttribute('aria-expanded', 'true');
+  var inp = dlg.querySelector('input[name=q]');
+  if (inp) { inp.focus(); inp.select(); }
+}
+function yarsGotoMove(step) {
+  var rows = Array.prototype.slice.call(document.querySelectorAll('#goto-results .res'));
+  if (!rows.length) return;
+  var i = rows.findIndex(function (r) { return r.classList.contains('sel'); });
+  var next = Math.min(rows.length - 1, Math.max(0, i + step));
+  rows.forEach(function (r, k) { r.classList.toggle('sel', k === next); r.setAttribute('aria-selected', k === next ? 'true' : 'false'); });
+  rows[next].scrollIntoView({block: 'nearest'});
+}
+document.addEventListener('keydown', function (evt) {
+  if ((evt.ctrlKey || evt.metaKey) && !evt.altKey && (evt.key === 'k' || evt.key === 'K')) {
+    evt.preventDefault();
+    yarsGotoOpen();
+    return;
+  }
+  var dlg = document.getElementById('goto');
+  if (!dlg || !dlg.open) return;
+  if (evt.key === 'ArrowDown' || evt.key === 'ArrowUp') {
+    evt.preventDefault();
+    yarsGotoMove(evt.key === 'ArrowDown' ? 1 : -1);
+  } else if (evt.key === 'Enter') {
+    var sel = dlg.querySelector('#goto-results .res.sel');
+    evt.preventDefault();
+    if (sel) window.location.href = sel.getAttribute('href');
+  }
+});
+document.addEventListener('click', function (evt) {
+  if (!evt.target.closest) return;
+  if (evt.target.closest('[data-goto]')) { yarsGotoOpen(); return; }
+  var dlg = document.getElementById('goto');
+  // a click on the backdrop (the dialog box itself, outside its content)
+  if (dlg && dlg.open && evt.target === dlg) dlg.close();
+});
+document.addEventListener('mousemove', function (evt) {
+  var r = evt.target.closest && evt.target.closest('#goto-results .res');
+  if (!r || r.classList.contains('sel')) return;
+  document.querySelectorAll('#goto-results .res.sel').forEach(function (x) { x.classList.remove('sel'); });
+  r.classList.add('sel');
+});
+document.addEventListener('close', function (evt) {
+  if (evt.target && evt.target.id === 'goto') {
+    var btn = document.querySelector('[data-goto]');
+    if (btn) btn.setAttribute('aria-expanded', 'false');
+  }
+}, true);
+
 /* ---------- finding page ---------- */
 
 // Workflow bar: Return and Withdraw open their reason form under the bar

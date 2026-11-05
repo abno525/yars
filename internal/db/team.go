@@ -228,13 +228,54 @@ func (d *DB) DeleteConnection(user, service string) error {
 
 // SetNotify turns delivery of event over channel on or off for user.
 func (d *DB) SetNotify(user, event, channel string, on bool) error {
-	var err error
-	if on {
-		_, err = d.Exec("INSERT OR IGNORE INTO notify_prefs(username, event, channel) VALUES (?, ?, ?)", user, event, channel)
-	} else {
-		_, err = d.Exec("DELETE FROM notify_prefs WHERE username = ? AND event = ? AND channel = ?", user, event, channel)
+	return d.Tx(func(tx *Tx) error {
+		var err error
+		if on {
+			_, err = tx.Exec("INSERT OR IGNORE INTO notify_prefs(username, event, channel) VALUES (?, ?, ?)", user, event, channel)
+		} else {
+			_, err = tx.Exec("DELETE FROM notify_prefs WHERE username = ? AND event = ? AND channel = ?", user, event, channel)
+		}
+		if err != nil {
+			return err
+		}
+		// from now on the user's own choice counts, not the default
+		_, err = tx.Exec("UPDATE users SET notify_set = 1 WHERE username = ?", user)
+		return err
+	})
+}
+
+// DefaultChannel is where every event goes for a user who never chose.
+const DefaultChannel = "app"
+
+// notifySet reports whether user ever saved notification choices.
+func (d *DB) notifySet(user string) bool {
+	var set int
+	d.QueryRow("SELECT notify_set FROM users WHERE username = ?", user).Scan(&set)
+	return set == 1
+}
+
+// Wants reports whether user wants event delivered over channel: the saved
+// choice, or in app only when the user never chose.
+func (d *DB) Wants(user, event, channel string) bool {
+	if !d.notifySet(user) {
+		return channel == DefaultChannel
 	}
-	return err
+	var n int
+	d.QueryRow("SELECT COUNT(*) FROM notify_prefs WHERE username = ? AND event = ? AND channel = ?", user, event, channel).Scan(&n)
+	return n > 0
+}
+
+// NotifyChoices is NotifyPrefs with the default (every event in app) for a
+// user who never chose.
+func (d *DB) NotifyChoices(user string, events []string) (map[string][]string, error) {
+	if d.notifySet(user) {
+		return d.NotifyPrefs(user)
+	}
+	out := map[string][]string{}
+	for _, e := range events {
+		out[e] = []string{DefaultChannel}
+	}
+	return out, nil
 }
 
 // NotifyPrefs returns user's channels per event (sorted).

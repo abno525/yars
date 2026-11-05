@@ -100,6 +100,7 @@ type Store struct {
 
 	subsMu sync.RWMutex
 	subs   []func(Change)
+	evSubs []func(Event) // domain events (see OnEvent)
 
 	// Linter, when set, runs the style rules; error-level violations block
 	// submit and approve (unless dismissed).
@@ -1019,6 +1020,17 @@ func (s *Store) CreateFinding(engID, title string, a gitrepo.Author) (FindingRef
 // createFinding adds a finding with the next free number; build makes its
 // file from that id.
 func (s *Store) createFinding(engID, title string, a gitrepo.Author, build func(id string) (*finding.Finding, error)) (FindingRef, error) {
+	ref, err := s.createLocked(engID, title, a, build)
+	if err != nil {
+		return ref, err
+	}
+	// told once the engagement lock is released: subscribers may read it
+	s.Emit(findingEvent(EventCreated, a.Name, ref))
+	return ref, nil
+}
+
+// createLocked writes and commits the new finding under the engagement lock.
+func (s *Store) createLocked(engID, title string, a gitrepo.Author, build func(id string) (*finding.Finding, error)) (FindingRef, error) {
 	if e, err := s.Engagement(engID); err != nil {
 		return FindingRef{}, err
 	} else if e.Archived {
@@ -1257,6 +1269,7 @@ func (s *Store) PostChat(engID, dir string, m chat.Message, u config.User) (chat
 	// validate against the chat inside the write transaction, so two
 	// concurrent posts (e.g. resolving the same thread) can't both pass
 	fid := ref.F.Meta.ID
+	replyTo := ""
 	seq, err := s.db.TxForSeq(engID, func(tx *db.Tx) error {
 		if a, err := tx.Archived(engID); err != nil || a {
 			return cmpErr(err, ErrArchived)
@@ -1268,12 +1281,22 @@ func (s *Store) PostChat(engID, dir string, m chat.Message, u config.User) (chat
 		if err := chat.Validate(existing, m); err != nil {
 			return fmt.Errorf("%w: %v", ErrInvalidChat, err)
 		}
+		if m.Reply != "" {
+			if i := slices.IndexFunc(existing, func(x chat.Message) bool { return x.ID == m.Reply }); i >= 0 {
+				replyTo = existing[i].User
+			}
+		}
 		return tx.AddMessage(engID, fid, m)
 	})
 	if err != nil {
 		return m, err
 	}
 	s.notify(Change{Eng: engID, Fid: fid, Kind: ChangeChat, Seq: seq})
+	if m.Text != "" {
+		ev := findingEvent(EventChat, u.Username, ref)
+		ev.MsgID, ev.Text, ev.Section, ev.Reply, ev.ReplyTo = m.ID, m.Text, m.Section, m.Reply, replyTo
+		s.Emit(ev)
+	}
 	return m, nil
 }
 
@@ -1356,7 +1379,10 @@ func (s *Store) Transition(engID, dir string, act workflow.Action, reason string
 		}
 		linted = contentHash(raw)
 	}
-	return s.changeState(engID, dir, func(ref FindingRef, st *db.State, hash string) ([]chat.Message, error) {
+	var done Event
+	err := s.changeState(engID, dir, func(ref FindingRef, st *db.State, hash string) ([]chat.Message, error) {
+		done = findingEvent(EventStatus, u.Username, ref)
+		done.Action, done.From, done.Reason = string(act), ref.F.Meta.Status, strings.TrimSpace(reason)
 		if linted != "" && hash != linted {
 			return nil, &workflow.Denied{Reason: "the finding changed while its checks ran; try again"}
 		}
@@ -1411,6 +1437,12 @@ func (s *Store) Transition(engID, dir string, act workflow.Action, reason string
 		_, st.Status = workflow.Target(act)
 		return []chat.Message{ev}, nil
 	})
+	if err != nil {
+		return err
+	}
+	_, done.To = workflow.Target(act)
+	s.Emit(done)
+	return nil
 }
 
 // MarkExported marks a complete finding reported because u sent it to a
@@ -1424,25 +1456,34 @@ func (s *Store) MarkExported(engID, dir, destination string, u config.User) erro
 	if err := s.writable(engID); err != nil {
 		return err
 	}
-	return s.changeState(engID, dir, func(ref FindingRef, st *db.State, _ string) ([]chat.Message, error) {
+	var done Event
+	err := s.changeState(engID, dir, func(ref FindingRef, st *db.State, _ string) ([]chat.Message, error) {
 		from, to := workflow.Target(workflow.Report)
 		if !slices.Contains(from, ref.F.Meta.Status) {
 			return nil, &workflow.Denied{Reason: ref.F.Meta.ID + " is " + ref.F.Meta.Status + ", not complete"}
 		}
+		done = findingEvent(EventStatus, u.Username, ref)
+		done.Action, done.From, done.To, done.Destination = string(workflow.Report), ref.F.Meta.Status, to, destination
 		st.Status = to
 		return []chat.Message{{ID: chat.NewID(), TS: time.Now().UTC().Truncate(time.Second), User: u.Username,
 			Event: string(workflow.Report), Text: destination}}, nil
 	})
+	if err == nil {
+		s.Emit(done)
+	}
+	return err
 }
 
 // SetReviewers replaces the reviewer list as u. The author is never a
 // reviewer; clearances of reviewers who stay are kept.
 func (s *Store) SetReviewers(engID, dir string, names []string, u config.User) error {
-	return s.changeState(engID, dir, func(ref FindingRef, st *db.State, _ string) ([]chat.Message, error) {
+	var done Event
+	err := s.changeState(engID, dir, func(ref FindingRef, st *db.State, _ string) ([]chat.Message, error) {
 		m := ref.F.Meta
 		if !workflow.CanAssign(u, m) {
 			return nil, &workflow.Denied{Reason: "only the author or a director can assign reviewers while the finding is open"}
 		}
+		done = findingEvent(EventReviewers, u.Username, ref)
 		var list []string
 		for _, n := range names {
 			if n = strings.TrimSpace(n); n != "" && n != m.Author && !slices.Contains(list, n) {
@@ -1451,18 +1492,27 @@ func (s *Store) SetReviewers(engID, dir string, names []string, u config.User) e
 		}
 		sort.Strings(list)
 		var next []db.Reviewer
+		done.Reviewers, done.Added = list, nil
 		for _, n := range list {
 			r := db.Reviewer{Name: n}
+			added := true
 			for _, old := range st.Reviewers {
 				if old.Name == n {
-					r.ClearedHash = old.ClearedHash
+					r.ClearedHash, added = old.ClearedHash, false
 				}
+			}
+			if added {
+				done.Added = append(done.Added, n)
 			}
 			next = append(next, r)
 		}
 		st.Reviewers = next
 		return nil, nil
 	})
+	if err == nil && len(done.Added) > 0 {
+		s.Emit(done)
+	}
+	return err
 }
 
 func sortedPairs(m map[string]string) string {

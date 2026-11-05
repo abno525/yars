@@ -71,6 +71,7 @@ func setup(t *testing.T) *env {
 	au := auth.New(d)
 	s := &Server{Store: st, Index: index.New(st, r), Auth: au, Cfg: cfg}
 	e := &env{srv: s, h: s.Handler(), dir: dir, toks: map[string]string{}}
+	t.Cleanup(s.Close)
 	for _, u := range users {
 		tok, ok := au.Login(u.Username, "pw")
 		if !ok {

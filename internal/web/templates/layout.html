@@ -35,7 +35,10 @@
     <a class="{{if eq .Nav ""}}on{{end}}" href="{{if .Eng.ID}}/e/{{.Eng.ID}}{{else}}/{{end}}">Findings</a>
     <a class="{{if eq .Nav "inbox"}}on{{end}}" href="/inbox">Inbox {{with .Inbox.Count}}<span class="badge">{{.}}</span>{{else}}<span class="badge0">0</span>{{end}}</a>
     {{if .CanAdmin}}<a class="{{if eq .Nav "admin"}}on{{end}}" href="/admin">Admin</a>{{end}}
+    <a class="{{if eq .Nav "docs"}}on{{end}}" href="/docs">Developers</a>
   </nav>
+  <button type="button" class="goto" data-goto aria-haspopup="dialog" aria-controls="goto"><span>Go to</span><kbd>Ctrl K</kbd></button>
+  <a class="bell{{if eq .Nav "notifications"}} on{{end}}" href="/notifications" title="Notifications" aria-label="Notifications"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4z"></path><path d="M10 20a2 2 0 0 0 4 0"></path></svg>{{with .Unread}}<span class="badge">{{.}}</span>{{else}}<span class="badge0">0</span>{{end}}</a>
   <a class="who{{if eq .Nav "settings"}} on{{end}}" href="/settings" title="{{.User.Username}} · {{.User.Role}}">{{.User.Username}}</a>
   {{else}}
   <span class="nav"></span>
@@ -51,6 +54,18 @@
 {{template "content" .}}
 </main>
 <div id="toasts" aria-live="polite"></div>
+{{if .User.Username}}
+<dialog id="goto" class="gotodlg" aria-label="Go to">
+  <div class="gotohead">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4-4"></path></svg>
+    <input type="search" name="q" autocomplete="off" spellcheck="false" aria-label="Go to" aria-controls="goto-results"
+      hx-get="/go/search" hx-trigger="input changed delay:150ms, search" hx-target="#goto-results" hx-swap="innerHTML" hx-sync="this:replace">
+    <kbd>Esc</kbd>
+  </div>
+  <div id="goto-results" class="gotores" role="listbox"></div>
+  <div class="gotofoot"><span><kbd>↑</kbd><kbd>↓</kbd>Select</span><span><kbd>Enter</kbd>Open</span><span><kbd>Esc</kbd>Close</span></div>
+</dialog>
+{{end}}
 </body>
 {{end}}
 </html>{{end}}

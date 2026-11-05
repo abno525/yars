@@ -24,10 +24,12 @@ import (
 	"yars/internal/gitrepo"
 	"yars/internal/history"
 	"yars/internal/index"
+	"yars/internal/notify"
 	"yars/internal/render"
 	"yars/internal/rules"
 	"yars/internal/secret"
 	"yars/internal/store"
+	"yars/internal/webhook"
 	"yars/internal/workflow"
 )
 
@@ -59,7 +61,15 @@ type Server struct {
 	// MigrateStatus lists what in the data directory still needs `yars
 	// migrate` (the admin's Migrate status button); nil = nothing known.
 	MigrateStatus func() []string
+	// Webhooks queues and sends events to outside services; Notifier makes
+	// the in-app notifications and email. Both are made from the database
+	// when nil and subscribed to the store's events.
+	Webhooks *webhook.Service
+	Notifier *notify.Notifier
 
+	stop      chan struct{} // closes the background workers (Close)
+	stopOnce  sync.Once
+	hooksOnce sync.Once // the webhook worker is started
 	pages     map[string]*template.Template
 	cfgMu     sync.RWMutex // guards Cfg once Admin › Structure saves it
 	history   *history.Cache
@@ -146,10 +156,14 @@ type page struct {
 	Dups          dupView    // possible duplicates of a finding
 	Merge         mergeView  // the Merge confirm page
 	CanMerge      bool       // the finding page: Merge into
+	Unread        int        // the bell: unread notifications
+	Notes         notesView  // the notifications page
+	Docs          docsView   // the developer docs
 }
 
 var funcs = template.FuncMap{"join": strings.Join, "checkedIn": checkedIn, "retestLabel": workflow.RetestLabel, "fpath": findingURL,
-	"static": staticPrefix, "score0": score0, "cleared": cleared, "age": age, "day": day, "when": when, "ending": ending}
+	"static": staticPrefix, "score0": score0, "cleared": cleared, "age": age, "day": day, "when": when, "ending": ending,
+	"actionTag": actionTag, "actionName": actionName}
 
 // findingURL is a finding's page: /e/<eng>/f/<number>.
 func findingURL(eng, dir string) string { return "/e/" + eng + "/f/" + store.ShortID(dir) }
@@ -167,8 +181,10 @@ func (s *Server) init() {
 			s.Events = events.New()
 		}
 		s.presence = newPresence(func() *events.Hub { return s.Events })
+		s.stop = make(chan struct{})
 		if s.Store != nil {
 			s.Store.OnChange(s.publishChange)
+			s.wireNotifications()
 		}
 	})
 	if s.pageSize <= 0 {
@@ -216,6 +232,8 @@ func (s *Server) Handler() http.Handler {
 	s.routesAssets(private)
 	s.routesAttach(private)
 	s.routesMerge(private)
+	s.routesNotifications(private)
+	s.routesDocs(private)
 	private.HandleFunc("POST /e/{eng}/reopen", s.engReopen)
 
 	root := http.NewServeMux()
@@ -312,6 +330,11 @@ func (s *Server) base(r *http.Request, eng string) (*page, error) {
 	p := &page{User: u, Engagements: engs, CanManage: canManage(u), CanAdmin: canAdmin(u)}
 	if p.Inbox, err = s.inboxFor(u, engs); err != nil {
 		return nil, err
+	}
+	if d := s.Store.DB(); d != nil {
+		if p.Unread, err = d.UnreadCount(u.Username); err != nil {
+			return nil, err
+		}
 	}
 	if eng != "" {
 		i := slices.IndexFunc(engs, func(e store.Engagement) bool { return e.ID == eng })

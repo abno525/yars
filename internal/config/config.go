@@ -26,7 +26,24 @@ type Config struct {
 	ReportSections []string   `yaml:"report_sections"`
 	CVSS           CVSSConfig `yaml:"cvss"`
 	AI             AIConfig   `yaml:"ai"`
+	// BaseURL is the server's address as people open it (links in webhooks
+	// and email); "" = links are paths only.
+	BaseURL string     `yaml:"base_url"`
+	SMTP    SMTPConfig `yaml:"smtp"`
 }
+
+// SMTPConfig sends notification email. The password is read from the
+// environment variable named by PasswordEnv and never stored in the repo.
+type SMTPConfig struct {
+	Host        string `yaml:"host"`
+	Port        int    `yaml:"port"` // default 25
+	From        string `yaml:"from"`
+	Username    string `yaml:"username"`
+	PasswordEnv string `yaml:"password_env"`
+}
+
+// Configured reports whether email can be sent.
+func (s SMTPConfig) Configured() bool { return s.Host != "" && s.From != "" }
 
 // AIConfig selects the LLM used by AI rules. The key itself is read from the
 // environment variable named by APIKeyEnv and never stored in the repo.
@@ -81,6 +98,16 @@ func validate(c *Config) error {
 			return fmt.Errorf("config: ai.base_url %q must use https (plain http only for localhost)", b)
 		}
 	}
+	if b := c.BaseURL; b != "" {
+		u, err := url.Parse(b)
+		if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
+			return fmt.Errorf("config: base_url %q must be an http(s) address", b)
+		}
+		c.BaseURL = strings.TrimRight(b, "/")
+	}
+	if c.SMTP.Port == 0 {
+		c.SMTP.Port = 25
+	}
 	for k, v := range c.CVSS.Standard {
 		if !cvss.Valid(k, v) {
 			return fmt.Errorf("config: cvss.standard %s: invalid value %q", k, v)
@@ -124,6 +151,7 @@ func Default() Config {
 		DetailsRows:    []string{"Location", "Cause", "Result", "Attack condition", "Business impact"},
 		ReportSections: []string{"Executive summary", "Scope", "Methodology"},
 		CVSS:           CVSSConfig{Version: "3.1", Standard: defaultStandard()},
+		SMTP:           SMTPConfig{Port: 25},
 	}
 }
 

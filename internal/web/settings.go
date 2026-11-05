@@ -9,6 +9,7 @@ import (
 
 	"yars/internal/auth"
 	"yars/internal/db"
+	"yars/internal/notify"
 	"yars/internal/secret"
 )
 
@@ -58,11 +59,15 @@ var tokenExpiry = []option{{Value: "30", Label: "30 days"}, {Value: "90", Label:
 // Connections: outside services a user can keep a personal key for.
 var connServices = []option{{Value: "confluence", Label: "Confluence"}, {Value: "jira", Label: "Jira"}}
 
-// Notification events and channels.
-var notifyEvents = []option{{Value: "returned", Label: "Returned to me"}, {Value: "review", Label: "Review requested"},
-	{Value: "reply", Label: "Reply in my thread"}, {Value: "approved", Label: "Approved"}, {Value: "mentioned", Label: "Mentioned"},
-	{Value: "token", Label: "Token expiring"}}
+// Notification channels; email only when the server can send mail.
 var notifyChannels = []option{{Value: "app", Label: "In app"}, {Value: "email", Label: "Email"}}
+
+func (s *Server) channels() []option {
+	if s.conf().SMTP.Configured() {
+		return notifyChannels
+	}
+	return notifyChannels[:1]
+}
 
 func (s *Server) routesSettings(mux *http.ServeMux) {
 	mux.HandleFunc("GET /settings", s.settingsPage)
@@ -159,15 +164,15 @@ func (s *Server) settingsBase(r *http.Request) (*page, error) {
 		}
 		p.Settings.Conns = append(p.Settings.Conns, c)
 	}
-	prefs, err := d.NotifyPrefs(u.Username)
+	prefs, err := d.NotifyChoices(u.Username, notify.Keys())
 	if err != nil {
 		return nil, err
 	}
-	p.Settings.Channels = notifyChannels
-	for _, ev := range notifyEvents {
-		row := notifyRow{Event: ev.Value, Label: ev.Label}
-		for _, ch := range notifyChannels {
-			row.Cells = append(row.Cells, option{Value: ev.Value + "." + ch.Value, Label: ch.Label, On: slices.Contains(prefs[ev.Value], ch.Value)})
+	p.Settings.Channels = s.channels()
+	for _, ev := range notify.Events {
+		row := notifyRow{Event: ev.Key, Label: ev.Label}
+		for _, ch := range p.Settings.Channels {
+			row.Cells = append(row.Cells, option{Value: ev.Key + "." + ch.Value, Label: ch.Label, On: slices.Contains(prefs[ev.Key], ch.Value)})
 		}
 		p.Settings.Notify = append(p.Settings.Notify, row)
 	}
@@ -476,10 +481,11 @@ func (s *Server) notifySave(w http.ResponseWriter, r *http.Request) {
 	u := auth.UserFrom(r.Context())
 	r.ParseForm()
 	d := s.Store.DB()
-	for _, ev := range notifyEvents {
-		for _, ch := range notifyChannels {
-			on := slices.Contains(r.PostForm["n"], ev.Value+"."+ch.Value)
-			if err := d.SetNotify(u.Username, ev.Value, ch.Value, on); err != nil {
+	// only the channels on the page: a hidden email choice is kept
+	for _, ev := range notify.Events {
+		for _, ch := range s.channels() {
+			on := slices.Contains(r.PostForm["n"], ev.Key+"."+ch.Value)
+			if err := d.SetNotify(u.Username, ev.Key, ch.Value, on); err != nil {
 				s.fail(w, err)
 				return
 			}

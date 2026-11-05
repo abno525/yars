@@ -13,8 +13,73 @@
     {{if eq .Admin.Tab "health"}}{{template "admin_health" .Admin.Health}}{{end}}
     {{if eq .Admin.Tab "activity"}}{{template "admin_activity" .Admin.Activity}}{{end}}
     {{if eq .Admin.Tab "structure"}}{{template "admin_structure" .Admin.Structure}}{{end}}
+    {{if eq .Admin.Tab "webhooks"}}{{template "admin_webhooks" .Admin.Hooks}}{{end}}
   </div>
+  <div class="adminfoot"><a href="/docs/mcp">Developers</a><a href="/docs/webhooks">Webhooks</a><a href="/docs/config">Config</a><a href="/docs/git">Git</a></div>
 </div>
+{{end}}
+
+{{define "admin_webhooks"}}
+{{with .Secret}}
+<section class="panel once">
+  <div class="panelhead"><h2>Secret</h2><span class="mono">X-YARS-Signature: sha256=…</span></div>
+  <div class="copyrow flush"><code id="hook-secret">{{.}}</code><button type="button" class="btn save sm w96" data-copy="hook-secret">Copy</button></div>
+</section>
+{{end}}
+<section class="panel">
+  <div class="panelhead"><h2>Webhooks <span class="{{if .Rows}}qcnt{{else}}qcnt zero{{end}}">{{len .Rows}}</span></h2><a class="strong" href="/docs/webhooks">docs/webhooks.md</a></div>
+  <table class="table stable hooktable">
+    <thead><tr><th>URL</th><th class="c-events">Events</th><th class="c-last">Last delivery</th><th class="c-flag">Enabled</th><th class="c-acts">Action</th></tr></thead>
+    <tbody>
+      {{range .Rows}}
+      <tr class="{{if eq .ID $.Selected}}editing{{end}}{{if not .Enabled}} off{{end}}">
+        <td class="stack"><a href="/admin/webhooks?hook={{.ID}}" title="{{.URL}}">{{.URL}}</a><span class="mono">{{.Ending}}</span></td>
+        <td class="stack"><span class="mono" title="{{.Events}}">{{.Events}}</span></td>
+        <td class="stack">{{if .LastState}}<span class="tag dl-{{.LastState}}">{{.Last}}</span><span class="mono">{{.LastAt}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
+        <td><form method="post" action="/admin/webhooks/{{.ID}}/toggle"><button class="toggle{{if .Enabled}} on{{end}}" role="switch" aria-checked="{{if .Enabled}}true{{else}}false{{end}}" aria-label="Enabled"><span></span></button></form></td>
+        <td><div class="actions"><a class="btn secondary sm w96" href="/admin/webhooks?edit={{.ID}}&amp;hook={{.ID}}">Edit</a><form method="post" action="/admin/webhooks/{{.ID}}/delete"><button class="btn danger sm w96">Delete</button></form></div></td>
+      </tr>
+      {{else}}
+      <tr><td colspan="5" class="muted">—</td></tr>
+      {{end}}
+    </tbody>
+  </table>
+  <form class="hookform flush" method="post" action="/admin/webhooks{{with .Form.ID}}/{{.}}{{end}}">
+    <div class="hookrow flush">
+      <label class="field grow">URL<input name="url" type="url" value="{{.Form.URL}}" placeholder="https://" required></label>
+      {{if .Form.ID}}<label class="chk"><input type="checkbox" name="enabled" value="1"{{if .Form.Enabled}} checked{{end}}>Enabled</label>{{else}}<span class="slot w112"></span>{{end}}
+      {{if .Form.ID}}<a class="btn secondary w112" href="/admin/webhooks">Cancel</a>{{else}}<span class="slot w112"></span>{{end}}
+      <button class="btn save w112">{{if .Form.ID}}Save{{else}}Add{{end}}</button>
+    </div>
+    <div class="evgrid flush">
+      {{range .Events}}<label class="chk"><input type="checkbox" name="event" value="{{.Value}}"{{if .On}} checked{{end}}><span class="mono">{{.Label}}</span></label>{{end}}
+    </div>
+    <span class="pstate error flush" title="{{.Form.Error}}">{{.Form.Error}}</span>
+  </form>
+</section>
+{{if .Selected}}
+<section class="panel">
+  <div class="panelhead"><h2>Deliveries</h2><span class="mono clip" title="{{.SelURL}}">{{.SelURL}}</span></div>
+  <table class="table stable dltable">
+    <thead><tr><th class="c-time">When</th><th class="c-events">Event</th><th class="c-state">State</th><th class="c-num">Status</th><th class="c-num">Tries</th><th>Error</th><th class="c-act2">Action</th></tr></thead>
+    <tbody>
+      {{range .Log}}
+      <tr>
+        <td class="mono">{{.At}}</td>
+        <td class="mono">{{.Event}}</td>
+        <td><span class="tag dl-{{.State}}">{{.State}}</span></td>
+        <td class="num">{{.Status}}</td>
+        <td class="num">{{.Tries}}</td>
+        <td class="muted" title="{{.Error}}">{{.Error}}</td>
+        <td><form method="post" action="/admin/webhooks/deliveries/{{.ID}}/redeliver"><button class="btn secondary sm w112">Redeliver</button></form></td>
+      </tr>
+      {{else}}
+      <tr><td colspan="7" class="muted">—</td></tr>
+      {{end}}
+    </tbody>
+  </table>
+</section>
+{{end}}
 {{end}}
 
 {{define "admin_structure"}}
