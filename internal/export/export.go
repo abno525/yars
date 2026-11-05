@@ -201,6 +201,9 @@ type Input struct {
 	// Creds is the sender's own key for a service destination; nil uses the
 	// server's key from the environment.
 	Creds *Creds
+	// Known is the page or issue each finding (by ID) became at this
+	// destination before; it is updated instead of making another.
+	Known map[string]Remote
 	// imageSrc, when set, replaces inlining: it stores an attachment and
 	// returns the src to use (the HTML ZIP).
 	imageSrc func(f *finding.Finding, rel, ct string, data []byte) string
@@ -295,8 +298,32 @@ type Result struct {
 	Items                 []Item // a push: what each finding became
 }
 
-// Item is one finding's page or issue.
-type Item struct{ ID, URL string }
+// Item is one finding's page or issue. Action is "created" or "updated".
+type Item struct {
+	ID, URL string
+	Remote  Remote
+	Action  string
+}
+
+// Remote is a page or issue at a service: the Jira issue key or the
+// Confluence page id with its version.
+type Remote struct {
+	ID      string
+	Version int
+}
+
+// Target is where a service destination publishes: its address and
+// project or space ("" for files). A remembered page or issue only counts
+// for the same target.
+func (e Exporter) Target() string {
+	switch {
+	case e.Type == "jira" && e.Jira != nil:
+		return strings.TrimRight(e.Jira.BaseURL, "/") + " " + e.Jira.Project
+	case e.Service():
+		return strings.TrimRight(e.Confluence.BaseURL, "/") + " " + e.Confluence.Space
+	}
+	return ""
+}
 
 // Runner executes exporters. Dir is .yars/exporters.
 type Runner struct {

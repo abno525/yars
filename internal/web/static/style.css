@@ -1019,6 +1019,12 @@ code.block { display: block; padding: 8px 10px; background: var(--code-bg); font
 .panel.result.res-partial { border: 2px solid var(--accent-text); }
 .panel.result.res-failed { border: 2px solid var(--red); }
 .result .panelhead h2 { min-width: 0; gap: 12px; }
+.restable th.c-change { width: 128px; }
+.restable th.c-acts { width: 288px; }
+.restable .actions { gap: 8px; }
+.tag.sent-created, .tag.sent-updated { width: 88px; }
+.tag.sent-created { background: var(--navy); color: #FFFFFF; border-color: var(--navy); }
+.tag.sent-updated { background: transparent; color: var(--ink); border-color: var(--ink); }
 
 /* preview: contents and the report on paper */
 .pvgrid { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 24px; align-items: start; }

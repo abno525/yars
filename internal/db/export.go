@@ -55,6 +55,37 @@ func (d *DB) Exports(eng string, limit int) ([]ExportRecord, error) {
 	return out, rows.Err()
 }
 
+// ExportRemote is the page or issue a finding became at a destination:
+// Target is the service address and project or space it lives in, RemoteID
+// the Jira issue key or Confluence page id, Version the page version.
+type ExportRemote struct {
+	Destination, Eng, Finding string
+	Target, RemoteID          string
+	Version                   int
+	URL, Updated              string
+}
+
+// SetExportRemote remembers (or replaces) a finding's page or issue.
+func (d *DB) SetExportRemote(r ExportRemote) error {
+	_, err := d.Exec(`INSERT INTO export_remote(destination, eng, finding, target, remote_id, version, url, updated)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(destination, eng, finding) DO UPDATE SET target = excluded.target, remote_id = excluded.remote_id,
+			version = excluded.version, url = excluded.url, updated = excluded.updated`,
+		r.Destination, r.Eng, r.Finding, r.Target, r.RemoteID, r.Version, r.URL, d.stamp())
+	return err
+}
+
+// ExportRemote returns a finding's remembered page or issue.
+func (d *DB) ExportRemote(dest, eng, finding string) (ExportRemote, bool, error) {
+	r := ExportRemote{Destination: dest, Eng: eng, Finding: finding}
+	err := d.QueryRow(`SELECT target, remote_id, version, url, updated FROM export_remote WHERE destination = ? AND eng = ? AND finding = ?`,
+		dest, eng, finding).Scan(&r.Target, &r.RemoteID, &r.Version, &r.URL, &r.Updated)
+	if errors.Is(err, sql.ErrNoRows) {
+		return r, false, nil
+	}
+	return r, err == nil, err
+}
+
 // Export returns one export by id.
 func (d *DB) Export(id int64) (ExportRecord, bool, error) {
 	r, err := scanExport(d.QueryRow("SELECT "+exportCols+" FROM export_history WHERE id = ?", id))

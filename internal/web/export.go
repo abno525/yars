@@ -51,6 +51,7 @@ type sendItem struct {
 	Marked bool   `json:"marked"`
 	Error  string `json:"error,omitempty"`
 	URL    string `json:"url,omitempty"`
+	Action string `json:"action,omitempty"` // created | updated (a page or issue)
 }
 
 // sendResult is a send as the result panel shows it.
@@ -61,6 +62,9 @@ type sendResult struct {
 	Marked             int
 	Download, Filename string
 	RetryURL           string
+	ServerURL          string // sends a failed finding again with the server's key ("" without one)
+	Renew              string // where the viewer renews their key for the service
+	Viewer             string
 }
 
 // historyRow is a line of the History table.
@@ -152,6 +156,7 @@ func (s *Server) routesExport(mux *http.ServeMux) {
 	mux.HandleFunc("GET /e/{eng}/export/download/{tok}", s.exportDownload)
 	mux.HandleFunc("GET /e/{eng}/export/preview", s.exportPreview)
 	mux.HandleFunc("POST /e/{eng}/export/history/{id}/retry", s.exportRetry)
+	mux.HandleFunc("POST /e/{eng}/export/history/{id}/server", s.exportServerKey)
 	s.routesExportSetup(mux)
 }
 
@@ -350,7 +355,13 @@ func (s *Server) exportForm(w http.ResponseWriter, r *http.Request) {
 		if rec, ok, _ := s.Store.DB().Export(id); ok && rec.Eng == p.Eng.ID {
 			items := itemsOf(rec)
 			res := &sendResult{Dest: destName(p.ExportV.exporters, rec.Destination), State: stateOf(rec, items), Items: items,
-				Total: len(items), RetryURL: s.retryURL(p, rec)}
+				Total: len(items), RetryURL: s.retryURL(p, rec), Viewer: p.User.Username}
+			if ex, ok := findExporter(p.ExportV.exporters, rec.Destination); ok && ex.Service() && !rec.OK {
+				res.Renew = "/settings#conn-" + ex.ServiceName()
+				if p.ExportV.CanSend && s.Export.Getenv(ex.TokenEnv()) != "" {
+					res.ServerURL = "/e/" + p.Eng.ID + "/export/history/" + strconv.FormatInt(rec.ID, 10) + "/server"
+				}
+			}
 			for _, it := range items {
 				if it.OK {
 					res.Sent++
@@ -461,7 +472,7 @@ func (s *Server) exportRun(w http.ResponseWriter, r *http.Request) {
 		fail(http.StatusBadRequest, msg)
 		return
 	}
-	s.sendAndShow(w, r, p, ex, refs)
+	s.sendAndShow(w, r, p, ex, refs, false)
 }
 
 // download makes one of the built-in files.
@@ -521,25 +532,47 @@ func (s *Server) senderKey(author, service string) (creds *export.Creds, sentAs 
 }
 
 // send delivers refs to a destination: a service gets each finding with
-// its author's key, a file destination makes one file. Findings that
+// its author's key (the server's with serverKey), updating the page or
+// issue it became before; a file destination makes one file. Findings that
 // arrived are marked reported when the destination says so. It returns the
 // history id and the file's download token ("" for none).
-func (s *Server) send(ctx context.Context, u config.User, eng store.Engagement, ex export.Exporter, refs []store.FindingRef) (int64, string) {
+func (s *Server) send(ctx context.Context, u config.User, eng store.Engagement, ex export.Exporter, refs []store.FindingRef, serverKey bool) (int64, string) {
 	items := make([]sendItem, len(refs))
 	for i, ref := range refs {
 		items[i] = sendItem{ID: ref.F.Meta.ID, Dir: ref.Dir, Author: ref.F.Meta.Author}
 	}
 	tok := ""
+	d := s.Store.DB()
 	if ex.Service() {
 		for i, ref := range refs {
+			fid := ref.F.Meta.ID
 			in := s.exportInput(eng, refs[i:i+1])
-			in.Creds, items[i].SentAs = s.senderKey(ref.F.Meta.Author, ex.ServiceName())
+			if serverKey {
+				items[i].SentAs = "server"
+			} else {
+				in.Creds, items[i].SentAs = s.senderKey(ref.F.Meta.Author, ex.ServiceName())
+			}
+			if d != nil {
+				if rm, ok, err := d.ExportRemote(ex.ID, eng.ID, fid); err == nil && ok && rm.Target == ex.Target() {
+					in.Known = map[string]export.Remote{fid: {ID: rm.RemoteID, Version: rm.Version}}
+				}
+			}
 			res, err := s.Export.Run(ctx, ex, in)
 			if err != nil {
 				items[i].Error = err.Error()
 				continue
 			}
 			items[i].OK, items[i].URL = true, res.URL
+			if len(res.Items) == 1 && res.Items[0].Remote.ID != "" {
+				it := res.Items[0]
+				items[i].Action = it.Action
+				if d != nil {
+					rm := db.ExportRemote{Destination: ex.ID, Eng: eng.ID, Finding: fid, Target: ex.Target(), RemoteID: it.Remote.ID, Version: it.Remote.Version, URL: it.URL}
+					if err := d.SetExportRemote(rm); err != nil {
+						log.Printf("export: remember %s at %s: %v", fid, ex.ID, err)
+					}
+				}
+			}
 		}
 	} else {
 		res, err := s.Export.Run(ctx, ex, s.exportInput(eng, refs))
@@ -621,8 +654,8 @@ func (s *Server) record(u config.User, eng, dest string, refs []store.FindingRef
 
 // sendAndShow sends and shows the result page (a redirect, so reloading
 // it never sends again).
-func (s *Server) sendAndShow(w http.ResponseWriter, r *http.Request, p *page, ex export.Exporter, refs []store.FindingRef) {
-	id, tok := s.send(r.Context(), p.User, p.Eng, ex, refs)
+func (s *Server) sendAndShow(w http.ResponseWriter, r *http.Request, p *page, ex export.Exporter, refs []store.FindingRef, serverKey bool) {
+	id, tok := s.send(r.Context(), p.User, p.Eng, ex, refs, serverKey)
 	to := "/e/" + p.Eng.ID + "/export?sent=" + strconv.FormatInt(id, 10)
 	if tok != "" {
 		to += "&dl=" + tok
@@ -631,8 +664,15 @@ func (s *Server) sendAndShow(w http.ResponseWriter, r *http.Request, p *page, ex
 }
 
 // exportRetry sends a failed send's failed findings again.
-func (s *Server) exportRetry(w http.ResponseWriter, r *http.Request) {
+func (s *Server) exportRetry(w http.ResponseWriter, r *http.Request) { s.resend(w, r, false) }
+
+// exportServerKey sends one failed finding of a send again with the
+// server's key (form value dir).
+func (s *Server) exportServerKey(w http.ResponseWriter, r *http.Request) { s.resend(w, r, true) }
+
+func (s *Server) resend(w http.ResponseWriter, r *http.Request, serverKey bool) {
 	s.liftDeadline(w)
+	r.ParseForm()
 	p, err := s.exportPage(r, nil)
 	if err != nil {
 		s.fail(w, err)
@@ -654,7 +694,7 @@ func (s *Server) exportRetry(w http.ResponseWriter, r *http.Request) {
 	}
 	ex, found := findExporter(p.ExportV.exporters, rec.Destination)
 	switch {
-	case rec.OK || !found:
+	case rec.OK || !found || (serverKey && !ex.Service()):
 		fail(http.StatusBadRequest, "nothing to retry")
 		return
 	case !p.ExportV.CanSend:
@@ -663,16 +703,20 @@ func (s *Server) exportRetry(w http.ResponseWriter, r *http.Request) {
 	}
 	var dirs []string
 	for _, it := range itemsOf(rec) {
-		if !it.OK {
+		if !it.OK && (!serverKey || it.Dir == r.PostForm.Get("dir")) {
 			dirs = append(dirs, it.Dir)
 		}
+	}
+	if len(dirs) == 0 {
+		fail(http.StatusBadRequest, "nothing to retry")
+		return
 	}
 	refs, msg := s.picked(p.Eng.ID, dirs, ex.Statuses)
 	if msg != "" {
 		fail(http.StatusBadRequest, msg)
 		return
 	}
-	s.sendAndShow(w, r, p, ex, refs)
+	s.sendAndShow(w, r, p, ex, refs, serverKey)
 }
 
 // exportPreview shows the report of the chosen findings as it will be

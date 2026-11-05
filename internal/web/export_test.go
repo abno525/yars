@@ -43,18 +43,22 @@ func (e *env) exporters(t *testing.T, pandocBody string) {
 	e.srv.Export = &export.Runner{Dir: dir, PandocPath: bin, HTTP: http.DefaultClient, Getenv: func(string) string { return "" }, Timeout: 5 * time.Second}
 }
 
-// jiraStub is a Jira that records who created which issue.
+// jiraStub is a Jira that keeps issues with their labels and records who
+// created or updated which issue.
 type jiraStub struct {
-	srv   *httptest.Server
-	mu    sync.Mutex
-	users []string // login per issue
-	fail  bool     // answer 500
-	n     int
+	srv    *httptest.Server
+	mu     sync.Mutex
+	users  []string            // login per issue created or updated
+	fail   bool                // answer 500
+	reject string              // a login answered 401
+	issues map[string][]string // key → labels
+	writes []string            // "POST" or "PUT PEN-1"
+	n      int
 }
 
 func (e *env) jira(t *testing.T, marks bool) *jiraStub {
 	t.Helper()
-	j := &jiraStub{}
+	j := &jiraStub{issues: map[string][]string{}}
 	j.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		j.mu.Lock()
 		defer j.mu.Unlock()
@@ -64,10 +68,45 @@ func (e *env) jira(t *testing.T, marks bool) *jiraStub {
 			return
 		}
 		u, p, _ := r.BasicAuth()
-		j.users = append(j.users, u+":"+p)
-		j.n++
-		w.WriteHeader(201)
-		io.WriteString(w, `{"key":"PEN-`+string(rune('0'+j.n))+`"}`)
+		if j.reject != "" && u+":"+p == j.reject {
+			w.WriteHeader(401)
+			io.WriteString(w, `{"errorMessages":["key expired"]}`)
+			return
+		}
+		switch r.Method {
+		case "GET": // search by label
+			q := r.URL.Query().Get("jql")
+			var found []map[string]string
+			for k, ls := range j.issues {
+				for _, l := range ls {
+					if strings.Contains(q, `labels = "`+l+`"`) {
+						found = append(found, map[string]string{"key": k})
+					}
+				}
+			}
+			json.NewEncoder(w).Encode(map[string]any{"issues": found})
+		case "PUT":
+			k := strings.TrimPrefix(r.URL.Path, "/rest/api/2/issue/")
+			if _, ok := j.issues[k]; !ok {
+				w.WriteHeader(404)
+				return
+			}
+			j.users = append(j.users, u+":"+p)
+			j.writes = append(j.writes, "PUT "+k)
+			w.WriteHeader(204)
+		default:
+			var body struct {
+				Fields struct{ Labels []string }
+			}
+			json.NewDecoder(r.Body).Decode(&body)
+			j.users = append(j.users, u+":"+p)
+			j.writes = append(j.writes, "POST")
+			j.n++
+			k := "PEN-" + string(rune('0'+j.n))
+			j.issues[k] = body.Fields.Labels
+			w.WriteHeader(201)
+			io.WriteString(w, `{"key":"`+k+`"}`)
+		}
 	}))
 	t.Cleanup(j.srv.Close)
 	base := strings.Replace(j.srv.URL, "127.0.0.1", "localhost", 1)

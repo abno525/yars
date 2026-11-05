@@ -65,7 +65,7 @@
         <thead><tr><th class="c-svc">Service</th><th>Key</th><th class="c-date">Added</th><th class="c-act2">Action</th></tr></thead>
         <tbody>
           {{range .Settings.Conns}}
-          <tr>
+          <tr id="conn-{{.Service}}">
             <td class="strong">{{.Label}}</td>
             {{if .Has}}
             <td>{{if .Broken}}<span class="tag bad">Unreadable</span>{{else}}<span class="mono">{{.Ending}}</span>{{end}}</td>

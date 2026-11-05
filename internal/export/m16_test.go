@@ -89,9 +89,17 @@ func TestJiraExporter(t *testing.T) {
 	n := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		u, p, ok := r.BasicAuth()
-		if r.Method != "POST" || r.URL.Path != "/rest/api/2/issue" || !ok || u != "pen1@acme" || p != "own" {
+		if !ok || u != "pen1@acme" || p != "own" {
 			w.WriteHeader(401)
 			io.WriteString(w, `{"errorMessages":["bad key own"]}`)
+			return
+		}
+		if r.Method == "GET" && r.URL.Path == "/rest/api/2/search" {
+			io.WriteString(w, `{"issues":[]}`)
+			return
+		}
+		if r.Method != "POST" || r.URL.Path != "/rest/api/2/issue" {
+			w.WriteHeader(400)
 			return
 		}
 		var body map[string]any

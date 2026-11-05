@@ -154,22 +154,37 @@ func (r *Runner) confluence(ctx context.Context, e Exporter, in Input) (Result, 
 	if c.ParentID != "" {
 		payload["ancestors"] = []map[string]string{{"id": c.ParentID}}
 	}
-	// re-publishing updates the existing page (Confluence titles are unique per space)
-	method, target := "POST", base
-	q := url.Values{"title": {title}, "spaceKey": {c.Space}, "expand": {"version"}}
-	if data, err := call("GET", base+"?"+q.Encode(), nil); err == nil {
-		var found struct {
-			Results []struct {
-				ID      string
-				Version struct{ Number int }
+	// the page this finding became before, read for its current version
+	var cur *confPage
+	if len(in.Findings) == 1 {
+		if k, ok := in.Known[in.Findings[0].Meta.ID]; ok && k.ID != "" {
+			data, err := call("GET", base+"/"+url.PathEscape(k.ID)+"?expand=version,space", nil)
+			switch {
+			case err == nil:
+				var p confPage
+				if json.Unmarshal(data, &p) == nil && p.ID != "" && (p.Space.Key == "" || p.Space.Key == c.Space) {
+					cur = &p
+				}
+			case !notFound(err): // gone: found by title or made again
+				return Result{}, err
 			}
 		}
-		if json.Unmarshal(data, &found) == nil && len(found.Results) > 0 {
-			p := found.Results[0]
-			method, target = "PUT", base+"/"+url.PathEscape(p.ID)
-			payload["id"] = p.ID
-			payload["version"] = map[string]int{"number": p.Version.Number + 1}
+	}
+	// otherwise the page with this title (titles are unique per space)
+	if cur == nil {
+		q := url.Values{"title": {title}, "spaceKey": {c.Space}, "expand": {"version"}}
+		if data, err := call("GET", base+"?"+q.Encode(), nil); err == nil {
+			var found struct{ Results []confPage }
+			if json.Unmarshal(data, &found) == nil && len(found.Results) > 0 {
+				cur = &found.Results[0]
+			}
 		}
+	}
+	method, target, action, version := "POST", base, "created", 1
+	if cur != nil {
+		method, target, action, version = "PUT", base+"/"+url.PathEscape(cur.ID), "updated", cur.Version.Number+1
+		payload["id"] = cur.ID
+		payload["version"] = map[string]int{"number": version}
 	}
 	body, _ := json.Marshal(payload)
 	data, err := call(method, target, body)
@@ -177,14 +192,29 @@ func (r *Runner) confluence(ctx context.Context, e Exporter, in Input) (Result, 
 		return Result{}, err
 	}
 	var out struct {
+		confPage
 		Links struct{ Base, Webui string } `json:"_links"`
 	}
 	json.Unmarshal(data, &out)
+	rm := Remote{ID: out.ID, Version: out.Version.Number}
+	if rm.ID == "" && cur != nil {
+		rm.ID = cur.ID
+	}
+	if rm.Version == 0 {
+		rm.Version = version
+	}
 	res := Result{Pushed: true, URL: out.Links.Base + out.Links.Webui}
 	for _, f := range in.ordered() {
-		res.Items = append(res.Items, Item{ID: f.Meta.ID, URL: res.URL})
+		res.Items = append(res.Items, Item{ID: f.Meta.ID, URL: res.URL, Remote: rm, Action: action})
 	}
 	return res, nil
+}
+
+// confPage is a Confluence page as the content API returns it.
+type confPage struct {
+	ID      string
+	Version struct{ Number int }
+	Space   struct{ Key string }
 }
 
 // httpsOnly refuses a service address that isn't https (plain http only to
@@ -250,7 +280,21 @@ func (r *Runner) call(ctx context.Context, what, user, token, method, url string
 		if len(msg) > 300 {
 			msg = msg[:300] + "…"
 		}
-		return nil, fmt.Errorf("%s failed: HTTP %d %s", what, resp.StatusCode, msg)
+		return nil, &statusError{resp.StatusCode, fmt.Sprintf("%s failed: HTTP %d %s", what, resp.StatusCode, msg)}
 	}
 	return data, nil
+}
+
+// statusError is a service's answer outside 2xx.
+type statusError struct {
+	code int
+	msg  string
+}
+
+func (e *statusError) Error() string { return e.msg }
+
+// notFound reports a 404 answer: the page or issue is gone.
+func notFound(err error) bool {
+	var se *statusError
+	return errors.As(err, &se) && se.code == http.StatusNotFound
 }

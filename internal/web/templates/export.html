@@ -83,7 +83,7 @@
   </div>
   {{if .Download}}<div class="copyrow"><code title="{{.Filename}}">{{.Filename}}</code><a class="btn save sm w128" href="{{.Download}}">Download</a></div>{{end}}
   <table class="table stable restable flush">
-    <thead><tr><th class="c-fid">ID</th><th class="c-who">Author</th><th class="c-svc">Sent as</th><th>Result</th><th class="c-act">Action</th></tr></thead>
+    <thead><tr><th class="c-fid">ID</th><th class="c-who">Author</th><th class="c-svc">Sent as</th><th>Result</th><th class="c-change">Change</th><th class="c-acts">Action</th></tr></thead>
     <tbody>
       {{range .Items}}
       <tr{{if not .OK}} class="denied"{{end}}>
@@ -91,7 +91,11 @@
         <td>{{.Author}}</td>
         <td class="mono{{if and .SentAs (ne .SentAs "server")}} ownkey{{end}}">{{if eq .SentAs ""}}—{{else if eq .SentAs "server"}}server key{{else}}own key{{end}}</td>
         <td class="clip{{if not .OK}} error{{end}}" title="{{.Error}}">{{if .OK}}{{if .Marked}}sent · marked reported{{else}}sent{{end}}{{else}}{{.Error}}{{end}}</td>
-        <td>{{if .URL}}<a class="btn ghost sm w112" href="{{.URL}}" target="_blank" rel="noopener">Open</a>{{else}}<span class="slot w112"></span>{{end}}</td>
+        <td>{{if .Action}}<span class="tag sent-{{.Action}}">{{.Action}}</span>{{else}}<span class="tag none"></span>{{end}}</td>
+        <td><div class="actions">
+          {{- if and (not .OK) $.ServerURL .SentAs (ne .SentAs "server")}}<button class="btn secondary sm w136" formaction="{{$.ServerURL}}" name="dir" value="{{.Dir}}">Use server key</button>{{else}}<span class="slot w136"></span>{{end -}}
+          {{- if .URL}}<a class="btn ghost sm w112" href="{{.URL}}" target="_blank" rel="noopener">Open</a>{{else if and (not .OK) $.Renew (eq .SentAs $.Viewer)}}<a class="btn secondary sm w112" href="{{$.Renew}}">Renew key</a>{{else}}<span class="slot w112"></span>{{end -}}
+        </div></td>
       </tr>
       {{end}}
     </tbody>

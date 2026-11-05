@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"regexp"
 	"strings"
 
@@ -28,9 +29,10 @@ func validJira(j *JiraConf) error {
 // priorities maps severities to Jira's default priority names.
 var priorities = map[string]string{"critical": "Highest", "high": "High", "medium": "Medium", "low": "Low", "info": "Lowest"}
 
-// jira creates one issue per finding (POST /rest/api/2/issue) and returns
-// their addresses. A failure stops the run; issues made before it are
-// returned with the error.
+// jira sends one issue per finding and returns their addresses. A finding's
+// issue is updated when it is known (Known) or found by its label;
+// otherwise a new one is made with that label. A failure stops the run;
+// issues sent before it are returned with the error.
 func (r *Runner) jira(ctx context.Context, e Exporter, in Input) (Result, error) {
 	j := e.Jira
 	if err := validJira(j); err != nil {
@@ -46,32 +48,89 @@ func (r *Runner) jira(ctx context.Context, e Exporter, in Input) (Result, error)
 	base := strings.TrimRight(j.BaseURL, "/")
 	res := Result{Pushed: true}
 	for _, f := range in.ordered() {
+		call := func(method, url string, body []byte) ([]byte, error) {
+			return r.call(ctx, "jira "+f.Meta.ID, user, token, method, url, body)
+		}
+		label := jiraLabel(in.Engagement.ID, f.Meta.ID)
 		fields := map[string]any{
-			"project":     map[string]string{"key": j.Project},
 			"summary":     f.Meta.ID + " " + f.Meta.Title,
 			"description": jiraText(f, in),
-			"issuetype":   map[string]string{"name": j.IssueType},
 		}
 		if p := priorities[cvss.Derive(f.Meta.CVSS, f.Meta.Severity)]; p != "" {
 			fields["priority"] = map[string]string{"name": p}
 		}
-		body, _ := json.Marshal(map[string]any{"fields": fields})
-		data, err := r.call(ctx, "jira "+f.Meta.ID, user, token, "POST", base+"/rest/api/2/issue", body)
-		if err != nil {
-			return res, err
+		update, _ := json.Marshal(map[string]any{"fields": fields})
+		// put updates an issue; false when it is gone
+		put := func(key string) (bool, error) {
+			_, err := call("PUT", base+"/rest/api/2/issue/"+url.PathEscape(key), update)
+			if notFound(err) {
+				return false, nil
+			}
+			return err == nil, err
 		}
-		var out struct{ Key string }
-		json.Unmarshal(data, &out)
-		if out.Key == "" {
-			return res, fmt.Errorf("jira %s: no issue key in the answer", f.Meta.ID)
+		key, action := "", ""
+		if k := in.Known[f.Meta.ID]; k.ID != "" {
+			ok, err := put(k.ID)
+			if err != nil {
+				return res, err
+			}
+			if ok {
+				key, action = k.ID, "updated"
+			}
 		}
-		it := Item{ID: f.Meta.ID, URL: base + "/browse/" + out.Key}
+		if key == "" { // search by the label set at creation
+			q := url.Values{"jql": {`project = "` + jqlQuote(j.Project) + `" AND labels = "` + label + `"`}, "fields": {"key"}, "maxResults": {"1"}}
+			data, err := call("GET", base+"/rest/api/2/search?"+q.Encode(), nil)
+			if err != nil {
+				return res, err
+			}
+			var found struct{ Issues []struct{ Key string } }
+			json.Unmarshal(data, &found)
+			if len(found.Issues) > 0 && found.Issues[0].Key != "" {
+				ok, err := put(found.Issues[0].Key)
+				if err != nil {
+					return res, err
+				}
+				if ok {
+					key, action = found.Issues[0].Key, "updated"
+				}
+			}
+		}
+		if key == "" {
+			fields["project"] = map[string]string{"key": j.Project}
+			fields["issuetype"] = map[string]string{"name": j.IssueType}
+			fields["labels"] = []string{label}
+			body, _ := json.Marshal(map[string]any{"fields": fields})
+			data, err := call("POST", base+"/rest/api/2/issue", body)
+			if err != nil {
+				return res, err
+			}
+			var out struct{ Key string }
+			json.Unmarshal(data, &out)
+			if out.Key == "" {
+				return res, fmt.Errorf("jira %s: no issue key in the answer", f.Meta.ID)
+			}
+			key, action = out.Key, "created"
+		}
+		it := Item{ID: f.Meta.ID, URL: base + "/browse/" + key, Remote: Remote{ID: key}, Action: action}
 		res.Items = append(res.Items, it)
 		if res.URL == "" {
 			res.URL = it.URL
 		}
 	}
 	return res, nil
+}
+
+var labelUnsafe = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
+
+// jiraLabel marks the issue of one finding of one engagement (Jira labels
+// take no spaces).
+func jiraLabel(eng, id string) string {
+	return labelUnsafe.ReplaceAllString("yars-"+eng+"-"+id, "-")
+}
+
+func jqlQuote(s string) string {
+	return strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(s)
 }
 
 // jiraText is a finding in Jira's wiki markup: the summary table, the

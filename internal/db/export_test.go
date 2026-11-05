@@ -42,3 +42,35 @@ func TestExportHistory(t *testing.T) {
 		t.Fatal("limit")
 	}
 }
+
+// A finding's page or issue is remembered per destination and engagement;
+// a later send replaces it.
+func TestExportRemote(t *testing.T) {
+	d, err := Open(filepath.Join(t.TempDir(), "y.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	if schemaVersion < 9 {
+		t.Fatalf("schema %d", schemaVersion)
+	}
+	if _, ok, err := d.ExportRemote("jira", "acme", "F-001"); ok || err != nil {
+		t.Fatalf("found before send: %v", err)
+	}
+	r := ExportRemote{Destination: "jira", Eng: "acme", Finding: "F-001", Target: "https://j/PEN", RemoteID: "PEN-1", URL: "https://j/browse/PEN-1"}
+	if err := d.SetExportRemote(r); err != nil {
+		t.Fatal(err)
+	}
+	d.SetExportRemote(ExportRemote{Destination: "jira", Eng: "other", Finding: "F-001", RemoteID: "PEN-9"})
+	r.RemoteID, r.Version = "PEN-2", 3
+	if err := d.SetExportRemote(r); err != nil {
+		t.Fatal(err)
+	}
+	got, ok, err := d.ExportRemote("jira", "acme", "F-001")
+	if err != nil || !ok || got.RemoteID != "PEN-2" || got.Version != 3 || got.Target != "https://j/PEN" || got.URL != "https://j/browse/PEN-1" || got.Updated == "" {
+		t.Fatalf("%+v %v %v", got, ok, err)
+	}
+	if _, ok, _ := d.ExportRemote("confluence", "acme", "F-001"); ok {
+		t.Fatal("other destination")
+	}
+}

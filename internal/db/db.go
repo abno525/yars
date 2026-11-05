@@ -18,7 +18,7 @@ import (
 // Path is where the database lives inside a data directory (git-ignored).
 func Path(dataDir string) string { return filepath.Join(dataDir, ".yars", "yars.db") }
 
-const schemaVersion = 8
+const schemaVersion = 9
 
 // SchemaVersion is the database schema this build writes.
 const SchemaVersion = schemaVersion
@@ -253,6 +253,19 @@ var migrations = []string{
 	CREATE INDEX notifications_user ON notifications(username, read, id);
 	ALTER TABLE users ADD COLUMN notify_set INTEGER NOT NULL DEFAULT 0;
 	UPDATE users SET notify_set = 1 WHERE username IN (SELECT username FROM notify_prefs);`,
+	// v9: the page or issue each finding became at a destination, so a
+	// later send updates it instead of making another
+	`CREATE TABLE export_remote (
+		destination TEXT NOT NULL,
+		eng         TEXT NOT NULL,
+		finding     TEXT NOT NULL,
+		target      TEXT NOT NULL DEFAULT '',
+		remote_id   TEXT NOT NULL,
+		version     INTEGER NOT NULL DEFAULT 0,
+		url         TEXT NOT NULL DEFAULT '',
+		updated     TEXT NOT NULL,
+		PRIMARY KEY (destination, eng, finding)
+	) WITHOUT ROWID;`,
 }
 
 type DB struct {
