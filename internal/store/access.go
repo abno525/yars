@@ -1,7 +1,6 @@
 package store
 
 import (
-	"errors"
 	"strings"
 
 	"yars/internal/config"
@@ -11,7 +10,7 @@ import (
 )
 
 // ErrArchived: the engagement is archived, so it can be read but not changed.
-var ErrArchived = errors.New("the engagement is archived (read only)")
+var ErrArchived = db.ErrArchived
 
 // SeesAll reports whether u sees every engagement regardless of teams:
 // directors and admins.
@@ -128,7 +127,18 @@ func cmpErr(err, fallback error) error {
 	return fallback
 }
 
-// writable refuses changes to an archived engagement.
+// archivedIn refuses, inside a write transaction, a change to an archived
+// engagement, so the write can't slip in next to an archive.
+func archivedIn(tx *db.Tx, eng string) error {
+	if a, err := tx.Archived(eng); err != nil || a {
+		return cmpErr(err, ErrArchived)
+	}
+	return nil
+}
+
+// writable refuses changes to an archived engagement. Git writes call it
+// under the engagement lock (Archive takes it too); database writes check
+// inside their transaction (archivedIn).
 func (s *Store) writable(eng string) error {
 	if s.db == nil {
 		return nil
@@ -154,7 +164,13 @@ func (s *Store) Archive(eng string, u config.User) error {
 	if _, err := s.Engagement(eng); err != nil {
 		return err
 	}
-	if err := s.db.Archive(eng, u.Username); err != nil {
+	// a git write in progress finishes first; later ones see the archive
+	// (they check it under this lock)
+	l := s.engLock(eng)
+	l.Lock()
+	err := s.db.Archive(eng, u.Username)
+	l.Unlock()
+	if err != nil {
 		return err
 	}
 	return s.db.Audit(u.Username, "eng.archive", eng, "")

@@ -219,12 +219,12 @@ func (s *Store) changeFilesLocked(engID, dir string, who Actor, fn func(ref Find
 	if !ValidID(engID) {
 		return FindingRef{}, ErrNotFound
 	}
-	if err := s.writable(engID); err != nil {
-		return FindingRef{}, err
-	}
 	l := s.engLock(engID)
 	l.Lock()
 	defer l.Unlock()
+	if err := s.writable(engID); err != nil { // under the lock, as Archive
+		return FindingRef{}, err
+	}
 	head0, _ := s.freshHead(engID)
 	ref, _, err := s.read(engID, dir, nil)
 	if err != nil {

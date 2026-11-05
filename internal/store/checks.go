@@ -596,6 +596,9 @@ func (s *Store) DismissWhy(engID, dir, rule, target, quote, reason string, u con
 	fid := ref.F.Meta.ID
 	k := db.DismissKey(rule, qh)
 	seq, err := s.db.TxForSeq(engID, func(tx *db.Tx) error {
+		if err := archivedIn(tx, engID); err != nil {
+			return err
+		}
 		if err := tx.Dismiss(db.Dismissal{Eng: engID, Fid: fid, Rule: rule, QuoteHash: qh, Level: level, By: u.Username, Reason: reason}); err != nil {
 			return err
 		}
@@ -672,7 +675,12 @@ func (s *Store) Undismiss(engID, dir, rule, target, quote string, u config.User)
 	if !CanDismiss(u, ref.F.Meta, d.Level) {
 		return &workflow.Denied{Reason: dismissDenied(d.Level)}
 	}
-	seq, err := s.db.TxForSeq(engID, func(tx *db.Tx) error { return tx.Undismiss(engID, fid, rule, qh) })
+	seq, err := s.db.TxForSeq(engID, func(tx *db.Tx) error {
+		if err := archivedIn(tx, engID); err != nil {
+			return err
+		}
+		return tx.Undismiss(engID, fid, rule, qh)
+	})
 	if err != nil {
 		return err
 	}

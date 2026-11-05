@@ -50,12 +50,12 @@ func (s *Store) UpdateReportSection(eng, name, body, base string, a gitrepo.Auth
 	if _, err := s.Engagement(eng); err != nil {
 		return err
 	}
-	if err := s.writable(eng); err != nil {
-		return err
-	}
 	l := s.engLock(eng)
 	l.Lock()
 	defer l.Unlock()
+	if err := s.writable(eng); err != nil { // under the lock, as Archive
+		return err
+	}
 	rel := reportPath(eng, name)
 	prev, err := s.readFile(rel)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -160,12 +160,12 @@ func (s *Store) UpdateEngagement(e Engagement, u config.User) error {
 	if err != nil {
 		return err
 	}
-	if err := s.writable(e.ID); err != nil {
-		return err
-	}
 	l := s.engLock(e.ID)
 	l.Lock()
 	defer l.Unlock()
+	if err := s.writable(e.ID); err != nil { // under the lock, as Archive
+		return err
+	}
 	cur.Name, cur.Client, cur.Start, cur.End = e.Name, e.Client, e.Start, e.End
 	rel := path.Join(engDir(e.ID), "engagement.yaml")
 	prev, err := s.readFile(rel)

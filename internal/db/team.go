@@ -133,6 +133,9 @@ func (d *DB) MemberOf(user string) (map[string]bool, error) {
 	return out, rows.Err()
 }
 
+// ErrArchived: the engagement is archived, so it can be read but not changed.
+var ErrArchived = errors.New("the engagement is archived (read only)")
+
 // EngMeta is what the database knows about an engagement beyond its files.
 type EngMeta struct {
 	Archived               bool

@@ -122,12 +122,19 @@ func scanRun(sc interface{ Scan(...any) error }) (CheckRun, error) {
 }
 
 // StartRun records a new running check of eng/fid by user. It moves no
-// change counter: progress is announced through the event hub.
+// change counter: progress is announced through the event hub. An archived
+// engagement gets none (ErrArchived), checked in the same statement.
 func (d *DB) StartRun(eng, fid, contentHash, user string) (int64, error) {
-	res, err := d.Exec("INSERT INTO check_runs(eng, fid, content_hash, started, state, by_user) VALUES (?, ?, ?, ?, ?, ?)",
-		eng, fid, contentHash, d.stamp(), RunRunning, user)
+	res, err := d.Exec(`INSERT INTO check_runs(eng, fid, content_hash, started, state, by_user)
+		SELECT ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM engagement_meta WHERE eng = ? AND archived_at != '')`,
+		eng, fid, contentHash, d.stamp(), RunRunning, user, eng)
 	if err != nil {
 		return 0, err
+	}
+	if n, err := res.RowsAffected(); err != nil {
+		return 0, err
+	} else if n == 0 {
+		return 0, ErrArchived
 	}
 	return res.LastInsertId()
 }

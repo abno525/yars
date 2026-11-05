@@ -860,8 +860,8 @@ func (s *Store) changeState(engID, dir string, fn func(ref FindingRef, st *db.St
 	// read-modify-write inside one write transaction, so another writer
 	// (a request, yars export --mark) can't interleave
 	seq, err := s.db.TxForSeq(engID, func(tx *db.Tx) error {
-		if a, err := tx.Archived(engID); err != nil || a {
-			return cmpErr(err, ErrArchived)
+		if err := archivedIn(tx, engID); err != nil {
+			return err
 		}
 		st, err := tx.State(engID, fid)
 		if err != nil {
@@ -1037,14 +1037,15 @@ func (s *Store) createFinding(engID, title string, a gitrepo.Author, build func(
 
 // createLocked writes and commits the new finding under the engagement lock.
 func (s *Store) createLocked(engID, title string, a gitrepo.Author, build func(id string) (*finding.Finding, error)) (FindingRef, error) {
-	if e, err := s.Engagement(engID); err != nil {
+	if _, err := s.Engagement(engID); err != nil {
 		return FindingRef{}, err
-	} else if e.Archived {
-		return FindingRef{}, ErrArchived
 	}
 	l := s.engLock(engID)
 	l.Lock()
 	defer l.Unlock()
+	if err := s.writable(engID); err != nil { // under the lock, as Archive
+		return FindingRef{}, err
+	}
 	fdir := path.Join(engDir(engID), "findings")
 	ents, _ := s.readDir(fdir)
 	max := 0
@@ -1132,12 +1133,12 @@ func (s *Store) mutateLocked(engID, dir string, a gitrepo.Author, fn func(f *fin
 	if !ValidID(engID) {
 		return Event{}, ErrNotFound
 	}
-	if err := s.writable(engID); err != nil {
-		return Event{}, err
-	}
 	l := s.engLock(engID)
 	l.Lock()
 	defer l.Unlock()
+	if err := s.writable(engID); err != nil { // under the lock, as Archive
+		return Event{}, err
+	}
 	head0, _ := s.freshHead(engID)
 	ref, before, err := s.read(engID, dir, nil)
 	if err != nil {
@@ -1290,8 +1291,8 @@ func (s *Store) PostChat(engID, dir string, m chat.Message, u config.User) (chat
 	fid := ref.F.Meta.ID
 	replyTo := ""
 	seq, err := s.db.TxForSeq(engID, func(tx *db.Tx) error {
-		if a, err := tx.Archived(engID); err != nil || a {
-			return cmpErr(err, ErrArchived)
+		if err := archivedIn(tx, engID); err != nil {
+			return err
 		}
 		existing, err := tx.Messages(engID, fid)
 		if err != nil {
