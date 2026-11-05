@@ -162,6 +162,21 @@ func TestMCPNotifications(t *testing.T) {
 	}
 }
 
+// unread: true finds an unread notification behind 50 newer read ones.
+func TestMCPUnreadNotificationsBeyondLimit(t *testing.T) {
+	f := newFx(t)
+	d := f.s.Store.DB()
+	d.AddUser(alice)
+	d.AddNotification(db.Notification{User: "alice", Event: "returned", Eng: "acme", Fid: "F-001", Actor: "bob", Text: "old but unread"})
+	for range 60 {
+		id, _ := d.AddNotification(db.Notification{User: "alice", Event: "mentioned", Eng: "acme", Fid: "F-001", Actor: "bob", Text: "seen"})
+		d.MarkRead("alice", id)
+	}
+	if out := f.ok(alice, "list_notifications", map[string]any{"unread": true}); !strings.Contains(out, "old but unread") || strings.Contains(out, "seen") {
+		t.Fatalf("unread %s", out)
+	}
+}
+
 // Every tool is documented in docs/mcp.md, and the catalogue the web page
 // shows lists them all with their parameters.
 func TestToolCatalog(t *testing.T) {

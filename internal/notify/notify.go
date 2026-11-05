@@ -6,6 +6,7 @@ package notify
 import (
 	"fmt"
 	"log"
+	"mime"
 	"net/smtp"
 	"os"
 	"slices"
@@ -245,7 +246,7 @@ func message(from, to, subject, body string) []byte {
 	var b strings.Builder
 	b.WriteString("From: " + oneLine(from) + "\r\n")
 	b.WriteString("To: " + oneLine(to) + "\r\n")
-	b.WriteString("Subject: " + oneLine(subject) + "\r\n")
+	b.WriteString("Subject: " + mime.QEncoding.Encode("utf-8", oneLine(subject)) + "\r\n")
 	b.WriteString("MIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n")
 	b.WriteString(strings.ReplaceAll(strings.ReplaceAll(body, "\r\n", "\n"), "\n", "\r\n"))
 	return []byte(b.String())

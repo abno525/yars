@@ -482,14 +482,15 @@ func (s *Server) notifySave(w http.ResponseWriter, r *http.Request) {
 	r.ParseForm()
 	d := s.Store.DB()
 	// only the channels on the page: a hidden email choice is kept
+	var cs []db.NotifyChoice
 	for _, ev := range notify.Events {
 		for _, ch := range s.channels() {
-			on := slices.Contains(r.PostForm["n"], ev.Key+"."+ch.Value)
-			if err := d.SetNotify(u.Username, ev.Key, ch.Value, on); err != nil {
-				s.fail(w, err)
-				return
-			}
+			cs = append(cs, db.NotifyChoice{Event: ev.Key, Channel: ch.Value, On: slices.Contains(r.PostForm["n"], ev.Key+"."+ch.Value)})
 		}
+	}
+	if err := d.SetNotifyChoices(u.Username, cs); err != nil {
+		s.fail(w, err)
+		return
 	}
 	http.Redirect(w, r, "/settings#notifications", http.StatusSeeOther)
 }

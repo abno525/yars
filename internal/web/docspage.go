@@ -131,7 +131,10 @@ func (s *Server) docsPage(w http.ResponseWriter, r *http.Request) {
 	for _, t := range docsTabs {
 		v.Tabs = append(v.Tabs, adminTab{Label: t.Label, URL: "/docs/" + t.Key, On: t.Key == name})
 	}
-	base := gitBase(r)
+	base := s.conf().BaseURL
+	if base == "" {
+		base = gitBase(r)
+	}
 	switch name {
 	case "mcp":
 		src = dropSection(src, "Tools")

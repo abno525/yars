@@ -62,3 +62,18 @@ func TestDeveloperDocs(t *testing.T) {
 		t.Error("docs not cached")
 	}
 }
+
+// With base_url set (behind a proxy), the docs show the public address,
+// not the one the request came in on.
+func TestDocsUseBaseURL(t *testing.T) {
+	e := setup(t)
+	c := e.srv.conf()
+	c.BaseURL = "https://yars.example.com"
+	e.srv.setConfig(c)
+	if b := e.do(t, "alice", "GET", "/docs/mcp", nil, nil).Body.String(); !strings.Contains(b, "https://yars.example.com/mcp") {
+		t.Error("mcp page lacks the public URL")
+	}
+	if b := e.do(t, "alice", "GET", "/docs/git", nil, nil).Body.String(); !strings.Contains(b, "https://alice@yars.example.com/git/yars") {
+		t.Error("git page lacks the public URL")
+	}
+}

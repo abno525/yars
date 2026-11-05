@@ -228,18 +228,32 @@ func (d *DB) DeleteConnection(user, service string) error {
 
 // SetNotify turns delivery of event over channel on or off for user.
 func (d *DB) SetNotify(user, event, channel string, on bool) error {
+	return d.SetNotifyChoices(user, []NotifyChoice{{Event: event, Channel: channel, On: on}})
+}
+
+// NotifyChoice is one event/channel switch.
+type NotifyChoice struct {
+	Event, Channel string
+	On             bool
+}
+
+// SetNotifyChoices applies all of user's choices in one transaction: all
+// of them or none.
+func (d *DB) SetNotifyChoices(user string, cs []NotifyChoice) error {
 	return d.Tx(func(tx *Tx) error {
-		var err error
-		if on {
-			_, err = tx.Exec("INSERT OR IGNORE INTO notify_prefs(username, event, channel) VALUES (?, ?, ?)", user, event, channel)
-		} else {
-			_, err = tx.Exec("DELETE FROM notify_prefs WHERE username = ? AND event = ? AND channel = ?", user, event, channel)
-		}
-		if err != nil {
-			return err
+		for _, c := range cs {
+			var err error
+			if c.On {
+				_, err = tx.Exec("INSERT OR IGNORE INTO notify_prefs(username, event, channel) VALUES (?, ?, ?)", user, c.Event, c.Channel)
+			} else {
+				_, err = tx.Exec("DELETE FROM notify_prefs WHERE username = ? AND event = ? AND channel = ?", user, c.Event, c.Channel)
+			}
+			if err != nil {
+				return err
+			}
 		}
 		// from now on the user's own choice counts, not the default
-		_, err = tx.Exec("UPDATE users SET notify_set = 1 WHERE username = ?", user)
+		_, err := tx.Exec("UPDATE users SET notify_set = 1 WHERE username = ?", user)
 		return err
 	})
 }

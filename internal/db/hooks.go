@@ -260,7 +260,16 @@ func (d *DB) AddNotification(n Notification) (int64, error) {
 
 // Notifications lists user's newest notifications first.
 func (d *DB) Notifications(user string, limit int) ([]Notification, error) {
-	rows, err := d.Query("SELECT "+noteCols+" FROM notifications WHERE username = ? ORDER BY id DESC LIMIT ?", user, limit)
+	return d.notes("", user, limit)
+}
+
+// UnreadNotifications lists user's newest unread notifications first.
+func (d *DB) UnreadNotifications(user string, limit int) ([]Notification, error) {
+	return d.notes(" AND read = 0", user, limit)
+}
+
+func (d *DB) notes(cond, user string, limit int) ([]Notification, error) {
+	rows, err := d.Query("SELECT "+noteCols+" FROM notifications WHERE username = ?"+cond+" ORDER BY id DESC LIMIT ?", user, limit)
 	if err != nil {
 		return nil, err
 	}

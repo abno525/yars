@@ -244,22 +244,27 @@ func (s *Service) RunDue() (int, error) {
 			return n, err
 		}
 		for _, d := range due {
-			s.attempt(d)
 			n++
+			// unrecorded, it would stay due: stop until the next pass
+			if err := s.attempt(d); err != nil {
+				return n, fmt.Errorf("webhook delivery %d: %w", d.ID, err)
+			}
 		}
 	}
 }
 
 // attempt sends one delivery and records the result.
-func (s *Service) attempt(d db.Delivery) {
+func (s *Service) attempt(d db.Delivery) error {
 	status, errText := s.send(d)
 	next := time.Time{}
 	if errText != "" && errText != errDisabled && d.Attempts+1 < MaxTries {
 		next = s.now().Add(Backoff << d.Attempts) // 10 s, 20 s, 40 s, …
 	}
-	if err := s.DB.FinishAttempt(d.ID, status, errText, next, s.now()); err != nil {
-		log.Printf("webhook delivery %d: %v", d.ID, err)
+	err := s.DB.FinishAttempt(d.ID, status, errText, next, s.now())
+	if errors.Is(err, db.ErrNotFound) { // its webhook was deleted meanwhile
+		return nil
 	}
+	return err
 }
 
 // errDisabled is the error of a delivery whose webhook was turned off.

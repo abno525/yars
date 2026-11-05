@@ -536,11 +536,15 @@ var tools = []tool{
 			if d == nil {
 				return "", store.ErrNoDB
 			}
-			l, err := d.Notifications(u.Username, 50)
+			unread, _ := a["unread"].(bool)
+			list := d.Notifications
+			if unread {
+				list = d.UnreadNotifications
+			}
+			l, err := list(u.Username, 50)
 			if err != nil {
 				return "", err
 			}
-			unread, _ := a["unread"].(bool)
 			tk, hasTok := tokenFrom(ctx)
 			type note struct {
 				ID         int64  `json:"id"`
@@ -556,7 +560,7 @@ var tools = []tool{
 			}
 			out := []note{}
 			for _, n := range l {
-				if (unread && n.Read) || (hasTok && !tk.AllowsEng(n.Eng)) || !s.Store.CanSee(u, n.Eng) {
+				if (hasTok && !tk.AllowsEng(n.Eng)) || !s.Store.CanSee(u, n.Eng) {
 					continue
 				}
 				out = append(out, note{n.ID, n.Event, n.Eng, n.Fid, n.Dir, n.Title, n.Actor, n.Text, n.TS, n.Read})

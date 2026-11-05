@@ -1,6 +1,8 @@
 package notify
 
 import (
+	"mime"
+	netmail "net/mail"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -153,5 +155,25 @@ func TestMailMessage(t *testing.T) {
 	// header injection is cut off
 	if strings.Contains(string(message("a@b", "c@d", "x\r\nBcc: evil@x", "b")), "\r\nBcc:") {
 		t.Fatal("header injection")
+	}
+}
+
+// A subject with non-ASCII text (a finding title) is MIME-encoded.
+func TestMailSubjectEncoded(t *testing.T) {
+	subject := "[YARS] Returned to me: F-005 Überprüfung — XSS"
+	msg := string(message("a@b", "c@d", subject, "b"))
+	head, _, _ := strings.Cut(msg, "\r\n\r\n")
+	for _, r := range head {
+		if r > 127 {
+			t.Fatalf("raw non-ASCII in headers: %q", head)
+		}
+	}
+	m, err := netmail.ReadMessage(strings.NewReader(msg))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := new(mime.WordDecoder).DecodeHeader(m.Header.Get("Subject"))
+	if err != nil || got != subject {
+		t.Fatalf("subject %q %v", got, err)
 	}
 }

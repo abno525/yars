@@ -14,7 +14,7 @@
       <tr{{if not .Read}} class="unread"{{end}}>
         <td class="mono">{{.At}}</td>
         <td><span class="tag nev-{{.Event}}">{{.Label}}</span></td>
-        <td><a href="/notifications/{{.ID}}" title="{{.Eng}} · {{.Fid}} {{.Title}}"><span class="fid">{{.Eng}} · {{.Fid}}</span> {{.Title}}</a></td>
+        <td><form method="post" action="/notifications/{{.ID}}"><button class="noteopen" title="{{.Eng}} · {{.Fid}} {{.Title}}"><span class="fid">{{.Eng}} · {{.Fid}}</span> {{.Title}}</button></form></td>
         <td>{{.By}}</td>
         <td class="muted" title="{{.Text}}">{{.Text}}</td>
       </tr>

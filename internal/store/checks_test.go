@@ -275,6 +275,32 @@ func TestGateIgnoresDismissed(t *testing.T) {
 	}
 }
 
+// The check-finished event counts only violations that are not dismissed.
+func TestCheckEventSkipsDismissed(t *testing.T) {
+	s, dir, fd := ready(t)
+	withRules(t, s, dir, checkRules)
+	s.UpdateSection(eng, fd, "Impact", "a foo here", "", alice)
+	checked(t, s, fd)
+	if err := s.Dismiss(eng, fd, "no-sql", "SQL", uBob); err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	var got []Event
+	s.OnEvent(func(e Event) {
+		if e.Kind == EventCheck && e.State == db.RunDone {
+			mu.Lock()
+			got = append(got, e)
+			mu.Unlock()
+		}
+	})
+	checked(t, s, fd)
+	mu.Lock()
+	defer mu.Unlock()
+	if len(got) != 1 || got[0].Errors != 0 || got[0].Warnings != 1 {
+		t.Fatalf("events %+v", got)
+	}
+}
+
 func TestStartCheckWhileRunningReturnsSameRun(t *testing.T) {
 	s, dir, fd := ready(t)
 	rd := filepath.Join(dir, ".yars", "rules")

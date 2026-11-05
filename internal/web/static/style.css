@@ -1392,6 +1392,12 @@ dialog.gotodlg::backdrop { background: var(--scrim); }
 .notetable th.c-fnd { width: 400px; }
 .notetable th.c-who2 { width: 120px; }
 .notetable td .fid { margin-right: 6px; }
+/* opening marks read, so it is a POST: a button that looks like the link */
+.notetable button.noteopen { width: 100%; min-width: 0; margin: 0; padding: 0; border: 0; border-radius: 0; background: none;
+  font: inherit; font-weight: 600; color: var(--text); text-align: left; cursor: pointer;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.notetable button.noteopen:hover { color: var(--accent-text); }
+.notetable button.noteopen:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .notetable tr.unread td { background: var(--sel-bg); }
 .notetable tr.unread td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 .notetable .tag { width: 152px; }

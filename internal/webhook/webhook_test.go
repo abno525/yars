@@ -212,6 +212,34 @@ func TestDisabledStopsQueued(t *testing.T) {
 	}
 }
 
+// A try that cannot be recorded ends the pass with the error instead of
+// sending the same delivery again and again.
+func TestUnrecordedAttemptStopsPass(t *testing.T) {
+	s, d, _ := newService(t)
+	rc := &receiver{statuses: []int{204}}
+	srv := httptest.NewServer(rc)
+	defer srv.Close()
+	s.Create(srv.URL, Events, "dora")
+	s.Handle(returned())
+	if _, err := d.Exec("CREATE TRIGGER boom BEFORE UPDATE ON webhook_deliveries BEGIN SELECT RAISE(ABORT, 'disk full'); END"); err != nil {
+		t.Fatal(err)
+	}
+	type res struct {
+		n   int
+		err error
+	}
+	done := make(chan res, 1)
+	go func() { n, err := s.RunDue(); done <- res{n, err} }()
+	select {
+	case r := <-done:
+		if r.err == nil || !strings.Contains(r.err.Error(), "disk full") || r.n != 1 || rc.count() != 1 {
+			t.Fatalf("n %d err %v sent %d", r.n, r.err, rc.count())
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatalf("pass never ended; sent %d times", rc.count())
+	}
+}
+
 func TestValidURL(t *testing.T) {
 	for _, u := range []string{"https://hooks.example/a", "http://10.0.0.5:8080/x"} {
 		if err := ValidURL(u); err != nil {

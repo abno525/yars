@@ -72,6 +72,7 @@ type noteRow struct {
 func (s *Server) routesNotifications(mux *http.ServeMux) {
 	mux.HandleFunc("GET /notifications", s.notificationsPage)
 	mux.HandleFunc("GET /notifications/{id}", s.notificationOpen)
+	mux.HandleFunc("POST /notifications/{id}", s.notificationOpen)
 	mux.HandleFunc("POST /notifications/read", s.notificationsRead)
 	mux.HandleFunc("GET /go/search", s.goSearch)
 }
@@ -90,6 +91,9 @@ func (s *Server) notificationsPage(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		for _, n := range l {
+			if !s.Store.CanSee(p.User, n.Eng) { // taken off the engagement since
+				continue
+			}
 			p.Notes.Rows = append(p.Notes.Rows, noteRow{ID: n.ID, Event: n.Event, Label: notify.Label(n.Event), Eng: n.Eng, Fid: n.Fid,
 				Title: n.Title, By: n.Actor, At: when(n.TS), Text: n.Text, Read: n.Read})
 		}
@@ -97,7 +101,8 @@ func (s *Server) notificationsPage(w http.ResponseWriter, r *http.Request) {
 	s.render(w, "notifications.html", p)
 }
 
-// notificationOpen marks a notification read and opens its finding.
+// notificationOpen opens a notification's finding; the POST (the button on
+// the notifications page) also marks it read, the GET changes nothing.
 func (s *Server) notificationOpen(w http.ResponseWriter, r *http.Request) {
 	u := auth.UserFrom(r.Context())
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
@@ -111,9 +116,11 @@ func (s *Server) notificationOpen(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if err := d.MarkRead(u.Username, id); err != nil {
-		s.fail(w, err)
-		return
+	if r.Method == http.MethodPost {
+		if err := d.MarkRead(u.Username, id); err != nil {
+			s.fail(w, err)
+			return
+		}
 	}
 	to := "/notifications"
 	switch {

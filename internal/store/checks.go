@@ -170,8 +170,12 @@ func (s *Store) emitCheck(id int64, ref FindingRef) {
 	}
 	ev := findingEvent(EventCheck, run.By, ref)
 	ev.State = run.State
+	dis, _ := s.db.Dismissals(ref.EngID, ref.F.Meta.ID)
 	if res, err := s.db.RunResults(id); err == nil {
 		for _, r := range res {
+			if _, ok := dis[db.DismissKey(r.Rule, r.QuoteHash)]; ok {
+				continue
+			}
 			switch r.Level {
 			case "error":
 				ev.Errors++

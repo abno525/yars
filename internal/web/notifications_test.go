@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"yars/internal/config"
+	"yars/internal/db"
+	"yars/internal/notify"
 	"yars/internal/store"
 	"yars/internal/workflow"
 )
@@ -76,12 +78,21 @@ func TestNotificationsFlow(t *testing.T) {
 	if strings.Count(b, `class="unread"`) != 2 {
 		t.Fatal("unread rows not marked")
 	}
-	// opening one marks it read and goes to the finding
-	id := regexp.MustCompile(`href="/notifications/(\d+)"`).FindStringSubmatch(b)
-	if id == nil {
-		t.Fatal("no link")
+	// opening one is a POST (a button, not a link): it marks it read and
+	// goes to the finding
+	id := regexp.MustCompile(`<form method="post" action="/notifications/(\d+)"><button class="noteopen"`).FindStringSubmatch(b)
+	if id == nil || strings.Contains(b, `href="/notifications/`) {
+		t.Fatal("no open button")
 	}
+	// a GET (a prefetch, a crawler, a pasted link) goes there but changes nothing
 	rec = e.do(t, "alice", "GET", "/notifications/"+id[1], nil, nil)
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/e/acme/f/001" {
+		t.Fatalf("get %d %s", rec.Code, rec.Header().Get("Location"))
+	}
+	if got := bell(t, e, "alice"); got != "2" {
+		t.Fatalf("GET marked read: %s", got)
+	}
+	rec = e.do(t, "alice", "POST", "/notifications/"+id[1], url.Values{}, nil)
 	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/e/acme/f/001" {
 		t.Fatalf("open %d %s", rec.Code, rec.Header().Get("Location"))
 	}
@@ -89,14 +100,28 @@ func TestNotificationsFlow(t *testing.T) {
 		t.Fatalf("after open %s", got)
 	}
 	// someone else's notification is not found
-	if rec := e.do(t, "bob", "GET", "/notifications/"+id[1], nil, nil); rec.Code != http.StatusNotFound {
-		t.Fatalf("other's %d", rec.Code)
+	for _, m := range []string{"GET", "POST"} {
+		if rec := e.do(t, "bob", m, "/notifications/"+id[1], url.Values{}, nil); rec.Code != http.StatusNotFound {
+			t.Fatalf("other's %s %d", m, rec.Code)
+		}
 	}
 	if rec := e.do(t, "alice", "POST", "/notifications/read", url.Values{}, nil); rec.Code != http.StatusSeeOther {
 		t.Fatalf("read all %d", rec.Code)
 	}
 	if got := bell(t, e, "alice"); got != "0" {
 		t.Fatalf("after read all %s", got)
+	}
+}
+
+// Notifications from engagements the user was taken off are not listed.
+func TestNotificationsHideUnseenEngagements(t *testing.T) {
+	e := setup(t)
+	d := e.srv.Store.DB()
+	d.AddNotification(db.Notification{User: "alice", Event: "mentioned", Eng: "acme", Fid: "F-001", Title: "visible one", Actor: "bob"})
+	d.AddNotification(db.Notification{User: "alice", Event: "mentioned", Eng: "hidden", Fid: "F-007", Title: "secret title", Actor: "bob"})
+	b := e.do(t, "alice", "GET", "/notifications", nil, nil).Body.String()
+	if !strings.Contains(b, "visible one") || strings.Contains(b, "secret title") {
+		t.Fatal("listed a notification of an engagement alice cannot see")
 	}
 }
 
@@ -127,6 +152,36 @@ func TestNotificationSettingsChannels(t *testing.T) {
 	e.srv.setConfig(c)
 	if b := e.do(t, "alice", "GET", "/settings", nil, nil).Body.String(); !strings.Contains(b, `value="returned.email"`) {
 		t.Fatal("email column missing with SMTP")
+	}
+}
+
+// Saving the notification choices is all or nothing: a failure part way
+// leaves the earlier choices as they were.
+func TestNotificationSettingsSaveAtomic(t *testing.T) {
+	e := setup(t)
+	d := e.srv.Store.DB()
+	first, last := notify.Events[0].Key, notify.Events[len(notify.Events)-1].Key
+	e.do(t, "alice", "POST", "/settings/notifications", url.Values{"n": {first + ".app"}}, nil)
+	if !d.Wants("alice", first, "app") || d.Wants("alice", last, "app") {
+		t.Fatal("first save")
+	}
+	if _, err := d.Exec("CREATE TRIGGER boom BEFORE INSERT ON notify_prefs WHEN NEW.event = '" + last + "' BEGIN SELECT RAISE(ABORT, 'disk full'); END"); err != nil {
+		t.Fatal(err)
+	}
+	var all []string
+	for _, ev := range notify.Events[1:] {
+		all = append(all, ev.Key+".app")
+	}
+	if rec := e.do(t, "alice", "POST", "/settings/notifications", url.Values{"n": all}, nil); rec.Code == http.StatusSeeOther {
+		t.Fatal("failed save reported as saved")
+	}
+	if !d.Wants("alice", first, "app") {
+		t.Fatal("earlier choice lost")
+	}
+	for _, ev := range notify.Events[1:] {
+		if d.Wants("alice", ev.Key, "app") {
+			t.Fatalf("%s half saved", ev.Key)
+		}
 	}
 }
 
