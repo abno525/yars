@@ -136,6 +136,16 @@ func TestAdminAI(t *testing.T) {
 	if !strings.Contains(b, "YARS_TEST_AI_KEY") || strings.Contains(b, "9z9z") {
 		t.Fatalf("env key:\n%s", b)
 	}
+	// … only at config.yaml's provider and address: here the page set
+	// another address, so the env key is not in use
+	if !strings.Contains(b, `class="tag idle" title="YARS_TEST_AI_KEY"`) {
+		t.Fatalf("env key shown in use for the page's address:\n%s", b)
+	}
+	e.srv.Cfg.AI.Provider, e.srv.Cfg.AI.BaseURL = "openai", "https://api.example.com/v1"
+	b = e.do(t, "dora", "GET", "/admin/ai", nil, nil).Body.String()
+	if !strings.Contains(b, `class="tag good" title="YARS_TEST_AI_KEY"`) {
+		t.Fatalf("env key not in use at config.yaml's address:\n%s", b)
+	}
 	// Test without rules configured: a failed state, no network
 	if rec := e.do(t, "dora", "POST", "/admin/ai/test", url.Values{}, nil); rec.Code != 200 || !strings.Contains(rec.Body.String(), `class="tag bad"`) {
 		t.Fatalf("test %d", rec.Code)

@@ -15,7 +15,8 @@ import (
 
 // aiAdmin is Admin › AI: the provider, address and model used by AI rules,
 // the key (stored encrypted, shown by its ending; the environment variable
-// named in config.yaml still wins), the last Test and the AI rules.
+// named in config.yaml wins at config.yaml's provider and address), the last
+// Test and the AI rules.
 type aiAdmin struct {
 	Providers                []option
 	BaseURL, Model           string
@@ -86,7 +87,8 @@ func (s *Server) aiStored() (config.AIConfig, string) {
 func (s *Server) aiPage(w http.ResponseWriter, r *http.Request, status int, errMsg string) {
 	s.adminPage(w, r, "ai", status, func(p *page) error {
 		stored, key := s.aiStored()
-		eff := s.conf().AI
+		conf := s.conf().AI
+		eff := conf
 		if stored.Provider != "" {
 			eff.Provider = stored.Provider
 		}
@@ -100,7 +102,8 @@ func (s *Server) aiPage(w http.ResponseWriter, r *http.Request, status int, errM
 		if key != "" {
 			v.KeyEnding = ending(key)
 		}
-		v.EnvSet = v.EnvName != "" && os.Getenv(v.EnvName) != ""
+		// the env key is used only at config.yaml's provider and address
+		v.EnvSet = rules.EnvKeyApplies(conf, eff) && os.Getenv(v.EnvName) != ""
 		prov := eff.Provider
 		if prov == "" {
 			prov = rules.ProviderOff

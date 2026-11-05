@@ -35,7 +35,9 @@ const ProviderOff = "off"
 
 // Effective returns the AI settings in use: the admin page's (Stored) over
 // config.yaml, field by field, and the key: the environment variable named
-// by api_key_env wins over the stored key (fromEnv reports which).
+// by api_key_env wins over the stored key (fromEnv reports which), but only
+// while the provider and address are config.yaml's, so the operator's key
+// never goes to an address or provider set on the web page.
 func (rn *Runner) Effective() (c config.AIConfig, key string, fromEnv bool) {
 	c = rn.AIConf
 	stored := ""
@@ -56,12 +58,19 @@ func (rn *Runner) Effective() (c config.AIConfig, key string, fromEnv bool) {
 		}
 		stored = k
 	}
-	if c.APIKeyEnv != "" && rn.Getenv != nil {
+	if EnvKeyApplies(rn.AIConf, c) && rn.Getenv != nil {
 		if k := rn.Getenv(c.APIKeyEnv); k != "" {
 			return c, k, true
 		}
 	}
 	return c, stored, false
+}
+
+// EnvKeyApplies reports whether the key in config.yaml's api_key_env may be
+// sent with the effective settings eff: only to config.yaml's own provider
+// and address.
+func EnvKeyApplies(conf, eff config.AIConfig) bool {
+	return conf.APIKeyEnv != "" && eff.Provider == conf.Provider && eff.BaseURL == conf.BaseURL
 }
 
 // ask sends one prompt to the provider in c.

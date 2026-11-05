@@ -37,14 +37,34 @@ func TestAIStoredSettings(t *testing.T) {
 	if auth != "Bearer stored-key" {
 		t.Fatalf("auth %q", auth)
 	}
+	// the environment key never goes to an address or provider set on the
+	// admin page: only to config.yaml's
 	env = "env-key"
 	r.AI(context.Background(), acr, "title", "two")
+	if auth != "Bearer stored-key" {
+		t.Fatalf("env key sent to the admin page's address: %q", auth)
+	}
+	if _, key, fromEnv := r.Effective(); key != "stored-key" || fromEnv {
+		t.Fatalf("key %q fromEnv %v", key, fromEnv)
+	}
+	r.AIConf = config.AIConfig{Provider: "openai", BaseURL: srv.URL, APIKeyEnv: "TEST_KEY"}
+	r.AI(context.Background(), acr, "title", "three")
 	if auth != "Bearer env-key" {
-		t.Fatalf("env key does not win: %q", auth)
+		t.Fatalf("env key does not win at config.yaml's address: %q", auth)
 	}
 	c, key, fromEnv := r.Effective()
 	if c.Model != "stored-model" || key != "env-key" || !fromEnv {
 		t.Fatalf("effective %+v %q %v", c, key, fromEnv)
+	}
+	// a provider switch on the admin page does not send the other provider's key
+	r.Stored = func() (config.AIConfig, string) {
+		return config.AIConfig{Provider: "anthropic", BaseURL: srv.URL}, ""
+	}
+	if _, key, fromEnv := r.Effective(); key != "" || fromEnv {
+		t.Fatalf("provider switch: key %q fromEnv %v", key, fromEnv)
+	}
+	r.Stored = func() (config.AIConfig, string) {
+		return config.AIConfig{Provider: "openai", BaseURL: srv.URL, Model: "stored-model"}, "stored-key"
 	}
 	if d, err := r.Ping(context.Background()); err != nil || d <= 0 {
 		t.Fatalf("ping %v %v", d, err)
