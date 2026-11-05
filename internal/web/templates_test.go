@@ -198,6 +198,11 @@ func TestSaveFindingAsTemplate(t *testing.T) {
 	if rec := e.do(t, "bob", "POST", fshort+"/template", url.Values{"title": {"SQL injection"}}, nil); rec.Code != http.StatusBadRequest {
 		t.Fatalf("duplicate %d", rec.Code)
 	}
+	// another title with the same slug gets a free one
+	rec = e.do(t, "bob", "POST", fshort+"/template", url.Values{"title": {"SQL injection!"}}, nil)
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/templates/sql-injection-2" {
+		t.Fatalf("same slug %d %q %s", rec.Code, rec.Header().Get("Location"), rec.Body.String())
+	}
 }
 
 func TestNewFindingFromTemplate(t *testing.T) {

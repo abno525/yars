@@ -64,7 +64,7 @@ func (s *Server) retestFor(r *http.Request, ref store.FindingRef) *retestView {
 			}
 			for _, sec := range src.F.Sections {
 				if strings.TrimSpace(sec.Body) != "" {
-					v.Sections = append(v.Sections, tplSection{Name: sec.Name, HTML: s.renderMD(sec.Body)})
+					v.Sections = append(v.Sections, tplSection{Name: sec.Name, HTML: s.linkAttachments(s.renderMD(sec.Body), src)})
 				}
 			}
 		} else {

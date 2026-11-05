@@ -506,14 +506,21 @@ func (s *Server) saveAsTemplate(w http.ResponseWriter, r *http.Request) {
 		s.saveAsTemplatePage(w, r, http.StatusBadRequest, ref, title, on, "Title: one line")
 		return
 	}
-	slug := store.Slug(title)
-	if _, err := s.Store.Template(slug); err == nil || slug == "new" {
-		s.saveAsTemplatePage(w, r, http.StatusBadRequest, ref, title, on, "Template "+slug+" exists")
+	all, err := s.Store.Templates()
+	if err != nil {
+		s.fail(w, err)
 		return
 	}
+	for _, t := range all {
+		if strings.EqualFold(strings.TrimSpace(t.F.Meta.Title), title) {
+			s.saveAsTemplatePage(w, r, http.StatusBadRequest, ref, title, on, "Template "+t.Slug+" exists")
+			return
+		}
+	}
+	slug := s.freeSlug(title)
 	raw := ref.F.Bytes()
 	errExists := errors.New("exists")
-	err := s.Store.SaveTemplate(slug, author(u), func(cur *finding.Finding) (*finding.Finding, error) {
+	err = s.Store.SaveTemplate(slug, author(u), func(cur *finding.Finding) (*finding.Finding, error) {
 		if cur != nil {
 			return nil, errExists
 		}

@@ -1,6 +1,7 @@
 package web
 
 import (
+	"image/color"
 	"strings"
 	"testing"
 
@@ -22,13 +23,16 @@ func TestNewRetestLayout(t *testing.T) {
 func TestRetestSideBySide(t *testing.T) {
 	e := setup(t)
 	st := e.srv.Store
-	st.UpdateSection("acme", fdir, "Steps to Reproduce", "Send `user=admin'--`.", "", e.authorOf(wAlice))
+	st.UpdateSection("acme", fdir, "Steps to Reproduce", "Send `user=admin'--`.\n\n![shot](attachments/shot.png)", "", e.authorOf(wAlice))
+	if _, err := st.AddAttachment("acme", fdir, "shot.png", testPNG(t, color.Black),e.authorOf(wAlice)); err != nil {
+		t.Fatal(err)
+	}
 	st.UpdateDetails("acme", fdir, map[string]string{"Location": "POST /login"}, "", e.authorOf(wAlice))
 	if err := st.CreateRetest(store.Engagement{ID: "rt", Name: "RT"}, "acme", []string{fdir}, "", wDora); err != nil {
 		t.Fatal(err)
 	}
 	b := e.do(t, "alice", "GET", "/e/rt/f/"+fdir, nil, nil).Body.String()
-	for _, want := range []string{`class="retestgrid"`, "<h2>Original</h2>", `class="btn secondary sm w96" href="/e/acme/f/001"`, "POST /login", "<code>user=admin", `class="seg result-seg"`, ">Fixed<", ">Partially fixed<", ">Not fixed<", "Needs result"} {
+	for _, want := range []string{`class="retestgrid"`, "<h2>Original</h2>", `class="btn secondary sm w96" href="/e/acme/f/001"`, "POST /login", "<code>user=admin", `src="/e/acme/f/001/attachments/shot.png?v=`,`class="seg result-seg"`, ">Fixed<", ">Partially fixed<", ">Not fixed<", "Needs result"} {
 		if !strings.Contains(b, want) {
 			t.Fatalf("missing %q:\n%s", want, b)
 		}
