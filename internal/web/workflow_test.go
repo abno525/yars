@@ -227,7 +227,7 @@ func TestLockedEditForbidden(t *testing.T) {
 	for _, r := range reqs {
 		var form url.Values
 		if r.method == "POST" {
-			form = url.Values{"body": {"x"}, "severity": {"low"}, "row_0": {"x"}, "action": {"clear"}}
+			form = url.Values{"body": {"x"}, "severity": {"low"}, "row:Location": {"x"}, "action": {"clear"}}
 		}
 		if rec := e.do(t, "alice", r.method, r.path, form, nil); rec.Code != http.StatusForbidden {
 			t.Errorf("%s %s: code %d", r.method, r.path, rec.Code)

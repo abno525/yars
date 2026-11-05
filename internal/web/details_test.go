@@ -24,10 +24,10 @@ func TestDetailsView(t *testing.T) {
 func TestDetailsSave(t *testing.T) {
 	e := setup(t)
 	edit := e.do(t, "alice", "GET", fpath+"/details/edit", nil, nil).Body.String()
-	if !strings.Contains(edit, `name="row_0"`) || !strings.Contains(edit, `name="base"`) {
+	if !strings.Contains(edit, `name="row:Location"`) || !strings.Contains(edit, `name="base"`) {
 		t.Fatalf("editor:\n%s", edit)
 	}
-	rec := e.do(t, "alice", "POST", fpath+"/details", url.Values{"row_0": {"https://x/login"}, "row_1": {"Account takeover"}}, nil)
+	rec := e.do(t, "alice", "POST", fpath+"/details", url.Values{"row:Location": {"https://x/login"}, "row:Attack condition": {"Account takeover"}}, nil)
 	b := rec.Body.String()
 	if rec.Code != 200 || !strings.Contains(b, "https://x/login") || !strings.Contains(b, "Account takeover") {
 		t.Fatalf("code %d body:\n%s", rec.Code, b)
@@ -42,7 +42,7 @@ func TestDetailsSave(t *testing.T) {
 
 func TestDetailsEscaped(t *testing.T) {
 	e := setup(t)
-	rec := e.do(t, "alice", "POST", fpath+"/details", url.Values{"row_0": {"<script>alert(1)</script>"}}, nil)
+	rec := e.do(t, "alice", "POST", fpath+"/details", url.Values{"row:Location": {"<script>alert(1)</script>"}}, nil)
 	b := rec.Body.String()
 	if !strings.Contains(b, "&lt;script&gt;") || strings.Contains(b, "<script>alert") {
 		t.Fatalf("body:\n%s", b)
@@ -51,8 +51,33 @@ func TestDetailsEscaped(t *testing.T) {
 
 func TestDetailsConflict(t *testing.T) {
 	e := setup(t)
-	rec := e.do(t, "bob", "POST", fpath+"/details", url.Values{"row_0": {"bob typed"}, "base": {"0000000000000000"}}, nil)
+	rec := e.do(t, "bob", "POST", fpath+"/details", url.Values{"row:Location": {"bob typed"}, "base": {"0000000000000000"}}, nil)
 	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "bob typed") {
+		t.Fatalf("code %d body:\n%s", rec.Code, rec.Body.String())
+	}
+}
+
+// Values are posted by row name: rows reordered in Admin › Structure while
+// an editor is open keep each value under its name; a row that is gone is
+// a conflict, not a silent save under another name.
+func TestDetailsRowsChangedWhileEditing(t *testing.T) {
+	e := setup(t)
+	c := e.srv.conf()
+	c.DetailsRows = []string{"Business impact", "Location", "Attack condition", "Cause", "Result"}
+	e.srv.setConfig(c)
+	rec := e.do(t, "alice", "POST", fpath+"/details", url.Values{"row:Location": {"/login"}, "row:Business impact": {"Takeover"}}, nil)
+	if rec.Code != 200 {
+		t.Fatalf("code %d body:\n%s", rec.Code, rec.Body.String())
+	}
+	ref, _ := e.srv.Store.Finding("acme", fdir)
+	if d := ref.F.Meta.Details; d["Location"] != "/login" || d["Business impact"] != "Takeover" || d["Attack condition"] != "" {
+		t.Fatalf("details %+v", d)
+	}
+	c.DetailsRows = []string{"Endpoint", "Cause", "Result", "Attack condition", "Business impact"}
+	e.srv.setConfig(c)
+	before := e.lastCommit(t)
+	rec = e.do(t, "alice", "POST", fpath+"/details", url.Values{"row:Attack condition": {"Logged out"}, "row:Gone": {"x"}}, nil)
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "Logged out") || e.lastCommit(t) != before {
 		t.Fatalf("code %d body:\n%s", rec.Code, rec.Body.String())
 	}
 }
@@ -72,7 +97,7 @@ func TestDetailsOtherKeys(t *testing.T) {
 	if !strings.Contains(b, "Other") || !strings.Contains(b, "Old row") {
 		t.Fatalf("body:\n%s", b)
 	}
-	e.do(t, "alice", "POST", fpath+"/details", url.Values{"row_0": {"x"}}, nil)
+	e.do(t, "alice", "POST", fpath+"/details", url.Values{"row:Location": {"x"}}, nil)
 	if !strings.Contains(e.meta(t), "Old row: legacy") {
 		t.Fatalf("file:\n%s", e.meta(t))
 	}

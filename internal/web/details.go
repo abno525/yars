@@ -4,7 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"sort"
-	"strconv"
+	"strings"
 
 	"yars/internal/auth"
 	"yars/internal/store"
@@ -28,19 +28,23 @@ func (s *Server) routesDetails(mux *http.ServeMux) {
 	mux.HandleFunc("POST /e/{eng}/f/{fid}/details", s.detailsSave)
 }
 
-// detailsFor builds the view; typed overrides configured row values (by index).
-func (s *Server) detailsFor(ref store.FindingRef, typed map[int]string) detailsView {
+// rowField is the form field of a details row: keyed by its name, so a
+// value lands under the row the editor showed even if the rows changed.
+const rowField = "row:"
+
+// detailsFor builds the view; typed overrides configured row values (by name).
+func (s *Server) detailsFor(ref store.FindingRef, typed map[string]string) detailsView {
 	d := ref.F.Meta.Details
 	base := findingURL(ref.EngID, ref.Dir) + "/details"
 	v := detailsView{Base: store.DetailsHash(ref.F.Meta), ViewURL: base, EditURL: base + "/edit", SaveURL: base,
 		ReadOnly: s.Store.Archived(ref.EngID)}
 	known := map[string]bool{}
-	for i, name := range s.conf().DetailsRows {
+	for _, name := range s.conf().DetailsRows {
 		val := d[name]
-		if t, ok := typed[i]; ok {
+		if t, ok := typed[name]; ok {
 			val = t
 		}
-		v.Rows = append(v.Rows, detailsRow{Field: "row_" + strconv.Itoa(i), Name: name, Value: val})
+		v.Rows = append(v.Rows, detailsRow{Field: rowField + name, Name: name, Value: val})
 		known[name] = true
 	}
 	for k, val := range d {
@@ -72,19 +76,34 @@ func (s *Server) detailsSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	r.ParseForm()
-	typed := map[int]string{}
+	// a value is saved under the row name it was posted with: a configured
+	// row, or one the finding already has; any other name means the rows
+	// changed while the editor was open
+	known := map[string]bool{}
+	for _, name := range s.conf().DetailsRows {
+		known[name] = true
+	}
+	for name := range ref.F.Meta.Details {
+		known[name] = true
+	}
 	values := map[string]string{}
-	for i, name := range s.conf().DetailsRows {
-		f := "row_" + strconv.Itoa(i)
-		if r.PostForm.Has(f) {
-			typed[i] = r.PostForm.Get(f)
-			values[name] = typed[i]
+	gone := false
+	for k, vs := range r.PostForm {
+		if name, ok := strings.CutPrefix(k, rowField); ok && len(vs) > 0 {
+			values[name] = vs[0]
+			gone = gone || !known[name]
 		}
 	}
-	err := s.Store.UpdateDetails(ref.EngID, ref.Dir, values, r.PostForm.Get("base"), auth.UserFrom(r.Context()))
+	err := store.ErrConflict
+	if !gone {
+		err = s.Store.UpdateDetails(ref.EngID, ref.Dir, values, r.PostForm.Get("base"), auth.UserFrom(r.Context()))
+	}
 	if errors.Is(err, store.ErrConflict) {
-		v := s.detailsFor(ref, typed)
+		v := s.detailsFor(ref, values)
 		v.Error = "Details changed by someone else"
+		if gone {
+			v.Error = "Details rows changed"
+		}
 		s.execStatus(w, http.StatusConflict, "finding.html", "details_editor", v)
 		return
 	}
