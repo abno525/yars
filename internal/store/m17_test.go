@@ -150,6 +150,27 @@ func TestReportSections(t *testing.T) {
 	}
 }
 
+// Report sections whose names slug alike (no Latin letters, a long shared
+// prefix) get files of their own; plain names keep their slug.
+func TestReportFileNames(t *testing.T) {
+	if ReportFile("Executive summary") != "executive-summary" {
+		t.Fatalf("plain name %q", ReportFile("Executive summary"))
+	}
+	long := strings.Repeat("Findings by business unit and severity ", 2)
+	for _, pair := range [][2]string{{"Обзор", "Риски"}, {long + "A", long + "B"}} {
+		a, b := ReportFile(pair[0]), ReportFile(pair[1])
+		if a == b || !ValidID(a) || !ValidID(b) || len(a) > 60 {
+			t.Errorf("%q / %q -> %q / %q", pair[0], pair[1], a, b)
+		}
+	}
+	s, _ := withEngagement(t)
+	s.UpdateReportSection(eng, "Обзор", "overview", "", alice)
+	s.UpdateReportSection(eng, "Риски", "risks", "", alice)
+	if b, _ := s.ReportSection(eng, "Обзор"); strings.TrimSpace(b) != "overview" {
+		t.Fatalf("first section %q", b)
+	}
+}
+
 // A report section renamed in Admin › Structure keeps its text: the file
 // moves to the new name in every engagement, archived ones too.
 func TestRenameReportSections(t *testing.T) {

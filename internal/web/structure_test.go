@@ -160,6 +160,13 @@ func TestStructureSaveInvalid(t *testing.T) {
 	if rec := e.do(t, "dora", "POST", "/admin/structure", v, nil); rec.Code != http.StatusBadRequest {
 		t.Fatalf("duplicate %d", rec.Code)
 	}
+	// two report sections that would share a file
+	v = e.structForm()
+	v["report"] = []string{"Scope", "Scope."}
+	v.Set("op", "save")
+	if rec := e.do(t, "dora", "POST", "/admin/structure", v, nil); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "share a file") {
+		t.Fatalf("report slug collision %d", rec.Code)
+	}
 	v = e.structForm()
 	v.Set("std_AV", "Q")
 	v.Set("op", "save")

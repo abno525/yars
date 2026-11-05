@@ -223,6 +223,14 @@ func renamesOf(was, now []string) map[string]string {
 
 // checkStructure rejects names that can't be used.
 func checkStructure(c config.Config) error {
+	files := map[string]string{} // report section file → name
+	for _, x := range c.ReportSections {
+		f := store.ReportFile(x)
+		if o, ok := files[f]; ok && !strings.EqualFold(o, x) {
+			return fmt.Errorf("Report sections: %q and %q share a file name", o, x)
+		}
+		files[f] = x
+	}
 	for _, l := range structLists {
 		seen := map[string]bool{}
 		v := listOf(c, l.key)

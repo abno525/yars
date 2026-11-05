@@ -18,10 +18,34 @@ import (
 	"yars/internal/workflow"
 )
 
+// ReportFile is the file name (without .md) of a report-level section:
+// its slug, unless the slug would lose too much to tell names apart (no
+// Latin letter or digit, or longer than 40 characters), which adds a hash
+// of the name. Names that differ only in punctuation ("Scope", "Scope.")
+// still share one; Admin › Structure refuses such pairs.
+func ReportFile(name string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(name) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		} else if b.Len() > 0 && !strings.HasSuffix(b.String(), "-") {
+			b.WriteByte('-')
+		}
+	}
+	full := strings.Trim(b.String(), "-")
+	switch h := BodyHash(name)[:8]; {
+	case full == "":
+		return "section-" + h
+	case len(full) > 40:
+		return strings.Trim(full[:31], "-") + "-" + h
+	}
+	return full
+}
+
 // reportPath is where a report-level section lives in the engagement
-// repo: report/<slug>.md, the Markdown body only.
+// repo: report/<ReportFile>.md, the Markdown body only.
 func reportPath(eng, name string) string {
-	return path.Join(engDir(eng), "report", Slug(name)+".md")
+	return path.Join(engDir(eng), "report", ReportFile(name)+".md")
 }
 
 // ReportSection reads a report-level section of an engagement ("" when it
