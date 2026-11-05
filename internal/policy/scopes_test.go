@@ -11,7 +11,9 @@ import (
 func TestPolicyTokenScopes(t *testing.T) {
 	f := newFx(t)
 	add := newFinding("F-002-xss", "id: F-002\ntitle: XSS\nauthor: alice\n")
-	modify := func(d string) { write(d, fdir+"/finding.md", "---\nid: F-001\ntitle: SQLi 2\nauthor: alice\n---\n\n## Description\n\ny\n") }
+	modify := func(d string) {
+		write(d, fdir+"/finding.md", "---\nid: F-001\ntitle: SQLi 2\nauthor: alice\n---\n\n## Description\n\ny\n")
+	}
 	attach := func(d string) { write(d, fdir+"/attachments/a.txt", "x") }
 
 	f.c.Token = &db.TokenInfo{Scopes: []string{"create"}}
