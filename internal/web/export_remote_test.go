@@ -53,14 +53,15 @@ func TestExportFailedOwnKey(t *testing.T) {
 	e.toComplete(t)
 	e.exporters(t, fakePandoc)
 	j := e.jira(t, true)
-	if rec := e.do(t, "alice", "POST", "/settings/connections", url.Values{"service": {"jira"}, "key": {"alice@acme:ownkey"}}, nil); rec.Code != http.StatusSeeOther {
+	svc := "jira@" + j.host()
+	if rec := e.do(t, "alice", "POST", "/settings/connections", url.Values{"service": {svc}, "key": {"alice@acme:ownkey"}}, nil); rec.Code != http.StatusSeeOther {
 		t.Fatalf("key %d", rec.Code)
 	}
 	j.reject = "alice@acme:ownkey"
 	page := e.follow(t, "alice", e.do(t, "alice", "POST", "/e/acme/export", url.Values{"dest": {"jira"}, "finding": {fdir}}, nil))
 	h, _ := e.srv.Store.DB().Exports("acme", 1)
 	server := "/e/acme/export/history/" + itoa(h[0].ID) + "/server"
-	for _, want := range []string{"key expired", `<a class="btn secondary sm w112" href="/settings#conn-jira">Renew key</a>`,
+	for _, want := range []string{"key expired", `<a class="btn secondary sm w112" href="/settings#conn-` + svc + `">Renew key</a>`,
 		`<button class="btn secondary sm w136" formaction="` + server + `" name="dir" value="` + fdir + `">Use server key</button>`} {
 		if !strings.Contains(page, want) {
 			t.Errorf("failed send lacks %q", want)
@@ -70,7 +71,7 @@ func TestExportFailedOwnKey(t *testing.T) {
 		t.Error("inline style")
 	}
 	// the settings page has the anchor
-	if b := e.do(t, "alice", "GET", "/settings", nil, nil).Body.String(); !strings.Contains(b, `id="conn-jira"`) {
+	if b := e.do(t, "alice", "GET", "/settings", nil, nil).Body.String(); !strings.Contains(b, `id="conn-`+svc+`"`) {
 		t.Error("no connections anchor")
 	}
 	// someone else can't renew alice's key
@@ -102,7 +103,7 @@ func TestExportFailedNoServerKey(t *testing.T) {
 	e.toComplete(t)
 	e.exporters(t, fakePandoc)
 	j := e.jira(t, true)
-	e.do(t, "alice", "POST", "/settings/connections", url.Values{"service": {"jira"}, "key": {"alice@acme:ownkey"}}, nil)
+	e.do(t, "alice", "POST", "/settings/connections", url.Values{"service": {"jira@" + j.host()}, "key": {"alice@acme:ownkey"}}, nil)
 	j.reject = "alice@acme:ownkey"
 	e.srv.Export.Getenv = func(string) string { return "" }
 	page := e.follow(t, "alice", e.do(t, "alice", "POST", "/e/acme/export", url.Values{"dest": {"jira"}, "finding": {fdir}}, nil))

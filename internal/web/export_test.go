@@ -302,7 +302,7 @@ func TestExportSendAsAuthor(t *testing.T) {
 	f2 := e.secondComplete(t)
 	e.exporters(t, fakePandoc)
 	j := e.jira(t, true)
-	if rec := e.do(t, "alice", "POST", "/settings/connections", url.Values{"service": {"jira"}, "key": {"alice@acme:ownkey"}}, nil); rec.Code != http.StatusSeeOther {
+	if rec := e.do(t, "alice", "POST", "/settings/connections", url.Values{"service": {"jira@" + j.host()}, "key": {"alice@acme:ownkey"}}, nil); rec.Code != http.StatusSeeOther {
 		t.Fatalf("key %d", rec.Code)
 	}
 	b := e.do(t, "dora", "GET", "/e/acme/export", nil, nil).Body.String()

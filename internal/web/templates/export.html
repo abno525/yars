@@ -93,7 +93,7 @@
         <td class="clip{{if not .OK}} error{{end}}" title="{{.Error}}">{{if .OK}}{{if .Marked}}sent · marked reported{{else}}sent{{end}}{{else}}{{.Error}}{{end}}</td>
         <td>{{if .Action}}<span class="tag sent-{{.Action}}">{{.Action}}</span>{{else}}<span class="tag none"></span>{{end}}</td>
         <td><div class="actions">
-          {{- if and (not .OK) $.ServerURL .SentAs (ne .SentAs "server")}}<button class="btn secondary sm w136" formaction="{{$.ServerURL}}" name="dir" value="{{.Dir}}">Use server key</button>{{else}}<span class="slot w136"></span>{{end -}}
+          {{- if and (not .OK) (not .Retried) $.ServerURL .SentAs (ne .SentAs "server")}}<button class="btn secondary sm w136" formaction="{{$.ServerURL}}" name="dir" value="{{.Dir}}">Use server key</button>{{else}}<span class="slot w136"></span>{{end -}}
           {{- if .URL}}<a class="btn ghost sm w112" href="{{.URL}}" target="_blank" rel="noopener">Open</a>{{else if and (not .OK) $.Renew (eq .SentAs $.Viewer)}}<a class="btn secondary sm w112" href="{{$.Renew}}">Renew key</a>{{else}}<span class="slot w112"></span>{{end -}}
         </div></td>
       </tr>

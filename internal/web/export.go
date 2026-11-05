@@ -52,7 +52,12 @@ type sendItem struct {
 	Error  string `json:"error,omitempty"`
 	URL    string `json:"url,omitempty"`
 	Action string `json:"action,omitempty"` // created | updated (a page or issue)
+	// Retried: a failed finding sent again by a later send, never twice
+	Retried bool `json:"retried,omitempty"`
 }
+
+// retryable: failed and not sent again since.
+func (it sendItem) retryable() bool { return !it.OK && !it.Retried }
 
 // sendResult is a send as the result panel shows it.
 type sendResult struct {
@@ -280,7 +285,9 @@ func (s *Server) exportPage(r *http.Request, form url.Values) (*page, error) {
 		if !ok && d != nil && row.Author != "" {
 			conns, _ := d.Connections(row.Author)
 			for _, c := range conns {
-				svcs = append(svcs, c.Service)
+				if strings.Contains(c.Service, "@") { // keys bound to no host are never sent
+					svcs = append(svcs, c.Service)
+				}
 			}
 			keys[row.Author] = svcs
 		}
@@ -321,7 +328,7 @@ func stateOf(rec db.ExportRecord, items []sendItem) string {
 
 // retryURL is where a failed send is sent again ("" when it can't be).
 func (s *Server) retryURL(p *page, rec db.ExportRecord) string {
-	if rec.OK || strings.HasPrefix(rec.Destination, "download:") || !p.ExportV.CanSend {
+	if rec.OK || strings.HasPrefix(rec.Destination, "download:") || !p.ExportV.CanSend || !slices.ContainsFunc(itemsOf(rec), sendItem.retryable) {
 		return ""
 	}
 	if _, ok := findExporter(p.ExportV.exporters, rec.Destination); !ok {
@@ -357,7 +364,7 @@ func (s *Server) exportForm(w http.ResponseWriter, r *http.Request) {
 			res := &sendResult{Dest: destName(p.ExportV.exporters, rec.Destination), State: stateOf(rec, items), Items: items,
 				Total: len(items), RetryURL: s.retryURL(p, rec), Viewer: p.User.Username}
 			if ex, ok := findExporter(p.ExportV.exporters, rec.Destination); ok && ex.Service() && !rec.OK {
-				res.Renew = "/settings#conn-" + ex.ServiceName()
+				res.Renew = "/settings#conn-" + ex.KeyName()
 				if p.ExportV.CanSend && s.Export.Getenv(ex.TokenEnv()) != "" {
 					res.ServerURL = "/e/" + p.Eng.ID + "/export/history/" + strconv.FormatInt(rec.ID, 10) + "/server"
 				}
@@ -500,12 +507,13 @@ func (s *Server) download(ctx context.Context, id string, eng store.Engagement, 
 	return export.Result{}, fmt.Errorf("unknown download %q", id)
 }
 
-// senderKey is the author's own key for service when they keep one
-// ("user:token", or a token used with their e-mail or name), otherwise nil:
-// the server's key. sentAs names whose key it is.
+// senderKey is the author's own key for service (a destination's KeyName:
+// the service at one host) when they keep one ("user:token", or a token
+// used with their e-mail or name), otherwise nil: the server's key. sentAs
+// names whose key it is.
 func (s *Server) senderKey(author, service string) (creds *export.Creds, sentAs string) {
 	d := s.Store.DB()
-	if d == nil || author == "" {
+	if d == nil || author == "" || !strings.Contains(service, "@") {
 		return nil, "server"
 	}
 	enc, ok, err := d.Connection(author, service)
@@ -550,7 +558,7 @@ func (s *Server) send(ctx context.Context, u config.User, eng store.Engagement, 
 			if serverKey {
 				items[i].SentAs = "server"
 			} else {
-				in.Creds, items[i].SentAs = s.senderKey(ref.F.Meta.Author, ex.ServiceName())
+				in.Creds, items[i].SentAs = s.senderKey(ref.F.Meta.Author, ex.KeyName())
 			}
 			if d != nil {
 				if rm, ok, err := d.ExportRemote(ex.ID, eng.ID, fid); err == nil && ok && rm.Target == ex.Target() {
@@ -702,9 +710,11 @@ func (s *Server) resend(w http.ResponseWriter, r *http.Request, serverKey bool) 
 		return
 	}
 	var dirs []string
-	for _, it := range itemsOf(rec) {
-		if !it.OK && (!serverKey || it.Dir == r.PostForm.Get("dir")) {
+	items := itemsOf(rec)
+	for i, it := range items {
+		if it.retryable() && (!serverKey || it.Dir == r.PostForm.Get("dir")) {
 			dirs = append(dirs, it.Dir)
+			items[i].Retried = true
 		}
 	}
 	if len(dirs) == 0 {
@@ -714,6 +724,15 @@ func (s *Server) resend(w http.ResponseWriter, r *http.Request, serverKey bool) 
 	refs, msg := s.picked(p.Eng.ID, dirs, ex.Statuses)
 	if msg != "" {
 		fail(http.StatusBadRequest, msg)
+		return
+	}
+	// claim them first: a second click or another user finds them retried
+	b, _ := json.Marshal(items)
+	if ok, err := s.Store.DB().SwapExportFindings(rec.ID, rec.Findings, string(b)); err != nil {
+		s.fail(w, err)
+		return
+	} else if !ok {
+		fail(http.StatusConflict, "already retried")
 		return
 	}
 	s.sendAndShow(w, r, p, ex, refs, serverKey)

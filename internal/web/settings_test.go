@@ -176,11 +176,13 @@ func TestTokenCreatedOnce(t *testing.T) {
 // Personal keys are stored encrypted and shown only by their ending.
 func TestConnectionsMasked(t *testing.T) {
 	e := setup(t)
+	e.exporters(t, fakePandoc)
+	svc := "jira@" + e.jira(t, true).host()
 	const key = "ATATT3xFfGF0-personal-key-9k2Q"
-	if rec := e.do(t, "alice", "POST", "/settings/connections", url.Values{"service": {"jira"}, "key": {key}}, nil); rec.Code != http.StatusSeeOther {
+	if rec := e.do(t, "alice", "POST", "/settings/connections", url.Values{"service": {svc}, "key": {key}}, nil); rec.Code != http.StatusSeeOther {
 		t.Fatalf("add %d", rec.Code)
 	}
-	enc, ok, _ := e.srv.Store.DB().Connection("alice", "jira")
+	enc, ok, _ := e.srv.Store.DB().Connection("alice", svc)
 	if !ok || strings.Contains(enc, key) || strings.Contains(enc, "9k2Q") {
 		t.Fatalf("stored %q", enc)
 	}
@@ -201,10 +203,13 @@ func TestConnectionsMasked(t *testing.T) {
 	if rec := e.do(t, "alice", "POST", "/settings/connections", url.Values{"service": {"github"}, "key": {"x"}}, nil); rec.Code != http.StatusBadRequest {
 		t.Fatalf("unknown service %d", rec.Code)
 	}
-	if rec := e.do(t, "alice", "POST", "/settings/connections/jira/remove", url.Values{}, nil); rec.Code != http.StatusSeeOther {
+	if rec := e.do(t, "bob", "POST", "/settings/connections/"+svc+"/remove", url.Values{}, nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("remove without a key %d", rec.Code)
+	}
+	if rec := e.do(t, "alice", "POST", "/settings/connections/"+svc+"/remove", url.Values{}, nil); rec.Code != http.StatusSeeOther {
 		t.Fatalf("remove %d", rec.Code)
 	}
-	if _, ok, _ := e.srv.Store.DB().Connection("alice", "jira"); ok {
+	if _, ok, _ := e.srv.Store.DB().Connection("alice", svc); ok {
 		t.Fatal("key not removed")
 	}
 }

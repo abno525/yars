@@ -86,6 +86,17 @@ func (d *DB) ExportRemote(dest, eng, finding string) (ExportRemote, bool, error)
 	return r, err == nil, err
 }
 
+// SwapExportFindings replaces an export's findings JSON when it is still
+// old; false when another request changed it first.
+func (d *DB) SwapExportFindings(id int64, old, new string) (bool, error) {
+	res, err := d.Exec("UPDATE export_history SET findings = ? WHERE id = ? AND findings = ?", new, id, old)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n == 1, err
+}
+
 // Export returns one export by id.
 func (d *DB) Export(id int64) (ExportRecord, bool, error) {
 	r, err := scanExport(d.QueryRow("SELECT "+exportCols+" FROM export_history WHERE id = ?", id))

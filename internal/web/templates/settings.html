@@ -69,7 +69,7 @@
         <tbody>
           {{range .Settings.Conns}}
           <tr id="conn-{{.Service}}">
-            <td class="strong">{{.Label}}</td>
+            <td class="stack"><span class="strong">{{.Label}}</span><span class="mono" title="{{.Host}}">{{.Host}}</span></td>
             {{if .Has}}
             <td>{{if .Broken}}<span class="tag bad">Unreadable</span>{{else}}<span class="mono">{{.Ending}}</span>{{end}}</td>
             <td class="mono">{{.Created}}</td>
@@ -78,7 +78,7 @@
             <td colspan="3">
               <form class="inline" method="post" action="/settings/connections">
                 <input type="hidden" name="service" value="{{.Service}}">
-                <input class="grow monoin" type="password" name="key" autocomplete="off" aria-label="{{.Label}} key" required>
+                <input class="grow monoin" type="password" name="key" autocomplete="off" aria-label="{{.Label}} key · {{.Host}}" required>
                 <button class="btn primary sm w96">Add key</button>
               </form>
             </td>

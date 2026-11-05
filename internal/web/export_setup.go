@@ -188,6 +188,9 @@ func (s *Server) destSave(w http.ResponseWriter, r *http.Request) {
 		msg = "name is required"
 	case !f.New && !found:
 		msg = "destination " + f.ID + " not found"
+	case ex.Service() && (!found || cur.Endpoint() != ex.Endpoint()) && !p.CanAdmin:
+		// the address gets the server's and the authors' keys
+		msg = "address and key variables: admin only"
 	}
 	if msg == "" {
 		data, err := yaml.Marshal(ex)

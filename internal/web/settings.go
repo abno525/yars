@@ -34,8 +34,8 @@ type tokenRow struct {
 }
 
 type connRow struct {
-	Service, Label, Ending, Created string
-	Has, Broken                     bool
+	Service, Label, Host, Ending, Created string
+	Has, Broken                           bool
 }
 
 type notifyRow struct {
@@ -157,11 +157,26 @@ func (s *Server) settingsBase(r *http.Request) (*page, error) {
 	if err != nil {
 		return nil, err
 	}
-	for _, sv := range connServices {
-		c := connRow{Service: sv.Value, Label: sv.Label}
-		if i := slices.IndexFunc(conns, func(c db.Connection) bool { return c.Service == sv.Value }); i >= 0 {
+	// a row per service host of the destinations, then stored keys for no
+	// destination (or for no host: never sent), which can only be removed
+	keys := s.connKeys()
+	for _, c := range conns {
+		if !slices.Contains(keys, c.Service) {
+			keys = append(keys, c.Service)
+		}
+	}
+	for _, k := range keys {
+		sv, host, _ := strings.Cut(k, "@")
+		c := connRow{Service: k, Label: sv, Host: host}
+		if i := slices.IndexFunc(connServices, func(o option) bool { return o.Value == sv }); i >= 0 {
+			c.Label = connServices[i].Label
+		}
+		if c.Host == "" {
+			c.Host = "—"
+		}
+		if i := slices.IndexFunc(conns, func(c db.Connection) bool { return c.Service == k }); i >= 0 {
 			c.Has, c.Created = true, day(conns[i].Created)
-			c.Ending, c.Broken = s.keyEnding(u.Username, sv.Value)
+			c.Ending, c.Broken = s.keyEnding(u.Username, k)
 		}
 		p.Settings.Conns = append(p.Settings.Conns, c)
 	}
@@ -431,15 +446,24 @@ func (s *Server) tokenRevoke(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/settings#tokens", http.StatusSeeOther)
 }
 
-func knownService(sv string) bool {
-	return slices.ContainsFunc(connServices, func(o option) bool { return o.Value == sv })
+// connKeys are the service hosts a personal key can be kept for: those of
+// the destinations ("jira@firm.atlassian.net").
+func (s *Server) connKeys() []string {
+	es, _ := s.exporters()
+	var keys []string
+	for _, ex := range es {
+		if k := ex.KeyName(); k != "" && !slices.Contains(keys, k) {
+			keys = append(keys, k)
+		}
+	}
+	return keys
 }
 
-// connSave stores the user's personal key for a service, encrypted.
+// connSave stores the user's personal key for a service host, encrypted.
 func (s *Server) connSave(w http.ResponseWriter, r *http.Request) {
 	u := auth.UserFrom(r.Context())
 	sv, key := r.FormValue("service"), strings.TrimSpace(r.FormValue("key"))
-	if !knownService(sv) || key == "" {
+	if !slices.Contains(s.connKeys(), sv) || key == "" {
 		s.settingsError(w, r, func(v *settingsView) { v.ConnErr = "Service and key are required" })
 		return
 	}
@@ -464,7 +488,7 @@ func (s *Server) connSave(w http.ResponseWriter, r *http.Request) {
 func (s *Server) connRemove(w http.ResponseWriter, r *http.Request) {
 	u := auth.UserFrom(r.Context())
 	sv := r.PathValue("service")
-	if !knownService(sv) {
+	if _, ok, err := s.Store.DB().Connection(u.Username, sv); err != nil || !ok {
 		http.NotFound(w, r)
 		return
 	}

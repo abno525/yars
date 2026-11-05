@@ -104,6 +104,32 @@ func (e Exporter) Host() string {
 	return ""
 }
 
+// KeyName names the personal keys a destination may send with: the
+// service and its host ("jira@firm.atlassian.net"; "" for files). A key is
+// only ever sent to the host it was stored for.
+func (e Exporter) KeyName() string {
+	if !e.Service() || e.Host() == "" {
+		return ""
+	}
+	return e.ServiceName() + "@" + strings.ToLower(e.Host())
+}
+
+// Endpoint is where a service destination sends keys and which server
+// keys it reads ("" for files).
+func (e Exporter) Endpoint() string {
+	if !e.Service() {
+		return ""
+	}
+	base, user := "", ""
+	switch {
+	case e.Type == "jira" && e.Jira != nil:
+		base, user = e.Jira.BaseURL, e.Jira.UserEnv
+	case e.Confluence != nil:
+		base, user = e.Confluence.BaseURL, e.Confluence.UserEnv
+	}
+	return e.Type + " " + strings.TrimRight(strings.TrimSpace(base), "/") + " " + user + " " + e.TokenEnv()
+}
+
 // Load reads every exporter in dir; invalid files are returned as errors.
 func Load(dir string) ([]Exporter, []error) {
 	names, _ := filepath.Glob(filepath.Join(dir, "*.yaml"))
