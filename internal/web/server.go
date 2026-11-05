@@ -254,7 +254,7 @@ func (s *Server) Handler() http.Handler {
 		root.Handle("/git/", longLived(s.Git)) // HTTP Basic auth, no cookies; big pushes and clones take time
 	}
 	if s.MCP != nil {
-		root.Handle("/mcp", s.MCP) // Bearer tokens, no cookies
+		root.Handle("/mcp", s.lintLived(s.MCP)) // Bearer tokens, no cookies; lint and transition run every rule
 	}
 	// Reject cross-origin state-changing requests (CSRF, incl. login CSRF).
 	return gzipHandler(http.NewCrossOriginProtection().Handler(s.firstRun(root)))

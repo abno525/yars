@@ -201,7 +201,7 @@ func plural(n int, word string) string {
 }
 
 func (s *Server) routesWorkflow(mux *http.ServeMux) {
-	mux.HandleFunc("POST /e/{eng}/f/{fid}/action/{act}", s.wfAction)
+	mux.Handle("POST /e/{eng}/f/{fid}/action/{act}", s.lintLived(http.HandlerFunc(s.wfAction))) // submit and approve run every rule
 	mux.HandleFunc("POST /e/{eng}/f/{fid}/reviewers", s.wfReviewers)
 	mux.HandleFunc("GET /e/{eng}/f/{fid}/workflow", s.workflowBar)
 }

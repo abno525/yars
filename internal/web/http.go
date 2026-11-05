@@ -190,6 +190,19 @@ func longLived(next http.Handler) http.Handler {
 	})
 }
 
+// lintLived extends the write deadline past one whole lint run, for requests
+// that run every rule (scripts, AI) before answering: workflow actions and MCP.
+func (s *Server) lintLived(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		budget := 90 * time.Second // rules.NewEngine's default
+		if s.Rules != nil && s.Rules.Budget > 0 {
+			budget = s.Rules.Budget
+		}
+		http.NewResponseController(w).SetWriteDeadline(time.Now().Add(budget + 30*time.Second))
+		next.ServeHTTP(w, r)
+	})
+}
+
 func clearDeadlines(w http.ResponseWriter) {
 	rc := http.NewResponseController(w)
 	rc.SetReadDeadline(time.Time{}) // errors: not a net/http connection (tests)
