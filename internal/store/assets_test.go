@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"yars/internal/finding"
@@ -131,6 +132,125 @@ func TestAttachments(t *testing.T) {
 	var d *workflow.Denied
 	if _, err := s.AddAttachment(eng, f.Dir, "x.txt", []byte("x"), m17Pen); !errors.As(err, &d) {
 		t.Fatalf("locked: %v", err)
+	}
+}
+
+// Dot runs collapse in upload names, and a name with ".." already in the
+// folder (a git push) is listed and readable alike.
+func TestAttachmentDotNames(t *testing.T) {
+	for in, want := range map[string]string{"shot..png": "shot.png", "a...b..c.txt": "a.b.c.txt", "..png": "png"} {
+		if got := SafeName(in); got != want {
+			t.Errorf("SafeName(%q) = %q, want %q", in, got, want)
+		}
+	}
+	s, dir := withEngagement(t)
+	f, _ := s.CreateFinding(eng, "XSS", alice)
+	name, err := s.AddAttachment(eng, f.Dir, "shot..png", pngBytes(t, color.White), m17Pen)
+	if err != nil || name != "shot.png" {
+		t.Fatalf("add %q %v", name, err)
+	}
+	att := filepath.Join(dir, "engagements", eng, "findings", f.Dir, "attachments")
+	os.WriteFile(filepath.Join(att, "x..y.txt"), []byte("pushed"), 0o644)
+	as, _ := s.Attachments(eng, f.Dir)
+	for _, a := range as {
+		if _, err := s.ReadAttachment(eng, f.Dir, "attachments/"+a.Name); err != nil {
+			t.Errorf("listed %s unreadable: %v", a.Name, err)
+		}
+	}
+	if len(as) != 2 {
+		t.Fatalf("list %+v", as)
+	}
+}
+
+// Merge copies every listed attachment, a pushed one over the web read cap
+// or with ".." in its name included.
+func TestMergeCopiesPushedAttachments(t *testing.T) {
+	s, dir := withEngagement(t)
+	dst, _ := s.CreateFinding(eng, "Dst", alice)
+	src, _ := s.CreateFinding(eng, "Src", alice)
+	s.UpdateSection(eng, src.Dir, "Impact", "See it.", "", alice)
+	att := filepath.Join(dir, "engagements", eng, "findings", src.Dir, "attachments")
+	os.MkdirAll(att, 0o755)
+	big := bytes.Repeat([]byte("a"), 21<<20)
+	os.WriteFile(filepath.Join(att, "big.txt"), big, 0o644)
+	os.WriteFile(filepath.Join(att, "x..y.txt"), []byte("dots"), 0o644)
+	if err := s.Merge(eng, src.Dir, dst.Dir, m17Dir); err != nil {
+		t.Fatal(err)
+	}
+	dat := filepath.Join(dir, "engagements", eng, "findings", dst.Dir, "attachments")
+	if b, err := os.ReadFile(filepath.Join(dat, "big.txt")); err != nil || len(b) != len(big) {
+		t.Fatalf("big copy %d %v", len(b), err)
+	}
+	if b, err := os.ReadFile(filepath.Join(dat, "x..y.txt")); err != nil || string(b) != "dots" {
+		t.Fatalf("dots copy %q %v", b, err)
+	}
+}
+
+// A renamed attachment's links change only where they name exactly it:
+// a.png is renamed, a.png.txt is not.
+func TestMergeRewritesExactLinks(t *testing.T) {
+	s, _ := withEngagement(t)
+	dst, _ := s.CreateFinding(eng, "Dst", alice)
+	src, _ := s.CreateFinding(eng, "Src", alice)
+	s.AddAttachment(eng, dst.Dir, "a.png", pngBytes(t, color.White), alice)
+	s.AddAttachment(eng, src.Dir, "a.png", pngBytes(t, color.Black), alice)
+	s.AddAttachment(eng, src.Dir, "a.png.txt", []byte("log"), alice)
+	s.UpdateSection(eng, src.Dir, "Impact", "![a](attachments/a.png) [log](attachments/a.png.txt) see attachments/a.png.", "", alice)
+	if err := s.Merge(eng, src.Dir, dst.Dir, m17Dir); err != nil {
+		t.Fatal(err)
+	}
+	d, _ := s.Finding(eng, dst.Dir)
+	impact, _ := d.F.Section("Impact")
+	want := "![a](attachments/F-002-a.png) [log](attachments/a.png.txt) see attachments/F-002-a.png."
+	if !strings.Contains(impact, want) {
+		t.Fatalf("impact %q", impact)
+	}
+}
+
+// A merge that fails after the source was withdrawn puts the source's
+// state back; two merges of one source at once: one wins.
+func TestMergeAtomic(t *testing.T) {
+	s, dir := withEngagement(t)
+	dst, _ := s.CreateFinding(eng, "Dst", alice)
+	src, _ := s.CreateFinding(eng, "Src", alice)
+	s.UpdateSection(eng, src.Dir, "Impact", "Src text.", "", alice)
+	// an unclosed fence in dst makes the merged text invalid
+	fp := filepath.Join(dir, "engagements", eng, "findings", dst.Dir, "finding.md")
+	b, _ := os.ReadFile(fp)
+	os.WriteFile(fp, []byte(strings.Replace(string(b), "## Impact\n", "## Impact\n\n```\nopen fence\n", 1)), 0o644)
+	if err := s.Merge(eng, src.Dir, dst.Dir, m17Dir); !errors.Is(err, ErrInvalidBody) {
+		t.Fatalf("merge into broken dst: %v", err)
+	}
+	sr, _ := s.Finding(eng, src.Dir)
+	if sr.F.Meta.Status != "draft" || sr.F.Meta.Withdrawn != nil {
+		t.Fatalf("source after failed merge %q %+v", sr.F.Meta.Status, sr.F.Meta.Withdrawn)
+	}
+	os.WriteFile(fp, b, 0o644)
+
+	a, _ := s.CreateFinding(eng, "A", alice)
+	c, _ := s.CreateFinding(eng, "C", alice)
+	var wg sync.WaitGroup
+	errs := make([]error, 2)
+	for i, to := range []string{a.Dir, c.Dir} {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errs[i] = s.Merge(eng, src.Dir, to, m17Dir)
+		}()
+	}
+	wg.Wait()
+	if (errs[0] == nil) == (errs[1] == nil) {
+		t.Fatalf("two merges of one source: %v / %v", errs[0], errs[1])
+	}
+	n := 0
+	for _, to := range []string{a.Dir, c.Dir} {
+		f, _ := s.Finding(eng, to)
+		if imp, _ := f.F.Section("Impact"); strings.Contains(imp, "Merged from") {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("source merged into %d findings", n)
 	}
 }
 

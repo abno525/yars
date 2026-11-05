@@ -82,6 +82,8 @@ type Store struct {
 	engLocks map[string]*sync.Mutex
 	mainMu   sync.Mutex
 
+	merging sync.Map // "<eng>/<dir>" of a finding being merged away
+
 	// heads caches each repo's HEAD ("" key = main repo), read from the
 	// files under .git (no git process). Our own commits and pushes
 	// (Invalidate) drop entries; headGen guards against storing a value
@@ -1171,12 +1173,20 @@ func (s *Store) mutateLocked(engID, dir string, a gitrepo.Author, fn func(f *fin
 	return ev, nil
 }
 
+// attachmentRe is the one name rule for attachments, for listing and
+// reading alike: one level, starting with a letter or digit. A ".." inside
+// a name ("shot..png") is part of the name and can't leave the folder.
 var attachmentRe = regexp.MustCompile(`^attachments/[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
 // ReadAttachment returns a file from the finding's attachments/ folder
 // (one level, no dot-files; max 20 MB). Reads go through os.Root.
 func (s *Store) ReadAttachment(engID, dir, rel string) ([]byte, error) {
-	if !ValidID(engID) || !ValidID(dir) || !attachmentRe.MatchString(rel) || strings.Contains(rel, "..") {
+	return s.readAttachment(engID, dir, rel, 20<<20)
+}
+
+// readAttachment is ReadAttachment with a size cap (0: none).
+func (s *Store) readAttachment(engID, dir, rel string, max int64) ([]byte, error) {
+	if !ValidID(engID) || !ValidID(dir) || !attachmentRe.MatchString(rel) {
 		return nil, ErrNotFound
 	}
 	p := path.Join("engagements", engID, "findings", dir, rel)
@@ -1184,7 +1194,7 @@ func (s *Store) ReadAttachment(engID, dir, rel string) ([]byte, error) {
 		return nil, s.rootErr
 	}
 	info, err := s.root.Lstat(p)
-	if err != nil || !info.Mode().IsRegular() || info.Size() > 20<<20 {
+	if err != nil || !info.Mode().IsRegular() || (max > 0 && info.Size() > max) {
 		return nil, ErrNotFound
 	}
 	return s.readFile(p)

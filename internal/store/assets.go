@@ -4,9 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log"
 	"net/http"
 	"net/url"
 	"path"
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -154,15 +156,19 @@ func AttachmentType(data []byte) string {
 
 // SafeName turns an uploaded file name into an attachment name: its base
 // name with only letters, digits, dot, dash and underscore, starting with a
-// letter or digit.
+// letter or digit, with no two dots in a row.
 func SafeName(name string) string {
 	if i := strings.LastIndexAny(name, `/\`); i >= 0 {
 		name = name[i+1:]
 	}
 	var b strings.Builder
-	dash := false
+	dash, dot := false, false
 	for _, r := range name {
 		ok := (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '.' || r == '_'
+		if r == '.' && dot {
+			continue
+		}
+		dot = r == '.'
 		if ok {
 			b.WriteRune(r)
 			dash = false
@@ -348,8 +354,9 @@ func (s *Store) ReplaceAttachment(engID, dir, name string, data []byte, a Actor)
 // Merge moves finding src into dst as u (a director): src's sections are
 // appended to dst's under a "### Merged from <ID>" heading, its assets are
 // added to dst's, its attachments are copied (renamed when dst has one of
-// the same name), all in one commit; then dst gets a merge event and src
-// is withdrawn with the reason "merged into <dst ID>".
+// the same name), all in one commit. src is withdrawn first, with the
+// reason "merged into <dst ID>", so a second merge of it is refused; when
+// the commit fails its state is put back. Then dst gets a merge event.
 func (s *Store) Merge(engID, srcDir, dstDir string, u config.User) error {
 	if s.db == nil {
 		return ErrNoDB
@@ -374,14 +381,85 @@ func (s *Store) Merge(engID, srcDir, dstDir string, u config.User) error {
 	if !workflow.Active(dst.F.Meta.Status) {
 		return &workflow.Denied{Reason: dst.F.Meta.ID + " is withdrawn"}
 	}
-	var srcID, dstID string
-	_, err = s.changeFiles(engID, dst.Dir, u, func(ref FindingRef) (map[string][]byte, string, error) {
-		sr, _, err := s.read(engID, src.Dir, nil)
+	key := engID + "/" + src.Dir
+	if _, busy := s.merging.LoadOrStore(key, true); busy {
+		return fmt.Errorf("%w: %s is being merged", ErrConflict, src.F.Meta.ID)
+	}
+	defer s.merging.Delete(key)
+	prev, err := s.db.State(engID, src.F.Meta.ID)
+	if err != nil {
+		return err
+	}
+	dstID := dst.F.Meta.ID
+	if err := s.Transition(engID, src.Dir, workflow.Withdraw, "merged into "+dstID, u); err != nil {
+		return err
+	}
+	srcID, err := s.mergeContent(engID, src.Dir, dst.Dir, u)
+	if err != nil {
+		if rerr := s.unwithdraw(engID, src.Dir, prev, dstID, u); rerr != nil {
+			log.Printf("merge %s/%s: putting the source back: %v", engID, src.Dir, rerr)
+		}
+		return err
+	}
+	err = s.changeState(engID, dst.Dir, func(FindingRef, *db.State, string) ([]chat.Message, error) {
+		return []chat.Message{{ID: chat.NewID(), TS: time.Now().UTC().Truncate(time.Second), User: u.Username, Event: EventMerge, Text: srcID}}, nil
+	})
+	if err != nil { // the merge itself is done; only its event is missing
+		log.Printf("merge %s/%s: event: %v", engID, dst.Dir, err)
+	}
+	return nil
+}
+
+// unwithdraw puts back the state a merge's source had before it was
+// withdrawn, with a restore event.
+func (s *Store) unwithdraw(engID, dir string, prev db.State, dstID string, u config.User) error {
+	var done Event
+	err := s.changeState(engID, dir, func(ref FindingRef, st *db.State, _ string) ([]chat.Message, error) {
+		done = findingEvent(EventStatus, u.Username, ref)
+		done.Action, done.From, done.To = string(workflow.Revise), ref.F.Meta.Status, prev.Status
+		*st = prev
+		return []chat.Message{{ID: chat.NewID(), TS: time.Now().UTC().Truncate(time.Second), User: u.Username, Event: string(workflow.Revise), Text: "merge into " + dstID + " failed"}}, nil
+	})
+	if err == nil {
+		s.Emit(done)
+	}
+	return err
+}
+
+// attachLinkRe finds attachment links in Markdown; a trailing dot is
+// punctuation unless the name with it exists.
+var attachLinkRe = regexp.MustCompile(`attachments/[A-Za-z0-9][A-Za-z0-9._-]*`)
+
+// relink points the links to renamed attachments (old name to new) at
+// their new names, matching whole names only.
+func relink(body string, renames map[string]string) string {
+	if len(renames) == 0 {
+		return body
+	}
+	return attachLinkRe.ReplaceAllStringFunc(body, func(m string) string {
+		name := strings.TrimPrefix(m, "attachments/")
+		for n := name; n != ""; n = strings.TrimSuffix(n, ".") {
+			if to, ok := renames[n]; ok {
+				return "attachments/" + to + name[len(n):]
+			}
+			if !strings.HasSuffix(n, ".") {
+				break
+			}
+		}
+		return m
+	})
+}
+
+// mergeContent is Merge's commit into dst; it returns src's ID.
+func (s *Store) mergeContent(engID, srcDir, dstDir string, u config.User) (string, error) {
+	var srcID string
+	_, err := s.changeFiles(engID, dstDir, u, func(ref FindingRef) (map[string][]byte, string, error) {
+		sr, _, err := s.read(engID, srcDir, nil)
 		if err != nil {
 			return nil, "", err
 		}
 		f := ref.F
-		srcID, dstID = sr.F.Meta.ID, f.Meta.ID
+		srcID = sr.F.Meta.ID
 		files := map[string][]byte{}
 		// attachments: copy, renaming on a clash
 		renames := map[string]string{}
@@ -391,9 +469,9 @@ func (s *Store) Merge(engID, srcDir, dstDir string, u config.User) error {
 		}
 		dad := attachDir(engID, ref.Dir)
 		for _, at := range atts {
-			b, err := s.ReadAttachment(engID, sr.Dir, "attachments/"+at.Name)
+			b, err := s.readAttachment(engID, sr.Dir, "attachments/"+at.Name, 0)
 			if err != nil {
-				return nil, "", err
+				return nil, "", fmt.Errorf("%w: attachment %s of %s can't be read", ErrInvalidValue, at.Name, srcID)
 			}
 			n := freeName(at.Name, func(n string) bool {
 				_, err := s.root.Lstat(path.Join(dad, n))
@@ -408,19 +486,12 @@ func (s *Store) Merge(engID, srcDir, dstDir string, u config.User) error {
 			}
 			files[path.Join(dad, n)] = b
 		}
-		old := make([]string, 0, len(renames))
-		for k := range renames {
-			old = append(old, k)
-		}
-		sort.Slice(old, func(i, j int) bool { return len(old[i]) > len(old[j]) })
 		for _, sec := range sr.F.Sections {
 			body := strings.Trim(sec.Body, "\n")
 			if strings.TrimSpace(body) == "" {
 				continue
 			}
-			for _, k := range old {
-				body = strings.ReplaceAll(body, "attachments/"+k, "attachments/"+renames[k])
-			}
+			body = relink(body, renames)
 			cur, _ := f.Section(sec.Name)
 			merged := "### Merged from " + srcID + "\n\n" + body
 			if c := strings.Trim(cur, "\n"); strings.TrimSpace(c) != "" {
@@ -445,14 +516,5 @@ func (s *Store) Merge(engID, srcDir, dstDir string, u config.User) error {
 		files[findingPath(engID, ref.Dir)] = f.Bytes()
 		return files, "merge " + srcID, nil
 	})
-	if err != nil {
-		return err
-	}
-	err = s.changeState(engID, dst.Dir, func(FindingRef, *db.State, string) ([]chat.Message, error) {
-		return []chat.Message{{ID: chat.NewID(), TS: time.Now().UTC().Truncate(time.Second), User: u.Username, Event: EventMerge, Text: srcID}}, nil
-	})
-	if err != nil {
-		return err
-	}
-	return s.Transition(engID, src.Dir, workflow.Withdraw, "merged into "+dstID, u)
+	return srcID, err
 }
