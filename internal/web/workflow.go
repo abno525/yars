@@ -222,7 +222,7 @@ func (s *Server) wfFor(ref store.FindingRef, r *http.Request) wfView {
 	}
 	if v.CanAssign {
 		for _, c := range s.Auth.Users() {
-			if workflow.ReviewerCandidate(c, m) {
+			if s.Store.CanReview(c, ref.EngID, m) {
 				v.Candidates = append(v.Candidates, wfCandidate{Name: c.Username, Checked: slices.Contains(m.Reviewers, c.Username)})
 			}
 		}
@@ -316,14 +316,14 @@ func (s *Server) wfReviewers(w http.ResponseWriter, r *http.Request) {
 		// keep whoever is assigned and add every reviewer-role account
 		names = slices.Clone(ref.F.Meta.Reviewers)
 		for _, c := range users {
-			if c.Role == "reviewer" && workflow.ReviewerCandidate(c, ref.F.Meta) && !slices.Contains(names, c.Username) {
+			if c.Role == "reviewer" && s.Store.CanReview(c, ref.EngID, ref.F.Meta) && !slices.Contains(names, c.Username) {
 				names = append(names, c.Username)
 			}
 		}
 	}
 	for _, n := range names {
 		ok := slices.ContainsFunc(users, func(c config.User) bool {
-			return c.Username == n && workflow.ReviewerCandidate(c, ref.F.Meta)
+			return c.Username == n && s.Store.CanReview(c, ref.EngID, ref.F.Meta)
 		})
 		if !ok {
 			s.renderFinding(w, r, http.StatusBadRequest, "unknown or ineligible reviewer "+n)

@@ -6,6 +6,7 @@ import (
 
 	"yars/internal/config"
 	"yars/internal/db"
+	"yars/internal/finding"
 	"yars/internal/workflow"
 )
 
@@ -25,6 +26,13 @@ func (s *Store) CanSee(u config.User, eng string) bool {
 	}
 	ok, err := s.db.IsMember(eng, u.Username)
 	return err == nil && ok
+}
+
+// CanReview reports whether u may be assigned as a reviewer of m in
+// engagement eng: an eligible account (workflow.ReviewerCandidate) that can
+// see the engagement.
+func (s *Store) CanReview(u config.User, eng string, m finding.Meta) bool {
+	return workflow.ReviewerCandidate(u, m) && s.CanSee(u, eng)
 }
 
 // Visible returns the engagements u may see; nil means all of them.

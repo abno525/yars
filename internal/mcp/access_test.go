@@ -123,6 +123,32 @@ func TestMCPTokenScopes(t *testing.T) {
 	}
 }
 
+// Marking reported needs "export" however the action is spelled.
+func TestMCPReportNeedsExportScope(t *testing.T) {
+	f := newFx(t)
+	status := db.TokenInfo{Kind: db.TokenMCP, Scopes: []string{"status"}}
+	for _, act := range []string{"report", "Report", " report", "REPORT"} {
+		out, isErr := f.callTok(dora, status, "transition", map[string]any{"engagement": "acme", "finding": "F-001", "action": act})
+		if !isErr || !strings.Contains(out, "token") {
+			t.Errorf("action %q without the export scope: %s", act, out)
+		}
+	}
+}
+
+// Reviewers must be on the engagement's team.
+func TestMCPReviewerOnTeam(t *testing.T) {
+	f := newFx(t)
+	if err := f.s.Store.DB().RemoveMember("acme", "bob"); err != nil {
+		t.Fatal(err)
+	}
+	out, isErr := f.call(alice, "set_field", map[string]any{"engagement": "acme", "finding": "F-001", "field": "reviewers", "value": "bob"})
+	if !isErr || !strings.Contains(out, "bob") {
+		t.Fatalf("assigned a reviewer off the team: %s", out)
+	}
+	f.s.Store.DB().AddMembers("acme", "bob")
+	f.ok(alice, "set_field", map[string]any{"engagement": "acme", "finding": "F-001", "field": "reviewers", "value": "bob"})
+}
+
 func TestMCPTokenEngagements(t *testing.T) {
 	f := newFx(t)
 	f.s.Store.CreateEngagement(store.Engagement{ID: "beta", Name: "Beta"}, dora.GitAuthor())

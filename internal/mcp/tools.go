@@ -58,7 +58,7 @@ func actionOf(t tool, a args) string {
 	if t.name == "set_field" && a.str("field") == "reviewers" {
 		return "reviewers"
 	}
-	if t.name == "transition" && a.str("action") == string(workflow.Report) {
+	if act, ok := workflow.ParseAction(a.str("action")); t.name == "transition" && ok && act == workflow.Report {
 		return "export"
 	}
 	if t.action == "" {
@@ -614,8 +614,8 @@ func setField(s *Server, ctx context.Context, u config.User, a args) (string, er
 		if s.Users != nil {
 			for _, n := range names {
 				i := slices.IndexFunc(s.Users(), func(x config.User) bool { return x.Username == n })
-				if i < 0 || !workflow.ReviewerCandidate(s.Users()[i], ref.F.Meta) {
-					return "", fmt.Errorf("%s is not a reviewer or director account (or is the author)", n)
+				if i < 0 || !st.CanReview(s.Users()[i], eng, ref.F.Meta) {
+					return "", fmt.Errorf("%s is not a reviewer or director account on the engagement's team (or is the author)", n)
 				}
 			}
 		}

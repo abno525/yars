@@ -163,7 +163,7 @@ func (s *Server) bulkReviewers(ref store.FindingRef, names []string, users []con
 	m := ref.F.Meta
 	for _, n := range names {
 		ok := slices.ContainsFunc(users, func(c config.User) bool {
-			return c.Username == n && workflow.ReviewerCandidate(c, m)
+			return c.Username == n && s.Store.CanReview(c, ref.EngID, m)
 		})
 		if !ok {
 			return &workflow.Denied{Reason: n + " cannot review this finding"}

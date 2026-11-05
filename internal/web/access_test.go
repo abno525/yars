@@ -3,6 +3,7 @@ package web
 import (
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 
@@ -106,6 +107,31 @@ func TestInboxTeamOnly(t *testing.T) {
 	e.srv.Store.DB().AddMembers("acme", "rev2")
 	if b := e.do(t, "rev2", "GET", "/inbox", nil, nil).Body.String(); !strings.Contains(b, "SQL injection") {
 		t.Fatal("inbox misses the team's finding")
+	}
+}
+
+// Only the engagement's team can be assigned as reviewers: the list, the
+// "all" button, a posted name and bulk assign.
+func TestReviewersFromTeam(t *testing.T) {
+	e := setup(t)
+	e.addUser(t, config.User{Username: "rev2", Role: "reviewer"})
+	if b := e.do(t, "alice", "GET", fpath+"/workflow", nil, nil).Body.String(); strings.Contains(b, "rev2") {
+		t.Fatal("reviewer list offers someone off the team")
+	}
+	if rec := e.do(t, "alice", "POST", fpath+"/reviewers", url.Values{"reviewer": {"rev2"}}, nil); rec.Code != http.StatusBadRequest {
+		t.Fatalf("assigned someone off the team: %d", rec.Code)
+	}
+	e.do(t, "alice", "POST", fpath+"/reviewers", url.Values{"all": {"1"}}, nil)
+	if ref, _ := e.srv.Store.Finding("acme", fdir); slices.Contains(ref.F.Meta.Reviewers, "rev2") {
+		t.Fatalf("all added someone off the team: %v", ref.F.Meta.Reviewers)
+	}
+	b := e.do(t, "dora", "POST", "/e/acme/bulk", url.Values{"action": {"reviewers"}, "id": {"001"}, "reviewer": {"rev2"}}, nil).Body.String()
+	if ref, _ := e.srv.Store.Finding("acme", fdir); slices.Contains(ref.F.Meta.Reviewers, "rev2") {
+		t.Fatalf("bulk added someone off the team:\n%s", b)
+	}
+	e.srv.Store.DB().AddMembers("acme", "rev2")
+	if b := e.do(t, "alice", "GET", fpath+"/workflow", nil, nil).Body.String(); !strings.Contains(b, "rev2") {
+		t.Fatal("team reviewer missing from the list")
 	}
 }
 
