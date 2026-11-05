@@ -52,11 +52,15 @@ type tool struct {
 }
 
 // actionOf is the token action a call needs: the tool's, except that
-// set_field on reviewers needs "reviewers" and marking a finding reported
-// (the delivery to the client) needs "export".
+// set_field on reviewers needs "reviewers", marking a finding reported
+// (the delivery to the client) needs "export" and lint_finding with all=true
+// (script and AI rules) needs "checks".
 func actionOf(t tool, a args) string {
 	if t.name == "set_field" && a.str("field") == "reviewers" {
 		return "reviewers"
+	}
+	if all, _ := a["all"].(bool); t.name == "lint_finding" && all {
+		return "checks"
 	}
 	if act, ok := workflow.ParseAction(a.str("action")); t.name == "transition" && ok && act == workflow.Report {
 		return "export"
