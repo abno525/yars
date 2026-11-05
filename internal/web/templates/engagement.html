@@ -2,7 +2,7 @@
 <div class="titlerow">
   <div class="titlecol">
     <h1 title="{{.Eng.Name}}">{{.Eng.Name}}</h1>
-    <p class="sub">{{.Eng.Client}}{{if .IsRetest}}{{if .Eng.Client}} · {{end}}Retest of <a href="/e/{{.Eng.Source}}">{{if .Source.Name}}{{.Source.Name}}{{else}}{{.Eng.Source}}{{end}}</a>{{end}}</p>
+    <p class="sub">{{.Eng.Client}}{{if .Eng.Start}}{{if .Eng.Client}} · {{end}}{{.Eng.Start}}{{if .Eng.End}} – {{.Eng.End}}{{end}}{{end}}{{if .IsRetest}}{{if or .Eng.Client .Eng.Start}} · {{end}}Retest of <a href="/e/{{.Eng.Source}}">{{if .Source.Name}}{{.Source.Name}}{{else}}{{.Eng.Source}}{{end}}</a>{{end}}</p>
   </div>
   <div class="actions">
     <a class="btn secondary w128" href="/e/{{.Eng.ID}}/export">Export</a>
@@ -10,6 +10,18 @@
     <a class="btn primary w128" href="/e/{{.Eng.ID}}/findings/new">New finding</a>
   </div>
 </div>
+<section class="bars" aria-label="Engagement progress">
+  <div class="barcol">
+    <div class="barhead"><span class="barname">Progress</span><span class="barval">{{.Bars.Reported}} of {{.Bars.Total}} reported</span></div>
+    {{template "bar" .Bars.Progress}}
+    {{template "legend" .Bars.Progress}}
+  </div>
+  <div class="barcol">
+    <div class="barhead"><span class="barname">By severity</span><span class="barval">{{.Bars.Total}} finding{{if ne .Bars.Total 1}}s{{end}}</span></div>
+    {{template "bar" .Bars.Severity}}
+    {{template "legend" .Bars.Severity}}
+  </div>
+</section>
 {{template "findings" .}}
 {{if .CloneURL}}
 <section class="clonebar">

@@ -3,14 +3,14 @@
   <div class="filters">
     <nav class="seg" aria-label="Status">
     {{range .StatusFilters}}
-    <a class="{{if .Active}}on{{end}}" href="{{.URL}}" hx-get="{{.URL}}" hx-target="#findings" hx-swap="outerHTML" hx-push-url="true">{{.Label}}</a>
+    <a class="{{if .Active}}on{{end}}" href="{{.URL}}" hx-get="{{.URL}}" hx-target="#findings" hx-swap="outerHTML" hx-push-url="true">{{.Label}} · {{.Count}}</a>
     {{end}}
     </nav>
   </div>
   <table class="table findings">
     <thead><tr>
       {{range .Columns}}
-      <th><a href="{{.URL}}" hx-get="{{.URL}}" hx-target="#findings" hx-swap="outerHTML" hx-push-url="true">{{.Label}}{{if .Active}}{{if .Desc}} ↓{{else}} ↑{{end}}{{end}}</a></th>
+      <th class="col-{{.Key}}"><a href="{{.URL}}" hx-get="{{.URL}}" hx-target="#findings" hx-swap="outerHTML" hx-push-url="true">{{.Label}}{{if .Active}}{{if .Desc}} ↓{{else}} ↑{{end}}{{end}}</a></th>
       {{end}}
     </tr></thead>
     <tbody>
@@ -26,12 +26,12 @@
         <td class="fid"><a href="{{fpath .EngID .Dir}}">{{.ID}}</a></td>
         <td class="title"><a href="{{fpath .EngID .Dir}}" title="{{.Title}}">{{.Title}}</a></td>
         <td>{{if .Severity}}<span class="tag sev-{{.Severity}}">{{.Severity}}</span>{{end}}</td>
-        <td class="num">{{.Score}}</td>
+        <td class="num">{{score0 .Score}}</td>
         <td><span class="tag status-{{.Status}}">{{.Status}}</span></td>
         {{if $.IsRetest}}<td>{{if .RetestResult}}<span class="tag result-{{.RetestResult}}">{{retestLabel .RetestResult}}</span>{{else if .IsRetest}}<span class="muted">—</span>{{else}}<span class="muted small">new</span>{{end}}</td>{{end}}
         <td class="cnt">{{if .OpenThreads}}<span class="badge">{{.OpenThreads}}</span>{{else}}<span class="badge0">0</span>{{end}}</td>
-        <td>{{.Author}}</td>
-        <td>{{if .Reviewers}}{{join .Reviewers ", "}}{{else}}<span class="muted">—</span>{{end}}</td>
+        <td class="clip">{{.Author}}</td>
+        <td class="revs">{{$r := .}}{{range .Reviewers}}<span class="rv{{if cleared $r .}} cleared{{end}}">{{.}}{{if cleared $r .}}<span class="sr"> (signed off)</span>{{end}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
       </tr>
     {{else}}
       {{if not $.Offset}}<tr><td colspan="9" class="muted empty">No findings match.</td></tr>{{end}}
@@ -41,23 +41,52 @@
     {{end}}
 {{end}}
 
+{{define "bulk_result"}}
+<div class="bulk-result" id="bulk-result" data-action="{{.Action}}">
+  <table class="table">
+    <tbody>
+    {{range .Items}}
+      <tr data-key="{{.Key}}" class="{{if .OK}}ok{{else}}denied{{end}}">
+        <td class="fid">{{if .ID}}{{.ID}}{{else}}{{.Key}}{{end}}</td>
+        <td class="title" title="{{.Title}}">{{.Title}}</td>
+        <td>{{if .OK}}<span class="tag status-ok">Done</span>{{else}}<span class="text">{{.Reason}}</span>{{end}}</td>
+      </tr>
+    {{end}}
+    </tbody>
+  </table>
+</div>
+{{end}}
+
 {{define "editor"}}
-<section class="panel editing" id="s-{{.Anchor}}">
-  <form hx-post="{{.SaveURL}}" hx-target="#s-{{.Anchor}}" hx-swap="outerHTML">
+<section class="panel editing{{if .Conflict}} conflict{{end}}" id="s-{{.Anchor}}">
+  <form class="flush" hx-post="{{.SaveURL}}" hx-target="#s-{{.Anchor}}" hx-swap="outerHTML" data-guard>
     <div class="panelhead">
-      <h2>{{.Name}}</h2>
-      <div class="actions">
-        <button type="button" class="btn secondary sm w96" hx-get="{{.SaveURL}}" hx-target="#s-{{.Anchor}}" hx-swap="outerHTML">Cancel</button>
-        <button class="btn save sm w96">Save</button>
+      <h2 title="{{.Name}}">{{.Name}}</h2>
+      <div class="seg modes" role="group" aria-label="View">
+        <button type="button" data-mode="write" aria-pressed="false">Write</button><button type="button" data-mode="split" aria-pressed="true">Split</button><button type="button" data-mode="preview" aria-pressed="false">Preview</button>
       </div>
     </div>
-    {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
-    {{if .Current}}<details class="current" open><summary>Current saved version</summary><div class="md">{{.Current}}</div></details>{{end}}
+    {{if .Conflict}}
+    <div class="cbar flush">
+      <strong title="{{.Error}}">{{.Error}}</strong>
+      <div class="actions">
+        <button type="button" class="btn secondary sm w112" data-theirs="t-{{.Anchor}}" aria-pressed="true">Show theirs</button>
+        <button type="button" class="btn secondary sm w112" hx-get="{{.EditURL}}" hx-target="#s-{{.Anchor}}" hx-swap="outerHTML" hx-confirm="Discard your text?">Take theirs</button>
+        <button class="btn save sm w112">Keep mine</button>
+      </div>
+    </div>
+    <div class="theirs md flush" id="t-{{.Anchor}}">{{if .Current}}{{.Current}}{{else}}<p class="muted">Empty</p>{{end}}</div>
+    {{else if .Error}}<p class="error editerr">{{.Error}}</p>{{end}}
     <input type="hidden" name="base" value="{{.Base}}">
-    <div class="editor">
-      <textarea name="body" rows="14" autofocus
+    <div class="editor" data-view="split">
+      <textarea name="body" rows="14" aria-label="{{.Name}}" autofocus{{if .Error}} data-dirty{{end}}
         hx-post="{{.PreviewURL}}" hx-trigger="keyup changed delay:300ms, load" hx-target="#p-{{.Anchor}}" hx-swap="innerHTML">{{.Raw}}</textarea>
       <div class="preview md" id="p-{{.Anchor}}"></div>
+    </div>
+    <div class="pfoot flush">
+      <span class="pstate">{{if .Conflict}}Conflict{{end}}</span>
+      <button type="button" class="btn secondary sm w96" hx-get="{{.SaveURL}}" hx-target="#s-{{.Anchor}}" hx-swap="outerHTML" data-guard-cancel>Cancel</button>
+      <button class="btn save sm w96"{{if .Conflict}} disabled{{end}}>Save</button>
     </div>
   </form>
 </section>
@@ -69,7 +98,7 @@
     <div class="panelname"><h2>{{.Name}}</h2>{{if .Open}}<span class="open-count">{{.Open}}</span>{{end}}</div>
     <span class="panel-tools">
       <button class="btn ghost sm w96" type="button" data-section="{{.Name}}" onclick="yarsComment(this.dataset.section)">Comment</button>
-      {{if .EditURL}}<button class="btn ghost sm w96" hx-get="{{.EditURL}}" hx-target="#s-{{.Anchor}}" hx-swap="outerHTML">Edit</button>{{else}}<span class="slot w96"></span>{{end}}
+      {{if .EditURL}}<button class="btn ghost sm w96" hx-get="{{.EditURL}}" hx-target="#s-{{.Anchor}}" hx-swap="outerHTML">Edit</button>{{else}}<span class="slot w96 lockslot">{{template "lock"}}</span>{{end}}
     </span>
   </div>
   <div class="md">{{if .HTML}}{{.HTML}}{{else}}<p class="muted">Empty</p>{{end}}</div>

@@ -294,6 +294,55 @@ func TestMCPTransitionAndChat(t *testing.T) {
 	}
 }
 
+func TestMCPSignOffReportWithdraw(t *testing.T) {
+	f := newFx(t)
+	set := func(field, value string) {
+		f.ok(alice, "set_field", map[string]any{"engagement": "acme", "finding": "F-001", "field": field, "value": value})
+	}
+	set("reviewers", "bob")
+	set("severity", "high")
+	tr := func(u config.User, action, reason string) (string, bool) {
+		return f.call(u, "transition", map[string]any{"engagement": "acme", "finding": "F-001", "action": action, "reason": reason})
+	}
+	status := func() string {
+		ref, err := f.s.Store.Finding("acme", "001")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ref.F.Meta.Status
+	}
+	tr(alice, "submit", "")
+	if text, isErr := tr(bob, "sign_off", ""); isErr {
+		t.Fatalf("sign_off: %s", text)
+	}
+	tr(dora, "approve", "")
+	if text, isErr := tr(alice, "report", ""); !isErr || status() != "complete" {
+		t.Fatalf("pentester reported: %s", text)
+	}
+	if text, isErr := tr(dora, "report", ""); isErr || status() != "reported" || !strings.Contains(text, "reported") {
+		t.Fatalf("director report: %s", text)
+	}
+	if text, isErr := tr(dora, "withdraw", ""); !isErr || !strings.Contains(text, "reason") {
+		t.Fatalf("withdraw without reason: %s", text)
+	}
+	if text, isErr := tr(dora, "withdraw", "client disputes it"); isErr || status() != "withdrawn" {
+		t.Fatalf("withdraw: %s", text)
+	}
+	out := f.ok(alice, "read_finding", map[string]any{"engagement": "acme", "finding": "F-001"})
+	if !strings.Contains(out, `"withdrawn"`) || !strings.Contains(out, "client disputes it") {
+		t.Fatalf("read_finding lacks withdrawal:\n%s", out)
+	}
+	if out := f.ok(alice, "list_findings", map[string]any{"engagement": "acme"}); strings.Contains(out, "F-001") {
+		t.Fatalf("withdrawn finding listed by default:\n%s", out)
+	}
+	if out := f.ok(alice, "list_findings", map[string]any{"engagement": "acme", "status": "withdrawn"}); !strings.Contains(out, "F-001") {
+		t.Fatalf("withdrawn filter:\n%s", out)
+	}
+	if text, isErr := tr(alice, "revise", ""); isErr || status() != "draft" {
+		t.Fatalf("revise: %s", text)
+	}
+}
+
 func TestMCPPermissions(t *testing.T) {
 	f := newFx(t)
 	set := func(field, value string) {
@@ -313,9 +362,11 @@ func TestMCPPermissions(t *testing.T) {
 	if text, isErr := f.call(alice, "update_section", map[string]any{"engagement": "acme", "finding": "F-001", "section": "Impact", "body": "late"}); !isErr || !strings.Contains(text, "complete") {
 		t.Fatalf("locked edit: %s", text)
 	}
-	if _, isErr := f.call(dora, "transition", map[string]any{"engagement": "acme", "finding": "F-001", "action": "report"}); !isErr {
-		t.Fatal("report via MCP")
+	// report is open to directors only
+	if text, isErr := f.call(bob, "transition", map[string]any{"engagement": "acme", "finding": "F-001", "action": "report"}); !isErr || !strings.Contains(text, "director") {
+		t.Fatalf("reviewer reported via MCP: %s", text)
 	}
+	f.ok(dora, "transition", map[string]any{"engagement": "acme", "finding": "F-001", "action": "report"})
 }
 
 func TestMCPProtocolErrors(t *testing.T) {

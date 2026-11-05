@@ -1,38 +1,31 @@
-{{define "sevpill"}}<span id="sevpill"{{if .OOB}} hx-swap-oob="true"{{end}}>{{if .Severity}}<span class="tag sev-{{.Severity}}">{{.Severity}}</span>{{end}}</span>{{end}}
+{{define "sevpill"}}<span id="sevpill" class="sevpill"{{if .OOB}} hx-swap-oob="true"{{end}}>{{if .Severity}}<span class="tag sev-{{.Severity}}">{{.Severity}}</span>{{else}}<span class="tag none"></span>{{end}}{{if .Score}}<span class="tag score">{{.Score}}</span>{{else}}<span class="tag score none"></span>{{end}}</span>{{end}}
 
-{{define "cvss_score"}}
-<div class="scoreline">
-  <span class="score">{{if .Score}}{{.Score}}{{else}}–{{end}}</span>
-  {{if .Rating}}<span class="tag sev-{{.Rating}}">{{.Rating}}</span>{{end}}
-  {{if .Vector}}<code class="vector">{{.Vector}}</code>{{end}}
-</div>
-{{end}}
+{{define "lock"}}<span class="lock" title="Locked" aria-label="Locked"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><rect x="5" y="11" width="14" height="10"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path></svg></span>{{end}}
 
 {{define "cvss_panel"}}
-<section class="panel" id="cvss">
+<section class="panel cvss" id="cvss">
   <div class="panelhead">
-    <h2>CVSS 3.1</h2>
-    {{if not .Locked}}<button class="btn ghost sm w96" hx-get="{{.EditURL}}" hx-target="#cvss" hx-swap="outerHTML">{{if .HasStored}}Edit{{else}}Calculate{{end}}</button>{{end}}
+    <h2>CVSS 3.1{{if .HasStored}} <code class="vector" title="{{.Vector}}">{{.Vector}}</code>{{end}}</h2>
+    {{if .Locked}}{{template "lock"}}{{else}}<button class="btn ghost sm w96" hx-get="{{.EditURL}}" hx-target="#cvss" hx-swap="outerHTML">{{if .HasStored}}Edit{{else}}Calculate{{end}}</button>{{end}}
   </div>
   {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
   {{if .Foreign}}
-  <p><code>{{.Foreign}}</code></p>
-  <p class="muted">Not a CVSS 3.1 base vector</p>
+  <p class="foreign"><code>{{.Foreign}}</code> <span class="muted">Not a CVSS 3.1 base vector</span></p>
   {{end}}
   {{if .HasStored}}
-    {{template "cvss_score" .}}
+    <div class="mgrid flush">
+      {{range .Metrics}}<div class="mcell"><span class="mkey" title="{{.Name}}">{{.Key}}</span><span class="mval{{if .NonStandard}} nsval{{end}}" title="{{.SelectedName}}">{{.SelectedName}}</span></div>{{end}}
+    </div>
     {{if .Reasons}}
-    <h3 class="subhead">Explanation of non-standard values</h3>
+    <h3 class="subhead">Reasoning</h3>
     <table class="kv reasons">
-      <thead><tr><th>Metric</th><th>Value</th><th>Explanation</th></tr></thead>
       <tbody>
       {{range .Reasons}}
-        <tr><td>{{.Metric}}</td><td>{{.Value}}</td><td class="text">{{if .Reason}}{{.Reason}}{{else}}<span class="error">reason missing</span>{{end}}</td></tr>
+        <tr><th scope="row"><span class="rname">{{.Metric}}</span><span class="mchange">{{.Value}}</span></th><td class="text">{{if .Reason}}{{.Reason}}{{else}}<span class="error">reason missing</span>{{end}}</td></tr>
       {{end}}
       </tbody>
     </table>
     {{end}}
-    {{if .Missing}}<p class="error">Non-standard metrics without a reason: {{join .Missing ", "}}</p>{{end}}
   {{else if .Locked}}
     <p class="scoreline"><span class="mname">Severity</span> {{if .Severity}}<span class="tag sev-{{.Severity}}">{{.Severity}}</span>{{else}}<span class="muted">—</span>{{end}}</p>
   {{else}}
@@ -52,47 +45,57 @@
 {{end}}
 
 {{define "cvss_editor"}}
-<section class="panel editing" id="cvss">
-  <form hx-post="{{.SaveURL}}" hx-target="#cvss" hx-swap="outerHTML">
-    <div class="panelhead"><h2>CVSS 3.1</h2>{{template "cvss_score" .}}</div>
-    {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
-    <input type="hidden" name="base" value="{{.Base}}">
-    {{range .Metrics}}
-    {{$m := .}}
-    <div class="metric">
-      <span class="mname">{{.Name}}{{if .Standard}} <span class="muted">(std {{.Standard}})</span>{{end}}</span>
-      <div class="seg" hx-post="{{$.CalcURL}}" hx-trigger="change" hx-include="closest form" hx-target="#cvss" hx-swap="outerHTML" hx-sync="closest form:replace">
-        {{range .Values}}<label title="{{.Name}}"><input type="radio" id="cvss-{{$m.Key}}-{{.Code}}" name="{{$m.Key}}" value="{{.Code}}"{{if eq .Code $m.Selected}} checked{{end}}><span>{{.Name}}</span></label>{{end}}
+<section class="panel editing cvss" id="cvss">
+  <form class="flush" hx-post="{{.SaveURL}}" hx-target="#cvss" hx-swap="outerHTML">
+    <div class="panelhead">
+      <h2>CVSS 3.1</h2>
+      <div class="scorehead">
+        <code class="vector" title="{{.Vector}}">{{.Vector}}</code>
+        <span class="scorebox">{{if .Score}}{{.Score}}{{else}}–{{end}}</span>
+        {{if .Rating}}<span class="tag sev-{{.Rating}}">{{.Rating}}</span>{{else}}<span class="tag none"></span>{{end}}
       </div>
     </div>
+    {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+    <input type="hidden" name="base" value="{{.Base}}">
+    <div class="metrics flush">
+    {{range .Metrics}}
+    {{$m := .}}
+    <div class="mrow">
+      <span class="mname" title="{{.Name}}">{{.Name}}<span class="mcode">{{.Key}}</span></span>
+      <div class="seg cvss-seg" hx-post="{{$.CalcURL}}" hx-trigger="change" hx-include="closest form" hx-target="#cvss" hx-swap="outerHTML" hx-sync="closest form:replace">
+        {{range .Values}}<label title="{{.Name}}"><input type="radio" id="cvss-{{$m.Key}}-{{.Code}}" name="{{$m.Key}}" value="{{.Code}}"{{if eq .Code $m.Selected}} checked{{end}}><span>{{if eq .Code $m.Standard}}<i class="std" aria-hidden="true"></i>{{end}}{{.Name}}</span></label>{{end}}
+      </div>
+      {{if .NonStandard}}<span class="ns">Not std</span>{{else}}<span class="ns none"></span>{{end}}
+    </div>
     {{end}}
-    <div class="paste">
-      <input name="paste" placeholder="Paste a vector, e.g. CVSS:3.1/AV:N/AC:L/…" aria-label="Paste vector"
+    </div>
+    <div class="paste flush">
+      <input name="paste" placeholder="CVSS:3.1/AV:N/AC:L/…" aria-label="Paste vector"
         onkeydown="if(event.key==='Enter'){event.preventDefault()}"
         hx-post="{{.CalcURL}}" hx-trigger="keyup[key=='Enter']" hx-include="closest form" hx-target="#cvss" hx-swap="outerHTML">
       <button type="button" class="btn secondary w96" hx-post="{{.CalcURL}}" hx-include="closest form" hx-target="#cvss" hx-swap="outerHTML">Apply</button>
     </div>
     {{range .Metrics}}{{if and (not .NonStandard) .Reason}}<input type="hidden" name="reason_{{.Key}}" value="{{.Reason}}">{{end}}{{end}}
     {{if .Reasons}}
-    <h3 class="subhead">Explanation of non-standard values</h3>
-    <table class="kv reasons">
-      <thead><tr><th>Metric</th><th>Value</th><th>Explanation</th></tr></thead>
-      <tbody>
-      {{range .Metrics}}{{if .NonStandard}}
-        <tr>
-          <td>{{.Name}}</td>
-          <td>{{.SelectedName}} <span class="muted">(std {{.Standard}})</span></td>
-          <td><textarea name="reason_{{.Key}}" rows="2">{{.Reason}}</textarea></td>
-        </tr>
-      {{end}}{{end}}
-      </tbody>
-    </table>
+    <div class="reasoning flush">
+      <h3 class="subhead">Reasoning</h3>
+      <table class="kv reasons">
+        <tbody>
+        {{range .Metrics}}{{if .NonStandard}}
+          <tr>
+            <th scope="row"><span class="rname">{{.Name}}</span><span class="mchange">{{.StandardName}} → {{.SelectedName}}</span></th>
+            <td><textarea name="reason_{{.Key}}" rows="2"{{if not .Reason}} aria-invalid="true" placeholder="Required"{{end}}>{{.Reason}}</textarea></td>
+          </tr>
+        {{end}}{{end}}
+        </tbody>
+      </table>
+    </div>
     {{end}}
-    {{if .Missing}}<p class="error">Non-standard metrics without an explanation: {{join .Missing ", "}}</p>{{end}}
-    <div class="actions">
-      <button class="btn save w112"{{if not .Complete}} disabled{{end}}>Save</button>
-      {{if .HasStored}}<button class="btn danger w128" name="action" value="clear" hx-confirm="Remove the CVSS vector from this finding? The current severity is kept as a manual value.">Clear vector</button>{{else}}<span class="slot w128"></span>{{end}}
-      <button type="button" class="btn secondary w112" hx-get="{{.ViewURL}}" hx-target="#cvss" hx-swap="outerHTML">Cancel</button>
+    <div class="pfoot flush">
+      {{if .HasStored}}<button class="btn danger sm w128" name="action" value="clear" hx-confirm="Remove the CVSS vector?">Clear vector</button>{{else}}<span class="slot w128"></span>{{end}}
+      <span class="pstate error">{{with .Missing}}{{len .}} reason{{if gt (len .) 1}}s{{end}} missing{{end}}</span>
+      <button type="button" class="btn secondary sm w96" hx-get="{{.ViewURL}}" hx-target="#cvss" hx-swap="outerHTML">Cancel</button>
+      <button class="btn save sm w96"{{if not .Complete}} disabled{{end}}>Save</button>
     </div>
   </form>
 </section>

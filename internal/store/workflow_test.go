@@ -126,6 +126,82 @@ func TestTransitionFlow(t *testing.T) {
 	}
 }
 
+func TestWithdrawAndRevise(t *testing.T) {
+	s, _, fd := ready(t)
+	s.Transition(eng, fd, workflow.Submit, "", uAlice)
+	if err := s.Transition(eng, fd, workflow.Clear, "", uBob); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Transition(eng, fd, workflow.Withdraw, "  ", uAlice); !denied(err) || !strings.Contains(err.Error(), "reason") {
+		t.Fatalf("withdraw without reason: %v", err)
+	}
+	if err := s.Transition(eng, fd, workflow.Withdraw, "dup", uBob); !denied(err) {
+		t.Fatalf("reviewer withdrew: %v", err)
+	}
+	if err := s.Transition(eng, fd, workflow.Withdraw, "duplicate of F-002", uAlice); err != nil {
+		t.Fatal(err)
+	}
+	m := load(t, s, fd).F.Meta
+	if m.Status != "withdrawn" || len(m.ClearedBy) != 0 || m.Withdrawn == nil || m.Withdrawn.By != "alice" || m.Withdrawn.Reason != "duplicate of F-002" {
+		t.Fatalf("withdrawn meta %+v %+v", m, m.Withdrawn)
+	}
+	if err := s.Transition(eng, fd, workflow.Revise, "", uBob); !denied(err) {
+		t.Fatalf("reviewer restored: %v", err)
+	}
+	if err := s.Transition(eng, fd, workflow.Revise, "", uAlice); err != nil {
+		t.Fatal(err)
+	}
+	m = load(t, s, fd).F.Meta
+	if m.Status != "draft" || m.Withdrawn != nil || len(m.ClearedBy) != 0 {
+		t.Fatalf("revised meta %+v", m)
+	}
+	want := []string{"alice:submit:", "bob:clear:", "alice:withdraw:duplicate of F-002", "alice:revise:"}
+	if got := events(t, s, fd); !reflect.DeepEqual(got, want) {
+		t.Fatalf("events %v", got)
+	}
+}
+
+// A returned draft that is withdrawn shows only why it was withdrawn.
+func TestWithdrawClearsReturned(t *testing.T) {
+	s, _, fd := ready(t)
+	s.Transition(eng, fd, workflow.Submit, "", uAlice)
+	if err := s.Transition(eng, fd, workflow.Return, "needs impact", uBob); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Transition(eng, fd, workflow.Withdraw, "duplicate", uAlice); err != nil {
+		t.Fatal(err)
+	}
+	if m := load(t, s, fd).F.Meta; m.Returned != nil {
+		t.Fatalf("withdrawn finding still returned: %+v", m.Returned)
+	}
+}
+
+func TestDirectorWithdrawsComplete(t *testing.T) {
+	s, _, fd := ready(t)
+	s.Transition(eng, fd, workflow.Submit, "", uAlice)
+	s.Transition(eng, fd, workflow.Clear, "", uBob)
+	if err := s.Transition(eng, fd, workflow.Approve, "", uDora); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Transition(eng, fd, workflow.Withdraw, "out of scope", uAlice); !denied(err) {
+		t.Fatalf("author withdrew a complete finding: %v", err)
+	}
+	if err := s.Transition(eng, fd, workflow.Withdraw, "out of scope", uDora); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Transition(eng, fd, workflow.Revise, "", uDora); err != nil {
+		t.Fatal(err)
+	}
+	if m := load(t, s, fd).F.Meta; m.Status != "draft" {
+		t.Fatalf("status %s", m.Status)
+	}
+	// the old approval doesn't come back: a draft needs review again
+	st, _ := s.DB().State(eng, load(t, s, fd).F.Meta.ID)
+	if st.ApprovedHash != "" {
+		t.Fatal("approval kept")
+	}
+}
+
 func TestTransitionReturnNeedsReason(t *testing.T) {
 	s, _, fd := ready(t)
 	s.Transition(eng, fd, workflow.Submit, "", uAlice)

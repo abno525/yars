@@ -24,8 +24,8 @@
     {{end}}
   </form>
   <nav class="nav">
-    <a class="{{block "nav_findings" .}}on{{end}}" href="{{if .Eng.ID}}/e/{{.Eng.ID}}{{else}}/{{end}}">Findings</a>
-    <a class="{{block "nav_inbox" .}}{{end}}" href="/inbox">Inbox {{with .Inbox.Count}}<span class="badge">{{.}}</span>{{else}}<span class="badge0">0</span>{{end}}</a>
+    <a class="{{if ne .Nav "inbox"}}on{{end}}" href="{{if .Eng.ID}}/e/{{.Eng.ID}}{{else}}/{{end}}">Findings</a>
+    <a class="{{if eq .Nav "inbox"}}on{{end}}" href="/inbox">Inbox {{with .Inbox.Count}}<span class="badge">{{.}}</span>{{else}}<span class="badge0">0</span>{{end}}</a>
   </nav>
   <span class="who" title="{{.User.Username}} · {{.User.Role}}">{{.User.Username}}</span>
   {{else}}

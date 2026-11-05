@@ -75,6 +75,8 @@ func Load(dir string) ([]Exporter, []error) {
 		if e.Name == "" {
 			e.Name = e.ID
 		}
+		// withdrawn findings are never exported
+		e.Statuses = slices.DeleteFunc(e.Statuses, func(s string) bool { return !workflow.Active(s) })
 		if len(e.Statuses) == 0 {
 			e.Statuses = []string{"complete"}
 		}

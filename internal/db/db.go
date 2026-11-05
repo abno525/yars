@@ -18,7 +18,7 @@ import (
 // Path is where the database lives inside a data directory (git-ignored).
 func Path(dataDir string) string { return filepath.Join(dataDir, ".yars", "yars.db") }
 
-const schemaVersion = 2
+const schemaVersion = 3
 
 var migrations = []string{
 	// v1
@@ -77,6 +77,17 @@ var migrations = []string{
 	INSERT INTO changes VALUES (1, 0);`,
 	// v2: a change counter per engagement, so readers rebuild only what moved
 	`CREATE TABLE changes_eng (eng TEXT PRIMARY KEY, seq INTEGER NOT NULL) WITHOUT ROWID;`,
+	// v3: withdrawn findings (who and why) and resolved chat threads a user
+	// chose to hide
+	`ALTER TABLE finding_state ADD COLUMN withdrawn_by TEXT NOT NULL DEFAULT '';
+	ALTER TABLE finding_state ADD COLUMN withdrawn_reason TEXT NOT NULL DEFAULT '';
+	CREATE TABLE chat_hidden (
+		username  TEXT NOT NULL,
+		eng       TEXT NOT NULL,
+		fid       TEXT NOT NULL,
+		thread_id TEXT NOT NULL,
+		PRIMARY KEY (username, eng, fid, thread_id)
+	) WITHOUT ROWID;`,
 }
 
 type DB struct {

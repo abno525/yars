@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -94,6 +95,83 @@ func TestCheckMatrix(t *testing.T) {
 	m.Reviewers = []string{"dora"}
 	if err := Check(dora, m, Clear); err != nil {
 		t.Errorf("assigned director clear: %v", err)
+	}
+}
+
+func TestWithdrawRevise(t *testing.T) {
+	cases := []struct {
+		u    config.User
+		m    finding.Meta
+		a    Action
+		want bool
+	}{
+		{alice, meta("draft"), Withdraw, true},
+		{alice, meta("verification"), Withdraw, true},
+		{alice, meta("complete"), Withdraw, false}, // the author only while open
+		{alice, meta("reported"), Withdraw, false},
+		{pen2, meta("draft"), Withdraw, false},
+		{bob, meta("verification"), Withdraw, false}, // a reviewer is not the author
+		{dora, meta("draft"), Withdraw, true},
+		{dora, meta("verification"), Withdraw, true},
+		{dora, meta("complete"), Withdraw, true},
+		{dora, meta("reported"), Withdraw, true},
+		{dora, meta("withdrawn"), Withdraw, false},
+
+		{alice, meta("withdrawn"), Revise, true},
+		{dora, meta("withdrawn"), Revise, true},
+		{pen2, meta("withdrawn"), Revise, false},
+		{bob, meta("withdrawn"), Revise, false},
+		{alice, meta("draft"), Revise, false},
+
+		{dora, meta("withdrawn"), Submit, false},
+		{dora, meta("withdrawn"), Report, false},
+		{dora, meta("withdrawn"), Approve, false},
+	}
+	for _, c := range cases {
+		err := Check(c.u, c.m, c.a)
+		if (err == nil) != c.want {
+			t.Errorf("%s %s on %s: err=%v want allowed=%v", c.u.Username, c.a, c.m.Status, err, c.want)
+		}
+	}
+	if _, to := Target(Withdraw); to != "withdrawn" {
+		t.Errorf("withdraw goes to %q", to)
+	}
+	if from, to := Target(Revise); to != "draft" || len(from) != 1 || from[0] != "withdrawn" {
+		t.Errorf("revise %v -> %q", from, to)
+	}
+	if !NeedsReason(Withdraw) || !NeedsReason(Return) || NeedsReason(Revise) || NeedsReason(Clear) {
+		t.Error("NeedsReason")
+	}
+	// withdrawn findings: locked for non-directors, no reviewers, never pending
+	w := meta("withdrawn", "bob")
+	if CanEdit(alice, w) || !CanEdit(dora, w) || CanAssign(alice, w) || CanAssign(dora, w) {
+		t.Error("withdrawn edit/assign rights")
+	}
+	w.Returned = &finding.Returned{By: "bob", Reason: "x"}
+	for _, u := range []config.User{alice, bob, dora} {
+		if Pending(u, w) != InboxNone {
+			t.Errorf("withdrawn pending for %s", u.Username)
+		}
+	}
+	if !slices.Contains(AllStatuses, "withdrawn") || slices.Contains(Statuses, "withdrawn") {
+		t.Error("withdrawn is a status but not a workflow step")
+	}
+}
+
+func TestParseAction(t *testing.T) {
+	for in, want := range map[string]Action{"clear": Clear, "sign_off": Clear, "Sign_Off": Clear, " submit ": Submit,
+		"report": Report, "withdraw": Withdraw, "revise": Revise} {
+		if got, ok := ParseAction(in); !ok || got != want {
+			t.Errorf("ParseAction(%q) = %q, %v", in, got, ok)
+		}
+	}
+	for _, in := range []string{"", "bogus", "signoff2"} {
+		if _, ok := ParseAction(in); ok {
+			t.Errorf("ParseAction(%q) accepted", in)
+		}
+	}
+	if Label(Clear) != "Sign off" || Label(Report) != "Mark reported" || Label(Withdraw) != "Withdraw" || Label(Revise) != "Restore" {
+		t.Errorf("labels: %q %q %q %q", Label(Clear), Label(Report), Label(Withdraw), Label(Revise))
 	}
 }
 

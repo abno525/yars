@@ -82,7 +82,7 @@ func (s *Server) detailsSave(w http.ResponseWriter, r *http.Request) {
 	err := s.Store.UpdateDetails(ref.EngID, ref.Dir, values, r.PostForm.Get("base"), auth.UserFrom(r.Context()))
 	if errors.Is(err, store.ErrConflict) {
 		v := s.detailsFor(ref, typed)
-		v.Error = "The details were changed by someone else while you were editing. Your text is kept below; saving again will replace theirs."
+		v.Error = "Details changed by someone else"
 		s.execStatus(w, http.StatusConflict, "finding.html", "details_editor", v)
 		return
 	}

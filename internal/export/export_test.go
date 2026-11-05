@@ -72,6 +72,23 @@ func TestLoad(t *testing.T) {
 	}
 }
 
+// An exporter can never select withdrawn findings by status.
+func TestLoadDropsWithdrawnStatus(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "all.yaml", "name: All\ntype: pandoc\nformat: docx\nstatuses: [complete, withdrawn, reported]\n", 0o644)
+	writeFile(t, dir, "only.yaml", "name: Only\ntype: pandoc\nformat: docx\nstatuses: [withdrawn]\n", 0o644)
+	es, errs := Load(dir)
+	if len(errs) != 0 || len(es) != 2 {
+		t.Fatalf("%+v %v", es, errs)
+	}
+	if got := strings.Join(es[0].Statuses, ","); got != "complete,reported" {
+		t.Fatalf("all: %q", got)
+	}
+	if got := strings.Join(es[1].Statuses, ","); got != "complete" {
+		t.Fatalf("only: %q", got)
+	}
+}
+
 func TestXHTMLLayout(t *testing.T) {
 	x := XHTML(input(t), false)
 	i1, i2, i3 := strings.Index(x, "<h1>F-001 SQL injection</h1>"), strings.Index(x, "<h1>F-003 XSS</h1>"), strings.Index(x, "<h1>F-002 Missing HSTS</h1>")

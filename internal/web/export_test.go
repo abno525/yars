@@ -32,6 +32,22 @@ func (e *env) exporters(t *testing.T, pandocBody string) {
 	e.srv.Export = &export.Runner{Dir: dir, PandocPath: bin, HTTP: http.DefaultClient, Getenv: os.Getenv, Timeout: 5 * time.Second}
 }
 
+// A withdrawn finding is never exported, even when picked by hand.
+func TestExportExcludesWithdrawn(t *testing.T) {
+	e := setup(t)
+	e.exporters(t, fakePandoc)
+	if rec := e.do(t, "alice", "POST", fpath+"/action/withdraw", url.Values{"reason": {"duplicate"}}, nil); rec.Code != http.StatusSeeOther {
+		t.Fatalf("withdraw code %d", rec.Code)
+	}
+	if b := e.do(t, "dora", "GET", "/e/acme/export", nil, nil).Body.String(); strings.Contains(b, "pick-F-001-sql-injection") {
+		t.Fatal("withdrawn finding offered for export")
+	}
+	rec := e.do(t, "dora", "POST", "/e/acme/export", url.Values{"exporter": {"docx"}, "finding": {"F-001-sql-injection"}}, nil)
+	if rec.Code != http.StatusBadRequest || strings.Contains(rec.Body.String(), "/export/download/") {
+		t.Fatalf("withdrawn export code %d", rec.Code)
+	}
+}
+
 func TestExportDownload(t *testing.T) {
 	e := setup(t)
 	e.toComplete(t)

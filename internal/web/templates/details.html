@@ -2,7 +2,7 @@
 <section class="panel" id="details">
   <div class="panelhead">
     <h2>Details</h2>
-    {{if not .Locked}}<button class="btn ghost sm w96" hx-get="{{.EditURL}}" hx-target="#details" hx-swap="outerHTML">Edit</button>{{end}}
+    {{if .Locked}}{{template "lock"}}{{else}}<button class="btn ghost sm w96" hx-get="{{.EditURL}}" hx-target="#details" hx-swap="outerHTML">Edit</button>{{end}}
   </div>
   <table class="kv details">
     <tbody>
@@ -28,19 +28,21 @@
 
 {{define "details_editor"}}
 <section class="panel editing" id="details">
-  <form hx-post="{{.SaveURL}}" hx-target="#details" hx-swap="outerHTML">
+  <form class="flush" hx-post="{{.SaveURL}}" hx-target="#details" hx-swap="outerHTML" data-guard>
     <div class="panelhead"><h2>Details</h2></div>
-    {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
     <input type="hidden" name="base" value="{{.Base}}">
+    <div class="detail-fields">
     {{range .Rows}}
-    <label class="detail-field">{{.Name}}
-      <textarea name="{{.Field}}" rows="3">{{.Value}}</textarea>
+    <label class="detail-field"><span>{{.Name}}</span>
+      <textarea name="{{.Field}}" rows="2"{{if $.Error}} data-dirty{{end}}>{{.Value}}</textarea>
     </label>
     {{end}}
+    </div>
     {{template "details_other" .}}
-    <div class="actions">
-      <button class="btn save w112">Save</button>
-      <button type="button" class="btn secondary w112" hx-get="{{.ViewURL}}" hx-target="#details" hx-swap="outerHTML">Cancel</button>
+    <div class="pfoot flush">
+      <span class="pstate error" title="{{.Error}}">{{.Error}}</span>
+      <button type="button" class="btn secondary sm w96" hx-get="{{.ViewURL}}" hx-target="#details" hx-swap="outerHTML" data-guard-cancel>Cancel</button>
+      <button class="btn save sm w96">Save</button>
     </div>
   </form>
 </section>

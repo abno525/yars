@@ -43,6 +43,50 @@ func TestStateRoundTrip(t *testing.T) {
 	}
 }
 
+func TestWithdrawnStateRoundTrip(t *testing.T) {
+	d, _ := open(t)
+	want := State{Status: "withdrawn", WithdrawnBy: "dora", WithdrawnReason: "duplicate of F-002"}
+	if err := d.Tx(func(tx *Tx) error { return tx.PutState("acme", "F-001", want) }); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := d.State("acme", "F-001"); !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestChatHiddenPerUser(t *testing.T) {
+	d, _ := open(t)
+	hide := func(user, fid, th string, on bool) {
+		t.Helper()
+		if err := d.SetChatHidden(user, "acme", fid, th, on); err != nil {
+			t.Fatal(err)
+		}
+	}
+	hide("bob", "F-001", "t1", true)
+	hide("bob", "F-001", "t1", true) // idempotent
+	hide("bob", "F-001", "t2", true)
+	hide("bob", "F-002", "t9", true)
+	hide("carol", "F-001", "t3", true)
+	got, err := d.ChatHidden("bob", "acme", "F-001")
+	if err != nil || len(got) != 2 || !got["t1"] || !got["t2"] {
+		t.Fatalf("bob %v %v", got, err)
+	}
+	if got, _ := d.ChatHidden("carol", "acme", "F-001"); len(got) != 1 || !got["t3"] {
+		t.Fatalf("carol %v", got)
+	}
+	if got, _ := d.ChatHidden("alice", "acme", "F-001"); len(got) != 0 {
+		t.Fatalf("alice %v", got)
+	}
+	hide("bob", "F-001", "t1", false)
+	if got, _ := d.ChatHidden("bob", "acme", "F-001"); len(got) != 1 || !got["t2"] {
+		t.Fatalf("after show %v", got)
+	}
+	d.Tx(func(tx *Tx) error { return tx.Purge("acme") })
+	if got, _ := d.ChatHidden("bob", "acme", "F-002"); len(got) != 0 {
+		t.Fatalf("purge kept hidden threads %v", got)
+	}
+}
+
 func TestMessagesInOrder(t *testing.T) {
 	d, _ := open(t)
 	ts := time.Date(2026, 11, 4, 12, 0, 0, 0, time.UTC)

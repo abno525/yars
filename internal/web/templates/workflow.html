@@ -1,44 +1,62 @@
 {{define "workflow_bar"}}
 <section class="wf" id="workflow" aria-label="Workflow" hx-get="{{.URL}}" hx-trigger="sse:workflow, sse:content, sse:resync, sse:poll" hx-swap="outerHTML" data-sse>
-  <div class="wfbar">
-    <ol class="steps">
-      {{$past := true}}
-      {{range .Steps}}{{if eq . $.Status}}{{$past = false}}<li class="step current">{{.}}</li>{{else}}<li class="step{{if $past}} done{{end}}">{{.}}</li>{{end}}{{end}}
-    </ol>
-    <div class="wfside">
-      <div class="wf-row">
-        <span class="muted">Reviewers</span>
-        {{range .Reviewers}}<span class="rev{{if .Cleared}} cleared{{end}}">{{.Name}}{{if .Cleared}} ✓{{end}}</span>{{else}}<span class="muted">—</span>{{end}}
-        {{if .CanAssign}}
-        <details class="assign">
-          <summary class="btn ghost sm w96">Change</summary>
-          <form method="post" action="{{.ReviewersURL}}">
-            {{range .Candidates}}<label><input type="checkbox" name="reviewer" value="{{.Name}}"{{if .Checked}} checked{{end}}> {{.Name}}</label>{{else}}<span class="muted">No reviewer accounts.</span>{{end}}
+  <ol class="steps">
+    {{if .IsWithdrawn}}{{range .Steps}}<li class="step">{{.}}</li>{{end}}{{else}}
+    {{$past := true}}
+    {{range .Steps}}{{if eq . $.Status}}{{$past = false}}<li class="step current">{{.}}</li>{{else}}<li class="step{{if $past}} done{{end}}">{{.}}</li>{{end}}{{end}}
+    {{end}}
+  </ol>
+  <div class="wfrow">
+    <div class="wfrevs">
+      <span class="rl">Reviewers</span>
+      <span class="chips">{{range .Chips}}<span class="rev{{if .Cleared}} cleared{{end}}" title="{{.Name}}"><span class="name">{{.Name}}</span></span>{{else}}<span class="none">None</span>{{end}}</span>
+      {{if .More}}
+      <details class="pop">
+        <summary class="btn more" aria-label="All reviewers">+{{.More}}</summary>
+        <ul class="poplist">
+          {{range .Reviewers}}<li><span class="name" title="{{.Name}}">{{.Name}}</span>{{if .Cleared}}<span class="ok">Signed off</span>{{else}}<span class="muted">Open</span>{{end}}</li>{{end}}
+        </ul>
+      </details>
+      {{end}}
+      {{if .CanAssign}}
+      <details class="pop assign">
+        <summary class="btn plus" aria-label="Change reviewers"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></summary>
+        <form method="post" action="{{.ReviewersURL}}" class="picker">
+          <div class="picklist">
+            {{range .Candidates}}<label><input type="checkbox" name="reviewer" value="{{.Name}}"{{if .Checked}} checked{{end}}><span class="name" title="{{.Name}}">{{.Name}}</span></label>{{else}}<span class="muted">None</span>{{end}}
+          </div>
+          <div class="pickfoot">
+            {{if .Candidates}}<button class="btn ghost sm w96" name="all" value="1" title="Assign every account with the reviewer role">Assign all</button>{{else}}<span class="slot w96"></span>{{end}}
             <button class="btn save sm w96">Save</button>
-          </form>
-        </details>
-        {{if .Candidates}}
-        <form method="post" action="{{.ReviewersURL}}" class="assign-all">
-          <button class="btn ghost sm w96" name="all" value="1" title="Assign every account with the reviewer role">Assign all</button>
+          </div>
         </form>
-        {{end}}
-        {{end}}
-      </div>
-      <div class="wf-actions">
-        {{range .Actions}}
-        <form method="post" action="{{.URL}}" class="wf-action">
-          {{if .NeedsReason}}<textarea name="reason" rows="1" placeholder="Reason" aria-label="Reason"></textarea>{{end}}
-          <button class="btn {{if gt (len .Label) 15}}w216{{else if gt (len .Label) 9}}w152{{else}}w112{{end}} {{if .NeedsReason}}danger{{else if .Primary}}primary{{else}}secondary{{end}}"{{if .Disabled}} disabled{{end}}>{{.Label}}</button>
-        </form>
-        {{end}}
-      </div>
+      </details>
+      {{end}}
+    </div>
+    <span class="wfstate{{if .StateError}} error{{end}}" title="{{.State}}">{{.State}}</span>
+    <div class="wf-actions">
+      {{range .Slots}}
+      {{if not .Present}}<span class="slot {{.Width}}" data-slot="{{.Slot}}"></span>
+      {{else if .PanelID}}<button type="button" class="btn {{.Width}} {{.Class}}" data-slot="{{.Slot}}" data-action="{{.Name}}"{{if .Disabled}} disabled{{end}} title="{{.Title}}" aria-controls="{{.PanelID}}" aria-expanded="false" data-reason-toggle>{{.Label}}</button>
+      {{else}}<form method="post" action="{{.URL}}" class="wf-action" data-slot="{{.Slot}}"><button class="btn {{.Width}} {{.Class}}" data-action="{{.Name}}"{{if .Disabled}} disabled{{end}} title="{{.Title}}">{{.Label}}</button></form>
+      {{end}}
+      {{end}}
     </div>
   </div>
-  {{if or .Returned .Gate}}
-  <div class="wfnotes">
-    {{if .Returned}}<p class="returned"><strong>Returned by {{.Returned.By}}:</strong> <span class="text">{{.Returned.Reason}}</span></p>{{end}}
-    {{if .Gate}}<ul class="gate">{{range .Gate}}<li>{{.}}</li>{{end}}</ul>{{end}}
-  </div>
+  {{range .Panels}}
+  <form method="post" action="{{.URL}}" class="wfpanel {{.Slot}}" id="{{.PanelID}}" hidden>
+    <div class="panelhead"><h2>{{.PanelHead}}</h2></div>
+    <label class="reason"><span>Reason <span class="req">Required</span></span>
+      <textarea name="reason" required rows="4"></textarea>
+    </label>
+    <div class="pfoot">
+      <button class="btn danger sm w96">{{.Label}}</button>
+      <button type="button" class="btn secondary sm w96" data-reason-cancel="{{.PanelID}}">Cancel</button>
+    </div>
+  </form>
   {{end}}
+  {{with .Withdrawn}}<div class="wfbanner withdrawn" role="status"><strong>Withdrawn by {{.By}}</strong><p class="text">{{.Reason}}</p></div>{{end}}
+  {{with .Returned}}<div class="wfbanner returned" role="status"><strong>Returned by {{.By}}</strong><p class="text">{{.Reason}}</p></div>{{end}}
+  {{if .Gate}}<ul class="gate">{{range .Gate}}<li>{{.}}</li>{{end}}</ul>{{end}}
 </section>
 {{end}}

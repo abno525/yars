@@ -33,6 +33,18 @@ func srcFixture(t *testing.T) (*Store, string) {
 
 func chatMsgText(s string) chat.Message { return chat.Message{Text: s} }
 
+// A withdrawn finding is not part of the report, so it can't be retested.
+func TestRetestSkipsWithdrawn(t *testing.T) {
+	s, _ := srcFixture(t)
+	if err := s.Transition(eng, "F-002-xss", workflow.Withdraw, "duplicate", uAlice); err != nil {
+		t.Fatal(err)
+	}
+	err := s.CreateRetest(Engagement{ID: "rt", Name: "RT"}, eng, []string{"F-001-sql-injection", "F-002-xss"}, "", uDora)
+	if !errors.Is(err, ErrInvalidValue) || !strings.Contains(err.Error(), "withdrawn") {
+		t.Fatalf("err %v", err)
+	}
+}
+
 func treeHash(t *testing.T, root string) map[string][32]byte {
 	t.Helper()
 	out := map[string][32]byte{}

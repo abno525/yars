@@ -150,8 +150,8 @@ func (s *Server) sectionSave(w http.ResponseWriter, r *http.Request) {
 		status := http.StatusBadRequest
 		if errors.Is(err, store.ErrConflict) {
 			status = http.StatusConflict
-			p.Error = "This section was changed by someone else while you were editing. Your text is kept below; the current saved version is shown above it. Saving again will replace it."
-			p.Current = p.HTML
+			p.Error = "Section changed by someone else"
+			p.Current, p.Conflict = p.HTML, true
 		}
 		s.execStatus(w, status, "finding.html", "editor", p)
 		return

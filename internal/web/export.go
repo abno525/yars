@@ -174,6 +174,10 @@ func (s *Server) exportRun(w http.ResponseWriter, r *http.Request) {
 			fail(http.StatusBadRequest, "unknown finding "+d)
 			return
 		}
+		if !workflow.Active(ref.F.Meta.Status) {
+			fail(http.StatusBadRequest, ref.F.Meta.ID+" is withdrawn")
+			return
+		}
 		fs, dirs = append(fs, ref.F), append(dirs, d)
 	}
 	if len(fs) == 0 {

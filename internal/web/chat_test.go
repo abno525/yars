@@ -30,7 +30,7 @@ func TestChatPostAndList(t *testing.T) {
 	e.do(t, "bob", "POST", fpath+"/chat", url.Values{"text": {"Yes, see step 2."}, "reply": {root}}, nil)
 	rec = e.do(t, "bob", "POST", fpath+"/chat", url.Values{"resolves": {root}}, nil)
 	b := rec.Body.String()
-	if !strings.Contains(b, "Yes, see step 2.") || !strings.Contains(b, "resolved by bob") {
+	if !strings.Contains(b, "Yes, see step 2.") || !strings.Contains(b, "Resolved</strong> by bob") {
 		t.Fatalf("body:\n%s", b)
 	}
 	if got := e.lastCommit(t); got != "alice|F-001: create" {
@@ -50,13 +50,43 @@ func TestChatMessageLayout(t *testing.T) {
 	}
 }
 
+// Hiding a resolved thread is per user and answers with the chat list.
+func TestChatHideShow(t *testing.T) {
+	e := setup(t)
+	e.do(t, "bob", "POST", fpath+"/chat", url.Values{"text": {"Typo in step 2"}}, nil)
+	id := e.chatIDs(t)[0]
+	if rec := e.do(t, "alice", "POST", fpath+"/chat/"+id+"/hide", url.Values{}, nil); rec.Code != http.StatusBadRequest {
+		t.Fatalf("hid an open thread: %d", rec.Code)
+	}
+	e.do(t, "bob", "POST", fpath+"/chat", url.Values{"resolves": {id}}, nil)
+	b := e.do(t, "alice", "GET", fpath, nil, nil).Body.String()
+	if !strings.Contains(b, fshort+"/chat/"+id+"/hide") || strings.Contains(b, "data-hidden") {
+		t.Fatalf("resolved thread lacks hide:\n%s", b)
+	}
+	rec := e.do(t, "alice", "POST", fpath+"/chat/"+id+"/hide", url.Values{}, nil)
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `id="chat-list"`) || !strings.Contains(rec.Body.String(), "data-hidden") ||
+		!strings.Contains(rec.Body.String(), fshort+"/chat/"+id+"/show") {
+		t.Fatalf("hide code %d:\n%s", rec.Code, rec.Body.String())
+	}
+	if b := e.do(t, "alice", "GET", fshort+"/chat", nil, nil).Body.String(); !strings.Contains(b, "data-hidden") {
+		t.Fatal("hidden state not kept")
+	}
+	if b := e.do(t, "bob", "GET", fshort+"/chat", nil, nil).Body.String(); strings.Contains(b, "data-hidden") {
+		t.Fatal("hidden for another user")
+	}
+	if b := e.do(t, "alice", "POST", fpath+"/chat/"+id+"/show", url.Values{}, nil).Body.String(); strings.Contains(b, "data-hidden") {
+		t.Fatal("show kept it hidden")
+	}
+}
+
 // A collapsed (resolved) thread still shows what the comment said.
 func TestResolvedThreadShowsComment(t *testing.T) {
 	e := setup(t)
 	long := "**Please** rename the `login` parameter in step 2 " + strings.Repeat("and explain more ", 20)
 	e.do(t, "bob", "POST", fpath+"/chat", url.Values{"text": {long}}, nil)
 	b := e.do(t, "bob", "POST", fpath+"/chat", url.Values{"resolves": {e.chatIDs(t)[0]}}, nil).Body.String()
-	sum := b[strings.Index(b, "<summary>"):strings.Index(b, "</summary>")]
+	row := b[strings.Index(b, `class="rrow"`):]
+	sum := row[:strings.Index(row, "</button>")]
 	if !strings.Contains(sum, "Please rename the login parameter in step 2") || !strings.Contains(sum, "…") || strings.Contains(sum, "**") {
 		t.Fatalf("summary lacks a plain excerpt:\n%s", sum)
 	}

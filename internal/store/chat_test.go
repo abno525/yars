@@ -43,6 +43,35 @@ func TestPostChat(t *testing.T) {
 	}
 }
 
+// Hiding a resolved thread is personal: other users still see it.
+func TestHideThreadPerUser(t *testing.T) {
+	s, _, fd := newFinding(t)
+	root, _ := s.PostChat(eng, fd, chat.Message{Text: "x"}, uBob)
+	open, _ := s.PostChat(eng, fd, chat.Message{Text: "y"}, uBob)
+	if err := s.HideThread(eng, fd, root.ID, true, uAlice); !errors.Is(err, ErrInvalidChat) {
+		t.Fatalf("hid an open thread: %v", err)
+	}
+	if err := s.HideThread(eng, fd, "missing", true, uAlice); !errors.Is(err, ErrInvalidChat) {
+		t.Fatalf("hid a missing thread: %v", err)
+	}
+	s.PostChat(eng, fd, chat.Message{Resolves: root.ID}, uBob)
+	if err := s.HideThread(eng, fd, root.ID, true, uAlice); err != nil {
+		t.Fatal(err)
+	}
+	if h, err := s.HiddenThreads(eng, fd, uAlice); err != nil || !h[root.ID] || h[open.ID] {
+		t.Fatalf("alice hidden %v %v", h, err)
+	}
+	if h, _ := s.HiddenThreads(eng, fd, uBob); len(h) != 0 {
+		t.Fatalf("bob hidden %v", h)
+	}
+	if err := s.HideThread(eng, fd, root.ID, false, uAlice); err != nil {
+		t.Fatal(err)
+	}
+	if h, _ := s.HiddenThreads(eng, fd, uAlice); len(h) != 0 {
+		t.Fatalf("after show %v", h)
+	}
+}
+
 func TestPostChatRejectsBadRefs(t *testing.T) {
 	s, _, fd := newFinding(t)
 	for _, m := range []chat.Message{{Text: "x", Reply: "missing"}, {Resolves: "missing"}, {Text: " "}, {Text: "x", Section: "Nope"}} {

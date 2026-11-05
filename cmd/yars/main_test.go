@@ -12,6 +12,7 @@ import (
 	"yars/internal/db"
 	"yars/internal/gitrepo"
 	"yars/internal/store"
+	"yars/internal/workflow"
 )
 
 // The hook maps GIT_DIR to its engagement even when the data path goes
@@ -129,6 +130,13 @@ func TestExportCLI(t *testing.T) {
 	}
 	if code, _ := cmdExport([]string{"--data", dir, "--exporter", "nope", "acme"}, &log); code == 0 {
 		t.Fatal("unknown exporter accepted")
+	}
+	// a withdrawn finding is never exported, even when named
+	if err := st.Transition("acme", "F-001-sql-injection", workflow.Withdraw, "duplicate", config.User{Username: "t", Role: "pentester"}); err != nil {
+		t.Fatal(err)
+	}
+	if code, err := cmdExport([]string{"--data", dir, "--exporter", "confluence", "--out", out, "acme", "F-001-sql-injection"}, &log); code == 0 || err == nil {
+		t.Fatal("withdrawn finding exported")
 	}
 }
 

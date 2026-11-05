@@ -4,6 +4,8 @@ import (
 	"errors"
 	"net/http"
 	"slices"
+	"strconv"
+	"strings"
 
 	"yars/internal/auth"
 	"yars/internal/config"
@@ -14,7 +16,8 @@ import (
 )
 
 type wfAction struct {
-	Label, URL                     string
+	Name                           string // the action (submit, return, clear, …)
+	Label, URL, Title              string
 	NeedsReason, Primary, Disabled bool
 	Gated                          bool // submit/approve: blocked by gate and rule errors
 }
@@ -41,6 +44,123 @@ type wfView struct {
 	ReviewersURL string
 	URL          string // the bar alone (live refresh)
 	Returned     *finding.Returned
+	Withdrawn    *finding.Returned // who withdrew the finding and why
+	IsWithdrawn  bool              // no step is current or done
+
+	// The bar as drawn: the first chips, how many more, the fixed button
+	// slots of the status, the reason forms they open and the state text.
+	Chips      []wfReviewer
+	More       int
+	Slots      []wfSlot
+	Panels     []wfSlot
+	State      string
+	StateError bool
+}
+
+// wfSlot is one fixed place in the button row. Present is false when the
+// viewer may not take the action: an empty slot of the same width is drawn.
+type wfSlot struct {
+	wfAction
+	Slot, Width, Class string
+	Present            bool
+	PanelID, PanelHead string // a reason form under the bar (Return, Withdraw)
+}
+
+type wfSlotSpec struct {
+	act   workflow.Action
+	width string
+}
+
+// wfLayout fixes the button slots of each status, left to right.
+var wfLayout = map[string][]wfSlotSpec{
+	"draft":            {{workflow.Withdraw, "w136"}, {workflow.Submit, "w112"}},
+	"verification":     {{workflow.Withdraw, "w136"}, {workflow.Return, "w112"}, {workflow.Clear, "w112"}, {workflow.Approve, "w112"}},
+	"complete":         {{workflow.Withdraw, "w136"}, {workflow.Reopen, "w136"}, {workflow.Report, "w136"}},
+	"reported":         {{workflow.Withdraw, "w136"}},
+	workflow.Withdrawn: {{workflow.Revise, "w136"}},
+}
+
+// barLabel is the short button label; the full label is its title.
+func barLabel(a workflow.Action) string {
+	switch a {
+	case workflow.Submit:
+		return "Submit"
+	case workflow.Return:
+		return "Return"
+	}
+	return workflow.Label(a)
+}
+
+const wfChips = 3 // reviewer chips shown before "+N"
+
+// arrange lays the actions out in the status's fixed slots and sets the
+// state text. Run it after gating.
+func (v *wfView) arrange(u config.User, m finding.Meta) {
+	if len(v.Reviewers) > wfChips {
+		v.Chips, v.More = v.Reviewers[:wfChips], len(v.Reviewers)-wfChips
+	} else {
+		v.Chips = v.Reviewers
+	}
+	have := map[string]wfAction{}
+	for _, a := range v.Actions {
+		have[a.Name] = a
+	}
+	director := workflow.AtLeast(u, "director")
+	signed := slices.Contains(m.ClearedBy, u.Username)
+	var needsSignOff bool
+	base := strings.TrimSuffix(v.URL, "/workflow") + "/action/"
+	for _, sp := range wfLayout[m.Status] {
+		name := string(sp.act)
+		sl := wfSlot{Slot: name, Width: sp.width}
+		sl.URL = base + name
+		if a, ok := have[name]; ok {
+			sl.wfAction, sl.Present = a, true
+		} else if m.Status == "verification" {
+			// kept in place, disabled: an earlier sign-off, or Approve
+			// waiting for one
+			switch {
+			case sp.act == workflow.Clear && signed && (director || slices.Contains(m.Reviewers, u.Username)):
+				sl.wfAction = wfAction{Name: name, Label: workflow.Label(sp.act), URL: sl.URL, Disabled: true}
+				sl.Present = true
+			case sp.act == workflow.Approve && director:
+				sl.wfAction = wfAction{Name: name, Label: workflow.Label(sp.act), URL: sl.URL, Disabled: true}
+				sl.Present, needsSignOff = true, true
+			}
+		}
+		if sl.Present {
+			sl.Title = sl.Label
+			sl.Label = barLabel(sp.act)
+			switch {
+			case workflow.NeedsReason(sp.act):
+				sl.Class = "danger"
+				sl.PanelID = "wf-" + name
+				sl.PanelHead = map[workflow.Action]string{workflow.Return: "Return to draft", workflow.Withdraw: "Withdraw finding"}[sp.act]
+				v.Panels = append(v.Panels, sl)
+			case sp.act == workflow.Reopen || sp.act == workflow.Revise:
+				sl.Class = "secondary"
+			default:
+				sl.Class = "primary"
+			}
+		}
+		v.Slots = append(v.Slots, sl)
+	}
+	switch n := len(v.Gate); {
+	case n > 0 && v.HasGated:
+		v.State, v.StateError = plural(n, "error")+" to fix", true
+	case needsSignOff:
+		v.State = "Needs 1 sign-off"
+	case m.Status == "verification" && signed:
+		v.State = "Signed off"
+	case m.Status == "verification" && u.Username == m.Author:
+		v.State = "Own finding"
+	}
+}
+
+func plural(n int, word string) string {
+	if n == 1 {
+		return "1 " + word
+	}
+	return strconv.Itoa(n) + " " + word + "s"
 }
 
 func (s *Server) routesWorkflow(mux *http.ServeMux) {
@@ -54,7 +174,11 @@ func (s *Server) wfFor(ref store.FindingRef, r *http.Request) wfView {
 	m := ref.F.Meta
 	base := findingURL(ref.EngID, ref.Dir)
 	v := wfView{Status: m.Status, Steps: workflow.Statuses, CanAssign: workflow.CanAssign(u, m),
-		ReviewersURL: base + "/reviewers", URL: base + "/workflow", Returned: m.Returned}
+		ReviewersURL: base + "/reviewers", URL: base + "/workflow", Returned: m.Returned, Withdrawn: m.Withdrawn,
+		IsWithdrawn: m.Status == workflow.Withdrawn}
+	if v.IsWithdrawn {
+		v.Returned = nil // the withdrawal is what counts now
+	}
 	for _, n := range m.Reviewers {
 		v.Reviewers = append(v.Reviewers, wfReviewer{Name: n, Cleared: slices.Contains(m.ClearedBy, n)})
 	}
@@ -66,11 +190,11 @@ func (s *Server) wfFor(ref store.FindingRef, r *http.Request) wfView {
 		}
 	}
 	for _, a := range workflow.Actions {
-		if a == workflow.Report || workflow.Check(u, m, a) != nil {
+		if workflow.Check(u, m, a) != nil {
 			continue
 		}
-		act := wfAction{Label: workflow.Label(a), URL: base + "/action/" + string(a),
-			NeedsReason: a == workflow.Return, Primary: a != workflow.Return}
+		act := wfAction{Name: string(a), Label: workflow.Label(a), URL: base + "/action/" + string(a),
+			NeedsReason: workflow.NeedsReason(a), Primary: !workflow.NeedsReason(a)}
 		if workflow.Gated(a) {
 			act.Gated, v.HasGated = true, true
 			if v.Gate = workflow.Gate(m, s.Cfg); len(v.Gate) > 0 {
@@ -97,6 +221,7 @@ func (s *Server) wfGated(r *http.Request, ref store.FindingRef) (wfView, checksV
 			wf.Gate = append(wf.Gate, errs...)
 		}
 	}
+	wf.arrange(auth.UserFrom(r.Context()), ref.F.Meta)
 	return wf, checks
 }
 
@@ -122,8 +247,8 @@ func (s *Server) wfDone(w http.ResponseWriter, r *http.Request, err error) {
 }
 
 func (s *Server) wfAction(w http.ResponseWriter, r *http.Request) {
-	act := workflow.Action(r.PathValue("act"))
-	if !slices.Contains(workflow.Actions, act) || act == workflow.Report {
+	act, ok := workflow.ParseAction(r.PathValue("act"))
+	if !ok {
 		s.renderFinding(w, r, http.StatusBadRequest, "unknown action")
 		return
 	}

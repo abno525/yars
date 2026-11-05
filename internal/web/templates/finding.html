@@ -1,17 +1,19 @@
 {{define "content"}}
 {{$f := .Finding.F}}
+{{$wd := eq $f.Meta.Status "withdrawn"}}
 <div class="titlerow">
   <div class="titlecol">
     <nav class="crumbs"><a href="/e/{{.Eng.ID}}">{{.Eng.Name}}</a><span class="sep" aria-hidden="true">/</span><span class="idchip">{{$f.Meta.ID}}</span></nav>
-    <h1 title="{{$f.Meta.Title}}">{{$f.Meta.Title}}</h1>
+    <h1 title="{{$f.Meta.Title}}"{{if $wd}} class="withdrawn-title"{{end}}>{{$f.Meta.Title}}</h1>
     <div class="meta">
       <span class="tag status-{{$f.Meta.Status}}">{{$f.Meta.Status}}</span>
       {{template "sevpill" .CVSS}}
-      <span class="muted">by {{$f.Meta.Author}}</span>
+      <span class="muted by" title="{{$f.Meta.Author}}">by {{$f.Meta.Author}}</span>
     </div>
   </div>
   <div class="actions">
-    <a class="btn secondary w128" href="/e/{{.Eng.ID}}/export">Export</a>
+    <span class="slot w128"></span>
+    {{if $wd}}<span class="slot w128"></span>{{else}}<a class="btn secondary w128" href="/e/{{.Eng.ID}}/export">Export</a>{{end}}
   </div>
 </div>
 {{if .Error}}<p class="error banner">{{.Error}}</p>{{end}}

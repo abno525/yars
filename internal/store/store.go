@@ -420,7 +420,7 @@ func contentHash(raw []byte) string { return ContentHash(raw) }
 
 // applyState fills the workflow fields of m from st.
 func applyState(m *finding.Meta, st db.State, hash string) {
-	m.Status, m.Reviewers, m.ClearedBy, m.Returned, m.Retest = st.Status, nil, nil, nil, nil
+	m.Status, m.Reviewers, m.ClearedBy, m.Returned, m.Withdrawn, m.Retest = st.Status, nil, nil, nil, nil, nil
 	if m.Status == "" {
 		m.Status = "draft"
 	}
@@ -432,6 +432,9 @@ func applyState(m *finding.Meta, st db.State, hash string) {
 	}
 	if st.ReturnedBy != "" {
 		m.Returned = &finding.Returned{By: st.ReturnedBy, Reason: st.ReturnedReason}
+	}
+	if st.Status == workflow.Withdrawn {
+		m.Withdrawn = &finding.Returned{By: st.WithdrawnBy, Reason: st.WithdrawnReason}
 	}
 	if st.RetestSource != "" {
 		m.Retest = &finding.Retest{Source: st.RetestSource, Result: st.RetestResult}
@@ -697,6 +700,9 @@ func (s *Store) CreateRetest(e Engagement, source string, dirs []string, assigne
 		ref, err := s.Finding(source, d)
 		if err != nil {
 			return fmt.Errorf("%w: finding %s: %v", ErrInvalidValue, d, err)
+		}
+		if !workflow.Active(ref.F.Meta.Status) {
+			return fmt.Errorf("%w: finding %s is withdrawn", ErrInvalidValue, d)
 		}
 		f := ref.F
 		if assignee != "" {
@@ -1126,6 +1132,49 @@ func (s *Store) EngagementChat(engID string) (map[string][]chat.Message, error) 
 // ErrInvalidChat wraps rejected chat input.
 var ErrInvalidChat = errors.New("invalid chat message")
 
+// HideThread hides (on) or shows a resolved thread of the finding for u
+// only. Open threads can't be hidden; showing is always allowed.
+func (s *Store) HideThread(engID, dir, thread string, on bool, u config.User) error {
+	if s.db == nil {
+		return ErrNoDB
+	}
+	ref, err := s.Finding(engID, dir)
+	if err != nil {
+		return err
+	}
+	if on {
+		msgs, err := s.ChatOf(ref)
+		if err != nil {
+			return err
+		}
+		ok := false
+		for _, it := range chat.Timeline(msgs) {
+			if it.Thread != nil && it.Thread.Root.ID == thread {
+				if !it.Thread.Resolved {
+					return fmt.Errorf("%w: only a resolved thread can be hidden", ErrInvalidChat)
+				}
+				ok = true
+			}
+		}
+		if !ok {
+			return fmt.Errorf("%w: no thread %s", ErrInvalidChat, thread)
+		}
+	}
+	return s.db.SetChatHidden(u.Username, engID, ref.F.Meta.ID, thread, on)
+}
+
+// HiddenThreads returns the threads of the finding that u hid.
+func (s *Store) HiddenThreads(engID, dir string, u config.User) (map[string]bool, error) {
+	if s.db == nil {
+		return map[string]bool{}, nil
+	}
+	ref, err := s.Finding(engID, dir)
+	if err != nil {
+		return nil, err
+	}
+	return s.db.ChatHidden(u.Username, engID, ref.F.Meta.ID)
+}
+
 // PostChat validates and stores a message as u (database, no commit). ID,
 // time and user are filled in; the returned message is what was stored.
 func (s *Store) PostChat(engID, dir string, m chat.Message, u config.User) (chat.Message, error) {
@@ -1262,6 +1311,19 @@ func (s *Store) Transition(engID, dir string, act workflow.Action, reason string
 			}
 			uncleared()
 			st.ReturnedBy, st.ReturnedReason, ev.Text = u.Username, r, r
+		case workflow.Withdraw:
+			r := strings.TrimSpace(reason)
+			if r == "" {
+				return nil, &workflow.Denied{Reason: "a reason is required to withdraw a finding"}
+			}
+			uncleared()
+			st.ApprovedHash = ""
+			st.ReturnedBy, st.ReturnedReason = "", ""
+			st.WithdrawnBy, st.WithdrawnReason, ev.Text = u.Username, r, r
+		case workflow.Revise:
+			uncleared()
+			st.WithdrawnBy, st.WithdrawnReason = "", ""
+			st.ReturnedBy, st.ReturnedReason = "", ""
 		case workflow.Clear:
 			// the clearance is for exactly this content; a director reviewing
 			// unassigned joins the reviewers

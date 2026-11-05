@@ -111,6 +111,9 @@ func cmdExport(args []string, out io.Writer) (int, error) {
 	}
 	var picked []store.FindingRef
 	for _, ref := range refs {
+		if !workflow.Active(ref.F.Meta.Status) {
+			continue // withdrawn findings are never exported
+		}
 		if (fs.NArg() > 1 && slices.Contains(fs.Args()[1:], ref.Dir)) || (fs.NArg() == 1 && slices.Contains(ex.Statuses, ref.F.Meta.Status)) {
 			picked = append(picked, ref)
 		}

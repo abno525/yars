@@ -276,6 +276,26 @@ func TestPolicyLockedEdit(t *testing.T) {
 	}
 }
 
+// A withdrawn finding is locked like a complete one: only a director may
+// change it by push (the author restores it first).
+func TestPolicyWithdrawnLocked(t *testing.T) {
+	f := newFx(t)
+	if err := f.st.Transition("acme", "F-001-sqli", workflow.Withdraw, "duplicate", user("alice")); err != nil {
+		t.Fatal(err)
+	}
+	edit := func(d string) {
+		editMeta(d, func(fd *finding.Finding) { fd.SetSection("Impact", "late change") })
+	}
+	f.reclone()
+	if ps := f.push("alice", edit); !has(ps, "withdrawn") {
+		t.Fatalf("withdrawn edit accepted: %v", ps)
+	}
+	f.reclone()
+	if ps := f.push("dora", edit); len(ps) != 0 {
+		t.Fatalf("director edit rejected: %v", ps)
+	}
+}
+
 // A content edit during review is accepted; the reviewer's clearance simply
 // stops counting (it was given for the old content).
 func TestPolicyEditDuringReview(t *testing.T) {

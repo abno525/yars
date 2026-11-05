@@ -17,6 +17,7 @@ type cvssMetric struct {
 	Values             []cvss.Value
 	Selected, Standard string
 	SelectedName       string
+	StandardName       string // the team standard's value name
 	NonStandard        bool
 	// Reason is kept for every metric (typed or stored) so a reason survives
 	// toggling the metric back to standard and away again.
@@ -66,7 +67,7 @@ func (s *Server) buildCVSS(ref store.FindingRef, sel cvss.Vector, reasons map[st
 	for _, mt := range cvss.Metrics {
 		std := s.Cfg.CVSS.Standard[mt.Key]
 		cm := cvssMetric{Key: mt.Key, Name: mt.Name, Values: mt.Values, Selected: sel[mt.Key], Standard: std,
-			SelectedName: cvss.ValueName(mt.Key, sel[mt.Key]), Reason: reasons[mt.Key]}
+			SelectedName: cvss.ValueName(mt.Key, sel[mt.Key]), StandardName: cvss.ValueName(mt.Key, std), Reason: reasons[mt.Key]}
 		if cm.Selected != "" && s.Cfg.NonStandard(mt.Key, cm.Selected) {
 			cm.NonStandard = true
 			v.Reasons = append(v.Reasons, cvssReason{Metric: mt.Name, Value: cvss.ValueName(mt.Key, cm.Selected), Reason: cm.Reason})
@@ -199,7 +200,7 @@ func (s *Server) cvssSave(w http.ResponseWriter, r *http.Request) {
 	reasons := map[string]string{}
 	if form.Get("action") != "clear" {
 		if !v.Complete {
-			v.Error = "Set all 8 base metrics before saving."
+			v.Error = "All 8 base metrics required"
 			s.execStatus(w, http.StatusBadRequest, "finding.html", "cvss_editor", v)
 			return
 		}
@@ -213,7 +214,7 @@ func (s *Server) cvssSave(w http.ResponseWriter, r *http.Request) {
 	err := s.Store.UpdateCVSS(ref.EngID, ref.Dir, vector, reasons, form.Get("base"), auth.UserFrom(r.Context()))
 	switch {
 	case errors.Is(err, store.ErrConflict):
-		v.Error = "CVSS was changed by someone else while you were editing. Your selection is kept; saving again will replace theirs."
+		v.Error = "CVSS changed by someone else"
 		v.Base = store.CVSSHash(ref.F.Meta)
 		s.execStatus(w, http.StatusConflict, "finding.html", "cvss_editor", v)
 		return
@@ -249,7 +250,7 @@ func (s *Server) severitySave(w http.ResponseWriter, r *http.Request) {
 		// Show the current (other person's) severity so the user can decide again.
 		v := s.cvssPanel(ref)
 		v.OOB = true
-		v.Error = "Severity was changed by someone else meanwhile; the current value is shown. Pick again to replace it."
+		v.Error = "Severity changed by someone else"
 		s.execStatus(w, http.StatusConflict, "finding.html", "cvss_panel", v)
 		return
 	}

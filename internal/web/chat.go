@@ -37,6 +37,10 @@ type chatThread struct {
 	Replies    []chatMsg
 	Resolved   bool
 	ResolvedBy string
+	// Hidden: the current user hid this resolved thread. HideURL and
+	// ShowURL (POST) answer with the chat list; set on resolved threads.
+	Hidden           bool
+	HideURL, ShowURL string
 }
 
 type chatItem struct {
@@ -46,6 +50,7 @@ type chatItem struct {
 
 type chatEvent struct {
 	User, Time, What, Text string
+	Kind                   string // the workflow event (submit, return, …): the marker colour
 }
 
 type chatView struct {
@@ -65,13 +70,16 @@ type chatView struct {
 }
 
 var eventText = map[string]string{
-	"submit": "submitted it for verification", "return": "returned it to draft", "clear": "cleared it",
+	"submit": "submitted it for verification", "return": "returned it to draft", "clear": "signed it off",
 	"approve": "approved it", "reopen": "reopened it", "report": "marked it reported", "retest": "set the retest result",
+	"withdraw": "withdrew it", "revise": "restored it",
 }
 
 func (s *Server) routesChat(mux *http.ServeMux) {
 	mux.HandleFunc("GET /e/{eng}/f/{fid}/chat", s.chatList)
 	mux.HandleFunc("POST /e/{eng}/f/{fid}/chat", s.chatPost)
+	mux.HandleFunc("POST /e/{eng}/f/{fid}/chat/{thread}/hide", s.chatHide(true))
+	mux.HandleFunc("POST /e/{eng}/f/{fid}/chat/{thread}/show", s.chatHide(false))
 }
 
 // chatTail is how many of the newest messages a long chat shows at first
@@ -103,9 +111,24 @@ func (s *Server) chatMsg(m chat.Message) chatMsg {
 	return chatMsg{ID: m.ID, User: m.User, Time: m.TS.Local().Format("2006-01-02 15:04"), Section: m.Section, Anchor: anchor(m.Section), Excerpt: excerpt(m.Text), HTML: s.renderMD(m.Text)}
 }
 
+// hiddenFor returns the resolved threads of the finding the request's user
+// hid (none on error or without a database).
+func (s *Server) hiddenFor(r *http.Request, ref store.FindingRef) map[string]bool {
+	d := s.Store.DB()
+	if d == nil {
+		return nil
+	}
+	h, err := d.ChatHidden(auth.UserFrom(r.Context()).Username, ref.EngID, ref.F.Meta.ID)
+	if err != nil {
+		return nil
+	}
+	return h
+}
+
 // chatFor builds the chat view; stamp is chatStamp read before msgs. Unless
 // all is set, only the newest threads holding chatTail messages are shown.
-func (s *Server) chatFor(ref store.FindingRef, msgs []chat.Message, stamp string, all bool) chatView {
+// hidden are the threads the viewer hid.
+func (s *Server) chatFor(ref store.FindingRef, msgs []chat.Message, stamp string, all bool, hidden map[string]bool) chatView {
 	base := findingURL(ref.EngID, ref.Dir) + "/chat"
 	v := chatView{Hash: stamp, PostURL: base, Sections: s.sectionNames(ref), All: all, OlderURL: base + "?all=1"}
 	q := url.Values{}
@@ -128,7 +151,7 @@ func (s *Server) chatFor(ref store.FindingRef, msgs []chat.Message, stamp string
 			if what == "" {
 				what = e.Event
 			}
-			v.Events = append(v.Events, chatEvent{User: e.User, Time: e.TS.Local().Format("2006-01-02 15:04"), What: what, Text: e.Text})
+			v.Events = append(v.Events, chatEvent{User: e.User, Time: e.TS.Local().Format("2006-01-02 15:04"), What: what, Text: e.Text, Kind: e.Event})
 			continue
 		}
 		threads = append(threads, it.Thread)
@@ -150,6 +173,10 @@ func (s *Server) chatFor(ref store.FindingRef, msgs []chat.Message, stamp string
 	}
 	for _, th := range threads {
 		t := &chatThread{Root: s.chatMsg(th.Root), Resolved: th.Resolved, ResolvedBy: th.ResolvedBy}
+		if th.Resolved {
+			t.Hidden = hidden[th.Root.ID]
+			t.HideURL, t.ShowURL = base+"/"+th.Root.ID+"/hide", base+"/"+th.Root.ID+"/show"
+		}
 		for _, r := range th.Replies {
 			t.Replies = append(t.Replies, s.chatMsg(r))
 		}
@@ -175,9 +202,38 @@ func (s *Server) chatList(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	v := s.chatFor(ref, msgs, stamp, q.Get("all") == "1")
+	v := s.chatFor(ref, msgs, stamp, q.Get("all") == "1", s.hiddenFor(r, ref))
 	v.OOB = true
 	s.exec(w, "finding.html", "chat_list", v)
+}
+
+// chatHide hides (on) or shows a resolved thread for the current user and
+// answers with the chat list.
+func (s *Server) chatHide(on bool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ref, ok := s.cvssRef(w, r)
+		if !ok {
+			return
+		}
+		err := s.Store.HideThread(ref.EngID, ref.Dir, r.PathValue("thread"), on, auth.UserFrom(r.Context()))
+		status := http.StatusOK
+		var listErr string
+		if errors.Is(err, store.ErrInvalidChat) {
+			status, listErr = http.StatusBadRequest, strings.TrimPrefix(err.Error(), store.ErrInvalidChat.Error()+": ")
+		} else if err != nil {
+			s.fail(w, err)
+			return
+		}
+		stamp := s.chatStamp(ref)
+		msgs, err := s.loadChat(ref)
+		if err != nil {
+			s.fail(w, err)
+			return
+		}
+		v := s.chatFor(ref, msgs, stamp, r.FormValue("all") == "1", s.hiddenFor(r, ref))
+		v.OOB, v.ListError = true, listErr
+		s.execStatus(w, status, "finding.html", "chat_list", v)
+	}
 }
 
 func (s *Server) chatPost(w http.ResponseWriter, r *http.Request) {
@@ -194,7 +250,7 @@ func (s *Server) chatPost(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, lerr)
 		return
 	}
-	v := s.chatFor(ref, msgs, stamp, r.FormValue("all") == "1")
+	v := s.chatFor(ref, msgs, stamp, r.FormValue("all") == "1", s.hiddenFor(r, ref))
 	v.OOB = true
 	// Thread actions (reply/resolve/reopen) refresh only the list, so a draft
 	// in the main composer is never cleared by them.

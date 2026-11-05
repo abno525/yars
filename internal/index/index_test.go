@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"yars/internal/chat"
 	"yars/internal/config"
@@ -90,6 +91,27 @@ func titles(rows []Row) string {
 	return strings.Join(t, ",")
 }
 
+// Since is the time of the last workflow event; plain messages don't count.
+func TestRowSince(t *testing.T) {
+	_, s := fixture(t)
+	refs, err := s.ListFindings("other")
+	if err != nil || len(refs) != 1 {
+		t.Fatal(refs, err)
+	}
+	if r := rowOf("other", refs[0], nil); !r.Since.IsZero() {
+		t.Fatalf("since without events %v", r.Since)
+	}
+	t1 := time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)
+	msgs := []chat.Message{
+		{ID: "a", TS: t1.Add(-time.Hour), Event: "submit"},
+		{ID: "b", TS: t1, Event: "clear"},
+		{ID: "c", TS: t1.Add(time.Hour), Text: "hi"},
+	}
+	if r := rowOf("other", refs[0], msgs); !r.Since.Equal(t1) {
+		t.Fatalf("since %v", r.Since)
+	}
+}
+
 func TestFilterByEngagementAndStatus(t *testing.T) {
 	ix, _ := fixture(t)
 	rows, err := ix.Rows(Query{EngID: "acme"})
@@ -99,6 +121,68 @@ func TestFilterByEngagementAndStatus(t *testing.T) {
 	rows, _ = ix.Rows(Query{EngID: "acme", Status: "draft"})
 	if titles(rows) != "B" {
 		t.Fatalf("got %q", titles(rows))
+	}
+}
+
+// Withdrawn findings leave the default list and show only under their filter.
+func TestWithdrawnOnlyUnderFilter(t *testing.T) {
+	ix, s := fixture(t)
+	rows, _ := ix.Rows(Query{EngID: "acme"})
+	setStatus(t, s, "acme", rows[1].ID, "withdrawn")
+	if rows, _ := ix.Rows(Query{EngID: "acme"}); titles(rows) != "A,C" {
+		t.Fatalf("default list %q", titles(rows))
+	}
+	if rows, _ := ix.Rows(Query{EngID: "acme", Status: "withdrawn"}); titles(rows) != "B" {
+		t.Fatalf("withdrawn filter %q", titles(rows))
+	}
+	if StatusOrder[len(StatusOrder)-1] != "withdrawn" {
+		t.Fatalf("status order %v", StatusOrder)
+	}
+}
+
+func TestSummary(t *testing.T) {
+	ix, s := fixture(t)
+	f, _ := s.CreateFinding("acme", "D", alice)
+	setMeta(t, s, "acme", f.Dir, "complete", "high")
+	f, _ = s.CreateFinding("acme", "E", alice)
+	setMeta(t, s, "acme", f.Dir, "withdrawn", "critical")
+	// A reported/low, B draft/critical, C verification/medium, D complete/high, E withdrawn/critical
+	sum, err := ix.Summary("acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sum.Total != 4 || sum.Withdrawn != 1 || sum.Done != 2 || sum.Progress != 50 {
+		t.Fatalf("summary %+v", sum)
+	}
+	want := map[string]int{"draft": 1, "verification": 1, "complete": 1, "reported": 1, "withdrawn": 1}
+	for k, n := range want {
+		if sum.ByStatus[k] != n {
+			t.Errorf("status %s: %d want %d", k, sum.ByStatus[k], n)
+		}
+	}
+	if sum.BySeverity["critical"] != 1 || sum.BySeverity["high"] != 1 || sum.BySeverity["low"] != 1 || sum.BySeverity["medium"] != 1 {
+		t.Errorf("severity %v", sum.BySeverity)
+	}
+	if len(sum.Statuses) != 5 || sum.Statuses[0].Key != "draft" || sum.Statuses[4].Key != "withdrawn" || sum.Statuses[4].N != 1 {
+		t.Errorf("ordered statuses %+v", sum.Statuses)
+	}
+	if len(sum.Severities) == 0 || sum.Severities[0].Key != "critical" || sum.Severities[0].N != 1 || sum.Severities[0].Pct != 25 {
+		t.Errorf("ordered severities %+v", sum.Severities)
+	}
+	// cached for the generation, recomputed after a change
+	builds := ix.summaryBuilds.Load()
+	if again, _ := ix.Summary("acme"); again.Total != 4 || ix.summaryBuilds.Load() != builds {
+		t.Fatal("summary not cached for the generation")
+	}
+	setStatus(t, s, "acme", f.F.Meta.ID, "draft")
+	if sum, _ := ix.Summary("acme"); sum.Total != 5 || sum.Withdrawn != 0 || sum.Progress != 40 {
+		t.Fatalf("after restore %+v", sum)
+	}
+	if sum, _ := ix.Summary("other"); sum.Total != 1 || sum.Progress != 0 {
+		t.Fatalf("other %+v", sum)
+	}
+	if sum, _ := ix.Summary("none"); sum.Total != 0 || sum.Progress != 0 {
+		t.Fatalf("unknown %+v", sum)
 	}
 }
 

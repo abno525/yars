@@ -43,6 +43,7 @@ type Meta struct {
 	Reviewers []string  `yaml:"-"`
 	ClearedBy []string  `yaml:"-"` // reviewers whose clearance matches the current content
 	Returned  *Returned `yaml:"-"` // set when a reviewer sends the finding back to draft
+	Withdrawn *Returned `yaml:"-"` // who withdrew the finding and why (status withdrawn)
 	Retest    *Retest   `yaml:"-"` // only in retests
 }
 

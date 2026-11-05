@@ -16,12 +16,14 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"yars/internal/chat"
 	"yars/internal/cvss"
 	"yars/internal/finding"
 	"yars/internal/gitrepo"
 	"yars/internal/store"
+	"yars/internal/workflow"
 )
 
 // Row is one finding in the table. Severity is derived from a valid CVSS
@@ -33,6 +35,7 @@ type Row struct {
 	IsRetest                                        bool   // copied into a retest engagement
 	RetestResult                                    string // fixed | not_fixed | partially_fixed | ""
 	Reviewers                                       []string
+	Since                                           time.Time // last workflow event (zero = none)
 	// Meta is the full front matter with workflow state, for workflow
 	// classification. Shared between copies of the row: read only.
 	Meta  *finding.Meta
@@ -58,10 +61,16 @@ func rowOf(engID string, ref store.FindingRef, msgs []chat.Message) Row {
 	if m.Retest != nil {
 		r.IsRetest, r.RetestResult = true, m.Retest.Result
 	}
+	for _, msg := range msgs {
+		if msg.Event != "" && msg.TS.After(r.Since) {
+			r.Since = msg.TS
+		}
+	}
 	return r
 }
 
-// Query filters by exact field values (empty = any) and sorts by
+// Query filters by exact field values (empty = any; an empty Status leaves
+// out withdrawn findings) and sorts by
 // id|title|status|severity|author (default id).
 type Query struct {
 	EngID, Status, Severity, Author string
@@ -69,7 +78,90 @@ type Query struct {
 	Desc                            bool
 }
 
-var StatusOrder = []string{"draft", "verification", "complete", "reported"}
+// StatusOrder is the workflow order, withdrawn last.
+var StatusOrder = workflow.AllStatuses
+
+// Count is one bar segment: how many findings have Key, and their share of
+// the engagement's non-withdrawn findings in percent.
+type Count struct {
+	Key    string
+	N, Pct int
+}
+
+// Summary is an engagement's findings counted for the board. Withdrawn
+// findings count only in Withdrawn and ByStatus["withdrawn"].
+type Summary struct {
+	Total      int            // findings that are not withdrawn
+	Withdrawn  int            // withdrawn findings
+	Done       int            // complete + reported
+	Progress   int            // Done / Total in percent (0 when empty)
+	ByStatus   map[string]int // every status, withdrawn included
+	BySeverity map[string]int // non-withdrawn only; "" = no severity
+	Statuses   []Count        // StatusOrder, withdrawn last (Pct of Total; 0 for withdrawn)
+	Severities []Count        // the configured severities in order
+}
+
+func pct(n, of int) int {
+	if of == 0 {
+		return 0
+	}
+	return n * 100 / of
+}
+
+func summarize(rows []Row, sevs []string) Summary {
+	s := Summary{ByStatus: map[string]int{}, BySeverity: map[string]int{}}
+	for _, r := range rows {
+		s.ByStatus[r.Status]++
+		if !workflow.Active(r.Status) {
+			s.Withdrawn++
+			continue
+		}
+		s.Total++
+		s.BySeverity[r.Severity]++
+		if r.Status == "complete" || r.Status == "reported" {
+			s.Done++
+		}
+	}
+	s.Progress = pct(s.Done, s.Total)
+	for _, st := range StatusOrder {
+		c := Count{Key: st, N: s.ByStatus[st]}
+		if workflow.Active(st) {
+			c.Pct = pct(c.N, s.Total)
+		}
+		s.Statuses = append(s.Statuses, c)
+	}
+	for _, sv := range sevs {
+		s.Severities = append(s.Severities, Count{Key: sv, N: s.BySeverity[sv], Pct: pct(s.BySeverity[sv], s.Total)})
+	}
+	return s
+}
+
+// Summary counts an engagement's findings by status and severity, once per
+// table generation. The maps are shared: read only.
+func (ix *Index) Summary(eng string) (Summary, error) {
+	if err := ix.refresh(); err != nil {
+		return Summary{}, err
+	}
+	ix.mu.RLock()
+	gen, e := ix.gen, ix.engs[eng]
+	ix.mu.RUnlock()
+	ix.sumMu.Lock()
+	defer ix.sumMu.Unlock()
+	if ix.sumGen != gen || ix.sums == nil {
+		ix.sumGen, ix.sums = gen, map[string]Summary{}
+	}
+	if s, ok := ix.sums[eng]; ok {
+		return s, nil
+	}
+	var rows []Row
+	if e != nil {
+		rows = e.rows
+	}
+	ix.summaryBuilds.Add(1)
+	s := summarize(rows, ix.store.Config().Severities)
+	ix.sums[eng] = s
+	return s, nil
+}
 
 // engRows is one engagement's part of the table. It is never changed once
 // published; an update replaces it.
@@ -97,6 +189,11 @@ type Index struct {
 	hintMu sync.Mutex
 
 	rebuilds atomic.Int64 // engagement reloads (for tests)
+
+	sumMu         sync.Mutex
+	sumGen        uint64
+	sums          map[string]Summary // per engagement, for sumGen
+	summaryBuilds atomic.Int64       // summaries computed (for tests)
 }
 
 func New(s *store.Store, r *gitrepo.Repo) *Index {
@@ -335,8 +432,9 @@ func (ix *Index) Rows(q Query) ([]Row, error) {
 	if err := ix.refresh(); err != nil {
 		return nil, err
 	}
+	// no status filter means every finding that is not withdrawn
 	match := func(r Row) bool {
-		return (q.Status == "" || r.Status == q.Status) && (q.Severity == "" || r.Severity == q.Severity) &&
+		return (r.Status == q.Status || (q.Status == "" && workflow.Active(r.Status))) && (q.Severity == "" || r.Severity == q.Severity) &&
 			(q.Author == "" || r.Author == q.Author)
 	}
 	var out []Row

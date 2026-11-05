@@ -147,7 +147,7 @@ func TestSeverityManual(t *testing.T) {
 func TestCVSSExplanationTableUnderCalculator(t *testing.T) {
 	e := setup(t)
 	b := e.do(t, "alice", "POST", fpath+"/cvss/calc", vecForm(nil), nil).Body.String()
-	tbl := strings.Index(b, "Explanation")
+	tbl := strings.Index(b, "Reasoning")
 	paste := strings.Index(b, `name="paste"`)
 	for _, k := range []string{"AC", "C", "I"} {
 		i := strings.Index(b, `<textarea name="reason_`+k+`"`)

@@ -63,8 +63,10 @@ type Server struct {
 const boardPage = 200
 
 type link struct {
+	Key          string // columns: the sort key (sets the column width)
 	Label, URL   string
 	Active, Desc bool
+	Count        int // status filters: findings with that status
 }
 
 type panel struct {
@@ -72,6 +74,7 @@ type panel struct {
 	Base, Error                                     string
 	Open                                            int // open chat threads anchored here
 	HTML, Current                                   template.HTML
+	Conflict                                        bool // saved meanwhile by someone else: Current is theirs
 }
 
 type page struct {
@@ -79,12 +82,16 @@ type page struct {
 	Engagements   []store.Engagement
 	Eng           store.Engagement
 	CanManage     bool
+	Nav           string // active top-bar item: "" (findings) or "inbox"
 	Error         string
 	Rows          []index.Row
 	Offset        int    // first row shown (board pages after the first)
 	PageSize      int    // rows per board page
 	MoreURL       string // the next board page ("" = no more)
 	StatusFilters []link
+	Summary       index.Summary // the board: counts by status and severity, progress
+	Bars          boardBars     // the board: progress and severity bars
+	EngRows       []engRow      // the home table
 	Columns       []link
 	Finding       store.FindingRef
 	Panels        []panel
@@ -105,7 +112,7 @@ type page struct {
 }
 
 var funcs = template.FuncMap{"join": strings.Join, "checkedIn": checkedIn, "retestLabel": workflow.RetestLabel, "fpath": findingURL,
-	"static": staticPrefix}
+	"static": staticPrefix, "score0": score0, "cleared": cleared, "age": age}
 
 // findingURL is a finding's page: /e/<eng>/f/<number>.
 func findingURL(eng, dir string) string { return "/e/" + eng + "/f/" + store.ShortID(dir) }
@@ -126,7 +133,7 @@ func (s *Server) init() {
 	s.pages = map[string]*template.Template{}
 	// Shared templates are parsed into every page so partial handlers can
 	// execute their blocks via any page set.
-	shared := []string{"templates/layout.html", "templates/partials.html", "templates/cvss.html", "templates/details.html", "templates/workflow.html", "templates/chat.html", "templates/checks.html", "templates/retest.html"}
+	shared := []string{"templates/layout.html", "templates/partials.html", "templates/cvss.html", "templates/details.html", "templates/workflow.html", "templates/chat.html", "templates/checks.html", "templates/retest.html", "templates/board.html"}
 	names, _ := fs.Glob(templateFS, "templates/*.html")
 	for _, n := range names {
 		if slices.Contains(shared, n) {
@@ -156,6 +163,7 @@ func (s *Server) Handler() http.Handler {
 	private.HandleFunc("POST /e/{eng}/f/{fid}/checks", s.checksRun)
 	s.routesRetest(private)
 	s.routesExport(private)
+	s.routesBulk(private)
 
 	root := http.NewServeMux()
 	root.HandleFunc("GET /login", s.loginPage)
@@ -269,6 +277,10 @@ func (s *Server) home(w http.ResponseWriter, r *http.Request) {
 	if s.Git != nil {
 		p.CloneURL = gitBase(r) + "/git/yars"
 	}
+	if p.EngRows, err = s.engRows(p.Engagements); err != nil {
+		s.fail(w, err)
+		return
+	}
 	s.render(w, "engagements.html", p)
 }
 
@@ -329,12 +341,17 @@ func (s *Server) engagement(w http.ResponseWriter, r *http.Request) {
 	if end < len(rows) {
 		p.MoreURL = mk(func(v url.Values) { v.Set("offset", strconv.Itoa(end)) })
 	}
+	if p.Summary, err = s.Index.Summary(eng); err != nil {
+		s.fail(w, err)
+		return
+	}
+	p.Bars = barsOf(p.Summary)
 	for _, st := range append([]string{""}, index.StatusOrder...) {
-		label := st
+		label, n := st, p.Summary.ByStatus[st]
 		if st == "" {
-			label = "all"
+			label, n = "all", p.Summary.Total
 		}
-		p.StatusFilters = append(p.StatusFilters, link{Label: label, Active: st == query.Status,
+		p.StatusFilters = append(p.StatusFilters, link{Label: label, Active: st == query.Status, Count: n,
 			URL: mk(func(v url.Values) { setOrDel(v, "status", st) })})
 	}
 	cols := columns
@@ -347,7 +364,7 @@ func (s *Server) engagement(w http.ResponseWriter, r *http.Request) {
 		c := c
 		active := c.Key == query.Sort || (query.Sort == "" && c.Key == "id")
 		desc := active && !query.Desc
-		p.Columns = append(p.Columns, link{Label: c.Label, Active: active, Desc: query.Desc,
+		p.Columns = append(p.Columns, link{Key: c.Key, Label: c.Label, Active: active, Desc: query.Desc,
 			URL: mk(func(v url.Values) {
 				v.Set("sort", c.Key)
 				setOrDel(v, "desc", map[bool]string{true: "1"}[desc])
@@ -434,7 +451,7 @@ func (s *Server) renderFinding(w http.ResponseWriter, r *http.Request, status in
 		s.fail(w, err)
 		return
 	}
-	p.Chat = s.chatFor(p.Finding, msgs, stamp, false)
+	p.Chat = s.chatFor(p.Finding, msgs, stamp, false, s.hiddenFor(r, p.Finding))
 	locked := !workflow.CanEdit(p.User, p.Finding.F.Meta)
 	for _, n := range s.sectionNames(p.Finding) {
 		pn := s.panelFor(p.Finding, n)

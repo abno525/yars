@@ -21,12 +21,43 @@ const (
 	Approve Action = "approve"
 	Reopen  Action = "reopen"
 	Report  Action = "report"
+	// Withdraw takes a finding out of the report (reason required);
+	// Revise brings a withdrawn finding back as a draft.
+	Withdraw Action = "withdraw"
+	Revise   Action = "revise"
 )
 
-var Actions = []Action{Submit, Return, Clear, Approve, Reopen, Report}
+var Actions = []Action{Submit, Return, Clear, Approve, Reopen, Report, Withdraw, Revise}
 
-// Statuses in workflow order.
+// aliases are other accepted names of actions.
+var aliases = map[string]Action{"sign_off": Clear}
+
+// ParseAction reads an action name (case-insensitive, aliases accepted:
+// sign_off is clear).
+func ParseAction(s string) (Action, bool) {
+	s = strings.ToLower(strings.TrimSpace(s))
+	if a, ok := aliases[s]; ok {
+		return a, true
+	}
+	a := Action(s)
+	return a, slices.Contains(Actions, a)
+}
+
+// Withdrawn is the status of a finding taken out of the report.
+const Withdrawn = "withdrawn"
+
+// Statuses are the workflow steps in order.
 var Statuses = []string{"draft", "verification", "complete", "reported"}
+
+// AllStatuses are the steps plus withdrawn.
+var AllStatuses = append(slices.Clone(Statuses), Withdrawn)
+
+// Active reports whether a finding with this status counts in the report
+// (every status except withdrawn).
+func Active(status string) bool { return status != Withdrawn }
+
+// NeedsReason reports whether an action requires a reason.
+func NeedsReason(a Action) bool { return a == Return || a == Withdraw }
 
 // Denied explains why an action is not allowed.
 type Denied struct{ Reason string }
@@ -35,28 +66,33 @@ func (d *Denied) Error() string { return d.Reason }
 
 func deny(format string, a ...any) error { return &Denied{Reason: fmt.Sprintf(format, a...)} }
 
-// Target returns the status an action requires and the status it produces.
-func Target(a Action) (from, to string) {
+// Target returns the statuses an action is possible in and the status it
+// produces.
+func Target(a Action) (from []string, to string) {
 	switch a {
 	case Submit:
-		return "draft", "verification"
+		return []string{"draft"}, "verification"
 	case Return:
-		return "verification", "draft"
+		return []string{"verification"}, "draft"
 	case Clear:
-		return "verification", "verification"
+		return []string{"verification"}, "verification"
 	case Approve:
-		return "verification", "complete"
+		return []string{"verification"}, "complete"
 	case Reopen:
-		return "complete", "verification"
+		return []string{"complete"}, "verification"
 	case Report:
-		return "complete", "reported"
+		return []string{"complete"}, "reported"
+	case Withdraw:
+		return []string{"draft", "verification", "complete", "reported"}, Withdrawn
+	case Revise:
+		return []string{Withdrawn}, "draft"
 	}
-	return "", ""
+	return nil, ""
 }
 
 func Label(a Action) string {
-	return map[Action]string{Submit: "Submit for verification", Return: "Return to draft", Clear: "Clear",
-		Approve: "Approve", Reopen: "Reopen", Report: "Mark reported"}[a]
+	return map[Action]string{Submit: "Submit for verification", Return: "Return to draft", Clear: "Sign off",
+		Approve: "Approve", Reopen: "Reopen", Report: "Mark reported", Withdraw: "Withdraw", Revise: "Restore"}[a]
 }
 
 // AtLeast reports whether u's role is role or a stronger one. Roles only add
@@ -73,11 +109,11 @@ func reviewer(u config.User, m finding.Meta) bool { return slices.Contains(m.Rev
 // Check reports whether u may perform a on a finding with meta m.
 func Check(u config.User, m finding.Meta, a Action) error {
 	from, _ := Target(a)
-	if from == "" {
+	if from == nil {
 		return deny("unknown action %q", a)
 	}
-	if m.Status != from {
-		return deny("%s is only possible in %s (finding is %s)", Label(a), from, m.Status)
+	if !slices.Contains(from, m.Status) {
+		return deny("%s is only possible in %s (finding is %s)", Label(a), strings.Join(from, " or "), m.Status)
 	}
 	switch a {
 	case Submit:
@@ -108,6 +144,18 @@ func Check(u config.User, m finding.Meta, a Action) error {
 	case Reopen, Report:
 		if !manager(u) {
 			return deny("only a director can %s", strings.ToLower(Label(a)))
+		}
+	case Withdraw:
+		switch {
+		case manager(u):
+		case u.Username != m.Author:
+			return deny("only the author or a director can withdraw a finding")
+		case m.Status != "draft" && m.Status != "verification":
+			return deny("only a director can withdraw a %s finding", m.Status)
+		}
+	case Revise:
+		if u.Username != m.Author && !manager(u) {
+			return deny("only the author or a director can restore a withdrawn finding")
 		}
 	}
 	return nil
@@ -174,7 +222,7 @@ func RetestLabel(r string) string {
 
 // CanEdit reports whether u may change the finding's content.
 func CanEdit(u config.User, m finding.Meta) bool {
-	if m.Status == "complete" || m.Status == "reported" {
+	if m.Status == "complete" || m.Status == "reported" || m.Status == Withdrawn {
 		return manager(u)
 	}
 	return true

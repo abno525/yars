@@ -18,6 +18,9 @@ var (
 
 const fdir = "F-001-sql-injection"
 
+// fshort is the finding's URL as pages link it.
+const fshort = "/e/acme/f/001"
+
 func (e *env) status(t *testing.T) string {
 	t.Helper()
 	ref, err := e.srv.Store.Finding("acme", fdir)
@@ -81,7 +84,7 @@ func TestSubmitAndClearFlow(t *testing.T) {
 		t.Fatalf("bob lacks review actions:\n%s", b)
 	}
 	e.do(t, "bob", "POST", fpath+"/action/clear", url.Values{}, nil)
-	if b := e.do(t, "dora", "GET", fpath, nil, nil).Body.String(); !strings.Contains(b, "bob ✓") || !strings.Contains(b, "/e/acme/f/001/action/approve") {
+	if b := e.do(t, "dora", "GET", fpath, nil, nil).Body.String(); !strings.Contains(b, `class="rev cleared" title="bob"`) || !strings.Contains(b, "/e/acme/f/001/action/approve") {
 		t.Fatalf("dora page:\n%s", b)
 	}
 	e.do(t, "dora", "POST", fpath+"/action/approve", url.Values{}, nil)
@@ -107,6 +110,77 @@ func (e *env) events(t *testing.T) string {
 		}
 	}
 	return strings.Join(out, " ")
+}
+
+func TestWithdrawAndRestoreWeb(t *testing.T) {
+	e := setup(t)
+	e.toVerification(t)
+	if b := e.do(t, "alice", "GET", fpath, nil, nil).Body.String(); !strings.Contains(b, fshort+"/action/withdraw") {
+		t.Fatal("author lacks withdraw")
+	}
+	if b := e.do(t, "bob", "GET", fpath, nil, nil).Body.String(); strings.Contains(b, fshort+"/action/withdraw") {
+		t.Fatal("reviewer sees withdraw")
+	}
+	rec := e.do(t, "alice", "POST", fpath+"/action/withdraw", url.Values{"reason": {" "}}, nil)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "reason is required") {
+		t.Fatalf("withdraw without reason: %d", rec.Code)
+	}
+	if rec := e.do(t, "bob", "POST", fpath+"/action/withdraw", url.Values{"reason": {"x"}}, nil); rec.Code != http.StatusBadRequest {
+		t.Fatalf("reviewer withdraw code %d", rec.Code)
+	}
+	e.do(t, "alice", "POST", fpath+"/action/withdraw", url.Values{"reason": {"Duplicate of F-002"}}, nil)
+	if e.status(t) != "withdrawn" {
+		t.Fatalf("status %s", e.status(t))
+	}
+	b := e.do(t, "alice", "GET", fpath, nil, nil).Body.String()
+	if !strings.Contains(b, fshort+"/action/revise") || !strings.Contains(b, "Restore") || !strings.Contains(b, "Duplicate of F-002") {
+		t.Fatalf("withdrawn page:\n%s", b)
+	}
+	// out of the inbox and the default board, in the Withdrawn filter
+	if b := e.do(t, "bob", "GET", "/inbox", nil, nil).Body.String(); strings.Contains(section(b, "Awaiting my review"), "SQL injection") {
+		t.Fatal("withdrawn finding in the inbox")
+	}
+	if b := e.do(t, "alice", "GET", "/e/acme", nil, nil).Body.String(); strings.Contains(b, `href="/e/acme/f/001"`) || !strings.Contains(b, "status=withdrawn") {
+		t.Fatalf("board:\n%s", b)
+	}
+	if b := e.do(t, "alice", "GET", "/e/acme?status=withdrawn", nil, nil).Body.String(); !strings.Contains(b, `href="/e/acme/f/001"`) {
+		t.Fatal("withdrawn filter empty")
+	}
+	if rec := e.do(t, "alice", "POST", fpath+"/action/revise", url.Values{}, nil); rec.Code != http.StatusSeeOther || e.status(t) != "draft" {
+		t.Fatalf("restore code %d status %s", rec.Code, e.status(t))
+	}
+}
+
+func TestSignOffAlias(t *testing.T) {
+	e := setup(t)
+	e.toVerification(t)
+	b := e.do(t, "bob", "GET", fpath, nil, nil).Body.String()
+	if !strings.Contains(b, ">Sign off<") || !strings.Contains(b, fshort+"/action/clear") {
+		t.Fatalf("bob page lacks Sign off:\n%s", b)
+	}
+	if rec := e.do(t, "bob", "POST", fpath+"/action/sign_off", url.Values{}, nil); rec.Code != http.StatusSeeOther {
+		t.Fatalf("sign_off code %d %s", rec.Code, rec.Body.String())
+	}
+	if got := e.events(t); got != "alice:submit bob:clear" {
+		t.Fatalf("events %q", got)
+	}
+}
+
+func TestMarkReportedAction(t *testing.T) {
+	e := setup(t)
+	e.toComplete(t)
+	if b := e.do(t, "alice", "GET", fpath, nil, nil).Body.String(); strings.Contains(b, fshort+"/action/report") {
+		t.Fatal("pentester sees Mark reported")
+	}
+	if b := e.do(t, "dora", "GET", fpath, nil, nil).Body.String(); !strings.Contains(b, fshort+"/action/report") || !strings.Contains(b, "Mark reported") {
+		t.Fatal("director lacks Mark reported")
+	}
+	if rec := e.do(t, "alice", "POST", fpath+"/action/report", url.Values{}, nil); rec.Code != http.StatusBadRequest || e.status(t) != "complete" {
+		t.Fatalf("pentester report code %d", rec.Code)
+	}
+	if rec := e.do(t, "dora", "POST", fpath+"/action/report", url.Values{}, nil); rec.Code != http.StatusSeeOther || e.status(t) != "reported" {
+		t.Fatalf("report code %d status %s", rec.Code, e.status(t))
+	}
 }
 
 func TestReturnRequiresReason(t *testing.T) {

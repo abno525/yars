@@ -34,7 +34,7 @@ func TestNewRetestFlow(t *testing.T) {
 		t.Fatalf("code %d loc %q body %s", rec.Code, rec.Header().Get("Location"), rec.Body.String())
 	}
 	b = e.do(t, "alice", "GET", "/e/acme-rt", nil, nil).Body.String()
-	if !strings.Contains(b, "Retest of") || !strings.Contains(b, `href="/e/acme"`) || !strings.Contains(b, "Open redirect") || !strings.Contains(b, "<th><a") || !strings.Contains(b, ">Result") {
+	if !strings.Contains(b, "Retest of") || !strings.Contains(b, `href="/e/acme"`) || !strings.Contains(b, "Open redirect") || !strings.Contains(b, `<th class="col-result"><a`) || !strings.Contains(b, ">Result") {
 		t.Fatalf("retest engagement page:\n%s", b)
 	}
 	if rec := e.do(t, "dora", "POST", "/e/acme/retest/new", url.Values{"id": {"x"}, "name": {"X"}}, nil); rec.Code != http.StatusBadRequest {

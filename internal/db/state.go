@@ -23,16 +23,20 @@ type State struct {
 	// ApprovedHash is the finding.md hash at approval; a complete finding
 	// whose content no longer matches is back in verification.
 	ApprovedHash string
+	// WithdrawnBy and WithdrawnReason say who took the finding out of the
+	// report and why (status withdrawn).
+	WithdrawnBy, WithdrawnReason string
 }
 
 func scanState(sc interface{ Scan(...any) error }) (string, State, error) {
 	var fid string
 	var s State
-	err := sc.Scan(&fid, &s.Status, &s.ReturnedBy, &s.ReturnedReason, &s.RetestSource, &s.RetestResult, &s.ApprovedHash)
+	err := sc.Scan(&fid, &s.Status, &s.ReturnedBy, &s.ReturnedReason, &s.RetestSource, &s.RetestResult, &s.ApprovedHash,
+		&s.WithdrawnBy, &s.WithdrawnReason)
 	return fid, s, err
 }
 
-const stateCols = "fid, status, returned_by, returned_reason, retest_source, retest_result, approved_hash"
+const stateCols = "fid, status, returned_by, returned_reason, retest_source, retest_result, approved_hash, withdrawn_by, withdrawn_reason"
 
 // querier is what both *DB and *Tx can run reads on.
 type querier interface {
@@ -75,7 +79,7 @@ func (d *DB) Known(eng, fid string) (bool, error) {
 // engagement is created under the name of one that no longer exists).
 func (tx *Tx) Purge(eng string) error {
 	tx.touch(eng)
-	for _, t := range []string{"finding_state", "reviewers", "chat"} {
+	for _, t := range []string{"finding_state", "reviewers", "chat", "chat_hidden"} {
 		if _, err := tx.Exec("DELETE FROM "+t+" WHERE eng = ?", eng); err != nil {
 			return err
 		}
@@ -134,12 +138,13 @@ func (tx *Tx) PutState(eng, fid string, s State) error {
 	if s.Status == "" {
 		s.Status = "draft"
 	}
-	_, err := tx.Exec(`INSERT INTO finding_state(eng, fid, status, returned_by, returned_reason, retest_source, retest_result, approved_hash)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	_, err := tx.Exec(`INSERT INTO finding_state(eng, fid, status, returned_by, returned_reason, retest_source, retest_result, approved_hash,
+		withdrawn_by, withdrawn_reason)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(eng, fid) DO UPDATE SET status = excluded.status, returned_by = excluded.returned_by,
 		returned_reason = excluded.returned_reason, retest_source = excluded.retest_source, retest_result = excluded.retest_result,
-		approved_hash = excluded.approved_hash`,
-		eng, fid, s.Status, s.ReturnedBy, s.ReturnedReason, s.RetestSource, s.RetestResult, s.ApprovedHash)
+		approved_hash = excluded.approved_hash, withdrawn_by = excluded.withdrawn_by, withdrawn_reason = excluded.withdrawn_reason`,
+		eng, fid, s.Status, s.ReturnedBy, s.ReturnedReason, s.RetestSource, s.RetestResult, s.ApprovedHash, s.WithdrawnBy, s.WithdrawnReason)
 	if err != nil {
 		return err
 	}
@@ -210,6 +215,35 @@ func messages(d querier, q string, args ...any) (map[string][]chat.Message, erro
 			return nil, err
 		}
 		out[fid] = append(out[fid], m)
+	}
+	return out, rows.Err()
+}
+
+// SetChatHidden hides (on) or shows a chat thread of a finding for one user.
+// It is a personal view setting: no change counter moves.
+func (d *DB) SetChatHidden(user, eng, fid, thread string, on bool) error {
+	q := "DELETE FROM chat_hidden WHERE username = ? AND eng = ? AND fid = ? AND thread_id = ?"
+	if on {
+		q = "INSERT OR IGNORE INTO chat_hidden(username, eng, fid, thread_id) VALUES (?, ?, ?, ?)"
+	}
+	_, err := d.Exec(q, user, eng, fid, thread)
+	return err
+}
+
+// ChatHidden returns the threads of a finding that user hid.
+func (d *DB) ChatHidden(user, eng, fid string) (map[string]bool, error) {
+	rows, err := d.Query("SELECT thread_id FROM chat_hidden WHERE username = ? AND eng = ? AND fid = ?", user, eng, fid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]bool{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out[id] = true
 	}
 	return out, rows.Err()
 }

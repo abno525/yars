@@ -141,7 +141,7 @@ var tools = []tool{
 			return asJSON(out)
 		}},
 	{name: "list_findings", desc: "List the findings of an engagement, optionally filtered by status or severity.",
-		required: []param{pEng}, optional: []param{{"status", "draft | verification | complete | reported"}, {"severity", "critical | high | medium | low | info"}},
+		required: []param{pEng}, optional: []param{{"status", "draft | verification | complete | reported | withdrawn (withdrawn findings are listed only with this filter)"}, {"severity", "critical | high | medium | low | info"}},
 		run: func(s *Server, ctx context.Context, u config.User, a args) (string, error) {
 			if err := a.need("engagement"); err != nil {
 				return "", err
@@ -194,15 +194,16 @@ var tools = []tool{
 				Replies []msg  `json:"replies"`
 			}
 			type state struct {
-				Status       string             `json:"status"`
-				Reviewers    []string           `json:"reviewers"`
-				ClearedBy    []string           `json:"cleared_by"`
-				Returned     *finding.Returned  `json:"returned,omitempty"`
-				RetestSource string             `json:"retest_source,omitempty"`
-				RetestResult string             `json:"retest_result,omitempty"`
+				Status       string            `json:"status"`
+				Reviewers    []string          `json:"reviewers"`
+				ClearedBy    []string          `json:"cleared_by"`
+				Returned     *finding.Returned `json:"returned,omitempty"`
+				Withdrawn    *finding.Returned `json:"withdrawn,omitempty"`
+				RetestSource string            `json:"retest_source,omitempty"`
+				RetestResult string            `json:"retest_result,omitempty"`
 			}
 			m := ref.F.Meta
-			st := state{Status: m.Status, Reviewers: append([]string{}, m.Reviewers...), ClearedBy: append([]string{}, m.ClearedBy...), Returned: m.Returned}
+			st := state{Status: m.Status, Reviewers: append([]string{}, m.Reviewers...), ClearedBy: append([]string{}, m.ClearedBy...), Returned: m.Returned, Withdrawn: m.Withdrawn}
 			if m.Retest != nil {
 				st.RetestSource, st.RetestResult = m.Retest.Source, m.Retest.Result
 			}
@@ -280,17 +281,20 @@ var tools = []tool{
 		required: []param{pEng, pFinding, {"field", "field name"}, {"value", "new value"}},
 		optional: []param{{"base", "cvss_base (cvss, cvss_reason.*) or details_base (details.*) from read_finding; refuses the edit if someone changed it meanwhile"}},
 		run:      setField},
-	{name: "transition", desc: "Move a finding through the workflow: submit (draft→verification), return (verification→draft, needs reason), clear (reviewer sign-off), approve (director: verification→complete), reopen (complete→verification).",
-		required: []param{pEng, pFinding, {"action", "submit | return | clear | approve | reopen"}},
-		optional: []param{{"reason", "required for return"}},
+	{name: "transition", desc: "Move a finding through the workflow: submit (draft→verification), return (verification→draft, needs reason), clear or sign_off (reviewer sign-off), approve (director: verification→complete), reopen (complete→verification), report (director: complete→reported), withdraw (author while draft or verification, director also when complete or reported; needs reason; takes it out of the report), revise (author or director: withdrawn→draft).",
+		required: []param{pEng, pFinding, {"action", "submit | return | clear | sign_off | approve | reopen | report | withdraw | revise"}},
+		optional: []param{{"reason", "required for return and withdraw"}},
 		run: func(s *Server, ctx context.Context, u config.User, a args) (string, error) {
 			ref, err := s.ref(a)
 			if err != nil {
 				return "", err
 			}
-			act := workflow.Action(a.str("action"))
-			if !slices.Contains(workflow.Actions, act) || act == workflow.Report {
-				return "", errors.New("unknown action (submit, return, clear, approve, reopen; findings are marked reported by exporting)")
+			act, ok := workflow.ParseAction(a.str("action"))
+			if !ok {
+				return "", errors.New("unknown action (submit, return, clear or sign_off, approve, reopen, report, withdraw, revise)")
+			}
+			if act == workflow.Report && !workflow.AtLeast(u, "director") {
+				return "", &workflow.Denied{Reason: "only a director can mark reported"}
 			}
 			if err := s.Store.Transition(ref.EngID, ref.Dir, act, a.str("reason"), u); err != nil {
 				return "", err
