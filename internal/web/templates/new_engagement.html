@@ -7,6 +7,12 @@
   <label>Client <input name="client" value="{{.Form.Get "client"}}"></label>
   <label>Start <input name="start" type="date" value="{{.Form.Get "start"}}"></label>
   <label>End <input name="end" type="date" value="{{.Form.Get "end"}}"></label>
+  <div class="rf">
+    <div class="rfhead"><span>Team</span><button type="button" class="btn secondary sm w128" data-check-all="member">Add everyone</button></div>
+    <div class="checklist">
+      {{range .Users}}<label class="chk"><input type="checkbox" name="member" value="{{.Username}}"{{if checkedIn $.Form "member" .Username}} checked{{end}}><span class="grow clip">{{.Username}}</span><span class="muted">{{.Role}}</span></label>{{end}}
+    </div>
+  </div>
   <div class="actions">
     <button class="btn primary w128">Create</button>
     <a class="btn secondary w128" href="/">Cancel</a>

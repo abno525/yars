@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 
 	"yars/internal/auth"
+	"yars/internal/config"
 	"yars/internal/finding"
 	"yars/internal/history"
 	"yars/internal/store"
@@ -105,7 +107,20 @@ func (s *Server) newEngagementForm(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
+	p.Users = s.teamCandidates(p.User)
 	s.render(w, "new_engagement.html", p)
+}
+
+// teamCandidates are the people a new engagement's creator can put on the
+// team: every enabled account but the creator, who is always on it.
+func (s *Server) teamCandidates(creator config.User) []config.User {
+	var out []config.User
+	for _, u := range s.Auth.Users() {
+		if !u.Disabled && u.Username != creator.Username {
+			out = append(out, u)
+		}
+	}
+	return out
 }
 
 func (s *Server) newEngagement(w http.ResponseWriter, r *http.Request) {
@@ -120,6 +135,7 @@ func (s *Server) newEngagement(w http.ResponseWriter, r *http.Request) {
 	}
 	r.ParseForm()
 	p.Form = r.PostForm
+	p.Users = s.teamCandidates(p.User)
 	e := store.Engagement{
 		ID: strings.TrimSpace(r.FormValue("id")), Name: strings.TrimSpace(r.FormValue("name")),
 		Client: strings.TrimSpace(r.FormValue("client")), Type: "pentest",
@@ -135,6 +151,18 @@ func (s *Server) newEngagement(w http.ResponseWriter, r *http.Request) {
 		if err := s.Store.CreateEngagement(e, author(p.User)); err != nil {
 			p.Error = err.Error()
 		} else {
+			// the creator and the ticked people form the team
+			team := []string{p.User.Username}
+			for _, u := range p.Users {
+				if slices.Contains(r.PostForm["member"], u.Username) {
+					team = append(team, u.Username)
+				}
+			}
+			if err := s.Store.AddMembers(e.ID, team, p.User); err != nil {
+				s.fail(w, err)
+				return
+			}
+			s.Store.DB().Audit(p.User.Username, "eng.create", e.ID, strings.Join(team, ","))
 			http.Redirect(w, r, "/e/"+e.ID, http.StatusSeeOther)
 			return
 		}

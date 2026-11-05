@@ -303,6 +303,7 @@ label { font-size: 13px; font-weight: 600; }
 .card { border: 1px solid var(--line); background: var(--surface); padding: 24px; display: flex; flex-direction: column; gap: 16px; }
 .login, .narrow { width: 480px; margin: 48px auto 0; }
 .login label, .narrow label { display: flex; flex-direction: column; gap: 6px; }
+.narrow label.chk { flex-direction: row; gap: 10px; }
 
 /* ---------- tables ---------- */
 .table { width: 100%; border-collapse: collapse; border: 1px solid var(--line); background: var(--surface); font-size: 15px; }
