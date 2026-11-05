@@ -149,7 +149,8 @@ func (e *env) follow(t *testing.T, user string, rec *httptest.ResponseRecorder) 
 	if rec.Code != http.StatusSeeOther {
 		t.Fatalf("send code %d:\n%s", rec.Code, rec.Body.String())
 	}
-	return e.do(t, user, "GET", rec.Header().Get("Location"), nil, nil).Body.String()
+	loc, _, _ := strings.Cut(rec.Header().Get("Location"), "#") // a browser keeps the fragment to itself
+	return e.do(t, user, "GET", loc, nil, nil).Body.String()
 }
 
 func TestExportPage(t *testing.T) {

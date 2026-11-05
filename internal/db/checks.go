@@ -34,10 +34,80 @@ type CheckResult struct {
 }
 
 // Dismissal says a violation (rule + hash of its quote) of a finding no
-// longer counts: By dismissed it At.
+// longer counts: By dismissed it At, for Reason.
 type Dismissal struct {
 	Eng, Fid, Rule, QuoteHash string
-	Level, By, At             string
+	Level, By, At, Reason     string
+}
+
+// Check step states: a rule of a run waits, runs, then passes, finds
+// violations (hits) or could not run (failed).
+const (
+	StepQueued  = "queued"
+	StepRunning = "running"
+	StepPass    = "pass"
+	StepHits    = "hits"
+	StepFailed  = "failed"
+)
+
+// CheckStep is one rule of a check run. Kind is the rule's kind (pattern,
+// builtin, script, ai); Message says why a failed rule could not run and
+// Fail is its stored reason ("invalid output", …).
+type CheckStep struct {
+	RunID             int64
+	Pos               int
+	Rule, Kind, State string
+	Started, Finished string // RFC 3339 with fractions; "" = not yet
+	Hits              int
+	Message, Fail     string
+}
+
+// StepStamp is a step's time: RFC 3339 with milliseconds, so a 0.8 s rule
+// shows as such.
+func StepStamp(t time.Time) string { return t.UTC().Format("2006-01-02T15:04:05.000Z07:00") }
+
+// AddSteps records the steps of a run (queued ones, or ones carried over
+// from an earlier run).
+func (d *DB) AddSteps(steps []CheckStep) error {
+	for _, x := range steps {
+		if _, err := d.Exec(`INSERT INTO check_steps(run_id, pos, rule, kind, state, started, finished, hits, message, fail)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, x.RunID, x.Pos, x.Rule, x.Kind, x.State, x.Started, x.Finished, x.Hits, x.Message, x.Fail); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// StepStarted marks a rule of a run as running now.
+func (d *DB) StepStarted(run int64, rule string, at time.Time) error {
+	_, err := d.Exec("UPDATE check_steps SET state = ?, started = ?, finished = '', hits = 0, message = '', fail = '' WHERE run_id = ? AND rule = ?",
+		StepRunning, StepStamp(at), run, rule)
+	return err
+}
+
+// StepDone records how a rule of a run ended.
+func (d *DB) StepDone(x CheckStep) error {
+	_, err := d.Exec("UPDATE check_steps SET state = ?, finished = ?, hits = ?, message = ?, fail = ? WHERE run_id = ? AND rule = ?",
+		x.State, x.Finished, x.Hits, x.Message, x.Fail, x.RunID, x.Rule)
+	return err
+}
+
+// RunSteps returns the steps of a run in rule order.
+func (d *DB) RunSteps(run int64) ([]CheckStep, error) {
+	rows, err := d.Query("SELECT run_id, pos, rule, kind, state, started, finished, hits, message, fail FROM check_steps WHERE run_id = ? ORDER BY pos", run)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []CheckStep
+	for rows.Next() {
+		var x CheckStep
+		if err := rows.Scan(&x.RunID, &x.Pos, &x.Rule, &x.Kind, &x.State, &x.Started, &x.Finished, &x.Hits, &x.Message, &x.Fail); err != nil {
+			return nil, err
+		}
+		out = append(out, x)
+	}
+	return out, rows.Err()
 }
 
 // DismissKey identifies a violation of a finding across runs and edits.
@@ -88,7 +158,16 @@ func (d *DB) LatestRun(eng, fid string) (CheckRun, bool, error) {
 
 // FailRun ends a running check as failed (e.g. a run cut off by a restart).
 func (d *DB) FailRun(id int64, reason string) error {
-	_, err := d.Exec("UPDATE check_runs SET state = ?, error = ?, finished = ? WHERE id = ? AND state = ?", RunFailed, reason, d.stamp(), id, RunRunning)
+	res, err := d.Exec("UPDATE check_runs SET state = ?, error = ?, finished = ? WHERE id = ? AND state = ?", RunFailed, reason, d.stamp(), id, RunRunning)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return nil
+	}
+	// the rules that had not ended never will
+	_, err = d.Exec("UPDATE check_steps SET state = ?, message = ?, fail = ? WHERE run_id = ? AND state IN (?, ?)",
+		StepFailed, reason, reason, id, StepQueued, StepRunning)
 	return err
 }
 
@@ -167,7 +246,7 @@ func (tx *Tx) Dismissals(eng, fid string) (map[string]Dismissal, error) {
 }
 
 func dismissals(q querier, eng, fid string) (map[string]Dismissal, error) {
-	rows, err := q.Query("SELECT eng, fid, rule, quote_hash, level, by_user, at FROM dismissals WHERE eng = ? AND fid = ?", eng, fid)
+	rows, err := q.Query("SELECT eng, fid, rule, quote_hash, level, by_user, at, reason FROM dismissals WHERE eng = ? AND fid = ?", eng, fid)
 	if err != nil {
 		return nil, err
 	}
@@ -175,7 +254,7 @@ func dismissals(q querier, eng, fid string) (map[string]Dismissal, error) {
 	out := map[string]Dismissal{}
 	for rows.Next() {
 		var x Dismissal
-		if err := rows.Scan(&x.Eng, &x.Fid, &x.Rule, &x.QuoteHash, &x.Level, &x.By, &x.At); err != nil {
+		if err := rows.Scan(&x.Eng, &x.Fid, &x.Rule, &x.QuoteHash, &x.Level, &x.By, &x.At, &x.Reason); err != nil {
 			return nil, err
 		}
 		out[DismissKey(x.Rule, x.QuoteHash)] = x
@@ -190,9 +269,9 @@ func (tx *Tx) Dismiss(x Dismissal) error {
 	if x.At == "" {
 		x.At = stampNow()
 	}
-	_, err := tx.Exec(`INSERT INTO dismissals(eng, fid, rule, quote_hash, level, by_user, at) VALUES (?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(eng, fid, rule, quote_hash) DO UPDATE SET level = excluded.level, by_user = excluded.by_user, at = excluded.at`,
-		x.Eng, x.Fid, x.Rule, x.QuoteHash, x.Level, x.By, x.At)
+	_, err := tx.Exec(`INSERT INTO dismissals(eng, fid, rule, quote_hash, level, by_user, at, reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(eng, fid, rule, quote_hash) DO UPDATE SET level = excluded.level, by_user = excluded.by_user, at = excluded.at, reason = excluded.reason`,
+		x.Eng, x.Fid, x.Rule, x.QuoteHash, x.Level, x.By, x.At, x.Reason)
 	return err
 }
 

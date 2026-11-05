@@ -535,7 +535,7 @@
       <label class="rf">Engagement<select name="eng" hx-get="/admin/rules/bench/findings" hx-trigger="change" hx-target="#bench-fid" hx-swap="outerHTML">{{range .Engs}}<option value="{{.Value}}"{{if .On}} selected{{end}}>{{.Label}}</option>{{end}}</select></label>
       <label class="rf">Finding{{template "bench_findings" .}}</label>
     </div>
-    <div class="benchrun"><button class="btn secondary sm w96">Try</button></div>
+    <div class="benchrun"><button class="btn secondary sm w96">Try</button><button class="btn primary sm w176" name="all" value="1">Run on engagement</button></div>
   </form>
   {{template "bench_out" .}}
 </section>
@@ -544,6 +544,25 @@
 {{define "bench_findings"}}<select id="bench-fid" name="fid">{{range .Findings}}<option value="{{.Value}}"{{if .On}} selected{{end}}>{{.Label}}</option>{{end}}</select>{{end}}
 
 {{define "bench_out"}}
+{{if .All}}
+<div class="benchout flush" id="bench-out">
+  <div class="benchhead"><span class="benchsum mono" title="{{.Summary}}">{{.Summary}} · <span data-fp-count>0 false positives</span> · {{.At}}</span></div>
+  <table class="table benchtable benchall">
+    <thead><tr><th class="c-id">ID</th><th>Finding</th><th class="c-hits">Hits</th><th class="c-quote">Quote</th><th class="c-fp">False pos.</th></tr></thead>
+    <tbody>
+      {{range .FRows}}
+      <tr>
+        <td class="mono">{{.ID}}</td>
+        <td title="{{.Title}}"><a class="strong" href="{{.URL}}">{{.Title}}</a></td>
+        <td class="mono c-hits">{{.Hits}}</td>
+        <td title="{{.Quote}}">{{if .Quote}}<code>{{.Quote}}</code>{{else}}<span class="muted">—</span>{{end}}</td>
+        <td class="c-fp">{{if .Hits}}<input type="checkbox" data-fp aria-label="False positive · {{.ID}}">{{end}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+</div>
+{{else}}
 <div class="benchout flush" id="bench-out">
   <div class="benchhead"><span class="cnt">Hits <span class="hits">{{if .Ran}}{{if .Hits}}<span class="badge">{{.Hits}}</span>{{else}}<span class="badge0">0</span>{{end}}{{end}}</span></span></div>
   <table class="table benchtable">
@@ -560,4 +579,5 @@
     </tbody>
   </table>
 </div>
+{{end}}
 {{end}}

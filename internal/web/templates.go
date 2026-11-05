@@ -22,6 +22,41 @@ type tplRow struct {
 	Slug, Title, Severity, Score string
 	Used                         int
 	On                           bool // picked on the new finding page
+	tplOwner
+}
+
+// tplOwner is what git says about a template: its version (number of
+// saves), who made it and the last edit ("2026-11-04 · rev1").
+type tplOwner struct {
+	Version            int
+	Owner, Edited      string
+	EditedBy, EditedOn string
+	History            []tplVersion // newest first (the history page)
+}
+
+// tplVersion is one saved version of a template.
+type tplVersion struct {
+	N                     int
+	Date, Author, Subject string
+	Hash                  string
+}
+
+// ownerOf describes a template's versions.
+func ownerOf(vs []store.TemplateVersion, all bool) tplOwner {
+	o := tplOwner{Version: len(vs), Owner: "—", Edited: "—"}
+	if len(vs) == 0 {
+		return o
+	}
+	last := vs[0]
+	o.Owner = vs[len(vs)-1].Author
+	o.EditedBy, o.EditedOn = last.Author, last.Time.Local().Format("2006-01-02")
+	o.Edited = o.EditedOn + " · " + o.EditedBy
+	if all {
+		for _, v := range vs {
+			o.History = append(o.History, tplVersion{N: v.N, Date: v.Time.Local().Format("2006-01-02 15:04"), Author: v.Author, Subject: v.Subject, Hash: v.Hash[:min(8, len(v.Hash))]})
+		}
+	}
+	return o
 }
 
 // tplSection is one section of a template preview.
@@ -55,6 +90,7 @@ type tplView struct {
 	// one template (edit page)
 	Slug, Title, Severity, CVSS, Score, Error string
 	Used                                      int
+	Own                                       tplOwner
 	Severities                                []string
 	Panels                                    []panel
 	// Save as template
@@ -69,6 +105,7 @@ func (s *Server) routesTemplates(mux *http.ServeMux) {
 	mux.HandleFunc("GET /templates", s.templatesPage)
 	mux.HandleFunc("POST /templates/new", s.templateCreate)
 	mux.HandleFunc("GET /templates/{slug}", s.templatePage)
+	mux.HandleFunc("GET /templates/{slug}/history", s.templateHistory)
 	mux.HandleFunc("POST /templates/{slug}", s.templateSaveMeta)
 	mux.HandleFunc("POST /templates/{slug}/delete", s.templateDelete)
 	mux.HandleFunc("GET /templates/{slug}/s/{section}", s.templateSection)
@@ -101,6 +138,10 @@ func (s *Server) tplRows(q string) (rows []tplRow, total int, err error) {
 	if err != nil {
 		return nil, 0, err
 	}
+	hist, err := s.Store.TemplateHistories()
+	if err != nil {
+		return nil, 0, err
+	}
 	q = strings.ToLower(strings.TrimSpace(q))
 	for _, t := range ts {
 		if q != "" && !strings.Contains(strings.ToLower(t.F.Meta.Title), q) && !strings.Contains(t.Slug, q) {
@@ -112,7 +153,8 @@ func (s *Server) tplRows(q string) (rows []tplRow, total int, err error) {
 			n, _ := cvss.Score(v)
 			sc = cvss.FormatScore(n)
 		}
-		rows = append(rows, tplRow{Slug: t.Slug, Title: m.Title, Severity: cvss.Derive(m.CVSS, m.Severity), Score: sc, Used: use[t.Slug]})
+		rows = append(rows, tplRow{Slug: t.Slug, Title: m.Title, Severity: cvss.Derive(m.CVSS, m.Severity), Score: sc, Used: use[t.Slug],
+			tplOwner: ownerOf(hist[t.Slug], false)})
 	}
 	return rows, len(ts), nil
 }
@@ -208,6 +250,11 @@ func (s *Server) templateView(t store.Template, u config.User) (tplView, error) 
 		return v, err
 	}
 	v.Used = use[t.Slug]
+	hist, err := s.Store.TemplateHistories()
+	if err != nil {
+		return v, err
+	}
+	v.Own = ownerOf(hist[t.Slug], true)
 	for _, n := range s.tplSectionNames(t.F) {
 		v.Panels = append(v.Panels, s.tplPanel(t, n, v.CanEdit))
 	}
@@ -237,6 +284,25 @@ func (s *Server) renderTemplate(w http.ResponseWriter, r *http.Request, status i
 
 func (s *Server) templatePage(w http.ResponseWriter, r *http.Request) {
 	s.renderTemplate(w, r, http.StatusOK, r.PathValue("slug"), nil)
+}
+
+// templateHistory lists a template's versions from git, newest first.
+func (s *Server) templateHistory(w http.ResponseWriter, r *http.Request) {
+	p, err := s.base(r, "")
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	t, err := s.Store.Template(r.PathValue("slug"))
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	if p.Tpl, err = s.templateView(t, p.User); err != nil {
+		s.fail(w, err)
+		return
+	}
+	s.render(w, "template_history.html", p)
 }
 
 // templateSaveMeta saves the title, severity and CVSS vector. A valid

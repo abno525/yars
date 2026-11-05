@@ -8,7 +8,9 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
+	"time"
 
 	"yars/internal/auth"
 	"yars/internal/config"
@@ -46,12 +48,23 @@ type ruleForm struct {
 	Errs                             map[string]string
 }
 
-// benchView is the test bench: its choices, and the result of a run.
+// benchView is the test bench: its choices, and the result of a run on
+// one finding (Rows) or on a whole engagement (All: one row per finding).
 type benchView struct {
 	Rules, Engs, Findings []option
-	Ran                   bool
+	Ran, All              bool
 	Hits                  int
 	Rows                  []checkRow
+	FRows                 []benchFinding
+	Summary               string // "4 hits in 3 of 5 findings"
+	At                    string // when it ran (HH:MM)
+}
+
+// benchFinding is one finding of an engagement run: its hits and the first
+// quote.
+type benchFinding struct {
+	ID, Title, URL, Quote string
+	Hits                  int
 }
 
 type rulesAdmin struct {
@@ -523,6 +536,10 @@ func (s *Server) ruleBench(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	if q.Get("all") == "1" {
+		s.ruleBenchAll(w, r, x, q.Get("eng"))
+		return
+	}
 	ref, err := s.Store.Finding(q.Get("eng"), q.Get("fid"))
 	if err != nil {
 		s.fail(w, err)
@@ -533,6 +550,47 @@ func (s *Server) ruleBench(w http.ResponseWriter, r *http.Request) {
 		v.Rows = append(v.Rows, checkRow{Rule: it.Rule, Level: it.Level, Message: it.Message, Quote: it.Quote, Where: where(it.Target)})
 	}
 	v.Hits = len(v.Rows)
+	s.exec(w, "admin.html", "bench_out", v)
+}
+
+// ruleBenchAll runs one saved rule on every finding of an engagement;
+// nothing is stored.
+func (s *Server) ruleBenchAll(w http.ResponseWriter, r *http.Request, x rules.Rule, eng string) {
+	if !store.ValidID(eng) {
+		http.NotFound(w, r)
+		return
+	}
+	if _, ok := s.Index.Engagement(eng); !ok {
+		http.NotFound(w, r)
+		return
+	}
+	rows, err := s.Index.Rows(index.Query{EngID: eng})
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	v := benchView{Ran: true, All: true, At: time.Now().Format("15:04")}
+	with := 0
+	for _, row := range rows {
+		ref, err := s.Store.Finding(eng, row.Dir)
+		if err != nil {
+			s.fail(w, err)
+			return
+		}
+		f := benchFinding{ID: row.ID, Title: row.Title, URL: findingURL(eng, row.Dir)}
+		for _, it := range s.Rules.RunRule(r.Context(), x, rules.DocOf(ref.F)) {
+			if f.Hits == 0 {
+				f.Quote = it.Quote
+			}
+			f.Hits++
+		}
+		if f.Hits > 0 {
+			with++
+		}
+		v.Hits += f.Hits
+		v.FRows = append(v.FRows, f)
+	}
+	v.Summary = plural(v.Hits, "hit") + " in " + strconv.Itoa(with) + " of " + plural(len(rows), "finding")
 	s.exec(w, "admin.html", "bench_out", v)
 }
 

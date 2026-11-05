@@ -23,6 +23,7 @@ type settingsView struct {
 	// what failed, per panel ("" = nothing)
 	AccountErr, PasswordErr, ConnErr, NotifyErr string
 	Token                                       tokenForm // the New token page
+	NewToken                                    string    // a token just created, shown once
 }
 
 // tokenRow is one token in a list: what it can do, never its secret.
@@ -207,6 +208,8 @@ func (s *Server) settingsPage(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
+	p.Settings.NewToken = s.flash.take(r, "token")
+	w.Header().Set("Cache-Control", "no-store")
 	s.render(w, "settings.html", p)
 }
 
@@ -408,13 +411,10 @@ func (s *Server) tokenCreate(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	f.Secret = tok
-	if err := s.tokenFormFor(r, p, f, picked); err != nil {
-		s.fail(w, err)
-		return
-	}
-	w.Header().Set("Cache-Control", "no-store")
-	s.render(w, "token_new.html", p)
+	// POST-redirect-GET: a reload doesn't make a second token; the list
+	// shows the secret once
+	s.flash.put(r, "token", tok)
+	http.Redirect(w, r, "/settings#tokens", http.StatusSeeOther)
 }
 
 func (s *Server) tokenRevoke(w http.ResponseWriter, r *http.Request) {

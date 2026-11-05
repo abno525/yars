@@ -85,6 +85,7 @@ type Server struct {
 	heartbeat time.Duration // event stream keep-alive (0 = defaultHeartbeat)
 	pageSize  int           // board rows per page (0 = boardPage)
 	chatLoads atomic.Int64  // full chat reads, for tests of the poll shortcut
+	flash     flashes       // one-time secrets for the page after a create
 }
 
 // boardPage is how many findings the board shows before "Load more".
@@ -163,7 +164,13 @@ type page struct {
 
 var funcs = template.FuncMap{"join": strings.Join, "checkedIn": checkedIn, "retestLabel": workflow.RetestLabel, "fpath": findingURL,
 	"static": staticPrefix, "score0": score0, "cleared": cleared, "age": age, "day": day, "when": when, "ending": ending,
-	"actionTag": actionTag, "actionName": actionName}
+	"actionTag": actionTag, "actionName": actionName,
+	"stepArgs": func(s stepRow, retryURL string) any {
+		return struct {
+			Step     stepRow
+			RetryURL string
+		}{s, retryURL}
+	}}
 
 // findingURL is a finding's page: /e/<eng>/f/<number>.
 func findingURL(eng, dir string) string { return "/e/" + eng + "/f/" + store.ShortID(dir) }

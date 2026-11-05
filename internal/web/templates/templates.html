@@ -17,18 +17,20 @@
 </form>
 <section class="panel">
   <table class="table stable tpltable">
-    <thead><tr><th>Title</th><th class="c-sev">Severity</th><th class="c-num">CVSS</th><th class="c-num">Used</th><th class="c-act">Action</th></tr></thead>
+    <thead><tr><th>Title</th><th class="c-sev">Severity</th><th class="c-num">CVSS</th><th class="c-num">Used</th><th class="c-edited">Last edited</th><th class="c-owner">Owner</th><th class="c-act">Action</th></tr></thead>
     <tbody>
     {{range .Tpl.Rows}}
       <tr>
-        <td class="title"><a href="/templates/{{.Slug}}" title="{{.Title}}">{{.Title}}</a></td>
+        <td class="title"><span class="tpltitle"><a href="/templates/{{.Slug}}" title="{{.Title}}">{{.Title}}</a><span class="tplver mono">v{{.Version}}</span></span></td>
         <td>{{if .Severity}}<span class="tag sev-{{.Severity}}">{{.Severity}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
         <td class="num">{{score0 .Score}}</td>
         <td class="num">{{if .Used}}<span class="badge">{{.Used}}</span>{{else}}<span class="badge0">0</span>{{end}}</td>
+        <td class="mono edited">{{.Edited}}</td>
+        <td class="owner" title="{{.Owner}}">{{.Owner}}</td>
         <td><a class="btn ghost sm w96" href="/templates/{{.Slug}}">{{if $.Tpl.CanEdit}}Edit{{else}}Open{{end}}</a></td>
       </tr>
     {{else}}
-      <tr><td colspan="5" class="muted">—</td></tr>
+      <tr><td colspan="7" class="muted">—</td></tr>
     {{end}}
     </tbody>
   </table>

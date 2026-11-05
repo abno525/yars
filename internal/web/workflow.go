@@ -55,6 +55,43 @@ type wfView struct {
 	Panels     []wfSlot
 	State      string
 	StateError bool
+	Check      wfCheck // the Check button and its state slot
+}
+
+// wfCheck is the Check button of the bar (152 px) and the slot before it:
+// stale checks, a rule that failed, AI checks that failed, rule file errors.
+type wfCheck struct {
+	On, Show        bool // checks configured; the button is shown (not archived)
+	URL             string
+	Running         bool
+	Done, Total     int
+	Class           string // secondary, or primary when stale
+	Flag, FlagClass string // slot text and its look ("" = empty slot)
+	FlagN           int    // a count after the text (0 = none)
+	FlagTag         bool   // the slot holds a tag (stale) rather than a chip
+}
+
+// checkOf is the bar's Check button for the checks panel v.
+func checkOf(v checksView) wfCheck {
+	c := wfCheck{On: v.Enabled, Show: v.Enabled && !v.ReadOnly, URL: v.URL, Running: v.Running, Done: v.Done, Total: v.Total, Class: "secondary"}
+	failed := 0
+	for _, x := range v.Steps {
+		if x.State == "failed" {
+			failed++
+		}
+	}
+	switch {
+	case v.Running:
+	case v.State == "stale":
+		c.Class, c.Flag, c.FlagTag = "primary", "Checks stale", true
+	case v.ConfigErrors > 0:
+		c.Flag, c.FlagClass = plural(v.ConfigErrors, "config error"), "bad text"
+	case failed > 0:
+		c.Flag, c.FlagClass, c.FlagN = "Rule failed", "bad", failed
+	case len(v.AIFailed) > 0:
+		c.Flag, c.FlagClass, c.FlagN = "AI checks failed", "warn", len(v.AIFailed)
+	}
+	return c
 }
 
 // wfSlot is one fixed place in the button row. Present is false when the
@@ -224,6 +261,7 @@ func (s *Server) wfGated(r *http.Request, ref store.FindingRef) (wfView, checksV
 		}
 	}
 	wf.arrange(auth.UserFrom(r.Context()), ref.F.Meta)
+	wf.Check = checkOf(checks)
 	return wf, checks
 }
 

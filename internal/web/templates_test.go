@@ -5,8 +5,10 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"yars/internal/finding"
+	"yars/internal/gitrepo"
 	"yars/internal/store"
 )
 
@@ -24,6 +26,55 @@ func (e *env) addTemplate(t *testing.T, slug, title string) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A template shows its version, owner (who made it) and last edit from
+// git; History lists every version.
+func TestTemplateOwnerAndVersions(t *testing.T) {
+	e := setup(t)
+	if rec := e.do(t, "bob", "POST", "/templates/new", url.Values{"title": {"SQL injection"}}, nil); rec.Code != http.StatusSeeOther {
+		t.Fatalf("create %d", rec.Code)
+	}
+	if rec := e.do(t, "dora", "POST", "/templates/sql-injection", url.Values{"title": {"SQL injection"}, "severity": {"high"}}, nil); rec.Code != http.StatusSeeOther {
+		t.Fatalf("save %d %s", rec.Code, rec.Body.String())
+	}
+	today := time.Now().Format("2006-01-02")
+	b := e.do(t, "alice", "GET", "/templates", nil, nil).Body.String()
+	for _, want := range []string{`<span class="tplver mono">v2</span>`, ">Last edited</th>", ">Owner</th>", `<td class="mono edited">` + today + ` · dora</td>`, `<td class="owner" title="bob">bob</td>`} {
+		if !strings.Contains(b, want) {
+			t.Fatalf("list lacks %q:\n%s", want, b)
+		}
+	}
+	noInline(t, "templates", b)
+	p := e.do(t, "alice", "GET", "/templates/sql-injection", nil, nil).Body.String()
+	for _, want := range []string{`<span class="idchip">v2</span>`, `Used 0 · dora · ` + today, `<a class="btn secondary w128" href="/templates/sql-injection/history">History</a>`, "Owner bob"} {
+		if !strings.Contains(p, want) {
+			t.Fatalf("template page lacks %q:\n%s", want, p)
+		}
+	}
+	rec := e.do(t, "alice", "GET", "/templates/sql-injection/history", nil, nil)
+	h := rec.Body.String()
+	if rec.Code != 200 {
+		t.Fatalf("history %d", rec.Code)
+	}
+	for _, want := range []string{"<thead>", ">Version</th>", ">Date</th>", ">Author</th>", ">Change</th>", ">v2</td>", ">v1</td>", "templates: save sql-injection"} {
+		if !strings.Contains(h, want) {
+			t.Fatalf("history lacks %q:\n%s", want, h)
+		}
+	}
+	if strings.Index(h, ">v2</td>") > strings.Index(h, ">v1</td>") {
+		t.Fatal("history not newest first")
+	}
+	noInline(t, "template history", h)
+	if rec := e.do(t, "alice", "GET", "/templates/nope/history", nil, nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown template history %d", rec.Code)
+	}
+	// the list reads git once per change of the main repo
+	before := gitrepo.Spawned()
+	e.do(t, "alice", "GET", "/templates", nil, nil)
+	if n := gitrepo.Spawned() - before; n != 0 {
+		t.Fatalf("%d git processes for the templates page", n)
 	}
 }
 

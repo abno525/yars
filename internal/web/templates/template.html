@@ -2,11 +2,12 @@
 {{$t := .Tpl}}
 <div class="titlerow">
   <div class="titlecol">
-    <nav class="crumbs"><a href="/templates">Templates</a><span class="sep" aria-hidden="true">/</span><span class="idchip">{{$t.Slug}}</span></nav>
+    <nav class="crumbs"><a href="/templates">Templates</a><span class="sep" aria-hidden="true">/</span><span class="idchip">v{{$t.Own.Version}}</span></nav>
     <h1 title="{{$t.Title}}">{{$t.Title}}</h1>
   </div>
   <div class="actions">
-    <span class="mono usedcount">used {{$t.Used}}</span>
+    <span class="mono usedcount" title="{{$t.Slug}}">Owner {{$t.Own.Owner}} · Used {{$t.Used}} · {{$t.Own.EditedBy}} · {{$t.Own.EditedOn}}</span>
+    <a class="btn secondary w128" href="/templates/{{$t.Slug}}/history">History</a>
     {{if $t.CanEdit}}<form method="post" action="/templates/{{$t.Slug}}/delete"><button class="btn danger w128" onclick="return confirm('Delete template?')">Delete</button></form>{{else}}<span class="slot w128"></span>{{end}}
   </div>
 </div>

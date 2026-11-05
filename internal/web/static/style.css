@@ -175,6 +175,7 @@ label { font-size: 13px; font-weight: 600; }
 .btn svg { flex: none; }
 .w96 { width: 96px; } .w112 { width: 112px; } .w128 { width: 128px; } .w136 { width: 136px; }
 .w152 { width: 152px; } .w216 { width: 216px; } .w240 { width: 240px; }
+.w80 { width: 80px; } .w120 { width: 120px; } .w176 { width: 176px; }
 
 /* fixed place for something that may come and go */
 .slot { display: inline-flex; align-items: center; flex: none; min-height: 40px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
@@ -460,7 +461,30 @@ table.kv { width: 100%; border-collapse: collapse; }
 .step.done { background: var(--navy); color: #FFFFFF; }
 .step.current { background: var(--accent); color: var(--on-accent); }
 /* second row: reviewers (clipped) | state 128 | fixed button slots */
-.wfrow { height: 56px; padding: 0 16px; display: grid; grid-template-columns: minmax(0, 1fr) 128px auto; align-items: center; gap: 12px; border-top: 1px solid var(--line); }
+.wfrow { height: 56px; padding: 0 16px; display: grid; grid-template-columns: minmax(0, 1fr) 128px auto auto; align-items: center; gap: 12px; border-top: 1px solid var(--line); }
+/* Check (152) and its state slot (164): stale, a failed rule, AI down */
+.wfcheck { display: flex; align-items: center; gap: 8px; }
+.checkslot { width: 164px; flex: none; display: flex; justify-content: flex-end; align-items: center; overflow: hidden; white-space: nowrap; }
+.checkflag {
+  height: 28px; max-width: 164px; padding: 0 10px; display: inline-flex; align-items: center; gap: 8px; overflow: hidden;
+  border: 1px solid currentColor; font-size: 13px; font-weight: 600; white-space: nowrap; text-overflow: ellipsis;
+}
+.checkflag.warn { color: var(--accent-text); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.checkflag.bad { color: var(--red); background: color-mix(in srgb, var(--red) 6%, transparent); }
+.checkflag.text { height: auto; padding: 0; border: 0; background: transparent; }
+.checkflag .mono { font-size: 12px; }
+.wfcheck .btn svg { width: 16px; height: 16px; }
+.wfcheck .btn { gap: 8px; }
+.btn.checking { position: relative; overflow: hidden; }
+.btn.checking:disabled { background: var(--bg); color: var(--muted); border-color: var(--field-line); cursor: progress; }
+.btn.checking .mono { font-size: 13px; }
+.btn.checking svg { animation: spin 0.9s linear infinite; }
+.btn.checking progress { position: absolute; left: 0; right: 0; bottom: 0; width: 100%; height: 3px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+progress { appearance: none; -webkit-appearance: none; border: 0; background: var(--off-bg); color: var(--accent); }
+progress::-webkit-progress-bar { background: var(--off-bg); }
+progress::-webkit-progress-value { background: var(--accent); }
+progress::-moz-progress-bar { background: var(--accent); }
 .wfrevs { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .rl { flex: none; font-size: 13px; color: var(--muted); }
 .chips { display: flex; gap: 8px; min-width: 0; overflow: hidden; flex: 0 1 auto; }
@@ -581,6 +605,53 @@ table.kv { width: 100%; border-collapse: collapse; }
 .checktable td { height: 48px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .checktable td code { font: 500 13px var(--mono); }
 .checktable td form { margin: 0; display: flex; }
+.checktable th.c-reason { width: 200px; }
+/* each rule of the run: id 200 | kind 64 | state | time or Retry 80 */
+.checks .runinfo { width: 136px; text-align: right; font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.steplist { border-bottom: 1px solid var(--line); }
+.steprow {
+  min-height: 52px; padding: 0 20px; display: grid; grid-template-columns: 200px 64px minmax(0, 1fr) 80px; gap: 12px; align-items: center;
+  border-top: 1px solid var(--line-soft); font-size: 14px;
+}
+.steplist > .steprow:first-child { border-top: 0; }
+.steprow .ruleid { font: 500 13px var(--mono); color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kt {
+  width: 64px; height: 20px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--ink); color: var(--ink);
+  font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+}
+.kt.fast { border-color: var(--field-line); color: var(--muted); }
+.stepstate { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stepstate.pass { color: var(--green-text); font-weight: 600; }
+.stepstate.hits { color: var(--accent-text); font-weight: 600; }
+.stepstate.queued { font: 500 13px var(--mono); color: var(--muted); }
+.stepstate.running { display: flex; align-items: center; gap: 10px; }
+.stepstate.running .mono { font-size: 13px; color: var(--muted); }
+.stepstate.running progress { width: 120px; height: 6px; flex: none; }
+.stepstate.running progress:indeterminate {
+  background: linear-gradient(90deg, var(--accent) 0 40%, var(--off-bg) 40% 100%) 0 0 / 200% 100%;
+  animation: steprun 1.2s linear infinite;
+}
+.stepstate.running progress:indeterminate::-webkit-progress-bar { background: transparent; }
+.stepstate.running progress:indeterminate::-moz-progress-bar { background: transparent; }
+@keyframes steprun { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+.stepstate.failed { color: var(--red); font-weight: 600; }
+.aihead ~ .steprow .stepstate.failed { color: var(--accent-text); font-size: 13px; }
+.steptime { text-align: right; font-size: 13px; color: var(--muted); }
+.steprow form { margin: 0; display: flex; justify-content: flex-end; }
+.aihead {
+  height: 40px; padding: 0 20px; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  border-top: 1px solid var(--line); background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.aihead + .steprow { border-top: 0; }
+.aititle { font-size: 13px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent-text); }
+.aihead .mono { font-size: 12px; color: var(--muted); }
+/* Dismiss asks why: Reason, Cancel, Dismiss */
+.checktable .dismissrow td { height: auto; padding: 12px 16px; background: var(--panel); white-space: normal; overflow: visible; }
+.checktable .dismissform { display: flex; flex-direction: column; gap: 8px; }
+.dismissform .field { display: flex; flex-direction: column; gap: 6px; min-width: 0; font-size: 13px; font-weight: 600; }
+.dismissform input[name=reason] { height: 40px; }
+.dismissform input[name=reason]:focus { outline: 2px solid var(--accent); outline-offset: -2px; }
+.dismissacts { display: flex; justify-content: flex-end; gap: 8px; }
 .checks .dismissed { border-top: 1px solid var(--line); }
 .checks .dismissed summary {
   height: 40px; padding: 0 24px; display: flex; align-items: center; gap: 8px; cursor: pointer; background: var(--panel);
@@ -816,6 +887,16 @@ a.atab:hover { color: var(--ink); background: var(--panel); }
 .benchtable th.c-where { width: 120px; }
 .benchtable td { height: 48px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .benchtable td code { font: 500 13px var(--mono); }
+.benchrun { gap: 8px; }
+.benchsum { min-width: 0; font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.table.benchall th.c-id { width: 72px; }
+.table.benchall th.c-quote { width: 160px; }
+.benchall th.c-hits, .benchall td.c-hits { width: 64px; text-align: right; }
+.benchall th.c-fp, .benchall td.c-fp { width: 96px; text-align: center; }
+.benchall td.c-fp input { width: 20px; height: 20px; accent-color: var(--ink); }
+.benchall tr.fp td { background: var(--panel); color: var(--muted); }
+.benchall tr.fp td.c-hits, .benchall tr.fp td code { text-decoration: line-through; }
+.btn.ghost[aria-expanded=true] { background: var(--save-bg); color: var(--save-fg); border-color: var(--save-bg); }
 
 /* ---------- accounts: shared pieces ---------- */
 :root { --arch-bg: #EEF0F3; --arch-line: #C9CED6; --arch-tag: #5B6474; --bad-bg: #FBE4E1; --bad-line: #F1B9B3; --warn-tag: #F6C343; }
@@ -951,6 +1032,8 @@ form.inline input, form.inline select { height: 32px; font-size: 14px; }
 .panel.once:not(.idle) { border: 2px solid var(--accent); }
 .copyrow { height: 40px; margin: 12px 20px; display: flex; align-items: center; gap: 12px; }
 .copyrow code { flex: 1; min-width: 0; height: 40px; padding: 0 12px; display: flex; align-items: center; background: var(--code-bg); font: 500 13px var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.copyrow.newsecret .tag { flex: none; }
+.copyrow.newsecret code { outline: 2px solid var(--accent); outline-offset: -2px; }
 .usage { display: flex; flex-direction: column; gap: 6px; }
 code.block { display: block; padding: 8px 10px; background: var(--code-bg); font-size: 12px; overflow-wrap: anywhere; margin-bottom: 8px; }
 
@@ -1124,7 +1207,20 @@ a.etab:hover { color: var(--ink); background: var(--panel); }
 
 /* templates */
 .newtpl { display: flex; gap: 12px; margin: 0; }
-.usedcount { width: 96px; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.usedcount { width: 320px; text-align: right; font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tpltable th.c-edited { width: 200px; }
+.tpltable th.c-owner { width: 120px; }
+.tpltable td.edited { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tpltable td.owner { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tpltitle { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.tpltitle a { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tplver { flex: none; font-size: 13px; font-weight: 500; color: var(--muted); }
+.tplhist { table-layout: fixed; }
+.tplhist th.c-ver { width: 96px; }
+.tplhist th.c-date { width: 176px; }
+.tplhist th.c-author { width: 160px; }
+.tplhist th.c-hash { width: 112px; }
+.tplhist td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .fgrid.tplmeta { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 2fr) minmax(0, 1fr); }
 .tpltable th.c-pick { width: 48px; }
 .tpltable th.c-num { width: 88px; }

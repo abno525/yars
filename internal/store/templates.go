@@ -7,6 +7,7 @@ import (
 	"path"
 	"sort"
 	"strings"
+	"time"
 
 	"yars/internal/finding"
 	"yars/internal/gitrepo"
@@ -137,6 +138,55 @@ func (s *Store) UpdateTemplateSection(slug, section, body, base string, a gitrep
 		cur.SetSection(section, body)
 		return cur, nil
 	})
+}
+
+// TemplateVersion is one commit of a template file: N counts from 1 (the
+// save that made it).
+type TemplateVersion struct {
+	N                     int
+	Hash, Author, Subject string
+	Time                  time.Time
+}
+
+// TemplateHistories returns every template's versions from git, newest
+// first, by slug. A template deleted and made again starts at 1. It runs one
+// git process, and none while the main repo's HEAD is unchanged.
+func (s *Store) TemplateHistories() (map[string][]TemplateVersion, error) {
+	head, err := s.head("")
+	if err != nil {
+		return nil, err
+	}
+	s.tplHistMu.Lock()
+	defer s.tplHistMu.Unlock()
+	if s.tplHist != nil && head != "" && s.tplHistAt == head {
+		return s.tplHist, nil
+	}
+	es, err := s.repo.LogDir(TemplatesDir)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string][]TemplateVersion{}
+	ended := map[string]bool{} // deleted at a newer commit: older ones don't count
+	for _, e := range es {
+		for _, p := range e.Paths {
+			slug, ok := strings.CutSuffix(strings.TrimPrefix(p, TemplatesDir+"/"), ".md")
+			if !ok || !ValidSlug(slug) || ended[slug] {
+				continue
+			}
+			if e.Subject == "templates: delete "+slug {
+				ended[slug] = true
+				continue
+			}
+			out[slug] = append(out[slug], TemplateVersion{Hash: e.Hash, Author: e.Author, Subject: e.Subject, Time: e.Time})
+		}
+	}
+	for _, vs := range out {
+		for i := range vs {
+			vs[i].N = len(vs) - i
+		}
+	}
+	s.tplHist, s.tplHistAt = out, head
+	return out, nil
 }
 
 // DeleteTemplate removes a template with one settings commit.

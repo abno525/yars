@@ -62,21 +62,34 @@ func TestChecksPanel(t *testing.T) {
 	if !strings.Contains(p, `hx-get="/e/acme/f/001/checks"`) || !strings.Contains(p, "sse:check") || !strings.Contains(p, "data-sse") {
 		t.Fatalf("no live refresh:\n%s", p)
 	}
+	// the Check button sits in the workflow bar, before Submit
+	wf := wfBar(t, b)
+	if !regexp.MustCompile(`<button[^>]*class="btn secondary w152"[^>]*>[^<]*<svg[^>]*>.*</svg>Check</button>`).MatchString(wf) ||
+		strings.Index(wf, ">Check</button>") > strings.Index(wf, ">Submit</button>") {
+		t.Fatalf("no Check button before Submit in the bar:\n%s", wf)
+	}
+	if strings.Contains(p, ">Check</button>") {
+		t.Fatal("Check button still in the checks panel")
+	}
+	// started: the bar answers, running, and the panel comes along
 	rec := e.do(t, "alice", "POST", fpath+"/checks", url.Values{}, nil)
 	run := rec.Body.String()
-	if rec.Code != 200 || !regexp.MustCompile(`<button[^>]*class="btn [^"]*w152"[^>]*disabled[^>]*>Checking \d/2</button>`).MatchString(run) {
-		t.Fatalf("running panel %d:\n%s", rec.Code, run)
+	if rec.Code != 200 || !regexp.MustCompile(`<button[^>]*class="btn secondary w152 checking"[^>]*disabled[^>]*>.*Checking <span class="mono">\d/2</span><progress value="\d" max="2"></progress></button>`).MatchString(run) {
+		t.Fatalf("running bar %d:\n%s", rec.Code, run)
 	}
-	if !strings.Contains(run, `class="tag check-running"`) {
-		t.Fatalf("no running state:\n%s", run)
+	if !strings.Contains(run, `id="workflow"`) || !strings.Contains(run, `hx-swap-oob="true"`) || !strings.Contains(run, `class="tag check-running"`) {
+		t.Fatalf("bar with the panel out of band:\n%s", run)
 	}
 	e.srv.Store.WaitChecks()
 	done := e.do(t, "alice", "GET", fpath+"/checks", nil, nil).Body.String()
 	if !strings.Contains(done, "script says hi") || !strings.Contains(done, "q1") || !strings.Contains(done, ">Impact<") {
 		t.Fatalf("finished panel:\n%s", done)
 	}
-	if !regexp.MustCompile(`<button[^>]*class="btn [^"]*w152"[^>]*>Check</button>`).MatchString(done) || !strings.Contains(done, `class="tag check-done"`) {
-		t.Fatalf("idle button / done state:\n%s", done)
+	if !strings.Contains(done, `class="tag check-done"`) {
+		t.Fatalf("done state:\n%s", done)
+	}
+	if bar := e.do(t, "alice", "GET", fpath+"/workflow", nil, nil).Body.String(); !regexp.MustCompile(`class="btn secondary w152"[^>]*>.*Check</button>`).MatchString(bar) {
+		t.Fatalf("idle Check button:\n%s", bar)
 	}
 	// the violations were posted to the chat as check comments
 	chat := e.do(t, "alice", "GET", fpath+"/chat", nil, nil).Body.String()
@@ -99,15 +112,24 @@ func TestChecksPanelLayout(t *testing.T) {
 	}
 	// alice (pentester) may dismiss the warning, not the error: the error's
 	// button keeps its place
-	if strings.Count(p, ">Dismiss</button>") != 1 || !strings.Contains(p, `<span class="slot w96"></span>`) {
+	if strings.Count(p, "data-dismiss-toggle") != 1 || !strings.Contains(p, `<span class="slot w96"></span>`) {
 		t.Fatalf("dismiss buttons for alice:\n%s", p)
 	}
 	if !regexp.MustCompile(`class="btn [^"]*w96"`).MatchString(p) {
 		t.Fatalf("dismiss width:\n%s", p)
 	}
+	// Dismiss opens a reason form: Reason, Cancel, Dismiss (error: Dismiss error)
+	if !strings.Contains(p, `name="reason"`) || !strings.Contains(p, `class="btn save sm w120">Dismiss</button>`) || !strings.Contains(p, "data-dismiss-cancel") {
+		t.Fatalf("reason form:\n%s", p)
+	}
 	pb := e.do(t, "bob", "GET", fpath+"/checks", nil, nil).Body.String()
-	if strings.Count(pb, ">Dismiss</button>") != 2 {
+	if strings.Count(pb, "data-dismiss-toggle") != 2 || !strings.Contains(pb, `>Dismiss error</button>`) {
 		t.Fatalf("dismiss buttons for bob:\n%s", pb)
+	}
+	// each rule of the run has a row: id, kind, state
+	steps := regexp.MustCompile(`<div class="steprow[^"]*">`).FindAllString(p, -1)
+	if len(steps) != 2 || !strings.Contains(p, `<span class="ruleid" title="title-word">title-word</span>`) || !strings.Contains(p, `<span class="kt">Script</span>`) {
+		t.Fatalf("step rows:\n%s", p)
 	}
 	if !strings.Contains(p, `<span class="badge">1</span>`) {
 		t.Fatalf("counts:\n%s", p)
@@ -117,19 +139,24 @@ func TestChecksPanelLayout(t *testing.T) {
 func TestChecksDismiss(t *testing.T) {
 	e := setup(t)
 	e.rules(t, styleRules, map[string]string{"check.sh": "cat >/dev/null; echo '[]'\n"})
-	form := url.Values{"rule": {"title-word"}, "quote": {"injection"}}
+	form := url.Values{"rule": {"title-word"}, "quote": {"injection"}, "reason": {"Injection is the client's term"}}
 	if rec := e.do(t, "alice", "POST", fpath+"/checks/dismiss", form, nil); rec.Code != 403 {
 		t.Fatalf("pentester dismissed an error: %d", rec.Code)
 	}
-	if rec := e.do(t, "alice", "POST", fpath+"/checks/dismiss", url.Values{"rule": {"nope"}, "quote": {"x"}}, nil); rec.Code != 400 {
+	if rec := e.do(t, "alice", "POST", fpath+"/checks/dismiss", url.Values{"rule": {"nope"}, "quote": {"x"}, "reason": {"x"}}, nil); rec.Code != 400 {
 		t.Fatalf("unknown violation: %d", rec.Code)
+	}
+	// a reason is required
+	if rec := e.do(t, "bob", "POST", fpath+"/checks/dismiss", url.Values{"rule": {"title-word"}, "quote": {"injection"}, "reason": {"  "}}, nil); rec.Code != 400 {
+		t.Fatalf("dismiss without a reason: %d", rec.Code)
 	}
 	rec := e.do(t, "bob", "POST", fpath+"/checks/dismiss", form, nil)
 	if rec.Code != 200 {
 		t.Fatalf("reviewer dismiss %d: %s", rec.Code, rec.Body.String())
 	}
 	p := rec.Body.String()
-	if !strings.Contains(p, "Dismissed") || !strings.Contains(p, ">bob<") || !strings.Contains(p, "<details") {
+	if !strings.Contains(p, "Dismissed") || !strings.Contains(p, ">bob<") || !strings.Contains(p, "<details") ||
+		!strings.Contains(p, "<th class=\"c-reason\">Reason</th>") || !strings.Contains(p, "Injection is the client&#39;s term") {
 		t.Fatalf("dismissed row:\n%s", p)
 	}
 	// the gate ignores it now
@@ -190,6 +217,65 @@ func TestChecksStaleAndInvalid(t *testing.T) {
 	p = e.do(t, "alice", "GET", fpath+"/checks", nil, nil).Body.String()
 	if !strings.Contains(p, `class="tag check-stale"`) {
 		t.Fatalf("stale state:\n%s", p)
+	}
+}
+
+// wfBar is the workflow bar (#workflow) of a page.
+func wfBar(t *testing.T, b string) string {
+	t.Helper()
+	i := strings.Index(b, `id="workflow"`)
+	if i < 0 {
+		t.Fatalf("no workflow bar:\n%s", b)
+	}
+	j := strings.Index(b[i:], "</section>")
+	return b[i : i+j]
+}
+
+// Each rule of a run is a row: Pass, hits, or failed with Retry; Retry runs
+// that rule again. The bar flags a failed rule, and stale checks.
+func TestCheckStepRowsAndRetry(t *testing.T) {
+	e := setup(t)
+	e.rules(t, styleRules, map[string]string{"check.sh": "cat >/dev/null; echo boom >&2; exit 3\n"})
+	e.do(t, "alice", "POST", fpath+"/checks", url.Values{}, nil)
+	e.srv.Store.WaitChecks()
+	p := e.do(t, "alice", "GET", fpath+"/checks", nil, nil).Body.String()
+	if !strings.Contains(p, `<div class="steprow failed">`) || !strings.Contains(p, "rule failed: boom") {
+		t.Fatalf("failed step:\n%s", p)
+	}
+	if !regexp.MustCompile(`<button class="btn secondary sm w80"[^>]*>Retry</button>`).MatchString(p) || !strings.Contains(p, `name="rule" value="scripted"`) {
+		t.Fatalf("no Retry:\n%s", p)
+	}
+	if !strings.Contains(p, `<span class="stepstate hits" title="1 error">1 error</span>`) {
+		t.Fatalf("hits step:\n%s", p)
+	}
+	if bar := wfBar(t, e.do(t, "alice", "GET", fpath, nil, nil).Body.String()); !strings.Contains(bar, `<span class="checkflag bad">Rule failed <span class="mono">1</span></span>`) {
+		t.Fatalf("bar flag:\n%s", bar)
+	}
+	// fixed script: Retry runs it alone, the panel shows it passing
+	e.rules(t, styleRules, map[string]string{"check.sh": "cat >/dev/null; echo '[]'\n"})
+	rec := e.do(t, "alice", "POST", fpath+"/checks/retry", url.Values{"rule": {"scripted"}}, nil)
+	if rec.Code != 200 {
+		t.Fatalf("retry %d %s", rec.Code, rec.Body.String())
+	}
+	e.srv.Store.WaitChecks()
+	p = e.do(t, "alice", "GET", fpath+"/checks", nil, nil).Body.String()
+	if strings.Contains(p, "steprow failed") || !strings.Contains(p, `<span class="stepstate pass" title="Pass">Pass</span>`) {
+		t.Fatalf("after retry:\n%s", p)
+	}
+	if !regexp.MustCompile(`<span class="steptime mono">\d+(\.\d)? s</span>`).MatchString(p) {
+		t.Fatalf("script timing:\n%s", p)
+	}
+	if rec := e.do(t, "alice", "POST", fpath+"/checks/retry", url.Values{"rule": {"nope"}}, nil); rec.Code != 400 {
+		t.Fatalf("retry unknown rule %d", rec.Code)
+	}
+	// an edit makes the checks stale: the bar says so, Check is primary
+	e.srv.Store.UpdateSection("acme", "F-001-sql-injection", "Impact", "changed", "", gitrepo.Author{Name: "x", Email: "x@x"})
+	bar := wfBar(t, e.do(t, "alice", "GET", fpath, nil, nil).Body.String())
+	if !strings.Contains(bar, `<span class="tag check-stale">Checks stale</span>`) || !strings.Contains(bar, `class="btn primary w152"`) {
+		t.Fatalf("stale bar:\n%s", bar)
+	}
+	if strings.Contains(bar, "style=") {
+		t.Fatal("inline style")
 	}
 }
 

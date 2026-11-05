@@ -104,12 +104,26 @@ func TestTokenCreatedOnce(t *testing.T) {
 	form := url.Values{"name": {"laptop"}, "kind": {"mcp"}, "access": {"actions"}, "action": {"comment", "edit"},
 		"engs": {"selected"}, "eng": {"acme"}, "expires": {"30"}}
 	rec := e.do(t, "alice", "POST", "/settings/tokens/new", form, nil)
-	if rec.Code != 200 {
-		t.Fatalf("create %d %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/settings#tokens" {
+		t.Fatalf("create %d %q", rec.Code, rec.Header().Get("Location"))
 	}
-	tok := secretRe.FindString(rec.Body.String())
+	if secretRe.MatchString(rec.Header().Get("Location")) || secretRe.MatchString(rec.Body.String()) {
+		t.Fatal("secret in the redirect")
+	}
+	// someone else's next page does not get it
+	if b := e.do(t, "bob", "GET", "/settings", nil, nil).Body.String(); secretRe.MatchString(b) {
+		t.Fatal("secret shown to another session")
+	}
+	first := e.do(t, "alice", "GET", "/settings", nil, nil)
+	tok := secretRe.FindString(first.Body.String())
 	if tok == "" {
-		t.Fatalf("secret not shown:\n%s", rec.Body.String())
+		t.Fatalf("secret not shown after the redirect:\n%s", first.Body.String())
+	}
+	if first.Header().Get("Cache-Control") != "no-store" {
+		t.Fatal("page with the secret is cacheable")
+	}
+	if n := len(auth.NewTokens(e.srv.Store.DB()).ListFor("alice")); n != 1 {
+		t.Fatalf("tokens after create and reload: %d", n)
 	}
 	tokens := auth.NewTokens(e.srv.Store.DB())
 	u, info, ok := tokens.Verify(tok, db.TokenMCP)
@@ -130,7 +144,7 @@ func TestTokenCreatedOnce(t *testing.T) {
 	}
 	// read only, every engagement, never expires
 	rec = e.do(t, "alice", "POST", "/settings/tokens/new", url.Values{"name": {"ro"}, "kind": {"git"}, "access": {"read"}, "engs": {"all"}, "expires": {"never"}}, nil)
-	_, info, ok = tokens.Verify(secretRe.FindString(rec.Body.String()), db.TokenGit)
+	_, info, ok = tokens.Verify(secretRe.FindString(e.follow(t, "alice", rec)), db.TokenGit)
 	if !ok || !info.ReadOnly() || info.Restricted() || info.Expires != "" {
 		t.Fatalf("read-only token %+v", info)
 	}

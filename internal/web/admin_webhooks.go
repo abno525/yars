@@ -126,7 +126,12 @@ func (s *Server) hooksPage(w http.ResponseWriter, r *http.Request) {
 			f, picked = hookForm{ID: h.ID, URL: h.URL, Enabled: h.Enabled}, h.Events
 		}
 	}
-	s.adminPage(w, r, "webhooks", http.StatusOK, func(p *page) error { return s.hooksFill(p, sel, f, picked) })
+	sec := s.flash.take(r, "webhook")
+	w.Header().Set("Cache-Control", "no-store")
+	s.adminPage(w, r, "webhooks", http.StatusOK, func(p *page) error {
+		p.Admin.Hooks.Secret = sec
+		return s.hooksFill(p, sel, f, picked)
+	})
 }
 
 // hookInput reads the form's URL and events.
@@ -164,11 +169,10 @@ func (s *Server) hookCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	s.Store.DB().Audit(u.Username, "webhook.add", url, strings.Join(ev, ","))
 	s.startHooks()
-	w.Header().Set("Cache-Control", "no-store")
-	s.adminPage(w, r, "webhooks", http.StatusOK, func(p *page) error {
-		p.Admin.Hooks.Secret = sec
-		return s.hooksFill(p, id, hookForm{Enabled: true}, nil)
-	})
+	// POST-redirect-GET: a reload doesn't add a second webhook; the page
+	// after the redirect shows the secret once
+	s.flash.put(r, "webhook", sec)
+	http.Redirect(w, r, "/admin/webhooks?hook="+strconv.FormatInt(id, 10), http.StatusSeeOther)
 }
 
 func (s *Server) hookUpdate(w http.ResponseWriter, r *http.Request) {

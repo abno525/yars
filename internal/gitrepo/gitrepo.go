@@ -204,9 +204,11 @@ func (r *Repo) Show(rev, path string) ([]byte, error) {
 	return []byte(out), err
 }
 
-// LogEntry is one commit that touched a file, with the file's path in it.
+// LogEntry is one commit that touched a file, with the file's path in it
+// (Paths: every file it touched under the logged path).
 type LogEntry struct {
 	Hash, Author, Subject, Path string
+	Paths                       []string
 	Time                        time.Time
 }
 
@@ -217,6 +219,20 @@ func (r *Repo) LogFollow(p string) ([]LogEntry, error) {
 	if err != nil {
 		return nil, err
 	}
+	return parseLog(out), nil
+}
+
+// LogDir lists the commits touching files under dir, newest first, each
+// with the files it touched there: one git process.
+func (r *Repo) LogDir(dir string) ([]LogEntry, error) {
+	out, err := r.run(nil, "-c", "core.quotePath=false", "log", "--name-only", "--format=%x1e%H%x1f%an%x1f%at%x1f%s", "--", dir)
+	if err != nil {
+		return nil, err
+	}
+	return parseLog(out), nil
+}
+
+func parseLog(out string) []LogEntry {
 	var es []LogEntry
 	for _, chunk := range strings.Split(out, "\x1e") {
 		head, rest, _ := strings.Cut(chunk, "\n")
@@ -230,13 +246,15 @@ func (r *Repo) LogFollow(p string) ([]LogEntry, error) {
 		}
 		for _, l := range strings.Split(rest, "\n") {
 			if l = strings.TrimSpace(l); l != "" {
-				e.Path = l
-				break
+				if e.Path == "" {
+					e.Path = l
+				}
+				e.Paths = append(e.Paths, l)
 			}
 		}
 		es = append(es, e)
 	}
-	return es, nil
+	return es
 }
 
 // Blobs reads files at revisions ("<rev>:<path>" each) in one git process;

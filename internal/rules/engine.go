@@ -108,6 +108,20 @@ func (e *Engine) RuleCount() int {
 	return n
 }
 
+// CheckRules lists the rules a Check runs, in order.
+func (e *Engine) CheckRules() []Rule { return e.Rules().Runs(All, e.Runner) }
+
+// CheckWith runs every rule kind (or only h.Only) on a finding within the
+// time budget, telling h about each rule.
+func (e *Engine) CheckWith(ctx context.Context, f *finding.Finding, h Hooks) []Violation {
+	if e.Budget > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, e.Budget)
+		defer cancel()
+	}
+	return e.Rules().RunWith(ctx, DocOf(f), e.Cfg, All, e.Runner, h)
+}
+
 // CheckDoc is Check on a finding document.
 func (e *Engine) CheckDoc(ctx context.Context, d Doc, progress func(done, total int)) []Violation {
 	if e.Budget > 0 {

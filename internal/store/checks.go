@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -27,6 +28,13 @@ type Checker interface {
 	Check(ctx context.Context, f *finding.Finding, progress func(done, total int)) []rules.Violation
 }
 
+// StepChecker is a Checker that also runs rule by rule: the rules a run
+// has, and a run (or one rule alone) telling hooks about each rule.
+type StepChecker interface {
+	CheckRules() []rules.Rule
+	CheckWith(ctx context.Context, f *finding.Finding, h rules.Hooks) []rules.Violation
+}
+
 // CheckStatus is a finding's latest check run as seen now.
 type CheckStatus struct {
 	Ref       FindingRef
@@ -35,6 +43,7 @@ type CheckStatus struct {
 	Running   bool // in progress in this server
 	Stale     bool // the finding changed since the run started
 	Results   []db.CheckResult
+	Steps     []db.CheckStep          // each rule of the run, in order
 	Dismissed map[string]db.Dismissal // by db.DismissKey
 }
 
@@ -87,6 +96,26 @@ func (s *Store) undismissed(engID, fid string, vs []rules.Violation) ([]rules.Vi
 // ChangeCheck; at the end the results are stored and each new violation is
 // posted as a chat thread (see finishCheck).
 func (s *Store) StartCheck(engID, dir string, u config.User) (db.CheckRun, error) {
+	return s.startCheck(engID, dir, "", u)
+}
+
+// RetryCheck runs one rule of the finding's latest run again (a rule that
+// failed, say) as a new run: the other rules keep their steps and results.
+// When the finding changed since that run, every rule runs.
+func (s *Store) RetryCheck(engID, dir, rule string, u config.User) (db.CheckRun, error) {
+	if rule == "" {
+		return db.CheckRun{}, fmt.Errorf("%w: no rule", ErrInvalidValue)
+	}
+	return s.startCheck(engID, dir, rule, u)
+}
+
+// carried is what a retry keeps from the run before it.
+type carried struct {
+	results []db.CheckResult
+	steps   map[string]db.CheckStep
+}
+
+func (s *Store) startCheck(engID, dir, only string, u config.User) (db.CheckRun, error) {
 	if s.db == nil {
 		return db.CheckRun{}, ErrNoDB
 	}
@@ -102,19 +131,57 @@ func (s *Store) StartCheck(engID, dir string, u config.User) (db.CheckRun, error
 	}
 	fid := ref.F.Meta.ID
 	key := checkKey(engID, fid)
+	hash := contentHash(raw)
+	sc, stepped := s.Linter.(StepChecker)
+	var ruleList []rules.Rule
+	if stepped {
+		ruleList = sc.CheckRules()
+	}
+	if only != "" && !slices.ContainsFunc(ruleList, func(r rules.Rule) bool { return r.ID == only }) {
+		return db.CheckRun{}, fmt.Errorf("%w: no rule %s to run", ErrInvalidValue, only)
+	}
 	s.checksMu.Lock()
 	if id, ok := s.running[key]; ok {
 		s.checksMu.Unlock()
 		return s.db.Run(id)
 	}
-	id, err := s.db.StartRun(engID, fid, contentHash(raw), u.Username)
+	var keep *carried
+	if only != "" {
+		prev, ok, err := s.db.LatestRun(engID, fid)
+		if err == nil && ok && prev.State != db.RunRunning && prev.ContentHash == hash {
+			keep, err = s.carry(prev.ID, only)
+		}
+		if err != nil {
+			s.checksMu.Unlock()
+			return db.CheckRun{}, err
+		}
+		if keep == nil {
+			only = "" // nothing to keep: run everything
+		}
+	}
+	id, err := s.db.StartRun(engID, fid, hash, u.Username)
 	if err != nil {
 		s.checksMu.Unlock()
 		return db.CheckRun{}, err
 	}
-	if c, ok := s.Linter.(interface{ RuleCount() int }); ok {
-		s.db.RunProgress(id, 0, c.RuleCount()) // "0/6" from the start
+	if stepped {
+		var steps []db.CheckStep
+		for i, r := range ruleList {
+			x := db.CheckStep{RunID: id, Pos: i, Rule: r.ID, Kind: r.KindName(), State: db.StepQueued}
+			if old, ok := keep.step(r.ID); ok && r.ID != only {
+				x.State, x.Started, x.Finished, x.Hits, x.Message, x.Fail = old.State, old.Started, old.Finished, old.Hits, old.Message, old.Fail
+			}
+			steps = append(steps, x)
+		}
+		s.db.AddSteps(steps)
 	}
+	total := 1
+	if only == "" {
+		if c, ok := s.Linter.(interface{ RuleCount() int }); ok {
+			total = c.RuleCount()
+		}
+	}
+	s.db.RunProgress(id, 0, total) // "0/6" from the start
 	if s.running == nil {
 		s.running = map[string]int64{}
 	}
@@ -122,14 +189,83 @@ func (s *Store) StartCheck(engID, dir string, u config.User) (db.CheckRun, error
 	s.checkWG.Add(1)
 	s.checksMu.Unlock()
 	s.notify(Change{Eng: engID, Fid: fid, Kind: ChangeCheck})
-	go s.runCheck(id, ref)
+	go s.runCheck(id, ref, only, keep)
 	return s.db.Run(id)
+}
+
+// carry reads what a retry of rule keeps from run prev: the other rules'
+// results and every step.
+func (s *Store) carry(prev int64, rule string) (*carried, error) {
+	res, err := s.db.RunResults(prev)
+	if err != nil {
+		return nil, err
+	}
+	steps, err := s.db.RunSteps(prev)
+	if err != nil {
+		return nil, err
+	}
+	c := &carried{steps: map[string]db.CheckStep{}}
+	for _, x := range steps {
+		c.steps[x.Rule] = x
+	}
+	for _, r := range res {
+		if r.Rule != rule {
+			c.results = append(c.results, r)
+		}
+	}
+	return c, nil
+}
+
+func (c *carried) step(rule string) (db.CheckStep, bool) {
+	if c == nil {
+		return db.CheckStep{}, false
+	}
+	x, ok := c.steps[rule]
+	return x, ok
+}
+
+// violations turns the kept results back into what a run found; a rule
+// that had failed fails again, so its open threads stay open.
+func (c *carried) violations() []rules.Violation {
+	if c == nil {
+		return nil
+	}
+	var out []rules.Violation
+	for _, r := range c.results {
+		v := rules.Violation{Rule: r.Rule, Level: r.Level, Message: r.Message, Target: r.Target, Quote: r.Quote}
+		if x := c.steps[r.Rule]; x.State == db.StepFailed && r.Target == "rules" {
+			v.Fail = x.Fail
+		}
+		out = append(out, v)
+	}
+	return out
+}
+
+// stepOutcome is how a rule ended, from what it reported.
+func stepOutcome(run int64, r rules.Rule, vs []rules.Violation) db.CheckStep {
+	x := db.CheckStep{RunID: run, Rule: r.ID, State: db.StepPass, Finished: db.StepStamp(time.Now())}
+	for _, v := range vs {
+		switch {
+		case v.Fail != "":
+			x.State, x.Message, x.Fail = db.StepFailed, v.Message, v.Fail
+		case notice(v):
+			if x.State != db.StepFailed {
+				x.State, x.Message = db.StepFailed, v.Message
+			}
+		default:
+			x.Hits++
+		}
+	}
+	if x.State == db.StepPass && x.Hits > 0 {
+		x.State = db.StepHits
+	}
+	return x
 }
 
 // WaitChecks waits until no check run is in progress.
 func (s *Store) WaitChecks() { s.checkWG.Wait() }
 
-func (s *Store) runCheck(id int64, ref FindingRef) {
+func (s *Store) runCheck(id int64, ref FindingRef, only string, keep *carried) {
 	eng, fid := ref.EngID, ref.F.Meta.ID
 	defer s.checkWG.Done()
 	defer func() {
@@ -148,7 +284,19 @@ func (s *Store) runCheck(id int64, ref FindingRef) {
 		}
 	}
 	var vs []rules.Violation
-	if c, ok := s.Linter.(Checker); ok {
+	if c, ok := s.Linter.(StepChecker); ok {
+		vs = c.CheckWith(context.Background(), ref.F, rules.Hooks{
+			Only:     only,
+			Progress: progress,
+			Start: func(r rules.Rule) {
+				if s.db.StepStarted(id, r.ID, time.Now()) == nil {
+					s.notify(Change{Eng: eng, Fid: fid, Kind: ChangeCheck})
+				}
+			},
+			Done: func(r rules.Rule, got []rules.Violation) { s.db.StepDone(stepOutcome(id, r, got)) },
+		})
+		vs = append(keep.violations(), vs...)
+	} else if c, ok := s.Linter.(Checker); ok {
 		vs = c.Check(context.Background(), ref.F, progress)
 	} else {
 		progress(0, 1)
@@ -352,6 +500,9 @@ func (s *Store) CheckStatus(engID, dir string) (CheckStatus, error) {
 	}
 	if st.HasRun {
 		st.Stale = st.Run.ContentHash != contentHash(raw)
+		if st.Steps, err = s.db.RunSteps(st.Run.ID); err != nil {
+			return st, err
+		}
 		if !st.Running {
 			if st.Results, err = s.db.RunResults(st.Run.ID); err != nil {
 				return st, err
@@ -401,6 +552,13 @@ func (s *Store) violationLevel(ref FindingRef, rule, qh string) (string, error) 
 // open comment is resolved. Warnings need edit rights, errors also the
 // reviewer role (CanDismiss).
 func (s *Store) Dismiss(engID, dir, rule, quote string, u config.User) error {
+	return s.DismissWhy(engID, dir, rule, quote, "", u)
+}
+
+// DismissWhy is Dismiss with the reason: it is kept with the dismissal and
+// posted as u's reply in the violation's open thread before it is resolved.
+func (s *Store) DismissWhy(engID, dir, rule, quote, reason string, u config.User) error {
+	reason = strings.TrimSpace(reason)
 	if s.db == nil {
 		return ErrNoDB
 	}
@@ -425,7 +583,7 @@ func (s *Store) Dismiss(engID, dir, rule, quote string, u config.User) error {
 	fid := ref.F.Meta.ID
 	k := db.DismissKey(rule, qh)
 	seq, err := s.db.TxForSeq(engID, func(tx *db.Tx) error {
-		if err := tx.Dismiss(db.Dismissal{Eng: engID, Fid: fid, Rule: rule, QuoteHash: qh, Level: level, By: u.Username}); err != nil {
+		if err := tx.Dismiss(db.Dismissal{Eng: engID, Fid: fid, Rule: rule, QuoteHash: qh, Level: level, By: u.Username, Reason: reason}); err != nil {
 			return err
 		}
 		refs, err := tx.CheckThreadRefs(engID, fid)
@@ -447,6 +605,12 @@ func (s *Store) Dismiss(engID, dir, rule, quote string, u config.User) error {
 		}
 		for _, it := range chat.Timeline(msgs) {
 			if it.Thread != nil && mine[it.Thread.Root.ID] && !it.Thread.Resolved {
+				if reason != "" {
+					if err := tx.AddMessage(engID, fid, chat.Message{ID: chat.NewID(), TS: time.Now().UTC().Truncate(time.Second),
+						User: u.Username, Reply: it.Thread.Root.ID, Text: reason}); err != nil {
+						return err
+					}
+				}
 				if err := tx.AddMessage(engID, fid, chat.Message{ID: chat.NewID(), TS: time.Now().UTC().Truncate(time.Second),
 					User: u.Username, Resolves: it.Thread.Root.ID}); err != nil {
 					return err

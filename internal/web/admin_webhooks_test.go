@@ -85,14 +85,21 @@ func TestAdminWebhooks(t *testing.T) {
 	}
 	// created: the secret is shown once
 	rec = e.do(t, "dora", "POST", "/admin/webhooks", url.Values{"url": {srv.URL + "/hook"}, "event": {"chat.posted", "finding.status_changed"}}, nil)
-	if rec.Code != http.StatusOK || rec.Header().Get("Cache-Control") != "no-store" {
-		t.Fatalf("create %d", rec.Code)
+	secRe := regexp.MustCompile(`whsec_[0-9a-f]{48}`)
+	if rec.Code != http.StatusSeeOther || !strings.HasPrefix(rec.Header().Get("Location"), "/admin/webhooks?hook=") ||
+		secRe.MatchString(rec.Header().Get("Location")) || secRe.MatchString(rec.Body.String()) {
+		t.Fatalf("create %d %q", rec.Code, rec.Header().Get("Location"))
 	}
-	sec := regexp.MustCompile(`whsec_[0-9a-f]{48}`).FindString(rec.Body.String())
-	if sec == "" {
-		t.Fatal("secret not shown")
+	first := e.do(t, "dora", "GET", rec.Header().Get("Location"), nil, nil)
+	sec := secRe.FindString(first.Body.String())
+	if sec == "" || first.Header().Get("Cache-Control") != "no-store" {
+		t.Fatal("secret not shown after the redirect")
 	}
-	b := e.do(t, "dora", "GET", "/admin/webhooks", nil, nil).Body.String()
+	b := e.do(t, "dora", "GET", rec.Header().Get("Location"), nil, nil).Body.String()
+	if secRe.MatchString(b) {
+		t.Fatal("secret shown on the second visit")
+	}
+	b = e.do(t, "dora", "GET", "/admin/webhooks", nil, nil).Body.String()
 	if strings.Contains(b, sec) || !strings.Contains(b, "…"+sec[len(sec)-4:]) || !strings.Contains(b, srv.URL+"/hook") || !strings.Contains(b, "<thead>") {
 		t.Fatal("list shows the secret or lacks the hook")
 	}

@@ -1,5 +1,5 @@
 {{define "workflow_bar"}}
-<section class="wf" id="workflow" aria-label="Workflow" hx-get="{{.URL}}" hx-trigger="sse:workflow, sse:content, sse:resync, sse:poll" hx-swap="outerHTML" data-sse>
+<section class="wf" id="workflow" aria-label="Workflow" hx-get="{{.URL}}" hx-trigger="sse:workflow, sse:content, sse:check, sse:resync, sse:poll" hx-swap="outerHTML" data-sse>
   <ol class="steps">
     {{if .IsWithdrawn}}{{range .Steps}}<li class="step">{{.}}</li>{{end}}{{else}}
     {{$past := true}}
@@ -34,6 +34,15 @@
       {{end}}
     </div>
     <span class="wfstate{{if .StateError}} error{{end}}" title="{{.State}}">{{.State}}</span>
+    {{with .Check}}{{if .On}}
+    <div class="wfcheck">
+      <span class="checkslot">{{if .Flag}}{{if .FlagTag}}<span class="tag check-stale">{{.Flag}}</span>{{else}}<span class="checkflag {{.FlagClass}}">{{.Flag}}{{if .FlagN}} <span class="mono">{{.FlagN}}</span>{{end}}</span>{{end}}{{end}}</span>
+      {{if not .Show}}<span class="slot w152"></span>
+      {{else if .Running}}<button type="button" class="btn {{.Class}} w152 checking" disabled aria-busy="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9"></path></svg>Checking <span class="mono">{{.Done}}/{{.Total}}</span><progress value="{{.Done}}" max="{{.Total}}"></progress></button>
+      {{else}}<button type="button" class="btn {{.Class}} w152" hx-post="{{.URL}}" hx-target="#workflow" hx-swap="outerHTML" data-slot="check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>Check</button>
+      {{end}}
+    </div>
+    {{end}}{{end}}
     <div class="wf-actions">
       {{range .Slots}}
       {{if not .Present}}<span class="slot {{.Width}}" data-slot="{{.Slot}}"></span>

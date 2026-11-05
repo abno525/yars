@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"yars/internal/auth"
+	"yars/internal/gitrepo"
 )
 
 // mainCommit formats the newest commit of the main repo.
@@ -300,5 +301,35 @@ func TestAdminRuleBench(t *testing.T) {
 	}
 	if rec := e.do(t, "dora", "GET", "/admin/rules/bench?rule=nope&eng=acme&fid="+fdir, nil, nil); rec.Code != http.StatusNotFound {
 		t.Fatalf("unknown rule %d", rec.Code)
+	}
+}
+
+// Run on engagement: every finding of the engagement, its hits and first
+// quote, and a false-positive mark for the rows with hits.
+func TestAdminRuleBenchEngagement(t *testing.T) {
+	e := setup(t)
+	e.rules(t, styleRules, map[string]string{"check.sh": "cat >/dev/null; echo '[]'\n"})
+	if _, err := e.srv.Store.CreateFinding("acme", "Missing HSTS header", gitrepo.Author{Name: "alice"}); err != nil {
+		t.Fatal(err)
+	}
+	page := e.do(t, "dora", "GET", "/admin/rules", nil, nil).Body.String()
+	if !regexp.MustCompile(`<button class="btn primary sm w176" name="all" value="1"[^>]*>Run on engagement</button>`).MatchString(page) {
+		t.Fatalf("no Run on engagement:\n%s", page)
+	}
+	rec := e.do(t, "dora", "GET", "/admin/rules/bench?rule=title-word&eng=acme&fid="+fdir+"&all=1", nil, nil)
+	b := rec.Body.String()
+	if rec.Code != 200 || !strings.Contains(b, "1 hit in 1 of 2 findings") {
+		t.Fatalf("%d\n%s", rec.Code, b)
+	}
+	for _, want := range []string{"<thead>", ">ID</th>", ">Finding</th>", ">Hits</th>", ">Quote</th>", ">False pos.</th>", "SQL injection", "Missing HSTS header", "<code>injection</code>", "data-fp-count"} {
+		if !strings.Contains(b, want) {
+			t.Fatalf("missing %q:\n%s", want, b)
+		}
+	}
+	if n := strings.Count(b, "data-fp "); n != 1 {
+		t.Fatalf("false-positive marks %d:\n%s", n, b)
+	}
+	if strings.Contains(b, ` style="`) {
+		t.Fatal("inline style")
 	}
 }

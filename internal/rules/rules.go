@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"unicode/utf8"
@@ -346,21 +347,53 @@ func (r Rule) counts(kinds Kind, slow SlowRunner) bool {
 // RunProgress is Run that tells progress (may be nil) how many of the rules
 // that run are done: once before the first and after each one.
 func (s *Set) RunProgress(ctx context.Context, d Doc, cfg config.Config, kinds Kind, slow SlowRunner, progress func(done, total int)) []Violation {
-	out := append([]Violation{}, s.Problems...)
-	seen := map[Violation]bool{}
-	total, done := 0, 0
+	return s.RunWith(ctx, d, cfg, kinds, slow, Hooks{Progress: progress})
+}
+
+// Hooks follow a run rule by rule. Every field may be nil or empty.
+type Hooks struct {
+	// Only runs this rule alone (no load problems are reported then).
+	Only string
+	// Progress tells how many rules are done: once before the first and
+	// after each one.
+	Progress func(done, total int)
+	// Start is called before a rule runs, Done after it with what it found.
+	Start func(r Rule)
+	Done  func(r Rule, vs []Violation)
+}
+
+// Runs returns the rules a run of kinds runs, in order.
+func (s *Set) Runs(kinds Kind, slow SlowRunner) []Rule {
+	var out []Rule
 	for _, r := range s.Rules {
 		if r.counts(kinds, slow) {
-			total++
+			out = append(out, r)
 		}
 	}
+	return out
+}
+
+// RunWith evaluates the set on d, telling h about each rule.
+func (s *Set) RunWith(ctx context.Context, d Doc, cfg config.Config, kinds Kind, slow SlowRunner, h Hooks) []Violation {
+	var out []Violation
+	if h.Only == "" {
+		out = append(out, s.Problems...)
+	}
+	seen := map[Violation]bool{}
+	run := s.Runs(kinds, slow)
+	if h.Only != "" {
+		run = slices.DeleteFunc(run, func(r Rule) bool { return r.ID != h.Only })
+	}
+	total, done := len(run), 0
+	progress := h.Progress
 	if progress != nil {
 		progress(0, total)
 	}
-	for _, r := range s.Rules {
-		if !r.counts(kinds, slow) {
-			continue
+	for _, r := range run {
+		if h.Start != nil {
+			h.Start(r)
 		}
+		start := len(out)
 		var vs []Violation
 		switch {
 		case r.re != nil || r.Check != "":
@@ -402,6 +435,9 @@ func (s *Set) RunProgress(ctx context.Context, d Doc, cfg config.Config, kinds K
 				seen[v] = true
 			}
 			out = append(out, v)
+		}
+		if h.Done != nil {
+			h.Done(r, out[start:])
 		}
 		if done++; progress != nil {
 			progress(done, total)

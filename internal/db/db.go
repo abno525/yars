@@ -18,7 +18,7 @@ import (
 // Path is where the database lives inside a data directory (git-ignored).
 func Path(dataDir string) string { return filepath.Join(dataDir, ".yars", "yars.db") }
 
-const schemaVersion = 9
+const schemaVersion = 10
 
 // SchemaVersion is the database schema this build writes.
 const SchemaVersion = schemaVersion
@@ -266,6 +266,22 @@ var migrations = []string{
 		updated     TEXT NOT NULL,
 		PRIMARY KEY (destination, eng, finding)
 	) WITHOUT ROWID;`,
+	// v10: each rule of a check run with its state and timing, and why a
+	// violation was dismissed
+	`CREATE TABLE check_steps (
+		run_id   INTEGER NOT NULL REFERENCES check_runs(id) ON DELETE CASCADE,
+		pos      INTEGER NOT NULL,
+		rule     TEXT NOT NULL,
+		kind     TEXT NOT NULL DEFAULT '',
+		state    TEXT NOT NULL,
+		started  TEXT NOT NULL DEFAULT '',
+		finished TEXT NOT NULL DEFAULT '',
+		hits     INTEGER NOT NULL DEFAULT 0,
+		message  TEXT NOT NULL DEFAULT '',
+		fail     TEXT NOT NULL DEFAULT '',
+		PRIMARY KEY (run_id, rule)
+	) WITHOUT ROWID;
+	ALTER TABLE dismissals ADD COLUMN reason TEXT NOT NULL DEFAULT '';`,
 }
 
 type DB struct {

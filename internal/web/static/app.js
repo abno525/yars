@@ -87,10 +87,11 @@ function yarsComment(section) {
 // still swaps, because that request is a POST.)
 document.addEventListener('htmx:beforeSwap', function (evt) {
   var t = evt.detail.target;
-  if (!t || (t.id !== 'chat-list' && t.id !== 'workflow') || evt.detail.requestConfig.verb !== 'get') return;
-  var busy = Array.prototype.some.call(t.querySelectorAll('input[name=text], textarea'), function (i) {
+  if (!t || (t.id !== 'chat-list' && t.id !== 'workflow' && t.id !== 'checks') || evt.detail.requestConfig.verb !== 'get') return;
+  var busy = Array.prototype.some.call(t.querySelectorAll('input[name=text], input[name=reason], textarea'), function (i) {
     return i.value !== '' || i === document.activeElement;
-  }) || (t.id === 'workflow' && !!t.querySelector('details[open], .wfpanel:not([hidden])'));
+  }) || (t.id === 'workflow' && !!t.querySelector('details[open], .wfpanel:not([hidden])')) ||
+    (t.id === 'checks' && !!t.querySelector('.dismissrow:not([hidden])'));
   if (busy) evt.detail.shouldSwap = false;
 });
 
@@ -185,6 +186,41 @@ document.addEventListener('click', function (evt) {
   }
   var inPop = evt.target.closest('details.pop');
   document.querySelectorAll('details.pop[open]').forEach(function (d) { if (d !== inPop) d.open = false; });
+});
+
+// Checks: Dismiss opens the violation's reason form under its row (one at
+// a time); Cancel closes it.
+document.addEventListener('click', function (evt) {
+  if (!evt.target.closest) return;
+  var tog = evt.target.closest('[data-dismiss-toggle]');
+  var cancel = evt.target.closest('[data-dismiss-cancel]');
+  if (!tog && !cancel) return;
+  var panel = document.getElementById('checks');
+  if (!panel) return;
+  var id = tog ? tog.getAttribute('aria-controls') : cancel.getAttribute('data-dismiss-cancel');
+  var opening = !!tog && tog.getAttribute('aria-expanded') !== 'true';
+  panel.querySelectorAll('.dismissrow').forEach(function (r) { r.hidden = !(opening && r.id === id); });
+  panel.querySelectorAll('[data-dismiss-toggle]').forEach(function (b) {
+    b.setAttribute('aria-expanded', opening && b.getAttribute('aria-controls') === id ? 'true' : 'false');
+  });
+  if (opening) {
+    var inp = document.querySelector('#' + id + ' input[name=reason]');
+    if (inp) inp.focus();
+  }
+});
+
+// Rule bench (Run on engagement): a hit marked as a false positive is
+// struck through and counted in the head.
+document.addEventListener('change', function (evt) {
+  var cb = evt.target;
+  if (!cb.matches || !cb.matches('input[data-fp]')) return;
+  var row = cb.closest('tr');
+  if (row) row.classList.toggle('fp', cb.checked);
+  var out = cb.closest('.benchout');
+  var cnt = out && out.querySelector('[data-fp-count]');
+  if (!cnt) return;
+  var n = out.querySelectorAll('input[data-fp]:checked').length;
+  cnt.textContent = n + (n === 1 ? ' false positive' : ' false positives');
 });
 
 // Section editor: Write | Split | Preview. The choice is remembered per

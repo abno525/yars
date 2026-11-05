@@ -98,6 +98,12 @@ type Store struct {
 	links   map[string]string
 	linksAt string
 
+	// tplHist caches the templates' versions, valid while the main HEAD is
+	// tplHistAt.
+	tplHistMu sync.Mutex
+	tplHist   map[string][]TemplateVersion
+	tplHistAt string
+
 	subsMu sync.RWMutex
 	subs   []func(Change)
 	evSubs []func(Event) // domain events (see OnEvent)
