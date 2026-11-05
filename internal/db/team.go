@@ -27,6 +27,50 @@ func (tx *Tx) AddMembers(eng string, users ...string) error {
 	return nil
 }
 
+// BackfillTeams finishes the v5 team backfill once (pending since v11):
+// every account goes on each engagement in engs (the ones on disk) whose
+// team is empty and was never changed by hand. Without any account yet it
+// waits for a later call.
+func (d *DB) BackfillTeams(engs []string) error {
+	return d.Tx(func(tx *Tx) error {
+		var pending int
+		if err := tx.QueryRow("SELECT count(*) FROM server_settings WHERE key = ?", teamBackfillKey).Scan(&pending); err != nil || pending == 0 {
+			return err
+		}
+		var users []string
+		rows, err := tx.Query("SELECT username FROM users ORDER BY username")
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			var u string
+			if err := rows.Scan(&u); err != nil {
+				rows.Close()
+				return err
+			}
+			users = append(users, u)
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil || len(users) == 0 {
+			return err
+		}
+		for _, eng := range engs {
+			var n int
+			if err := tx.QueryRow(`SELECT (SELECT count(*) FROM engagement_members WHERE eng = ?) +
+				(SELECT count(*) FROM audit WHERE target = ? AND action IN ('eng.create', 'eng.member.add', 'eng.member.remove'))`, eng, eng).Scan(&n); err != nil {
+				return err
+			}
+			if n == 0 {
+				if err := tx.AddMembers(eng, users...); err != nil {
+					return err
+				}
+			}
+		}
+		_, err = tx.Exec("DELETE FROM server_settings WHERE key = ?", teamBackfillKey)
+		return err
+	})
+}
+
 // RemoveMember takes user off eng's team and deletes user's notifications
 // of eng, in one transaction.
 func (d *DB) RemoveMember(eng, user string) error {

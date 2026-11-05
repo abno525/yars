@@ -18,7 +18,7 @@ import (
 // Path is where the database lives inside a data directory (git-ignored).
 func Path(dataDir string) string { return filepath.Join(dataDir, ".yars", "yars.db") }
 
-const schemaVersion = 10
+const schemaVersion = 11
 
 // SchemaVersion is the database schema this build writes.
 const SchemaVersion = schemaVersion
@@ -282,7 +282,14 @@ var migrations = []string{
 		PRIMARY KEY (run_id, rule)
 	) WITHOUT ROWID;
 	ALTER TABLE dismissals ADD COLUMN reason TEXT NOT NULL DEFAULT '';`,
+	// v11: v5 put people only on engagements with a change counter row; the
+	// server finishes the job once against the engagements on disk
+	// (BackfillTeams)
+	`INSERT OR REPLACE INTO server_settings(key, value) VALUES ('` + teamBackfillKey + `', 'pending');`,
 }
+
+// teamBackfillKey marks the one-time team backfill as still to do.
+const teamBackfillKey = "migrate.team_backfill"
 
 type DB struct {
 	*sql.DB

@@ -848,6 +848,20 @@ func cmdUserdel(args []string, out io.Writer) error {
 	return nil
 }
 
+// backfillTeams runs the one-time team backfill against the engagements on
+// disk (db.BackfillTeams).
+func backfillTeams(st *store.Store, d *db.DB) error {
+	engs, err := st.ListEngagements()
+	if err != nil {
+		return err
+	}
+	ids := make([]string, 0, len(engs))
+	for _, e := range engs {
+		ids = append(ids, e.ID)
+	}
+	return d.BackfillTeams(ids)
+}
+
 func cmdServe(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	data := fs.String("data", ".", "data repo")
@@ -872,6 +886,9 @@ func cmdServe(args []string) error {
 		log.Println("no accounts yet: open the web page to set up the first admin (/setup), or run: yars useradd --data", *data, "--role director --admin <name>")
 	}
 	st := store.New(r, cfg, d)
+	if err := backfillTeams(st, d); err != nil {
+		return fmt.Errorf("team backfill: %w", err)
+	}
 	eng := rules.NewEngine(rules.DirFor(r.Dir), cfg)
 	st.Linter = eng
 	au := auth.New(d)
