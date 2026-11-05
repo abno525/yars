@@ -26,10 +26,10 @@ func legacyRepo(t *testing.T) string {
 	}
 	hash, _ := auth.HashPassword("pw")
 	files := map[string]string{
-		".yars/config.yaml":                 "severities: [critical, high, medium, low, info]\n",
-		".gitignore":                        ".yars/users.yaml\n.yars/tokens.yaml\n",
-		".gitattributes":                    "*.png binary\nchat.jsonl merge=union\n",
-		"engagements/acme/engagement.yaml":  "name: ACME\ntype: pentest\n",
+		".yars/config.yaml":                "severities: [critical, high, medium, low, info]\n",
+		".gitignore":                       ".yars/users.yaml\n.yars/tokens.yaml\n",
+		".gitattributes":                   "*.png binary\nchat.jsonl merge=union\n",
+		"engagements/acme/engagement.yaml": "name: ACME\ntype: pentest\n",
 		"engagements/acme/findings/F-001-sqli/finding.md": "---\nid: F-001\ntitle: SQLi\nstatus: verification\nseverity: high\nauthor: alice\nreviewers:\n    - bob\n    - carol\ncleared_by:\n    - bob\n---\n\n## Impact\n\nDB read.\n",
 		"engagements/acme/findings/F-001-sqli/chat.jsonl": `{"id":"aaaaaaaaaaaa","ts":"2026-11-04T10:00:00Z","user":"bob","text":"PoC?","section":"Impact"}` + "\n" +
 			`{"id":"bbbbbbbbbbbb","ts":"2026-11-04T10:05:00Z","user":"alice","event":"submit"}` + "\n",

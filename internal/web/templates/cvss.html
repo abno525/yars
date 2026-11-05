@@ -22,11 +22,11 @@
     {{if .Reasons}}
     <table class="table reasons-view">
       <thead>
-        <tr><th class="c-metric">Metric</th><th class="c-std">Standard</th><th class="c-chosen">Chosen</th><th>Reason</th></tr>
+        <tr><th class="c-metric">Metric</th><th class="c-chosen">Chosen</th><th>Reason</th></tr>
       </thead>
       <tbody>
       {{range .Reasons}}
-        <tr><th scope="row" class="c-metric">{{.Metric}} <span class="mcode">{{.Key}}</span></th><td class="c-std muted">{{if .Standard}}{{.Standard}}{{else}}—{{end}}</td><td class="c-chosen nsval">{{.Value}}</td><td class="text">{{if .Reason}}{{.Reason}}{{else}}<span class="error">reason missing</span>{{end}}</td></tr>
+        <tr><th scope="row" class="c-metric">{{.Metric}} <span class="mcode">{{.Key}}</span></th><td class="c-chosen nsval">{{.Value}}</td><td class="text">{{if .Reason}}{{.Reason}}{{else}}<span class="error">reason missing</span>{{end}}</td></tr>
       {{end}}
       </tbody>
     </table>
@@ -88,7 +88,7 @@
         <tbody>
         {{range .Metrics}}{{if .NonStandard}}
           <tr>
-            <th scope="row"><span class="rname">{{.Name}}</span><span class="mchange">{{.StandardName}} → {{.SelectedName}}</span></th>
+            <th scope="row"><span class="rname">{{.Name}}</span><span class="mchange">{{.SelectedName}}</span></th>
             <td><textarea name="reason_{{.Key}}" rows="2"{{if not .Reason}} aria-invalid="true" placeholder="Required"{{end}}>{{.Reason}}</textarea></td>
           </tr>
         {{end}}{{end}}

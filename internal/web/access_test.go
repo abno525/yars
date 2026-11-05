@@ -173,8 +173,9 @@ func TestThemeSaved(t *testing.T) {
 
 func TestExportAudited(t *testing.T) {
 	e := setup(t)
+	e.toComplete(t)
 	e.exporters(t, fakePandoc)
-	if rec := e.do(t, "alice", "POST", "/e/acme/export", url.Values{"exporter": {"docx"}, "finding": {"F-001-sql-injection"}}, nil); rec.Code != 200 {
+	if rec := e.do(t, "alice", "POST", "/e/acme/export", url.Values{"dest": {"docx"}, "finding": {"F-001-sql-injection"}}, nil); rec.Code != http.StatusSeeOther {
 		t.Fatalf("export %d", rec.Code)
 	}
 	l, _ := e.srv.Store.DB().AuditLog(1)

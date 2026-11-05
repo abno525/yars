@@ -9,12 +9,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -27,29 +29,80 @@ import (
 )
 
 type ConfluenceConf struct {
-	BaseURL  string `yaml:"base_url"`
-	Space    string `yaml:"space"`
-	ParentID string `yaml:"parent_id"`
-	UserEnv  string `yaml:"user_env"`
-	TokenEnv string `yaml:"token_env"`
+	BaseURL  string `yaml:"base_url,omitempty"`
+	Space    string `yaml:"space,omitempty"`
+	ParentID string `yaml:"parent_id,omitempty"`
+	UserEnv  string `yaml:"user_env,omitempty"`
+	TokenEnv string `yaml:"token_env,omitempty"`
+}
+
+// JiraConf is a Jira project that gets one issue per finding.
+type JiraConf struct {
+	BaseURL   string `yaml:"base_url,omitempty"`
+	Project   string `yaml:"project,omitempty"`
+	IssueType string `yaml:"issue_type,omitempty"`
+	UserEnv   string `yaml:"user_env,omitempty"`
+	TokenEnv  string `yaml:"token_env,omitempty"`
 }
 
 type Exporter struct {
 	ID           string          `yaml:"-"`
 	Name         string          `yaml:"name"`
 	Type         string          `yaml:"type"`
-	Format       string          `yaml:"format"`
-	Template     string          `yaml:"template"`
-	Args         []string        `yaml:"args"`
-	Script       string          `yaml:"script"`
-	Extension    string          `yaml:"extension"`
-	Statuses     []string        `yaml:"statuses"`
-	MarkReported *bool           `yaml:"mark_reported"`
-	Confluence   *ConfluenceConf `yaml:"confluence"`
+	Format       string          `yaml:"format,omitempty"`
+	Template     string          `yaml:"template,omitempty"`
+	Args         []string        `yaml:"args,omitempty"`
+	Script       string          `yaml:"script,omitempty"`
+	Extension    string          `yaml:"extension,omitempty"`
+	Statuses     []string        `yaml:"statuses,omitempty"`
+	MarkReported *bool           `yaml:"mark_reported,omitempty"`
+	Confluence   *ConfluenceConf `yaml:"confluence,omitempty"`
+	Jira         *JiraConf       `yaml:"jira,omitempty"`
 }
 
 // Marks reports whether a successful export should mark findings reported.
 func (e Exporter) Marks() bool { return e.MarkReported == nil || *e.MarkReported }
+
+// Service reports a destination that publishes to an outside service
+// (Confluence REST, Jira) with a key, instead of producing a file.
+func (e Exporter) Service() bool {
+	return e.Type == "jira" || (e.Type == "confluence" && e.Confluence != nil && e.Confluence.BaseURL != "")
+}
+
+// ServiceName is the outside service a destination publishes to
+// ("confluence", "jira"; "" for files): the name of personal keys.
+func (e Exporter) ServiceName() string {
+	if !e.Service() {
+		return ""
+	}
+	return e.Type
+}
+
+// TokenEnv is the server's environment variable with the service key.
+func (e Exporter) TokenEnv() string {
+	switch {
+	case e.Type == "jira" && e.Jira != nil:
+		return e.Jira.TokenEnv
+	case e.Confluence != nil:
+		return e.Confluence.TokenEnv
+	}
+	return ""
+}
+
+// Host is the service's host name ("" for files).
+func (e Exporter) Host() string {
+	base := ""
+	switch {
+	case e.Type == "jira" && e.Jira != nil:
+		base = e.Jira.BaseURL
+	case e.Confluence != nil:
+		base = e.Confluence.BaseURL
+	}
+	if u, err := url.Parse(base); err == nil {
+		return u.Host
+	}
+	return ""
+}
 
 // Load reads every exporter in dir; invalid files are returned as errors.
 func Load(dir string) ([]Exporter, []error) {
@@ -85,8 +138,10 @@ func Load(dir string) ([]Exporter, []error) {
 			err = errors.New("pandoc exporter needs a format like docx, pdf or html")
 		case e.Type == "script" && (e.Script == "" || !safeWord.MatchString(e.Extension)):
 			err = errors.New("script exporter needs script and a plain extension (letters/digits)")
+		case e.Type == "jira":
+			err = validJira(e.Jira)
 		case e.Type != "pandoc" && e.Type != "script" && e.Type != "confluence":
-			err = fmt.Errorf("unknown type %q (pandoc, confluence or script)", e.Type)
+			err = fmt.Errorf("unknown type %q (pandoc, confluence, jira or script)", e.Type)
 		default:
 			err = validateArgs(e.Args)
 		}
@@ -143,9 +198,24 @@ type Input struct {
 	// Attachment reads "attachments/<file>" of a finding (nil: images are
 	// dropped). Only these files are ever embedded into a report.
 	Attachment func(f *finding.Finding, rel string) ([]byte, bool)
+	// Creds is the sender's own key for a service destination; nil uses the
+	// server's key from the environment.
+	Creds *Creds
+	// imageSrc, when set, replaces inlining: it stores an attachment and
+	// returns the src to use (the HTML ZIP).
+	imageSrc func(f *finding.Finding, rel, ct string, data []byte) string
+	// strictImages keeps only pictures that decode (PNG, JPEG, GIF): a PDF
+	// fails on a broken one.
+	strictImages bool
 }
 
+// Creds is a login for an outside service.
+type Creds struct{ User, Token string }
+
 // ordered returns findings by severity (config order), then ID.
+// Ordered is the findings in report order (the preview's contents).
+func (in Input) Ordered() []*finding.Finding { return in.ordered() }
+
 func (in Input) ordered() []*finding.Finding {
 	fs := slices.Clone(in.Findings)
 	rank := func(f *finding.Finding) int {
@@ -220,9 +290,13 @@ func reasons(f *finding.Finding, cfg config.Config) [][3]string {
 type Result struct {
 	Filename, ContentType string
 	Data                  []byte
-	Pushed                bool   // published remotely (Confluence) instead of a file
-	URL                   string // Confluence push: the page
+	Pushed                bool   // published remotely (Confluence, Jira) instead of a file
+	URL                   string // a push: the (first) page or issue
+	Items                 []Item // a push: what each finding became
 }
+
+// Item is one finding's page or issue.
+type Item struct{ ID, URL string }
 
 // Runner executes exporters. Dir is .yars/exporters.
 type Runner struct {
@@ -231,7 +305,15 @@ type Runner struct {
 	HTTP       httpDoer
 	Getenv     func(string) string
 	Timeout    time.Duration
+	// PDFTimeout limits one PDF (default 60 s); at most pdfWorkers render
+	// at once, the others wait.
+	PDFTimeout time.Duration
+
+	pdfOnce  sync.Once
+	pdfSlots chan struct{}
 }
+
+const pdfWorkers = 2
 
 // Run executes exporter e on the input.
 func (r *Runner) Run(ctx context.Context, e Exporter, in Input) (Result, error) {
@@ -248,6 +330,8 @@ func (r *Runner) Run(ctx context.Context, e Exporter, in Input) (Result, error) 
 		return r.confluence(ctx, e, in)
 	case "script":
 		return r.script(ctx, e, in)
+	case "jira":
+		return r.jira(ctx, e, in)
 	}
 	return Result{}, fmt.Errorf("unknown exporter type %q", e.Type)
 }

@@ -8,11 +8,16 @@ import (
 	"errors"
 	"fmt"
 	"html"
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
 	"io"
 	"net/http"
 	"net/url"
 	"path"
 	"regexp"
+	"slices"
 	"strings"
 
 	"yars/internal/finding"
@@ -57,12 +62,21 @@ func images(x string, f *finding.Finding, in Input) string {
 		src, alt := html.UnescapeString(sub[1]), sub[2]
 		ct := imageTypes[strings.ToLower(path.Ext(src))]
 		if attachmentRef.MatchString(src) && ct != "" && in.Attachment != nil {
-			if data, ok := in.Attachment(f, src); ok {
+			if data, ok := in.Attachment(f, src); ok && (!in.strictImages || decodes(data)) {
+				if in.imageSrc != nil {
+					return `<img src="` + html.EscapeString(in.imageSrc(f, src, ct, data)) + `" alt="` + alt + `" />`
+				}
 				return `<img src="data:` + ct + `;base64,` + base64.StdEncoding.EncodeToString(data) + `" alt="` + alt + `" />`
 			}
 		}
 		return `<em>[image removed: ` + alt + `]</em>`
 	})
+}
+
+// decodes reports a whole, readable PNG, JPEG or GIF.
+func decodes(data []byte) bool {
+	_, _, err := image.Decode(bytes.NewReader(data))
+	return err == nil
 }
 
 func esc(s string) string {
@@ -87,21 +101,26 @@ func XHTML(in Input, confluenceMacros bool) string {
 			}
 			b.WriteString("</tbody></table>\n")
 		}
-		for _, s := range f.Sections {
-			body := strings.Trim(s.Body, "\n")
-			if strings.TrimSpace(body) == "" {
-				continue
-			}
-			var buf bytes.Buffer
-			md.Convert([]byte(body), &buf)
-			out := images(buf.String(), f, in)
-			if confluenceMacros {
-				out = macros(out)
-			}
-			fmt.Fprintf(&b, "<h2>%s</h2>\n%s\n", esc(s.Name), out)
-		}
+		writeSections(&b, f, in, confluenceMacros)
 	}
 	return b.String()
+}
+
+// writeSections renders the finding's non-empty sections, each under an h2.
+func writeSections(b *strings.Builder, f *finding.Finding, in Input, confluenceMacros bool) {
+	for _, s := range f.Sections {
+		body := strings.Trim(s.Body, "\n")
+		if strings.TrimSpace(body) == "" {
+			continue
+		}
+		var buf bytes.Buffer
+		md.Convert([]byte(body), &buf)
+		out := images(buf.String(), f, in)
+		if confluenceMacros {
+			out = macros(out)
+		}
+		fmt.Fprintf(b, "<h2>%s</h2>\n%s\n", esc(s.Name), out)
+	}
 }
 
 func (r *Runner) confluence(ctx context.Context, e Exporter, in Input) (Result, error) {
@@ -111,46 +130,20 @@ func (r *Runner) confluence(ctx context.Context, e Exporter, in Input) (Result, 
 			esc(in.Engagement.Name) + "</h1>\n<p>" + esc(in.subtitle()) + "</p>\n" + XHTML(in, false) + "</body></html>\n"
 		return Result{Filename: in.Engagement.ID + ".html", ContentType: "text/html; charset=utf-8", Data: []byte(doc)}, nil
 	}
-	u, err := url.Parse(c.BaseURL)
-	local := err == nil && (u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1")
-	if err != nil || (u.Scheme != "https" && !(u.Scheme == "http" && local)) {
-		return Result{}, errors.New("confluence base_url must use https")
+	if err := httpsOnly(c.BaseURL, "confluence"); err != nil {
+		return Result{}, err
 	}
-	user, token := r.Getenv(c.UserEnv), r.Getenv(c.TokenEnv)
-	if user == "" || token == "" {
-		return Result{}, fmt.Errorf("confluence credentials missing: set %s and %s on the server", c.UserEnv, c.TokenEnv)
+	user, token, err := r.login(in, "confluence", c.UserEnv, c.TokenEnv)
+	if err != nil {
+		return Result{}, err
 	}
 	base := strings.TrimRight(c.BaseURL, "/") + "/rest/api/content"
 	title := in.Engagement.Name + " — findings"
+	if len(in.Findings) == 1 { // one finding is one page of its own
+		title = in.Findings[0].Meta.ID + " " + in.Findings[0].Meta.Title + " — " + in.Engagement.Name
+	}
 	call := func(method, url string, body []byte) ([]byte, error) {
-		req, err := http.NewRequestWithContext(ctx, method, url, bytes.NewReader(body))
-		if err != nil {
-			return nil, err
-		}
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Accept", "application/json")
-		req.SetBasicAuth(user, token)
-		resp, err := r.HTTP.Do(req)
-		if err != nil {
-			return nil, fmt.Errorf("confluence push failed: %v", errors.Unwrap(err))
-		}
-		defer resp.Body.Close()
-		data, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-		if resp.StatusCode/100 != 2 {
-			var e struct{ Message string }
-			json.Unmarshal(data, &e)
-			msg := e.Message
-			for _, secret := range []string{token, user} { // never echo credentials
-				if secret != "" {
-					msg = strings.ReplaceAll(msg, secret, "***")
-				}
-			}
-			if len(msg) > 300 {
-				msg = msg[:300] + "…"
-			}
-			return nil, fmt.Errorf("confluence push failed: HTTP %d %s", resp.StatusCode, msg)
-		}
-		return data, nil
+		return r.call(ctx, "confluence push", user, token, method, url, body)
 	}
 	payload := map[string]any{
 		"type":  "page",
@@ -187,5 +180,77 @@ func (r *Runner) confluence(ctx context.Context, e Exporter, in Input) (Result, 
 		Links struct{ Base, Webui string } `json:"_links"`
 	}
 	json.Unmarshal(data, &out)
-	return Result{Pushed: true, URL: out.Links.Base + out.Links.Webui}, nil
+	res := Result{Pushed: true, URL: out.Links.Base + out.Links.Webui}
+	for _, f := range in.ordered() {
+		res.Items = append(res.Items, Item{ID: f.Meta.ID, URL: res.URL})
+	}
+	return res, nil
+}
+
+// httpsOnly refuses a service address that isn't https (plain http only to
+// this machine, for tests and tunnels).
+func httpsOnly(base, service string) error {
+	u, err := url.Parse(base)
+	local := err == nil && (u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1")
+	if err != nil || u.Host == "" || (u.Scheme != "https" && !(u.Scheme == "http" && local)) {
+		return errors.New(service + " base_url must use https")
+	}
+	return nil
+}
+
+// login is the sender's own key when the input has one, otherwise the
+// server's from the environment.
+func (r *Runner) login(in Input, service, userEnv, tokenEnv string) (string, string, error) {
+	if in.Creds != nil {
+		if in.Creds.User == "" || in.Creds.Token == "" {
+			return "", "", errors.New(service + " personal key incomplete")
+		}
+		return in.Creds.User, in.Creds.Token, nil
+	}
+	user, token := r.Getenv(userEnv), r.Getenv(tokenEnv)
+	if user == "" || token == "" {
+		return "", "", fmt.Errorf("%s credentials missing: set %s and %s on the server", service, userEnv, tokenEnv)
+	}
+	return user, token, nil
+}
+
+// call sends one JSON request with Basic auth. Error messages from the
+// service never carry the credentials.
+func (r *Runner) call(ctx context.Context, what, user, token, method, url string, body []byte) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, method, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	req.SetBasicAuth(user, token)
+	resp, err := r.HTTP.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("%s failed: %v", what, errors.Unwrap(err))
+	}
+	defer resp.Body.Close()
+	data, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode/100 != 2 {
+		var e struct {
+			Message       string
+			ErrorMessages []string
+			Errors        map[string]string
+		}
+		json.Unmarshal(data, &e)
+		parts := append([]string{e.Message}, e.ErrorMessages...)
+		for k, v := range e.Errors {
+			parts = append(parts, k+": "+v)
+		}
+		msg := strings.TrimSpace(strings.Join(slices.DeleteFunc(parts, func(s string) bool { return s == "" }), "; "))
+		for _, secret := range []string{token, user} { // never echo credentials
+			if secret != "" {
+				msg = strings.ReplaceAll(msg, secret, "***")
+			}
+		}
+		if len(msg) > 300 {
+			msg = msg[:300] + "…"
+		}
+		return nil, fmt.Errorf("%s failed: HTTP %d %s", what, resp.StatusCode, msg)
+	}
+	return data, nil
 }

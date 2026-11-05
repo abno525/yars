@@ -66,7 +66,9 @@ func TestCheckRunLifecycle(t *testing.T) {
 		t.Fatalf("threads %+v", th)
 	}
 	// purge drops runs, results and dismissals
-	d.TxFor("e", func(tx *Tx) error { return tx.Dismiss(Dismissal{Eng: "e", Fid: "F-001", Rule: "a", QuoteHash: "qh", Level: "error", By: "bob"}) })
+	d.TxFor("e", func(tx *Tx) error {
+		return tx.Dismiss(Dismissal{Eng: "e", Fid: "F-001", Rule: "a", QuoteHash: "qh", Level: "error", By: "bob"})
+	})
 	if err := d.TxFor("e", func(tx *Tx) error { return tx.Purge("e") }); err != nil {
 		t.Fatal(err)
 	}

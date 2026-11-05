@@ -49,15 +49,15 @@ var (
 )
 
 type Engagement struct {
-	ID     string `yaml:"-"`
-	Name   string `yaml:"name"`
-	Client string `yaml:"client"`
-	Type   string `yaml:"type"`
-	Source string `yaml:"source,omitempty"`
-	Start  string `yaml:"start,omitempty"`
-	End    string `yaml:"end,omitempty"`
+	ID     string `yaml:"-" json:"id"`
+	Name   string `yaml:"name" json:"name"`
+	Client string `yaml:"client" json:"client"`
+	Type   string `yaml:"type" json:"type"`
+	Source string `yaml:"source,omitempty" json:"source"`
+	Start  string `yaml:"start,omitempty" json:"start"`
+	End    string `yaml:"end,omitempty" json:"end"`
 	// Archived is read from the database: the engagement is read only.
-	Archived bool `yaml:"-"`
+	Archived bool `yaml:"-" json:"archived"`
 }
 
 type FindingRef struct {
@@ -1384,6 +1384,28 @@ func (s *Store) Transition(engID, dir string, act workflow.Action, reason string
 		}
 		_, st.Status = workflow.Target(act)
 		return []chat.Message{ev}, nil
+	})
+}
+
+// MarkExported marks a complete finding reported because u sent it to a
+// destination that marks what it gets (mark_reported). It is the
+// destination's doing, not u's workflow power, so any sender may; the
+// event's text names the destination. Not complete: *workflow.Denied.
+func (s *Store) MarkExported(engID, dir, destination string, u config.User) error {
+	if s.db == nil {
+		return ErrNoDB
+	}
+	if err := s.writable(engID); err != nil {
+		return err
+	}
+	return s.changeState(engID, dir, func(ref FindingRef, st *db.State, _ string) ([]chat.Message, error) {
+		from, to := workflow.Target(workflow.Report)
+		if !slices.Contains(from, ref.F.Meta.Status) {
+			return nil, &workflow.Denied{Reason: ref.F.Meta.ID + " is " + ref.F.Meta.Status + ", not complete"}
+		}
+		st.Status = to
+		return []chat.Message{{ID: chat.NewID(), TS: time.Now().UTC().Truncate(time.Second), User: u.Username,
+			Event: string(workflow.Report), Text: destination}}, nil
 	})
 }
 

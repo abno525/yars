@@ -151,10 +151,14 @@ func (tx *Tx) CheckThreads(eng, fid string) (map[string]string, error) {
 }
 
 // Dismissals returns a finding's dismissed violations by DismissKey.
-func (d *DB) Dismissals(eng, fid string) (map[string]Dismissal, error) { return dismissals(d, eng, fid) }
+func (d *DB) Dismissals(eng, fid string) (map[string]Dismissal, error) {
+	return dismissals(d, eng, fid)
+}
 
 // Dismissals reads them inside the transaction.
-func (tx *Tx) Dismissals(eng, fid string) (map[string]Dismissal, error) { return dismissals(tx, eng, fid) }
+func (tx *Tx) Dismissals(eng, fid string) (map[string]Dismissal, error) {
+	return dismissals(tx, eng, fid)
+}
 
 func dismissals(q querier, eng, fid string) (map[string]Dismissal, error) {
 	rows, err := q.Query("SELECT eng, fid, rule, quote_hash, level, by_user, at FROM dismissals WHERE eng = ? AND fid = ?", eng, fid)

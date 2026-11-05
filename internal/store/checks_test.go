@@ -156,7 +156,7 @@ func TestCheckStale(t *testing.T) {
 
 func TestCheckScriptFailures(t *testing.T) {
 	cases := map[string]string{
-		"echo not json\n":          "invalid output",
+		"echo not json\n":         "invalid output",
 		"echo boom >&2\nexit 3\n": "boom",
 	}
 	for body, want := range cases {

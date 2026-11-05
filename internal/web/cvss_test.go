@@ -154,10 +154,13 @@ func TestCVSSReasonsTableInView(t *testing.T) {
 	}
 	e.do(t, "alice", "POST", fpath+"/cvss", form, nil)
 	b := e.do(t, "alice", "GET", fpath+"/cvss", nil, nil).Body.String()
-	for _, h := range []string{"<th class=\"c-metric\">Metric</th>", "<th class=\"c-std\">Standard</th>", "<th class=\"c-chosen\">Chosen</th>", "<th>Reason</th>", "because C"} {
+	for _, h := range []string{"<th class=\"c-metric\">Metric</th>", "<th class=\"c-chosen\">Chosen</th>", "<th>Reason</th>", "because C"} {
 		if !strings.Contains(b, h) {
 			t.Fatalf("missing %q in CVSS panel:\n%s", h, b)
 		}
+	}
+	if strings.Contains(b, "Standard</th>") {
+		t.Fatal("the standard column is implied and not shown")
 	}
 }
 

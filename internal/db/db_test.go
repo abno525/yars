@@ -142,7 +142,9 @@ func TestKnownAndPurge(t *testing.T) {
 	if k, _ := d.Known("acme", "F-001"); k {
 		t.Fatal("unknown id reported known")
 	}
-	d.Tx(func(tx *Tx) error { return tx.AddMessage("acme", "F-001", chat.Message{ID: "m1", User: "bob", Text: "x"}) })
+	d.Tx(func(tx *Tx) error {
+		return tx.AddMessage("acme", "F-001", chat.Message{ID: "m1", User: "bob", Text: "x"})
+	})
 	if k, _ := d.Known("acme", "F-001"); !k {
 		t.Fatal("id with chat not known")
 	}

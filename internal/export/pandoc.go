@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 )
 
 var extOf = map[string]string{"markdown": "md", "gfm": "md", "commonmark": "md", "html5": "html", "plain": "txt", "latex": "tex", "docx": "docx", "pdf": "pdf", "odt": "odt", "html": "html", "pptx": "pptx", "rtf": "rtf", "epub": "epub"}
@@ -17,6 +18,20 @@ var extOf = map[string]string{"markdown": "md", "gfm": "md", "commonmark": "md",
 func (r *Runner) pandoc(ctx context.Context, e Exporter, in Input) (Result, error) {
 	if r.PandocPath == "" {
 		return Result{}, errors.New("pandoc is not installed on the server")
+	}
+	if e.Format == "pdf" {
+		release, err := r.pdfSlot(ctx)
+		if err != nil {
+			return Result{}, err
+		}
+		defer release()
+		limit := r.PDFTimeout
+		if limit <= 0 {
+			limit = 60 * time.Second
+		}
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, limit)
+		defer cancel()
 	}
 	ext := extOf[e.Format]
 	if ext == "" {
@@ -40,7 +55,9 @@ func (r *Runner) pandoc(ctx context.Context, e Exporter, in Input) (Result, erro
 	if sub := in.subtitle(); sub != "" {
 		args = append(args, "--metadata", "subtitle="+sub)
 	}
-	if e.Template != "" {
+	body := XHTML(in, false)
+	switch {
+	case e.Template != "":
 		p, err := r.safePath(e.Template)
 		if err != nil {
 			return Result{}, err
@@ -51,9 +68,18 @@ func (r *Runner) pandoc(ctx context.Context, e Exporter, in Input) (Result, erro
 		default:
 			args = append(args, "--template="+p)
 		}
+	case e.Format == "pdf":
+		// the theme: report structure, embedded template and filter, xelatex
+		tpl, lua, err := writeTheme(tmp)
+		if err != nil {
+			return Result{}, err
+		}
+		args = append(args, "--template="+tpl, "--lua-filter="+lua, "--pdf-engine=xelatex", "--metadata", "client="+in.Engagement.Client)
+		in.strictImages = true
+		body = Report(in)
 	}
 	args = append(args, e.Args...)
-	input := "<html><body>\n" + XHTML(in, false) + "</body></html>\n"
+	input := "<html><body>\n" + body + "</body></html>\n"
 	run := func(args []string) (string, error) {
 		cmd := exec.CommandContext(ctx, r.PandocPath, args...)
 		cmd.Dir = tmp

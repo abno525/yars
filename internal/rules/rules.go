@@ -72,14 +72,33 @@ type Doc struct {
 	Sections    []Section         `json:"sections"`
 	Author      string            `json:"author"`
 	Reviewers   []string          `json:"reviewers"`
+	// RetestResult is fixed, partially_fixed, not_fixed or "" (not a retest
+	// or not retested yet).
+	RetestResult string `json:"retest_result"`
+	// Attachments are the files of attachments/ the sections refer to, in
+	// order of first use.
+	Attachments []string `json:"attachments"`
 }
+
+// attachmentUse finds references to the finding's own attachments.
+var attachmentUse = regexp.MustCompile(`attachments/([A-Za-z0-9][A-Za-z0-9._-]*)`)
 
 func DocOf(f *finding.Finding) Doc {
 	m := f.Meta
 	d := Doc{ID: m.ID, Title: m.Title, Status: m.Status, Severity: m.Severity, CVSS: m.CVSS,
-		CVSSReasons: m.CVSSReasons, Details: m.Details, Author: m.Author, Reviewers: m.Reviewers}
+		CVSSReasons: m.CVSSReasons, Details: m.Details, Author: m.Author, Reviewers: m.Reviewers, Attachments: []string{}}
+	if m.Retest != nil {
+		d.RetestResult = m.Retest.Result
+	}
+	seen := map[string]bool{}
 	for _, s := range f.Sections {
 		d.Sections = append(d.Sections, Section{Name: s.Name, Body: strings.Trim(s.Body, "\n")})
+		for _, sub := range attachmentUse.FindAllStringSubmatch(s.Body, -1) {
+			if name := strings.TrimRight(sub[1], "."); !seen[name] {
+				seen[name] = true
+				d.Attachments = append(d.Attachments, name)
+			}
+		}
 	}
 	if d.CVSSReasons == nil {
 		d.CVSSReasons = map[string]string{}

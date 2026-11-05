@@ -18,7 +18,7 @@ import (
 // Path is where the database lives inside a data directory (git-ignored).
 func Path(dataDir string) string { return filepath.Join(dataDir, ".yars", "yars.db") }
 
-const schemaVersion = 6
+const schemaVersion = 7
 
 // SchemaVersion is the database schema this build writes.
 const SchemaVersion = schemaVersion
@@ -194,6 +194,21 @@ var migrations = []string{
 		key   TEXT PRIMARY KEY,
 		value TEXT NOT NULL
 	) WITHOUT ROWID;`,
+	// v7: exports and sends to destinations, with what each finding became
+	// and whose key sent it
+	`CREATE TABLE export_history (
+		id          INTEGER PRIMARY KEY,
+		ts          TEXT NOT NULL,
+		by_user     TEXT NOT NULL,
+		eng         TEXT NOT NULL,
+		destination TEXT NOT NULL,
+		findings    TEXT NOT NULL DEFAULT '[]',
+		ok          INTEGER NOT NULL DEFAULT 0,
+		error       TEXT NOT NULL DEFAULT '',
+		url         TEXT NOT NULL DEFAULT '',
+		sent_as     TEXT NOT NULL DEFAULT ''
+	);
+	CREATE INDEX export_history_eng ON export_history(eng, id);`,
 }
 
 type DB struct {
