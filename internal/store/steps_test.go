@@ -80,7 +80,7 @@ func TestDismissReason(t *testing.T) {
 	withRules(t, s, dir, checkRules)
 	checked(t, s, fd)
 	const why = "SQL is in the client's glossary"
-	if err := s.DismissWhy(eng, fd, "no-sql", "SQL", why, uBob); err != nil {
+	if err := s.DismissWhy(eng, fd, "no-sql", "title", "SQL", why, uBob); err != nil {
 		t.Fatal(err)
 	}
 	ds, _ := s.Dismissals(eng, load(t, s, fd).F.Meta.ID)

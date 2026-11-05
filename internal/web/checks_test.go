@@ -175,6 +175,32 @@ func TestChecksDismiss(t *testing.T) {
 	}
 }
 
+// Violations without a quote are dismissed one place at a time.
+func TestChecksDismissEmptyQuoteByTarget(t *testing.T) {
+	e := setup(t)
+	e.rules(t, "- id: scripted\n  script: check.sh\n  level: warning\n", map[string]string{"check.sh": `cat >/dev/null; echo '[{"message":"Host empty","target":"details:Host"},{"message":"Port empty","target":"details:Port"}]'` + "\n"})
+	e.do(t, "alice", "POST", fpath+"/checks", url.Values{}, nil)
+	e.srv.Store.WaitChecks()
+	p := e.do(t, "alice", "GET", fpath+"/checks", nil, nil).Body.String()
+	if !strings.Contains(p, `name="target" value="details:Host"`) {
+		t.Fatalf("no target in the dismiss form:\n%s", p)
+	}
+	form := url.Values{"rule": {"scripted"}, "target": {"details:Host"}, "quote": {""}, "reason": {"n/a"}}
+	rec := e.do(t, "alice", "POST", fpath+"/checks/dismiss", form, nil)
+	if rec.Code != 200 {
+		t.Fatalf("dismiss %d: %s", rec.Code, rec.Body.String())
+	}
+	p = rec.Body.String()
+	i := strings.Index(p, "<details")
+	if i < 0 || !strings.Contains(p[:i], "Port empty") || strings.Contains(p[:i], "Host empty") || !strings.Contains(p[i:], "Host empty") {
+		t.Fatalf("one dismissal hid both:\n%s", p)
+	}
+	rec = e.do(t, "alice", "POST", fpath+"/checks/undismiss", form, nil)
+	if rec.Code != 200 || strings.Contains(rec.Body.String(), "<details") {
+		t.Fatalf("undismiss %d:\n%s", rec.Code, rec.Body.String())
+	}
+}
+
 // Running the checks again posts nothing for known violations, and a fixed
 // one leaves no line in the chat.
 func TestChecksRerunPostsNothing(t *testing.T) {

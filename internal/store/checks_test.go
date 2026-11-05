@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -397,13 +398,13 @@ func TestDismissPermissions(t *testing.T) {
 	if err := s.Dismiss(eng, fd, "no-sql", "SQL", uAlice); !denied(err) {
 		t.Fatalf("error by pentester: %v", err)
 	}
-	if err := s.Undismiss(eng, fd, "no-foo", "foo", uAlice); err != nil {
+	if err := s.Undismiss(eng, fd, "no-foo", "section:Impact", "foo", uAlice); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Dismiss(eng, fd, "no-sql", "SQL", uBob); err != nil {
 		t.Fatalf("error by reviewer: %v", err)
 	}
-	if err := s.Undismiss(eng, fd, "no-sql", "SQL", uAlice); !denied(err) {
+	if err := s.Undismiss(eng, fd, "no-sql", "title", "SQL", uAlice); !denied(err) {
 		t.Fatalf("undismiss error by pentester: %v", err)
 	}
 	if err := s.Dismiss(eng, fd, "nope", "x", uDora); err == nil {
@@ -441,6 +442,59 @@ func TestGateIgnoresDismissed(t *testing.T) {
 	}
 	if err := s.Transition(eng, fd, workflow.Submit, "", uAlice); err != nil {
 		t.Fatalf("dismissed error still blocks: %v", err)
+	}
+}
+
+// Violations without a quote (an empty section, say) are told apart by
+// where they are: dismissing one leaves the others counting.
+func TestDismissEmptyQuoteOnlyThatTarget(t *testing.T) {
+	s, dir, fd := ready(t)
+	withRules(t, s, dir, "- id: filled\n  check: not-empty\n  target: sections\n  message: empty\n")
+	for _, sec := range []string{"Impact", "Remediation"} {
+		if err := s.UpdateSection(eng, fd, sec, "", "", alice); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ref := load(t, s, fd)
+	var vs []rules.Violation
+	for _, v := range s.Linter.Lint(context.Background(), ref.F, rules.Fast) {
+		if v.Rule == "filled" {
+			vs = append(vs, v)
+		}
+	}
+	if len(vs) < 2 {
+		t.Fatalf("violations %+v", vs)
+	}
+	if err := s.DismissWhy(eng, fd, "filled", vs[0].Target, "", "fine", uBob); err != nil {
+		t.Fatal(err)
+	}
+	left, err := s.undismissed(eng, ref.F.Meta.ID, vs)
+	if err != nil || len(left) != len(vs)-1 || left[0].Target == vs[0].Target {
+		t.Fatalf("left %+v %v", left, err)
+	}
+	if err := s.Transition(eng, fd, workflow.Submit, "", uAlice); !denied(err) {
+		t.Fatalf("submit with an empty section: %v", err)
+	}
+	if err := s.Undismiss(eng, fd, "filled", vs[0].Target, "", uBob); err != nil {
+		t.Fatal(err)
+	}
+	if left, _ := s.undismissed(eng, ref.F.Meta.ID, vs); len(left) != len(vs) {
+		t.Fatalf("after restore %+v", left)
+	}
+}
+
+// Two violations without a quote in different detail rows get a thread each.
+func TestCheckEmptyQuoteThreadPerTarget(t *testing.T) {
+	s, _, fd := ready(t)
+	finish := finisher(t, s, fd)
+	a := rules.Violation{Rule: "r", Level: "error", Message: "Host is empty", Target: "details:Host"}
+	b := rules.Violation{Rule: "r", Level: "error", Message: "Port is empty", Target: "details:Port"}
+	if got := finish(a, b); len(got) != 2 {
+		t.Fatalf("first run posted %+v", got)
+	}
+	got := finish(b)
+	if len(got) != 1 || got[0].Resolves == "" {
+		t.Fatalf("fixing one posted %+v", got)
 	}
 }
 

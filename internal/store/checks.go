@@ -50,6 +50,16 @@ type CheckStatus struct {
 // QuoteHash identifies a violation's quote for dismissals and comments.
 func QuoteHash(quote string) string { return BodyHash(quote) }
 
+// ViolationHash identifies a violation of a rule for dismissals and
+// comments: its quote, or where it is when it has none (an empty section),
+// so that one dismissal covers one place only.
+func ViolationHash(target, quote string) string {
+	if quote == "" {
+		return BodyHash("\x00" + target)
+	}
+	return QuoteHash(quote)
+}
+
 // CanDismiss reports whether u may dismiss (or restore) a violation of the
 // given level on a finding: warnings need edit rights, errors also the
 // reviewer role or more.
@@ -83,7 +93,7 @@ func (s *Store) undismissed(engID, fid string, vs []rules.Violation) ([]rules.Vi
 	}
 	var out []rules.Violation
 	for _, v := range vs {
-		if _, ok := ds[db.DismissKey(v.Rule, QuoteHash(v.Quote))]; !ok {
+		if _, ok := ds[db.DismissKey(v.Rule, ViolationHash(v.Target, v.Quote))]; !ok {
 			out = append(out, v)
 		}
 	}
@@ -430,7 +440,7 @@ func finishCheck(tx *db.Tx, id int64, eng, fid string, vs []rules.Violation) err
 	found := map[string]string{} // threadKey -> thread given in this run
 	results := make([]db.CheckResult, 0, len(vs))
 	for _, v := range vs {
-		r := db.CheckResult{Rule: v.Rule, Level: v.Level, Message: v.Message, Target: v.Target, Quote: v.Quote, QuoteHash: QuoteHash(v.Quote)}
+		r := db.CheckResult{Rule: v.Rule, Level: v.Level, Message: v.Message, Target: v.Target, Quote: v.Quote, QuoteHash: ViolationHash(v.Target, v.Quote)}
 		k := threadKey(r.Rule, r.QuoteHash, sectionOf(v.Target))
 		switch th, seen := found[k]; {
 		case notice(v):
@@ -539,7 +549,7 @@ func (s *Store) violationLevel(ref FindingRef, rule, qh string) (string, error) 
 	}
 	if s.Linter != nil {
 		for _, v := range s.Linter.Lint(context.Background(), ref.F, rules.Fast) {
-			if v.Rule == rule && QuoteHash(v.Quote) == qh && !notice(v) {
+			if v.Rule == rule && ViolationHash(v.Target, v.Quote) == qh && !notice(v) {
 				note(v.Level)
 			}
 		}
@@ -550,14 +560,17 @@ func (s *Store) violationLevel(ref FindingRef, rule, qh string) (string, error) 
 // Dismiss marks the finding's violation (rule, quote) as not counting: the
 // submit/approve gate ignores it and check runs post no comment for it; its
 // open comment is resolved. Warnings need edit rights, errors also the
-// reviewer role (CanDismiss).
+// reviewer role (CanDismiss). A violation without a quote is dismissed with
+// DismissWhy, which takes its target.
 func (s *Store) Dismiss(engID, dir, rule, quote string, u config.User) error {
-	return s.DismissWhy(engID, dir, rule, quote, "", u)
+	return s.DismissWhy(engID, dir, rule, "", quote, "", u)
 }
 
-// DismissWhy is Dismiss with the reason: it is kept with the dismissal and
-// posted as u's reply in the violation's open thread before it is resolved.
-func (s *Store) DismissWhy(engID, dir, rule, quote, reason string, u config.User) error {
+// DismissWhy is Dismiss of the violation (rule, target, quote) with the
+// reason: it is kept with the dismissal and posted as u's reply in the
+// violation's open thread before it is resolved. The target matters only
+// when the quote is empty (see ViolationHash).
+func (s *Store) DismissWhy(engID, dir, rule, target, quote, reason string, u config.User) error {
 	reason = strings.TrimSpace(reason)
 	if s.db == nil {
 		return ErrNoDB
@@ -569,7 +582,7 @@ func (s *Store) DismissWhy(engID, dir, rule, quote, reason string, u config.User
 	if err != nil {
 		return err
 	}
-	qh := QuoteHash(quote)
+	qh := ViolationHash(target, quote)
 	level, err := s.violationLevel(ref, rule, qh)
 	if err != nil {
 		return err
@@ -634,9 +647,9 @@ func dismissDenied(level string) string {
 	return "only someone who may edit the finding can dismiss a warning"
 }
 
-// Undismiss makes a dismissed violation count again; the same people who may
-// dismiss it may do this.
-func (s *Store) Undismiss(engID, dir, rule, quote string, u config.User) error {
+// Undismiss makes a dismissed violation (rule, target, quote) count again;
+// the same people who may dismiss it may do this.
+func (s *Store) Undismiss(engID, dir, rule, target, quote string, u config.User) error {
 	if s.db == nil {
 		return ErrNoDB
 	}
@@ -647,7 +660,7 @@ func (s *Store) Undismiss(engID, dir, rule, quote string, u config.User) error {
 	if err != nil {
 		return err
 	}
-	fid, qh := ref.F.Meta.ID, QuoteHash(quote)
+	fid, qh := ref.F.Meta.ID, ViolationHash(target, quote)
 	ds, err := s.db.Dismissals(engID, fid)
 	if err != nil {
 		return err

@@ -40,7 +40,7 @@
         <tr class="dismissrow" id="dismiss-{{.N}}" hidden>
           <td colspan="5">
             <form class="dismissform" hx-post="{{$.DismissURL}}" hx-target="#checks" hx-swap="outerHTML">
-              <input type="hidden" name="rule" value="{{.Rule}}"><input type="hidden" name="quote" value="{{.Quote}}">
+              <input type="hidden" name="rule" value="{{.Rule}}"><input type="hidden" name="target" value="{{.Target}}"><input type="hidden" name="quote" value="{{.Quote}}">
               <label class="field">Reason<input name="reason" required maxlength="500" autocomplete="off"></label>
               <div class="dismissacts"><button type="button" class="btn ghost sm w96" data-dismiss-cancel="dismiss-{{.N}}">Cancel</button><button class="btn save sm w120">{{if eq .Level "error"}}Dismiss error{{else}}Dismiss{{end}}</button></div>
             </form>
@@ -62,7 +62,7 @@
             <td title="{{.Rule}}{{with .Quote}} · {{.}}{{end}}">{{.Message}}</td>
             <td title="{{.Reason}}">{{if .Reason}}{{.Reason}}{{else}}<span class="muted">—</span>{{end}}</td>
             <td title="{{.At}}">{{.By}}</td>
-            <td>{{if .CanDismiss}}<form hx-post="{{$.UndismissURL}}" hx-target="#checks" hx-swap="outerHTML"><input type="hidden" name="rule" value="{{.Rule}}"><input type="hidden" name="quote" value="{{.Quote}}"><button class="btn ghost sm w96">Restore</button></form>{{else}}<span class="slot w96"></span>{{end}}</td>
+            <td>{{if .CanDismiss}}<form hx-post="{{$.UndismissURL}}" hx-target="#checks" hx-swap="outerHTML"><input type="hidden" name="rule" value="{{.Rule}}"><input type="hidden" name="target" value="{{.Target}}"><input type="hidden" name="quote" value="{{.Quote}}"><button class="btn ghost sm w96">Restore</button></form>{{else}}<span class="slot w96"></span>{{end}}</td>
           </tr>
           {{end}}
         </tbody>

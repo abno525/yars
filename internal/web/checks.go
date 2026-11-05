@@ -17,6 +17,7 @@ import (
 type checkRow struct {
 	N                                  int // row number (ids of its reason form)
 	Rule, Level, Message, Quote, Where string
+	Target                             string // identifies it with Rule and Quote
 	CanDismiss                         bool
 	By, At, Reason                     string // dismissed rows: who, when and why
 }
@@ -149,7 +150,7 @@ func (s *Server) checksFor(r *http.Request, ref store.FindingRef) checksView {
 	}
 	ds := st.Dismissed
 	dismissed := func(it rules.Violation) (db.Dismissal, bool) {
-		d, ok := ds[db.DismissKey(it.Rule, store.QuoteHash(it.Quote))]
+		d, ok := ds[db.DismissKey(it.Rule, store.ViolationHash(it.Target, it.Quote))]
 		return d, ok
 	}
 	for _, it := range items {
@@ -205,7 +206,7 @@ func (s *Server) checksFor(r *http.Request, ref store.FindingRef) checksView {
 		}
 	}
 	for n, it := range items {
-		row := checkRow{N: n, Rule: it.Rule, Level: it.Level, Message: it.Message, Quote: it.Quote, Where: where(it.Target)}
+		row := checkRow{N: n, Rule: it.Rule, Level: it.Level, Message: it.Message, Quote: it.Quote, Where: where(it.Target), Target: it.Target}
 		notice := it.Target == "rules" || it.Target == "ai"
 		if d, ok := dismissed(it); ok && !notice {
 			row.By, row.At, row.Reason = d.By, stamp(d.At), d.Reason
@@ -325,7 +326,7 @@ func (s *Server) checksDismiss(on bool) http.HandlerFunc {
 			return
 		}
 		u := auth.UserFrom(r.Context())
-		rule, quote := r.FormValue("rule"), r.FormValue("quote")
+		rule, target, quote := r.FormValue("rule"), r.FormValue("target"), r.FormValue("quote")
 		var err error
 		if on {
 			reason := strings.TrimSpace(r.FormValue("reason"))
@@ -333,9 +334,9 @@ func (s *Server) checksDismiss(on bool) http.HandlerFunc {
 				http.Error(w, "Reason is required", http.StatusBadRequest)
 				return
 			}
-			err = s.Store.DismissWhy(ref.EngID, ref.Dir, rule, quote, reason, u)
+			err = s.Store.DismissWhy(ref.EngID, ref.Dir, rule, target, quote, reason, u)
 		} else {
-			err = s.Store.Undismiss(ref.EngID, ref.Dir, rule, quote, u)
+			err = s.Store.Undismiss(ref.EngID, ref.Dir, rule, target, quote, u)
 		}
 		if errors.Is(err, store.ErrInvalidValue) {
 			http.Error(w, strings.TrimPrefix(err.Error(), store.ErrInvalidValue.Error()+": "), http.StatusBadRequest)

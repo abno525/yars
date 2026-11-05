@@ -465,7 +465,7 @@ var tools = []tool{
 			out := []marked{}
 			for _, v := range s.Rules.Lint(ctx, ref.F, kinds) {
 				m := marked{Violation: v}
-				if d, ok := ds[db.DismissKey(v.Rule, store.QuoteHash(v.Quote))]; ok {
+				if d, ok := ds[db.DismissKey(v.Rule, store.ViolationHash(v.Target, v.Quote))]; ok {
 					m.Dismissed, m.DismissedBy = true, d.By
 				}
 				out = append(out, m)
