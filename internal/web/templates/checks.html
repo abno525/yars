@@ -1,15 +1,53 @@
 {{define "checks_panel"}}
 {{if .Enabled}}
-<section class="panel checks" id="checks">
+<section class="panel checks" id="checks" hx-get="{{.URL}}" hx-trigger="sse:check, sse:content, sse:resync, sse:poll" hx-swap="outerHTML" data-sse>
   <div class="panelhead">
-    <h2>Checks
-      {{if .Errors}}<span class="tag sev-critical">{{.Errors}} error{{if gt .Errors 1}}s{{end}}</span>{{end}}
-      {{if .Warnings}}<span class="tag sev-medium">{{.Warnings}} warning{{if gt .Warnings 1}}s{{end}}</span>{{end}}
-      {{if not .Items}}<span class="tag good">all good</span>{{end}}
-    </h2>
-    <button class="btn ghost sm w152" hx-post="{{.RunURL}}" hx-target="#checks" hx-swap="outerHTML" hx-indicator="#checks">{{if .Full}}Run again{{else}}Run all checks{{end}}</button>
+    <div class="panelname">
+      <h2>Checks</h2>
+      <span class="cnt">Errors {{if .Errors}}<span class="badge">{{.Errors}}</span>{{else}}<span class="badge0">0</span>{{end}}</span>
+      <span class="cnt">Warnings {{if .Warnings}}<span class="badge">{{.Warnings}}</span>{{else}}<span class="badge0">0</span>{{end}}</span>
+    </div>
+    <div class="actions">
+      <span class="slot w128">{{if .State}}<span class="tag check-{{.State}}" title="{{.Error}}">{{.StateLabel}}</span>{{end}}</span>
+      <button class="btn secondary sm w152" hx-post="{{.URL}}" hx-target="#checks" hx-swap="outerHTML"{{if .Running}} disabled{{end}}>{{.Button}}</button>
+    </div>
   </div>
-  {{template "hints" .Items}}
+  <div class="checkbody flush">
+    {{if .Error}}<p class="checkerr" title="{{.Error}}">{{.Error}}</p>{{end}}
+    <table class="table checktable">
+      <thead><tr><th class="c-level">Level</th><th>Message</th><th class="c-quote">Quote</th><th class="c-where">Section</th><th class="c-act">Action</th></tr></thead>
+      <tbody>
+        {{range .Rows}}
+        <tr>
+          <td><span class="tag lvl-{{.Level}}">{{.Level}}</span></td>
+          <td title="{{.Rule}}">{{.Message}}</td>
+          <td title="{{.Quote}}">{{if .Quote}}<code>{{.Quote}}</code>{{end}}</td>
+          <td title="{{.Where}}">{{.Where}}</td>
+          <td>{{if .CanDismiss}}<form hx-post="{{$.DismissURL}}" hx-target="#checks" hx-swap="outerHTML"><input type="hidden" name="rule" value="{{.Rule}}"><input type="hidden" name="quote" value="{{.Quote}}"><button class="btn ghost sm w96">Dismiss</button></form>{{else}}<span class="slot w96"></span>{{end}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+    {{if .Dismissed}}
+    <details class="dismissed">
+      <summary>Dismissed <span class="badge">{{len .Dismissed}}</span></summary>
+      <table class="table checktable">
+        <thead><tr><th class="c-level">Level</th><th>Message</th><th class="c-quote">Quote</th><th class="c-where">Dismissed by</th><th class="c-act">Action</th></tr></thead>
+        <tbody>
+          {{range .Dismissed}}
+          <tr>
+            <td><span class="tag lvl-{{.Level}}">{{.Level}}</span></td>
+            <td title="{{.Rule}}">{{.Message}}</td>
+            <td title="{{.Quote}}">{{if .Quote}}<code>{{.Quote}}</code>{{end}}</td>
+            <td title="{{.At}}">{{.By}}</td>
+            <td>{{if .CanDismiss}}<form hx-post="{{$.UndismissURL}}" hx-target="#checks" hx-swap="outerHTML"><input type="hidden" name="rule" value="{{.Rule}}"><input type="hidden" name="quote" value="{{.Quote}}"><button class="btn ghost sm w96">Restore</button></form>{{else}}<span class="slot w96"></span>{{end}}</td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+    </details>
+    {{end}}
+  </div>
 </section>
 {{end}}
 {{end}}

@@ -19,6 +19,7 @@ var eventKind = map[string]string{
 	store.ChangeChat:    events.Chat,
 	store.ChangeState:   events.Workflow,
 	store.ChangeContent: events.Content,
+	store.ChangeCheck:   events.Check,
 }
 
 // publishChange forwards a committed store write to the event hub.

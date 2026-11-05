@@ -1,0 +1,141 @@
+{{define "content"}}
+<h1>Admin</h1>
+<div class="admin">
+  <nav class="atabs" aria-label="Admin">
+    {{range .Admin.Tabs}}{{if .URL}}<a class="atab{{if .On}} on{{end}}" href="{{.URL}}">{{.Label}}</a>{{else}}<span class="atab" aria-hidden="true"></span>{{end}}{{end}}
+  </nav>
+  <div class="adminbody">
+    {{if eq .Admin.Tab "rules"}}{{template "admin_rules" .Admin.Rules}}{{end}}
+  </div>
+</div>
+{{end}}
+
+{{define "admin_rules"}}
+<section class="panel" id="rules">
+  <div class="panelhead">
+    <div class="panelname"><h2>Rules</h2></div>
+    <div class="actions">
+      <div class="seg small" role="group" aria-label="Level">{{range .Filters}}<a class="{{if .Active}}on{{end}}" href="{{.URL}}">{{.Label}} · {{.Count}}</a>{{end}}</div>
+      <a class="btn primary sm w128" href="/admin/rules?new=1">New rule</a>
+    </div>
+  </div>
+  {{range .Problems}}<p class="checkerr flush" title="{{.}}">{{.}}</p>{{end}}
+  <table class="table ruletable">
+    <thead><tr><th>Rule</th><th class="c-kind">Kind</th><th class="c-target">Applies to</th><th class="c-level">Level</th><th class="c-on">On</th><th class="c-act">Action</th></tr></thead>
+    <tbody>
+      {{range .Rows}}
+      <tr{{with .Class}} class="{{.}}"{{end}}>
+        <td class="rulecell"><span class="ruleid" title="{{.File}}">{{.ID}}</span><span class="rulemsg" title="{{.Message}}">{{.Message}}</span></td>
+        <td><span class="tag kind-{{.Kind}}">{{.KindLabel}}</span></td>
+        <td class="clip" title="{{.Target}}">{{.Target}}</td>
+        <td><span class="tag lvl-{{.Level}}">{{.Level}}</span></td>
+        <td>
+          <form class="toggle" method="post" action="/admin/rules/toggle">
+            <input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="edit" value="{{$.Edit}}"><input type="hidden" name="on" value="{{if .On}}0{{else}}1{{end}}">
+            <button class="cbx{{if .On}} on{{end}}" aria-label="Enabled" aria-pressed="{{if .On}}true{{else}}false{{end}}">{{if .On}}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>{{end}}</button>
+          </form>
+        </td>
+        <td>{{if .Editing}}<span class="btn save sm w96" aria-current="true">Editing</span>{{else}}<a class="btn ghost sm w96" href="/admin/rules?edit={{.ID}}">Edit</a>{{end}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+</section>
+<div class="rulesgrid">
+  {{template "rule_form" .Form}}
+  {{template "bench" .Bench}}
+</div>
+{{end}}
+
+{{define "rule_form"}}
+<form class="panel compact ruleform" method="post" action="/admin/rules/save" enctype="multipart/form-data">
+  <div class="panelhead"><h2>{{if .New}}New rule{{else}}Edit rule{{end}}</h2><span class="mono fname" title="{{.File}}">{{.File}}</span></div>
+  <input type="hidden" name="old" value="{{.Old}}">
+  <div class="rfields">
+    <label class="rf">ID<input class="monoin" name="id" value="{{.ID}}" required{{with index .Errs "id"}} aria-invalid="true"{{end}}><span class="ferr" title="{{index .Errs "id"}}">{{index .Errs "id"}}</span></label>
+    <fieldset class="rf"><legend>Kind</legend>
+      <div class="seg fill n4">
+        <label><input type="radio" name="kind" value="pattern"{{if eq .Kind "pattern"}} checked{{end}}><span>Pattern</span></label>
+        <label><input type="radio" name="kind" value="builtin"{{if eq .Kind "builtin"}} checked{{end}}><span>Built-in</span></label>
+        <label><input type="radio" name="kind" value="script"{{if eq .Kind "script"}} checked{{end}}><span>Script</span></label>
+        <label><input type="radio" name="kind" value="ai"{{if eq .Kind "ai"}} checked{{end}}><span>AI</span></label>
+      </div>
+    </fieldset>
+    <div class="rgrid">
+      <label class="rf">Applies to<select name="target">{{range .Targets}}<option value="{{.Value}}"{{if .On}} selected{{end}}>{{.Label}}</option>{{end}}</select></label>
+      <fieldset class="rf"><legend>Level</legend>
+        <div class="seg fill n2">
+          <label><input type="radio" name="level" value="error"{{if eq .Level "error"}} checked{{end}}><span>Error</span></label>
+          <label><input type="radio" name="level" value="warning"{{if eq .Level "warning"}} checked{{end}}><span>Warning</span></label>
+        </div>
+      </fieldset>
+    </div>
+    <div class="k k-pattern">
+      <fieldset class="rf"><legend>Text must</legend>
+        <div class="seg fill n2">
+          <label><input type="radio" name="mode" value="forbid"{{if ne .Mode "require"}} checked{{end}}><span>Not match</span></label>
+          <label><input type="radio" name="mode" value="require"{{if eq .Mode "require"}} checked{{end}}><span>Match</span></label>
+        </div>
+      </fieldset>
+      <div class="rf"><span>Pattern</span>
+        <div class="regex"><span class="delim">/</span><input class="monoin" name="pattern" value="{{.Pattern}}" aria-label="Pattern"{{with index .Errs "pattern"}} aria-invalid="true"{{end}}><span class="delim">/</span><label class="aa"><input type="checkbox" name="icase" value="1"{{if .ICase}} checked{{end}}>Aa</label></div>
+        <span class="ferr" title="{{index .Errs "pattern"}}">{{index .Errs "pattern"}}</span>
+      </div>
+    </div>
+    <fieldset class="rf k k-builtin"><legend>Check</legend>
+      <div class="opts">
+        {{range .Builtins}}<label class="opt"><input type="radio" name="check" value="{{.ID}}"{{if eq .ID $.Check}} checked{{end}}><span class="optname">{{.Name}}</span><span class="mono">{{.ID}}</span></label>{{end}}
+      </div>
+      <span class="ferr" title="{{index .Errs "check"}}">{{index .Errs "check"}}</span>
+    </fieldset>
+    <div class="rf k k-script"><span>Script</span>
+      <div class="scriptrow"><span class="mono scriptname" title="{{.Script}}">{{.Script}}</span><input type="file" name="script" aria-label="Script"{{with index .Errs "script"}} aria-invalid="true"{{end}}></div>
+      <span class="ferr" title="{{index .Errs "script"}}">{{index .Errs "script"}}</span>
+    </div>
+    <label class="rf k k-ai">Rule for the AI<textarea name="ai"{{with index .Errs "ai"}} aria-invalid="true"{{end}}>{{.AI}}</textarea><span class="ferr" title="{{index .Errs "ai"}}">{{index .Errs "ai"}}</span></label>
+    <label class="rf">Message<input name="message" value="{{.Message}}"></label>
+  </div>
+  <div class="pfoot flush">
+    {{if .New}}<span class="slot w112"></span>{{else}}<button class="btn danger sm w112" form="rule-delete">Delete</button>{{end}}
+    <span class="pstate error" title="{{index .Errs "form"}}">{{index .Errs "form"}}</span>
+    <button class="btn primary sm w128">Save</button>
+  </div>
+</form>
+{{if not .New}}<form id="rule-delete" method="post" action="/admin/rules/delete" hidden><input type="hidden" name="id" value="{{.Old}}"></form>{{end}}
+{{end}}
+
+{{define "bench"}}
+<section class="panel compact bench" id="bench">
+  <div class="panelhead"><h2>Test bench</h2></div>
+  <form class="benchform" action="/admin/rules/bench" hx-get="/admin/rules/bench" hx-target="#bench-out" hx-swap="outerHTML">
+    <label class="rf">Rule<select name="rule">{{range .Rules}}<option value="{{.Value}}"{{if .On}} selected{{end}}>{{.Label}}</option>{{end}}</select></label>
+    <div class="rgrid">
+      <label class="rf">Engagement<select name="eng" hx-get="/admin/rules/bench/findings" hx-trigger="change" hx-target="#bench-fid" hx-swap="outerHTML">{{range .Engs}}<option value="{{.Value}}"{{if .On}} selected{{end}}>{{.Label}}</option>{{end}}</select></label>
+      <label class="rf">Finding{{template "bench_findings" .}}</label>
+    </div>
+    <div class="benchrun"><button class="btn secondary sm w96">Try</button></div>
+  </form>
+  {{template "bench_out" .}}
+</section>
+{{end}}
+
+{{define "bench_findings"}}<select id="bench-fid" name="fid">{{range .Findings}}<option value="{{.Value}}"{{if .On}} selected{{end}}>{{.Label}}</option>{{end}}</select>{{end}}
+
+{{define "bench_out"}}
+<div class="benchout flush" id="bench-out">
+  <div class="benchhead"><span class="cnt">Hits <span class="hits">{{if .Ran}}{{if .Hits}}<span class="badge">{{.Hits}}</span>{{else}}<span class="badge0">0</span>{{end}}{{end}}</span></span></div>
+  <table class="table benchtable">
+    <thead><tr><th class="c-level">Level</th><th>Message</th><th class="c-quote">Quote</th><th class="c-where">Section</th></tr></thead>
+    <tbody>
+      {{range .Rows}}
+      <tr>
+        <td><span class="tag lvl-{{.Level}}">{{.Level}}</span></td>
+        <td title="{{.Message}}">{{.Message}}</td>
+        <td title="{{.Quote}}">{{if .Quote}}<code>{{.Quote}}</code>{{end}}</td>
+        <td title="{{.Where}}">{{.Where}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+</div>
+{{end}}

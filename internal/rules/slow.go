@@ -44,7 +44,12 @@ func NewRunner(dir string, ai config.AIConfig) *Runner {
 }
 
 func failed(r Rule, msg string) []Violation {
-	return []Violation{{Rule: r.ID, Level: r.Level, Message: "rule failed: " + msg, Target: "rules"}}
+	return failedAs(r, msg, msg)
+}
+
+// failedAs reports a rule that could not run; fail is the stored reason.
+func failedAs(r Rule, msg, fail string) []Violation {
+	return []Violation{{Rule: r.ID, Level: r.Level, Message: "rule failed: " + msg, Target: "rules", Fail: fail}}
 }
 
 // scriptPath resolves r.Script inside the rules dir (symlinks included).
@@ -131,7 +136,7 @@ func (rn *Runner) Script(ctx context.Context, r Rule, d Doc) []Violation {
 	}
 	var res []scriptResult
 	if err := json.Unmarshal(out.Bytes(), &res); err != nil {
-		return failed(r, "invalid output (want a JSON array): "+quote(out.String()))
+		return failedAs(r, InvalidOutput+" (want a JSON array): "+quote(out.String()), InvalidOutput)
 	}
 	var vs []Violation
 	for _, x := range res {

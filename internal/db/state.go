@@ -79,7 +79,10 @@ func (d *DB) Known(eng, fid string) (bool, error) {
 // engagement is created under the name of one that no longer exists).
 func (tx *Tx) Purge(eng string) error {
 	tx.touch(eng)
-	for _, t := range []string{"finding_state", "reviewers", "chat", "chat_hidden"} {
+	if _, err := tx.Exec("DELETE FROM check_results WHERE run_id IN (SELECT id FROM check_runs WHERE eng = ?)", eng); err != nil {
+		return err
+	}
+	for _, t := range []string{"finding_state", "reviewers", "chat", "chat_hidden", "check_runs", "dismissals"} {
 		if _, err := tx.Exec("DELETE FROM "+t+" WHERE eng = ?", eng); err != nil {
 			return err
 		}
@@ -163,12 +166,12 @@ func (tx *Tx) PutState(eng, fid string, s State) error {
 	return nil
 }
 
-const msgCols = "fid, id, ts, username, text, section, reply, resolves, reopens, event"
+const msgCols = "fid, id, ts, username, text, section, reply, resolves, reopens, event, kind"
 
 func scanMsg(sc interface{ Scan(...any) error }) (string, chat.Message, error) {
 	var fid, ts string
 	var m chat.Message
-	if err := sc.Scan(&fid, &m.ID, &ts, &m.User, &m.Text, &m.Section, &m.Reply, &m.Resolves, &m.Reopens, &m.Event); err != nil {
+	if err := sc.Scan(&fid, &m.ID, &ts, &m.User, &m.Text, &m.Section, &m.Reply, &m.Resolves, &m.Reopens, &m.Event, &m.Kind); err != nil {
 		return "", m, err
 	}
 	t, err := time.Parse(time.RFC3339Nano, ts)
@@ -251,7 +254,7 @@ func (d *DB) ChatHidden(user, eng, fid string) (map[string]bool, error) {
 // AddMessage appends a chat message (or workflow event) to a finding.
 func (tx *Tx) AddMessage(eng, fid string, m chat.Message) error {
 	tx.touch(eng)
-	_, err := tx.Exec("INSERT INTO chat(id, eng, fid, ts, username, text, section, reply, resolves, reopens, event) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		m.ID, eng, fid, m.TS.UTC().Format(time.RFC3339Nano), m.User, m.Text, m.Section, m.Reply, m.Resolves, m.Reopens, m.Event)
+	_, err := tx.Exec("INSERT INTO chat(id, eng, fid, ts, username, text, section, reply, resolves, reopens, event, kind) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		m.ID, eng, fid, m.TS.UTC().Format(time.RFC3339Nano), m.User, m.Text, m.Section, m.Reply, m.Resolves, m.Reopens, m.Event, m.Kind)
 	return err
 }

@@ -91,6 +91,33 @@ func (e *Engine) LintDoc(ctx context.Context, d Doc, kinds Kind) []Violation {
 	return e.Rules().Run(ctx, d, e.Cfg, kinds, e.Runner)
 }
 
+// Check runs every rule kind on a finding within the time budget, telling
+// progress how many rules are done (see Set.RunProgress).
+func (e *Engine) Check(ctx context.Context, f *finding.Finding, progress func(done, total int)) []Violation {
+	return e.CheckDoc(ctx, DocOf(f), progress)
+}
+
+// RuleCount is how many rules a Check runs (the total of its progress).
+func (e *Engine) RuleCount() int {
+	n := 0
+	for _, r := range e.Rules().Rules {
+		if r.counts(All, e.Runner) {
+			n++
+		}
+	}
+	return n
+}
+
+// CheckDoc is Check on a finding document.
+func (e *Engine) CheckDoc(ctx context.Context, d Doc, progress func(done, total int)) []Violation {
+	if e.Budget > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, e.Budget)
+		defer cancel()
+	}
+	return e.Rules().RunProgress(ctx, d, e.Cfg, All, e.Runner, progress)
+}
+
 // LintSection returns fast-rule hints for a section body being edited.
 func (e *Engine) LintSection(f *finding.Finding, section, body string) []Violation {
 	return e.Rules().RunSection(DocOf(f), e.Cfg, section, body)

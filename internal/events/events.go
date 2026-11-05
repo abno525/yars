@@ -11,6 +11,7 @@ const (
 	Workflow = "workflow" // workflow state: status, reviewers, clearances
 	Content  = "content"  // the finding's content (a commit by YARS)
 	Push     = "push"     // a git push to an engagement ("" = the main repo)
+	Check    = "check"    // a check run started, progressed or ended; a dismissal
 )
 
 // Event says what changed. ID is set by the hub (increasing, from 1); Seq

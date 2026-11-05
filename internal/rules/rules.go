@@ -46,7 +46,14 @@ type Violation struct {
 	Message string `json:"message"`
 	Target  string `json:"target"`
 	Quote   string `json:"quote,omitempty"`
+	// Fail is set when the rule itself could not run (a script that
+	// crashed, timed out or printed something that is not JSON): the reason,
+	// "invalid output" for unparseable output.
+	Fail string `json:"-"`
 }
+
+// InvalidOutput is the Fail reason of a script whose output is not JSON.
+const InvalidOutput = "invalid output"
 
 type Section struct {
 	Name string `json:"name"`
@@ -117,43 +124,58 @@ func Load(dir string) *Set {
 	seen := map[string]bool{}
 	for _, path := range names {
 		file := filepath.Base(path)
-		problem := func(rule, msg string) {
-			s.Problems = append(s.Problems, Violation{Rule: rule, Level: "error", Target: "rules", Message: "rule invalid (" + file + "): " + msg})
-		}
 		b, err := os.ReadFile(path)
 		if err != nil {
-			problem("rules/"+file, err.Error())
+			s.Problems = append(s.Problems, fileProblem(file, "rules/"+file, err.Error()))
 			continue
 		}
-		var rs []Rule
-		var raw []map[string]any
-		if err := yaml.Unmarshal(b, &rs); err != nil {
-			problem("rules/"+file, err.Error())
-			continue
-		}
-		yaml.Unmarshal(b, &raw)
-		for i, r := range rs {
-			r.File = file
-			// a typo like "levle:" must not be silently ignored
-			if i < len(raw) {
-				if bad := unknownKeys(raw[i]); len(bad) > 0 {
-					problem(r.ID, fmt.Sprintf("%s: unknown field(s) %s", r.ID, strings.Join(bad, ", ")))
-					continue
-				}
-			}
-			if err := r.prepare(); err != nil {
-				problem(r.ID, err.Error())
-				continue
-			}
-			if seen[r.ID] {
-				problem(r.ID, "duplicate rule id "+r.ID)
-				continue
-			}
-			seen[r.ID] = true
-			s.Rules = append(s.Rules, r)
-		}
+		s.add(file, b, seen)
 	}
 	return s
+}
+
+// Parse reads one rule file's content as Load would, without the
+// directory: its rules and its problems.
+func Parse(file string, b []byte) ([]Rule, []Violation) {
+	s := &Set{}
+	s.add(file, b, map[string]bool{})
+	return s.Rules, s.Problems
+}
+
+func fileProblem(file, rule, msg string) Violation {
+	return Violation{Rule: rule, Level: "error", Target: "rules", Message: "rule invalid (" + file + "): " + msg}
+}
+
+// add loads the rules of one file; seen holds the ids loaded so far.
+func (s *Set) add(file string, b []byte, seen map[string]bool) {
+	problem := func(rule, msg string) { s.Problems = append(s.Problems, fileProblem(file, rule, msg)) }
+	var rs []Rule
+	var raw []map[string]any
+	if err := yaml.Unmarshal(b, &rs); err != nil {
+		problem("rules/"+file, err.Error())
+		return
+	}
+	yaml.Unmarshal(b, &raw)
+	for i, r := range rs {
+		r.File = file
+		// a typo like "levle:" must not be silently ignored
+		if i < len(raw) {
+			if bad := unknownKeys(raw[i]); len(bad) > 0 {
+				problem(r.ID, fmt.Sprintf("%s: unknown field(s) %s", r.ID, strings.Join(bad, ", ")))
+				continue
+			}
+		}
+		if err := r.prepare(); err != nil {
+			problem(r.ID, err.Error())
+			continue
+		}
+		if seen[r.ID] {
+			problem(r.ID, "duplicate rule id "+r.ID)
+			continue
+		}
+		seen[r.ID] = true
+		s.Rules = append(s.Rules, r)
+	}
 }
 
 var ruleKeys = map[string]bool{"id": true, "level": true, "message": true, "target": true, "regex_forbid": true,
@@ -287,10 +309,37 @@ func (r Rule) v(target, msg, q string) Violation {
 
 // Run evaluates the set on d. slow may be nil (script/AI rules skipped).
 func (s *Set) Run(ctx context.Context, d Doc, cfg config.Config, kinds Kind, slow SlowRunner) []Violation {
+	return s.RunProgress(ctx, d, cfg, kinds, slow, nil)
+}
+
+// counts reports whether rule r runs for kinds (with slow rules only when
+// a runner is given).
+func (r Rule) counts(kinds Kind, slow SlowRunner) bool {
+	if r.Enabled != nil && !*r.Enabled {
+		return false
+	}
+	if r.re != nil || r.Check != "" {
+		return kinds&Fast != 0
+	}
+	return kinds&Slow != 0 && slow != nil
+}
+
+// RunProgress is Run that tells progress (may be nil) how many of the rules
+// that run are done: once before the first and after each one.
+func (s *Set) RunProgress(ctx context.Context, d Doc, cfg config.Config, kinds Kind, slow SlowRunner, progress func(done, total int)) []Violation {
 	out := append([]Violation{}, s.Problems...)
 	seen := map[Violation]bool{}
+	total, done := 0, 0
 	for _, r := range s.Rules {
-		if r.Enabled != nil && !*r.Enabled {
+		if r.counts(kinds, slow) {
+			total++
+		}
+	}
+	if progress != nil {
+		progress(0, total)
+	}
+	for _, r := range s.Rules {
+		if !r.counts(kinds, slow) {
 			continue
 		}
 		var vs []Violation
@@ -334,6 +383,9 @@ func (s *Set) Run(ctx context.Context, d Doc, cfg config.Config, kinds Kind, slo
 				seen[v] = true
 			}
 			out = append(out, v)
+		}
+		if done++; progress != nil {
+			progress(done, total)
 		}
 	}
 	return out

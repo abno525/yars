@@ -1,0 +1,194 @@
+package db
+
+import (
+	"database/sql"
+	"errors"
+	"time"
+)
+
+func stampNow() string { return time.Now().UTC().Format(time.RFC3339) }
+
+// Check run states.
+const (
+	RunRunning = "running"
+	RunDone    = "done"
+	RunFailed  = "failed"
+)
+
+// CheckRun is one run of every style rule on a finding, for the content
+// with hash ContentHash. Done of Total rules have run so far.
+type CheckRun struct {
+	ID                    int64
+	Eng, Fid, ContentHash string
+	Started, Finished     string // RFC 3339; Finished "" while running
+	State, By, Error      string
+	Total, Done           int
+}
+
+// CheckResult is one violation a run found. Thread is the chat thread that
+// stands for it ("" = none: a notice, or a dismissed violation).
+type CheckResult struct {
+	RunID                               int64
+	Rule, Level, Message, Target, Quote string
+	QuoteHash, Thread                   string
+}
+
+// Dismissal says a violation (rule + hash of its quote) of a finding no
+// longer counts: By dismissed it At.
+type Dismissal struct {
+	Eng, Fid, Rule, QuoteHash string
+	Level, By, At             string
+}
+
+// DismissKey identifies a violation of a finding across runs and edits.
+func DismissKey(rule, quoteHash string) string { return rule + "\x00" + quoteHash }
+
+const runCols = "id, eng, fid, content_hash, started, finished, state, by_user, total, done_count, error"
+
+func scanRun(sc interface{ Scan(...any) error }) (CheckRun, error) {
+	var r CheckRun
+	err := sc.Scan(&r.ID, &r.Eng, &r.Fid, &r.ContentHash, &r.Started, &r.Finished, &r.State, &r.By, &r.Total, &r.Done, &r.Error)
+	return r, err
+}
+
+// StartRun records a new running check of eng/fid by user. It moves no
+// change counter: progress is announced through the event hub.
+func (d *DB) StartRun(eng, fid, contentHash, user string) (int64, error) {
+	res, err := d.Exec("INSERT INTO check_runs(eng, fid, content_hash, started, state, by_user) VALUES (?, ?, ?, ?, ?, ?)",
+		eng, fid, contentHash, d.stamp(), RunRunning, user)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+// RunProgress records that done of total rules of a running check ran.
+func (d *DB) RunProgress(id int64, done, total int) error {
+	_, err := d.Exec("UPDATE check_runs SET done_count = ?, total = ? WHERE id = ? AND state = ?", done, total, id, RunRunning)
+	return err
+}
+
+// Run returns one check run.
+func (d *DB) Run(id int64) (CheckRun, error) {
+	r, err := scanRun(d.QueryRow("SELECT "+runCols+" FROM check_runs WHERE id = ?", id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return r, ErrNotFound
+	}
+	return r, err
+}
+
+// LatestRun returns the newest check run of a finding (false when none).
+func (d *DB) LatestRun(eng, fid string) (CheckRun, bool, error) {
+	r, err := scanRun(d.QueryRow("SELECT "+runCols+" FROM check_runs WHERE eng = ? AND fid = ? ORDER BY id DESC LIMIT 1", eng, fid))
+	if errors.Is(err, sql.ErrNoRows) {
+		return r, false, nil
+	}
+	return r, err == nil, err
+}
+
+// FailRun ends a running check as failed (e.g. a run cut off by a restart).
+func (d *DB) FailRun(id int64, reason string) error {
+	_, err := d.Exec("UPDATE check_runs SET state = ?, error = ?, finished = ? WHERE id = ? AND state = ?", RunFailed, reason, d.stamp(), id, RunRunning)
+	return err
+}
+
+// FinishRun ends a check run in state with its results.
+func (tx *Tx) FinishRun(id int64, state, reason string, results []CheckResult) error {
+	var eng string
+	if err := tx.QueryRow("SELECT eng FROM check_runs WHERE id = ?", id).Scan(&eng); err != nil {
+		return err
+	}
+	tx.touch(eng)
+	if _, err := tx.Exec("UPDATE check_runs SET state = ?, error = ?, finished = ?, done_count = total WHERE id = ?",
+		state, reason, stampNow(), id); err != nil {
+		return err
+	}
+	for _, r := range results {
+		if _, err := tx.Exec(`INSERT INTO check_results(run_id, rule, level, message, target, quote, quote_hash, thread)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, id, r.Rule, r.Level, r.Message, r.Target, r.Quote, r.QuoteHash, r.Thread); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// RunResults returns a run's violations in the order found.
+func (d *DB) RunResults(id int64) ([]CheckResult, error) {
+	rows, err := d.Query("SELECT run_id, rule, level, message, target, quote, quote_hash, thread FROM check_results WHERE run_id = ? ORDER BY rowid", id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []CheckResult
+	for rows.Next() {
+		var r CheckResult
+		if err := rows.Scan(&r.RunID, &r.Rule, &r.Level, &r.Message, &r.Target, &r.Quote, &r.QuoteHash, &r.Thread); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// CheckThreads maps each violation of a finding (DismissKey) to the chat
+// thread the latest run that had one gave it.
+func (tx *Tx) CheckThreads(eng, fid string) (map[string]string, error) {
+	rows, err := tx.Query(`SELECT r.rule, r.quote_hash, r.thread FROM check_results r JOIN check_runs c ON c.id = r.run_id
+		WHERE c.eng = ? AND c.fid = ? AND r.thread != '' ORDER BY r.run_id, r.rowid`, eng, fid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]string{}
+	for rows.Next() {
+		var rule, qh, th string
+		if err := rows.Scan(&rule, &qh, &th); err != nil {
+			return nil, err
+		}
+		out[DismissKey(rule, qh)] = th
+	}
+	return out, rows.Err()
+}
+
+// Dismissals returns a finding's dismissed violations by DismissKey.
+func (d *DB) Dismissals(eng, fid string) (map[string]Dismissal, error) { return dismissals(d, eng, fid) }
+
+// Dismissals reads them inside the transaction.
+func (tx *Tx) Dismissals(eng, fid string) (map[string]Dismissal, error) { return dismissals(tx, eng, fid) }
+
+func dismissals(q querier, eng, fid string) (map[string]Dismissal, error) {
+	rows, err := q.Query("SELECT eng, fid, rule, quote_hash, level, by_user, at FROM dismissals WHERE eng = ? AND fid = ?", eng, fid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]Dismissal{}
+	for rows.Next() {
+		var x Dismissal
+		if err := rows.Scan(&x.Eng, &x.Fid, &x.Rule, &x.QuoteHash, &x.Level, &x.By, &x.At); err != nil {
+			return nil, err
+		}
+		out[DismissKey(x.Rule, x.QuoteHash)] = x
+	}
+	return out, rows.Err()
+}
+
+// Dismiss records a dismissal (replacing an earlier one of the same
+// violation); At is set when empty.
+func (tx *Tx) Dismiss(x Dismissal) error {
+	tx.touch(x.Eng)
+	if x.At == "" {
+		x.At = stampNow()
+	}
+	_, err := tx.Exec(`INSERT INTO dismissals(eng, fid, rule, quote_hash, level, by_user, at) VALUES (?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(eng, fid, rule, quote_hash) DO UPDATE SET level = excluded.level, by_user = excluded.by_user, at = excluded.at`,
+		x.Eng, x.Fid, x.Rule, x.QuoteHash, x.Level, x.By, x.At)
+	return err
+}
+
+// Undismiss drops a dismissal; the violation counts again.
+func (tx *Tx) Undismiss(eng, fid, rule, quoteHash string) error {
+	tx.touch(eng)
+	_, err := tx.Exec("DELETE FROM dismissals WHERE eng = ? AND fid = ? AND rule = ? AND quote_hash = ?", eng, fid, rule, quoteHash)
+	return err
+}

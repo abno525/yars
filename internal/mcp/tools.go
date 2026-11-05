@@ -12,6 +12,7 @@ import (
 	"yars/internal/chat"
 	"yars/internal/config"
 	"yars/internal/cvss"
+	"yars/internal/db"
 	"yars/internal/finding"
 	"yars/internal/index"
 	"yars/internal/rules"
@@ -331,7 +332,7 @@ var tools = []tool{
 			}
 			return "resolved", nil
 		}},
-	{name: "lint_finding", desc: "Check a finding against the team's style rules (regex and built-in checks; with all=true also script and AI rules).",
+	{name: "lint_finding", desc: "Check a finding against the team's style rules (regex and built-in checks; with all=true also script and AI rules). Violations a reviewer dismissed are marked dismissed and do not block submit or approve.",
 		required: []param{pEng, pFinding}, boolArgs: []param{{"all", "also run script and AI rules (slower)"}},
 		run: func(s *Server, ctx context.Context, u config.User, a args) (string, error) {
 			ref, err := s.ref(a)
@@ -345,11 +346,25 @@ var tools = []tool{
 			if all, _ := a["all"].(bool); all {
 				kinds = rules.All
 			}
-			vs := s.Rules.Lint(ctx, ref.F, kinds)
-			if vs == nil {
-				vs = []rules.Violation{}
+			ds, err := s.Store.Dismissals(ref.EngID, ref.F.Meta.ID)
+			if err != nil {
+				return "", err
 			}
-			return asJSON(vs)
+			// dismissed violations no longer block submit or approve
+			type marked struct {
+				rules.Violation
+				Dismissed   bool   `json:"dismissed,omitempty"`
+				DismissedBy string `json:"dismissed_by,omitempty"`
+			}
+			out := []marked{}
+			for _, v := range s.Rules.Lint(ctx, ref.F, kinds) {
+				m := marked{Violation: v}
+				if d, ok := ds[db.DismissKey(v.Rule, store.QuoteHash(v.Quote))]; ok {
+					m.Dismissed, m.DismissedBy = true, d.By
+				}
+				out = append(out, m)
+			}
+			return asJSON(out)
 		}},
 }
 

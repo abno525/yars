@@ -82,7 +82,9 @@ type page struct {
 	Engagements   []store.Engagement
 	Eng           store.Engagement
 	CanManage     bool
-	Nav           string // active top-bar item: "" (findings) or "inbox"
+	CanAdmin      bool   // the Admin nav item
+	Nav           string // active top-bar item: "" (findings), "inbox" or "admin"
+	Admin         adminView
 	Error         string
 	Rows          []index.Row
 	Offset        int    // first row shown (board pages after the first)
@@ -160,10 +162,11 @@ func (s *Server) Handler() http.Handler {
 	s.routesDetails(private)
 	s.routesWorkflow(private)
 	s.routesChat(private)
-	private.HandleFunc("POST /e/{eng}/f/{fid}/checks", s.checksRun)
+	s.routesChecks(private)
 	s.routesRetest(private)
 	s.routesExport(private)
 	s.routesBulk(private)
+	s.routesAdmin(private)
 
 	root := http.NewServeMux()
 	root.HandleFunc("GET /login", s.loginPage)
@@ -231,7 +234,7 @@ func (s *Server) base(r *http.Request, eng string) (*page, error) {
 	if err != nil {
 		return nil, err
 	}
-	p := &page{User: u, Engagements: engs, CanManage: canManage(u)}
+	p := &page{User: u, Engagements: engs, CanManage: canManage(u), CanAdmin: canAdmin(u)}
 	if p.Inbox, err = s.inboxFor(u, engs); err != nil {
 		return nil, err
 	}

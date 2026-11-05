@@ -26,7 +26,13 @@ type Message struct {
 	Resolves string    `json:"resolves,omitempty"`
 	Reopens  string    `json:"reopens,omitempty"`
 	Event    string    `json:"event,omitempty"`
+	// Kind marks a thread opened by YARS itself: KindCheck for a violation
+	// a check run found ("" = a person's message).
+	Kind string `json:"kind,omitempty"`
 }
+
+// KindCheck is the Kind of a thread a check run opened for a violation.
+const KindCheck = "check"
 
 // Parse decodes JSONL, skipping blank, invalid and id-less lines.
 func Parse(b []byte) []Message {

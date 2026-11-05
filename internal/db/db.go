@@ -18,7 +18,7 @@ import (
 // Path is where the database lives inside a data directory (git-ignored).
 func Path(dataDir string) string { return filepath.Join(dataDir, ".yars", "yars.db") }
 
-const schemaVersion = 3
+const schemaVersion = 4
 
 var migrations = []string{
 	// v1
@@ -87,6 +87,44 @@ var migrations = []string{
 		fid       TEXT NOT NULL,
 		thread_id TEXT NOT NULL,
 		PRIMARY KEY (username, eng, fid, thread_id)
+	) WITHOUT ROWID;`,
+	// v4: check runs with their results, dismissed violations, and chat
+	// threads opened by YARS (kind = check)
+	`ALTER TABLE chat ADD COLUMN kind TEXT NOT NULL DEFAULT '';
+	CREATE TABLE check_runs (
+		id           INTEGER PRIMARY KEY,
+		eng          TEXT NOT NULL,
+		fid          TEXT NOT NULL,
+		content_hash TEXT NOT NULL,
+		started      TEXT NOT NULL,
+		finished     TEXT NOT NULL DEFAULT '',
+		state        TEXT NOT NULL,
+		by_user      TEXT NOT NULL,
+		total        INTEGER NOT NULL DEFAULT 0,
+		done_count   INTEGER NOT NULL DEFAULT 0,
+		error        TEXT NOT NULL DEFAULT ''
+	);
+	CREATE INDEX check_runs_finding ON check_runs(eng, fid, id);
+	CREATE TABLE check_results (
+		run_id     INTEGER NOT NULL REFERENCES check_runs(id) ON DELETE CASCADE,
+		rule       TEXT NOT NULL,
+		level      TEXT NOT NULL,
+		message    TEXT NOT NULL,
+		target     TEXT NOT NULL,
+		quote      TEXT NOT NULL DEFAULT '',
+		quote_hash TEXT NOT NULL DEFAULT '',
+		thread     TEXT NOT NULL DEFAULT ''
+	);
+	CREATE INDEX check_results_run ON check_results(run_id);
+	CREATE TABLE dismissals (
+		eng        TEXT NOT NULL,
+		fid        TEXT NOT NULL,
+		rule       TEXT NOT NULL,
+		quote_hash TEXT NOT NULL,
+		level      TEXT NOT NULL,
+		by_user    TEXT NOT NULL,
+		at         TEXT NOT NULL,
+		PRIMARY KEY (eng, fid, rule, quote_hash)
 	) WITHOUT ROWID;`,
 }
 

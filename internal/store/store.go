@@ -98,8 +98,13 @@ type Store struct {
 	subs   []func(Change)
 
 	// Linter, when set, runs the style rules; error-level violations block
-	// submit and approve.
+	// submit and approve (unless dismissed).
 	Linter Linter
+
+	// check runs in progress, by "<eng>/<fid>" (guarded by checksMu)
+	checksMu sync.Mutex
+	running  map[string]int64
+	checkWG  sync.WaitGroup
 
 	beforeWrite func() // test hook: runs between reading and writing
 }
@@ -119,6 +124,9 @@ const (
 	// not move the engagement's change counter (Seq is 0); the new HEAD
 	// tells readers of the repo.
 	ChangeContent = "content"
+	// ChangeCheck: a check run of the finding started, progressed or ended,
+	// or a violation was dismissed. Seq is 0.
+	ChangeCheck = "check"
 )
 
 // OnChange registers fn to be told about every database write confined to
@@ -1178,7 +1186,7 @@ func (s *Store) HiddenThreads(engID, dir string, u config.User) (map[string]bool
 // PostChat validates and stores a message as u (database, no commit). ID,
 // time and user are filled in; the returned message is what was stored.
 func (s *Store) PostChat(engID, dir string, m chat.Message, u config.User) (chat.Message, error) {
-	m.ID, m.TS, m.User, m.Event = chat.NewID(), time.Now().UTC().Truncate(time.Second), u.Username, ""
+	m.ID, m.TS, m.User, m.Event, m.Kind = chat.NewID(), time.Now().UTC().Truncate(time.Second), u.Username, "", ""
 	m.Text = strings.TrimSpace(m.Text)
 	if m.Resolves != "" || m.Reopens != "" {
 		m.Text, m.Section = "", "" // markers carry no content
@@ -1282,7 +1290,11 @@ func (s *Store) Transition(engID, dir string, act workflow.Action, reason string
 		if err := workflow.CheckWithGate(u, ref.F.Meta, act, s.cfg); err != nil {
 			return err
 		}
-		if errs := rules.Errors(s.Linter.Lint(context.Background(), ref.F, rules.All)); len(errs) > 0 {
+		vs, err := s.undismissed(engID, ref.F.Meta.ID, s.Linter.Lint(context.Background(), ref.F, rules.All))
+		if err != nil {
+			return err
+		}
+		if errs := rules.Errors(vs); len(errs) > 0 {
 			return &workflow.Denied{Reason: "cannot " + strings.ToLower(workflow.Label(act)) + ": " + strings.Join(errs, "; ")}
 		}
 		linted = contentHash(raw)

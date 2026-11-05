@@ -1,0 +1,435 @@
+package store
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"time"
+
+	"yars/internal/chat"
+	"yars/internal/config"
+	"yars/internal/db"
+	"yars/internal/finding"
+	"yars/internal/rules"
+	"yars/internal/workflow"
+)
+
+// CheckUser is the author of the chat threads and events check runs write.
+const CheckUser = "yars"
+
+// EventCheckFixed is the chat event of a check thread a later run no longer
+// found (the run resolved it).
+const EventCheckFixed = "check_fixed"
+
+// Checker is a Linter that also reports progress over a full run.
+type Checker interface {
+	Check(ctx context.Context, f *finding.Finding, progress func(done, total int)) []rules.Violation
+}
+
+// CheckStatus is a finding's latest check run as seen now.
+type CheckStatus struct {
+	Ref       FindingRef
+	Run       db.CheckRun
+	HasRun    bool
+	Running   bool // in progress in this server
+	Stale     bool // the finding changed since the run started
+	Results   []db.CheckResult
+	Dismissed map[string]db.Dismissal // by db.DismissKey
+}
+
+// QuoteHash identifies a violation's quote for dismissals and comments.
+func QuoteHash(quote string) string { return BodyHash(quote) }
+
+// CanDismiss reports whether u may dismiss (or restore) a violation of the
+// given level on a finding: warnings need edit rights, errors also the
+// reviewer role or more.
+func CanDismiss(u config.User, m finding.Meta, level string) bool {
+	if !workflow.CanEdit(u, m) {
+		return false
+	}
+	return level != "error" || workflow.AtLeast(u, "reviewer")
+}
+
+func checkKey(eng, fid string) string { return eng + "/" + fid }
+
+// notice reports a violation about the rules themselves (a broken rule
+// file, a rule that could not run, AI not configured): stored with the run
+// but never posted as a comment.
+func notice(v rules.Violation) bool { return v.Target == "rules" || v.Target == "ai" }
+
+// Dismissals returns the dismissed violations of finding fid.
+func (s *Store) Dismissals(engID, fid string) (map[string]db.Dismissal, error) {
+	if s.db == nil {
+		return map[string]db.Dismissal{}, nil
+	}
+	return s.db.Dismissals(engID, fid)
+}
+
+// undismissed drops the violations dismissed on finding fid.
+func (s *Store) undismissed(engID, fid string, vs []rules.Violation) ([]rules.Violation, error) {
+	ds, err := s.Dismissals(engID, fid)
+	if err != nil || len(ds) == 0 {
+		return vs, err
+	}
+	var out []rules.Violation
+	for _, v := range vs {
+		if _, ok := ds[db.DismissKey(v.Rule, QuoteHash(v.Quote))]; !ok {
+			out = append(out, v)
+		}
+	}
+	return out, nil
+}
+
+// StartCheck starts a run of every rule (fast, script, AI) on the finding in
+// the background, as u, and returns it. While a run of the finding is in
+// progress, that run is returned instead. Progress is announced as
+// ChangeCheck; at the end the results are stored and each new violation is
+// posted as a chat thread (see finishCheck).
+func (s *Store) StartCheck(engID, dir string, u config.User) (db.CheckRun, error) {
+	if s.db == nil {
+		return db.CheckRun{}, ErrNoDB
+	}
+	if s.Linter == nil {
+		return db.CheckRun{}, fmt.Errorf("%w: no rules configured", ErrInvalidValue)
+	}
+	ref, raw, err := s.read(engID, dir, nil)
+	if err != nil {
+		return db.CheckRun{}, err
+	}
+	fid := ref.F.Meta.ID
+	key := checkKey(engID, fid)
+	s.checksMu.Lock()
+	if id, ok := s.running[key]; ok {
+		s.checksMu.Unlock()
+		return s.db.Run(id)
+	}
+	id, err := s.db.StartRun(engID, fid, contentHash(raw), u.Username)
+	if err != nil {
+		s.checksMu.Unlock()
+		return db.CheckRun{}, err
+	}
+	if c, ok := s.Linter.(interface{ RuleCount() int }); ok {
+		s.db.RunProgress(id, 0, c.RuleCount()) // "0/6" from the start
+	}
+	if s.running == nil {
+		s.running = map[string]int64{}
+	}
+	s.running[key] = id
+	s.checkWG.Add(1)
+	s.checksMu.Unlock()
+	s.notify(Change{Eng: engID, Fid: fid, Kind: ChangeCheck})
+	go s.runCheck(id, ref)
+	return s.db.Run(id)
+}
+
+// WaitChecks waits until no check run is in progress.
+func (s *Store) WaitChecks() { s.checkWG.Wait() }
+
+func (s *Store) runCheck(id int64, ref FindingRef) {
+	eng, fid := ref.EngID, ref.F.Meta.ID
+	defer s.checkWG.Done()
+	defer func() {
+		if p := recover(); p != nil {
+			s.db.FailRun(id, fmt.Sprint("crashed: ", p))
+		}
+		s.checksMu.Lock()
+		delete(s.running, checkKey(eng, fid))
+		s.checksMu.Unlock()
+		s.notify(Change{Eng: eng, Fid: fid, Kind: ChangeCheck})
+	}()
+	progress := func(done, total int) {
+		if s.db.RunProgress(id, done, total) == nil {
+			s.notify(Change{Eng: eng, Fid: fid, Kind: ChangeCheck})
+		}
+	}
+	var vs []rules.Violation
+	if c, ok := s.Linter.(Checker); ok {
+		vs = c.Check(context.Background(), ref.F, progress)
+	} else {
+		progress(0, 1)
+		vs = s.Linter.Lint(context.Background(), ref.F, rules.All)
+		progress(1, 1)
+	}
+	seq, err := s.db.TxForSeq(eng, func(tx *db.Tx) error { return finishCheck(tx, id, eng, fid, vs) })
+	if err != nil {
+		s.db.FailRun(id, err.Error())
+		return
+	}
+	s.notify(Change{Eng: eng, Fid: fid, Kind: ChangeChat, Seq: seq})
+}
+
+// checkText is the comment for a violation: its message and the quote.
+func checkText(v rules.Violation) string {
+	q := strings.Join(strings.Fields(v.Quote), " ")
+	if q == "" {
+		return v.Message
+	}
+	return v.Message + "\n\n> " + q
+}
+
+func sectionOf(target string) string {
+	if name, ok := strings.CutPrefix(target, "section:"); ok {
+		return name
+	}
+	return ""
+}
+
+// finishCheck stores the results of run id and keeps the chat in step:
+//   - a violation without a thread of its own gets a new one (kind check,
+//     by CheckUser, on its section);
+//   - one whose thread is still open keeps it; one whose thread someone
+//     resolved although it is still there gets it reopened;
+//   - a dismissed violation gets no comment;
+//   - an open thread whose violation is gone is resolved, with an event
+//     (not for a rule that failed to run or only reported a notice).
+//
+// The run fails when a rule could not run (Fail; "invalid output" for a
+// script that printed something other than JSON).
+func finishCheck(tx *db.Tx, id int64, eng, fid string, vs []rules.Violation) error {
+	state, reason := db.RunDone, ""
+	failedRules := map[string]bool{}
+	for _, v := range vs {
+		// a rule that only reported a notice (AI down, budget spent) says
+		// nothing about its earlier violations: keep their threads
+		if notice(v) {
+			failedRules[v.Rule] = true
+		}
+		if v.Fail != "" {
+			failedRules[v.Rule] = true
+			if reason == "" {
+				state, reason = db.RunFailed, v.Fail
+			}
+		}
+	}
+	msgs, err := tx.Messages(eng, fid)
+	if err != nil {
+		return err
+	}
+	threads := map[string]*chat.Thread{}
+	for _, it := range chat.Timeline(msgs) {
+		if it.Thread != nil {
+			threads[it.Thread.Root.ID] = it.Thread
+		}
+	}
+	known, err := tx.CheckThreads(eng, fid)
+	if err != nil {
+		return err
+	}
+	dismissed, err := tx.Dismissals(eng, fid)
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	add := func(m chat.Message) error {
+		m.ID, m.TS, m.User = chat.NewID(), now, CheckUser
+		return tx.AddMessage(eng, fid, m)
+	}
+	found := map[string]string{} // key -> thread given in this run
+	results := make([]db.CheckResult, 0, len(vs))
+	for _, v := range vs {
+		r := db.CheckResult{Rule: v.Rule, Level: v.Level, Message: v.Message, Target: v.Target, Quote: v.Quote, QuoteHash: QuoteHash(v.Quote)}
+		k := db.DismissKey(r.Rule, r.QuoteHash)
+		switch th, seen := found[k]; {
+		case notice(v):
+		case seen:
+			r.Thread = th
+		case dismissed[k].By != "":
+			found[k] = known[k]
+			r.Thread = known[k]
+		default:
+			if t := threads[known[k]]; t != nil && known[k] != "" {
+				if t.Resolved {
+					if err := add(chat.Message{Reopens: t.Root.ID}); err != nil {
+						return err
+					}
+				}
+				r.Thread = t.Root.ID
+			} else {
+				m := chat.Message{ID: chat.NewID(), TS: now, User: CheckUser, Kind: chat.KindCheck, Section: sectionOf(v.Target), Text: checkText(v)}
+				if err := tx.AddMessage(eng, fid, m); err != nil {
+					return err
+				}
+				r.Thread = m.ID
+			}
+			found[k] = r.Thread
+		}
+		results = append(results, r)
+	}
+	for k, th := range known {
+		rule, _, _ := strings.Cut(k, "\x00")
+		t := threads[th]
+		if _, still := found[k]; still || failedRules[rule] || t == nil || t.Resolved {
+			continue
+		}
+		if err := add(chat.Message{Resolves: th}); err != nil {
+			return err
+		}
+		if err := add(chat.Message{Event: EventCheckFixed, Text: rule}); err != nil {
+			return err
+		}
+	}
+	return tx.FinishRun(id, state, reason, results)
+}
+
+// CheckStatus returns the finding's latest check run with its results and
+// dismissals. A run left "running" by an earlier server is failed here
+// ("interrupted").
+func (s *Store) CheckStatus(engID, dir string) (CheckStatus, error) {
+	if s.db == nil {
+		return CheckStatus{}, ErrNoDB
+	}
+	ref, raw, err := s.read(engID, dir, nil)
+	if err != nil {
+		return CheckStatus{}, err
+	}
+	fid := ref.F.Meta.ID
+	st := CheckStatus{Ref: ref}
+	s.checksMu.Lock()
+	st.Run, st.HasRun, err = s.db.LatestRun(engID, fid)
+	if err == nil && st.HasRun && st.Run.State == db.RunRunning {
+		if s.running[checkKey(engID, fid)] == st.Run.ID {
+			st.Running = true
+		} else if err = s.db.FailRun(st.Run.ID, "interrupted"); err == nil {
+			st.Run, err = s.db.Run(st.Run.ID)
+		}
+	}
+	s.checksMu.Unlock()
+	if err != nil {
+		return st, err
+	}
+	if st.HasRun {
+		st.Stale = st.Run.ContentHash != contentHash(raw)
+		if !st.Running {
+			if st.Results, err = s.db.RunResults(st.Run.ID); err != nil {
+				return st, err
+			}
+		}
+	}
+	st.Dismissed, err = s.db.Dismissals(engID, fid)
+	return st, err
+}
+
+// violationLevel finds the level of the finding's violation (rule, quote)
+// in its latest run or among the fast rules now ("" = no such violation).
+func (s *Store) violationLevel(ref FindingRef, rule, qh string) (string, error) {
+	level := ""
+	note := func(l string) {
+		if level != "error" {
+			level = l
+		}
+	}
+	run, ok, err := s.db.LatestRun(ref.EngID, ref.F.Meta.ID)
+	if err != nil {
+		return "", err
+	}
+	if ok {
+		res, err := s.db.RunResults(run.ID)
+		if err != nil {
+			return "", err
+		}
+		for _, r := range res {
+			if r.Rule == rule && r.QuoteHash == qh && r.Target != "rules" && r.Target != "ai" {
+				note(r.Level)
+			}
+		}
+	}
+	if s.Linter != nil {
+		for _, v := range s.Linter.Lint(context.Background(), ref.F, rules.Fast) {
+			if v.Rule == rule && QuoteHash(v.Quote) == qh && !notice(v) {
+				note(v.Level)
+			}
+		}
+	}
+	return level, nil
+}
+
+// Dismiss marks the finding's violation (rule, quote) as not counting: the
+// submit/approve gate ignores it and check runs post no comment for it; its
+// open comment is resolved. Warnings need edit rights, errors also the
+// reviewer role (CanDismiss).
+func (s *Store) Dismiss(engID, dir, rule, quote string, u config.User) error {
+	if s.db == nil {
+		return ErrNoDB
+	}
+	ref, err := s.Finding(engID, dir)
+	if err != nil {
+		return err
+	}
+	qh := QuoteHash(quote)
+	level, err := s.violationLevel(ref, rule, qh)
+	if err != nil {
+		return err
+	}
+	if level == "" {
+		return fmt.Errorf("%w: no violation %s with that quote", ErrInvalidValue, rule)
+	}
+	if !CanDismiss(u, ref.F.Meta, level) {
+		return &workflow.Denied{Reason: dismissDenied(level)}
+	}
+	fid := ref.F.Meta.ID
+	k := db.DismissKey(rule, qh)
+	seq, err := s.db.TxForSeq(engID, func(tx *db.Tx) error {
+		if err := tx.Dismiss(db.Dismissal{Eng: engID, Fid: fid, Rule: rule, QuoteHash: qh, Level: level, By: u.Username}); err != nil {
+			return err
+		}
+		known, err := tx.CheckThreads(engID, fid)
+		if err != nil || known[k] == "" {
+			return err
+		}
+		msgs, err := tx.Messages(engID, fid)
+		if err != nil {
+			return err
+		}
+		for _, it := range chat.Timeline(msgs) {
+			if it.Thread != nil && it.Thread.Root.ID == known[k] && !it.Thread.Resolved {
+				return tx.AddMessage(engID, fid, chat.Message{ID: chat.NewID(), TS: time.Now().UTC().Truncate(time.Second),
+					User: u.Username, Resolves: known[k]})
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	s.notify(Change{Eng: engID, Fid: fid, Kind: ChangeState, Seq: seq})
+	s.notify(Change{Eng: engID, Fid: fid, Kind: ChangeCheck})
+	return nil
+}
+
+func dismissDenied(level string) string {
+	if level == "error" {
+		return "only a reviewer or a director can dismiss an error"
+	}
+	return "only someone who may edit the finding can dismiss a warning"
+}
+
+// Undismiss makes a dismissed violation count again; the same people who may
+// dismiss it may do this.
+func (s *Store) Undismiss(engID, dir, rule, quote string, u config.User) error {
+	if s.db == nil {
+		return ErrNoDB
+	}
+	ref, err := s.Finding(engID, dir)
+	if err != nil {
+		return err
+	}
+	fid, qh := ref.F.Meta.ID, QuoteHash(quote)
+	ds, err := s.db.Dismissals(engID, fid)
+	if err != nil {
+		return err
+	}
+	d, ok := ds[db.DismissKey(rule, qh)]
+	if !ok {
+		return nil
+	}
+	if !CanDismiss(u, ref.F.Meta, d.Level) {
+		return &workflow.Denied{Reason: dismissDenied(d.Level)}
+	}
+	seq, err := s.db.TxForSeq(engID, func(tx *db.Tx) error { return tx.Undismiss(engID, fid, rule, qh) })
+	if err != nil {
+		return err
+	}
+	s.notify(Change{Eng: engID, Fid: fid, Kind: ChangeState, Seq: seq})
+	s.notify(Change{Eng: engID, Fid: fid, Kind: ChangeCheck})
+	return nil
+}

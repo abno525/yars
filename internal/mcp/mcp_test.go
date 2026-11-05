@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -17,6 +18,7 @@ import (
 	"yars/internal/db"
 	"yars/internal/gitrepo"
 	"yars/internal/index"
+	"yars/internal/rules"
 	"yars/internal/store"
 )
 
@@ -416,6 +418,31 @@ func TestMCPCreateAndLint(t *testing.T) {
 	}
 	if out := f.ok(pen2, "lint_finding", map[string]any{"engagement": "acme", "finding": "F-002"}); !strings.Contains(out, "[]") && !strings.Contains(out, "no rules") {
 		t.Fatalf("lint without rules: %s", out)
+	}
+}
+
+func TestMCPLintMarksDismissed(t *testing.T) {
+	f := newFx(t)
+	rd := filepath.Join(f.dir, ".yars", "rules")
+	os.MkdirAll(rd, 0o755)
+	os.WriteFile(filepath.Join(rd, "r.yaml"), []byte("- id: no-sql\n  target: title\n  regex_forbid: 'SQL'\n- id: no-inj\n  target: title\n  regex_forbid: 'injection'\n"), 0o644)
+	eng := rules.NewEngine(rd, f.s.Cfg)
+	f.s.Rules, f.s.Store.Linter = eng, eng
+	if err := f.s.Store.Dismiss("acme", "F-001-sql-injection", "no-sql", "SQL", bob); err != nil {
+		t.Fatal(err)
+	}
+	var vs []map[string]any
+	if err := json.Unmarshal([]byte(f.ok(alice, "lint_finding", map[string]any{"engagement": "acme", "finding": "F-001"})), &vs); err != nil {
+		t.Fatal(err)
+	}
+	if len(vs) != 2 {
+		t.Fatalf("got %+v", vs)
+	}
+	for _, v := range vs {
+		dismissed := v["rule"] == "no-sql"
+		if (v["dismissed"] == true) != dismissed || (dismissed && v["dismissed_by"] != "bob") {
+			t.Fatalf("violation %+v", v)
+		}
 	}
 }
 

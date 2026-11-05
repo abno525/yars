@@ -10,7 +10,6 @@ import (
 	"yars/internal/auth"
 	"yars/internal/config"
 	"yars/internal/finding"
-	"yars/internal/rules"
 	"yars/internal/store"
 	"yars/internal/workflow"
 )
@@ -207,11 +206,12 @@ func (s *Server) wfFor(ref store.FindingRef, r *http.Request) wfView {
 }
 
 // wfGated is the workflow bar with the fast style rules applied: their
-// errors also block submit and approve. It returns the checks it ran.
+// errors (unless dismissed) also block submit and approve. It returns the
+// checks panel it built.
 func (s *Server) wfGated(r *http.Request, ref store.FindingRef) (wfView, checksView) {
-	checks := s.checksFor(r, ref, rules.Fast)
+	checks := s.checksFor(r, ref)
 	wf := s.wfFor(ref, r)
-	if errs := rules.Errors(checks.Items); len(errs) > 0 {
+	if errs := checks.Gate; len(errs) > 0 {
 		for i, a := range wf.Actions {
 			if a.Gated {
 				wf.Actions[i].Disabled = true
