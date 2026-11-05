@@ -1112,11 +1112,22 @@ func (s *Store) mutate(engID, dir string, a gitrepo.Author, fn func(f *finding.F
 // mutateThen is mutate with a step that runs after the commit, still under
 // the engagement's lock, with the file's hash before and after.
 func (s *Store) mutateThen(engID, dir string, a gitrepo.Author, fn func(f *finding.Finding) (string, error), then func(ref FindingRef, oldHash, newHash string) error) error {
+	ev, err := s.mutateLocked(engID, dir, a, fn, then)
+	if ev.Kind != "" {
+		// told once the engagement lock is released: subscribers may read it
+		s.Emit(ev)
+	}
+	return err
+}
+
+// mutateLocked does mutateThen's work under the lock and returns the
+// finding.updated event once a commit was made.
+func (s *Store) mutateLocked(engID, dir string, a gitrepo.Author, fn func(f *finding.Finding) (string, error), then func(ref FindingRef, oldHash, newHash string) error) (Event, error) {
 	if !ValidID(engID) {
-		return ErrNotFound
+		return Event{}, ErrNotFound
 	}
 	if err := s.writable(engID); err != nil {
-		return err
+		return Event{}, err
 	}
 	l := s.engLock(engID)
 	l.Lock()
@@ -1124,31 +1135,33 @@ func (s *Store) mutateThen(engID, dir string, a gitrepo.Author, fn func(f *findi
 	head0, _ := s.freshHead(engID)
 	ref, before, err := s.read(engID, dir, nil)
 	if err != nil {
-		return err
+		return Event{}, err
 	}
+	old, _ := finding.Parse(before)
 	msg, err := fn(ref.F)
 	if err != nil {
-		return err
+		return Event{}, err
 	}
 	after := ref.F.Bytes()
 	if string(before) == string(after) {
-		return nil
+		return Event{}, nil
 	}
 	if err := s.unmoved(engID, head0); err != nil {
-		return err
+		return Event{}, err
 	}
 	rel := findingPath(engID, ref.Dir)
 	if err := s.writeFile(rel, after); err != nil {
-		return err
+		return Event{}, err
 	}
 	if err := s.commit(map[string][]byte{rel: before}, ref.F.Meta.ID+": "+msg, a, ""); err != nil {
-		return err
+		return Event{}, err
 	}
 	defer s.notify(Change{Eng: engID, Fid: ref.F.Meta.ID, Kind: ChangeContent})
+	ev := updatedEvent(a.Name, ref, old, false)
 	if then != nil {
-		return then(ref, contentHash(before), contentHash(after))
+		return ev, then(ref, contentHash(before), contentHash(after))
 	}
-	return nil
+	return ev, nil
 }
 
 var attachmentRe = regexp.MustCompile(`^attachments/[A-Za-z0-9][A-Za-z0-9._-]*$`)

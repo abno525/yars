@@ -11,6 +11,7 @@ import (
 const (
 	EventStatus    = "finding.status_changed"
 	EventCreated   = "finding.created"
+	EventUpdated   = "finding.updated" // content changed (Changed tells what)
 	EventChat      = "chat.posted"
 	EventExport    = "export.sent"
 	EventCheck     = "check.finished"
@@ -30,6 +31,9 @@ type Event struct {
 	Action, From, To, Reason string
 	// finding.reviewers: who was added
 	Added []string
+	// finding.updated: the parts that changed ("Title", "Severity", "CVSS",
+	// "Details", "Assets", section names, "Attachments")
+	Changed []string
 	// chat.posted: the message; ReplyTo is the author of the thread it
 	// answers ("" for a new thread)
 	MsgID, Text, Section, Reply, ReplyTo string

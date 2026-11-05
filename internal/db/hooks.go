@@ -268,6 +268,36 @@ func (d *DB) UnreadNotifications(user string, limit int) ([]Notification, error)
 	return d.notes(" AND read = 0", user, limit)
 }
 
+// onTeams keeps notifications of engagements whose team their user is on
+// (and those about no engagement).
+const onTeams = " AND (eng = '' OR eng IN (SELECT m.eng FROM engagement_members m WHERE m.username = notifications.username))"
+
+// NotificationsFor lists user's newest notifications first: all of them
+// when all is set (directors and admins see every engagement), otherwise
+// only those of engagements whose team user is on; unread keeps the unread
+// ones. The filters apply before the limit.
+func (d *DB) NotificationsFor(user string, all, unread bool, limit int) ([]Notification, error) {
+	cond := ""
+	if !all {
+		cond += onTeams
+	}
+	if unread {
+		cond += " AND read = 0"
+	}
+	return d.notes(cond, user, limit)
+}
+
+// UnreadCountFor is UnreadCount limited like NotificationsFor.
+func (d *DB) UnreadCountFor(user string, all bool) (int, error) {
+	q := "SELECT COUNT(*) FROM notifications WHERE username = ? AND read = 0"
+	if !all {
+		q += onTeams
+	}
+	var n int
+	err := d.QueryRow(q, user).Scan(&n)
+	return n, err
+}
+
 func (d *DB) notes(cond, user string, limit int) ([]Notification, error) {
 	rows, err := d.Query("SELECT "+noteCols+" FROM notifications WHERE username = ?"+cond+" ORDER BY id DESC LIMIT ?", user, limit)
 	if err != nil {

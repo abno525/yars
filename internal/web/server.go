@@ -331,10 +331,8 @@ func (s *Server) base(r *http.Request, eng string) (*page, error) {
 	if p.Inbox, err = s.inboxFor(u, engs); err != nil {
 		return nil, err
 	}
-	if d := s.Store.DB(); d != nil {
-		if p.Unread, err = d.UnreadCount(u.Username); err != nil {
-			return nil, err
-		}
+	if p.Unread, err = s.Store.UnreadCount(u); err != nil {
+		return nil, err
 	}
 	if eng != "" {
 		i := slices.IndexFunc(engs, func(e store.Engagement) bool { return e.ID == eng })

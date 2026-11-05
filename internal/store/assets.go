@@ -204,6 +204,17 @@ func freeName(name string, taken func(string) bool) string {
 // own file included when it changed), and commits them as one commit
 // "<ID>: <msg>". A config.User must be allowed to edit the finding.
 func (s *Store) changeFiles(engID, dir string, who Actor, fn func(ref FindingRef) (map[string][]byte, string, error)) (FindingRef, error) {
+	var ev Event
+	ref, err := s.changeFilesLocked(engID, dir, who, fn, &ev)
+	if ev.Kind != "" {
+		s.Emit(ev) // after the lock is released
+	}
+	return ref, err
+}
+
+// changeFilesLocked does changeFiles' work under the lock; once it
+// committed, *ev is the finding.updated event.
+func (s *Store) changeFilesLocked(engID, dir string, who Actor, fn func(ref FindingRef) (map[string][]byte, string, error), ev *Event) (FindingRef, error) {
 	if !ValidID(engID) {
 		return FindingRef{}, ErrNotFound
 	}
@@ -256,6 +267,7 @@ func (s *Store) changeFiles(engID, dir string, who Actor, fn func(ref FindingRef
 		return ref, err
 	}
 	s.notify(Change{Eng: engID, Fid: ref.F.Meta.ID, Kind: ChangeContent})
+	*ev = filesEvent(who.GitAuthor().Name, ref, findingPath(engID, ref.Dir), prev, files)
 	// a director's edit of a complete or reported finding keeps its approval
 	if fp := findingPath(engID, ref.Dir); files[fp] != nil {
 		return ref, s.carryApproval(ref, contentHash(prev[fp]), contentHash(files[fp]))

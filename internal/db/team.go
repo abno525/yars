@@ -27,10 +27,14 @@ func (tx *Tx) AddMembers(eng string, users ...string) error {
 	return nil
 }
 
-// RemoveMember takes user off eng's team.
+// RemoveMember takes user off eng's team and deletes user's notifications
+// of eng, in one transaction.
 func (d *DB) RemoveMember(eng, user string) error {
 	return d.TxFor(eng, func(tx *Tx) error {
-		_, err := tx.Exec("DELETE FROM engagement_members WHERE eng = ? AND username = ?", eng, user)
+		if _, err := tx.Exec("DELETE FROM engagement_members WHERE eng = ? AND username = ?", eng, user); err != nil {
+			return err
+		}
+		_, err := tx.Exec("DELETE FROM notifications WHERE eng = ? AND username = ?", eng, user)
 		return err
 	})
 }

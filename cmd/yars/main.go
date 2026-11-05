@@ -885,7 +885,7 @@ func cmdServe(args []string) error {
 	}
 	tokens := auth.NewTokens(d)
 	gs := &gitserve.Server{Repo: r, Auth: au, HookCmd: hookCmd(exe, r.Dir), Sync: st.SyncPointers, Invalidate: invalidate,
-		Tokens: tokens, CanSee: st.CanSee}
+		Receive: st.ReceivePush, Tokens: tokens, CanSee: st.CanSee}
 	if cfg.AI.APIKeyEnv != "" {
 		gs.InheritEnv = []string{cfg.AI.APIKeyEnv} // AI rules run on pushes too
 	}

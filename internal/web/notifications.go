@@ -84,16 +84,13 @@ func (s *Server) notificationsPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p.Nav = "notifications"
-	if d := s.Store.DB(); d != nil {
-		l, err := d.Notifications(p.User.Username, 200)
+	if s.Store.DB() != nil {
+		l, err := s.Store.Notifications(p.User, false, 200)
 		if err != nil {
 			s.fail(w, err)
 			return
 		}
 		for _, n := range l {
-			if !s.Store.CanSee(p.User, n.Eng) { // taken off the engagement since
-				continue
-			}
 			p.Notes.Rows = append(p.Notes.Rows, noteRow{ID: n.ID, Event: n.Event, Label: notify.Label(n.Event), Eng: n.Eng, Fid: n.Fid,
 				Title: n.Title, By: n.Actor, At: when(n.TS), Text: n.Text, Read: n.Read})
 		}

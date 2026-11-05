@@ -108,6 +108,22 @@ func TestSignedDelivery(t *testing.T) {
 	}
 }
 
+// finding.updated can be taken and carries what changed.
+func TestUpdatedPayload(t *testing.T) {
+	s, _, _ := newService(t)
+	if err := ValidEvents([]string{store.EventUpdated}); err != nil {
+		t.Fatal(err)
+	}
+	b := s.Payload(store.Event{Kind: store.EventUpdated, Eng: "demo", Dir: "F-001-x", Fid: "F-001", Actor: "pen1", Changed: []string{"Title", "Impact"}})
+	var p struct {
+		Event   string   `json:"event"`
+		Changed []string `json:"changed"`
+	}
+	if err := json.Unmarshal(b, &p); err != nil || p.Event != "finding.updated" || strings.Join(p.Changed, ",") != "Title,Impact" {
+		t.Fatalf("%s %v", b, err)
+	}
+}
+
 // A failing endpoint is retried with exponential backoff, at most 6 tries.
 func TestRetryBackoff(t *testing.T) {
 	s, d, now := newService(t)

@@ -159,3 +159,56 @@ func TestNotifications(t *testing.T) {
 		t.Fatalf("rev unread %d", n)
 	}
 }
+
+// Listing and counting for someone who sees only their teams' engagements
+// skip the others (filtered before the limit); notifications without an
+// engagement always count.
+func TestNotificationsForTeams(t *testing.T) {
+	d := openTest(t)
+	d.AddUser(config.User{Username: "pen", Role: "pentester"})
+	d.AddMembers("acme", "pen")
+	d.AddNotification(Notification{User: "pen", Event: "returned", Eng: "acme", Fid: "F-001", Text: "mine"})
+	d.AddNotification(Notification{User: "pen", Event: "token", Text: "no engagement"})
+	for range 5 {
+		d.AddNotification(Notification{User: "pen", Event: "mentioned", Eng: "other", Fid: "F-002", Text: "not mine"})
+	}
+	if n, _ := d.UnreadCountFor("pen", false); n != 2 {
+		t.Fatalf("team unread %d", n)
+	}
+	if n, _ := d.UnreadCountFor("pen", true); n != 7 {
+		t.Fatalf("all unread %d", n)
+	}
+	l, err := d.NotificationsFor("pen", false, false, 2)
+	if err != nil || len(l) != 2 || l[0].Text != "no engagement" || l[1].Text != "mine" {
+		t.Fatalf("%+v %v", l, err)
+	}
+	if l, _ := d.NotificationsFor("pen", false, true, 50); len(l) != 2 {
+		t.Fatalf("unread %+v", l)
+	}
+	if l, _ := d.NotificationsFor("pen", true, false, 50); len(l) != 7 {
+		t.Fatalf("all %d", len(l))
+	}
+}
+
+// Taking someone off a team deletes their notifications of that engagement
+// in the same step; coming back does not bring them back.
+func TestRemoveMemberDeletesNotifications(t *testing.T) {
+	d := openTest(t)
+	d.AddUser(config.User{Username: "pen", Role: "pentester"})
+	d.AddUser(config.User{Username: "rev", Role: "reviewer"})
+	d.AddMembers("acme", "pen", "rev")
+	d.AddMembers("beta", "pen")
+	d.AddNotification(Notification{User: "pen", Event: "returned", Eng: "acme", Fid: "F-001"})
+	d.AddNotification(Notification{User: "pen", Event: "returned", Eng: "beta", Fid: "F-001"})
+	d.AddNotification(Notification{User: "rev", Event: "review", Eng: "acme", Fid: "F-001"})
+	if err := d.RemoveMember("acme", "pen"); err != nil {
+		t.Fatal(err)
+	}
+	d.AddMembers("acme", "pen")
+	if l, _ := d.Notifications("pen", 50); len(l) != 1 || l[0].Eng != "beta" {
+		t.Fatalf("pen %+v", l)
+	}
+	if n, _ := d.UnreadCount("rev"); n != 1 {
+		t.Fatalf("rev's notification went too: %d", n)
+	}
+}

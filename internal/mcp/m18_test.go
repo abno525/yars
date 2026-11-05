@@ -162,6 +162,23 @@ func TestMCPNotifications(t *testing.T) {
 	}
 }
 
+// Notifications of engagements alice can't see neither show nor push her
+// own off the list.
+func TestMCPNotificationsHiddenBeyondLimit(t *testing.T) {
+	f := newFx(t)
+	d := f.s.Store.DB()
+	d.AddUser(alice)
+	d.AddNotification(db.Notification{User: "alice", Event: "returned", Eng: "acme", Fid: "F-001", Actor: "bob", Text: "mine"})
+	for range 60 {
+		d.AddNotification(db.Notification{User: "alice", Event: "mentioned", Eng: "gone", Fid: "F-001", Actor: "bob", Text: "off the team"})
+	}
+	for _, a := range []map[string]any{nil, {"unread": true}} {
+		if out := f.ok(alice, "list_notifications", a); !strings.Contains(out, "mine") || strings.Contains(out, "off the team") {
+			t.Fatalf("%v: %s", a, out)
+		}
+	}
+}
+
 // unread: true finds an unread notification behind 50 newer read ones.
 func TestMCPUnreadNotificationsBeyondLimit(t *testing.T) {
 	f := newFx(t)

@@ -217,6 +217,44 @@ func TestPushInvalidates(t *testing.T) {
 	}
 }
 
+// A push to an engagement repo runs inside Receive, named with the pusher;
+// fetches don't.
+func TestPushRunsInReceive(t *testing.T) {
+	_, r, d := setupDB(t)
+	st := store.New(r, config.Default(), d)
+	var mu sync.Mutex
+	var seen []string
+	gs := &Server{Repo: r, Auth: auth.New(d), CanSee: st.CanSee, Receive: func(eng string, u config.User, serve func()) {
+		mu.Lock()
+		seen = append(seen, u.Username+"@"+eng)
+		mu.Unlock()
+		serve()
+	}}
+	mux := http.NewServeMux()
+	mux.Handle("/git/", gs.Handler())
+	own := httptest.NewServer(mux)
+	t.Cleanup(own.Close)
+	dst := filepath.Join(t.TempDir(), "clone")
+	url := strings.Replace(own.URL, "http://", "http://alice:pw@", 1) + "/git/e/acme"
+	cmd := exec.Command("git", "clone", "-q", url, dst)
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("clone: %v %s", err, out)
+	}
+	os.WriteFile(filepath.Join(dst, "notes.txt"), []byte("hi\n"), 0o644)
+	gitCmd(t, dst, "add", "-A")
+	gitCmd(t, dst, "commit", "-qm", "note")
+	gitCmd(t, dst, "push", "-q", "origin", "HEAD")
+	mu.Lock()
+	defer mu.Unlock()
+	if !slices.Equal(seen, []string{"alice@acme"}) {
+		t.Fatalf("receive %v", seen)
+	}
+	if b, err := os.ReadFile(filepath.Join(r.Dir, "engagements", "acme", "notes.txt")); err != nil || string(b) != "hi\n" {
+		t.Fatal("push did not land")
+	}
+}
+
 // A recursive clone of the main repo brings every engagement; a push goes to
 // the engagement's own repository and updates the server's copy.
 func TestCloneAndPush(t *testing.T) {

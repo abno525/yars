@@ -28,7 +28,7 @@ import (
 )
 
 // Events are the events a webhook can take.
-var Events = []string{store.EventStatus, store.EventCreated, store.EventChat, store.EventExport, store.EventCheck}
+var Events = []string{store.EventStatus, store.EventCreated, store.EventUpdated, store.EventChat, store.EventExport, store.EventCheck}
 
 const (
 	// MaxTries is how often a delivery is tried before it is given up.
@@ -157,6 +157,8 @@ type payload struct {
 	From   string `json:"from,omitempty"`
 	To     string `json:"to,omitempty"`
 	Reason string `json:"reason,omitempty"`
+	// finding.updated
+	Changed []string `json:"changed,omitempty"`
 	// chat.posted
 	Message *messageJSON `json:"message,omitempty"`
 	// export.sent
@@ -187,6 +189,8 @@ func (s *Service) Payload(e store.Event) []byte {
 	case store.EventStatus:
 		p.Action, p.From, p.To, p.Reason = e.Action, e.From, e.To, e.Reason
 		p.Destination = e.Destination
+	case store.EventUpdated:
+		p.Changed = e.Changed
 	case store.EventChat:
 		p.Message = &messageJSON{ID: e.MsgID, Text: e.Text, Section: e.Section, Reply: e.Reply}
 	case store.EventExport:

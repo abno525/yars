@@ -106,7 +106,7 @@ func TestDomainEvents(t *testing.T) {
 	if e := rec.last(EventExport); e.Destination != "jira" || e.At.IsZero() {
 		t.Fatalf("export %+v", e)
 	}
-	if got := strings.Join(rec.kinds(), ","); !strings.HasPrefix(got, "finding.created,finding.reviewers,finding.reviewers,finding.status_changed") {
+	if got := strings.Join(rec.kinds(), ","); !strings.HasPrefix(got, "finding.created,finding.reviewers,finding.reviewers,finding.updated,finding.status_changed") {
 		t.Fatalf("kinds %s", got)
 	}
 }

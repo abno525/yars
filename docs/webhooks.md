@@ -48,6 +48,7 @@ def valid(secret: str, body: bytes, header: str) -> bool:
 |---|---|
 | `finding.status_changed` | `action`, `from`, `to`, `reason`; `destination` when an export marked it reported |
 | `finding.created` | — |
+| `finding.updated` | `changed`: what changed (`Title`, `Severity`, `CVSS`, `Details`, `Assets`, section names, `Attachments`) |
 | `chat.posted` | `message`: `{id, text, section, reply}` |
 | `export.sent` | `destination`, `ok`, `error`, `export_url`, `findings` (IDs) |
 | `check.finished` | `state` (`done` or `failed`), `errors`, `warnings` |

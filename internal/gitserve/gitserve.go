@@ -41,6 +41,10 @@ type Server struct {
 	// Invalidate, when set, is told after every push which repo it went to
 	// (an engagement id, "" for the main repo), so cached HEADs are dropped.
 	Invalidate func(eng string)
+	// Receive, when set, wraps each push into an engagement repo: it must
+	// call serve (git receiving the push as u) once, and can hold off
+	// other writes meanwhile and tell what the push changed.
+	Receive func(eng string, u config.User, serve func())
 	// Tokens, when set, accepts git tokens (kind git) in place of the
 	// password: a read-only token can fetch but not push, and a token
 	// limited to engagements reaches only those (not the main repo).
@@ -273,8 +277,13 @@ func (s *Server) Handler() http.Handler {
 		// the environment of git and the hook (HTTP_AUTHORIZATION)
 		r2 := r.Clone(r.Context())
 		r2.Header.Del("Authorization")
-		h.ServeHTTP(w, r2)
-		if s.Invalidate != nil && r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/git-receive-pack") {
+		receive := r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/git-receive-pack")
+		if receive && eng != "" && s.Receive != nil {
+			s.Receive(eng, u, func() { h.ServeHTTP(w, r2) })
+		} else {
+			h.ServeHTTP(w, r2)
+		}
+		if s.Invalidate != nil && receive {
 			// the push (if the hook accepted it) has landed: HEAD may have moved
 			s.Invalidate(eng)
 		}

@@ -17,6 +17,7 @@ import (
 	"yars/internal/gitrepo"
 	"yars/internal/gitserve"
 	"yars/internal/store"
+	"yars/internal/webhook"
 )
 
 type pushEnv struct {
@@ -70,7 +71,7 @@ func newPushEnv(t *testing.T) *pushEnv {
 	d.AddMembers("acme", "alice") // alice's team
 
 	gs := &gitserve.Server{Repo: r, Auth: auth.New(d), HookCmd: hookCmd(bin, dir), Sync: st.SyncPointers, Invalidate: st.Invalidate,
-		Tokens: auth.NewTokens(d), CanSee: st.CanSee}
+		Receive: st.ReceivePush, Tokens: auth.NewTokens(d), CanSee: st.CanSee}
 	if err := gs.Setup(); err != nil {
 		t.Fatal(err)
 	}
@@ -196,6 +197,66 @@ func TestMCPStdioThenPush(t *testing.T) {
 	ref, _ := p.st.Finding("acme", "F-001-sqli")
 	if b, _ := ref.F.Section("Impact"); !strings.Contains(b, "Written by the assistant.") {
 		t.Fatalf("server not updated: %q", b)
+	}
+}
+
+// A push is as good as an edit on the site: a section edit and a new
+// finding pushed over git queue the webhook deliveries the same changes
+// through YARS would, as the pusher; a rejected push queues nothing.
+func TestPushEmitsEvents(t *testing.T) {
+	p := newPushEnv(t)
+	d := p.st.DB()
+	id, err := d.AddWebhook(db.Webhook{URL: "http://127.0.0.1:9/hook", Events: []string{store.EventCreated, store.EventUpdated}, Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws := &webhook.Service{DB: d}
+	p.st.OnEvent(ws.Handle)
+	payloads := func() map[string]string {
+		l, _ := d.Deliveries(id, 50)
+		out := map[string]string{}
+		for _, x := range l {
+			out[x.Event] += x.Payload
+		}
+		return out
+	}
+
+	p.editFinding(func(f *finding.Finding) { f.SetSection("Impact", "Full database read.") })
+	if out, err := p.git("push", "-q", "origin", "HEAD"); err != nil {
+		t.Fatalf("push: %v\n%s", err, out)
+	}
+	got := payloads()
+	if up := got[store.EventUpdated]; !strings.Contains(up, `"actor":"alice"`) || !strings.Contains(up, `"changed":["Impact"]`) || !strings.Contains(up, `"id":"F-001"`) {
+		t.Fatalf("updated delivery %q", up)
+	}
+	if got[store.EventCreated] != "" {
+		t.Fatalf("created for an edit: %s", got[store.EventCreated])
+	}
+
+	nf := finding.New("F-002", "Stored XSS", "alice", config.Default().Sections)
+	fd := filepath.Join(p.clone, "engagements", "acme", "findings", "F-002-stored-xss")
+	os.MkdirAll(fd, 0o755)
+	os.WriteFile(filepath.Join(fd, "finding.md"), nf.Bytes(), 0o644)
+	if out, err := p.git("add", "-A"); err != nil {
+		t.Fatalf("%v %s", err, out)
+	}
+	if out, err := p.git("commit", "-qm", "F-002: create"); err != nil {
+		t.Fatalf("%v %s", err, out)
+	}
+	if out, err := p.git("push", "-q", "origin", "HEAD"); err != nil {
+		t.Fatalf("push new finding: %v\n%s", err, out)
+	}
+	if c := payloads()[store.EventCreated]; !strings.Contains(c, `"id":"F-002"`) || !strings.Contains(c, `"title":"Stored XSS"`) || !strings.Contains(c, `"actor":"alice"`) {
+		t.Fatalf("created delivery %q", c)
+	}
+
+	n := len(payloads()[store.EventUpdated]) + len(payloads()[store.EventCreated])
+	p.editFinding(func(f *finding.Finding) { f.SetMeta("status", "complete") })
+	if _, err := p.git("push", "origin", "HEAD"); err == nil {
+		t.Fatal("forbidden push accepted")
+	}
+	if m := len(payloads()[store.EventUpdated]) + len(payloads()[store.EventCreated]); m != n {
+		t.Fatal("a rejected push queued deliveries")
 	}
 }
 

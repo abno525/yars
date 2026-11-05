@@ -532,16 +532,8 @@ var tools = []tool{
 	{name: "list_notifications", serverOnly: true, desc: "Your notifications, newest first (at most 50): returned to you, review requested, replies, approvals, mentions, finished checks.",
 		boolArgs: []param{{"unread", "only unread ones"}},
 		run: func(s *Server, ctx context.Context, u config.User, a args) (string, error) {
-			d := s.Store.DB()
-			if d == nil {
-				return "", store.ErrNoDB
-			}
 			unread, _ := a["unread"].(bool)
-			list := d.Notifications
-			if unread {
-				list = d.UnreadNotifications
-			}
-			l, err := list(u.Username, 50)
+			l, err := s.Store.Notifications(u, unread, 50)
 			if err != nil {
 				return "", err
 			}
@@ -560,7 +552,7 @@ var tools = []tool{
 			}
 			out := []note{}
 			for _, n := range l {
-				if (hasTok && !tk.AllowsEng(n.Eng)) || !s.Store.CanSee(u, n.Eng) {
+				if hasTok && !tk.AllowsEng(n.Eng) {
 					continue
 				}
 				out = append(out, note{n.ID, n.Event, n.Eng, n.Fid, n.Dir, n.Title, n.Actor, n.Text, n.TS, n.Read})

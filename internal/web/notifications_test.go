@@ -123,6 +123,41 @@ func TestNotificationsHideUnseenEngagements(t *testing.T) {
 	if !strings.Contains(b, "visible one") || strings.Contains(b, "secret title") {
 		t.Fatal("listed a notification of an engagement alice cannot see")
 	}
+	// the bell doesn't count it either
+	if got := bell(t, e, "alice"); got != "1" {
+		t.Fatalf("bell %s", got)
+	}
+	// many newer hidden ones don't push the visible one off the page
+	for range 210 {
+		d.AddNotification(db.Notification{User: "alice", Event: "mentioned", Eng: "hidden", Fid: "F-007", Title: "secret title", Actor: "bob"})
+	}
+	if b := e.do(t, "alice", "GET", "/notifications", nil, nil).Body.String(); !strings.Contains(b, "visible one") {
+		t.Fatal("visible notification cut by hidden ones")
+	}
+}
+
+// Taking alice off the team removes her notifications of that engagement:
+// gone from the bell and the page, and not back when she rejoins.
+func TestNotificationsGoneAfterTeamRemoval(t *testing.T) {
+	e := setup(t)
+	returnToAlice(t, e)
+	if got := bell(t, e, "alice"); got != "1" {
+		t.Fatalf("bell before %s", got)
+	}
+	st := e.srv.Store
+	dora := config.User{Username: "dora", Role: "director"}
+	if err := st.RemoveMember("acme", "alice", dora); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AddMembers("acme", []string{"alice"}, dora); err != nil {
+		t.Fatal(err)
+	}
+	if got := bell(t, e, "alice"); got != "0" {
+		t.Fatalf("bell after removal %s", got)
+	}
+	if b := e.do(t, "alice", "GET", "/notifications", nil, nil).Body.String(); strings.Contains(b, "Returned to me") {
+		t.Fatal("listed after removal")
+	}
 }
 
 // The notification choices: the default (in app) shows ticked, the email

@@ -35,6 +35,24 @@ func (s *Store) Visible(u config.User) (map[string]bool, error) {
 	return s.db.MemberOf(u.Username)
 }
 
+// Notifications lists u's newest notifications (unread: only unread ones),
+// leaving out those of engagements u can't see.
+func (s *Store) Notifications(u config.User, unread bool, limit int) ([]db.Notification, error) {
+	if s.db == nil {
+		return nil, ErrNoDB
+	}
+	return s.db.NotificationsFor(u.Username, SeesAll(u), unread, limit)
+}
+
+// UnreadCount is how many of u's notifications of engagements u can see
+// are unread (the bell).
+func (s *Store) UnreadCount(u config.User) (int, error) {
+	if s.db == nil {
+		return 0, nil
+	}
+	return s.db.UnreadCountFor(u.Username, SeesAll(u))
+}
+
 // canManageTeam: directors and admins change teams and archive.
 func canManageTeam(u config.User) bool { return SeesAll(u) }
 
