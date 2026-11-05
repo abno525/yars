@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -184,7 +185,7 @@ func TestAttachmentsUploadServeRedact(t *testing.T) {
 	// redact dialog
 	e.srv.Store.UpdateSection("acme", "F-001-sql-injection", "Impact", "![s](attachments/shot-one.png)", "", gitrepo.Author{Name: "alice", Email: "a@x"})
 	p := e.do(t, "bob", "GET", fpath, nil, nil).Body.String()
-	if !strings.Contains(p, `src="/e/acme/f/001/attachments/shot-one.png"`) || !strings.Contains(p, `id="redact"`) {
+	if !strings.Contains(p, `src="/e/acme/f/001/attachments/shot-one.png?v=`) || !strings.Contains(p, `id="redact"`) {
 		t.Fatalf("finding page:\n%s", p)
 	}
 	noInline(t, "finding page", p)
@@ -194,6 +195,40 @@ func TestAttachmentsUploadServeRedact(t *testing.T) {
 	}
 	if rec := e.sendFile(t, "alice", fpath+"/attachments", "x.txt", []byte("x")); rec.Code != http.StatusForbidden {
 		t.Fatalf("archived %d", rec.Code)
+	}
+}
+
+// A redacted image gets a new URL everywhere it is shown (strip thumbnail,
+// finding page, live preview): the browser keeps an image it already
+// loaded on the page for the same URL, so the original would stay visible.
+func TestRedactedImageGetsNewURL(t *testing.T) {
+	e := setup(t)
+	re := regexp.MustCompile(`src="(/e/acme/f/001/attachments/shot\.png[^"]*)"`)
+	src := func(what, html string) string {
+		t.Helper()
+		m := re.FindStringSubmatch(html)
+		if m == nil {
+			t.Fatalf("%s has no image src:\n%s", what, html)
+		}
+		return m[1]
+	}
+	strip := e.sendFile(t, "alice", fpath+"/attachments", "shot.png", testPNG(t, color.White)).Body.String()
+	e.srv.Store.UpdateSection("acme", "F-001-sql-injection", "Impact", "![s](attachments/shot.png)", "", gitrepo.Author{Name: "alice", Email: "a@x"})
+	preview := func() string {
+		return e.do(t, "alice", "POST", "/e/acme/preview?f=F-001-sql-injection&s=Impact", url.Values{"body": {"![s](attachments/shot.png)"}}, nil).Body.String()
+	}
+	before := []string{src("strip", strip), src("page", e.do(t, "bob", "GET", fpath, nil, nil).Body.String()), src("preview", preview())}
+	time.Sleep(10 * time.Millisecond)
+	strip = e.sendFile(t, "alice", fpath+"/attachments/shot.png/redact", "blob", testPNG(t, color.Black)).Body.String()
+	after := []string{src("strip", strip), src("page", e.do(t, "bob", "GET", fpath, nil, nil).Body.String()), src("preview", preview())}
+	for i, what := range []string{"strip", "page", "preview"} {
+		if before[i] == after[i] {
+			t.Errorf("%s keeps the URL %s after a redaction", what, after[i])
+		}
+	}
+	// the versioned URL serves the file
+	if get := e.do(t, "bob", "GET", after[1], nil, nil); get.Code != 200 || !bytes.Equal(get.Body.Bytes(), testPNG(t, color.Black)) {
+		t.Fatalf("versioned URL %s: %d", after[1], get.Code)
 	}
 }
 

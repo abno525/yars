@@ -349,12 +349,18 @@ document.addEventListener('click', function (evt) {
   b.classList.add('invisible');
   if (window.htmx) htmx.trigger(ta, 'keyup');
 });
-// a saved or cancelled editor drops its draft
-document.addEventListener('htmx:afterRequest', function (evt) {
+// a saved or cancelled editor drops its draft. The editor is swapped out by
+// then, so htmx fires afterRequest on an ancestor: the key rides on the xhr.
+document.addEventListener('htmx:beforeRequest', function (evt) {
   var el = evt.detail.elt;
-  if (!evt.detail.successful || !el || !el.matches) return;
+  if (!el || !el.matches || !evt.detail.xhr) return;
   var form = el.matches('form[data-guard]') ? el : el.hasAttribute('data-guard-cancel') ? el.closest('form[data-guard]') : null;
-  if (form) { try { localStorage.removeItem(yarsDraftKey(form)); } catch (e) { /* none kept */ } }
+  if (form) evt.detail.xhr.yarsDraftKey = yarsDraftKey(form);
+});
+document.addEventListener('htmx:afterRequest', function (evt) {
+  var k = evt.detail.xhr && evt.detail.xhr.yarsDraftKey;
+  if (!evt.detail.successful || !k) return;
+  try { localStorage.removeItem(k); } catch (e) { /* none kept */ }
 });
 
 // Attachments: Add file uploads into the finding's attachments/ (images go
@@ -383,7 +389,19 @@ function yarsUpload(strip, url, blob, name, insert) {
       var tmp = document.createElement('div');
       tmp.innerHTML = t;
       var fresh = tmp.querySelector('.attstrip');
-      if (fresh) { strip.replaceWith(fresh); if (window.htmx) htmx.process(fresh); }
+      if (fresh) {
+        strip.replaceWith(fresh);
+        if (window.htmx) htmx.process(fresh);
+        // a redacted copy has a new ?v=: images of it elsewhere on the page
+        // (preview, other sections) follow, so the original is not shown
+        fresh.querySelectorAll('.thumb img').forEach(function (n) {
+          var src = n.getAttribute('src') || '', path = src.split('?')[0];
+          document.querySelectorAll('img').forEach(function (i) {
+            var s = i.getAttribute('src') || '';
+            if (i !== n && s !== src && s.split('?')[0] === path) i.setAttribute('src', src);
+          });
+        });
+      }
       var md = r.headers.get('X-Yars-Insert');
       if (insert && md) yarsInsert(form, md);
       return true;

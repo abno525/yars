@@ -294,7 +294,7 @@ func (s *Server) preview(w http.ResponseWriter, r *http.Request) {
 	var buf strings.Builder
 	h := s.renderMD(body)
 	if fid := r.URL.Query().Get("f"); fid != "" {
-		h = linkAttachments(h, store.FindingRef{EngID: r.PathValue("eng"), Dir: fid})
+		h = s.linkAttachments(h, store.FindingRef{EngID: r.PathValue("eng"), Dir: fid})
 	}
 	buf.WriteString(string(h))
 	// Live style hints for the section being edited (fast rules only).

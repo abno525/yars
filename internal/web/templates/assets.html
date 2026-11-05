@@ -85,7 +85,7 @@
 <div class="attstrip flush" data-upload="{{.UploadURL}}">
   {{range .Items}}
   <div class="att">
-    <div class="thumb">{{if .Image}}<img src="{{.URL}}" alt="{{.Name}}" loading="lazy">{{else}}<span class="mono">{{.Kind}}</span>{{end}}</div>
+    <div class="thumb">{{if .Image}}<img src="{{.Src}}" alt="{{.Name}}" loading="lazy">{{else}}<span class="mono">{{.Kind}}</span>{{end}}</div>
     <div class="attname"><span class="mono" title="{{.Name}}">{{.Name}}</span><span class="mono">{{.Size}}</span></div>
     <div class="attbtns"><button type="button" class="ab" data-insert="{{.Insert}}">Insert</button>{{if .RedactURL}}<button type="button" class="ab" data-redact="{{.RedactURL}}" data-src="{{.URL}}" data-name="{{.Name}}">Redact</button>{{end}}</div>
   </div>

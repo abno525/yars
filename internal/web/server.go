@@ -533,7 +533,7 @@ func (s *Server) panelFor(ref store.FindingRef, name string) panel {
 	body, _ := ref.F.Section(name)
 	p := panel{Name: name, Anchor: anchor(name), Raw: strings.Trim(body, "\n"), Base: store.BodyHash(body)}
 	if strings.TrimSpace(body) != "" {
-		p.HTML = linkAttachments(s.renderMD(body), ref)
+		p.HTML = s.linkAttachments(s.renderMD(body), ref)
 	}
 	p.Presence = presView{URL: presURL(ref, name)}
 	base := findingURL(ref.EngID, ref.Dir) + "/s/" + url.PathEscape(name)

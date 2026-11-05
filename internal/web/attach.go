@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"path"
+	"strconv"
 	"strings"
 
 	"yars/internal/auth"
@@ -21,9 +22,16 @@ type attachView struct {
 
 type attachItem struct {
 	Name, URL, Size, Kind string
+	Src                   string // URL with the file's version, for <img>
 	Image                 bool
 	Insert                string // the Markdown to insert
 	RedactURL             string
+}
+
+// attachVer tells versions of an attachment apart: a redacted copy gets a
+// new image URL, so a page that showed the original does not reuse it.
+func attachVer(a store.Attachment) string {
+	return strconv.FormatInt(a.ModTime.UnixNano(), 36)
 }
 
 func (s *Server) routesAttach(mux *http.ServeMux) {
@@ -59,6 +67,7 @@ func (s *Server) attachFor(ref store.FindingRef) (*attachView, error) {
 	}
 	for _, a := range as {
 		it := attachItem{Name: a.Name, URL: base + "/" + a.Name, Size: humanSize(a.Size), Image: a.Image, Insert: attachMD(a.Name, a.Image)}
+		it.Src = it.URL + "?v=" + attachVer(a)
 		if it.Kind = strings.ToUpper(strings.TrimPrefix(path.Ext(a.Name), ".")); it.Kind == "" {
 			it.Kind = "FILE"
 		}
@@ -71,13 +80,21 @@ func (s *Server) attachFor(ref store.FindingRef) (*attachView, error) {
 }
 
 // linkAttachments points the relative attachment links of a finding's
-// rendered Markdown at the attachment route.
-func linkAttachments(h template.HTML, ref store.FindingRef) template.HTML {
+// rendered Markdown at the attachment route; images get their version.
+func (s *Server) linkAttachments(h template.HTML, ref store.FindingRef) template.HTML {
 	if !strings.Contains(string(h), `="attachments/`) {
 		return h
 	}
 	base := findingURL(ref.EngID, ref.Dir) + "/attachments/"
-	out := strings.ReplaceAll(string(h), `src="attachments/`, `src="`+base)
+	out := string(h)
+	if as, err := s.Store.Attachments(ref.EngID, ref.Dir); err == nil {
+		for _, a := range as {
+			if a.Image {
+				out = strings.ReplaceAll(out, `src="attachments/`+a.Name+`"`, `src="`+base+a.Name+`?v=`+attachVer(a)+`"`)
+			}
+		}
+	}
+	out = strings.ReplaceAll(out, `src="attachments/`, `src="`+base)
 	return template.HTML(strings.ReplaceAll(out, `href="attachments/`, `href="`+base))
 }
 

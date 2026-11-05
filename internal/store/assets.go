@@ -94,9 +94,10 @@ func (s *Store) UpdateAssets(engID, dir string, list []finding.Asset, base strin
 
 // Attachment is one file in a finding's attachments/ folder.
 type Attachment struct {
-	Name  string
-	Size  int64
-	Image bool
+	Name    string
+	Size    int64
+	Image   bool
+	ModTime time.Time // changes when the file is replaced (redacted)
 }
 
 func attachDir(eng, dir string) string {
@@ -124,7 +125,7 @@ func (s *Store) Attachments(engID, dir string) ([]Attachment, error) {
 		if err != nil {
 			continue
 		}
-		out = append(out, Attachment{Name: e.Name(), Size: info.Size(), Image: imageName(e.Name())})
+		out = append(out, Attachment{Name: e.Name(), Size: info.Size(), Image: imageName(e.Name()), ModTime: info.ModTime()})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil
