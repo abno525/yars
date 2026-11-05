@@ -22,6 +22,7 @@ import (
 	"yars/internal/config"
 	"yars/internal/db"
 	"yars/internal/gitrepo"
+	"yars/internal/policy"
 )
 
 // RepoName is the fixed name in the clone URL: http(s)://host/git/yars.
@@ -259,18 +260,23 @@ func (s *Server) Handler() http.Handler {
 				return
 			}
 		}
+		env := []string{
+			"GIT_PROJECT_ROOT=" + repo.Dir,
+			"GIT_HTTP_EXPORT_ALL=1",
+			"REMOTE_USER=" + u.Username,
+			fmt.Sprintf("GIT_COMMITTER_NAME=%s", u.Username),
+			"GIT_COMMITTER_EMAIL=" + u.GitAuthor().Email,
+		}
+		if tok != nil {
+			// the hook checks each change against the token's scopes
+			env = append(env, policy.TokenScopesEnv+"="+strings.Join(tok.Scopes, ","))
+		}
 		h := &cgi.Handler{
-			Path: gitPath,
-			Root: root,
-			Args: []string{"http-backend"},
-			Dir:  repo.Dir,
-			Env: []string{
-				"GIT_PROJECT_ROOT=" + repo.Dir,
-				"GIT_HTTP_EXPORT_ALL=1",
-				"REMOTE_USER=" + u.Username,
-				fmt.Sprintf("GIT_COMMITTER_NAME=%s", u.Username),
-				"GIT_COMMITTER_EMAIL=" + u.GitAuthor().Email,
-			},
+			Path:       gitPath,
+			Root:       root,
+			Args:       []string{"http-backend"},
+			Dir:        repo.Dir,
+			Env:        env,
 			InheritEnv: s.inherit(),
 		}
 		// the identity travels as REMOTE_USER; don't leak the password into

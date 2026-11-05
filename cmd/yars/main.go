@@ -434,6 +434,7 @@ func cmdHook(args []string, in io.Reader, errOut io.Writer) int {
 	}
 	// which repository is being pushed to: the main repo or engagements/<id>
 	c := &policy.Checker{Repo: r, Cfg: cfg, Users: users, DB: d}
+	c.Token = policy.TokenFromEnv(os.LookupEnv(policy.TokenScopesEnv))
 	eng := *engFlag
 	if eng == "" {
 		eng = engOfGitDir(r.Dir, os.Getenv("GIT_DIR"))

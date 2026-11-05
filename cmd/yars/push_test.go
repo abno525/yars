@@ -260,6 +260,27 @@ func TestPushEmitsEvents(t *testing.T) {
 	}
 }
 
+// A git token's scopes reach the hook: a create-only token can't change an
+// existing finding; a token with "edit" can.
+func TestPushTokenScopes(t *testing.T) {
+	p := newPushEnv(t)
+	tk := auth.NewTokens(p.st.DB())
+	push := func(scope string) (string, error) {
+		tok, _, err := tk.Create("alice", "alice", db.TokenSpec{Kind: db.TokenGit, Scopes: []string{scope}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return p.git("push", strings.Replace(p.url, "http://", "http://alice:"+tok+"@", 1)+"/git/e/acme", "HEAD:main")
+	}
+	p.editFinding(func(f *finding.Finding) { f.SetSection("Impact", "one") })
+	if out, err := push("create"); err == nil || !strings.Contains(out, "cannot edit") {
+		t.Fatalf("create-only token edited: %v\n%s", err, out)
+	}
+	if out, err := push("edit"); err != nil {
+		t.Fatalf("edit token rejected: %v\n%s", err, out)
+	}
+}
+
 func TestTokensUntracked(t *testing.T) {
 	dir := t.TempDir()
 	if err := cmdInit([]string{dir}); err != nil {

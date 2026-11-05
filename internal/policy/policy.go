@@ -31,6 +31,10 @@ type Checker struct {
 	Cfg   config.Config
 	Users []config.User
 	DB    *db.DB // workflow state (nil: every finding counts as a draft)
+	// Token is the pushing token's scopes (nil: a password login, which may
+	// do whatever the account may): a new finding needs "create", any other
+	// change "edit".
+	Token *db.TokenInfo
 
 	// Carry lists approved findings a director changed in the checked push;
 	// once the push is accepted the hook moves their approval to the new
@@ -39,6 +43,44 @@ type Checker struct {
 }
 
 type Carry struct{ Eng, Fid, OldHash, NewHash string }
+
+// TokenScopesEnv carries a git token's scopes (comma-separated) from the
+// server to the pre-receive hook; unset for a password login.
+const TokenScopesEnv = "YARS_TOKEN_SCOPES"
+
+// TokenFromEnv turns the TokenScopesEnv value (set reports whether it was
+// present) into the Checker's Token.
+func TokenFromEnv(v string, set bool) *db.TokenInfo {
+	if !set {
+		return nil
+	}
+	var scopes []string
+	for _, s := range strings.Split(v, ",") {
+		if s = strings.TrimSpace(s); s != "" {
+			scopes = append(scopes, s)
+		}
+	}
+	if len(scopes) == 0 {
+		scopes = []string{db.ScopeRead} // fail closed
+	}
+	return &db.TokenInfo{Scopes: scopes}
+}
+
+// scopeFor is the token action a change needs: "create" for anything in a
+// finding folder whose finding.md did not exist before the push, "edit"
+// for everything else (changes and deletions).
+func (c *Checker) scopeFor(old string, ch gitrepo.Change) string {
+	seg := strings.Split(ch.Path, "/")
+	if c.Eng != "" && len(seg) >= 3 && seg[0] == "findings" && ch.Status != 'D' {
+		if old == "" {
+			return "create"
+		}
+		if _, err := c.Repo.Show(old, "findings/"+seg[1]+"/finding.md"); err != nil {
+			return "create"
+		}
+	}
+	return "edit"
+}
 
 func manager(u config.User) bool { return workflow.AtLeast(u, "director") }
 
@@ -107,6 +149,12 @@ func (c *Checker) Check(username string, ups []Update) []string {
 			continue
 		}
 		for _, ch := range changes {
+			if c.Token != nil {
+				if need := c.scopeFor(old, ch); !c.Token.Allows(need) {
+					ps = append(ps, ch.Path+": this token cannot "+need+" findings")
+					continue
+				}
+			}
 			var probs []string
 			if c.Eng == "" {
 				probs = c.mainFile(u, old, up.New, ch)
