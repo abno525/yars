@@ -11,16 +11,19 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
-
-	"github.com/yuin/goldmark"
-	"github.com/yuin/goldmark/extension"
+	"sync"
+	"sync/atomic"
+	"time"
 
 	"yars/internal/auth"
 	"yars/internal/config"
+	"yars/internal/events"
 	"yars/internal/export"
 	"yars/internal/gitrepo"
 	"yars/internal/index"
+	"yars/internal/render"
 	"yars/internal/rules"
 	"yars/internal/store"
 	"yars/internal/workflow"
@@ -41,11 +44,23 @@ type Server struct {
 	Git    http.Handler   // optional git smart HTTP endpoint, mounted at /git/
 	Export *export.Runner // optional exporters
 	MCP    http.Handler   // optional MCP endpoint, mounted at /mcp
+	// Events carries live changes to open pages (GET /events); created by
+	// Handler when nil. Whoever else changes data (the git server after a
+	// push) publishes to the same hub.
+	Events *events.Hub
 
-	pages   map[string]*template.Template
-	exports exportCache
-	md      goldmark.Markdown
+	pages     map[string]*template.Template
+	exports   exportCache
+	inboxes   inboxCache
+	md        *render.Markdown
+	hookOnce  sync.Once
+	heartbeat time.Duration // event stream keep-alive (0 = defaultHeartbeat)
+	pageSize  int           // board rows per page (0 = boardPage)
+	chatLoads atomic.Int64  // full chat reads, for tests of the poll shortcut
 }
+
+// boardPage is how many findings the board shows before "Load more".
+const boardPage = 200
 
 type link struct {
 	Label, URL   string
@@ -66,6 +81,9 @@ type page struct {
 	CanManage     bool
 	Error         string
 	Rows          []index.Row
+	Offset        int    // first row shown (board pages after the first)
+	PageSize      int    // rows per board page
+	MoreURL       string // the next board page ("" = no more)
 	StatusFilters []link
 	Columns       []link
 	Finding       store.FindingRef
@@ -74,6 +92,7 @@ type page struct {
 	Details       detailsView
 	WF            wfView
 	Inbox         inboxView
+	InboxLists    inboxLists // the inbox page: one page of each list
 	Chat          chatView
 	Checks        checksView
 	CloneURL      string
@@ -85,13 +104,25 @@ type page struct {
 	Form          url.Values
 }
 
-var funcs = template.FuncMap{"join": strings.Join, "checkedIn": checkedIn, "retestLabel": workflow.RetestLabel, "fpath": findingURL}
+var funcs = template.FuncMap{"join": strings.Join, "checkedIn": checkedIn, "retestLabel": workflow.RetestLabel, "fpath": findingURL,
+	"static": staticPrefix}
 
 // findingURL is a finding's page: /e/<eng>/f/<number>.
 func findingURL(eng, dir string) string { return "/e/" + eng + "/f/" + store.ShortID(dir) }
 
 func (s *Server) init() {
-	s.md = goldmark.New(goldmark.WithExtensions(extension.GFM))
+	s.hookOnce.Do(func() {
+		s.md = render.New(render.Size)
+		if s.Events == nil {
+			s.Events = events.New()
+		}
+		if s.Store != nil {
+			s.Store.OnChange(s.publishChange)
+		}
+	})
+	if s.pageSize <= 0 {
+		s.pageSize = boardPage
+	}
 	s.pages = map[string]*template.Template{}
 	// Shared templates are parsed into every page so partial handlers can
 	// execute their blocks via any page set.
@@ -108,10 +139,10 @@ func (s *Server) init() {
 
 func (s *Server) Handler() http.Handler {
 	s.init()
-	static, _ := fs.Sub(staticFS, "static")
 
 	private := http.NewServeMux()
 	private.HandleFunc("GET /{$}", s.home)
+	private.HandleFunc("GET /events", s.events)
 	private.HandleFunc("GET /go", s.goEngagement)
 	private.HandleFunc("GET /inbox", s.inbox)
 	private.HandleFunc("POST /logout", s.logout)
@@ -129,16 +160,16 @@ func (s *Server) Handler() http.Handler {
 	root := http.NewServeMux()
 	root.HandleFunc("GET /login", s.loginPage)
 	root.HandleFunc("POST /login", s.login)
-	root.Handle("GET /static/", http.StripPrefix("/static/", http.FileServerFS(static)))
+	root.Handle("GET /static/", staticHandler())
 	root.Handle("/", s.Auth.Require(private))
 	if s.Git != nil {
-		root.Handle("/git/", s.Git) // HTTP Basic auth, no cookies
+		root.Handle("/git/", longLived(s.Git)) // HTTP Basic auth, no cookies; big pushes and clones take time
 	}
 	if s.MCP != nil {
 		root.Handle("/mcp", s.MCP) // Bearer tokens, no cookies
 	}
 	// Reject cross-origin state-changing requests (CSRF, incl. login CSRF).
-	return http.NewCrossOriginProtection().Handler(root)
+	return gzipHandler(http.NewCrossOriginProtection().Handler(root))
 }
 
 func (s *Server) render(w http.ResponseWriter, name string, p *page) {
@@ -188,7 +219,7 @@ func author(u config.User) gitrepo.Author { return store.AuthorOf(u) }
 // base builds the common page data; eng may be "" for pages outside an engagement.
 func (s *Server) base(r *http.Request, eng string) (*page, error) {
 	u := auth.UserFrom(r.Context())
-	engs, err := s.Store.ListEngagements()
+	engs, err := s.Index.Engagements() // cached with the index
 	if err != nil {
 		return nil, err
 	}
@@ -197,7 +228,10 @@ func (s *Server) base(r *http.Request, eng string) (*page, error) {
 		return nil, err
 	}
 	if eng != "" {
-		if p.Eng, err = s.Store.Engagement(eng); err != nil {
+		i := slices.IndexFunc(engs, func(e store.Engagement) bool { return e.ID == eng })
+		if i >= 0 {
+			p.Eng = engs[i]
+		} else if p.Eng, err = s.Store.Engagement(eng); err != nil {
 			return nil, err
 		}
 	}
@@ -270,7 +304,8 @@ func (s *Server) engagement(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	query := index.Query{EngID: eng, Status: q.Get("status"), Severity: q.Get("severity"),
 		Author: q.Get("author"), Sort: q.Get("sort"), Desc: q.Get("desc") == "1"}
-	if p.Rows, err = s.Index.Rows(query); err != nil {
+	rows, err := s.Index.Rows(query)
+	if err != nil {
 		s.fail(w, err)
 		return
 	}
@@ -279,11 +314,20 @@ func (s *Server) engagement(w http.ResponseWriter, r *http.Request) {
 		for k, x := range q {
 			v[k] = x
 		}
+		v.Del("offset")
 		mod(v)
 		if e := v.Encode(); e != "" {
 			return "/e/" + eng + "?" + e
 		}
 		return "/e/" + eng
+	}
+	// one page of the filtered, sorted rows; "Load more" appends the next
+	off, _ := strconv.Atoi(q.Get("offset"))
+	off = min(max(off, 0), len(rows))
+	end := min(off+s.pageSize, len(rows))
+	p.Rows, p.Offset, p.PageSize = rows[off:end], off, s.pageSize
+	if end < len(rows) {
+		p.MoreURL = mk(func(v url.Values) { v.Set("offset", strconv.Itoa(end)) })
 	}
 	for _, st := range append([]string{""}, index.StatusOrder...) {
 		label := st
@@ -310,6 +354,10 @@ func (s *Server) engagement(w http.ResponseWriter, r *http.Request) {
 			})})
 	}
 	if r.Header.Get("HX-Request") == "true" {
+		if q.Has("offset") {
+			s.exec(w, "engagement.html", "finding_rows", p)
+			return
+		}
 		s.exec(w, "engagement.html", "findings", p)
 		return
 	}
@@ -329,13 +377,9 @@ func setOrDel(v url.Values, k, val string) {
 
 func anchor(name string) string { return store.Slug(name) }
 
-func (s *Server) renderMD(src string) template.HTML {
-	var buf bytes.Buffer
-	if err := s.md.Convert([]byte(src), &buf); err != nil {
-		return template.HTML(template.HTMLEscapeString(src))
-	}
-	return template.HTML(buf.String())
-}
+// renderMD renders Markdown through the shared cache (sections, chat and
+// preview).
+func (s *Server) renderMD(src string) template.HTML { return s.md.HTML(src) }
 
 // sectionNames lists the finding's sections in file order, followed by
 // configured sections the file lacks.
@@ -384,12 +428,13 @@ func (s *Server) renderFinding(w http.ResponseWriter, r *http.Request, status in
 		return
 	}
 	p.Error = errMsg
-	msgs, err := s.Store.Chat(p.Finding.EngID, p.Finding.Dir)
+	stamp := s.chatStamp(p.Finding)
+	msgs, err := s.loadChat(p.Finding)
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
-	p.Chat = s.chatFor(p.Finding, msgs)
+	p.Chat = s.chatFor(p.Finding, msgs, stamp, false)
 	locked := !workflow.CanEdit(p.User, p.Finding.F.Meta)
 	for _, n := range s.sectionNames(p.Finding) {
 		pn := s.panelFor(p.Finding, n)
@@ -404,18 +449,7 @@ func (s *Server) renderFinding(w http.ResponseWriter, r *http.Request, status in
 	p.Details = s.detailsFor(p.Finding, nil)
 	p.Details.Locked = locked
 	p.Retest = s.retestFor(r, p.Finding)
-	p.Checks = s.checksFor(r, p.Finding, rules.Fast)
-	p.WF = s.wfFor(p.Finding, r)
 	// fast rule errors also block submit/approve; show them in the bar
-	if errs := rules.Errors(p.Checks.Items); len(errs) > 0 {
-		for i, a := range p.WF.Actions {
-			if a.Gated {
-				p.WF.Actions[i].Disabled = true
-			}
-		}
-		if p.WF.HasGated {
-			p.WF.Gate = append(p.WF.Gate, errs...)
-		}
-	}
+	p.WF, p.Checks = s.wfGated(r, p.Finding)
 	s.renderStatus(w, status, "finding.html", p)
 }

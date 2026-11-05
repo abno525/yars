@@ -68,7 +68,7 @@ func newPushEnv(t *testing.T) *pushEnv {
 	st.CreateEngagement(store.Engagement{ID: "acme", Name: "ACME"}, users[1].GitAuthor())
 	st.CreateFinding("acme", "SQLi", alice.GitAuthor())
 
-	gs := &gitserve.Server{Repo: r, Auth: auth.New(d), HookCmd: hookCmd(bin, dir), Sync: st.SyncPointers}
+	gs := &gitserve.Server{Repo: r, Auth: auth.New(d), HookCmd: hookCmd(bin, dir), Sync: st.SyncPointers, Invalidate: st.Invalidate}
 	if err := gs.Setup(); err != nil {
 		t.Fatal(err)
 	}

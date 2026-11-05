@@ -1,41 +1,56 @@
 {{define "findings"}}
 <div id="findings">
   <div class="filters">
+    <nav class="seg" aria-label="Status">
     {{range .StatusFilters}}
-    <a class="chip {{if .Active}}active{{end}}" href="{{.URL}}" hx-get="{{.URL}}" hx-target="#findings" hx-swap="outerHTML" hx-push-url="true">{{.Label}}</a>
+    <a class="{{if .Active}}on{{end}}" href="{{.URL}}" hx-get="{{.URL}}" hx-target="#findings" hx-swap="outerHTML" hx-push-url="true">{{.Label}}</a>
     {{end}}
+    </nav>
   </div>
-  <table class="findings">
+  <table class="table findings">
     <thead><tr>
       {{range .Columns}}
-      <th><a href="{{.URL}}" hx-get="{{.URL}}" hx-target="#findings" hx-swap="outerHTML" hx-push-url="true">{{.Label}}{{if .Active}}{{if .Desc}} ▼{{else}} ▲{{end}}{{end}}</a></th>
+      <th><a href="{{.URL}}" hx-get="{{.URL}}" hx-target="#findings" hx-swap="outerHTML" hx-push-url="true">{{.Label}}{{if .Active}}{{if .Desc}} ↓{{else}} ↑{{end}}{{end}}</a></th>
       {{end}}
     </tr></thead>
     <tbody>
-    {{range .Rows}}
-      <tr>
-        <td class="fid"><a href="{{fpath .EngID .Dir}}">{{.ID}}</a></td>
-        <td><a href="{{fpath .EngID .Dir}}">{{.Title}}</a></td>
-        <td>{{if .Severity}}<span class="pill sev-{{.Severity}}">{{.Severity}}</span>{{end}}</td>
-        <td class="fid">{{.Score}}</td>
-        <td><span class="pill status-{{.Status}}">{{.Status}}</span></td>
-        {{if $.IsRetest}}<td>{{if .RetestResult}}<span class="pill result-{{.RetestResult}}">{{retestLabel .RetestResult}}</span>{{else if .IsRetest}}<span class="muted">—</span>{{else}}<span class="muted small">new</span>{{end}}</td>{{end}}
-        <td class="fid">{{if .OpenThreads}}<span class="threads" title="open chat threads">{{.OpenThreads}} open</span>{{end}}</td>
-        <td>{{.Author}}</td>
-        <td>{{join .Reviewers ", "}}</td>
-      </tr>
-    {{else}}
-      <tr><td colspan="9" class="muted empty">No findings match.</td></tr>
-    {{end}}
+    {{template "finding_rows" .}}
     </tbody>
   </table>
 </div>
 {{end}}
 
+{{define "finding_rows"}}
+    {{range .Rows}}
+      <tr>
+        <td class="fid"><a href="{{fpath .EngID .Dir}}">{{.ID}}</a></td>
+        <td class="title"><a href="{{fpath .EngID .Dir}}" title="{{.Title}}">{{.Title}}</a></td>
+        <td>{{if .Severity}}<span class="tag sev-{{.Severity}}">{{.Severity}}</span>{{end}}</td>
+        <td class="num">{{.Score}}</td>
+        <td><span class="tag status-{{.Status}}">{{.Status}}</span></td>
+        {{if $.IsRetest}}<td>{{if .RetestResult}}<span class="tag result-{{.RetestResult}}">{{retestLabel .RetestResult}}</span>{{else if .IsRetest}}<span class="muted">—</span>{{else}}<span class="muted small">new</span>{{end}}</td>{{end}}
+        <td class="cnt">{{if .OpenThreads}}<span class="badge">{{.OpenThreads}}</span>{{else}}<span class="badge0">0</span>{{end}}</td>
+        <td>{{.Author}}</td>
+        <td>{{if .Reviewers}}{{join .Reviewers ", "}}{{else}}<span class="muted">—</span>{{end}}</td>
+      </tr>
+    {{else}}
+      {{if not $.Offset}}<tr><td colspan="9" class="muted empty">No findings match.</td></tr>{{end}}
+    {{end}}
+    {{if .MoreURL}}
+      <tr class="more" id="findings-more"><td colspan="9"><button type="button" class="btn secondary w152" hx-get="{{.MoreURL}}" hx-target="#findings-more" hx-swap="outerHTML">Load {{.PageSize}} more</button></td></tr>
+    {{end}}
+{{end}}
+
 {{define "editor"}}
 <section class="panel editing" id="s-{{.Anchor}}">
   <form hx-post="{{.SaveURL}}" hx-target="#s-{{.Anchor}}" hx-swap="outerHTML">
-    <div class="panelhead"><h2>{{.Name}}</h2></div>
+    <div class="panelhead">
+      <h2>{{.Name}}</h2>
+      <div class="actions">
+        <button type="button" class="btn secondary sm w96" hx-get="{{.SaveURL}}" hx-target="#s-{{.Anchor}}" hx-swap="outerHTML">Cancel</button>
+        <button class="btn save sm w96">Save</button>
+      </div>
+    </div>
     {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
     {{if .Current}}<details class="current" open><summary>Current saved version</summary><div class="md">{{.Current}}</div></details>{{end}}
     <input type="hidden" name="base" value="{{.Base}}">
@@ -44,10 +59,6 @@
         hx-post="{{.PreviewURL}}" hx-trigger="keyup changed delay:300ms, load" hx-target="#p-{{.Anchor}}" hx-swap="innerHTML">{{.Raw}}</textarea>
       <div class="preview md" id="p-{{.Anchor}}"></div>
     </div>
-    <div class="actions">
-      <button class="primary">Save</button>
-      <button type="button" hx-get="{{.SaveURL}}" hx-target="#s-{{.Anchor}}" hx-swap="outerHTML">Cancel</button>
-    </div>
   </form>
 </section>
 {{end}}
@@ -55,10 +66,10 @@
 {{define "panel"}}
 <section class="panel" id="s-{{.Anchor}}">
   <div class="panelhead">
-    <h2>{{.Name}}</h2>
+    <div class="panelname"><h2>{{.Name}}</h2>{{if .Open}}<span class="open-count">{{.Open}}</span>{{end}}</div>
     <span class="panel-tools">
-      <button class="link" type="button" data-section="{{.Name}}" onclick="yarsComment(this.dataset.section)">Comment{{if .Open}} <span class="open-count">{{.Open}}</span>{{end}}</button>
-      {{if .EditURL}}<button class="link" hx-get="{{.EditURL}}" hx-target="#s-{{.Anchor}}" hx-swap="outerHTML">Edit</button>{{end}}
+      <button class="btn ghost sm w96" type="button" data-section="{{.Name}}" onclick="yarsComment(this.dataset.section)">Comment</button>
+      {{if .EditURL}}<button class="btn ghost sm w96" hx-get="{{.EditURL}}" hx-target="#s-{{.Anchor}}" hx-swap="outerHTML">Edit</button>{{else}}<span class="slot w96"></span>{{end}}
     </span>
   </div>
   <div class="md">{{if .HTML}}{{.HTML}}{{else}}<p class="muted">Empty</p>{{end}}</div>

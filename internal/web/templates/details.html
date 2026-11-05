@@ -2,7 +2,7 @@
 <section class="panel" id="details">
   <div class="panelhead">
     <h2>Details</h2>
-    {{if not .Locked}}<button class="link" hx-get="{{.EditURL}}" hx-target="#details" hx-swap="outerHTML">Edit</button>{{end}}
+    {{if not .Locked}}<button class="btn ghost sm w96" hx-get="{{.EditURL}}" hx-target="#details" hx-swap="outerHTML">Edit</button>{{end}}
   </div>
   <table class="kv details">
     <tbody>
@@ -39,8 +39,8 @@
     {{end}}
     {{template "details_other" .}}
     <div class="actions">
-      <button class="primary">Save</button>
-      <button type="button" hx-get="{{.ViewURL}}" hx-target="#details" hx-swap="outerHTML">Cancel</button>
+      <button class="btn save w112">Save</button>
+      <button type="button" class="btn secondary w112" hx-get="{{.ViewURL}}" hx-target="#details" hx-swap="outerHTML">Cancel</button>
     </div>
   </form>
 </section>

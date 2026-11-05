@@ -1,11 +1,19 @@
 {{define "content"}}
-<nav class="crumbs"><a href="/e/{{.Eng.ID}}">← {{.Eng.Name}}</a></nav>
 <form class="card" method="post" action="/e/{{.Eng.ID}}/export">
-  <h1>Export {{.Eng.Name}}</h1>
+  <div class="titlerow">
+    <div class="titlecol">
+      <nav class="crumbs"><a href="/e/{{.Eng.ID}}">{{.Eng.Name}}</a><span class="sep" aria-hidden="true">/</span><span class="idchip">Export</span></nav>
+      <h1 title="Export {{.Eng.Name}}">Export {{.Eng.Name}}</h1>
+    </div>
+    <div class="actions">
+      <a class="btn secondary w128" href="/e/{{.Eng.ID}}">Cancel</a>
+      <button class="btn primary w128"{{if not .ExportV.Exporters}} disabled{{end}}>Export</button>
+    </div>
+  </div>
   {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
   {{with .ExportV}}
   {{if .Pushed}}<p class="ok">Published to Confluence{{if .Done}}: <a href="{{.Done}}" target="_blank" rel="noopener">{{.Done}}</a>{{end}}</p>{{end}}
-  {{if .Download}}<p class="ok">Ready: <a class="button primary" href="{{.Download}}">Download {{.Filename}}</a> <span class="muted small">(link valid 10 minutes)</span></p>{{end}}
+  {{if .Download}}<p class="ok">Ready: <a class="btn save w216" href="{{.Download}}" title="{{.Filename}}">Download {{.Filename}}</a> <span class="muted small">(link valid 10 minutes)</span></p>{{end}}
   {{if .Marked}}<p class="ok">Marked reported: {{join .Marked ", "}}</p>{{end}}
   {{if .Failed}}<p class="error">Not marked: {{join .Failed "; "}}</p>{{end}}
   {{if not .Enabled}}<p class="muted">Exporting is not configured on this server.</p>{{end}}
@@ -17,7 +25,7 @@
     {{range .Exporters}}
     <label class="exporter">
       <input type="radio" name="exporter" value="{{.ID}}"{{if eq .ID $sel}} checked{{end}}>
-      <span><strong>{{.Name}}</strong><br><span class="muted small">{{.Type}}{{if .Format}} · {{.Format}}{{end}}{{if .Confluence}}{{if .Confluence.BaseURL}} · publishes to Confluence{{end}}{{end}}{{if .Marks}}{{if $.ExportV.CanMark}} · marks complete findings reported{{end}}{{end}}</span></span>
+      <span><strong>{{.Name}}</strong><br><span class="muted small">{{.Type}}{{if .Format}} · {{.Format}}{{end}}{{if .Confluence}}{{if .Confluence.BaseURL}} · Confluence{{end}}{{end}}{{if .Marks}}{{if $.ExportV.CanMark}} · marks reported{{end}}{{end}}</span></span>
     </label>
     {{end}}
   </div>
@@ -26,25 +34,21 @@
   {{end}}
   {{end}}
   <h2 class="subhead">Findings</h2>
-  <table class="findings pick">
+  <table class="table pick">
     <tbody>
     {{range .Rows}}
       <tr>
         <td><input type="checkbox" name="finding" value="{{.Dir}}" id="pick-{{.Dir}}"{{if checkedIn $.Form "finding" .Dir}} checked{{end}}></td>
         <td class="fid"><label for="pick-{{.Dir}}">{{.ID}}</label></td>
-        <td><label for="pick-{{.Dir}}">{{.Title}}</label></td>
-        <td>{{if .Severity}}<span class="pill sev-{{.Severity}}">{{.Severity}}</span>{{end}}</td>
-        <td><span class="pill status-{{.Status}}">{{.Status}}</span></td>
+        <td class="title"><label for="pick-{{.Dir}}">{{.Title}}</label></td>
+        <td>{{if .Severity}}<span class="tag sev-{{.Severity}}">{{.Severity}}</span>{{end}}</td>
+        <td><span class="tag status-{{.Status}}">{{.Status}}</span></td>
       </tr>
     {{else}}
       <tr><td class="muted empty">No findings.</td></tr>
     {{end}}
     </tbody>
   </table>
-  {{if not .ExportV.CanMark}}<p class="muted small">Your export is a preview; only a director marks findings reported.</p>{{end}}
-  <div class="actions">
-    <button class="primary"{{if not .ExportV.Exporters}} disabled{{end}}>Export</button>
-    <a class="button" href="/e/{{.Eng.ID}}">Cancel</a>
-  </div>
+  {{if not .ExportV.CanMark}}<p class="muted small">Preview only: a director marks findings reported.</p>{{end}}
 </form>
 {{end}}

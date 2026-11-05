@@ -3,20 +3,19 @@
 <section class="panel retest-panel" id="retest">
   <div class="panelhead">
     <h2>Retest result</h2>
-    <span class="muted small">Original:
-      {{if .SourceMissing}}{{.Source}} (not found){{else}}<a href="{{.SourceURL}}">{{.Source}}</a>
-      {{if .SourceSev}}<span class="pill sev-{{.SourceSev}}">{{.SourceSev}}</span>{{end}}
-      <span class="pill status-{{.SourceStatus}}">{{.SourceStatus}}</span>{{end}}
+    <span class="meta">
+      {{if .SourceMissing}}<span class="muted">{{.Source}} (not found)</span>{{else}}<a href="{{.SourceURL}}">{{.Source}}</a>
+      {{if .SourceSev}}<span class="tag sev-{{.SourceSev}}">{{.SourceSev}}</span>{{end}}
+      <span class="tag status-{{.SourceStatus}}">{{.SourceStatus}}</span>{{end}}
     </span>
   </div>
   {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
   {{if .Locked}}
-    <p>{{range .Options}}{{if .Checked}}<span class="pill result-{{.Code}}">{{.Label}}</span>{{end}}{{end}}</p>
+    <p>{{range .Options}}{{if .Checked}}<span class="tag result-{{.Code}}">{{.Label}}</span>{{end}}{{end}}</p>
   {{else}}
   <form class="seg result-seg" hx-post="{{.URL}}" hx-trigger="change" hx-target="#retest" hx-swap="outerHTML">
     {{range .Options}}<label><input type="radio" name="result" value="{{.Code}}"{{if .Checked}} checked{{end}}><span>{{.Label}}</span></label>{{end}}
   </form>
-  {{if not .Result}}<p class="muted small">Not retested yet — pick the result once you have checked the fix.</p>{{end}}
   {{end}}
 </section>
 {{end}}

@@ -24,7 +24,7 @@ func TestInboxColumnOrder(t *testing.T) {
 	e := setup(t)
 	e.toVerification(t)
 	b := section(e.do(t, "bob", "GET", "/inbox", nil, nil).Body.String(), "Awaiting my review")
-	title, sev, eng, num := strings.Index(b, "SQL injection"), strings.Index(b, `class="pill sev-high"`), strings.Index(b, "ACME Web"), strings.Index(b, "F-001")
+	title, sev, eng, num := strings.Index(b, "SQL injection"), strings.Index(b, `class="tag sev-high"`), strings.Index(b, "ACME Web"), strings.Index(b, "F-001")
 	if title < 0 || !(title < sev && sev < eng && eng < num) {
 		t.Fatalf("order title %d sev %d eng %d num %d:\n%s", title, sev, eng, num, b)
 	}

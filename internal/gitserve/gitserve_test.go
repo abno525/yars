@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"yars/internal/auth"
@@ -25,6 +26,12 @@ func setup(t *testing.T) (*httptest.Server, *gitrepo.Repo) {
 
 func setupDB(t *testing.T) (*httptest.Server, *gitrepo.Repo, *db.DB) {
 	t.Helper()
+	return setupWith(t, nil)
+}
+
+// setupWith is setupDB with a hook told about each invalidation.
+func setupWith(t *testing.T, seen func(eng string)) (*httptest.Server, *gitrepo.Repo, *db.DB) {
+	t.Helper()
 	r, err := gitrepo.Init(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -40,7 +47,12 @@ func setupDB(t *testing.T) (*httptest.Server, *gitrepo.Repo, *db.DB) {
 	}
 	hash, _ := auth.HashPassword("pw")
 	d.AddUser(config.User{Username: "alice", Role: "pentester", PasswordHash: hash})
-	gs := &Server{Repo: r, Auth: auth.New(d), Sync: st.SyncPointers}
+	gs := &Server{Repo: r, Auth: auth.New(d), Sync: st.SyncPointers, Invalidate: func(eng string) {
+		if seen != nil {
+			seen(eng)
+		}
+		st.Invalidate(eng)
+	}}
 	if err := gs.Setup(); err != nil {
 		t.Fatal(err)
 	}
@@ -172,6 +184,34 @@ func TestSetupHardening(t *testing.T) {
 	gs := &Server{Repo: r, InheritEnv: []string{"YARS_AI_KEY"}}
 	if env := gs.inherit(); !slices.Contains(env, "YARS_AI_KEY") || !slices.Contains(env, "HTTPS_PROXY") {
 		t.Errorf("inherited env %v", env)
+	}
+}
+
+// A push tells the store which repo moved (its HEAD cache); fetches don't.
+func TestPushInvalidates(t *testing.T) {
+	var mu sync.Mutex
+	var seen []string
+	srv, _, _ := setupWith(t, func(e string) { mu.Lock(); seen = append(seen, e); mu.Unlock() })
+	dst := filepath.Join(t.TempDir(), "clone")
+	url := strings.Replace(srv.URL, "http://", "http://alice:pw@", 1) + "/git/e/acme"
+	cmd := exec.Command("git", "clone", "-q", url, dst)
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("clone: %v %s", err, out)
+	}
+	mu.Lock()
+	if len(seen) != 0 {
+		t.Fatalf("fetch invalidated %v", seen)
+	}
+	mu.Unlock()
+	os.WriteFile(filepath.Join(dst, "notes.txt"), []byte("hi\n"), 0o644)
+	gitCmd(t, dst, "add", "-A")
+	gitCmd(t, dst, "commit", "-qm", "note")
+	gitCmd(t, dst, "push", "-q", "origin", "HEAD")
+	mu.Lock()
+	defer mu.Unlock()
+	if !slices.Equal(seen, []string{"acme"}) {
+		t.Fatalf("invalidated %v", seen)
 	}
 }
 

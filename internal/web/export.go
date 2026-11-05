@@ -138,6 +138,12 @@ func (s *Server) exportForm(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) exportRun(w http.ResponseWriter, r *http.Request) {
+	// the exporter may run longer than the server's write timeout
+	limit := 120 * time.Second // export.Runner's default
+	if s.Export != nil && s.Export.Timeout > 0 {
+		limit = s.Export.Timeout
+	}
+	http.NewResponseController(w).SetWriteDeadline(time.Now().Add(limit + 30*time.Second))
 	p, err := s.exportPage(r)
 	if err != nil {
 		s.fail(w, err)

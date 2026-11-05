@@ -27,6 +27,7 @@ func (r *Repo) run(env []string, args ...string) (string, error) {
 	cmd.Env = append(os.Environ(), env...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	spawned.Add(1)
 	if err := cmd.Run(); err != nil {
 		return "", fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
 	}
@@ -58,6 +59,7 @@ func Init(dir string) (*Repo, error) {
 		return nil, err
 	}
 	if _, err := os.Stat(filepath.Join(dir, ".git")); os.IsNotExist(err) {
+		spawned.Add(1)
 		if out, err := exec.Command("git", "init", "-q", "-b", "main", dir).CombinedOutput(); err != nil {
 			return nil, fmt.Errorf("git init: %w: %s", err, out)
 		}

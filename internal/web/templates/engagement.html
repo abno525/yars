@@ -1,22 +1,21 @@
 {{define "content"}}
-<div class="pagehead">
-  <div>
-    <h1>{{.Eng.Name}}</h1>
-    <p class="muted">{{.Eng.Client}}</p>
-    {{if .IsRetest}}<p class="retest-banner">Retest of <a href="/e/{{.Eng.Source}}">{{if .Source.Name}}{{.Source.Name}}{{else}}{{.Eng.Source}}{{end}}</a></p>{{end}}
+<div class="titlerow">
+  <div class="titlecol">
+    <h1 title="{{.Eng.Name}}">{{.Eng.Name}}</h1>
+    <p class="sub">{{.Eng.Client}}{{if .IsRetest}}{{if .Eng.Client}} · {{end}}Retest of <a href="/e/{{.Eng.Source}}">{{if .Source.Name}}{{.Source.Name}}{{else}}{{.Eng.Source}}{{end}}</a>{{end}}</p>
   </div>
   <div class="actions">
-    <a class="button" href="/e/{{.Eng.ID}}/export">Export</a>
-    {{if .CanManage}}<a class="button" href="/e/{{.Eng.ID}}/retest/new">New retest</a>{{end}}
-    <a class="button primary" href="/e/{{.Eng.ID}}/findings/new">New finding</a>
+    <a class="btn secondary w128" href="/e/{{.Eng.ID}}/export">Export</a>
+    {{if .CanManage}}<a class="btn secondary w128" href="/e/{{.Eng.ID}}/retest/new">New retest</a>{{else}}<span class="slot w128"></span>{{end}}
+    <a class="btn primary w128" href="/e/{{.Eng.ID}}/findings/new">New finding</a>
   </div>
 </div>
 {{template "findings" .}}
 {{if .CloneURL}}
-<section class="panel clonehint">
-  <h2>Work locally on this engagement</h2>
-  <p class="muted small">This engagement is its own git repository: its history shows only its own changes. Clone it with your YARS login, edit, commit and push.</p>
-  <pre><code>git clone {{.CloneURL}}</code></pre>
+<section class="clonebar">
+  <span class="label">Clone</span>
+  <code id="clone-cmd">git clone {{.CloneURL}}</code>
+  <button type="button" class="btn w96" data-copy="clone-cmd">Copy</button>
 </section>
 {{end}}
 {{end}}

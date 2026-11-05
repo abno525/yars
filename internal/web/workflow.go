@@ -6,7 +6,9 @@ import (
 	"slices"
 
 	"yars/internal/auth"
+	"yars/internal/config"
 	"yars/internal/finding"
+	"yars/internal/rules"
 	"yars/internal/store"
 	"yars/internal/workflow"
 )
@@ -37,12 +39,14 @@ type wfView struct {
 	CanAssign    bool
 	HasGated     bool
 	ReviewersURL string
+	URL          string // the bar alone (live refresh)
 	Returned     *finding.Returned
 }
 
 func (s *Server) routesWorkflow(mux *http.ServeMux) {
 	mux.HandleFunc("POST /e/{eng}/f/{fid}/action/{act}", s.wfAction)
 	mux.HandleFunc("POST /e/{eng}/f/{fid}/reviewers", s.wfReviewers)
+	mux.HandleFunc("GET /e/{eng}/f/{fid}/workflow", s.workflowBar)
 }
 
 func (s *Server) wfFor(ref store.FindingRef, r *http.Request) wfView {
@@ -50,7 +54,7 @@ func (s *Server) wfFor(ref store.FindingRef, r *http.Request) wfView {
 	m := ref.F.Meta
 	base := findingURL(ref.EngID, ref.Dir)
 	v := wfView{Status: m.Status, Steps: workflow.Statuses, CanAssign: workflow.CanAssign(u, m),
-		ReviewersURL: base + "/reviewers", Returned: m.Returned}
+		ReviewersURL: base + "/reviewers", URL: base + "/workflow", Returned: m.Returned}
 	for _, n := range m.Reviewers {
 		v.Reviewers = append(v.Reviewers, wfReviewer{Name: n, Cleared: slices.Contains(m.ClearedBy, n)})
 	}
@@ -76,6 +80,24 @@ func (s *Server) wfFor(ref store.FindingRef, r *http.Request) wfView {
 		v.Actions = append(v.Actions, act)
 	}
 	return v
+}
+
+// wfGated is the workflow bar with the fast style rules applied: their
+// errors also block submit and approve. It returns the checks it ran.
+func (s *Server) wfGated(r *http.Request, ref store.FindingRef) (wfView, checksView) {
+	checks := s.checksFor(r, ref, rules.Fast)
+	wf := s.wfFor(ref, r)
+	if errs := rules.Errors(checks.Items); len(errs) > 0 {
+		for i, a := range wf.Actions {
+			if a.Gated {
+				wf.Actions[i].Disabled = true
+			}
+		}
+		if wf.HasGated {
+			wf.Gate = append(wf.Gate, errs...)
+		}
+	}
+	return wf, checks
 }
 
 // allowEdit answers 403 when the user may not change the finding's content.
@@ -120,22 +142,20 @@ func (s *Server) wfReviewers(w http.ResponseWriter, r *http.Request) {
 	}
 	r.ParseForm()
 	names := r.PostForm["reviewer"]
+	users := s.Auth.Users() // once per request, not per name
 	if r.PostForm.Get("all") != "" {
 		// keep whoever is assigned and add every reviewer-role account
 		names = slices.Clone(ref.F.Meta.Reviewers)
-		for _, c := range s.Auth.Users() {
+		for _, c := range users {
 			if c.Role == "reviewer" && workflow.ReviewerCandidate(c, ref.F.Meta) && !slices.Contains(names, c.Username) {
 				names = append(names, c.Username)
 			}
 		}
 	}
 	for _, n := range names {
-		ok := false
-		for _, c := range s.Auth.Users() {
-			if c.Username == n && workflow.ReviewerCandidate(c, ref.F.Meta) {
-				ok = true
-			}
-		}
+		ok := slices.ContainsFunc(users, func(c config.User) bool {
+			return c.Username == n && workflow.ReviewerCandidate(c, ref.F.Meta)
+		})
 		if !ok {
 			s.renderFinding(w, r, http.StatusBadRequest, "unknown or ineligible reviewer "+n)
 			return

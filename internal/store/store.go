@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -68,13 +69,88 @@ type Store struct {
 	cfg     config.Config
 	root    *os.Root
 	rootErr error
-	mu      sync.Mutex
+
+	// Git work is serialized per repository: one lock per engagement repo
+	// (created on first use) and one for the main repo. Lock order: an
+	// engagement's lock before mainMu. Database-only writes (chat,
+	// transitions, reviewers) take neither; SQLite serializes them.
+	locksMu  sync.Mutex
+	engLocks map[string]*sync.Mutex
+	mainMu   sync.Mutex
+
+	// heads caches each repo's HEAD ("" key = main repo), read from the
+	// files under .git (no git process). Our own commits and pushes
+	// (Invalidate) drop entries; headGen guards against storing a value
+	// read before an invalidation.
+	headsMu sync.RWMutex
+	heads   map[string]string
+	headGen uint64
+
+	reposMu sync.Mutex
+	repos   map[string]*gitrepo.Repo // opened engagement repos
+
+	// links caches the main repo's gitlinks (under mainMu), valid while the
+	// main HEAD is linksAt.
+	links   map[string]string
+	linksAt string
+
+	subsMu sync.RWMutex
+	subs   []func(Change)
 
 	// Linter, when set, runs the style rules; error-level violations block
 	// submit and approve.
 	Linter Linter
 
 	beforeWrite func() // test hook: runs between reading and writing
+}
+
+// Change reports a database write confined to one finding: its engagement's
+// change counter is Seq after the write. Kind is ChangeChat (only the chat
+// changed) or ChangeState (workflow state, possibly with events).
+type Change struct {
+	Eng, Fid, Kind string
+	Seq            int64
+}
+
+const (
+	ChangeChat  = "chat"
+	ChangeState = "state"
+	// ChangeContent: a commit by YARS changed the finding's file. It does
+	// not move the engagement's change counter (Seq is 0); the new HEAD
+	// tells readers of the repo.
+	ChangeContent = "content"
+)
+
+// OnChange registers fn to be told about every database write confined to
+// one finding (chat, workflow state), after it committed.
+func (s *Store) OnChange(fn func(Change)) {
+	s.subsMu.Lock()
+	s.subs = append(s.subs, fn)
+	s.subsMu.Unlock()
+}
+
+func (s *Store) notify(c Change) {
+	s.subsMu.RLock()
+	subs := s.subs
+	s.subsMu.RUnlock()
+	for _, fn := range subs {
+		fn(c)
+	}
+}
+
+// engLock returns the lock of an engagement's repo.
+func (s *Store) engLock(id string) *sync.Mutex {
+	s.locksMu.Lock()
+	defer s.locksMu.Unlock()
+	if s.engLocks == nil {
+		s.engLocks = map[string]*sync.Mutex{}
+	}
+	l, ok := s.engLocks[id]
+	if !ok {
+		l = &sync.Mutex{}
+		s.engLocks[id] = l
+	}
+	return l
 }
 
 // errMoved is returned when HEAD moved (e.g. a git push landed) between
@@ -86,7 +162,7 @@ func (s *Store) unmoved(engID, head0 string) error {
 	if s.beforeWrite != nil {
 		s.beforeWrite()
 	}
-	if h, err := s.engHead(engID); err != nil || h != head0 {
+	if h, err := s.freshHead(engID); err != nil || h != head0 {
 		return errMoved
 	}
 	return nil
@@ -95,66 +171,170 @@ func (s *Store) unmoved(engID, head0 string) error {
 // System is the author of commits YARS makes on its own (pointer updates).
 var System = gitrepo.Author{Name: "yars", Email: "yars@yars.local"}
 
-// EngRepo opens an engagement's own repository (engagements/<id>).
+// EngRepo opens an engagement's own repository (engagements/<id>). Opened
+// repos are remembered while their .git exists.
 func (s *Store) EngRepo(id string) (*gitrepo.Repo, error) {
 	if !ValidID(id) {
 		return nil, ErrNotFound
 	}
-	return gitrepo.Open(filepath.Join(s.repo.Dir, "engagements", id))
+	dir := filepath.Join(s.repo.Dir, "engagements", id)
+	_, gerr := os.Lstat(filepath.Join(dir, ".git"))
+	s.reposMu.Lock()
+	defer s.reposMu.Unlock()
+	if r, ok := s.repos[id]; ok && gerr == nil {
+		return r, nil
+	}
+	delete(s.repos, id)
+	r, err := gitrepo.Open(dir)
+	if err != nil {
+		return nil, err
+	}
+	if s.repos == nil {
+		s.repos = map[string]*gitrepo.Repo{}
+	}
+	s.repos[id] = r
+	return r, nil
 }
 
-func (s *Store) engHead(id string) (string, error) {
-	r, err := s.EngRepo(id)
+// repoDir is the work tree of a repo by cache key ("" = main repo).
+func (s *Store) repoDir(key string) string {
+	if key == "" {
+		return s.repo.Dir
+	}
+	return filepath.Join(s.repo.Dir, "engagements", key)
+}
+
+// freshHead reads a repo's HEAD from disk, bypassing the cache, and
+// refreshes the cache with it.
+func (s *Store) freshHead(key string) (string, error) {
+	if key != "" && !ValidID(key) {
+		return "", ErrNotFound
+	}
+	s.headsMu.RLock()
+	gen := s.headGen
+	s.headsMu.RUnlock()
+	h, err := gitrepo.ReadHead(s.repoDir(key))
 	if err != nil {
 		return "", err
 	}
-	return r.Head()
+	s.headsMu.Lock()
+	if s.headGen == gen {
+		if s.heads == nil {
+			s.heads = map[string]string{}
+		}
+		s.heads[key] = h
+	}
+	s.headsMu.Unlock()
+	return h, nil
+}
+
+// head is a repo's HEAD from the cache ("" key = main repo).
+func (s *Store) head(key string) (string, error) {
+	s.headsMu.RLock()
+	h, ok := s.heads[key]
+	s.headsMu.RUnlock()
+	if ok {
+		return h, nil
+	}
+	return s.freshHead(key)
+}
+
+// EngHead is an engagement repo's HEAD ("" before its first commit), from
+// the cache: no git process.
+func (s *Store) EngHead(id string) (string, error) {
+	if !ValidID(id) {
+		return "", ErrNotFound
+	}
+	return s.head(id)
+}
+
+// Invalidate drops the cached HEAD of an engagement repo ("" = the main
+// repo), after a commit YARS did not make itself (a push).
+func (s *Store) Invalidate(eng string) {
+	s.headsMu.Lock()
+	delete(s.heads, eng)
+	s.headGen++
+	s.headsMu.Unlock()
 }
 
 // Version identifies the content of all repositories (main and every
-// engagement); it changes with any commit, by YARS or by push.
+// engagement); it changes with any commit by YARS, and with a push once
+// the git server called Invalidate. It starts no git process.
 func (s *Store) Version() (string, error) {
-	v, err := s.repo.Head()
+	v, err := s.head("")
 	if err != nil {
 		return "", err
 	}
 	ents, _ := s.readDir("engagements")
+	var b strings.Builder
+	b.WriteString(v)
 	for _, e := range ents {
 		if e.IsDir() && ValidID(e.Name()) {
-			h, _ := s.engHead(e.Name())
-			v += "|" + e.Name() + "=" + h
+			h, _ := s.head(e.Name())
+			b.WriteString("|" + e.Name() + "=" + h)
 		}
 	}
-	return v, nil
+	return b.String(), nil
 }
 
 // SyncPointers moves the main repo's submodule pointers to every
-// engagement's current HEAD, in one commit (none when nothing moved).
+// engagement's current HEAD, in one commit (none when nothing moved). It
+// reads the cached HEADs and takes only the main repo's lock; with nothing
+// to move it starts no git process.
 func (s *Store) SyncPointers() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.mainMu.Lock()
+	defer s.mainMu.Unlock()
 	ents, err := s.readDir("engagements")
 	if err != nil {
 		return nil
 	}
-	var paths, ids []string
+	mainHead, err := s.head("")
+	if err != nil {
+		return err
+	}
+	if s.links == nil || s.linksAt != mainHead {
+		links, err := s.repo.Gitlinks("HEAD", "engagements")
+		if err != nil {
+			return err
+		}
+		s.links, s.linksAt = links, mainHead
+	}
+	moved := map[string]string{} // path -> new pointer
+	var ids []string
 	for _, e := range ents {
 		if !e.IsDir() || !ValidID(e.Name()) {
 			continue
 		}
-		h, err := s.engHead(e.Name())
+		h, err := s.head(e.Name())
 		if err != nil || h == "" {
 			continue
 		}
-		p := "engagements/" + e.Name()
-		if link, _ := s.repo.Gitlink("HEAD", p); link != h {
-			paths, ids = append(paths, p), append(ids, e.Name())
+		if s.links[e.Name()] != h {
+			moved["engagements/"+e.Name()], ids = h, append(ids, e.Name())
 		}
 	}
-	if len(paths) == 0 {
+	if len(ids) == 0 {
 		return nil
 	}
-	return s.repo.Commit(paths, "engagements: update "+strings.Join(ids, ", "), System)
+	// record exactly these HEADs (an engagement may commit meanwhile: it is
+	// not locked here; the next sync catches up)
+	err = s.repo.CommitGitlinks(moved, "engagements: update "+strings.Join(ids, ", "), System)
+	s.Invalidate("")
+	if err != nil {
+		s.links = nil
+		return err
+	}
+	next := maps.Clone(s.links)
+	for _, id := range ids {
+		next[id] = moved["engagements/"+id]
+	}
+	s.links = next
+	if h, herr := s.head(""); herr == nil {
+		s.linksAt = h
+	} else {
+		s.links = nil
+	}
+	return nil
 }
 
 // addSubmodule records a new engagement repo in the main repo: a
@@ -175,7 +355,9 @@ func (s *Store) addSubmodule(id, msg string, a gitrepo.Author) error {
 		}
 	}
 	paths := []string{".gitmodules", "engagements/" + id}
-	if err := s.repo.Commit(paths, msg, a); err != nil {
+	err = s.repo.Commit(paths, msg, a)
+	s.Invalidate("")
+	if err != nil {
 		// leave the main repo exactly as it was
 		s.repo.Unstage(paths)
 		if b == nil {
@@ -204,11 +386,13 @@ func (s *Store) newEngagementRepo(id string, files []string, msg string, a gitre
 	if err == nil {
 		err = r.Commit(files, msg, a)
 	}
+	s.Invalidate(id)
 	if err == nil {
 		err = s.addSubmodule(id, "engagement "+id+": add", a)
 	}
 	if err != nil {
 		s.root.RemoveAll(dir)
+		s.Invalidate(id)
 		return err
 	}
 	return nil
@@ -301,14 +485,33 @@ func (s *Store) readFile(p string) ([]byte, error) {
 	return s.root.ReadFile(p)
 }
 
+// writeFile replaces p in one step (a temporary file renamed over it):
+// readers that take no lock (chat, workflow changes, pages) never see a
+// half-written file.
 func (s *Store) writeFile(p string, b []byte) error {
 	if s.rootErr != nil {
 		return s.rootErr
 	}
-	return s.root.WriteFile(p, b, 0o644)
+	tmp := path.Join(path.Dir(p), "."+path.Base(p)+".yars-tmp")
+	f, err := s.root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	if err != nil {
+		return err
+	}
+	_, err = f.Write(b)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = s.root.Rename(tmp, p)
+	}
+	if err != nil {
+		s.root.Remove(tmp)
+	}
+	return err
 }
 
-func (s *Store) ListEngagements() ([]Engagement, error) {
+// EngagementIDs lists the engagement folders (sorted), without reading them.
+func (s *Store) EngagementIDs() ([]string, error) {
 	ents, err := s.readDir("engagements")
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
@@ -316,15 +519,26 @@ func (s *Store) ListEngagements() ([]Engagement, error) {
 	if err != nil {
 		return nil, err
 	}
-	var out []Engagement
+	var out []string
 	for _, e := range ents {
-		if !e.IsDir() || !ValidID(e.Name()) {
-			continue
+		if e.IsDir() && ValidID(e.Name()) {
+			out = append(out, e.Name())
 		}
-		eng, err := s.Engagement(e.Name())
+	}
+	return out, nil
+}
+
+func (s *Store) ListEngagements() ([]Engagement, error) {
+	ids, err := s.EngagementIDs()
+	if err != nil {
+		return nil, err
+	}
+	var out []Engagement
+	for _, id := range ids {
+		eng, err := s.Engagement(id)
 		if err != nil {
 			if !errors.Is(err, ErrNotFound) {
-				log.Printf("skip engagement %s: %v", e.Name(), err)
+				log.Printf("skip engagement %s: %v", id, err)
 			}
 			continue
 		}
@@ -361,18 +575,19 @@ func (s *Store) commit(prev map[string][]byte, msg string, a gitrepo.Author, cle
 		paths = append(paths, p)
 	}
 	sort.Strings(paths)
-	repo, rel := s.repo, paths
+	repo, rel, key := s.repo, paths, ""
 	if seg := strings.SplitN(paths[0], "/", 3); len(seg) == 3 && seg[0] == "engagements" {
 		r, err := s.EngRepo(seg[1])
 		if err != nil {
 			return err
 		}
-		repo, rel = r, nil
+		repo, rel, key = r, nil, seg[1]
 		for _, p := range paths {
 			rel = append(rel, strings.TrimPrefix(p, "engagements/"+seg[1]+"/"))
 		}
 	}
 	err := repo.Commit(rel, msg, a)
+	s.Invalidate(key)
 	if err == nil {
 		return nil
 	}
@@ -397,8 +612,8 @@ func (s *Store) CreateEngagement(e Engagement, a gitrepo.Author) error {
 	if s.rootErr != nil {
 		return s.rootErr
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	unlock := s.lockNew(e.ID)
+	defer unlock()
 	dir := engDir(e.ID)
 	if _, err := s.root.Lstat(dir); err == nil {
 		return fmt.Errorf("engagement %s already exists", e.ID)
@@ -429,7 +644,16 @@ func (s *Store) purge(engID string) error {
 	if s.db == nil {
 		return nil
 	}
-	return s.db.Tx(func(tx *db.Tx) error { return tx.Purge(engID) })
+	return s.db.TxFor(engID, func(tx *db.Tx) error { return tx.Purge(engID) })
+}
+
+// lockNew takes the locks for creating engagement id: its own repo's and
+// the main repo's (which records it).
+func (s *Store) lockNew(id string) (unlock func()) {
+	l := s.engLock(id)
+	l.Lock()
+	s.mainMu.Lock()
+	return func() { s.mainMu.Unlock(); l.Unlock() }
 }
 
 // CreateRetest creates engagement e (type retest) from source, copying the
@@ -458,8 +682,8 @@ func (s *Store) CreateRetest(e Engagement, source string, dirs []string, assigne
 	if s.rootErr != nil {
 		return s.rootErr
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	unlock := s.lockNew(e.ID)
+	defer unlock()
 	dir := engDir(e.ID)
 	if _, err := s.root.Lstat(dir); err == nil {
 		return fmt.Errorf("%w: engagement %s already exists", ErrInvalidValue, e.ID)
@@ -514,7 +738,7 @@ func (s *Store) CreateRetest(e Engagement, source string, dirs []string, assigne
 		return nil
 	}
 	// each copy starts as a fresh draft that links to the original
-	return s.db.Tx(func(tx *db.Tx) error {
+	return s.db.TxFor(e.ID, func(tx *db.Tx) error {
 		if err := tx.Purge(e.ID); err != nil {
 			return err
 		}
@@ -570,23 +794,23 @@ func (s *Store) SetRetestResult(engID, dir, result string, a Actor) error {
 	})
 }
 
-// changeState loads a finding and its state under the store lock, lets fn
-// change the state, and stores it — with any workflow events fn returns —
-// in one database transaction. No git commit is made.
+// changeState loads a finding, lets fn change its state, and stores it —
+// with any workflow events fn returns — in one database transaction. No git
+// commit is made and no git lock is taken: the state is bound to the content
+// hash read here, so a concurrent edit makes it stale rather than wrong
+// (clearances and approvals count only for the content they were given for).
 func (s *Store) changeState(engID, dir string, fn func(ref FindingRef, st *db.State, hash string) ([]chat.Message, error)) error {
 	if s.db == nil {
 		return ErrNoDB
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	ref, raw, err := s.read(engID, dir, nil)
 	if err != nil {
 		return err
 	}
 	fid, hash := ref.F.Meta.ID, contentHash(raw)
-	// read-modify-write inside one write transaction, so another process
-	// (yars export --mark) can't interleave
-	return s.db.Tx(func(tx *db.Tx) error {
+	// read-modify-write inside one write transaction, so another writer
+	// (a request, yars export --mark) can't interleave
+	seq, err := s.db.TxForSeq(engID, func(tx *db.Tx) error {
 		st, err := tx.State(engID, fid)
 		if err != nil {
 			return err
@@ -606,6 +830,11 @@ func (s *Store) changeState(engID, dir string, fn func(ref FindingRef, st *db.St
 		}
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	s.notify(Change{Eng: engID, Fid: fid, Kind: ChangeState, Seq: seq})
+	return nil
 }
 
 // ListFindings returns parseable findings of an engagement, sorted by dir.
@@ -739,8 +968,9 @@ func (s *Store) CreateFinding(engID, title string, a gitrepo.Author) (FindingRef
 	if _, err := s.Engagement(engID); err != nil {
 		return FindingRef{}, err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	l := s.engLock(engID)
+	l.Lock()
+	defer l.Unlock()
 	fdir := path.Join(engDir(engID), "findings")
 	ents, _ := s.readDir(fdir)
 	max := 0
@@ -809,11 +1039,15 @@ func (s *Store) mutate(engID, dir string, a gitrepo.Author, fn func(f *finding.F
 }
 
 // mutateThen is mutate with a step that runs after the commit, still under
-// the store lock, with the file's hash before and after.
+// the engagement's lock, with the file's hash before and after.
 func (s *Store) mutateThen(engID, dir string, a gitrepo.Author, fn func(f *finding.Finding) (string, error), then func(ref FindingRef, oldHash, newHash string) error) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	head0, _ := s.engHead(engID)
+	if !ValidID(engID) {
+		return ErrNotFound
+	}
+	l := s.engLock(engID)
+	l.Lock()
+	defer l.Unlock()
+	head0, _ := s.freshHead(engID)
 	ref, before, err := s.read(engID, dir, nil)
 	if err != nil {
 		return err
@@ -836,6 +1070,7 @@ func (s *Store) mutateThen(engID, dir string, a gitrepo.Author, fn func(f *findi
 	if err := s.commit(map[string][]byte{rel: before}, ref.F.Meta.ID+": "+msg, a, ""); err != nil {
 		return err
 	}
+	defer s.notify(Change{Eng: engID, Fid: ref.F.Meta.ID, Kind: ChangeContent})
 	if then != nil {
 		return then(ref, contentHash(before), contentHash(after))
 	}
@@ -865,10 +1100,18 @@ func (s *Store) ReadAttachment(engID, dir, rel string) ([]byte, error) {
 // none, or without a database).
 func (s *Store) Chat(engID, dir string) ([]chat.Message, error) {
 	ref, err := s.Finding(engID, dir)
-	if err != nil || s.db == nil {
+	if err != nil {
 		return nil, err
 	}
-	return s.db.Messages(engID, ref.F.Meta.ID)
+	return s.ChatOf(ref)
+}
+
+// ChatOf is Chat for a finding the caller already loaded (no second read).
+func (s *Store) ChatOf(ref FindingRef) ([]chat.Message, error) {
+	if s.db == nil {
+		return nil, nil
+	}
+	return s.db.Messages(ref.EngID, ref.F.Meta.ID)
 }
 
 // EngagementChat returns the chat of every finding in an engagement, keyed
@@ -894,8 +1137,6 @@ func (s *Store) PostChat(engID, dir string, m chat.Message, u config.User) (chat
 	if s.db == nil {
 		return m, ErrNoDB
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	ref, err := s.Finding(engID, dir)
 	if err != nil {
 		return m, err
@@ -905,14 +1146,24 @@ func (s *Store) PostChat(engID, dir string, m chat.Message, u config.User) (chat
 			return m, fmt.Errorf("%w: unknown section %q", ErrInvalidChat, m.Section)
 		}
 	}
-	existing, err := s.db.Messages(engID, ref.F.Meta.ID)
+	// validate against the chat inside the write transaction, so two
+	// concurrent posts (e.g. resolving the same thread) can't both pass
+	fid := ref.F.Meta.ID
+	seq, err := s.db.TxForSeq(engID, func(tx *db.Tx) error {
+		existing, err := tx.Messages(engID, fid)
+		if err != nil {
+			return err
+		}
+		if err := chat.Validate(existing, m); err != nil {
+			return fmt.Errorf("%w: %v", ErrInvalidChat, err)
+		}
+		return tx.AddMessage(engID, fid, m)
+	})
 	if err != nil {
 		return m, err
 	}
-	if err := chat.Validate(existing, m); err != nil {
-		return m, fmt.Errorf("%w: %v", ErrInvalidChat, err)
-	}
-	return m, s.db.Tx(func(tx *db.Tx) error { return tx.AddMessage(engID, ref.F.Meta.ID, m) })
+	s.notify(Change{Eng: engID, Fid: fid, Kind: ChangeChat, Seq: seq})
+	return m, nil
 }
 
 // mutateContent is mutate for content edits by u, refused once the finding
@@ -929,8 +1180,13 @@ func (s *Store) mutateContent(engID, dir string, who Actor, fn func(f *finding.F
 
 // carryApproval moves an approval to the new content after an edit of a
 // complete or reported finding (allowed for directors only), so the edit
-// doesn't send it back to verification.
+// doesn't send it back to verification. Only an edit of a finding that was
+// approved when it was read carries: an approval that raced an edit of an
+// open finding stays bound to the content it was given for.
 func (s *Store) carryApproval(ref FindingRef, oldHash, newHash string) error {
+	if st := ref.F.Meta.Status; st != "complete" && st != "reported" {
+		return nil
+	}
 	return CarryApproval(s.db, ref.EngID, ref.F.Meta.ID, oldHash, newHash)
 }
 
@@ -941,7 +1197,7 @@ func CarryApproval(d *db.DB, eng, fid, oldHash, newHash string) error {
 	if d == nil {
 		return nil
 	}
-	return d.Tx(func(tx *db.Tx) error {
+	return d.TxFor(eng, func(tx *db.Tx) error {
 		st, err := tx.State(eng, fid)
 		if err != nil || !Approved(st, oldHash) || st.ApprovedHash == "" {
 			return err

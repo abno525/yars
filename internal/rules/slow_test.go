@@ -3,6 +3,7 @@ package rules
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -146,6 +147,27 @@ func TestAICache(t *testing.T) {
 	r.AI(context.Background(), acr, "title", "same text")
 	if f.hits.Load() != 1 {
 		t.Fatalf("hits %d", f.hits.Load())
+	}
+}
+
+// The AI cache keeps at most AICacheSize results: the oldest are asked again.
+func TestAICacheBounded(t *testing.T) {
+	f := &fakeAI{body: func(map[string]any) string {
+		return `{"choices":[{"message":{"content":"{\"violations\":[]}"}}]}`
+	}}
+	srv := f.server(t)
+	r := aiRunner(t, "openai", srv.URL)
+	for i := 0; i <= AICacheSize; i++ {
+		r.AI(context.Background(), acr, "title", fmt.Sprint("text ", i))
+	}
+	if n := r.aiCache().Len(); n != AICacheSize {
+		t.Fatalf("cache holds %d", n)
+	}
+	before := f.hits.Load()
+	r.AI(context.Background(), acr, "title", "text 0") // evicted
+	r.AI(context.Background(), acr, "title", fmt.Sprint("text ", AICacheSize))
+	if got := f.hits.Load() - before; got != 1 {
+		t.Fatalf("hits after eviction %d", got)
 	}
 }
 

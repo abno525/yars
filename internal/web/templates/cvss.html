@@ -1,9 +1,9 @@
-{{define "sevpill"}}<span id="sevpill"{{if .OOB}} hx-swap-oob="true"{{end}}>{{if .Severity}}<span class="pill sev-{{.Severity}}">{{.Severity}}</span>{{end}}</span>{{end}}
+{{define "sevpill"}}<span id="sevpill"{{if .OOB}} hx-swap-oob="true"{{end}}>{{if .Severity}}<span class="tag sev-{{.Severity}}">{{.Severity}}</span>{{end}}</span>{{end}}
 
 {{define "cvss_score"}}
 <div class="scoreline">
   <span class="score">{{if .Score}}{{.Score}}{{else}}–{{end}}</span>
-  {{if .Rating}}<span class="pill sev-{{.Rating}}">{{.Rating}}</span>{{end}}
+  {{if .Rating}}<span class="tag sev-{{.Rating}}">{{.Rating}}</span>{{end}}
   {{if .Vector}}<code class="vector">{{.Vector}}</code>{{end}}
 </div>
 {{end}}
@@ -12,12 +12,12 @@
 <section class="panel" id="cvss">
   <div class="panelhead">
     <h2>CVSS 3.1</h2>
-    {{if not .Locked}}<button class="link" hx-get="{{.EditURL}}" hx-target="#cvss" hx-swap="outerHTML">{{if .HasStored}}Edit{{else}}Calculate{{end}}</button>{{end}}
+    {{if not .Locked}}<button class="btn ghost sm w96" hx-get="{{.EditURL}}" hx-target="#cvss" hx-swap="outerHTML">{{if .HasStored}}Edit{{else}}Calculate{{end}}</button>{{end}}
   </div>
   {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
   {{if .Foreign}}
   <p><code>{{.Foreign}}</code></p>
-  <p class="muted">Not a CVSS 3.1 base vector — using the calculator will replace it.</p>
+  <p class="muted">Not a CVSS 3.1 base vector</p>
   {{end}}
   {{if .HasStored}}
     {{template "cvss_score" .}}
@@ -34,11 +34,11 @@
     {{end}}
     {{if .Missing}}<p class="error">Non-standard metrics without a reason: {{join .Missing ", "}}</p>{{end}}
   {{else if .Locked}}
-    <p>Severity: {{if .Severity}}<span class="pill sev-{{.Severity}}">{{.Severity}}</span>{{else}}<span class="muted">not set</span>{{end}}</p>
+    <p class="scoreline"><span class="mname">Severity</span> {{if .Severity}}<span class="tag sev-{{.Severity}}">{{.Severity}}</span>{{else}}<span class="muted">—</span>{{end}}</p>
   {{else}}
     <form class="sevform" hx-post="{{.SeverityURL}}" hx-target="#cvss" hx-swap="outerHTML" hx-trigger="change">
       <input type="hidden" name="base" value="{{.SevBase}}">
-      <label>Severity (manual, no vector)
+      <label>Severity
         <select name="severity">
           <option value="" {{if not .Severity}}selected{{end}} disabled>—</option>
           {{$cur := .Severity}}
@@ -70,7 +70,7 @@
       <input name="paste" placeholder="Paste a vector, e.g. CVSS:3.1/AV:N/AC:L/…" aria-label="Paste vector"
         onkeydown="if(event.key==='Enter'){event.preventDefault()}"
         hx-post="{{.CalcURL}}" hx-trigger="keyup[key=='Enter']" hx-include="closest form" hx-target="#cvss" hx-swap="outerHTML">
-      <button type="button" hx-post="{{.CalcURL}}" hx-include="closest form" hx-target="#cvss" hx-swap="outerHTML">Apply</button>
+      <button type="button" class="btn secondary w96" hx-post="{{.CalcURL}}" hx-include="closest form" hx-target="#cvss" hx-swap="outerHTML">Apply</button>
     </div>
     {{range .Metrics}}{{if and (not .NonStandard) .Reason}}<input type="hidden" name="reason_{{.Key}}" value="{{.Reason}}">{{end}}{{end}}
     {{if .Reasons}}
@@ -90,9 +90,9 @@
     {{end}}
     {{if .Missing}}<p class="error">Non-standard metrics without an explanation: {{join .Missing ", "}}</p>{{end}}
     <div class="actions">
-      <button class="primary"{{if not .Complete}} disabled{{end}}>Save</button>
-      {{if .HasStored}}<button name="action" value="clear" hx-confirm="Remove the CVSS vector from this finding? The current severity is kept as a manual value.">Clear vector</button>{{end}}
-      <button type="button" hx-get="{{.ViewURL}}" hx-target="#cvss" hx-swap="outerHTML">Cancel</button>
+      <button class="btn save w112"{{if not .Complete}} disabled{{end}}>Save</button>
+      {{if .HasStored}}<button class="btn danger w128" name="action" value="clear" hx-confirm="Remove the CVSS vector from this finding? The current severity is kept as a manual value.">Clear vector</button>{{else}}<span class="slot w128"></span>{{end}}
+      <button type="button" class="btn secondary w112" hx-get="{{.ViewURL}}" hx-target="#cvss" hx-swap="outerHTML">Cancel</button>
     </div>
   </form>
 </section>

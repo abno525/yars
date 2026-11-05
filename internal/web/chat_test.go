@@ -92,8 +92,8 @@ func TestChatEscapes(t *testing.T) {
 func TestChatPoll204(t *testing.T) {
 	e := setup(t)
 	e.do(t, "alice", "POST", fpath+"/chat", url.Values{"text": {"first"}}, nil)
-	msgs, _ := e.srv.Store.Chat("acme", fdir)
-	h := chatHash(msgs)
+	ref, _ := e.srv.Store.Finding("acme", fdir)
+	h := e.srv.chatStamp(ref)
 	if rec := e.do(t, "bob", "GET", fpath+"/chat?since="+h, nil, nil); rec.Code != http.StatusNoContent {
 		t.Fatalf("unchanged poll code %d", rec.Code)
 	}
@@ -145,7 +145,7 @@ func TestSectionCommentCount(t *testing.T) {
 	if !strings.Contains(impact, `class="open-count">1<`) || !strings.Contains(impact, `data-section="Impact"`) {
 		t.Fatalf("impact panel:\n%s", impact)
 	}
-	if b := e.do(t, "alice", "GET", "/e/acme", nil, nil).Body.String(); !strings.Contains(b, "1 open") {
+	if b := e.do(t, "alice", "GET", "/e/acme", nil, nil).Body.String(); !strings.Contains(b[strings.Index(b, `id="findings"`):], `class="badge">1<`) {
 		t.Fatal("table lacks open count")
 	}
 }

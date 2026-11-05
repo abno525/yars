@@ -6,8 +6,10 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -16,7 +18,7 @@ import (
 // Path is where the database lives inside a data directory (git-ignored).
 func Path(dataDir string) string { return filepath.Join(dataDir, ".yars", "yars.db") }
 
-const schemaVersion = 1
+const schemaVersion = 2
 
 var migrations = []string{
 	// v1
@@ -73,6 +75,8 @@ var migrations = []string{
 	CREATE INDEX chat_finding ON chat(eng, fid, seq);
 	CREATE TABLE changes (id INTEGER PRIMARY KEY CHECK (id = 1), seq INTEGER NOT NULL);
 	INSERT INTO changes VALUES (1, 0);`,
+	// v2: a change counter per engagement, so readers rebuild only what moved
+	`CREATE TABLE changes_eng (eng TEXT PRIMARY KEY, seq INTEGER NOT NULL) WITHOUT ROWID;`,
 }
 
 type DB struct {
@@ -91,11 +95,13 @@ func Open(path string) (*DB, error) {
 	} else {
 		f.Close()
 	}
-	dsn := "file:" + path + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_txlock=immediate"
+	dsn := "file:" + path + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)" +
+		"&_pragma=synchronous(NORMAL)&_pragma=cache_size(-20000)&_pragma=mmap_size(134217728)&_txlock=immediate"
 	sdb, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
 	}
+	sdb.SetMaxOpenConns(8)
 	d := &DB{DB: sdb, now: time.Now}
 	if err := d.migrate(); err != nil {
 		sdb.Close()
@@ -137,33 +143,111 @@ func (d *DB) migrate() error {
 	return nil
 }
 
-// Tx is a write transaction; every one bumps the change counter.
-type Tx struct{ *sql.Tx }
-
-// Tx runs fn in one write transaction and bumps the change counter, so
-// readers (the index, chat polling) can tell that something changed.
-func (d *DB) Tx(fn func(*Tx) error) error {
-	stx, err := d.Begin()
-	if err != nil {
-		return err
-	}
-	tx := &Tx{stx}
-	if err := fn(tx); err != nil {
-		stx.Rollback()
-		return err
-	}
-	if _, err := stx.Exec("UPDATE changes SET seq = seq + 1 WHERE id = 1"); err != nil {
-		stx.Rollback()
-		return err
-	}
-	return stx.Commit()
+// Tx is a write transaction; every one bumps the global change counter, and
+// the counter of each engagement whose state or chat it writes.
+type Tx struct {
+	*sql.Tx
+	touched map[string]bool
 }
 
-// Seq is the change counter.
+// touch marks eng as changed by this transaction.
+func (tx *Tx) touch(eng string) {
+	if tx.touched == nil {
+		tx.touched = map[string]bool{}
+	}
+	tx.touched[eng] = true
+}
+
+// Tx runs fn in one write transaction and bumps the change counters, so
+// readers (the index, chat polling) can tell that something changed.
+func (d *DB) Tx(fn func(*Tx) error) error {
+	_, err := d.tx("", fn)
+	return err
+}
+
+// TxFor is Tx for a change to engagement eng: its own counter is bumped
+// even when fn writes nothing of it.
+func (d *DB) TxFor(eng string, fn func(*Tx) error) error {
+	_, err := d.TxForSeq(eng, fn)
+	return err
+}
+
+// TxForSeq is TxFor that also returns the engagement's counter after the
+// commit.
+func (d *DB) TxForSeq(eng string, fn func(*Tx) error) (int64, error) {
+	if eng == "" {
+		return 0, errors.New("TxFor: no engagement")
+	}
+	return d.tx(eng, fn)
+}
+
+func (d *DB) tx(eng string, fn func(*Tx) error) (int64, error) {
+	stx, err := d.Begin()
+	if err != nil {
+		return 0, err
+	}
+	tx := &Tx{Tx: stx}
+	if eng != "" {
+		tx.touch(eng)
+	}
+	fail := func(err error) (int64, error) {
+		stx.Rollback()
+		return 0, err
+	}
+	if err := fn(tx); err != nil {
+		return fail(err)
+	}
+	if _, err := stx.Exec("UPDATE changes SET seq = seq + 1 WHERE id = 1"); err != nil {
+		return fail(err)
+	}
+	var seq int64
+	for _, e := range slices.Sorted(maps.Keys(tx.touched)) {
+		var s int64
+		if err := stx.QueryRow(`INSERT INTO changes_eng(eng, seq) VALUES (?, 1)
+			ON CONFLICT(eng) DO UPDATE SET seq = seq + 1 RETURNING seq`, e).Scan(&s); err != nil {
+			return fail(err)
+		}
+		if e == eng {
+			seq = s
+		}
+	}
+	return seq, stx.Commit()
+}
+
+// Seq is the global change counter.
 func (d *DB) Seq() (int64, error) {
 	var s int64
 	err := d.QueryRow("SELECT seq FROM changes WHERE id = 1").Scan(&s)
 	return s, err
+}
+
+// SeqFor is an engagement's change counter (0 when it never changed).
+func (d *DB) SeqFor(eng string) (int64, error) {
+	var s int64
+	err := d.QueryRow("SELECT seq FROM changes_eng WHERE eng = ?", eng).Scan(&s)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	return s, err
+}
+
+// EngSeqs returns every engagement's change counter (one query).
+func (d *DB) EngSeqs() (map[string]int64, error) {
+	rows, err := d.Query("SELECT eng, seq FROM changes_eng")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]int64{}
+	for rows.Next() {
+		var e string
+		var s int64
+		if err := rows.Scan(&e, &s); err != nil {
+			return nil, err
+		}
+		out[e] = s
+	}
+	return out, rows.Err()
 }
 
 var ErrNotFound = errors.New("not found")

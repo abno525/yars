@@ -7,6 +7,7 @@
 //	yars serve --data <dir> [--addr :8080]
 //	yars migrate --data <dir>   (move state and chat from files into the database)
 //	yars lint --data <dir> [--all] [<engagement>[/<finding-dir>]]
+//	yars seed --data <new dir> --engagements N --findings M --messages K   (development data)
 package main
 
 import (
@@ -30,6 +31,7 @@ import (
 	"yars/internal/auth"
 	"yars/internal/config"
 	"yars/internal/db"
+	"yars/internal/events"
 	"yars/internal/export"
 	"yars/internal/finding"
 	"yars/internal/gitrepo"
@@ -38,6 +40,7 @@ import (
 	"yars/internal/mcp"
 	"yars/internal/policy"
 	"yars/internal/rules"
+	"yars/internal/seed"
 	"yars/internal/store"
 	"yars/internal/web"
 	"yars/internal/workflow"
@@ -491,7 +494,8 @@ func usage() {
   yars migrate --data <dir>
   yars lint --data <dir> [--all] [eng[/finding]]
   yars export --data <dir> --exporter <id> <eng>
-  yars mcp --data <clone> --user <name>`)
+  yars mcp --data <clone> --user <name>
+  yars seed --data <new dir> [--engagements 50] [--findings 300] [--messages 10000]   (development data)`)
 	os.Exit(2)
 }
 
@@ -531,6 +535,8 @@ func main() {
 		os.Exit(code)
 	case "hook":
 		os.Exit(cmdHook(os.Args[2:], os.Stdin, os.Stderr))
+	case "seed":
+		err = cmdSeed(os.Args[2:], os.Stdout)
 	case "lint":
 		code, lerr := cmdLint(os.Args[2:], os.Stdout)
 		if lerr != nil {
@@ -550,7 +556,47 @@ func cmdInit(args []string) error {
 	if len(args) != 1 {
 		usage()
 	}
-	dir := args[0]
+	if err := initData(args[0]); err != nil {
+		return err
+	}
+	fmt.Println("initialised", args[0])
+	return nil
+}
+
+// cmdSeed builds a fresh data directory with generated data (development
+// and benchmarks): yars seed --data <dir> --engagements N --findings M --messages K
+func cmdSeed(args []string, out io.Writer) error {
+	fs := flag.NewFlagSet("seed", flag.ContinueOnError)
+	data := fs.String("data", "", "new data directory (must not exist or be empty)")
+	o := seed.Options{}
+	fs.IntVar(&o.Engagements, "engagements", 50, "engagements")
+	fs.IntVar(&o.Findings, "findings", 300, "findings per engagement")
+	fs.IntVar(&o.Messages, "messages", 10000, "chat messages in all")
+	fs.SetOutput(out)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *data == "" || fs.NArg() != 0 {
+		return fmt.Errorf("usage: yars seed --data <dir> [--engagements N] [--findings M] [--messages K]")
+	}
+	if ents, err := os.ReadDir(*data); err == nil && len(ents) > 0 {
+		return fmt.Errorf("%s is not empty", *data)
+	}
+	start := time.Now()
+	if err := initData(*data); err != nil {
+		return err
+	}
+	if err := seed.Fill(*data, o); err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "seeded %s: %d engagements × %d findings, %d messages in %s; users %s (password %q)\n",
+		*data, o.Engagements, o.Findings, o.Messages, time.Since(start).Round(time.Millisecond), "dir1, rev1, pen1", seed.Password)
+	return nil
+}
+
+// initData creates and initialises a data directory: main repo, config,
+// example rules and exporters, database.
+func initData(dir string) error {
 	r, err := gitrepo.Init(dir)
 	if err != nil {
 		return err
@@ -594,11 +640,7 @@ func cmdInit(args []string) error {
 		return err
 	}
 	d.Close()
-	if err := r.Commit([]string{".yars/config.yaml", ".yars/rules", ".yars/exporters", ".gitignore", "engagements"}, "init", system); err != nil {
-		return err
-	}
-	fmt.Println("initialised", dir)
-	return nil
+	return r.Commit([]string{".yars/config.yaml", ".yars/rules", ".yars/exporters", ".gitignore", "engagements"}, "init", system)
 }
 
 // accountCmd parses "--data <dir> <args…>" (want positional arguments) and
@@ -750,7 +792,13 @@ func cmdServe(args []string) error {
 	if err := st.SyncPointers(); err != nil {
 		return fmt.Errorf("update engagement pointers: %w", err)
 	}
-	gs := &gitserve.Server{Repo: r, Auth: au, HookCmd: hookCmd(exe, r.Dir), Sync: st.SyncPointers}
+	hub := events.New()
+	// after a push: drop the cached HEAD, then tell open pages
+	invalidate := func(eng string) {
+		st.Invalidate(eng)
+		hub.Publish(events.Event{Eng: eng, Kind: events.Push})
+	}
+	gs := &gitserve.Server{Repo: r, Auth: au, HookCmd: hookCmd(exe, r.Dir), Sync: st.SyncPointers, Invalidate: invalidate}
 	if cfg.AI.APIKeyEnv != "" {
 		gs.InheritEnv = []string{cfg.AI.APIKeyEnv} // AI rules run on pushes too
 	}
@@ -761,7 +809,7 @@ func cmdServe(args []string) error {
 	ix := index.New(st, r)
 	mcpSrv := &mcp.Server{Store: st, Index: ix, Rules: eng, Cfg: cfg, Users: au.Users}
 	srv := &web.Server{Store: st, Index: ix, Auth: au, Cfg: cfg, Rules: eng, Git: gs.Handler(), Export: exportRunner(r.Dir),
-		MCP: mcpSrv.HTTPHandler(tokens, au.Lookup)}
+		MCP: mcpSrv.HTTPHandler(tokens, au.Lookup), Events: hub}
 	log.Printf("yars serving %s on %s", r.Dir, *addr)
-	return http.ListenAndServe(*addr, srv.Handler())
+	return srv.HTTPServer(*addr).ListenAndServe()
 }

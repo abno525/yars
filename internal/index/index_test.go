@@ -36,6 +36,7 @@ func setMeta(t *testing.T, s *store.Store, eng, dir, status, sev string) {
 	if err := er.Commit([]string{rel}, "meta", alice); err != nil {
 		t.Fatal(err)
 	}
+	s.Invalidate(eng) // as the git server does after a push
 	setStatus(t, s, eng, ref.F.Meta.ID, status)
 }
 
@@ -143,6 +144,7 @@ func setCVSS(t *testing.T, s *store.Store, eng, dir, vec, sev string) {
 	if err := er.Commit([]string{rel}, "cvss", alice); err != nil {
 		t.Fatal(err)
 	}
+	s.Invalidate(eng)
 }
 
 func byTitle(t *testing.T, rows []Row, title string) Row {
@@ -230,6 +232,7 @@ func TestExternalCommitVisible(t *testing.T) {
 			t.Fatalf("%v %s", err, out)
 		}
 	}
+	s.Invalidate("acme") // the git server does this after a push
 	rows, _ := ix.Rows(Query{EngID: "acme"})
 	if titles(rows) != "A,B,C,Ext" {
 		t.Fatalf("got %q", titles(rows))

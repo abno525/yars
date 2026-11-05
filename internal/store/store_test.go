@@ -226,6 +226,40 @@ func TestUpdateSection(t *testing.T) {
 	}
 }
 
+// Chat posts and workflow changes read findings without the engagement's
+// lock, so an edit must replace the file in one step (write a temporary
+// file, rename it) rather than truncate and rewrite it in place: a reader
+// never sees a half-written finding (and an approval is never bound to the
+// hash of one).
+func TestEditReplacesFileAtomically(t *testing.T) {
+	s, dir := withEngagement(t)
+	f, _ := s.CreateFinding("2026-11-acme", "SQL injection", alice)
+	p := filepath.Join(dir, "engagements", "2026-11-acme", "findings", f.Dir, "finding.md")
+	before, err := os.Stat(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpdateSection("2026-11-acme", f.Dir, "Impact", "Full DB read.", "", bob); err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.Stat(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if os.SameFile(before, after) {
+		t.Fatal("finding.md was rewritten in place")
+	}
+	if after.Mode().Perm() != 0o644 {
+		t.Fatalf("mode %v", after.Mode())
+	}
+	ents, _ := os.ReadDir(filepath.Dir(p))
+	for _, e := range ents {
+		if e.Name() != "finding.md" {
+			t.Fatalf("left behind %s", e.Name())
+		}
+	}
+}
+
 func TestInvalidIDs(t *testing.T) {
 	s, _ := withEngagement(t)
 	if _, err := s.Finding("..", "x"); !errors.Is(err, ErrNotFound) {

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"yars/internal/config"
+	"yars/internal/lru"
 )
 
 // Runner evaluates script and AI rules. Scripts live in Dir (.yars/rules).
@@ -24,7 +25,17 @@ type Runner struct {
 	ScriptTimeout time.Duration
 	AITimeout     time.Duration
 	Getenv        func(string) string
-	cache         sync.Map // cache key -> []Violation
+
+	cacheOnce sync.Once
+	cache     *lru.Cache[string, aiResult] // AI replies by provider, model, rule and text
+}
+
+// AICacheSize bounds the number of cached AI replies.
+const AICacheSize = 2000
+
+func (rn *Runner) aiCache() *lru.Cache[string, aiResult] {
+	rn.cacheOnce.Do(func() { rn.cache = lru.New[string, aiResult](AICacheSize) })
+	return rn.cache
 }
 
 func NewRunner(dir string, ai config.AIConfig) *Runner {

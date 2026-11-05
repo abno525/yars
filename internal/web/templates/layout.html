@@ -4,32 +4,43 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{if .Eng.ID}}{{.Eng.Name}} · {{end}}YARS</title>
-<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="{{static}}/style.css">
 <meta name="htmx-config" content='{"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"(400|409)","swap":true,"error":false},{"code":"[45]..","swap":false,"error":true}]}'>
-<script src="/static/htmx.min.js"></script>
-<script src="/static/app.js"></script>
+<script src="{{static}}/htmx.min.js"></script>
+<script src="{{static}}/app.js"></script>
+<script src="{{static}}/sse.js" defer></script>
 </head>
 <body>
 <header class="topbar">
-  <a class="brand" href="/">YARS</a>
+  <a class="logo" href="/">YARS</a>
   {{if .User.Username}}
+  <form class="engpick" method="get" action="/go">
     {{if .Engagements}}
-    <form class="switcher" method="get" action="/go">
-      <select name="eng" onchange="this.form.submit()" aria-label="Engagement">
-        {{if not .Eng.ID}}<option value="">Select engagement…</option>{{end}}
-        {{range .Engagements}}<option value="{{.ID}}" {{if eq .ID $.Eng.ID}}selected{{end}}>{{.Name}}{{if eq .Type "retest"}} (retest){{end}}</option>{{end}}
-      </select>
-      <noscript><button>Go</button></noscript>
-    </form>
+    <select name="eng" onchange="this.form.submit()" aria-label="Engagement">
+      {{if not .Eng.ID}}<option value="">Engagement</option>{{end}}
+      {{range .Engagements}}<option value="{{.ID}}" {{if eq .ID $.Eng.ID}}selected{{end}}>{{.Name}}{{if eq .Type "retest"}} (retest){{end}}</option>{{end}}
+    </select>
+    <noscript><button class="btn ghost">Go</button></noscript>
     {{end}}
-    <span class="spacer"></span>
-    <a class="inboxlink" href="/inbox">Inbox{{with .Inbox.Count}} <span class="badge">{{.}}</span>{{end}}</a>
-    <span class="who">{{.User.Username}} <span class="role">{{.User.Role}}</span></span>
-    <form method="post" action="/logout"><button class="link">Log out</button></form>
+  </form>
+  <nav class="nav">
+    <a class="{{block "nav_findings" .}}on{{end}}" href="{{if .Eng.ID}}/e/{{.Eng.ID}}{{else}}/{{end}}">Findings</a>
+    <a class="{{block "nav_inbox" .}}{{end}}" href="/inbox">Inbox {{with .Inbox.Count}}<span class="badge">{{.}}</span>{{else}}<span class="badge0">0</span>{{end}}</a>
+  </nav>
+  <span class="who" title="{{.User.Username}} · {{.User.Role}}">{{.User.Username}}</span>
+  {{else}}
+  <span class="nav"></span>
+  {{end}}
+  <button type="button" class="btn ghost icon" data-theme-toggle aria-label="Theme" title="Theme">
+    <svg class="theme-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="8"></circle><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor"></path></svg>
+  </button>
+  {{if .User.Username}}
+  <form method="post" action="/logout"><button class="btn ghost w96 logout">Log out</button></form>
   {{end}}
 </header>
 <main>
 {{template "content" .}}
 </main>
+<div id="toasts" aria-live="polite"></div>
 </body>
 </html>{{end}}

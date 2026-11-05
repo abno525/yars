@@ -40,8 +40,8 @@ func (rn *Runner) AI(ctx context.Context, r Rule, target, text string) []Violati
 	h := sha256.Sum256([]byte(c.Provider + "\x00" + c.Model + "\x00" + r.AI + "\x00" + text))
 	ck := hex.EncodeToString(h[:])
 	var res aiResult
-	if v, ok := rn.cache.Load(ck); ok {
-		res = v.(aiResult)
+	if v, ok := rn.aiCache().Get(ck); ok {
+		res = v
 	} else {
 		ctx, cancel := context.WithTimeout(ctx, rn.AITimeout)
 		defer cancel()
@@ -59,7 +59,7 @@ func (rn *Runner) AI(ctx context.Context, r Rule, target, text string) []Violati
 		if err != nil {
 			return aiWarning(r, "AI check failed: "+quote(err.Error()))
 		}
-		rn.cache.Store(ck, res)
+		rn.aiCache().Add(ck, res)
 	}
 	var vs []Violation
 	for _, x := range res.Violations {

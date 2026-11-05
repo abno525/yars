@@ -1,7 +1,15 @@
 {{define "content"}}
 <form class="card" method="post" action="/e/{{.Eng.ID}}/retest/new">
-  <h1>New retest of {{.Eng.Name}}</h1>
-  <p class="muted">Creates a new engagement with copies of the selected findings. Each copy starts as a draft with a retest result to fill in. {{.Eng.Name}} itself is not changed.</p>
+  <div class="titlerow">
+    <div class="titlecol">
+      <nav class="crumbs"><a href="/e/{{.Eng.ID}}">{{.Eng.Name}}</a><span class="sep" aria-hidden="true">/</span><span class="idchip">Retest</span></nav>
+      <h1 title="New retest of {{.Eng.Name}}">New retest of {{.Eng.Name}}</h1>
+    </div>
+    <div class="actions">
+      <a class="btn secondary w128" href="/e/{{.Eng.ID}}">Cancel</a>
+      <button class="btn primary w152">Create retest</button>
+    </div>
+  </div>
   {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
   <div class="form-grid">
     <label>ID <input name="id" value="{{.Form.Get "id"}}" pattern="[A-Za-z0-9._\-]+" required></label>
@@ -18,24 +26,20 @@
     </label>
   </div>
   <h2 class="subhead">Findings to retest</h2>
-  <table class="findings pick">
+  <table class="table pick">
     <tbody>
     {{range .Rows}}
       <tr>
         <td><input type="checkbox" name="finding" value="{{.Dir}}" id="pick-{{.Dir}}"{{if checkedIn $.Form "finding" .Dir}} checked{{end}}></td>
         <td class="fid"><label for="pick-{{.Dir}}">{{.ID}}</label></td>
-        <td><label for="pick-{{.Dir}}">{{.Title}}</label></td>
-        <td>{{if .Severity}}<span class="pill sev-{{.Severity}}">{{.Severity}}</span>{{end}}</td>
-        <td><span class="pill status-{{.Status}}">{{.Status}}</span></td>
+        <td class="title"><label for="pick-{{.Dir}}">{{.Title}}</label></td>
+        <td>{{if .Severity}}<span class="tag sev-{{.Severity}}">{{.Severity}}</span>{{end}}</td>
+        <td><span class="tag status-{{.Status}}">{{.Status}}</span></td>
       </tr>
     {{else}}
-      <tr><td class="muted empty">This engagement has no findings.</td></tr>
+      <tr><td class="muted empty">No findings.</td></tr>
     {{end}}
     </tbody>
   </table>
-  <div class="actions">
-    <button class="primary">Create retest</button>
-    <a class="button" href="/e/{{.Eng.ID}}">Cancel</a>
-  </div>
 </form>
 {{end}}

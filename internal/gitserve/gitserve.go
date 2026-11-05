@@ -37,6 +37,9 @@ type Server struct {
 	// Sync, when set, brings the main repo's engagement pointers up to date;
 	// it runs before the main repo is fetched.
 	Sync func() error
+	// Invalidate, when set, is told after every push which repo it went to
+	// (an engagement id, "" for the main repo), so cached HEADs are dropped.
+	Invalidate func(eng string)
 
 	mu    sync.Mutex
 	cache map[string]cached
@@ -160,23 +163,24 @@ func mainServicePath(rest string) bool {
 	return strings.HasPrefix(rest, "/objects/") && !strings.Contains(rest, "..")
 }
 
-// route maps a request path to its repository and URL root: /git/yars is
-// the main repo, /git/e/<id> an engagement repo.
-func (s *Server) route(p string) (*gitrepo.Repo, string, bool) {
+// route maps a request path to its repository, URL root and engagement id
+// ("" for the main repo): /git/yars is the main repo, /git/e/<id> an
+// engagement repo.
+func (s *Server) route(p string) (*gitrepo.Repo, string, string, bool) {
 	root := "/git/" + RepoName
 	if rest, ok := strings.CutPrefix(p, root); ok && mainServicePath(rest) {
-		return s.Repo, root, true
+		return s.Repo, root, "", true
 	}
 	rest, ok := strings.CutPrefix(p, "/git/e/")
 	if !ok {
-		return nil, "", false
+		return nil, "", "", false
 	}
 	id, _, _ := strings.Cut(rest, "/")
 	r, ok := s.engRepo(id)
 	if !ok {
-		return nil, "", false
+		return nil, "", "", false
 	}
-	return r, "/git/e/" + id, true
+	return r, "/git/e/" + id, id, true
 }
 
 // Handler serves /git/yars/... and /git/e/<id>/... via git http-backend.
@@ -196,7 +200,7 @@ func (s *Server) Handler() http.Handler {
 			http.Error(w, "authentication required", http.StatusUnauthorized)
 			return
 		}
-		repo, root, ok := s.route(r.URL.Path)
+		repo, root, eng, ok := s.route(r.URL.Path)
 		if !ok {
 			http.NotFound(w, r)
 			return
@@ -240,6 +244,10 @@ func (s *Server) Handler() http.Handler {
 		r2 := r.Clone(r.Context())
 		r2.Header.Del("Authorization")
 		h.ServeHTTP(w, r2)
+		if s.Invalidate != nil && r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/git-receive-pack") {
+			// the push (if the hook accepted it) has landed: HEAD may have moved
+			s.Invalidate(eng)
+		}
 	})
 }
 

@@ -1,6 +1,8 @@
 package web
 
 import (
+	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -9,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"yars/internal/auth"
 	"yars/internal/export"
 )
 
@@ -71,6 +74,39 @@ func TestExportEmbedsOnlyAttachments(t *testing.T) {
 	b := e.do(t, "alice", "GET", page[i:i+strings.Index(page[i:], `"`)], nil, nil).Body.String()
 	if !strings.Contains(b, "data:image/png;base64,UE5HREFUQQ==") || strings.Contains(b, "/etc/hostname\"") {
 		t.Fatalf("report:\n%s", b)
+	}
+}
+
+// An export may run longer than the server's write timeout (the exporter's
+// own limit is longer): the export request lifts it, so the result page
+// still arrives.
+func TestExportOutlivesWriteTimeout(t *testing.T) {
+	e := setup(t)
+	e.exporters(t, "#!/bin/sh\nsleep 1\n"+strings.TrimPrefix(fakePandoc, "#!/bin/sh\n"))
+	hs := e.srv.HTTPServer("127.0.0.1:0")
+	hs.WriteTimeout = 300 * time.Millisecond
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	go hs.Serve(ln)
+	t.Cleanup(func() { hs.Close() })
+	req, _ := http.NewRequest("POST", "http://"+ln.Addr().String()+"/e/acme/export",
+		strings.NewReader(url.Values{"exporter": {"docx"}, "finding": {fdir}}.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: e.toks["alice"]})
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	b, err := io.ReadAll(resp.Body)
+	if err != nil || resp.StatusCode != 200 || !strings.Contains(string(b), "/e/acme/export/download/") {
+		t.Fatalf("code %d err %v:\n%s", resp.StatusCode, err, b)
+	}
+	// other requests keep the timeout
+	if hs.WriteTimeout != 300*time.Millisecond {
+		t.Fatal("server timeout changed")
 	}
 }
 

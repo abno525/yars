@@ -1,20 +1,23 @@
 {{define "content"}}
 {{$f := .Finding.F}}
-<nav class="crumbs"><a href="/e/{{.Eng.ID}}">← {{.Eng.Name}}</a></nav>
-<div class="pagehead">
-  <div>
-    <h1><span class="fid">{{$f.Meta.ID}}</span> {{$f.Meta.Title}}</h1>
-    <p class="meta">
-      <span class="pill status-{{$f.Meta.Status}}">{{$f.Meta.Status}}</span>
+<div class="titlerow">
+  <div class="titlecol">
+    <nav class="crumbs"><a href="/e/{{.Eng.ID}}">{{.Eng.Name}}</a><span class="sep" aria-hidden="true">/</span><span class="idchip">{{$f.Meta.ID}}</span></nav>
+    <h1 title="{{$f.Meta.Title}}">{{$f.Meta.Title}}</h1>
+    <div class="meta">
+      <span class="tag status-{{$f.Meta.Status}}">{{$f.Meta.Status}}</span>
       {{template "sevpill" .CVSS}}
       <span class="muted">by {{$f.Meta.Author}}</span>
-    </p>
+    </div>
+  </div>
+  <div class="actions">
+    <a class="btn secondary w128" href="/e/{{.Eng.ID}}/export">Export</a>
   </div>
 </div>
 {{if .Error}}<p class="error banner">{{.Error}}</p>{{end}}
-<div class="finding-grid">
+{{template "workflow_bar" .WF}}
+<div class="finding-grid" data-sse-url="/events?eng={{.Eng.ID}}&amp;f={{$f.Meta.ID}}">
   <div class="finding-main">
-    {{template "workflow_bar" .WF}}
     {{template "retest_panel" .Retest}}
     {{template "checks_panel" .Checks}}
     {{template "details_panel" .Details}}

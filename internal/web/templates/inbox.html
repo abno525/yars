@@ -1,30 +1,40 @@
+{{define "nav_findings"}}{{end}}
+{{define "nav_inbox"}}on{{end}}
+
 {{define "inbox_list"}}
-<table class="findings">
+<table class="table">
   <tbody>
-  {{range .}}
-    <tr>
-      <td><a href="{{fpath .EngID .Dir}}">{{.Title}}</a></td>
-      <td>{{if .Severity}}<span class="pill sev-{{.Severity}}">{{.Severity}}</span>{{end}}</td>
-      <td class="muted">{{.EngName}} · <span class="fid">{{.ID}}</span></td>
-      <td class="muted">{{.Author}}</td>
-    </tr>
-  {{else}}
-    <tr><td class="muted empty">Nothing here.</td></tr>
-  {{end}}
+  {{template "inbox_rows" .}}
   </tbody>
 </table>
 {{end}}
 
+{{define "inbox_rows"}}
+  {{range .Rows}}
+    <tr>
+      <td class="title"><a href="{{fpath .EngID .Dir}}" title="{{.Title}}">{{.Title}}</a></td>
+      <td>{{if .Severity}}<span class="tag sev-{{.Severity}}">{{.Severity}}</span>{{end}}</td>
+      <td class="muted">{{.EngName}} · <span class="fid">{{.ID}}</span></td>
+      <td class="muted">{{.Author}}</td>
+    </tr>
+  {{else}}
+    {{if not .Offset}}<tr><td class="muted empty">—</td></tr>{{end}}
+  {{end}}
+  {{if .MoreURL}}
+    <tr class="more" id="inbox-more-{{.Name}}"><td colspan="4"><button type="button" class="btn secondary w152" hx-get="{{.MoreURL}}" hx-target="#inbox-more-{{.Name}}" hx-swap="outerHTML">Load {{.PageSize}} more</button></td></tr>
+  {{end}}
+{{end}}
+
 {{define "content"}}
-<div class="pagehead"><h1>Inbox</h1></div>
+<div class="titlerow"><div class="titlecol"><h1>Inbox</h1></div></div>
 <div class="inbox">
   <h2>Awaiting my review</h2>
-  {{template "inbox_list" .Inbox.Review}}
+  {{template "inbox_list" .InboxLists.Review}}
   {{if or .Inbox.Approve (eq .User.Role "director")}}
   <h2>Ready to approve</h2>
-  {{template "inbox_list" .Inbox.Approve}}
+  {{template "inbox_list" .InboxLists.Approve}}
   {{end}}
   <h2>Returned to me</h2>
-  {{template "inbox_list" .Inbox.Returned}}
+  {{template "inbox_list" .InboxLists.Returned}}
 </div>
 {{end}}

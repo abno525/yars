@@ -1,24 +1,28 @@
 {{define "content"}}
-<div class="pagehead">
-  <h1>Engagements</h1>
-  {{if .CanManage}}<a class="button primary" href="/engagements/new">New engagement</a>{{end}}
+<div class="titlerow">
+  <div class="titlecol"><h1>Engagements</h1></div>
+  <div class="actions">
+    {{if .CanManage}}<a class="btn primary w152" href="/engagements/new">New engagement</a>{{else}}<span class="slot w152"></span>{{end}}
+  </div>
 </div>
 {{if .Engagements}}
 <ul class="englist">
   {{range .Engagements}}
-  <li><a href="/e/{{.ID}}"><strong>{{.Name}}</strong>
+  <li><a href="/e/{{.ID}}"><strong title="{{.Name}}">{{.Name}}</strong>
     <span class="muted">{{.Client}}</span>
-    {{if eq .Type "retest"}}<span class="pill retest">retest</span>{{end}}</a></li>
+    <span>{{if eq .Type "retest"}}<span class="tag kind-retest">retest</span>{{end}}</span></a></li>
   {{end}}
 </ul>
 {{else}}
 <p class="muted">No engagements yet.</p>
 {{end}}
 {{if .CloneURL}}
-<section class="panel clonehint">
-  <h2>Work locally</h2>
-  <p class="muted small">Download everything with your YARS login: settings plus every engagement (each engagement is its own repository). Before committing inside an engagement folder, switch to its main branch; pushes are checked with the same rules as the website.</p>
-  <pre><code>git clone --recurse-submodules {{.CloneURL}}
+<section class="panel">
+  <div class="panelhead">
+    <h2>Clone</h2>
+    <button type="button" class="btn ghost sm w96" data-copy="clone-cmd">Copy</button>
+  </div>
+  <pre><code id="clone-cmd">git clone --recurse-submodules {{.CloneURL}}
 cd yars/engagements/&lt;engagement&gt; &amp;&amp; git switch main</code></pre>
 </section>
 {{end}}
