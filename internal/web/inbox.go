@@ -38,7 +38,8 @@ func (s *Server) inboxFor(u config.User, engs []store.Engagement) (inboxView, er
 	if err != nil {
 		return inboxView{}, err
 	}
-	key := u.Username + "\x00" + u.Role
+	// team changes move the index generation, so the key needs no team set
+	key := u.Username + "\x00" + u.Role + "\x00" + strconv.FormatBool(u.IsAdmin)
 	c := &s.inboxes
 	c.mu.Lock()
 	if c.byUser == nil || c.gen != gen {
@@ -51,7 +52,11 @@ func (s *Server) inboxFor(u config.User, engs []store.Engagement) (inboxView, er
 	}
 	// rows are at least as new as gen: a newer change only means the next
 	// request classifies again
-	rows, err := s.Index.Rows(index.Query{Sort: "severity"})
+	vis, err := s.Store.Visible(u)
+	if err != nil {
+		return inboxView{}, err
+	}
+	rows, err := s.Index.Rows(index.Query{Sort: "severity", Visible: vis})
 	if err != nil {
 		return inboxView{}, err
 	}

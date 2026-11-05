@@ -51,6 +51,7 @@ func newFx(t *testing.T) *fx {
 	st := store.New(r, cfg, d)
 	st.CreateEngagement(store.Engagement{ID: "acme", Name: "ACME"}, dora.GitAuthor())
 	st.CreateFinding("acme", "SQL injection", alice.GitAuthor())
+	d.AddMembers("acme", "alice", "pen2", "bob") // the team; dora directs
 	users := []config.User{alice, pen2, bob, dora}
 	return &fx{t: t, dir: r.Dir, s: &Server{Store: st, Index: index.New(st, r), Cfg: cfg, Users: func() []config.User { return users }}}
 }
@@ -455,15 +456,7 @@ func (f *fx) httpServer(t *testing.T) (*httptest.Server, *auth.Tokens, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lookup := func(name string) (config.User, bool) {
-		for _, u := range f.s.Users() {
-			if u.Username == name {
-				return u, true
-			}
-		}
-		return config.User{}, false
-	}
-	srv := httptest.NewServer(f.s.HTTPHandler(tk, lookup))
+	srv := httptest.NewServer(f.s.HTTPHandler(tk))
 	t.Cleanup(srv.Close)
 	return srv, tk, tok
 }
@@ -500,7 +493,7 @@ func TestMCPHTTPAuth(t *testing.T) {
 	if c, _ := post(t, srv.URL, tok, list); c != 200 {
 		t.Errorf("good token: %d", c)
 	}
-	tk.Revoke("bob")
+	tk.Revoke("cli", "bob")
 	if c, _ := post(t, srv.URL, tok, list); c != 401 {
 		t.Errorf("revoked token: %d", c)
 	}

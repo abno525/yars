@@ -1,11 +1,17 @@
 // Theme: an explicit choice lives in data-theme on <html> and in
-// localStorage; without one the system setting applies. Runs in <head>, so
-// the stored theme is set before the page paints.
+// localStorage; without one the system setting applies. The account's saved
+// theme (set on <html> by the server) wins over localStorage. Runs in
+// <head>, so the theme is set before the page paints.
 (function () {
+  var root = document.documentElement;
   try {
+    var server = root.getAttribute('data-theme');
+    if (server === 'light' || server === 'dark') { localStorage.setItem('yars-theme', server); return; }
+    // the account follows the system: a choice left in this browser is stale
+    if (root.hasAttribute('data-theme-save')) { localStorage.removeItem('yars-theme'); return; }
     var t = localStorage.getItem('yars-theme');
-    if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
-  } catch (e) { /* storage blocked: follow the system */ }
+    if (t === 'light' || t === 'dark') root.setAttribute('data-theme', t);
+  } catch (e) { /* storage blocked: follow the server or the system */ }
 })();
 
 function yarsTheme() {
@@ -15,6 +21,10 @@ function yarsTheme() {
   var next = cur === 'dark' ? 'light' : 'dark';
   root.setAttribute('data-theme', next);
   try { localStorage.setItem('yars-theme', next); } catch (e) { /* not remembered */ }
+  if (root.hasAttribute('data-theme-save') && window.fetch) {
+    // the account remembers it too (same origin, so the CSRF check passes)
+    fetch('/settings/theme', {method: 'POST', body: new URLSearchParams({theme: next}), credentials: 'same-origin'}).catch(function () {});
+  }
 }
 
 // yarsToast shows a short message in #toasts; click or wait to dismiss.
@@ -46,9 +56,15 @@ document.addEventListener('htmx:responseError', function (evt) {
 document.addEventListener('htmx:sendError', function () { yarsToast('Connection lost', true); });
 
 document.addEventListener('click', function (evt) {
-  var el = evt.target.closest && evt.target.closest('[data-theme-toggle], [data-copy]');
+  var el = evt.target.closest && evt.target.closest('[data-theme-toggle], [data-copy], [data-check-all]');
   if (!el) return;
   if (el.hasAttribute('data-theme-toggle')) { yarsTheme(); return; }
+  if (el.hasAttribute('data-check-all')) {
+    // "Add everyone": tick every box of that name in the form
+    var form = el.closest('form');
+    if (form) form.querySelectorAll('input[type=checkbox][name="' + el.getAttribute('data-check-all') + '"]').forEach(function (c) { c.checked = true; });
+    return;
+  }
   var src = document.getElementById(el.getAttribute('data-copy'));
   if (!src || !navigator.clipboard) return;
   navigator.clipboard.writeText(src.textContent.trim()).then(function () { yarsToast('Copied'); });

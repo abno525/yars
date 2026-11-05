@@ -40,11 +40,29 @@ type param struct{ name, desc string }
 
 type tool struct {
 	name, desc string
-	required   []param
-	optional   []param
-	boolArgs   []param
-	run        func(s *Server, ctx context.Context, u config.User, a args) (string, error)
+	// action is what a scoped token needs to call the tool ("" = read)
+	action   string
+	required []param
+	optional []param
+	boolArgs []param
+	run      func(s *Server, ctx context.Context, u config.User, a args) (string, error)
 }
+
+// actionOf is the token action a call needs: the tool's, except that
+// set_field on reviewers needs "reviewers".
+func actionOf(t tool, a args) string {
+	if t.name == "set_field" && a.str("field") == "reviewers" {
+		return "reviewers"
+	}
+	if t.action == "" {
+		return db.ScopeRead
+	}
+	return t.action
+}
+
+var actionLabel = map[string]string{"read": "read", "create": "create findings", "edit": "edit findings",
+	"comment": "comment or resolve", "status": "change status", "reviewers": "assign reviewers",
+	"checks": "run checks", "export": "export"}
 
 func (t tool) schema() map[string]any {
 	props := map[string]any{}
@@ -86,6 +104,8 @@ func explain(err error) string {
 		return "the finding changed meanwhile (someone else edited it); read_finding again and retry"
 	case errors.Is(err, store.ErrNotFound):
 		return "not found"
+	case errors.Is(err, store.ErrArchived):
+		return "not allowed: " + store.ErrArchived.Error()
 	}
 	return err.Error()
 }
@@ -122,22 +142,31 @@ func (s *Server) ref(a args) (store.FindingRef, error) {
 }
 
 var tools = []tool{
-	{name: "list_engagements", desc: "List all engagements (pentests and retests).",
+	{name: "list_engagements", desc: "List the engagements you work on (pentests and retests). Archived engagements are read only.",
 		run: func(s *Server, ctx context.Context, u config.User, a args) (string, error) {
 			es, err := s.Store.ListEngagements()
 			if err != nil {
 				return "", err
 			}
+			vis, err := s.Store.Visible(u)
+			if err != nil {
+				return "", err
+			}
+			tk, hasTok := tokenFrom(ctx)
 			type eng struct {
-				ID     string `json:"id"`
-				Name   string `json:"name"`
-				Client string `json:"client,omitempty"`
-				Type   string `json:"type"`
-				Source string `json:"source,omitempty"`
+				ID       string `json:"id"`
+				Name     string `json:"name"`
+				Client   string `json:"client,omitempty"`
+				Type     string `json:"type"`
+				Source   string `json:"source,omitempty"`
+				Archived bool   `json:"archived,omitempty"`
 			}
 			out := []eng{}
 			for _, e := range es {
-				out = append(out, eng{e.ID, e.Name, e.Client, e.Type, e.Source})
+				if (vis != nil && !vis[e.ID]) || (hasTok && !tk.AllowsEng(e.ID)) {
+					continue
+				}
+				out = append(out, eng{e.ID, e.Name, e.Client, e.Type, e.Source, e.Archived})
 			}
 			return asJSON(out)
 		}},
@@ -240,7 +269,7 @@ var tools = []tool{
 			}
 			return asJSON(out)
 		}},
-	{name: "create_finding", desc: "Create a new draft finding in an engagement.",
+	{name: "create_finding", action: "create", desc: "Create a new draft finding in an engagement.",
 		required: []param{pEng, {"title", "finding title"}},
 		run: func(s *Server, ctx context.Context, u config.User, a args) (string, error) {
 			if err := a.need("engagement", "title"); err != nil {
@@ -252,7 +281,7 @@ var tools = []tool{
 			}
 			return asJSON(map[string]string{"id": ref.F.Meta.ID, "dir": ref.Dir})
 		}},
-	{name: "update_section", desc: "Replace the Markdown body of one ## section. Pass base (from read_finding) to refuse the edit if someone changed it meanwhile. Use ### or deeper headings inside the body.",
+	{name: "update_section", action: "edit", desc: "Replace the Markdown body of one ## section. Pass base (from read_finding) to refuse the edit if someone changed it meanwhile. Use ### or deeper headings inside the body.",
 		required: []param{pEng, pFinding, {"section", "section name, e.g. Impact"}, {"body", "new Markdown body"}},
 		optional: []param{{"base", "section base hash from read_finding"}},
 		run: func(s *Server, ctx context.Context, u config.User, a args) (string, error) {
@@ -278,11 +307,11 @@ var tools = []tool{
 			}
 			return "updated " + a.str("section"), nil
 		}},
-	{name: "set_field", desc: "Set a field: title, severity (no CVSS vector), cvss (vector or empty to clear), cvss_reason.<METRIC> (explanation for a non-standard value, e.g. cvss_reason.AC), details.<Row> (details table, e.g. details.Location), reviewers (comma-separated usernames), retest_result (fixed | not_fixed | partially_fixed). Use transition for status.",
+	{name: "set_field", action: "edit", desc: "Set a field: title, severity (no CVSS vector), cvss (vector or empty to clear), cvss_reason.<METRIC> (explanation for a non-standard value, e.g. cvss_reason.AC), details.<Row> (details table, e.g. details.Location), reviewers (comma-separated usernames), retest_result (fixed | not_fixed | partially_fixed). Use transition for status.",
 		required: []param{pEng, pFinding, {"field", "field name"}, {"value", "new value"}},
 		optional: []param{{"base", "cvss_base (cvss, cvss_reason.*) or details_base (details.*) from read_finding; refuses the edit if someone changed it meanwhile"}},
 		run:      setField},
-	{name: "transition", desc: "Move a finding through the workflow: submit (draft→verification), return (verification→draft, needs reason), clear or sign_off (reviewer sign-off), approve (director: verification→complete), reopen (complete→verification), report (director: complete→reported), withdraw (author while draft or verification, director also when complete or reported; needs reason; takes it out of the report), revise (author or director: withdrawn→draft).",
+	{name: "transition", action: "status", desc: "Move a finding through the workflow: submit (draft→verification), return (verification→draft, needs reason), clear or sign_off (reviewer sign-off), approve (director: verification→complete), reopen (complete→verification), report (director: complete→reported), withdraw (author while draft or verification, director also when complete or reported; needs reason; takes it out of the report), revise (author or director: withdrawn→draft).",
 		required: []param{pEng, pFinding, {"action", "submit | return | clear | sign_off | approve | reopen | report | withdraw | revise"}},
 		optional: []param{{"reason", "required for return and withdraw"}},
 		run: func(s *Server, ctx context.Context, u config.User, a args) (string, error) {
@@ -303,7 +332,7 @@ var tools = []tool{
 			_, to := workflow.Target(act)
 			return string(act) + " done; status is now " + to, nil
 		}},
-	{name: "add_chat_message", desc: "Post a message in the finding's chat, optionally about a section or as a reply to a thread.",
+	{name: "add_chat_message", action: "comment", desc: "Post a message in the finding's chat, optionally about a section or as a reply to a thread.",
 		required: []param{pEng, pFinding, {"text", "Markdown message"}},
 		optional: []param{{"section", "section the message is about"}, {"reply", "thread ID to reply to"}},
 		run: func(s *Server, ctx context.Context, u config.User, a args) (string, error) {
@@ -317,7 +346,7 @@ var tools = []tool{
 			}
 			return asJSON(map[string]string{"id": m.ID})
 		}},
-	{name: "resolve_thread", desc: "Mark a chat thread as resolved.",
+	{name: "resolve_thread", action: "comment", desc: "Mark a chat thread as resolved.",
 		required: []param{pEng, pFinding, {"thread", "thread ID"}},
 		run: func(s *Server, ctx context.Context, u config.User, a args) (string, error) {
 			ref, err := s.ref(a)

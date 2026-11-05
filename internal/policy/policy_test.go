@@ -92,9 +92,38 @@ func newFx(t *testing.T) *fx {
 	if err != nil || ref.Dir != "F-001-sqli" {
 		t.Fatalf("%v %s", err, ref.Dir)
 	}
+	d.AddMembers("acme", "alice", "pen2", "bob")
 	f := &fx{t: t, srv: r, st: st, target: "acme", c: &Checker{Cfg: config.Default(), Users: users, DB: d}}
 	f.reclone()
 	return f
+}
+
+// An archived engagement takes no pushes; disabled accounts and accounts
+// off the team push nothing.
+func TestPolicyArchiveTeamDisabled(t *testing.T) {
+	f := newFx(t)
+	edit := func(d string) { write(d, fdir+"/attachments/a.txt", "x") }
+	f.st.Archive("acme", user("dora"))
+	if ps := f.push("dora", edit); !has(ps, "archived") {
+		t.Fatalf("push to archived engagement: %v", ps)
+	}
+	f.st.Unarchive("acme", user("dora"))
+	f.reclone()
+	f.st.RemoveMember("acme", "pen2", user("dora"))
+	if ps := f.pushAs("pen2", "pen2", edit); !has(ps, "team") {
+		t.Fatalf("non-member pushed: %v", ps)
+	}
+	f.reclone()
+	saved := f.c.Users
+	f.c.Users = []config.User{{Username: "alice", Role: "pentester", Disabled: true}}
+	if ps := f.push("alice", edit); !has(ps, "disabled") {
+		t.Fatalf("disabled account pushed: %v", ps)
+	}
+	f.c.Users = saved
+	f.reclone()
+	if ps := f.push("alice", edit); len(ps) != 0 {
+		t.Fatalf("member push rejected: %v", ps)
+	}
 }
 
 func (f *fx) reclone() {
@@ -174,7 +203,7 @@ func TestPolicyYarsDir(t *testing.T) {
 }
 
 func TestPolicyServerFilesNeverPushed(t *testing.T) {
-	for _, p := range []string{".yars/users.yaml", ".yars/tokens.yaml", ".yars/yars.db", ".yars/yars.db-wal"} {
+	for _, p := range []string{".yars/users.yaml", ".yars/tokens.yaml", ".yars/secret.key", ".yars/yars.db", ".yars/yars.db-wal"} {
 		f := newFx(t).on("")
 		if ps := f.push("dora", func(d string) { write(d, p, "x\n") }); !has(ps, "server") {
 			t.Errorf("%s pushed: %v", p, ps)

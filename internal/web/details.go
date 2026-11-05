@@ -18,6 +18,7 @@ type detailsView struct {
 	Rows, Other               []detailsRow
 	Base, Error               string
 	Locked                    bool
+	ReadOnly                  bool // archived engagement: no Comment either
 	ViewURL, EditURL, SaveURL string
 }
 
@@ -31,7 +32,8 @@ func (s *Server) routesDetails(mux *http.ServeMux) {
 func (s *Server) detailsFor(ref store.FindingRef, typed map[int]string) detailsView {
 	d := ref.F.Meta.Details
 	base := findingURL(ref.EngID, ref.Dir) + "/details"
-	v := detailsView{Base: store.DetailsHash(ref.F.Meta), ViewURL: base, EditURL: base + "/edit", SaveURL: base}
+	v := detailsView{Base: store.DetailsHash(ref.F.Meta), ViewURL: base, EditURL: base + "/edit", SaveURL: base,
+		ReadOnly: s.Store.Archived(ref.EngID)}
 	known := map[string]bool{}
 	for i, name := range s.Cfg.DetailsRows {
 		val := d[name]

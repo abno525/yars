@@ -27,6 +27,7 @@ type checksView struct {
 	// (a script printed no JSON) or stale (the finding changed since).
 	State, StateLabel, Error string
 	Running                  bool
+	ReadOnly                 bool   // archived engagement: no Check, no Dismiss
 	Button                   string // "Check", or "Checking 4/6" while running
 	Rows, Dismissed          []checkRow
 	Errors, Warnings         int // rows not dismissed
@@ -103,16 +104,17 @@ func (s *Server) checksFor(r *http.Request, ref store.FindingRef) checksView {
 		}
 	}
 	v.StateLabel = checkStateLabel[v.State]
+	v.ReadOnly = s.Store.Archived(ref.EngID)
 	for _, it := range items {
 		row := checkRow{Rule: it.Rule, Level: it.Level, Message: it.Message, Quote: it.Quote, Where: where(it.Target)}
 		notice := it.Target == "rules" || it.Target == "ai"
 		if d, ok := dismissed(it); ok && !notice {
 			row.By, row.At = d.By, stamp(d.At)
-			row.CanDismiss = store.CanDismiss(u, ref.F.Meta, d.Level)
+			row.CanDismiss = !v.ReadOnly && store.CanDismiss(u, ref.F.Meta, d.Level)
 			v.Dismissed = append(v.Dismissed, row)
 			continue
 		}
-		row.CanDismiss = !notice && store.CanDismiss(u, ref.F.Meta, it.Level)
+		row.CanDismiss = !v.ReadOnly && !notice && store.CanDismiss(u, ref.F.Meta, it.Level)
 		if it.Level == "error" {
 			v.Errors++
 		} else {

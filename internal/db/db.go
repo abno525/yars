@@ -18,7 +18,10 @@ import (
 // Path is where the database lives inside a data directory (git-ignored).
 func Path(dataDir string) string { return filepath.Join(dataDir, ".yars", "yars.db") }
 
-const schemaVersion = 4
+const schemaVersion = 6
+
+// SchemaVersion is the database schema this build writes.
+const SchemaVersion = schemaVersion
 
 var migrations = []string{
 	// v1
@@ -125,6 +128,71 @@ var migrations = []string{
 		by_user    TEXT NOT NULL,
 		at         TEXT NOT NULL,
 		PRIMARY KEY (eng, fid, rule, quote_hash)
+	) WITHOUT ROWID;`,
+	// v5: accounts — the admin flag (directors start as admins), disabled
+	// accounts, the theme; scoped tokens with an id (existing ones keep every
+	// right); engagement teams (everyone stays on the engagements that
+	// already have data), archive, audit log, encrypted personal keys and
+	// notification choices
+	`ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0;
+	ALTER TABLE users ADD COLUMN disabled INTEGER NOT NULL DEFAULT 0;
+	ALTER TABLE users ADD COLUMN theme TEXT NOT NULL DEFAULT '';
+	UPDATE users SET is_admin = 1 WHERE role = 'director';
+	CREATE TABLE tokens_v5 (
+		id          INTEGER PRIMARY KEY,
+		hash        TEXT NOT NULL UNIQUE,
+		username    TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
+		name        TEXT NOT NULL DEFAULT '',
+		kind        TEXT NOT NULL DEFAULT 'mcp',
+		scopes      TEXT NOT NULL DEFAULT '"all"',
+		engagements TEXT NOT NULL DEFAULT '[]',
+		expires     TEXT NOT NULL DEFAULT '',
+		last_used   TEXT NOT NULL DEFAULT '',
+		last4       TEXT NOT NULL DEFAULT '',
+		created     TEXT NOT NULL
+	);
+	INSERT INTO tokens_v5(hash, username, created) SELECT hash, username, created FROM tokens ORDER BY created;
+	DROP TABLE tokens;
+	ALTER TABLE tokens_v5 RENAME TO tokens;
+	CREATE INDEX tokens_user ON tokens(username);
+	CREATE TABLE engagement_members (
+		eng      TEXT NOT NULL,
+		username TEXT NOT NULL,
+		PRIMARY KEY (eng, username)
+	) WITHOUT ROWID;
+	CREATE INDEX engagement_members_user ON engagement_members(username, eng);
+	INSERT INTO engagement_members(eng, username) SELECT c.eng, u.username FROM changes_eng c, users u;
+	CREATE TABLE engagement_meta (
+		eng         TEXT PRIMARY KEY,
+		archived_at TEXT NOT NULL DEFAULT '',
+		archived_by TEXT NOT NULL DEFAULT ''
+	) WITHOUT ROWID;
+	CREATE TABLE audit (
+		id     INTEGER PRIMARY KEY,
+		ts     TEXT NOT NULL,
+		actor  TEXT NOT NULL,
+		action TEXT NOT NULL,
+		target TEXT NOT NULL DEFAULT '',
+		detail TEXT NOT NULL DEFAULT ''
+	);
+	CREATE TABLE connections (
+		username   TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
+		service    TEXT NOT NULL,
+		secret_enc TEXT NOT NULL,
+		created    TEXT NOT NULL,
+		PRIMARY KEY (username, service)
+	) WITHOUT ROWID;
+	CREATE TABLE notify_prefs (
+		username TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
+		event    TEXT NOT NULL,
+		channel  TEXT NOT NULL,
+		PRIMARY KEY (username, event, channel)
+	) WITHOUT ROWID;`,
+	// v6: server settings edited on the admin pages (AI provider, …); secret
+	// values are stored encrypted by the caller
+	`CREATE TABLE server_settings (
+		key   TEXT PRIMARY KEY,
+		value TEXT NOT NULL
 	) WITHOUT ROWID;`,
 }
 

@@ -125,6 +125,10 @@ func (s *Store) EditSettings(msg string, a gitrepo.Author, fn func(read func(p s
 	}()
 	if err != nil {
 		restore()
+		return err
 	}
-	return err
+	if s.db != nil {
+		s.db.Audit(a.Name, "settings", "", msg)
+	}
+	return nil
 }

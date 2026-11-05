@@ -23,6 +23,7 @@ const maxScript = 1 << 20
 type option struct {
 	Value, Label string
 	On           bool
+	Muted        bool // shown greyed (an archived engagement)
 }
 
 // ruleRow is one rule in the admin table.

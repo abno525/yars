@@ -36,7 +36,7 @@ const Password = "password"
 
 // Users are the seeded accounts: a director, a reviewer and a pentester.
 var Users = []config.User{
-	{Username: "dir1", Role: "director", Email: "dir1@yars.local"},
+	{Username: "dir1", Role: "director", Email: "dir1@yars.local", IsAdmin: true},
 	{Username: "rev1", Role: "reviewer", Email: "rev1@yars.local"},
 	{Username: "pen1", Role: "pentester", Email: "pen1@yars.local"},
 }
@@ -182,6 +182,9 @@ func Fill(dir string, o Options) error {
 		paths = append(paths, "engagements/"+id)
 		ts := t0
 		err = d.TxFor(id, func(tx *db.Tx) error {
+			if err := tx.AddMembers(id, "rev1", "pen1"); err != nil { // the team (dir1 directs)
+				return err
+			}
 			for _, g := range made {
 				if err := tx.PutState(id, g.fid, randomState(rng, g.hash)); err != nil {
 					return err

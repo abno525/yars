@@ -5,12 +5,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
 	"yars/internal/config"
 	"yars/internal/db"
 	"yars/internal/gitrepo"
+	"yars/internal/secret"
 	"yars/internal/store"
 	"yars/internal/workflow"
 )
@@ -47,6 +49,71 @@ func TestInitCreatesDatabase(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, ".yars", "users.yaml")); err == nil {
 		t.Fatal("init still writes users.yaml")
+	}
+	// the secret key exists, is private and is never tracked
+	info, err = os.Stat(secret.KeyPath(dir))
+	if err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("secret key %v %v", info, err)
+	}
+	if out, _ := exec.Command("git", "-C", dir, "check-ignore", ".yars/secret.key").Output(); len(out) == 0 {
+		t.Fatal("secret key not ignored")
+	}
+}
+
+// The admin flag is set at useradd or with yars admin; user changes are
+// audited.
+func TestAdminCommand(t *testing.T) {
+	dir := t.TempDir()
+	if err := cmdInit([]string{dir}); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := cmdUseradd([]string{"--data", dir, "--role", "pentester", "--admin", "ann"}, strings.NewReader("pw\n"), &out); err != nil {
+		t.Fatal(err)
+	}
+	d := openDB(t, dir)
+	if u, _, _ := d.User("ann"); !u.IsAdmin || u.Role != "pentester" {
+		t.Fatalf("ann %+v", u)
+	}
+	if err := cmdAdmin([]string{"--data", dir, "ann", "off"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if u, _, _ := d.User("ann"); u.IsAdmin {
+		t.Fatal("admin flag still on")
+	}
+	if err := cmdAdmin([]string{"--data", dir, "ann", "maybe"}, &out); err == nil {
+		t.Fatal("bad value accepted")
+	}
+	l, _ := d.AuditLog(10)
+	if len(l) != 2 || l[0].Action != "user.admin" || l[1].Action != "user.add" || l[1].Detail != "role pentester, admin" {
+		t.Fatalf("audit %+v", l)
+	}
+}
+
+// yars token add makes scoped tokens; revoke --id drops one.
+func TestTokenCommandScopes(t *testing.T) {
+	dir := t.TempDir()
+	if err := cmdInit([]string{dir}); err != nil {
+		t.Fatal(err)
+	}
+	d := openDB(t, dir)
+	d.AddUser(config.User{Username: "bob", Role: "reviewer"})
+	var out bytes.Buffer
+	if code, err := cmdToken([]string{"add", "--data", dir, "--kind", "git", "--scopes", "read", "--engagements", "acme", "--days", "30", "bob"}, &out); code != 0 {
+		t.Fatal(code, err)
+	}
+	if code, _ := cmdToken([]string{"add", "--data", dir, "--scopes", "fly", "bob"}, &out); code == 0 {
+		t.Fatal("bad scope accepted")
+	}
+	ts, _ := d.UserTokens("bob")
+	if len(ts) != 1 || ts[0].Kind != "git" || !ts[0].ReadOnly() || ts[0].Expires == "" || ts[0].Engagements[0] != "acme" {
+		t.Fatalf("tokens %+v", ts)
+	}
+	if code, err := cmdToken([]string{"revoke", "--data", dir, "--id", strconv.FormatInt(ts[0].ID, 10), "bob"}, &out); code != 0 {
+		t.Fatal(code, err)
+	}
+	if ts, _ := d.UserTokens("bob"); len(ts) != 0 {
+		t.Fatalf("not revoked %+v", ts)
 	}
 }
 

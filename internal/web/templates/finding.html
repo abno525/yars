@@ -16,6 +16,7 @@
     {{if $wd}}<span class="slot w128"></span>{{else}}<a class="btn secondary w128" href="/e/{{.Eng.ID}}/export">Export</a>{{end}}
   </div>
 </div>
+{{template "archive_bar" .Archive}}
 {{if .Error}}<p class="error banner">{{.Error}}</p>{{end}}
 {{template "workflow_bar" .WF}}
 <div class="finding-grid" data-sse-url="/events?eng={{.Eng.ID}}&amp;f={{$f.Meta.ID}}">

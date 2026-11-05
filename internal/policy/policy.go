@@ -57,6 +57,20 @@ func (c *Checker) Check(username string, ups []Update) []string {
 	if !ok {
 		return []string{"unknown user " + username}
 	}
+	if u.Disabled {
+		return []string{"account " + username + " is disabled"}
+	}
+	if c.Eng != "" && c.DB != nil {
+		// fail closed: a database error refuses the push
+		if m, err := c.DB.EngMeta(c.Eng); err != nil || m.Archived {
+			return []string{"engagement " + c.Eng + " is archived (read only)"}
+		}
+		if !store.SeesAll(u) {
+			if member, err := c.DB.IsMember(c.Eng, u.Username); err != nil || !member {
+				return []string{"you are not on the team of engagement " + c.Eng}
+			}
+		}
+	}
 	branch, err := c.Repo.CurrentBranch()
 	if err != nil {
 		return []string{"server: " + err.Error()}
@@ -146,7 +160,7 @@ const outsideMsg = "not allowed here; findings must live under engagements/<enga
 
 // serverOnly are files that exist only on the server and are never in git.
 func serverOnly(p string) bool {
-	return p == ".yars/users.yaml" || p == ".yars/tokens.yaml" || strings.HasPrefix(p, ".yars/yars.db")
+	return p == ".yars/users.yaml" || p == ".yars/tokens.yaml" || p == ".yars/secret.key" || strings.HasPrefix(p, ".yars/yars.db")
 }
 
 // file checks one changed path.
@@ -163,7 +177,7 @@ func (c *Checker) file(u config.User, old, new string, ch gitrepo.Change) []stri
 	}
 	switch {
 	case serverOnly(p):
-		return []string{"accounts, tokens and the database stay on the server (yars useradd / yars token), not in git"}
+		return []string{"accounts, tokens, keys and the database stay on the server (yars useradd / yars token), not in git"}
 	case seg[0] == ".yars":
 		if !manager(u) {
 			return []string{"only a director can change .yars (config, rules)"}

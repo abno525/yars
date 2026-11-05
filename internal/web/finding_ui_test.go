@@ -39,6 +39,28 @@ func noInline(t *testing.T, what, b string) {
 	}
 }
 
+// Details and CVSS each have a Comment button, the composer can target them,
+// and a comment on them is accepted and links back to the panel.
+func TestCommentOnDetailsAndCVSS(t *testing.T) {
+	e := setup(t)
+	b := e.do(t, "bob", "GET", fpath, nil, nil).Body.String()
+	for _, sec := range []string{"Details", "CVSS"} {
+		if !strings.Contains(b, `data-section="`+sec+`"`) {
+			t.Fatalf("no Comment button for %s:\n%s", sec, b)
+		}
+		if !strings.Contains(b, `<option value="`+sec+`"`) {
+			t.Fatalf("composer cannot target %s", sec)
+		}
+		if !strings.Contains(b, `id="s-`+strings.ToLower(sec)+`"`) {
+			t.Fatalf("no anchor for %s", sec)
+		}
+		rec := e.do(t, "bob", "POST", fpath+"/chat", url.Values{"text": {"look"}, "section": {sec}}, nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s comment: %d %s", sec, rec.Code, rec.Body.String())
+		}
+	}
+}
+
 // Every viewer of a status sees the same fixed slots; an action the viewer
 // may not take keeps its place as an empty slot of the same width.
 func TestWorkflowSlotsFixed(t *testing.T) {

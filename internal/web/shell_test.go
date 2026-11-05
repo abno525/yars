@@ -26,7 +26,7 @@ func TestShellHeader(t *testing.T) {
 	if b := e.do(t, "alice", "GET", "/e/acme", nil, nil).Body.String(); !strings.Contains(b, `class="badge0">0<`) {
 		t.Fatal("no zero badge in the nav")
 	}
-	if b := e.do(t, "", "GET", "/login", nil, nil).Body.String(); strings.Contains(b, ` style="`) || !strings.Contains(b, `class="logo"`) {
+	if b := e.do(t, "", "GET", "/login", nil, nil).Body.String(); strings.Contains(b, ` style="`) || !strings.Contains(b, `class="logo big"`) {
 		t.Fatalf("login page:\n%s", b)
 	}
 }

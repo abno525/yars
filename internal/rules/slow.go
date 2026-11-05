@@ -25,6 +25,9 @@ type Runner struct {
 	ScriptTimeout time.Duration
 	AITimeout     time.Duration
 	Getenv        func(string) string
+	// Stored returns the AI settings saved on the admin page and their key
+	// ("" values = not set there); nil = config.yaml only.
+	Stored func() (config.AIConfig, string)
 
 	cacheOnce sync.Once
 	cache     *lru.Cache[string, aiResult] // AI replies by provider, model, rule and text

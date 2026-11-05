@@ -47,7 +47,9 @@ func setupWith(t *testing.T, seen func(eng string)) (*httptest.Server, *gitrepo.
 	}
 	hash, _ := auth.HashPassword("pw")
 	d.AddUser(config.User{Username: "alice", Role: "pentester", PasswordHash: hash})
-	gs := &Server{Repo: r, Auth: auth.New(d), Sync: st.SyncPointers, Invalidate: func(eng string) {
+	d.AddUser(config.User{Username: "pen2", Role: "pentester", PasswordHash: hash})
+	d.AddMembers("acme", "alice") // pen2 is on no team
+	gs := &Server{Repo: r, Auth: auth.New(d), Tokens: auth.NewTokens(d), CanSee: st.CanSee, Sync: st.SyncPointers, Invalidate: func(eng string) {
 		if seen != nil {
 			seen(eng)
 		}

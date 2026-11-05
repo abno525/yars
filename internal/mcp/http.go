@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net/http"
@@ -8,13 +9,28 @@ import (
 
 	"yars/internal/auth"
 	"yars/internal/config"
+	"yars/internal/db"
 )
 
 const maxBody = 2 << 20
 
+type tokenKey struct{}
+
+// WithToken attaches the API token a request came with, so each tool call
+// is checked against its scopes and engagements.
+func WithToken(ctx context.Context, t db.TokenInfo) context.Context {
+	return context.WithValue(ctx, tokenKey{}, t)
+}
+
+func tokenFrom(ctx context.Context) (db.TokenInfo, bool) {
+	t, ok := ctx.Value(tokenKey{}).(db.TokenInfo)
+	return t, ok
+}
+
 // HTTPHandler serves MCP over HTTP (POST, JSON responses) for holders of a
-// YARS API token. No cookies are accepted, so it is not exposed to CSRF.
-func (s *Server) HTTPHandler(tokens *auth.Tokens, user func(name string) (config.User, bool)) http.Handler {
+// YARS MCP token of an active account. No cookies are accepted, so it is not
+// exposed to CSRF.
+func (s *Server) HTTPHandler(tokens *auth.Tokens) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			w.Header().Set("Allow", "POST")
@@ -22,17 +38,14 @@ func (s *Server) HTTPHandler(tokens *auth.Tokens, user func(name string) (config
 			return
 		}
 		tok, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-		var u config.User
+		var user config.User
+		var info db.TokenInfo
 		if ok {
-			if name, found := tokens.User(strings.TrimSpace(tok)); found {
-				u, ok = user(name)
-			} else {
-				ok = false
-			}
+			user, info, ok = tokens.Verify(strings.TrimSpace(tok), db.TokenMCP)
 		}
 		if !ok {
 			w.Header().Set("WWW-Authenticate", `Bearer realm="yars"`)
-			http.Error(w, "a valid YARS API token is required (yars token add <user>)", http.StatusUnauthorized)
+			http.Error(w, "a valid YARS MCP token is required", http.StatusUnauthorized)
 			return
 		}
 		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBody))
@@ -45,7 +58,7 @@ func (s *Server) HTTPHandler(tokens *auth.Tokens, user func(name string) (config
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
 		}
-		resp := s.Handle(r.Context(), u, body)
+		resp := s.Handle(WithToken(r.Context(), info), user, body)
 		if resp == nil {
 			w.WriteHeader(http.StatusAccepted)
 			return

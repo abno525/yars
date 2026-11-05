@@ -91,6 +91,15 @@ type User struct {
 	Email        string `yaml:"email,omitempty"`
 	Role         string `yaml:"role"`
 	PasswordHash string `yaml:"password_hash"`
+	// IsAdmin opens the admin pages; it is separate from the role, which
+	// keeps the workflow powers.
+	IsAdmin bool `yaml:"is_admin,omitempty"`
+	// Disabled accounts can't log in; their sessions and tokens stop working.
+	Disabled bool `yaml:"disabled,omitempty"`
+	// Theme is the account's chosen theme: "light", "dark" or "" (system).
+	Theme string `yaml:"theme,omitempty"`
+	// Created is when the account was added (RFC 3339; from the database).
+	Created string `yaml:"-"`
 }
 
 // GitAuthor is the account's git identity.

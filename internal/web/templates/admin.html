@@ -6,8 +6,306 @@
   </nav>
   <div class="adminbody">
     {{if eq .Admin.Tab "rules"}}{{template "admin_rules" .Admin.Rules}}{{end}}
+    {{if eq .Admin.Tab "users"}}{{template "admin_users" .Admin.Users}}{{end}}
+    {{if eq .Admin.Tab "engagements"}}{{template "admin_engagements" .Admin.Engs}}{{end}}
+    {{if eq .Admin.Tab "ai"}}{{template "admin_ai" .Admin.AI}}{{end}}
+    {{if eq .Admin.Tab "system"}}{{template "admin_system" .Admin.System}}{{end}}
+    {{if eq .Admin.Tab "health"}}{{template "admin_health" .Admin.Health}}{{end}}
+    {{if eq .Admin.Tab "activity"}}{{template "admin_activity" .Admin.Activity}}{{end}}
   </div>
 </div>
+{{end}}
+
+{{define "cbx_mark"}}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>{{end}}
+
+{{define "admin_users"}}
+{{with .Temp}}
+<div class="once panel compact" role="status">
+  <div class="panelhead"><h2>Temporary password</h2><span class="tag shown">Shown once</span></div>
+  <div class="copyrow flush">
+    <span class="idchip">{{.User}}</span>
+    <code id="temp-pw">{{.Password}}</code>
+    <button type="button" class="btn save w96" data-copy="temp-pw">Copy</button>
+  </div>
+</div>
+{{end}}
+<div class="sidegrid">
+  <section class="panel">
+    <div class="panelhead"><h2>Users</h2><span class="pstate error" title="{{.Error}}">{{.Error}}</span></div>
+    <table class="table stable usertable">
+      <thead><tr><th>User</th><th class="c-role">Role</th><th class="c-flag">Admin</th><th class="c-flag">Disabled</th><th class="c-date">Created</th><th class="c-num">Tokens</th><th class="c-act">Action</th></tr></thead>
+      <tbody>
+        {{range .Rows}}
+        <tr{{if .Disabled}} class="off"{{end}}>
+          <td class="stack"><span class="strong" title="{{.Username}}">{{.Username}}</span><span class="muted" title="{{.Email}}">{{if .Email}}{{.Email}}{{else}}—{{end}}</span></td>
+          <td>
+            <form method="post" action="/admin/users/{{.Username}}/role">
+              <select name="role" aria-label="Role of {{.Username}}" onchange="this.form.submit()">{{$r := .Role}}{{range $.Roles}}<option value="{{.}}"{{if eq . $r}} selected{{end}}>{{.}}</option>{{end}}</select>
+              <noscript><button class="btn ghost sm w96">Set</button></noscript>
+            </form>
+          </td>
+          <td>
+            <form class="toggle" method="post" action="/admin/users/{{.Username}}/admin">
+              <input type="hidden" name="on" value="{{if .IsAdmin}}0{{else}}1{{end}}">
+              <button class="cbx{{if .IsAdmin}} on{{end}}" aria-label="Admin {{.Username}}" aria-pressed="{{if .IsAdmin}}true{{else}}false{{end}}"{{if and .Self .IsAdmin}} disabled{{end}}>{{if .IsAdmin}}{{template "cbx_mark"}}{{end}}</button>
+            </form>
+          </td>
+          <td>
+            <form class="toggle" method="post" action="/admin/users/{{.Username}}/disabled">
+              <input type="hidden" name="on" value="{{if .Disabled}}0{{else}}1{{end}}">
+              <button class="cbx{{if .Disabled}} on{{end}}" aria-label="Disabled {{.Username}}" aria-pressed="{{if .Disabled}}true{{else}}false{{end}}"{{if .Self}} disabled{{end}}>{{if .Disabled}}{{template "cbx_mark"}}{{end}}</button>
+            </form>
+          </td>
+          <td class="mono">{{.Created}}</td>
+          <td class="num">{{.Tokens}}</td>
+          <td><form method="post" action="/admin/users/{{.Username}}/reset"><button class="btn ghost sm w112">Reset pass</button></form></td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </section>
+  <form class="panel compact sidecol" method="post" action="/admin/users">
+    <div class="panelhead"><h2>Add user</h2></div>
+    <div class="vfields">
+      <label>Username<input name="username" value="{{.Form.Get "username"}}" pattern="[A-Za-z0-9._\-]+" required></label>
+      <label>Email<input name="email" type="email" value="{{.Form.Get "email"}}"></label>
+      <fieldset class="rf"><legend>Role</legend>
+        <div class="seg fill n3">{{$r := .Form.Get "role"}}{{range .Roles}}<label><input type="radio" name="role" value="{{.}}"{{if eq . $r}} checked{{end}}><span>{{.}}</span></label>{{end}}</div>
+      </fieldset>
+      <label class="chk"><input type="checkbox" name="admin" value="1"{{if eq (.Form.Get "admin") "1"}} checked{{end}}>Admin</label>
+      <label>Temporary password<input class="monoin" name="password" autocomplete="new-password" minlength="10" placeholder="generated"></label>
+    </div>
+    <div class="pfoot flush"><button class="btn primary w128">Add user</button></div>
+  </form>
+</div>
+{{end}}
+
+{{define "admin_engagements"}}
+<div class="sidegrid">
+  <div class="fstack">
+    <nav class="seg" aria-label="Show">{{range .Filters}}<a class="{{if .Active}}on{{end}}" href="{{.URL}}">{{.Label}} · {{.Count}}</a>{{end}}</nav>
+    <section class="panel">
+      <div class="panelhead"><h2>Engagements</h2><span class="pstate error" title="{{.Error}}">{{.Error}}</span></div>
+      <table class="table stable engadmin">
+        <thead><tr><th>Engagement</th><th class="c-num">Team</th><th class="c-num">Findings</th><th class="c-state">Status</th><th class="c-acts">Actions</th></tr></thead>
+        <tbody>
+          {{range .Rows}}
+          <tr class="{{if .Archived}}off{{end}}{{if .Editing}} editing{{end}}">
+            <td class="stack"><a class="strong" href="/e/{{.ID}}" title="{{.Name}}">{{.Name}}</a><span class="idline"><span class="muted" title="{{.Client}}">{{if .Client}}{{.Client}}{{else}}—{{end}}</span><span class="mono" title="{{.ID}}">{{.ID}}</span></span></td>
+            <td class="num">{{.Team}}</td>
+            <td class="num">{{.Findings}}</td>
+            <td class="stack">{{if .Archived}}<span class="tag eng-archived">Archived</span><span class="mono">{{.ArchivedAt}}{{if .ArchivedBy}} · {{.ArchivedBy}}{{end}}</span>{{else}}<span class="tag eng-active">Active</span>{{end}}</td>
+            <td><div class="actions">
+              <a class="btn ghost sm w96" href="/admin/engagements?team={{.ID}}">Team</a>
+              {{if .Archived}}{{if $.CanReopen}}<form method="post" action="/admin/engagements/{{.ID}}/reopen"><button class="btn secondary sm w96">Reopen</button></form>{{else}}<span class="slot w96"></span>{{end}}
+              {{else}}<form method="post" action="/admin/engagements/{{.ID}}/archive"><button class="btn secondary sm w96">Archive</button></form>{{end}}
+            </div></td>
+          </tr>
+          {{else}}
+          <tr><td colspan="5" class="muted">—</td></tr>
+          {{end}}
+        </tbody>
+      </table>
+    </section>
+    {{with .Team}}
+    <section class="panel compact" id="team">
+      <div class="panelhead"><h2>Team · {{.Eng.Name}}</h2>
+        <form method="post" action="/admin/engagements/{{.Eng.ID}}/team"><input type="hidden" name="everyone" value="1"><button class="btn secondary sm w128">Add everyone</button></form>
+      </div>
+      <table class="table stable teamtable flush">
+        <thead><tr><th>User</th><th class="c-role">Role</th><th class="c-act">Action</th></tr></thead>
+        <tbody>
+          {{$eng := .Eng.ID}}
+          {{range .Members}}
+          <tr><td class="strong clip">{{.Value}}</td><td class="muted">{{.Label}}</td>
+            <td><form method="post" action="/admin/engagements/{{$eng}}/team/remove"><input type="hidden" name="user" value="{{.Value}}"><button class="btn danger sm w96" aria-label="Remove {{.Value}}">Remove</button></form></td></tr>
+          {{else}}
+          <tr><td colspan="3" class="muted">—</td></tr>
+          {{end}}
+        </tbody>
+      </table>
+      <form class="inline flush addrow" method="post" action="/admin/engagements/{{.Eng.ID}}/team">
+        <select class="grow" name="user" aria-label="Add person">{{range .Others}}<option value="{{.Value}}">{{.Value}} · {{.Label}}</option>{{end}}</select>
+        <button class="btn primary sm w96"{{if not .Others}} disabled{{end}}>Add</button>
+      </form>
+    </section>
+    {{end}}
+  </div>
+  <form class="panel compact sidecol" method="post" action="/admin/engagements" id="new-eng">
+    <div class="panelhead"><h2>New engagement</h2></div>
+    <div class="vfields">
+      <label>Name<input name="name" value="{{.Form.Get "name"}}" required></label>
+      <label>ID<input class="monoin" name="id" value="{{.Form.Get "id"}}" pattern="[A-Za-z0-9._\-]+" required></label>
+      <label>Client<input name="client" value="{{.Form.Get "client"}}"></label>
+      <div class="rgrid">
+        <label>Start<input name="start" type="date" value="{{.Form.Get "start"}}"></label>
+        <label>End<input name="end" type="date" value="{{.Form.Get "end"}}"></label>
+      </div>
+      <div class="rf">
+        <div class="rfhead"><span>Team</span><button type="button" class="btn secondary sm w128" data-check-all="member">Add everyone</button></div>
+        <div class="checklist">
+          {{range .Users}}<label class="chk"><input type="checkbox" name="member" value="{{.Value}}"{{if .On}} checked{{end}}><span class="grow clip">{{.Value}}</span><span class="muted">{{.Label}}</span></label>{{end}}
+        </div>
+      </div>
+    </div>
+    <div class="pfoot flush"><button class="btn primary w216">Create engagement</button></div>
+  </form>
+</div>
+{{end}}
+
+{{define "admin_ai"}}
+<div class="sidegrid">
+  <form class="panel" method="post" action="/admin/ai">
+    <div class="panelhead"><h2>AI provider</h2><span class="tag {{.State}}">{{.StateLabel}}</span></div>
+    <div class="frows flush">
+      <div class="frow"><span class="flabel">Provider</span>
+        <div class="seg n3 wide" role="radiogroup" aria-label="Provider">{{range .Providers}}<label><input type="radio" name="provider" value="{{.Value}}"{{if .On}} checked{{end}}><span>{{.Label}}</span></label>{{end}}</div>
+      </div>
+      <label class="frow"><span class="flabel">Address</span><input class="monoin" name="base_url" value="{{.BaseURL}}" placeholder="https://api.openai.com/v1"></label>
+      <label class="frow"><span class="flabel">Model</span><input class="monoin w360" name="model" value="{{.Model}}"></label>
+      <label class="frow"><span class="flabel">API key</span>
+        <span class="keyrow">
+          <input class="monoin w360" type="password" name="key" autocomplete="off" placeholder="{{if .KeyEnding}}{{.KeyEnding}}{{end}}" aria-label="API key">
+          <span class="mono keyend">{{.KeyEnding}}</span>
+          {{if .EnvName}}<span class="tag {{if .EnvSet}}good{{else}}idle{{end}}" title="{{.EnvName}}">{{.EnvName}}</span>{{end}}
+        </span>
+      </label>
+    </div>
+    <div class="pfoot flush">
+      <span class="pstate{{if or .Error (and .Test (not .Test.OK))}} error{{end}}" title="{{.Error}}{{with .Test}}{{.Error}}{{end}}">{{if .Error}}{{.Error}}{{else}}{{with .Test}}{{.At}} · {{if .OK}}{{.Took}}{{else}}{{.Error}}{{end}}{{end}}{{end}}</span>
+      <button class="btn secondary w128" formaction="/admin/ai/test" formnovalidate>Test</button>
+      <button class="btn primary w128">Save</button>
+    </div>
+  </form>
+  <section class="panel compact sidecol">
+    <div class="panelhead"><h2>Rules using AI</h2><a class="btn ghost sm w112" href="/admin/rules">Rules</a></div>
+    <table class="table stable airules flush">
+      <thead><tr><th>Rule</th><th class="c-level">Level</th></tr></thead>
+      <tbody>
+        {{range .Rules}}<tr><td class="mono clip" title="{{.Value}}">{{.Value}}</td><td><span class="tag lvl-{{.Label}}">{{.Label}}</span></td></tr>
+        {{else}}<tr><td colspan="2" class="muted">—</td></tr>{{end}}
+      </tbody>
+    </table>
+  </section>
+</div>
+{{end}}
+
+{{define "admin_system"}}
+<div class="twogrid">
+  <section class="panel">
+    <div class="panelhead"><h2>Stats</h2><span class="mono">{{.Uptime}}</span></div>
+    <div class="tiles">
+      <div class="tile"><span class="tv">{{.Users}}</span><span class="tl">Users</span></div>
+      <div class="tile"><span class="tv">{{.Engagements}}</span><span class="tl">Engagements</span></div>
+      <div class="tile"><span class="tv">{{.Archived}}</span><span class="tl">Archived</span></div>
+      <div class="tile"><span class="tv">{{.Findings}}</span><span class="tl">Findings</span></div>
+      <div class="tile"><span class="tv">{{.Messages}}</span><span class="tl">Chat messages</span></div>
+      <div class="tile"><span class="tv">{{.DBSize}}</span><span class="tl">Database</span></div>
+      <div class="tile"><span class="tv">{{.IndexBuild}}</span><span class="tl">Index build</span></div>
+      <div class="tile"><span class="tv">v{{.Schema}}</span><span class="tl">Schema</span></div>
+    </div>
+  </section>
+  <section class="panel">
+    <div class="panelhead"><h2>Data</h2></div>
+    <form class="kvrows flush" method="get" action="/admin/system/backup">
+      <div class="kvrow"><span class="flabel">Data folder</span><span class="mono clip" title="{{.DataDir}}">{{.DataDir}}</span><span></span></div>
+      <div class="kvrow"><span class="flabel">Running since</span><span class="mono">{{.Started}}</span><span></span></div>
+      <div class="kvrow"><span class="flabel">Full backup</span><label class="chk"><input type="checkbox" name="key" value="1">secret.key</label><button class="btn secondary sm w160">Download backup</button></div>
+    </form>
+  </section>
+</div>
+<section class="panel">
+  <div class="panelhead"><h2>Operations</h2><span class="pstate{{if and .Op (not .OpOK)}} error{{end}}" title="{{.OpResult}}">{{.OpResult}}</span></div>
+  <div class="oprow">
+    <form method="post" action="/admin/system/sync"><button class="btn secondary w160">Sync pointers</button></form>
+    <form method="post" action="/admin/system/reindex"><button class="btn secondary w160">Rebuild index</button></form>
+    <form method="post" action="/admin/system/migrate"><button class="btn secondary w160">Migrate status</button></form>
+  </div>
+  {{if .OpItems}}
+  <table class="table stable">
+    <thead><tr><th>To migrate</th></tr></thead>
+    <tbody>{{range .OpItems}}<tr><td class="mono clip" title="{{.}}">{{.}}</td></tr>{{end}}</tbody>
+  </table>
+  {{end}}
+</section>
+{{end}}
+
+{{define "admin_health"}}
+<section class="panel">
+  <div class="panelhead">
+    <h2>Health {{if .Errors}}<span class="tag bad">{{.Errors}} error{{if ne .Errors 1}}s{{end}}</span>{{end}}{{if .Warnings}}<span class="tag warn">{{.Warnings}} warning{{if ne .Warnings 1}}s{{end}}</span>{{end}}</h2>
+    <div class="actions"><span class="mono">{{.Checked}}</span><a class="btn secondary sm w128" href="/admin/health">Check again</a></div>
+  </div>
+  <table class="table stable healthtable">
+    <thead><tr><th class="c-check">Check</th><th class="c-state">State</th><th>Detail</th><th class="c-took">Took</th></tr></thead>
+    <tbody>
+      {{range .Rows}}
+      <tr class="h-{{.State}}"><td class="strong">{{.Name}}</td><td><span class="tag {{.State}}">{{.Label}}</span></td><td class="mono clip" title="{{.Detail}}">{{.Detail}}</td><td class="mono">{{.Took}}</td></tr>
+      {{end}}
+    </tbody>
+  </table>
+  <div class="kvrows flush"><div class="kvrow"><span class="flabel">Running for</span><span class="mono">{{.Uptime}}</span><span></span></div></div>
+</section>
+{{end}}
+
+{{define "admin_activity"}}
+<form class="filterbar" method="get" action="/admin/activity">
+  <label>Person<select name="actor" class="w160" onchange="this.form.submit()"><option value="">All</option>{{range .Actors}}<option value="{{.Value}}"{{if .On}} selected{{end}}>{{.Label}}</option>{{end}}</select></label>
+  <label>Action<select name="action" class="w160" onchange="this.form.submit()"><option value="">All</option>{{range .Actions}}<option value="{{.Value}}"{{if .On}} selected{{end}}>{{.Label}}</option>{{end}}</select></label>
+  <noscript><button class="btn secondary w96">Show</button></noscript>
+  <span class="grow"></span>
+  <span class="mono rangeslot">{{.Range}}</span>
+</form>
+<section class="panel" id="log">
+  <table class="table stable audittable">
+    <thead><tr><th class="c-time">Time</th><th class="c-who">Who</th><th class="c-action">Action</th><th class="c-target">Object</th><th>Detail</th></tr></thead>
+    <tbody>
+      {{range .Rows}}
+      <tr{{if eq .Action "login.fail"}} class="denied"{{end}}><td class="mono">{{.TS}}</td><td class="clip">{{.Actor}}</td><td class="mono clip">{{.Action}}</td><td class="clip" title="{{.Target}}">{{if .Target}}{{.Target}}{{else}}—{{end}}</td><td class="clip" title="{{.Detail}}">{{.Detail}}</td></tr>
+      {{else}}
+      <tr><td colspan="5" class="muted">—</td></tr>
+      {{end}}
+    </tbody>
+  </table>
+  <div class="pfoot flush">
+    {{if .Prev}}<a class="btn secondary sm w112" href="{{.Prev}}">Previous</a>{{else}}<span class="slot w112"></span>{{end}}
+    {{if .Next}}<a class="btn secondary sm w112" href="{{.Next}}">Next</a>{{else}}<span class="slot w112"></span>{{end}}
+  </div>
+</section>
+<section class="panel" id="sessions">
+  <div class="panelhead"><h2>Sessions <span class="{{if .Sessions}}qcnt{{else}}qcnt zero{{end}}">{{len .Sessions}}</span></h2></div>
+  <table class="table stable">
+    <thead><tr><th>User</th><th class="c-time">Signed in</th><th class="c-time">Last seen</th><th class="c-act">Action</th></tr></thead>
+    <tbody>
+      {{range .Sessions}}
+      <tr><td class="strong clip">{{.User}}</td><td class="mono">{{.Created}}</td><td class="mono">{{.LastSeen}}</td>
+        <td><form method="post" action="/admin/activity/sessions/{{.ID}}/revoke"><button class="btn danger sm w96">Revoke</button></form></td></tr>
+      {{else}}
+      <tr><td colspan="4" class="muted">—</td></tr>
+      {{end}}
+    </tbody>
+  </table>
+</section>
+<section class="panel" id="tokens">
+  <div class="panelhead"><h2>Tokens <span class="{{if .Tokens}}qcnt{{else}}qcnt zero{{end}}">{{len .Tokens}}</span></h2></div>
+  <table class="table stable tokentable">
+    <thead><tr><th class="c-who">Owner</th><th>Name</th><th class="c-can">Can</th><th class="c-date">Expires</th><th class="c-date">Last used</th><th class="c-act">Action</th></tr></thead>
+    <tbody>
+      {{range .Tokens}}
+      <tr>
+        <td class="strong clip">{{.User}}</td>
+        <td class="stack"><span class="strong" title="{{.Name}}">{{.Name}}</span><span class="mono">{{.Ending}}</span></td>
+        <td class="stack"><span>{{.Kind}} · {{.Can}}</span><span class="muted" title="{{.Where}}">{{.Where}}</span></td>
+        <td class="stack"><span class="mono">{{.Expires}}</span>{{with .ExpireSoon}}<span class="soon">{{.}}</span>{{end}}</td>
+        <td class="mono">{{.LastUsed}}</td>
+        <td><form method="post" action="/admin/activity/tokens/{{.ID}}/revoke"><button class="btn danger sm w96">Revoke</button></form></td>
+      </tr>
+      {{else}}
+      <tr><td colspan="6" class="muted">—</td></tr>
+      {{end}}
+    </tbody>
+  </table>
+</section>
 {{end}}
 
 {{define "admin_rules"}}

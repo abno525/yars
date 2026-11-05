@@ -112,6 +112,33 @@ func TestRowSince(t *testing.T) {
 	}
 }
 
+// Rows and the engagement list honour a visible set (a user's teams); nil
+// shows every engagement.
+func TestVisibleSet(t *testing.T) {
+	ix, s := fixture(t)
+	if rows, _ := ix.Rows(Query{Visible: map[string]bool{"other": true}}); titles(rows) != "Z" {
+		t.Fatalf("got %q", titles(rows))
+	}
+	if rows, _ := ix.Rows(Query{EngID: "acme", Visible: map[string]bool{"other": true}}); len(rows) != 0 {
+		t.Fatalf("hidden engagement by id: %q", titles(rows))
+	}
+	if rows, _ := ix.Rows(Query{Visible: map[string]bool{}}); len(rows) != 0 {
+		t.Fatalf("empty set: %q", titles(rows))
+	}
+	es, _ := ix.EngagementsFor(map[string]bool{"acme": true})
+	if len(es) != 1 || es[0].ID != "acme" {
+		t.Fatalf("engagements %+v", es)
+	}
+	if all, _ := ix.EngagementsFor(nil); len(all) != 2 {
+		t.Fatalf("all %+v", all)
+	}
+	// archiving reloads the engagement, which then says so
+	s.DB().Archive("acme", "dora")
+	if e, ok := ix.Engagement("acme"); !ok || !e.Archived {
+		t.Fatalf("archive not seen: %+v", e)
+	}
+}
+
 func TestFilterByEngagementAndStatus(t *testing.T) {
 	ix, _ := fixture(t)
 	rows, err := ix.Rows(Query{EngID: "acme"})

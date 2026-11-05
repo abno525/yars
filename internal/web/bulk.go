@@ -100,7 +100,7 @@ func (s *Server) bulk(w http.ResponseWriter, r *http.Request) {
 		} else {
 			it.Key = eng + "/" + id
 		}
-		ref, err := s.bulkRef(e, fid)
+		ref, err := s.bulkRef(u, e, fid)
 		if err != nil {
 			if !errors.Is(err, store.ErrNotFound) {
 				s.fail(w, err)
@@ -127,6 +127,9 @@ func (s *Server) bulk(w http.ResponseWriter, r *http.Request) {
 		case errors.As(err, &d):
 			it.Reason = d.Reason
 			v.Denied++
+		case errors.Is(err, store.ErrArchived):
+			it.Reason = "archived"
+			v.Denied++
 		default:
 			s.fail(w, err)
 			return
@@ -145,9 +148,10 @@ func (s *Server) bulk(w http.ResponseWriter, r *http.Request) {
 	s.exec(w, "engagement.html", "bulk_result", v)
 }
 
-// bulkRef loads one selected finding; a malformed id is ErrNotFound.
-func (s *Server) bulkRef(eng, fid string) (store.FindingRef, error) {
-	if !store.ValidID(eng) || !store.ValidID(fid) {
+// bulkRef loads one selected finding; a malformed id, or a finding of an
+// engagement u is not on the team of, is ErrNotFound.
+func (s *Server) bulkRef(u config.User, eng, fid string) (store.FindingRef, error) {
+	if !store.ValidID(eng) || !store.ValidID(fid) || !s.Store.CanSee(u, eng) {
 		return store.FindingRef{}, store.ErrNotFound
 	}
 	return s.Store.Finding(eng, fid)

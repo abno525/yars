@@ -67,6 +67,7 @@ type chatView struct {
 	Sections             []string
 	Error, Text, Section string
 	ListError            string
+	ReadOnly             bool // archived engagement: no composer, replies or resolving
 }
 
 var eventText = map[string]string{
@@ -130,7 +131,8 @@ func (s *Server) hiddenFor(r *http.Request, ref store.FindingRef) map[string]boo
 // hidden are the threads the viewer hid.
 func (s *Server) chatFor(ref store.FindingRef, msgs []chat.Message, stamp string, all bool, hidden map[string]bool) chatView {
 	base := findingURL(ref.EngID, ref.Dir) + "/chat"
-	v := chatView{Hash: stamp, PostURL: base, Sections: s.sectionNames(ref), All: all, OlderURL: base + "?all=1"}
+	v := chatView{Hash: stamp, PostURL: base, Sections: append(s.sectionNames(ref), store.PanelTargets...), All: all, OlderURL: base + "?all=1",
+		ReadOnly: s.Store.Archived(ref.EngID)}
 	q := url.Values{}
 	if stamp != "" {
 		q.Set("since", stamp)

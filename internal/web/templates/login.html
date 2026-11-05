@@ -1,9 +1,10 @@
 {{define "content"}}
-<form class="card login" method="post" action="/login">
-  <h1>Sign in</h1>
-  {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
-  <label>Username <input name="username" autocomplete="username" required autofocus></label>
-  <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
-  <div class="actions"><button class="btn primary w128">Sign in</button></div>
+<form class="barecard" method="post" action="/login">
+  <div class="barefields">
+    <label>Username<input name="username" autocomplete="username" required autofocus></label>
+    <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
+    <div class="alertslot">{{with .Error}}<div class="alert" role="alert">{{.}}</div>{{end}}</div>
+  </div>
+  <button class="btn primary barebtn">Log in</button>
 </form>
 {{end}}

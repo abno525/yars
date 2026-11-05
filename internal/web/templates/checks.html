@@ -9,7 +9,7 @@
     </div>
     <div class="actions">
       <span class="slot w128">{{if .State}}<span class="tag check-{{.State}}" title="{{.Error}}">{{.StateLabel}}</span>{{end}}</span>
-      <button class="btn secondary sm w152" hx-post="{{.URL}}" hx-target="#checks" hx-swap="outerHTML"{{if .Running}} disabled{{end}}>{{.Button}}</button>
+      {{if .ReadOnly}}<span class="slot w152"></span>{{else}}<button class="btn secondary sm w152" hx-post="{{.URL}}" hx-target="#checks" hx-swap="outerHTML"{{if .Running}} disabled{{end}}>{{.Button}}</button>{{end}}
     </div>
   </div>
   <div class="checkbody flush">

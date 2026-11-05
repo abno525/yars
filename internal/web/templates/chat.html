@@ -5,6 +5,7 @@
     <span class="threads">{{if .Open}}{{.Open}} open{{end}}</span>
   </div>
   {{template "chat_list" .}}
+  {{if not .ReadOnly}}
   <form class="composer" hx-post="{{.PostURL}}" hx-target="#chat" hx-swap="outerHTML">
     {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
     <textarea name="text" rows="3" placeholder="Message" aria-label="Message" id="chat-text">{{.Text}}</textarea>
@@ -17,6 +18,7 @@
       <button class="btn save w112">Send</button>
     </div>
   </form>
+  {{end}}
 </aside>
 {{end}}
 
@@ -53,10 +55,12 @@
       <div class="rbody">
         {{template "chat_msg" .Root}}
         {{range .Replies}}<div class="reply">{{template "chat_msg" .}}</div>{{end}}
+        {{if not $.ReadOnly}}
         <form class="thread-tools" hx-post="{{$.PostURL}}" hx-target="#chat-list" hx-swap="outerHTML">
           {{if $.All}}<input type="hidden" name="all" value="1">{{end}}
           <input type="hidden" name="reopens" value="{{.Root.ID}}"><button class="btn ghost sm w96">Reopen</button>
         </form>
+        {{end}}
       </div>
       {{end}}
     </div>
@@ -64,6 +68,7 @@
     <div class="thread">
       {{template "chat_msg" .Root}}
       {{range .Replies}}<div class="reply">{{template "chat_msg" .}}</div>{{end}}
+      {{if not $.ReadOnly}}
       <div class="thread-actions">
         <form class="reply-form" hx-post="{{$.PostURL}}" hx-target="#chat-list" hx-swap="outerHTML">
           <input type="hidden" name="reply" value="{{.Root.ID}}">
@@ -76,6 +81,7 @@
           <input type="hidden" name="resolves" value="{{.Root.ID}}"><button class="btn secondary sm w96">Resolve</button>
         </form>
       </div>
+      {{end}}
     </div>
     {{end}}
     {{end}}

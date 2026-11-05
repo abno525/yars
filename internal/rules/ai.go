@@ -11,6 +11,9 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
+
+	"yars/internal/config"
 )
 
 const systemPrompt = `You check penetration-test findings against one style rule. Reply with JSON only: {"violations":[{"quote":"exact text from the input","message":"what is wrong and how to fix it"}]}. Return an empty list when the text follows the rule.`
@@ -26,14 +29,74 @@ func aiWarning(r Rule, msg string) []Violation {
 	return []Violation{{Rule: r.ID, Level: "warning", Message: msg, Target: "ai"}}
 }
 
+// ProviderOff, saved on the admin page, turns AI rules off whatever
+// config.yaml says.
+const ProviderOff = "off"
+
+// Effective returns the AI settings in use: the admin page's (Stored) over
+// config.yaml, field by field, and the key: the environment variable named
+// by api_key_env wins over the stored key (fromEnv reports which).
+func (rn *Runner) Effective() (c config.AIConfig, key string, fromEnv bool) {
+	c = rn.AIConf
+	stored := ""
+	if rn.Stored != nil {
+		s, k := rn.Stored()
+		switch s.Provider {
+		case "":
+		case ProviderOff:
+			c.Provider = ""
+		default:
+			c.Provider = s.Provider
+		}
+		if s.BaseURL != "" {
+			c.BaseURL = s.BaseURL
+		}
+		if s.Model != "" {
+			c.Model = s.Model
+		}
+		stored = k
+	}
+	if c.APIKeyEnv != "" && rn.Getenv != nil {
+		if k := rn.Getenv(c.APIKeyEnv); k != "" {
+			return c, k, true
+		}
+	}
+	return c, stored, false
+}
+
+// ask sends one prompt to the provider in c.
+func (rn *Runner) ask(ctx context.Context, c config.AIConfig, key, user string) (string, error) {
+	if c.Provider == "anthropic" {
+		return rn.anthropic(ctx, c, key, user)
+	}
+	return rn.openai(ctx, c, key, user)
+}
+
+// Ping sends a minimal request to the provider in use and returns how long
+// the reply took (the admin page's Test button and the health check).
+func (rn *Runner) Ping(ctx context.Context) (time.Duration, error) {
+	c, key, _ := rn.Effective()
+	if c.Provider == "" || key == "" {
+		return 0, errors.New("no AI provider configured")
+	}
+	ctx, cancel := context.WithTimeout(ctx, min(rn.AITimeout, 20*time.Second))
+	defer cancel()
+	start := time.Now()
+	content, err := rn.ask(ctx, c, key, "Rule: none.\n\nText (title):\nping")
+	if err != nil {
+		return 0, err
+	}
+	var res aiResult
+	if err := parseAI(content, &res); err != nil {
+		return 0, err
+	}
+	return max(time.Since(start), time.Nanosecond), nil
+}
+
 // AI asks the configured model whether text (from target) follows the rule.
 // Provider errors are warnings, never blocking.
 func (rn *Runner) AI(ctx context.Context, r Rule, target, text string) []Violation {
-	c := rn.AIConf
-	key := ""
-	if c.APIKeyEnv != "" {
-		key = rn.Getenv(c.APIKeyEnv)
-	}
+	c, key, _ := rn.Effective()
 	if c.Provider == "" || key == "" {
 		return aiWarning(r, "AI rules skipped: no AI provider configured")
 	}
@@ -46,13 +109,7 @@ func (rn *Runner) AI(ctx context.Context, r Rule, target, text string) []Violati
 		ctx, cancel := context.WithTimeout(ctx, rn.AITimeout)
 		defer cancel()
 		user := "Rule: " + r.AI + "\n\nText (" + target + "):\n" + text
-		var content string
-		var err error
-		if c.Provider == "anthropic" {
-			content, err = rn.anthropic(ctx, key, user)
-		} else {
-			content, err = rn.openai(ctx, key, user)
-		}
+		content, err := rn.ask(ctx, c, key, user)
 		if err == nil {
 			err = parseAI(content, &res)
 		}
@@ -106,13 +163,13 @@ func (rn *Runner) post(ctx context.Context, url string, body any, hdr map[string
 	return json.Unmarshal(data, out)
 }
 
-func (rn *Runner) openai(ctx context.Context, key, user string) (string, error) {
-	base := strings.TrimRight(rn.AIConf.BaseURL, "/")
+func (rn *Runner) openai(ctx context.Context, c config.AIConfig, key, user string) (string, error) {
+	base := strings.TrimRight(c.BaseURL, "/")
 	if base == "" {
 		base = "https://api.openai.com/v1"
 	}
 	body := map[string]any{
-		"model":           rn.AIConf.Model,
+		"model":           c.Model,
 		"temperature":     0,
 		"response_format": map[string]string{"type": "json_object"},
 		"messages": []map[string]string{
@@ -136,13 +193,13 @@ func (rn *Runner) openai(ctx context.Context, key, user string) (string, error) 
 	return out.Choices[0].Message.Content, nil
 }
 
-func (rn *Runner) anthropic(ctx context.Context, key, user string) (string, error) {
-	base := strings.TrimRight(rn.AIConf.BaseURL, "/")
+func (rn *Runner) anthropic(ctx context.Context, c config.AIConfig, key, user string) (string, error) {
+	base := strings.TrimRight(c.BaseURL, "/")
 	if base == "" {
 		base = "https://api.anthropic.com"
 	}
 	body := map[string]any{
-		"model":      rn.AIConf.Model,
+		"model":      c.Model,
 		"max_tokens": 1024,
 		"system":     systemPrompt,
 		"messages":   []map[string]string{{"role": "user", "content": user}},

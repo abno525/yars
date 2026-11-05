@@ -144,6 +144,23 @@ func TestSeverityManual(t *testing.T) {
 	}
 }
 
+// The saved CVSS panel lists every non-standard metric in a table with
+// headers: metric, the team standard, the chosen value and the reason.
+func TestCVSSReasonsTableInView(t *testing.T) {
+	e := setup(t)
+	form := vecForm(nil)
+	for _, k := range []string{"AC", "C", "I"} {
+		form.Set("reason_"+k, "because "+k)
+	}
+	e.do(t, "alice", "POST", fpath+"/cvss", form, nil)
+	b := e.do(t, "alice", "GET", fpath+"/cvss", nil, nil).Body.String()
+	for _, h := range []string{"<th class=\"c-metric\">Metric</th>", "<th class=\"c-std\">Standard</th>", "<th class=\"c-chosen\">Chosen</th>", "<th>Reason</th>", "because C"} {
+		if !strings.Contains(b, h) {
+			t.Fatalf("missing %q in CVSS panel:\n%s", h, b)
+		}
+	}
+}
+
 func TestCVSSExplanationTableUnderCalculator(t *testing.T) {
 	e := setup(t)
 	b := e.do(t, "alice", "POST", fpath+"/cvss/calc", vecForm(nil), nil).Body.String()

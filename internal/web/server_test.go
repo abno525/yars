@@ -56,13 +56,17 @@ func setup(t *testing.T) *env {
 	users := []config.User{
 		{Username: "alice", Role: "pentester", PasswordHash: pwHash},
 		{Username: "bob", Role: "reviewer", PasswordHash: pwHash},
-		{Username: "dora", Role: "director", PasswordHash: pwHash},
+		{Username: "dora", Role: "director", PasswordHash: pwHash, IsAdmin: true},
 		{Username: "carol", Role: "reviewer", PasswordHash: pwHash},
 	}
 	for _, u := range users {
 		if err := d.AddUser(u); err != nil {
 			t.Fatal(err)
 		}
+	}
+	// everyone is on the team of the test engagement (dora directs)
+	if err := d.AddMembers("acme", "alice", "bob", "carol"); err != nil {
+		t.Fatal(err)
 	}
 	au := auth.New(d)
 	s := &Server{Store: st, Index: index.New(st, r), Auth: au, Cfg: cfg}

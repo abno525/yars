@@ -89,6 +89,9 @@ func (s *Store) StartCheck(engID, dir string, u config.User) (db.CheckRun, error
 	if s.db == nil {
 		return db.CheckRun{}, ErrNoDB
 	}
+	if err := s.writable(engID); err != nil {
+		return db.CheckRun{}, err
+	}
 	if s.Linter == nil {
 		return db.CheckRun{}, fmt.Errorf("%w: no rules configured", ErrInvalidValue)
 	}
@@ -351,6 +354,9 @@ func (s *Store) Dismiss(engID, dir, rule, quote string, u config.User) error {
 	if s.db == nil {
 		return ErrNoDB
 	}
+	if err := s.writable(engID); err != nil {
+		return err
+	}
 	ref, err := s.Finding(engID, dir)
 	if err != nil {
 		return err
@@ -408,6 +414,9 @@ func dismissDenied(level string) string {
 func (s *Store) Undismiss(engID, dir, rule, quote string, u config.User) error {
 	if s.db == nil {
 		return ErrNoDB
+	}
+	if err := s.writable(engID); err != nil {
+		return err
 	}
 	ref, err := s.Finding(engID, dir)
 	if err != nil {

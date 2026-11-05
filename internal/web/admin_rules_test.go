@@ -72,7 +72,7 @@ func TestAdminDirectorsOnly(t *testing.T) {
 			t.Errorf("%s sees the Admin nav item", u)
 		}
 	}
-	if rec := e.do(t, "dora", "GET", "/admin", nil, nil); rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/admin/rules" {
+	if rec := e.do(t, "dora", "GET", "/admin", nil, nil); rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/admin/users" {
 		t.Fatalf("/admin: %d %s", rec.Code, rec.Header().Get("Location"))
 	}
 	b := e.do(t, "dora", "GET", "/e/acme", nil, nil).Body.String()
@@ -98,8 +98,8 @@ func TestAdminRulesPage(t *testing.T) {
 	if strings.Contains(b, ` style="`) || strings.Contains(b, "<style") {
 		t.Fatal("inline styles")
 	}
-	// the tab list keeps a slot for every admin area; only Rules is live
-	if n := len(regexp.MustCompile(`class="atab[ "]`).FindAllString(b, -1)); n != 8 {
+	// the tab list keeps a slot for every admin area, built or not
+	if n := len(regexp.MustCompile(`class="atab[ "]`).FindAllString(b, -1)); n != len(adminTabs) {
 		t.Fatalf("%d tab slots", n)
 	}
 	if !strings.Contains(b, `<a class="atab on" href="/admin/rules">Rules</a>`) {

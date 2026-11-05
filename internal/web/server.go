@@ -25,6 +25,7 @@ import (
 	"yars/internal/index"
 	"yars/internal/render"
 	"yars/internal/rules"
+	"yars/internal/secret"
 	"yars/internal/store"
 	"yars/internal/workflow"
 )
@@ -48,8 +49,21 @@ type Server struct {
 	// Handler when nil. Whoever else changes data (the git server after a
 	// push) publishes to the same hub.
 	Events *events.Hub
+	// Tokens manages API tokens (settings, admin); made from the database
+	// when nil.
+	Tokens *auth.Tokens
+	// Secret encrypts personal keys and the AI key; opened from the data
+	// directory's key file on first use when nil.
+	Secret *secret.Box
+	// MigrateStatus lists what in the data directory still needs `yars
+	// migrate` (the admin's Migrate status button); nil = nothing known.
+	MigrateStatus func() []string
 
 	pages     map[string]*template.Template
+	started   time.Time
+	secretMu  sync.Mutex
+	aiTest    atomic.Pointer[aiTestResult] // the last Test on the AI page
+	hasUsers  atomic.Bool                  // an account exists (first run is over)
 	exports   exportCache
 	inboxes   inboxCache
 	md        *render.Markdown
@@ -75,6 +89,7 @@ type panel struct {
 	Open                                            int // open chat threads anchored here
 	HTML, Current                                   template.HTML
 	Conflict                                        bool // saved meanwhile by someone else: Current is theirs
+	ReadOnly                                        bool // archived engagement: no Comment either
 }
 
 type page struct {
@@ -83,8 +98,11 @@ type page struct {
 	Eng           store.Engagement
 	CanManage     bool
 	CanAdmin      bool   // the Admin nav item
-	Nav           string // active top-bar item: "" (findings), "inbox" or "admin"
+	Nav           string // active top-bar item: "" (findings), "inbox", "admin" or "settings" (the user name)
+	Bare          bool   // no top bar: login and first run
 	Admin         adminView
+	Settings      settingsView
+	Archive       archiveView // the engagement is archived: read-only bar
 	Error         string
 	Rows          []index.Row
 	Offset        int    // first row shown (board pages after the first)
@@ -114,14 +132,19 @@ type page struct {
 }
 
 var funcs = template.FuncMap{"join": strings.Join, "checkedIn": checkedIn, "retestLabel": workflow.RetestLabel, "fpath": findingURL,
-	"static": staticPrefix, "score0": score0, "cleared": cleared, "age": age}
+	"static": staticPrefix, "score0": score0, "cleared": cleared, "age": age, "day": day, "when": when, "ending": ending}
 
 // findingURL is a finding's page: /e/<eng>/f/<number>.
 func findingURL(eng, dir string) string { return "/e/" + eng + "/f/" + store.ShortID(dir) }
 
 func (s *Server) init() {
 	s.hookOnce.Do(func() {
+		s.started = time.Now()
 		s.md = render.New(render.Size)
+		if s.Tokens == nil && s.Store != nil && s.Store.DB() != nil {
+			s.Tokens = auth.NewTokens(s.Store.DB())
+		}
+		s.wireAI()
 		if s.Events == nil {
 			s.Events = events.New()
 		}
@@ -167,12 +190,16 @@ func (s *Server) Handler() http.Handler {
 	s.routesExport(private)
 	s.routesBulk(private)
 	s.routesAdmin(private)
+	s.routesSettings(private)
+	private.HandleFunc("POST /e/{eng}/reopen", s.engReopen)
 
 	root := http.NewServeMux()
 	root.HandleFunc("GET /login", s.loginPage)
 	root.HandleFunc("POST /login", s.login)
+	root.HandleFunc("GET /setup", s.setupPage)
+	root.HandleFunc("POST /setup", s.setup)
 	root.Handle("GET /static/", staticHandler())
-	root.Handle("/", s.Auth.Require(private))
+	root.Handle("/", s.Auth.Require(s.teamGate(private)))
 	if s.Git != nil {
 		root.Handle("/git/", longLived(s.Git)) // HTTP Basic auth, no cookies; big pushes and clones take time
 	}
@@ -180,7 +207,7 @@ func (s *Server) Handler() http.Handler {
 		root.Handle("/mcp", s.MCP) // Bearer tokens, no cookies
 	}
 	// Reject cross-origin state-changing requests (CSRF, incl. login CSRF).
-	return gzipHandler(http.NewCrossOriginProtection().Handler(root))
+	return gzipHandler(http.NewCrossOriginProtection().Handler(s.firstRun(root)))
 }
 
 func (s *Server) render(w http.ResponseWriter, name string, p *page) {
@@ -219,6 +246,10 @@ func (s *Server) fail(w http.ResponseWriter, err error) {
 		http.NotFound(w, nil)
 		return
 	}
+	if errors.Is(err, store.ErrArchived) {
+		http.Error(w, store.ErrArchived.Error(), http.StatusForbidden)
+		return
+	}
 	log.Printf("error: %v", err)
 	http.Error(w, "internal error", http.StatusInternalServerError)
 }
@@ -230,7 +261,11 @@ func author(u config.User) gitrepo.Author { return store.AuthorOf(u) }
 // base builds the common page data; eng may be "" for pages outside an engagement.
 func (s *Server) base(r *http.Request, eng string) (*page, error) {
 	u := auth.UserFrom(r.Context())
-	engs, err := s.Index.Engagements() // cached with the index
+	vis, err := s.Store.Visible(u)
+	if err != nil {
+		return nil, err
+	}
+	engs, err := s.Index.EngagementsFor(vis) // cached with the index
 	if err != nil {
 		return nil, err
 	}
@@ -245,18 +280,22 @@ func (s *Server) base(r *http.Request, eng string) (*page, error) {
 		} else if p.Eng, err = s.Store.Engagement(eng); err != nil {
 			return nil, err
 		}
+		if p.Eng.Archived {
+			p.Archive = s.archiveOf(p.Eng.ID, p.CanManage)
+		}
 	}
 	return p, nil
 }
 
 func (s *Server) loginPage(w http.ResponseWriter, r *http.Request) {
-	s.render(w, "login.html", &page{})
+	s.render(w, "login.html", &page{Bare: true})
 }
 
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
+	// a disabled account gets the same answer as a wrong password
 	tok, ok := s.Auth.Login(r.FormValue("username"), r.FormValue("password"))
 	if !ok {
-		s.renderStatus(w, http.StatusUnauthorized, "login.html", &page{Error: "Wrong username or password."})
+		s.renderStatus(w, http.StatusUnauthorized, "login.html", &page{Bare: true, Error: "Wrong username or password"})
 		return
 	}
 	auth.SetCookie(w, tok)
@@ -455,10 +494,11 @@ func (s *Server) renderFinding(w http.ResponseWriter, r *http.Request, status in
 		return
 	}
 	p.Chat = s.chatFor(p.Finding, msgs, stamp, false, s.hiddenFor(r, p.Finding))
-	locked := !workflow.CanEdit(p.User, p.Finding.F.Meta)
+	locked := s.locked(r, p.Finding)
 	for _, n := range s.sectionNames(p.Finding) {
 		pn := s.panelFor(p.Finding, n)
 		pn.Open = p.Chat.BySection[n]
+		pn.ReadOnly = p.Archive.On
 		if locked {
 			pn.EditURL = ""
 		}

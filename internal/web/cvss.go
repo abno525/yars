@@ -24,7 +24,7 @@ type cvssMetric struct {
 	Reason string
 }
 
-type cvssReason struct{ Metric, Value, Reason string }
+type cvssReason struct{ Key, Metric, Standard, Value, Reason string }
 
 // cvssView feeds both the read panel and the calculator editor.
 type cvssView struct {
@@ -34,6 +34,7 @@ type cvssView struct {
 	SevBase                   string
 	Complete, HasStored, OOB  bool
 	Locked                    bool
+	ReadOnly                  bool // archived engagement: no Comment either
 	Missing                   []string
 	Reasons                   []cvssReason
 	Severity                  string
@@ -57,7 +58,7 @@ func (s *Server) buildCVSS(ref store.FindingRef, sel cvss.Vector, reasons map[st
 	v := cvssView{
 		Base: store.CVSSHash(m), SevBase: store.SeverityHash(m), Severity: cvss.Derive(m.CVSS, m.Severity), Severities: s.Cfg.Severities,
 		ViewURL: base + "/cvss", EditURL: base + "/cvss/edit", CalcURL: base + "/cvss/calc",
-		SaveURL: base + "/cvss", SeverityURL: base + "/severity",
+		SaveURL: base + "/cvss", SeverityURL: base + "/severity", ReadOnly: s.Store.Archived(ref.EngID),
 	}
 	if _, err := cvss.Parse(m.CVSS); err == nil {
 		v.HasStored = true
@@ -70,7 +71,7 @@ func (s *Server) buildCVSS(ref store.FindingRef, sel cvss.Vector, reasons map[st
 			SelectedName: cvss.ValueName(mt.Key, sel[mt.Key]), StandardName: cvss.ValueName(mt.Key, std), Reason: reasons[mt.Key]}
 		if cm.Selected != "" && s.Cfg.NonStandard(mt.Key, cm.Selected) {
 			cm.NonStandard = true
-			v.Reasons = append(v.Reasons, cvssReason{Metric: mt.Name, Value: cvss.ValueName(mt.Key, cm.Selected), Reason: cm.Reason})
+			v.Reasons = append(v.Reasons, cvssReason{Key: mt.Key, Metric: mt.Name, Standard: cm.StandardName, Value: cvss.ValueName(mt.Key, cm.Selected), Reason: cm.Reason})
 			if strings.TrimSpace(cm.Reason) == "" {
 				v.Missing = append(v.Missing, mt.Name)
 			}
@@ -161,8 +162,10 @@ func (s *Server) editRef(w http.ResponseWriter, r *http.Request) (store.FindingR
 	return ref, ok && s.allowEdit(w, r, ref)
 }
 
+// locked reports whether the user may not change the finding: its status,
+// or an archived engagement.
 func (s *Server) locked(r *http.Request, ref store.FindingRef) bool {
-	return !workflow.CanEdit(auth.UserFrom(r.Context()), ref.F.Meta)
+	return !workflow.CanEdit(auth.UserFrom(r.Context()), ref.F.Meta) || s.Store.Archived(ref.EngID)
 }
 
 func (s *Server) cvssGet(w http.ResponseWriter, r *http.Request) {

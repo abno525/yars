@@ -37,10 +37,13 @@ func (a *Auth) Users() []config.User {
 	return us
 }
 
-// Lookup returns one account.
+// Lookup returns one active account (a disabled one is not found).
 func (a *Auth) Lookup(name string) (config.User, bool) {
 	u, ok, _ := a.db.User(name)
-	return u, ok
+	if !ok || u.Disabled {
+		return config.User{}, false
+	}
+	return u, true
 }
 
 func HashPassword(pw string) (string, error) {
@@ -68,11 +71,18 @@ func (a *Auth) Check(username, pw string) (config.User, bool) {
 	return u, true
 }
 
-// Login checks credentials and returns a new session token.
+// Login checks credentials and returns a new session token. Successes and
+// failures go to the audit log.
 func (a *Auth) Login(username, pw string) (string, bool) {
 	if _, ok := a.Check(username, pw); !ok {
+		name := username
+		if len(name) > 64 { // typed by anyone: keep the log small
+			name = name[:64]
+		}
+		a.db.Audit(name, "login.fail", "", "")
 		return "", false
 	}
+	a.db.Audit(username, "login", "", "")
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
 		return "", false

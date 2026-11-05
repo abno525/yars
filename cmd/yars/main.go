@@ -4,6 +4,7 @@
 //	yars init <dir>
 //	yars useradd --data <dir> --role <role> [--email e] <username>   (password read from stdin)
 //	yars passwd|userdel --data <dir> <username>; yars role --data <dir> <username> <role>
+//	yars admin --data <dir> <username> on|off
 //	yars serve --data <dir> [--addr :8080]
 //	yars migrate --data <dir>   (move state and chat from files into the database)
 //	yars lint --data <dir> [--all] [<engagement>[/<finding-dir>]]
@@ -40,6 +41,7 @@ import (
 	"yars/internal/mcp"
 	"yars/internal/policy"
 	"yars/internal/rules"
+	"yars/internal/secret"
 	"yars/internal/seed"
 	"yars/internal/store"
 	"yars/internal/web"
@@ -146,6 +148,9 @@ func cmdExport(args []string, out io.Writer) (int, error) {
 		}
 		fmt.Fprintln(out, "wrote", dst)
 	}
+	if d != nil {
+		d.Audit("cli", "export", e.ID, fmt.Sprintf("%s, %d findings", ex.ID, len(picked)))
+	}
 	if *mark && ex.Marks() {
 		if d == nil {
 			return 1, fmt.Errorf("--mark needs the server's data directory (workflow state is in its database)")
@@ -169,7 +174,7 @@ func cmdExport(args []string, out io.Writer) (int, error) {
 
 // serverIgnore keeps server-only files out of git: the database (accounts,
 // tokens, sessions, workflow state, chat) and the pre-database account files.
-const serverIgnore = "# accounts, tokens, chat and workflow state stay on the server\n.yars/yars.db*\n.yars/users.yaml\n.yars/tokens.yaml\n"
+const serverIgnore = "# accounts, tokens, chat and workflow state stay on the server\n.yars/yars.db*\n.yars/users.yaml\n.yars/tokens.yaml\n.yars/secret.key\n"
 
 // dataDB opens (creating if needed) the data directory's database.
 func dataDB(dir string) (*db.DB, error) { return db.Open(db.Path(dir)) }
@@ -220,6 +225,13 @@ func cmdToken(args []string, out io.Writer) (int, error) {
 	}
 	fs := flag.NewFlagSet("token", flag.ContinueOnError)
 	data := fs.String("data", ".", "data repo")
+	kind := fs.String("kind", db.TokenMCP, "add: mcp (the /mcp endpoint) or git (git over HTTP, as the password)")
+	scopes := fs.String("scopes", db.ScopeAll, "add: all, read, or actions ("+strings.Join(db.TokenActions, ",")+")")
+	name := fs.String("name", "", "add: a name for the token")
+	engs := fs.String("engagements", "", "add: comma-separated engagement ids (default: all)")
+	days := fs.Int("days", 0, "add: expires after this many days (0 = never)")
+	id := fs.Int64("id", 0, "revoke: only this token (default: every token of the user)")
+	fs.SetOutput(out)
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2, err
 	}
@@ -239,28 +251,56 @@ func cmdToken(args []string, out io.Writer) (int, error) {
 	switch args[0] {
 	case "list":
 		for _, t := range tk.List() {
-			fmt.Fprintf(out, "%s\tcreated %s\n", t.User, t.Created)
+			e := strings.Join(t.Engagements, ",")
+			if e == "" {
+				e = "all"
+			}
+			exp := t.Expires
+			if exp == "" {
+				exp = "never"
+			}
+			fmt.Fprintf(out, "%d\t%s\t%s\t…%s\t%s\tscopes %s\tengagements %s\texpires %s\tcreated %s\n",
+				t.ID, t.User, t.Kind, t.Last4, t.Name, strings.Join(t.Scopes, ","), e, exp, t.Created)
 		}
 		return 0, nil
 	case "add", "revoke":
 		if fs.NArg() != 1 {
-			return 2, fmt.Errorf("usage: yars token %s --data <dir> <user>", args[0])
+			return 2, fmt.Errorf("usage: yars token %s --data <dir> [flags] <user>", args[0])
 		}
-		name := fs.Arg(0)
-		if _, ok, _ := d.User(name); !ok && args[0] == "add" {
-			return 1, fmt.Errorf("unknown user %s", name)
+		user := fs.Arg(0)
+		if _, ok, _ := d.User(user); !ok && args[0] == "add" {
+			return 1, fmt.Errorf("unknown user %s", user)
 		}
 		if args[0] == "revoke" {
-			return 0, tk.Revoke(name)
+			if *id != 0 {
+				return 0, tk.RevokeID("cli", *id, user)
+			}
+			return 0, tk.Revoke("cli", user)
 		}
-		tok, err := tk.Add(name)
+		spec := db.TokenSpec{Name: *name, Kind: *kind, Scopes: splitList(*scopes)}
+		spec.Engagements = splitList(*engs)
+		if *days > 0 {
+			spec.Expires = time.Now().UTC().Add(time.Duration(*days) * 24 * time.Hour).Format(time.RFC3339)
+		}
+		tok, info, err := tk.Create("cli", user, spec)
 		if err != nil {
 			return 1, err
 		}
-		fmt.Fprintf(out, "token for %s (shown once; active immediately):\n%s\n", name, tok)
+		fmt.Fprintf(out, "token #%d for %s (%s; shown once; active immediately):\n%s\n", info.ID, user, info.Kind, tok)
 		return 0, nil
 	}
 	return 2, fmt.Errorf("unknown token command %q", args[0])
+}
+
+// splitList splits a comma-separated flag value (empty items dropped).
+func splitList(s string) []string {
+	var out []string
+	for _, x := range strings.Split(s, ",") {
+		if x = strings.TrimSpace(x); x != "" {
+			out = append(out, x)
+		}
+	}
+	return out
 }
 
 // writeIgnore adds the server-only lines to .gitignore; it reports whether
@@ -489,11 +529,14 @@ func usage() {
 	fmt.Fprintln(os.Stderr, `usage:
   yars init <dir>
   yars serve --data <dir> [--addr :8080]
-  yars useradd --data <dir> --role pentester|reviewer|director [--email e] <user>   (password from stdin)
+  yars useradd --data <dir> --role pentester|reviewer|director [--email e] [--admin] <user>   (password from stdin)
+  yars admin --data <dir> <user> on|off
   yars passwd --data <dir> <user>   (password from stdin)
   yars role --data <dir> <user> pentester|reviewer|director
   yars userdel --data <dir> <user>
-  yars token add|list|revoke --data <dir> [<user>]
+  yars token add --data <dir> [--kind mcp|git] [--scopes all|read|a,b] [--engagements e1,e2] [--days N] [--name n] <user>
+  yars token list --data <dir>
+  yars token revoke --data <dir> [--id N] <user>
   yars migrate --data <dir>
   yars lint --data <dir> [--all] [eng[/finding]]
   yars export --data <dir> --exporter <id> <eng>
@@ -518,6 +561,8 @@ func main() {
 		err = cmdRole(os.Args[2:], os.Stderr)
 	case "userdel":
 		err = cmdUserdel(os.Args[2:], os.Stderr)
+	case "admin":
+		err = cmdAdmin(os.Args[2:], os.Stderr)
 	case "migrate":
 		err = cmdMigrate(os.Args[2:], os.Stdout)
 	case "serve":
@@ -643,6 +688,10 @@ func initData(dir string) error {
 		return err
 	}
 	d.Close()
+	// the key that encrypts personal and AI keys in the database (git-ignored)
+	if err := secret.EnsureKey(dir); err != nil {
+		return err
+	}
 	return r.Commit([]string{".yars/config.yaml", ".yars/rules", ".yars/exporters", ".gitignore", "engagements"}, "init", system)
 }
 
@@ -683,9 +732,11 @@ func readPassword(in io.Reader, out io.Writer) (string, error) {
 
 func cmdUseradd(args []string, in io.Reader, out io.Writer) error {
 	var role, email *string
+	var admin *bool
 	fs, d, err := accountCmd("useradd", args, 1, func(fs *flag.FlagSet) {
 		role = fs.String("role", "pentester", "pentester|reviewer|director")
 		email = fs.String("email", "", "email for git authorship")
+		admin = fs.Bool("admin", false, "may open the admin pages")
 	})
 	if err != nil {
 		return err
@@ -705,10 +756,38 @@ func cmdUseradd(args []string, in io.Reader, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if err := d.AddUser(config.User{Username: name, Email: *email, Role: *role, PasswordHash: hash}); err != nil {
+	if err := d.AddUser(config.User{Username: name, Email: *email, Role: *role, PasswordHash: hash, IsAdmin: *admin}); err != nil {
 		return err
 	}
-	fmt.Fprintln(out, "\nadded", name, "as", *role)
+	detail := "role " + *role
+	if *admin {
+		detail += ", admin"
+	}
+	d.Audit("cli", "user.add", name, detail)
+	if *admin {
+		fmt.Fprintln(out, "\nadded", name, "as", *role, "(admin)")
+	} else {
+		fmt.Fprintln(out, "\nadded", name, "as", *role)
+	}
+	return nil
+}
+
+// cmdAdmin turns the admin flag on or off: yars admin --data <dir> <user> on|off
+func cmdAdmin(args []string, out io.Writer) error {
+	fs, d, err := accountCmd("admin", args, 2, nil)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	on := fs.Arg(1) == "on"
+	if !on && fs.Arg(1) != "off" {
+		return fmt.Errorf("usage: yars admin --data <dir> <user> on|off")
+	}
+	if err := d.SetAdmin(fs.Arg(0), on); err != nil {
+		return err
+	}
+	d.Audit("cli", "user.admin", fs.Arg(0), fs.Arg(1))
+	fmt.Fprintln(out, fs.Arg(0), "admin", fs.Arg(1))
 	return nil
 }
 
@@ -728,6 +807,7 @@ func cmdPasswd(args []string, in io.Reader, out io.Writer) error {
 	if err := d.SetPassword(fs.Arg(0), hash); err != nil {
 		return err
 	}
+	d.Audit("cli", "user.password", fs.Arg(0), "")
 	fmt.Fprintln(out, "\npassword changed for", fs.Arg(0))
 	return nil
 }
@@ -741,6 +821,7 @@ func cmdRole(args []string, out io.Writer) error {
 	if err := d.SetRole(fs.Arg(0), fs.Arg(1)); err != nil {
 		return err
 	}
+	d.Audit("cli", "user.role", fs.Arg(0), fs.Arg(1))
 	fmt.Fprintln(out, fs.Arg(0), "is now", fs.Arg(1))
 	return nil
 }
@@ -754,6 +835,7 @@ func cmdUserdel(args []string, out io.Writer) error {
 	if err := d.DeleteUser(fs.Arg(0)); err != nil {
 		return err
 	}
+	d.Audit("cli", "user.delete", fs.Arg(0), "")
 	fmt.Fprintln(out, "deleted", fs.Arg(0), "(their sessions and API tokens too)")
 	return nil
 }
@@ -779,7 +861,7 @@ func cmdServe(args []string) error {
 		return err
 	}
 	if users, _ := d.Users(); len(users) == 0 {
-		log.Println("warning: no users; add one with: yars useradd --data", *data, "--role director <name>")
+		log.Println("no accounts yet: open the web page to set up the first admin (/setup), or run: yars useradd --data", *data, "--role director --admin <name>")
 	}
 	st := store.New(r, cfg, d)
 	eng := rules.NewEngine(rules.DirFor(r.Dir), cfg)
@@ -801,18 +883,24 @@ func cmdServe(args []string) error {
 		st.Invalidate(eng)
 		hub.Publish(events.Event{Eng: eng, Kind: events.Push})
 	}
-	gs := &gitserve.Server{Repo: r, Auth: au, HookCmd: hookCmd(exe, r.Dir), Sync: st.SyncPointers, Invalidate: invalidate}
+	tokens := auth.NewTokens(d)
+	gs := &gitserve.Server{Repo: r, Auth: au, HookCmd: hookCmd(exe, r.Dir), Sync: st.SyncPointers, Invalidate: invalidate,
+		Tokens: tokens, CanSee: st.CanSee}
 	if cfg.AI.APIKeyEnv != "" {
 		gs.InheritEnv = []string{cfg.AI.APIKeyEnv} // AI rules run on pushes too
 	}
 	if err := gs.Setup(); err != nil {
 		return fmt.Errorf("git setup: %w", err)
 	}
-	tokens := auth.NewTokens(d)
 	ix := index.New(st, r)
 	mcpSrv := &mcp.Server{Store: st, Index: ix, Rules: eng, Cfg: cfg, Users: au.Users}
+	box, err := secret.Open(r.Dir)
+	if err != nil {
+		return fmt.Errorf("secret key: %w", err)
+	}
 	srv := &web.Server{Store: st, Index: ix, Auth: au, Cfg: cfg, Rules: eng, Git: gs.Handler(), Export: exportRunner(r.Dir),
-		MCP: mcpSrv.HTTPHandler(tokens, au.Lookup), Events: hub}
+		MCP: mcpSrv.HTTPHandler(tokens), Events: hub, Tokens: tokens, Secret: box,
+		MigrateStatus: func() []string { return legacyItems(r.Dir) }}
 	log.Printf("yars serving %s on %s", r.Dir, *addr)
 	return srv.HTTPServer(*addr).ListenAndServe()
 }

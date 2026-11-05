@@ -76,6 +76,9 @@ type Query struct {
 	EngID, Status, Severity, Author string
 	Sort                            string
 	Desc                            bool
+	// Visible limits the rows to these engagements (a user's teams); nil
+	// means every engagement.
+	Visible map[string]bool
 }
 
 // StatusOrder is the workflow order, withdrawn last.
@@ -188,7 +191,8 @@ type Index struct {
 	flight flight
 	hintMu sync.Mutex
 
-	rebuilds atomic.Int64 // engagement reloads (for tests)
+	rebuilds  atomic.Int64 // engagement reloads (for tests)
+	buildTime atomic.Int64 // nanoseconds the last full build took
 
 	sumMu         sync.Mutex
 	sumGen        uint64
@@ -243,6 +247,13 @@ func (ix *Index) refresh() error {
 // reload brings every engagement whose HEAD or counter moved up to date and
 // reuses the others.
 func (ix *Index) reload() error {
+	start := time.Now()
+	ix.mu.RLock()
+	full := len(ix.engs) == 0
+	ix.mu.RUnlock()
+	if full {
+		defer func() { ix.buildTime.Store(int64(max(time.Since(start), time.Nanosecond))) }()
+	}
 	key, err := ix.version()
 	if err != nil {
 		return err
@@ -394,6 +405,34 @@ func rank(order []string, v string) int {
 	return len(order)
 }
 
+// Rebuild drops every cached engagement and reads them all again (the admin
+// "Rebuild index" button); it returns how long that took.
+func (ix *Index) Rebuild() (time.Duration, error) {
+	ix.mu.Lock()
+	ix.engs, ix.built = map[string]*engRows{}, false
+	ix.mu.Unlock()
+	if err := ix.flight.do(ix.reload); err != nil {
+		return 0, err
+	}
+	return ix.LastBuild(), nil
+}
+
+// LastBuild is how long the last full build of the index took (0 before
+// the first one).
+func (ix *Index) LastBuild() time.Duration { return time.Duration(ix.buildTime.Load()) }
+
+// Findings is the number of findings in the index, withdrawn ones included.
+func (ix *Index) Findings() int {
+	ix.refresh()
+	ix.mu.RLock()
+	defer ix.mu.RUnlock()
+	n := 0
+	for _, e := range ix.engs {
+		n += len(e.rows)
+	}
+	return n
+}
+
 // Gen identifies the current table: it changes whenever any row does, so
 // callers can cache what they derive from the rows.
 func (ix *Index) Gen() (uint64, error) {
@@ -413,6 +452,21 @@ func (ix *Index) Engagements() ([]store.Engagement, error) {
 	ix.mu.RLock()
 	defer ix.mu.RUnlock()
 	return slices.Clone(ix.list), nil
+}
+
+// EngagementsFor lists the engagements in visible (nil = all), sorted by id.
+func (ix *Index) EngagementsFor(visible map[string]bool) ([]store.Engagement, error) {
+	all, err := ix.Engagements()
+	if err != nil || visible == nil {
+		return all, err
+	}
+	out := all[:0]
+	for _, e := range all {
+		if visible[e.ID] {
+			out = append(out, e)
+		}
+	}
+	return out, nil
 }
 
 // Engagement looks an engagement up in the cached list.
@@ -444,6 +498,9 @@ func (ix *Index) Rows(q Query) ([]Row, error) {
 		ids = []string{q.EngID}
 	}
 	for _, id := range ids {
+		if q.Visible != nil && !q.Visible[id] {
+			continue
+		}
 		if e := ix.engs[id]; e != nil {
 			for _, r := range e.rows {
 				if match(r) {

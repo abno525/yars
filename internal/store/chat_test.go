@@ -14,6 +14,21 @@ import (
 
 func chatMsg(text string) chat.Message { return chat.Message{Text: text} }
 
+// Comments can point at the Details table and the CVSS block, not only at
+// the text sections.
+func TestPostChatOnDetailsAndCVSS(t *testing.T) {
+	s, _, fd := newFinding(t)
+	for _, sec := range []string{"Details", "CVSS"} {
+		m, err := s.PostChat(eng, fd, chat.Message{Text: "check this", Section: sec}, uBob)
+		if err != nil {
+			t.Fatalf("%s: %v", sec, err)
+		}
+		if m.Section != sec {
+			t.Fatalf("section %q, want %q", m.Section, sec)
+		}
+	}
+}
+
 // Chat lives in the database: posting makes no commit and writes no file.
 func TestPostChat(t *testing.T) {
 	s, dir, fd := newFinding(t)

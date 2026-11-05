@@ -126,3 +126,38 @@ func TestAccountChangesApplyAtOnce(t *testing.T) {
 		t.Fatal("Users lists a deleted account")
 	}
 }
+
+// A disabled account can't log in, and its open sessions stop working.
+func TestDisabledAccount(t *testing.T) {
+	a, d := newAuth(t)
+	tok, _ := a.Login("alice", "secret")
+	h := a.Require(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	d.SetDisabled("alice", true)
+	if get(h, tok).Code != http.StatusSeeOther {
+		t.Fatal("disabled account still logged in")
+	}
+	if _, ok := a.Login("alice", "secret"); ok {
+		t.Fatal("disabled account logged in")
+	}
+	if _, ok := a.Check("alice", "secret"); ok {
+		t.Fatal("disabled account passes Check")
+	}
+	if _, ok := a.Lookup("alice"); ok {
+		t.Fatal("Lookup returns a disabled account")
+	}
+	d.SetDisabled("alice", false)
+	if _, ok := a.Login("alice", "secret"); !ok {
+		t.Fatal("re-enabled account can't log in")
+	}
+}
+
+func TestLoginAudited(t *testing.T) {
+	a, d := newAuth(t)
+	a.Login("alice", "secret")
+	a.Login("alice", "nope")
+	a.Login("mallory", "x")
+	l, _ := d.AuditLog(10)
+	if len(l) != 3 || l[2].Action != "login" || l[2].Actor != "alice" || l[1].Action != "login.fail" || l[0].Actor != "mallory" {
+		t.Fatalf("audit %+v", l)
+	}
+}

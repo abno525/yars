@@ -1,5 +1,5 @@
 {{define "layout"}}<!doctype html>
-<html lang="en">
+<html lang="en"{{with .User.Theme}} data-theme="{{.}}"{{end}}{{if .User.Username}} data-theme-save{{end}}>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -10,6 +10,14 @@
 <script src="{{static}}/app.js"></script>
 <script src="{{static}}/sse.js" defer></script>
 </head>
+{{if .Bare}}
+<body class="bare">
+<main class="baremain">
+<span class="logo big">YARS</span>
+{{template "content" .}}
+</main>
+</body>
+{{else}}
 <body>
 <header class="topbar">
   <a class="logo" href="/">YARS</a>
@@ -28,7 +36,7 @@
     <a class="{{if eq .Nav "inbox"}}on{{end}}" href="/inbox">Inbox {{with .Inbox.Count}}<span class="badge">{{.}}</span>{{else}}<span class="badge0">0</span>{{end}}</a>
     {{if .CanAdmin}}<a class="{{if eq .Nav "admin"}}on{{end}}" href="/admin">Admin</a>{{end}}
   </nav>
-  <span class="who" title="{{.User.Username}} · {{.User.Role}}">{{.User.Username}}</span>
+  <a class="who{{if eq .Nav "settings"}} on{{end}}" href="/settings" title="{{.User.Username}} · {{.User.Role}}">{{.User.Username}}</a>
   {{else}}
   <span class="nav"></span>
   {{end}}
@@ -44,4 +52,5 @@
 </main>
 <div id="toasts" aria-live="polite"></div>
 </body>
+{{end}}
 </html>{{end}}

@@ -198,6 +198,9 @@ func (s *Server) exportRun(w http.ResponseWriter, r *http.Request) {
 		fail(http.StatusInternalServerError, "export failed: "+err.Error())
 		return
 	}
+	if d := s.Store.DB(); d != nil {
+		d.Audit(p.User.Username, "export", p.Eng.ID, fmt.Sprintf("%s, %d findings", ex.ID, len(fs)))
+	}
 	// a successful export by a director marks complete findings reported
 	v := &p.ExportV
 	if ex.Marks() && p.CanManage {

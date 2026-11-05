@@ -67,8 +67,10 @@ func newPushEnv(t *testing.T) *pushEnv {
 	alice := users[0]
 	st.CreateEngagement(store.Engagement{ID: "acme", Name: "ACME"}, users[1].GitAuthor())
 	st.CreateFinding("acme", "SQLi", alice.GitAuthor())
+	d.AddMembers("acme", "alice") // alice's team
 
-	gs := &gitserve.Server{Repo: r, Auth: auth.New(d), HookCmd: hookCmd(bin, dir), Sync: st.SyncPointers, Invalidate: st.Invalidate}
+	gs := &gitserve.Server{Repo: r, Auth: auth.New(d), HookCmd: hookCmd(bin, dir), Sync: st.SyncPointers, Invalidate: st.Invalidate,
+		Tokens: auth.NewTokens(d), CanSee: st.CanSee}
 	if err := gs.Setup(); err != nil {
 		t.Fatal(err)
 	}
@@ -112,6 +114,25 @@ func (p *pushEnv) editFinding(fn func(f *finding.Finding)) {
 	os.WriteFile(path, f.Bytes(), 0o644)
 	if out, err := p.git("commit", "-qam", "edit"); err != nil {
 		p.t.Fatalf("commit: %v %s", err, out)
+	}
+}
+
+// End to end through the real hook: a push to an archived engagement is
+// rejected, and accepted again once a director reopens it.
+func TestPushArchivedRejected(t *testing.T) {
+	p := newPushEnv(t)
+	dora := config.User{Username: "dora", Role: "director"}
+	if err := p.st.Archive("acme", dora); err != nil {
+		t.Fatal(err)
+	}
+	p.editFinding(func(f *finding.Finding) { f.SetSection("Impact", "Full database read.") })
+	out, err := p.git("push", "origin", "HEAD")
+	if err == nil || !strings.Contains(out, "archived") {
+		t.Fatalf("push to archived engagement: %v\n%s", err, out)
+	}
+	p.st.Unarchive("acme", dora)
+	if out, err := p.git("push", "-q", "origin", "HEAD"); err != nil {
+		t.Fatalf("push after reopen: %v\n%s", err, out)
 	}
 }
 

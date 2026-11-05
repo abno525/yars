@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"yars/internal/auth"
 	"yars/internal/events"
 	"yars/internal/store"
 )
@@ -90,6 +91,9 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 		case <-sub.Lost():
 			ok = resync()
 		case e := <-sub.C():
+			if eng == "" && e.Eng != "" && !s.Store.CanSee(auth.UserFrom(r.Context()), e.Eng) {
+				continue // another team's engagement (a stream of every engagement)
+			}
 			data, _ := json.Marshal(struct {
 				Eng string `json:"eng"`
 				F   string `json:"f"`

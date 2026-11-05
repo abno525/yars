@@ -41,6 +41,17 @@
     {{end}}
 {{end}}
 
+{{define "archive_bar"}}
+{{if .On}}
+<div class="archbar" role="status">
+  <svg class="lockicon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="5" y="11" width="14" height="10"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path></svg>
+  <span class="tag eng-archived">Archived</span>
+  <span class="idchip">{{.ID}}</span>
+  <span class="mono">{{.At}}{{if .By}} · {{.By}}{{end}}</span>
+</div>
+{{end}}
+{{end}}
+
 {{define "bulk_result"}}
 <div class="bulk-result" id="bulk-result" data-action="{{.Action}}">
   <table class="table">
@@ -97,7 +108,7 @@
   <div class="panelhead">
     <div class="panelname"><h2>{{.Name}}</h2>{{if .Open}}<span class="open-count">{{.Open}}</span>{{end}}</div>
     <span class="panel-tools">
-      <button class="btn ghost sm w96" type="button" data-section="{{.Name}}" onclick="yarsComment(this.dataset.section)">Comment</button>
+      {{if .ReadOnly}}<span class="slot w96"></span>{{else}}<button class="btn ghost sm w96" type="button" data-section="{{.Name}}" onclick="yarsComment(this.dataset.section)">Comment</button>{{end}}
       {{if .EditURL}}<button class="btn ghost sm w96" hx-get="{{.EditURL}}" hx-target="#s-{{.Anchor}}" hx-swap="outerHTML">Edit</button>{{else}}<span class="slot w96 lockslot">{{template "lock"}}</span>{{end}}
     </span>
   </div>

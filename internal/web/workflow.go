@@ -45,6 +45,7 @@ type wfView struct {
 	Returned     *finding.Returned
 	Withdrawn    *finding.Returned // who withdrew the finding and why
 	IsWithdrawn  bool              // no step is current or done
+	ReadOnly     bool              // the engagement is archived: no actions
 
 	// The bar as drawn: the first chips, how many more, the fixed button
 	// slots of the status, the reason forms they open and the state text.
@@ -114,7 +115,7 @@ func (v *wfView) arrange(u config.User, m finding.Meta) {
 		sl.URL = base + name
 		if a, ok := have[name]; ok {
 			sl.wfAction, sl.Present = a, true
-		} else if m.Status == "verification" {
+		} else if m.Status == "verification" && !v.ReadOnly {
 			// kept in place, disabled: an earlier sign-off, or Approve
 			// waiting for one
 			switch {
@@ -172,9 +173,10 @@ func (s *Server) wfFor(ref store.FindingRef, r *http.Request) wfView {
 	u := auth.UserFrom(r.Context())
 	m := ref.F.Meta
 	base := findingURL(ref.EngID, ref.Dir)
-	v := wfView{Status: m.Status, Steps: workflow.Statuses, CanAssign: workflow.CanAssign(u, m),
+	archived := s.Store.Archived(ref.EngID)
+	v := wfView{Status: m.Status, Steps: workflow.Statuses, CanAssign: workflow.CanAssign(u, m) && !archived,
 		ReviewersURL: base + "/reviewers", URL: base + "/workflow", Returned: m.Returned, Withdrawn: m.Withdrawn,
-		IsWithdrawn: m.Status == workflow.Withdrawn}
+		IsWithdrawn: m.Status == workflow.Withdrawn, ReadOnly: archived}
 	if v.IsWithdrawn {
 		v.Returned = nil // the withdrawal is what counts now
 	}
@@ -189,7 +191,7 @@ func (s *Server) wfFor(ref store.FindingRef, r *http.Request) wfView {
 		}
 	}
 	for _, a := range workflow.Actions {
-		if workflow.Check(u, m, a) != nil {
+		if archived || workflow.Check(u, m, a) != nil {
 			continue
 		}
 		act := wfAction{Name: string(a), Label: workflow.Label(a), URL: base + "/action/" + string(a),
@@ -227,6 +229,10 @@ func (s *Server) wfGated(r *http.Request, ref store.FindingRef) (wfView, checksV
 
 // allowEdit answers 403 when the user may not change the finding's content.
 func (s *Server) allowEdit(w http.ResponseWriter, r *http.Request, ref store.FindingRef) bool {
+	if s.Store.Archived(ref.EngID) {
+		http.Error(w, store.ErrArchived.Error(), http.StatusForbidden)
+		return false
+	}
 	if workflow.CanEdit(auth.UserFrom(r.Context()), ref.F.Meta) {
 		return true
 	}

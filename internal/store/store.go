@@ -56,6 +56,8 @@ type Engagement struct {
 	Source string `yaml:"source,omitempty"`
 	Start  string `yaml:"start,omitempty"`
 	End    string `yaml:"end,omitempty"`
+	// Archived is read from the database: the engagement is read only.
+	Archived bool `yaml:"-"`
 }
 
 type FindingRef struct {
@@ -574,6 +576,7 @@ func (s *Store) Engagement(id string) (Engagement, error) {
 		return Engagement{}, fmt.Errorf("engagement %s: %w", id, err)
 	}
 	e.ID = id
+	e.Archived = s.Archived(id)
 	return e, nil
 }
 
@@ -756,6 +759,17 @@ func (s *Store) CreateRetest(e Engagement, source string, dirs []string, assigne
 		if err := tx.Purge(e.ID); err != nil {
 			return err
 		}
+		// the source's team works on the retest, with the retester
+		team, err := tx.Members(source)
+		if err != nil {
+			return err
+		}
+		if assignee != "" {
+			team = append(team, assignee)
+		}
+		if err := tx.AddMembers(e.ID, team...); err != nil {
+			return err
+		}
 		for _, c := range copies {
 			if err := tx.PutState(e.ID, c.f.Meta.ID, db.State{Status: "draft", RetestSource: source + "/" + c.dir}); err != nil {
 				return err
@@ -825,6 +839,9 @@ func (s *Store) changeState(engID, dir string, fn func(ref FindingRef, st *db.St
 	// read-modify-write inside one write transaction, so another writer
 	// (a request, yars export --mark) can't interleave
 	seq, err := s.db.TxForSeq(engID, func(tx *db.Tx) error {
+		if a, err := tx.Archived(engID); err != nil || a {
+			return cmpErr(err, ErrArchived)
+		}
 		st, err := tx.State(engID, fid)
 		if err != nil {
 			return err
@@ -979,8 +996,10 @@ func Slug(title string) string {
 }
 
 func (s *Store) CreateFinding(engID, title string, a gitrepo.Author) (FindingRef, error) {
-	if _, err := s.Engagement(engID); err != nil {
+	if e, err := s.Engagement(engID); err != nil {
 		return FindingRef{}, err
+	} else if e.Archived {
+		return FindingRef{}, ErrArchived
 	}
 	l := s.engLock(engID)
 	l.Lock()
@@ -1057,6 +1076,9 @@ func (s *Store) mutate(engID, dir string, a gitrepo.Author, fn func(f *finding.F
 func (s *Store) mutateThen(engID, dir string, a gitrepo.Author, fn func(f *finding.Finding) (string, error), then func(ref FindingRef, oldHash, newHash string) error) error {
 	if !ValidID(engID) {
 		return ErrNotFound
+	}
+	if err := s.writable(engID); err != nil {
+		return err
 	}
 	l := s.engLock(engID)
 	l.Lock()
@@ -1140,6 +1162,9 @@ func (s *Store) EngagementChat(engID string) (map[string][]chat.Message, error) 
 // ErrInvalidChat wraps rejected chat input.
 var ErrInvalidChat = errors.New("invalid chat message")
 
+// PanelTargets are the non-text parts of a finding a comment may point at.
+var PanelTargets = []string{"Details", "CVSS"}
+
 // HideThread hides (on) or shows a resolved thread of the finding for u
 // only. Open threads can't be hidden; showing is always allowed.
 func (s *Store) HideThread(engID, dir, thread string, on bool, u config.User) error {
@@ -1199,7 +1224,7 @@ func (s *Store) PostChat(engID, dir string, m chat.Message, u config.User) (chat
 		return m, err
 	}
 	if m.Section != "" {
-		if _, ok := ref.F.Section(m.Section); !ok && !slices.Contains(s.cfg.Sections, m.Section) {
+		if _, ok := ref.F.Section(m.Section); !ok && !slices.Contains(s.cfg.Sections, m.Section) && !slices.Contains(PanelTargets, m.Section) {
 			return m, fmt.Errorf("%w: unknown section %q", ErrInvalidChat, m.Section)
 		}
 	}
@@ -1207,6 +1232,9 @@ func (s *Store) PostChat(engID, dir string, m chat.Message, u config.User) (chat
 	// concurrent posts (e.g. resolving the same thread) can't both pass
 	fid := ref.F.Meta.ID
 	seq, err := s.db.TxForSeq(engID, func(tx *db.Tx) error {
+		if a, err := tx.Archived(engID); err != nil || a {
+			return cmpErr(err, ErrArchived)
+		}
 		existing, err := tx.Messages(engID, fid)
 		if err != nil {
 			return err
@@ -1278,6 +1306,9 @@ type Actor interface{ GitAuthor() gitrepo.Author }
 func (s *Store) Transition(engID, dir string, act workflow.Action, reason string, u config.User) error {
 	if s.db == nil {
 		return ErrNoDB
+	}
+	if err := s.writable(engID); err != nil {
+		return err
 	}
 	// Style rules (scripts, AI) can be slow, so they run outside the lock on
 	// a snapshot; the change is refused if the finding changed meanwhile.

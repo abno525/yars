@@ -20,6 +20,7 @@ import (
 
 	"yars/internal/auth"
 	"yars/internal/config"
+	"yars/internal/db"
 	"yars/internal/gitrepo"
 )
 
@@ -40,6 +41,13 @@ type Server struct {
 	// Invalidate, when set, is told after every push which repo it went to
 	// (an engagement id, "" for the main repo), so cached HEADs are dropped.
 	Invalidate func(eng string)
+	// Tokens, when set, accepts git tokens (kind git) in place of the
+	// password: a read-only token can fetch but not push, and a token
+	// limited to engagements reaches only those (not the main repo).
+	Tokens *auth.Tokens
+	// CanSee, when set, decides who may reach an engagement's repo (its
+	// team, directors, admins); others get 403.
+	CanSee func(u config.User, eng string) bool
 
 	mu    sync.Mutex
 	cache map[string]cached
@@ -191,8 +199,16 @@ func (s *Server) Handler() http.Handler {
 		// engagements exist
 		name, pw, ok := r.BasicAuth()
 		var u config.User
+		var tok *db.TokenInfo
 		valid := false
-		if ok { // no bcrypt for requests without credentials
+		switch {
+		case !ok: // no bcrypt for requests without credentials
+		case s.Tokens != nil && strings.HasPrefix(pw, "yars_"):
+			var info db.TokenInfo
+			u, info, valid = s.Tokens.Verify(pw, db.TokenGit)
+			valid = valid && u.Username == name // the token's own account only
+			tok = &info
+		default:
 			u, valid = s.check(name, pw)
 		}
 		if !valid {
@@ -204,6 +220,20 @@ func (s *Server) Handler() http.Handler {
 		if !ok {
 			http.NotFound(w, r)
 			return
+		}
+		if eng != "" && s.CanSee != nil && !s.CanSee(u, eng) {
+			http.Error(w, "not a member of this engagement", http.StatusForbidden)
+			return
+		}
+		if tok != nil {
+			if tok.Restricted() && (eng == "" || !tok.AllowsEng(eng)) {
+				http.Error(w, "this token is not valid for this repository", http.StatusForbidden)
+				return
+			}
+			if isPush(r) && !tok.Allows("create") && !tok.Allows("edit") {
+				http.Error(w, "this token can fetch but not push", http.StatusForbidden)
+				return
+			}
 		}
 		if gitErr != nil {
 			http.Error(w, "git not available", http.StatusInternalServerError)
@@ -249,6 +279,12 @@ func (s *Server) Handler() http.Handler {
 			s.Invalidate(eng)
 		}
 	})
+}
+
+// isPush reports whether r is part of a push (receive-pack).
+func isPush(r *http.Request) bool {
+	return strings.HasSuffix(r.URL.Path, "/git-receive-pack") ||
+		(strings.HasSuffix(r.URL.Path, "/info/refs") && r.URL.Query().Get("service") == "git-receive-pack")
 }
 
 func (s *Server) inherit() []string {
