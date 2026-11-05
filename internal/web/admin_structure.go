@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -49,6 +50,7 @@ type structView struct {
 	Changes string
 	Error   string
 	Saved   string // commit of the last save
+	Base    string // hash of config.yaml the page was made from
 }
 
 const configRel = ".yars/config.yaml"
@@ -248,9 +250,28 @@ func checkStructure(c config.Config) error {
 	return nil
 }
 
+// diskStructure is the structure as config.yaml has it now (a push
+// included) and a hash of the file's bytes: the base a save must match.
+func (s *Server) diskStructure() (config.Config, string) {
+	dir := s.Store.Repo().Dir
+	c := s.conf()
+	raw, err := os.ReadFile(config.ConfigPath(dir))
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		log.Printf("structure: %v", err)
+		return c, ""
+	}
+	// loaded after the bytes were hashed: at worst newer than the base,
+	// which makes a save a conflict, never an overwrite
+	if l, err := config.Load(dir); err != nil {
+		log.Printf("structure: %v", err)
+	} else {
+		c.Sections, c.DetailsRows, c.Severities, c.ReportSections, c.CVSS = l.Sections, l.DetailsRows, l.Severities, l.ReportSections, l.CVSS
+	}
+	return c, store.BodyHash(string(raw))
+}
+
 // structureView shows the edited structure c against the saved one.
-func (s *Server) structureView(c config.Config) (structView, error) {
-	saved := s.conf()
+func (s *Server) structureView(c, saved config.Config) (structView, error) {
 	v := structView{Version: c.CVSS.Version}
 	if n := changesOf(saved, c); n > 0 {
 		v.Changes = plural(n, "change")
@@ -302,13 +323,15 @@ func (s *Server) structureView(c config.Config) (structView, error) {
 	return v, nil
 }
 
-func (s *Server) structureRender(w http.ResponseWriter, r *http.Request, status int, c config.Config, errMsg, saved string) {
+// structureRender shows the edited structure c against disk (config.yaml
+// as it is), with base the hash the page's save is checked against.
+func (s *Server) structureRender(w http.ResponseWriter, r *http.Request, status int, c, disk config.Config, base, errMsg, saved string) {
 	s.adminPage(w, r, "structure", status, func(p *page) error {
-		v, err := s.structureView(c)
+		v, err := s.structureView(c, disk)
 		if err != nil {
 			return err
 		}
-		v.Error, v.Saved = errMsg, saved
+		v.Error, v.Saved, v.Base = errMsg, saved, base
 		p.Admin.Structure = v
 		return nil
 	})
@@ -319,7 +342,8 @@ func (s *Server) structurePage(w http.ResponseWriter, r *http.Request) {
 	if !isHexID(saved) {
 		saved = ""
 	}
-	s.structureRender(w, r, http.StatusOK, s.conf(), "", saved)
+	disk, base := s.diskStructure()
+	s.structureRender(w, r, http.StatusOK, disk, disk, base, "", saved)
 }
 
 func isHexID(h string) bool {
@@ -336,15 +360,17 @@ func isHexID(h string) bool {
 
 func (s *Server) structurePost(w http.ResponseWriter, r *http.Request) {
 	r.ParseForm()
-	c := structFromForm(r.PostForm, s.conf())
+	disk, _ := s.diskStructure()
+	c := structFromForm(r.PostForm, disk)
+	base := r.PostForm.Get("base") // the page's, kept through moves and adds
 	op := r.PostForm.Get("op")
 	if op != "save" {
 		applyOp(&c, op, r.PostForm)
-		s.structureRender(w, r, http.StatusOK, c, "", "")
+		s.structureRender(w, r, http.StatusOK, c, disk, base, "", "")
 		return
 	}
 	if err := checkStructure(c); err != nil {
-		s.structureRender(w, r, http.StatusBadRequest, c, err.Error(), "")
+		s.structureRender(w, r, http.StatusBadRequest, c, disk, base, err.Error(), "")
 		return
 	}
 	u := auth.UserFrom(r.Context())
@@ -354,6 +380,9 @@ func (s *Server) structurePost(w http.ResponseWriter, r *http.Request) {
 		raw, err := read(configRel)
 		if err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return nil, err
+		}
+		if store.BodyHash(string(raw)) != base {
+			return nil, store.ErrConflict
 		}
 		b, err := config.SetStructure(raw, c)
 		if err != nil {
@@ -365,11 +394,18 @@ func (s *Server) structurePost(w http.ResponseWriter, r *http.Request) {
 		loaded, err = config.Load(dir)
 		return err
 	})
-	if err != nil {
-		s.structureRender(w, r, http.StatusBadRequest, c, strings.TrimPrefix(err.Error(), "config: "), "")
+	if errors.Is(err, store.ErrConflict) {
+		// the page shows the edits against the file as it is now; saving
+		// again overwrites it knowingly
+		now, nowBase := s.diskStructure()
+		s.structureRender(w, r, http.StatusConflict, c, now, nowBase, "Structure changed by someone else", "")
 		return
 	}
-	was := s.conf().ReportSections
+	if err != nil {
+		s.structureRender(w, r, http.StatusBadRequest, c, disk, base, strings.TrimPrefix(err.Error(), "config: "), "")
+		return
+	}
+	was := disk.ReportSections
 	s.setConfig(loaded)
 	head, _ := gitrepo.ReadHead(dir)
 	// renamed report sections keep their text in every engagement

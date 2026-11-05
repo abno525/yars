@@ -90,6 +90,7 @@
 </div>
 {{end}}
 <form class="structform" method="post" action="/admin/structure">
+  <input type="hidden" name="base" value="{{.Base}}">
   <div class="structhead">
     <span class="pstate error" title="{{.Error}}">{{.Error}}</span>
     <span class="mono chgslot">{{.Changes}}</span>

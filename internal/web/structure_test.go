@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"yars/internal/store"
 )
 
 // structForm is the structure form as the page fills it from cfg.
@@ -18,7 +20,44 @@ func (e *env) structForm() url.Values {
 	for k, x := range c.CVSS.Standard {
 		v.Set("std_"+k, x)
 	}
+	raw, _ := os.ReadFile(filepath.Join(e.dir, ".yars", "config.yaml"))
+	v.Set("base", store.BodyHash(string(raw)))
 	return v
+}
+
+// The page shows config.yaml as it is on disk (a push included) and a
+// save from a page older than the file is a conflict, not an overwrite.
+func TestStructureSaveConflict(t *testing.T) {
+	e := setup(t)
+	v := e.structForm()
+	b := e.do(t, "dora", "GET", "/admin/structure", nil, nil).Body.String()
+	if !strings.Contains(b, `name="base" value="`+v.Get("base")+`"`) {
+		t.Fatalf("no base:\n%s", b)
+	}
+	// someone pushes a config.yaml
+	os.MkdirAll(filepath.Join(e.dir, ".yars"), 0o755)
+	pushed := "sections: [Summary, Fix]\n"
+	os.WriteFile(filepath.Join(e.dir, ".yars", "config.yaml"), []byte(pushed), 0o644)
+	if b := e.do(t, "dora", "GET", "/admin/structure", nil, nil).Body.String(); !strings.Contains(b, `name="section" value="Summary"`) || !strings.Contains(b, `name="base" value="`+store.BodyHash(pushed)+`"`) {
+		t.Fatalf("page not from disk:\n%s", b)
+	}
+	// a move keeps the page's base; the save from the old page is refused
+	v.Set("op", "up:section:1")
+	if b := e.do(t, "dora", "POST", "/admin/structure", v, nil).Body.String(); !strings.Contains(b, `name="base" value="`+v.Get("base")+`"`) {
+		t.Fatalf("op changed the base:\n%s", b)
+	}
+	v.Set("op", "save")
+	rec := e.do(t, "dora", "POST", "/admin/structure", v, nil)
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "Structure changed by someone else") {
+		t.Fatalf("stale save %d:\n%s", rec.Code, rec.Body.String())
+	}
+	if got, _ := os.ReadFile(filepath.Join(e.dir, ".yars", "config.yaml")); string(got) != pushed {
+		t.Fatalf("overwritten:\n%s", got)
+	}
+	// the conflict page carries the file's base: saving again is deliberate
+	if !strings.Contains(rec.Body.String(), `name="base" value="`+store.BodyHash(pushed)+`"`) {
+		t.Fatalf("conflict base:\n%s", rec.Body.String())
+	}
 }
 
 func TestStructurePage(t *testing.T) {
