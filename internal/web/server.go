@@ -313,12 +313,16 @@ func (s *Server) conf() config.Config {
 	return s.Cfg
 }
 
-// setConfig applies a saved configuration to the pages and the store.
+// setConfig applies a saved configuration to the pages, the store (which
+// the MCP server reads) and the style rules.
 func (s *Server) setConfig(c config.Config) {
 	s.cfgMu.Lock()
 	s.Cfg = c
 	s.cfgMu.Unlock()
 	s.Store.SetConfig(c)
+	if s.Rules != nil {
+		s.Rules.SetConfig(c)
+	}
 }
 
 func author(u config.User) gitrepo.Author { return store.AuthorOf(u) }

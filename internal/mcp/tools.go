@@ -370,7 +370,7 @@ var tools = []tool{
 				return "", err
 			}
 			// same rule as the web: a configured section or one already in the file
-			valid := slices.Clone(s.Cfg.Sections)
+			valid := slices.Clone(s.conf().Sections)
 			for _, sct := range ref.F.Sections {
 				if !slices.Contains(valid, sct.Name) {
 					valid = append(valid, sct.Name)
@@ -600,8 +600,8 @@ func setField(s *Server, ctx context.Context, u config.User, a args) (string, er
 		err = st.UpdateCVSS(eng, dir, ref.F.Meta.CVSS, map[string]string{key: value}, base, u)
 	case strings.HasPrefix(field, "details."):
 		row := strings.TrimPrefix(field, "details.")
-		if !slices.Contains(s.Cfg.DetailsRows, row) {
-			return "", fmt.Errorf("unknown details row %q; rows: %s", row, strings.Join(s.Cfg.DetailsRows, ", "))
+		if rows := s.conf().DetailsRows; !slices.Contains(rows, row) {
+			return "", fmt.Errorf("unknown details row %q; rows: %s", row, strings.Join(rows, ", "))
 		}
 		err = st.UpdateDetails(eng, dir, map[string]string{row: value}, base, u)
 	case field == "reviewers":

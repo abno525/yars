@@ -129,6 +129,11 @@ func Report(in Input) string {
 	b.WriteString("</p>\n</div>\n")
 
 	b.WriteString(`<h1 id="rp-summary">Executive summary</h1>` + "\n")
+	for _, rt := range in.Report {
+		if out := reportHTML(rt.Body, false); out != "" && isSummary(rt.Name) {
+			b.WriteString(out + "\n")
+		}
+	}
 	b.WriteString(`<table class="rp-counts"><thead><tr>`)
 	for _, c := range counts {
 		b.WriteString("<th>" + sevTag(c.Severity) + "</th>")
@@ -140,6 +145,12 @@ func Report(in Input) string {
 	b.WriteString("</tr></tbody></table>\n")
 
 	b.WriteString(`<h1 id="rp-scope">Scope and overview</h1>` + "\n")
+	// the other report sections (scope, methodology, …) open this chapter
+	for _, rt := range in.Report {
+		if out := reportHTML(rt.Body, false); out != "" && !isSummary(rt.Name) {
+			fmt.Fprintf(&b, "<h2>%s</h2>\n%s\n", esc(rt.Name), out)
+		}
+	}
 	b.WriteString(`<table class="rp-kv"><tbody>` + "\n")
 	kv := [][2]string{{"Engagement", in.Engagement.Name}, {"Client", in.Engagement.Client}, {"Type", in.Engagement.Type}, {"Testing", in.period()}, {"Findings", fmt.Sprint(total)}}
 	for _, r := range kv {

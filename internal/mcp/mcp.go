@@ -22,10 +22,19 @@ type Server struct {
 	Store *store.Store
 	Index *index.Index
 	Rules *rules.Engine // optional
-	Cfg   config.Config
+	Cfg   config.Config // the startup config; conf() is the current one
 	// Users lists accounts for reviewer validation (nil in stdio mode,
 	// where the server-side push policy validates instead).
 	Users func() []config.User
+}
+
+// conf is the current configuration: the store's, which Admin › Structure
+// replaces when it saves.
+func (s *Server) conf() config.Config {
+	if s.Store != nil {
+		return s.Store.Config()
+	}
+	return s.Cfg
 }
 
 const latestProtocol = "2025-06-18"

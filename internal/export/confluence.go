@@ -83,10 +83,37 @@ func esc(s string) string {
 	return strings.ReplaceAll(html.EscapeString(strings.TrimSpace(s)), "\n", "<br />")
 }
 
+// reportHTML renders a report-level section's Markdown ("" when blank).
+// It belongs to no finding, so it has no attachments: images are removed.
+func reportHTML(body string, confluenceMacros bool) string {
+	body = strings.Trim(body, "\n")
+	if strings.TrimSpace(body) == "" {
+		return ""
+	}
+	var buf bytes.Buffer
+	md.Convert([]byte(body), &buf)
+	out := images(buf.String(), nil, Input{})
+	if confluenceMacros {
+		out = macros(out)
+	}
+	return out
+}
+
+// isSummary reports whether a report section is the executive summary,
+// which the themed report puts above the severity counts.
+func isSummary(name string) bool {
+	return strings.EqualFold(strings.TrimSpace(name), "Executive summary")
+}
+
 // XHTML renders the report body; confluenceMacros turns code blocks into
 // Confluence code macros (push mode).
 func XHTML(in Input, confluenceMacros bool) string {
 	var b strings.Builder
+	for _, rt := range in.Report {
+		if out := reportHTML(rt.Body, confluenceMacros); out != "" {
+			fmt.Fprintf(&b, "<h1>%s</h1>\n%s\n", esc(rt.Name), out)
+		}
+	}
 	for _, f := range in.ordered() {
 		m := f.Meta
 		fmt.Fprintf(&b, "<h1>%s %s</h1>\n<table><tbody>\n", esc(m.ID), esc(m.Title))
@@ -141,6 +168,7 @@ func (r *Runner) confluence(ctx context.Context, e Exporter, in Input) (Result, 
 	title := in.Engagement.Name + " — findings"
 	if len(in.Findings) == 1 { // one finding is one page of its own
 		title = in.Findings[0].Meta.ID + " " + in.Findings[0].Meta.Title + " — " + in.Engagement.Name
+		in.Report = nil
 	}
 	call := func(method, url string, body []byte) ([]byte, error) {
 		return r.call(ctx, "confluence push", user, token, method, url, body)

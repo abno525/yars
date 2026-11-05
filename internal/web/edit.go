@@ -180,6 +180,10 @@ func (s *Server) newFinding(w http.ResponseWriter, r *http.Request) {
 		bad("Title is required.")
 		return
 	}
+	if mode == "template" && tpl == "" {
+		bad("Pick a template.")
+		return
+	}
 	var ref store.FindingRef
 	if mode == "template" && tpl != "" {
 		ref, err = s.Store.CreateFindingFrom(eng, title, tpl, author(p.User))

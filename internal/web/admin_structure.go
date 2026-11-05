@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log"
 	"net/http"
 	"net/url"
 	"slices"
@@ -193,6 +194,31 @@ func changesOf(a, b config.Config) int {
 	return n
 }
 
+// renamesOf pairs the names that left a list with the names that joined
+// it, in order, when as many left as joined (old → new); otherwise a
+// rename can't be told from a removal and an addition, and none is made.
+func renamesOf(was, now []string) map[string]string {
+	var gone, added []string
+	for _, x := range was {
+		if !slices.Contains(now, x) {
+			gone = append(gone, x)
+		}
+	}
+	for _, x := range now {
+		if !slices.Contains(was, x) {
+			added = append(added, x)
+		}
+	}
+	if len(gone) == 0 || len(gone) != len(added) {
+		return nil
+	}
+	out := map[string]string{}
+	for i, x := range gone {
+		out[x] = added[i]
+	}
+	return out
+}
+
 // checkStructure rejects names that can't be used.
 func checkStructure(c config.Config) error {
 	for _, l := range structLists {
@@ -343,8 +369,15 @@ func (s *Server) structurePost(w http.ResponseWriter, r *http.Request) {
 		s.structureRender(w, r, http.StatusBadRequest, c, strings.TrimPrefix(err.Error(), "config: "), "")
 		return
 	}
+	was := s.conf().ReportSections
 	s.setConfig(loaded)
 	head, _ := gitrepo.ReadHead(dir)
+	// renamed report sections keep their text in every engagement
+	if rn := renamesOf(was, loaded.ReportSections); len(rn) > 0 {
+		if err := s.Store.RenameReportSections(rn, author(u)); err != nil {
+			log.Printf("rename report sections: %v", err)
+		}
+	}
 	if len(head) > 7 {
 		head = head[:7]
 	}

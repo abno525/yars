@@ -19,7 +19,8 @@
             <label><input type="radio" name="mode" value="blank"{{if eq .Tpl.Mode "blank"}} checked{{end}}><span>Blank</span></label>
           </div>
           <input type="search" class="grow" name="q" value="{{.Tpl.Q}}" placeholder="Search templates" aria-label="Search templates"
-            hx-get="/e/{{.Eng.ID}}/findings/new/templates" hx-trigger="input changed delay:250ms, search" hx-target="#tpllist" hx-swap="outerHTML">
+            hx-get="/e/{{.Eng.ID}}/findings/new/templates" hx-trigger="input changed delay:250ms, search" hx-target="#tpllist" hx-swap="outerHTML"
+            hx-include="#tpllist input[name=template]:checked">
         </div>
         {{template "tpl_list" .Tpl}}
       </section>
@@ -60,8 +61,10 @@
 </div>
 {{end}}
 
+{{define "tpl_search"}}{{template "tpl_list" .}}{{template "tpl_preview" .Preview}}{{end}}
+
 {{define "tpl_preview"}}
-<section class="tplpreview panel compact" id="tplpreview">
+<section class="tplpreview panel compact" id="tplpreview"{{if .OOB}} hx-swap-oob="true"{{end}}>
   <div class="panelhead"><h2>Preview</h2><span class="vector" title="{{.Vector}}">{{.Vector}}</span></div>
   <div class="pvbody flush">
     {{range .Sections}}<div class="pvsec"><h3>{{.Name}}</h3>{{if .HTML}}<div class="md">{{.HTML}}</div>{{else}}<p class="muted">—</p>{{end}}</div>{{end}}

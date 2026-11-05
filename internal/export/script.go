@@ -34,7 +34,15 @@ func (r *Runner) script(ctx context.Context, e Exporter, in Input) (Result, erro
 		}
 		docs = append(docs, d)
 	}
-	input, err := json.Marshal(map[string]any{"engagement": in.Engagement, "engagement_id": in.Engagement.ID, "findings": docs})
+	type reportDoc struct {
+		ReportText
+		HTML string `json:"html"`
+	}
+	report := []reportDoc{}
+	for _, rt := range in.Report {
+		report = append(report, reportDoc{ReportText: rt, HTML: reportHTML(rt.Body, false)})
+	}
+	input, err := json.Marshal(map[string]any{"engagement": in.Engagement, "engagement_id": in.Engagement.ID, "findings": docs, "report": report})
 	if err != nil {
 		return Result{}, err
 	}

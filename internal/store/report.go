@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"path"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -74,6 +75,58 @@ func (s *Store) UpdateReportSection(eng, name, body, base string, a gitrepo.Auth
 		return err
 	}
 	return s.commit(map[string][]byte{rel: prev}, "report: edit "+name, a, "")
+}
+
+// RenameReportSections moves report-level text to the new names of renamed
+// sections (old → new) in every engagement, archived ones included, so the
+// Report tab and exports keep showing it. Text already under a new name is
+// never overwritten. One commit per section moved.
+func (s *Store) RenameReportSections(renames map[string]string, a gitrepo.Author) error {
+	olds := make([]string, 0, len(renames))
+	for o := range renames {
+		olds = append(olds, o)
+	}
+	sort.Strings(olds)
+	ids, err := s.EngagementIDs()
+	if err != nil {
+		return err
+	}
+	var errs []error
+	for _, id := range ids {
+		if _, err := s.Engagement(id); err != nil {
+			continue
+		}
+		l := s.engLock(id)
+		l.Lock()
+		for _, o := range olds {
+			n := renames[o]
+			from, to := reportPath(id, o), reportPath(id, n)
+			if from == to {
+				continue
+			}
+			b, err := s.readFile(from)
+			if errors.Is(err, fs.ErrNotExist) {
+				continue
+			}
+			if err == nil {
+				if _, serr := s.root.Lstat(to); serr == nil {
+					continue // the new name has text of its own
+				}
+				if err = s.writeFile(to, b); err == nil {
+					if err = s.root.Remove(from); err == nil {
+						err = s.commit(map[string][]byte{from: b, to: nil}, "report: rename "+o+" to "+n, a, "")
+					} else {
+						s.root.Remove(to)
+					}
+				}
+			}
+			if err != nil {
+				errs = append(errs, fmt.Errorf("engagement %s: %w", id, err))
+			}
+		}
+		l.Unlock()
+	}
+	return errors.Join(errs...)
 }
 
 var dateRe = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)

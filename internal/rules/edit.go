@@ -153,5 +153,5 @@ func (e *Engine) RunRule(ctx context.Context, r Rule, d Doc) []Violation {
 		defer cancel()
 	}
 	set := &Set{Dir: e.Dir, Rules: []Rule{r}}
-	return set.Run(ctx, d, e.Cfg, All, e.Runner)
+	return set.Run(ctx, d, e.conf(), All, e.Runner)
 }

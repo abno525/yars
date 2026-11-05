@@ -409,9 +409,24 @@ func (s *Server) picked(eng string, dirs []string, statuses []string) ([]store.F
 	return refs, ""
 }
 
+// reportTexts reads the engagement's report-level sections (Report tab).
+func reportTexts(st *store.Store, eng string, names []string) []export.ReportText {
+	var out []export.ReportText
+	for _, n := range names {
+		body, err := st.ReportSection(eng, n)
+		if err != nil {
+			log.Printf("report section %s/%s: %v", eng, n, err)
+			continue
+		}
+		out = append(out, export.ReportText{Name: n, Body: body})
+	}
+	return out
+}
+
 // exportInput is the report input for refs, reading their attachments.
 func (s *Server) exportInput(eng store.Engagement, refs []store.FindingRef) export.Input {
 	in := export.Input{Engagement: eng, Cfg: s.conf()}
+	in.Report = reportTexts(s.Store, eng.ID, in.Cfg.ReportSections)
 	dirOf := map[*finding.Finding]string{}
 	for _, ref := range refs {
 		in.Findings = append(in.Findings, ref.F)

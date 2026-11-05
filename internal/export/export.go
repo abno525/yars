@@ -221,6 +221,9 @@ type Input struct {
 	Engagement store.Engagement
 	Findings   []*finding.Finding
 	Cfg        config.Config
+	// Report is the engagement's report-level sections (Report tab), in
+	// config order.
+	Report []ReportText
 	// Attachment reads "attachments/<file>" of a finding (nil: images are
 	// dropped). Only these files are ever embedded into a report.
 	Attachment func(f *finding.Finding, rel string) ([]byte, bool)
@@ -236,6 +239,12 @@ type Input struct {
 	// strictImages keeps only pictures that decode (PNG, JPEG, GIF): a PDF
 	// fails on a broken one.
 	strictImages bool
+}
+
+// ReportText is one report-level section: its name and Markdown body.
+type ReportText struct {
+	Name string `json:"name"`
+	Body string `json:"body"`
 }
 
 // Creds is a login for an outside service.

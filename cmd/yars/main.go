@@ -128,6 +128,13 @@ func cmdExport(args []string, out io.Writer) (int, error) {
 		b, err := st.ReadAttachment(e.ID, dirOf[f], rel)
 		return b, err == nil
 	}}
+	for _, n := range cfg.ReportSections { // the Report tab
+		body, err := st.ReportSection(e.ID, n)
+		if err != nil {
+			return 1, err
+		}
+		in.Report = append(in.Report, export.ReportText{Name: n, Body: body})
+	}
 	for _, p := range picked {
 		in.Findings = append(in.Findings, p.F)
 		dirOf[p.F] = p.Dir

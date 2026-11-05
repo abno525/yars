@@ -69,6 +69,7 @@ type tplSection struct {
 type tplPreview struct {
 	Title, Vector string
 	Sections      []tplSection
+	OOB           bool // sent along with a search result (hx-swap-oob)
 }
 
 // tplStrip is one part of a finding that "Save as template" may leave out.
@@ -546,7 +547,8 @@ func (s *Server) saveAsTemplate(w http.ResponseWriter, r *http.Request) {
 }
 
 // pickerView is the template picker of the new finding page: the rows
-// matching q, with pick (or the first row) chosen and previewed.
+// matching q, with pick chosen and previewed while it is among them, else
+// the first row (none when nothing matches).
 func (s *Server) pickerView(eng, q, pick, mode string) (tplView, error) {
 	v := tplView{Eng: eng, Q: q, Mode: mode}
 	var err error
@@ -559,8 +561,11 @@ func (s *Server) pickerView(eng, q, pick, mode string) (tplView, error) {
 			v.Mode = "blank"
 		}
 	}
-	if pick == "" && len(v.Rows) > 0 {
-		pick = v.Rows[0].Slug
+	if !slices.ContainsFunc(v.Rows, func(r tplRow) bool { return r.Slug == pick }) {
+		pick = ""
+		if len(v.Rows) > 0 {
+			pick = v.Rows[0].Slug
+		}
 	}
 	for i := range v.Rows {
 		v.Rows[i].On = v.Rows[i].Slug == pick
@@ -595,12 +600,17 @@ func (s *Server) newFindingList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q := r.URL.Query()
-	v, err := s.pickerView(eng, q.Get("q"), q.Get("t"), "template")
+	t := q.Get("t")
+	if t == "" {
+		t = q.Get("template") // the picked radio, sent along with the search
+	}
+	v, err := s.pickerView(eng, q.Get("q"), t, "template")
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
-	s.exec(w, "new_finding.html", "tpl_list", v)
+	v.Preview.OOB = true // the preview follows the pick
+	s.exec(w, "new_finding.html", "tpl_search", v)
 }
 
 func (s *Server) newFindingPreview(w http.ResponseWriter, r *http.Request) {

@@ -150,6 +150,39 @@ func TestReportSections(t *testing.T) {
 	}
 }
 
+// A report section renamed in Admin › Structure keeps its text: the file
+// moves to the new name in every engagement, archived ones too.
+func TestRenameReportSections(t *testing.T) {
+	s, dir := withEngagement(t)
+	if err := s.UpdateReportSection(eng, "Scope", "The web portal.", "", alice); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpdateReportSection(eng, "Methodology", "OWASP.", "", alice); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Archive(eng, m17Dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RenameReportSections(map[string]string{"Scope": "Scope and approach", "Methodology": "methodology"}, alice); err != nil {
+		t.Fatal(err)
+	}
+	if body, _ := s.ReportSection(eng, "Scope and approach"); strings.TrimSpace(body) != "The web portal." {
+		t.Fatalf("renamed %q", body)
+	}
+	if body, _ := s.ReportSection(eng, "Scope"); body != "" {
+		t.Fatalf("old name still has %q", body)
+	}
+	if body, _ := s.ReportSection(eng, "methodology"); strings.TrimSpace(body) != "OWASP." {
+		t.Fatalf("same slug %q", body)
+	}
+	if got := last(t, dir, "%an|%s"); got != "alice|report: rename Scope to Scope and approach" {
+		t.Fatalf("commit %q", got)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "engagements", eng, "report", "scope.md")); !os.IsNotExist(err) {
+		t.Fatalf("old file: %v", err)
+	}
+}
+
 func TestUpdateEngagementSettings(t *testing.T) {
 	s, dir := withEngagement(t)
 	e, _ := s.Engagement(eng)
