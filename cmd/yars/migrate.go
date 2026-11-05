@@ -116,12 +116,29 @@ func cmdMigrate(args []string, out io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("users.yaml: %w", err)
 	}
+	// accounts from before teams and the admin flag get what v5 gave the
+	// accounts it found: directors are admins, everyone is on every
+	// engagement there is
+	var engs []string
+	if ents, err := os.ReadDir(filepath.Join(r.Dir, "engagements")); err == nil {
+		for _, e := range ents {
+			if e.IsDir() && store.ValidID(e.Name()) {
+				engs = append(engs, e.Name())
+			}
+		}
+	}
 	for _, u := range users {
 		if _, ok, err := d.User(u.Username); err != nil {
 			return err
 		} else if !ok {
+			u.IsAdmin = u.IsAdmin || u.Role == "director"
 			if err := d.AddUser(u); err != nil {
 				return err
+			}
+			for _, eng := range engs {
+				if err := d.AddMembers(eng, u.Username); err != nil {
+					return err
+				}
 			}
 			fmt.Fprintln(out, "account", u.Username)
 		}
