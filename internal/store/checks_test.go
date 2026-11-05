@@ -114,7 +114,7 @@ func TestCheckRunDedupesAndAutoResolves(t *testing.T) {
 	if th := checkThreads(t, s, fd); th[""].Resolved || th[""].Root.ID != first[""].Root.ID {
 		t.Fatalf("title thread %+v", th[""])
 	}
-	// fixed in the text: the run resolves the thread, with an event
+	// fixed in the text: the run resolves the thread, silently
 	s.UpdateSection(eng, fd, "Impact", "clean now", "", alice)
 	st := checked(t, s, fd)
 	if len(st.Results) != 1 {
@@ -125,14 +125,10 @@ func TestCheckRunDedupesAndAutoResolves(t *testing.T) {
 		t.Fatalf("after fix %+v %+v", th["Impact"], th[""])
 	}
 	msgs, _ := s.Chat(eng, fd)
-	ev := 0
 	for _, m := range msgs {
-		if m.Event == EventCheckFixed && m.User == CheckUser && strings.Contains(m.Text, "no-foo") {
-			ev++
+		if m.Event != "" {
+			t.Fatalf("event in chat %+v", m)
 		}
-	}
-	if ev != 1 {
-		t.Fatalf("fixed events %d", ev)
 	}
 	// a further run changes nothing
 	checked(t, s, fd)
@@ -201,6 +197,179 @@ func TestCheckNoticeKeepsThreadsOpen(t *testing.T) {
 	if th := checkThreads(t, s, fd); th["Impact"].Resolved {
 		t.Fatal("an AI outage resolved the thread as fixed")
 	}
+}
+
+// finisher returns a func that stores a run with the given violations on
+// finding fd (as finishCheck does at the end of a run) and returns the
+// chat messages that run added.
+func finisher(t *testing.T, s *Store, fd string) func(vs ...rules.Violation) []chat.Message {
+	fid := load(t, s, fd).F.Meta.ID
+	return func(vs ...rules.Violation) []chat.Message {
+		t.Helper()
+		before, err := s.Chat(eng, fd)
+		if err != nil {
+			t.Fatal(err)
+		}
+		id, err := s.DB().StartRun(eng, fid, "x", "alice")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.DB().TxForSeq(eng, func(tx *db.Tx) error { return finishCheck(tx, id, eng, fid, vs) }); err != nil {
+			t.Fatal(err)
+		}
+		after, err := s.Chat(eng, fd)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return after[len(before):]
+	}
+}
+
+var (
+	vFoo = rules.Violation{Rule: "no-foo", Level: "warning", Message: "Avoid foo", Target: "section:Impact", Quote: "a foo here"}
+	vSQL = rules.Violation{Rule: "no-sql", Level: "error", Message: "Spell out SQL", Target: "title", Quote: "SQL"}
+)
+
+// The same violation found again posts nothing: its open thread stands.
+func TestCheckSameViolationPostsNothing(t *testing.T) {
+	s, _, fd := ready(t)
+	finish := finisher(t, s, fd)
+	if got := finish(vFoo, vSQL); len(got) != 2 {
+		t.Fatalf("first run posted %+v", got)
+	}
+	if got := finish(vFoo, vSQL); len(got) != 0 {
+		t.Fatalf("second run posted %+v", got)
+	}
+	// a reworded message for the same quote is still the same violation
+	again := vFoo
+	again.Message = "Avoid foo, please"
+	if got := finish(again, vSQL); len(got) != 0 {
+		t.Fatalf("reworded run posted %+v", got)
+	}
+	// a new violation next to known ones posts only itself
+	vBar := rules.Violation{Rule: "no-foo", Level: "warning", Message: "Avoid foo", Target: "section:Impact", Quote: "another foo"}
+	if got := finish(vFoo, vSQL, vBar); len(got) != 1 || got[0].Kind != chat.KindCheck || !strings.Contains(got[0].Text, "another foo") {
+		t.Fatalf("new violation posted %+v", got)
+	}
+	if th := checkThreadList(t, s, fd); len(th) != 3 {
+		t.Fatalf("threads %d", len(th))
+	}
+}
+
+// The same rule and quote in two sections are two violations, each with its
+// own thread, and neither is posted again.
+func TestCheckSameQuoteOtherSection(t *testing.T) {
+	s, _, fd := ready(t)
+	finish := finisher(t, s, fd)
+	a := rules.Violation{Rule: "r", Level: "warning", Message: "m", Target: "section:Impact", Quote: "same"}
+	b := a
+	b.Target = "section:Description"
+	if got := finish(a, b); len(got) != 2 || got[0].Section == got[1].Section {
+		t.Fatalf("first run posted %+v", got)
+	}
+	if got := finish(a, b); len(got) != 0 {
+		t.Fatalf("second run posted %+v", got)
+	}
+	// only the Impact one is fixed: its thread alone is resolved
+	finish(b)
+	th := checkThreads(t, s, fd)
+	if !th["Impact"].Resolved || th["Description"].Resolved {
+		t.Fatalf("threads %+v %+v", th["Impact"], th["Description"])
+	}
+}
+
+// A violation no longer found has its thread resolved without any line in
+// the chat (no event, no comment).
+func TestCheckFixedResolvesSilently(t *testing.T) {
+	s, _, fd := ready(t)
+	finish := finisher(t, s, fd)
+	finish(vFoo, vSQL)
+	got := finish(vSQL)
+	if len(got) != 1 || got[0].Resolves == "" || got[0].Text != "" || got[0].Event != "" {
+		t.Fatalf("fix posted %+v", got)
+	}
+	th := checkThreads(t, s, fd)
+	if !th["Impact"].Resolved || th["Impact"].ResolvedBy != CheckUser || th[""].Resolved {
+		t.Fatalf("threads %+v %+v", th["Impact"], th[""])
+	}
+	msgs, _ := s.Chat(eng, fd)
+	for _, m := range msgs {
+		if m.Event != "" {
+			t.Fatalf("event in chat %+v", m)
+		}
+	}
+}
+
+// A run that finds nothing posts nothing.
+func TestCheckCleanRunPostsNothing(t *testing.T) {
+	s, _, fd := ready(t)
+	finish := finisher(t, s, fd)
+	if got := finish(); len(got) != 0 {
+		t.Fatalf("clean run posted %+v", got)
+	}
+	finish(vFoo)
+	finish() // resolves silently
+	if got := finish(); len(got) != 0 {
+		t.Fatalf("second clean run posted %+v", got)
+	}
+	msgs, _ := s.Chat(eng, fd)
+	items := chat.Timeline(msgs)
+	if len(items) != 1 || items[0].Thread == nil || !items[0].Thread.Resolved {
+		t.Fatalf("timeline %+v", items)
+	}
+}
+
+// A thread a person resolved while the violation is still there is reopened,
+// with no new comment or thread.
+func TestCheckReopensThreadResolvedByPerson(t *testing.T) {
+	s, _, fd := ready(t)
+	finish := finisher(t, s, fd)
+	finish(vFoo)
+	root := checkThreads(t, s, fd)["Impact"].Root
+	if _, err := s.PostChat(eng, fd, chat.Message{Resolves: root.ID}, uAlice); err != nil {
+		t.Fatal(err)
+	}
+	got := finish(vFoo)
+	if len(got) != 1 || got[0].Reopens != root.ID || got[0].Text != "" || got[0].Event != "" {
+		t.Fatalf("reopen posted %+v", got)
+	}
+	th := checkThreads(t, s, fd)["Impact"]
+	if th.Resolved || th.Root.ID != root.ID {
+		t.Fatalf("thread %+v", th)
+	}
+	if got := finish(vFoo); len(got) != 0 {
+		t.Fatalf("after reopen posted %+v", got)
+	}
+}
+
+// A run in which a rule only produced a notice adds nothing to the chat and
+// leaves that rule's threads open.
+func TestCheckNoticeRunPostsNothing(t *testing.T) {
+	s, _, fd := ready(t)
+	finish := finisher(t, s, fd)
+	finish(vFoo)
+	if got := finish(rules.Violation{Rule: "no-foo", Level: "warning", Message: "AI check failed: down", Target: "ai"}); len(got) != 0 {
+		t.Fatalf("notice run posted %+v", got)
+	}
+	if checkThreads(t, s, fd)["Impact"].Resolved {
+		t.Fatal("notice resolved the thread")
+	}
+}
+
+// checkThreadList returns every check thread of the finding.
+func checkThreadList(t *testing.T, s *Store, fd string) []*chat.Thread {
+	t.Helper()
+	msgs, err := s.Chat(eng, fd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []*chat.Thread
+	for _, it := range chat.Timeline(msgs) {
+		if it.Thread != nil && it.Thread.Root.Kind == chat.KindCheck {
+			out = append(out, it.Thread)
+		}
+	}
+	return out
 }
 
 func TestCheckInterruptedRunFails(t *testing.T) {

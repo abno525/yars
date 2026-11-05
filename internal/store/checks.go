@@ -17,8 +17,9 @@ import (
 // CheckUser is the author of the chat threads and events check runs write.
 const CheckUser = "yars"
 
-// EventCheckFixed is the chat event of a check thread a later run no longer
-// found (the run resolved it).
+// EventCheckFixed is the chat event earlier versions wrote when a run no
+// longer found a violation; runs now resolve its thread silently, and the
+// event is kept only to show old chats.
 const EventCheckFixed = "check_fixed"
 
 // Checker is a Linter that also reports progress over a full run.
@@ -203,14 +204,39 @@ func sectionOf(target string) string {
 	return ""
 }
 
-// finishCheck stores the results of run id and keeps the chat in step:
-//   - a violation without a thread of its own gets a new one (kind check,
-//     by CheckUser, on its section);
-//   - one whose thread is still open keeps it; one whose thread someone
-//     resolved although it is still there gets it reopened;
+// threadKey identifies a violation's thread: rule, quote hash and section.
+func threadKey(rule, quoteHash, section string) string {
+	return db.DismissKey(rule, quoteHash) + "\x00" + section
+}
+
+// knownThreads maps each violation (threadKey) of the finding to the chat
+// thread the latest run that had one gave it; threads no longer in the chat
+// are left out.
+func knownThreads(tx *db.Tx, eng, fid string, threads map[string]*chat.Thread) (map[string]string, error) {
+	refs, err := tx.CheckThreadRefs(eng, fid)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]string{}
+	for _, r := range refs {
+		if t := threads[r.Thread]; t != nil {
+			out[threadKey(r.Rule, r.QuoteHash, t.Root.Section)] = r.Thread
+		}
+	}
+	return out, nil
+}
+
+// finishCheck stores the results of run id and keeps the chat in step. Only
+// a new violation adds anything visible to the chat:
+//   - a violation without a thread of its own (same rule, quote and section)
+//     gets a new one (kind check, by CheckUser, on its section);
+//   - one whose thread is still open keeps it, and nothing is posted; one
+//     whose thread someone resolved although it is still there gets it
+//     reopened (a reopen marker, no comment);
 //   - a dismissed violation gets no comment;
-//   - an open thread whose violation is gone is resolved, with an event
-//     (not for a rule that failed to run or only reported a notice).
+//   - an open thread whose violation is gone is resolved silently (a resolve
+//     marker only; not for a rule that failed to run or only reported a
+//     notice).
 //
 // The run fails when a rule could not run (Fail; "invalid output" for a
 // script that printed something other than JSON).
@@ -240,7 +266,7 @@ func finishCheck(tx *db.Tx, id int64, eng, fid string, vs []rules.Violation) err
 			threads[it.Thread.Root.ID] = it.Thread
 		}
 	}
-	known, err := tx.CheckThreads(eng, fid)
+	known, err := knownThreads(tx, eng, fid, threads)
 	if err != nil {
 		return err
 	}
@@ -253,20 +279,20 @@ func finishCheck(tx *db.Tx, id int64, eng, fid string, vs []rules.Violation) err
 		m.ID, m.TS, m.User = chat.NewID(), now, CheckUser
 		return tx.AddMessage(eng, fid, m)
 	}
-	found := map[string]string{} // key -> thread given in this run
+	found := map[string]string{} // threadKey -> thread given in this run
 	results := make([]db.CheckResult, 0, len(vs))
 	for _, v := range vs {
 		r := db.CheckResult{Rule: v.Rule, Level: v.Level, Message: v.Message, Target: v.Target, Quote: v.Quote, QuoteHash: QuoteHash(v.Quote)}
-		k := db.DismissKey(r.Rule, r.QuoteHash)
+		k := threadKey(r.Rule, r.QuoteHash, sectionOf(v.Target))
 		switch th, seen := found[k]; {
 		case notice(v):
 		case seen:
 			r.Thread = th
-		case dismissed[k].By != "":
+		case dismissed[db.DismissKey(r.Rule, r.QuoteHash)].By != "":
 			found[k] = known[k]
 			r.Thread = known[k]
 		default:
-			if t := threads[known[k]]; t != nil && known[k] != "" {
+			if t := threads[known[k]]; t != nil {
 				if t.Resolved {
 					if err := add(chat.Message{Reopens: t.Root.ID}); err != nil {
 						return err
@@ -274,7 +300,8 @@ func finishCheck(tx *db.Tx, id int64, eng, fid string, vs []rules.Violation) err
 				}
 				r.Thread = t.Root.ID
 			} else {
-				m := chat.Message{ID: chat.NewID(), TS: now, User: CheckUser, Kind: chat.KindCheck, Section: sectionOf(v.Target), Text: checkText(v)}
+				m := chat.Message{Kind: chat.KindCheck, Section: sectionOf(v.Target), Text: checkText(v)}
+				m.ID, m.TS, m.User = chat.NewID(), now, CheckUser
 				if err := tx.AddMessage(eng, fid, m); err != nil {
 					return err
 				}
@@ -291,9 +318,6 @@ func finishCheck(tx *db.Tx, id int64, eng, fid string, vs []rules.Violation) err
 			continue
 		}
 		if err := add(chat.Message{Resolves: th}); err != nil {
-			return err
-		}
-		if err := add(chat.Message{Event: EventCheckFixed, Text: rule}); err != nil {
 			return err
 		}
 	}
@@ -404,18 +428,29 @@ func (s *Store) Dismiss(engID, dir, rule, quote string, u config.User) error {
 		if err := tx.Dismiss(db.Dismissal{Eng: engID, Fid: fid, Rule: rule, QuoteHash: qh, Level: level, By: u.Username}); err != nil {
 			return err
 		}
-		known, err := tx.CheckThreads(engID, fid)
-		if err != nil || known[k] == "" {
+		refs, err := tx.CheckThreadRefs(engID, fid)
+		if err != nil {
 			return err
+		}
+		mine := map[string]bool{} // the violation's threads (one per section)
+		for _, r := range refs {
+			if db.DismissKey(r.Rule, r.QuoteHash) == k {
+				mine[r.Thread] = true
+			}
+		}
+		if len(mine) == 0 {
+			return nil
 		}
 		msgs, err := tx.Messages(engID, fid)
 		if err != nil {
 			return err
 		}
 		for _, it := range chat.Timeline(msgs) {
-			if it.Thread != nil && it.Thread.Root.ID == known[k] && !it.Thread.Resolved {
-				return tx.AddMessage(engID, fid, chat.Message{ID: chat.NewID(), TS: time.Now().UTC().Truncate(time.Second),
-					User: u.Username, Resolves: known[k]})
+			if it.Thread != nil && mine[it.Thread.Root.ID] && !it.Thread.Resolved {
+				if err := tx.AddMessage(engID, fid, chat.Message{ID: chat.NewID(), TS: time.Now().UTC().Truncate(time.Second),
+					User: u.Username, Resolves: it.Thread.Root.ID}); err != nil {
+					return err
+				}
 			}
 		}
 		return nil

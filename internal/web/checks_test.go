@@ -148,6 +148,33 @@ func TestChecksDismiss(t *testing.T) {
 	}
 }
 
+// Running the checks again posts nothing for known violations, and a fixed
+// one leaves no line in the chat.
+func TestChecksRerunPostsNothing(t *testing.T) {
+	e := setup(t)
+	script := map[string]string{"check.sh": `cat >/dev/null; echo '[{"message":"script says hi","quote":"q1","target":"section:Impact"}]'` + "\n"}
+	e.rules(t, "- id: scripted\n  script: check.sh\n  level: warning\n", script)
+	run := func() string {
+		t.Helper()
+		e.do(t, "alice", "POST", fpath+"/checks", url.Values{}, nil)
+		e.srv.Store.WaitChecks()
+		return e.do(t, "alice", "GET", fpath+"/chat?all=1", nil, nil).Body.String()
+	}
+	first := run()
+	const msg = "<p>script says hi</p>"
+	if strings.Count(first, msg) != 1 {
+		t.Fatalf("first run chat:\n%s", first)
+	}
+	if again := run(); strings.Count(again, msg) != 1 {
+		t.Fatalf("second run chat:\n%s", again)
+	}
+	e.rules(t, "- id: scripted\n  script: check.sh\n  level: warning\n", map[string]string{"check.sh": "cat >/dev/null; echo '[]'\n"})
+	fixed := run()
+	if strings.Contains(fixed, "found a check fixed") || strings.Count(fixed, msg) != 1 {
+		t.Fatalf("fixed run chat:\n%s", fixed)
+	}
+}
+
 func TestChecksStaleAndInvalid(t *testing.T) {
 	e := setup(t)
 	e.rules(t, styleRules, map[string]string{"check.sh": "cat >/dev/null; echo not json\n"})

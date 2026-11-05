@@ -60,9 +60,9 @@ func TestCheckRunLifecycle(t *testing.T) {
 	if err != nil || len(got) != 1 || got[0] != (CheckResult{RunID: id, Rule: "a", Level: "error", Message: "m", Target: "section:Impact", Quote: "q", QuoteHash: "qh", Thread: "c1"}) {
 		t.Fatalf("results %+v %v", got, err)
 	}
-	var th map[string]string
-	d.TxFor("e", func(tx *Tx) error { th, err = tx.CheckThreads("e", "F-001"); return err })
-	if th[DismissKey("a", "qh")] != "c1" {
+	var th []CheckThreadRef
+	d.TxFor("e", func(tx *Tx) error { th, err = tx.CheckThreadRefs("e", "F-001"); return err })
+	if len(th) != 1 || th[0] != (CheckThreadRef{Rule: "a", QuoteHash: "qh", Thread: "c1"}) {
 		t.Fatalf("threads %+v", th)
 	}
 	// purge drops runs, results and dismissals

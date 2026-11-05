@@ -130,22 +130,28 @@ func (d *DB) RunResults(id int64) ([]CheckResult, error) {
 	return out, rows.Err()
 }
 
-// CheckThreads maps each violation of a finding (DismissKey) to the chat
-// thread the latest run that had one gave it.
-func (tx *Tx) CheckThreads(eng, fid string) (map[string]string, error) {
+// CheckThreadRef is a violation (rule + quote hash) and the chat thread a run
+// gave it.
+type CheckThreadRef struct {
+	Rule, QuoteHash, Thread string
+}
+
+// CheckThreadRefs lists every violation of a finding with the thread a run
+// gave it, oldest run first.
+func (tx *Tx) CheckThreadRefs(eng, fid string) ([]CheckThreadRef, error) {
 	rows, err := tx.Query(`SELECT r.rule, r.quote_hash, r.thread FROM check_results r JOIN check_runs c ON c.id = r.run_id
 		WHERE c.eng = ? AND c.fid = ? AND r.thread != '' ORDER BY r.run_id, r.rowid`, eng, fid)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	out := map[string]string{}
+	var out []CheckThreadRef
 	for rows.Next() {
-		var rule, qh, th string
-		if err := rows.Scan(&rule, &qh, &th); err != nil {
+		var x CheckThreadRef
+		if err := rows.Scan(&x.Rule, &x.QuoteHash, &x.Thread); err != nil {
 			return nil, err
 		}
-		out[DismissKey(rule, qh)] = th
+		out = append(out, x)
 	}
 	return out, rows.Err()
 }
