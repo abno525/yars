@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 )
 
 // Engagement teams: who works on an engagement. Directors and admins see
@@ -206,6 +208,45 @@ type AuditEntry struct {
 func (d *DB) Audit(actor, action, target, detail string) error {
 	_, err := d.Exec("INSERT INTO audit(ts, actor, action, target, detail) VALUES (?, ?, ?, ?, ?)", d.stamp(), actor, action, target, detail)
 	return err
+}
+
+// FailedLoginActor is the audit actor of failed logins: the typed name is
+// anyone's choice, so it goes in the target, never in the actor list.
+const FailedLoginActor = "(anonymous)"
+
+// AuditLoginFail records a failed login for the typed name: repeats within
+// the hour update one row with a count ("3 attempts"), so failures can't
+// grow the log without bound.
+func (d *DB) AuditLoginFail(name string) error {
+	if len(name) > 64 { // typed by anyone: keep the log small
+		name = name[:64]
+	}
+	return d.Tx(func(tx *Tx) error {
+		now := d.now()
+		n := 1
+		var id int64
+		var detail string
+		err := tx.QueryRow(`SELECT id, detail FROM audit WHERE action = 'login.fail' AND actor = ? AND target = ? AND ts >= ?
+			ORDER BY id DESC LIMIT 1`, FailedLoginActor, name, now.Add(-time.Hour).UTC().Format(time.RFC3339)).Scan(&id, &detail)
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+		case err != nil:
+			return err
+		default:
+			// the row moves to the top of the log with the new count
+			prev, _ := strconv.Atoi(strings.Fields(detail + " 0")[0])
+			n = prev + 1
+			if _, err := tx.Exec("DELETE FROM audit WHERE id = ?", id); err != nil {
+				return err
+			}
+		}
+		text := "1 attempt"
+		if n > 1 {
+			text = strconv.Itoa(n) + " attempts"
+		}
+		_, err = tx.Exec("INSERT INTO audit(ts, actor, action, target, detail) VALUES (?, ?, 'login.fail', ?, ?)", d.stamp(), FailedLoginActor, name, text)
+		return err
+	})
 }
 
 // AuditLog returns the newest limit entries, newest first.

@@ -168,9 +168,11 @@ func (d *DB) AuditQuery(f AuditFilter) ([]AuditEntry, int, error) {
 	return out, total, rows.Err()
 }
 
-// AuditActors lists everyone who appears in the audit log, sorted.
+// AuditActors lists everyone who appears in the audit log, sorted. Names
+// typed into failed logins before they were filed under FailedLoginActor
+// are left out.
 func (d *DB) AuditActors() ([]string, error) {
-	rows, err := d.Query("SELECT DISTINCT actor FROM audit ORDER BY actor")
+	rows, err := d.Query("SELECT DISTINCT actor FROM audit WHERE action != 'login.fail' OR actor = ? ORDER BY actor", FailedLoginActor)
 	if err != nil {
 		return nil, err
 	}

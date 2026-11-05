@@ -75,11 +75,7 @@ func (a *Auth) Check(username, pw string) (config.User, bool) {
 // failures go to the audit log.
 func (a *Auth) Login(username, pw string) (string, bool) {
 	if _, ok := a.Check(username, pw); !ok {
-		name := username
-		if len(name) > 64 { // typed by anyone: keep the log small
-			name = name[:64]
-		}
-		a.db.Audit(name, "login.fail", "", "")
+		a.db.AuditLoginFail(username)
 		return "", false
 	}
 	a.db.Audit(username, "login", "", "")

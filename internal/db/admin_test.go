@@ -140,8 +140,14 @@ func TestAuditFilter(t *testing.T) {
 	if total != 4 || len(l) != 1 || l[0].Action != "token.create" {
 		t.Fatalf("paged %+v %d", l, total)
 	}
+	// bob appears only through an old-style failed login (the name typed
+	// by anyone): not an actor to pick
 	actors, _ := d.AuditActors()
-	if len(actors) != 3 || actors[0] != "ann" {
+	if len(actors) != 2 || actors[0] != "ann" || actors[1] != "dir1" {
+		t.Fatalf("actors %v", actors)
+	}
+	d.AuditLoginFail("mallory")
+	if actors, _ := d.AuditActors(); len(actors) != 3 || actors[0] != FailedLoginActor {
 		t.Fatalf("actors %v", actors)
 	}
 }

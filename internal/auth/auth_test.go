@@ -157,7 +157,31 @@ func TestLoginAudited(t *testing.T) {
 	a.Login("alice", "nope")
 	a.Login("mallory", "x")
 	l, _ := d.AuditLog(10)
-	if len(l) != 3 || l[2].Action != "login" || l[2].Actor != "alice" || l[1].Action != "login.fail" || l[0].Actor != "mallory" {
+	if len(l) != 3 || l[2].Action != "login" || l[2].Actor != "alice" || l[1].Action != "login.fail" || l[0].Target != "mallory" {
 		t.Fatalf("audit %+v", l)
+	}
+}
+
+// Failed logins are filed under one actor with the typed name as target,
+// and repeats of a name within the hour make one row with a count, so typed
+// names can't flood the log or the activity page's actor list.
+func TestLoginFailAggregated(t *testing.T) {
+	a, d := newAuth(t)
+	for i := 0; i < 3; i++ {
+		a.Login("mallory", "x")
+	}
+	a.Login("alice", "nope")
+	l, _ := d.AuditLog(10)
+	if len(l) != 2 {
+		t.Fatalf("audit %+v", l)
+	}
+	if l[0].Actor != db.FailedLoginActor || l[0].Target != "alice" || l[0].Detail != "1 attempt" {
+		t.Fatalf("alice row %+v", l[0])
+	}
+	if l[1].Actor != db.FailedLoginActor || l[1].Target != "mallory" || l[1].Detail != "3 attempts" {
+		t.Fatalf("mallory row %+v", l[1])
+	}
+	if actors, _ := d.AuditActors(); len(actors) != 1 || actors[0] != db.FailedLoginActor {
+		t.Fatalf("actors %v", actors)
 	}
 }
