@@ -120,6 +120,7 @@ type Store struct {
 	checkWG  sync.WaitGroup
 
 	beforeWrite func() // test hook: runs between reading and writing
+	beforeClaim func() // test hook: Make finding, between reading the note and claiming it
 }
 
 // Change reports a database write confined to one finding: its engagement's

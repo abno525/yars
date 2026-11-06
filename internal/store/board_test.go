@@ -45,6 +45,9 @@ func TestCreateNoteChecks(t *testing.T) {
 		{"ok", "", "confirmed", "x", "state"},
 		{"ok", "", "open", "  ", "text"},
 		{"ok", "", "open", strings.Repeat("y", 10001), "text"},
+		// the first message becomes a finding's description: it must fit one
+		{"ok", "", "open", "## Response\nbody", "text"},
+		{"ok", "", "open", "```\nunclosed", "text"},
 	} {
 		_, err := s.CreateNote(eng, c.title, c.host, c.state, c.text, bPen)
 		if !errors.Is(err, ErrInvalidValue) || fieldOf(err) != c.field {
@@ -196,6 +199,23 @@ func TestMakeFindingFallbackSectionAndHost(t *testing.T) {
 	}
 	if a := ref.F.Meta.Assets; len(a) != 1 || a[0].Host != "app.acme.test/search" {
 		t.Fatalf("assets %+v", a)
+	}
+}
+
+// The finding takes the note as it is once claimed: a severity set just
+// before the claim counts.
+func TestMakeFindingReadsAfterClaim(t *testing.T) {
+	s, _ := withEngagement(t)
+	boardNote(t, s, "x", "h", "info")
+	d := s.DB()
+	// someone sets the severity between the first read and the claim
+	s.beforeClaim = func() { d.SetNoteSeverity(eng, 1, "bob", "medium") }
+	ref, err := s.MakeFinding(eng, 1, bRev)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ref.F.Meta.Severity != "medium" {
+		t.Fatalf("severity %q", ref.F.Meta.Severity)
 	}
 }
 

@@ -3,6 +3,7 @@ package store
 import (
 	"errors"
 	"fmt"
+	"log"
 	"net/url"
 	"regexp"
 	"slices"
@@ -134,6 +135,10 @@ func (s *Store) CreateNote(eng, title, host, state, text string, u config.User) 
 	}
 	if text, err = noteText(text); err != nil {
 		return Note{}, err
+	}
+	// the first message is what Make finding makes the description of
+	if finding.ValidateBody(text) != nil {
+		return Note{}, fieldErr("text", "No ## heading or open ``` fence: it becomes the description")
 	}
 	n, err := s.db.CreateNote(db.Note{Eng: eng, Title: title, Host: host, Author: u.Username, State: state}, text)
 	return n, boardErr(err)
@@ -309,7 +314,15 @@ func (s *Store) MakeFinding(eng string, num int, u config.User) (FindingRef, err
 	if n.Finding == "" && !n.Pending && n.State != "confirmed" && n.State != "info" {
 		return FindingRef{}, fieldErr("state", "Only a confirmed or info note becomes a finding")
 	}
+	if s.beforeClaim != nil {
+		s.beforeClaim()
+	}
 	if err := s.db.ClaimNote(eng, num); err != nil {
+		return FindingRef{}, boardErr(err)
+	}
+	// the note as claimed: nothing changes it any more
+	if n, err = s.db.Note(eng, num); err != nil {
+		s.db.UnclaimNote(eng, num)
 		return FindingRef{}, boardErr(err)
 	}
 	ref, err := s.findingOfNote(n, u)
@@ -317,7 +330,13 @@ func (s *Store) MakeFinding(eng string, num int, u config.User) (FindingRef, err
 		s.db.UnclaimNote(eng, num)
 		return FindingRef{}, err
 	}
-	return ref, s.db.LinkNote(eng, num, u.Username, ref.F.Meta.ID)
+	// the finding exists now: the claim must not be given back (a restart
+	// would offer Make finding again), so the link is tried twice
+	if err = s.db.LinkNote(eng, num, u.Username, ref.F.Meta.ID); err != nil {
+		log.Printf("board %s/%s: link to %s: %v (retrying)", eng, NoteID(num), ref.F.Meta.ID, err)
+		err = s.db.LinkNote(eng, num, u.Username, ref.F.Meta.ID)
+	}
+	return ref, err
 }
 
 func (s *Store) findingOfNote(n Note, u config.User) (FindingRef, error) {
