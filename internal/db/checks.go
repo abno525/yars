@@ -3,6 +3,7 @@ package db
 import (
 	"database/sql"
 	"errors"
+	"strings"
 	"time"
 )
 
@@ -161,6 +162,53 @@ func (d *DB) LatestRun(eng, fid string) (CheckRun, bool, error) {
 		return r, false, nil
 	}
 	return r, err == nil, err
+}
+
+// RunCount is a finding's newest check run in short: its state, the content
+// it ran on, and its errors and warnings that are not dismissed (notices
+// about the rules or AI left out).
+type RunCount struct {
+	ID                 int64
+	State, ContentHash string
+	Errors, Warnings   int
+}
+
+// LatestRuns reads the newest run of each finding (eng, fid) in one query
+// per 200 findings, by "eng/fid"; a finding never checked is left out.
+func (d *DB) LatestRuns(keys [][2]string) (map[string]RunCount, error) {
+	out := map[string]RunCount{}
+	const count = `(SELECT count(*) FROM check_results r WHERE r.run_id = c.id AND r.level = ? AND r.target NOT IN ('rules', 'ai')
+		AND NOT EXISTS (SELECT 1 FROM dismissals x WHERE x.eng = c.eng AND x.fid = c.fid AND x.rule = r.rule AND x.quote_hash = r.quote_hash))`
+	for len(keys) > 0 {
+		part := keys[:min(len(keys), 200)]
+		keys = keys[len(part):]
+		args := []any{"error", "warning"}
+		vals := make([]string, len(part))
+		for i, k := range part {
+			vals[i] = "(?, ?)"
+			args = append(args, k[0], k[1])
+		}
+		rows, err := d.Query(`SELECT c.eng, c.fid, c.id, c.state, c.content_hash, `+count+`, `+count+`
+			FROM check_runs c WHERE c.id IN (SELECT MAX(id) FROM check_runs WHERE (eng, fid) IN (VALUES `+strings.Join(vals, ", ")+`) GROUP BY eng, fid)`, args...)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var eng, fid string
+			var r RunCount
+			if err := rows.Scan(&eng, &fid, &r.ID, &r.State, &r.ContentHash, &r.Errors, &r.Warnings); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			out[eng+"/"+fid] = r
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
 }
 
 // FailRun ends a running check as failed (e.g. a run cut off by a restart).
