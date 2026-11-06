@@ -42,11 +42,6 @@ const (
 	bulkTime      = 2 * time.Minute
 )
 
-// bulkDone labels a finding the action succeeded on (the inbox's result
-// column).
-var bulkDone = map[string]string{"approve": "Approved", "report": "Reported", "reviewers": "Assigned", "submit": "Submitted",
-	"take_back": "Taken back", "clear": "Signed off", "return": "Returned", "withdraw": "Withdrawn"}
-
 // bulkAction reads the posted action: "reviewers" or a workflow action on
 // u's bulk menu. An unknown name is 400, one u's role may not run in bulk
 // 403.
