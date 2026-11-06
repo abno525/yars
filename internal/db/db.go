@@ -355,11 +355,6 @@ func Open(path string) (*DB, error) {
 		sdb.Close()
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
-	// a Make finding cut off by a stop left its claim: offer it again
-	if _, err := d.Exec("UPDATE board_notes SET finding = '' WHERE finding = ?", pendingFinding); err != nil {
-		sdb.Close()
-		return nil, fmt.Errorf("%s: %w", path, err)
-	}
 	for _, p := range []string{path, path + "-wal", path + "-shm"} {
 		if _, err := os.Stat(p); err == nil {
 			os.Chmod(p, 0o600)

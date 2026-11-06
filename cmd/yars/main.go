@@ -889,6 +889,10 @@ func cmdServe(args []string) error {
 	if err := backfillTeams(st, d); err != nil {
 		return fmt.Errorf("team backfill: %w", err)
 	}
+	// before any request: a Make finding claim now is one a stop cut off
+	if err := d.ResetBoardClaims(); err != nil {
+		return fmt.Errorf("team board: %w", err)
+	}
 	eng := rules.NewEngine(rules.DirFor(r.Dir), cfg)
 	st.Linter = eng
 	au := auth.New(d)

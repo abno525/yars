@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"slices"
+	"strings"
 )
 
 // The team board: an engagement's notes ("leads"), each with a timeline of
@@ -42,6 +43,7 @@ type Note struct {
 	Replies                    int    // messages after the first
 	Activity                   string // the newest entry's time
 	Last                       int64  // the newest entry's seq
+	Pending                    bool   // Make finding is under way (Finding is "")
 }
 
 // NoteMsg is one timeline entry.
@@ -130,6 +132,9 @@ func scanBoardNote(sc interface{ Scan(...any) error }) (Note, error) {
 	var n Note
 	err := sc.Scan(&n.Eng, &n.Num, &n.Title, &n.Host, &n.Author, &n.State, &n.Severity, &n.DupOf, &n.Finding, &n.DismissReason, &n.Created,
 		&n.Replies, &n.Activity, &n.Last)
+	if n.Finding == pendingFinding {
+		n.Finding, n.Pending = "", true
+	}
 	return n, err
 }
 
@@ -144,11 +149,36 @@ func (d *DB) Note(eng string, num int) (Note, error) {
 	return n, err
 }
 
-// Notes returns eng's notes, the latest activity first (one query).
-func (d *DB) Notes(eng string) ([]Note, error) {
-	rows, err := d.Query(`SELECT `+boardCols+` FROM board_notes n
+// NoteFilter picks notes: one state ("" = all) and text in the title or
+// host ("" = any), at most Limit (0 = no limit).
+type NoteFilter struct {
+	State, Q string
+	Limit    int
+}
+
+// likeEscape makes s match itself in a LIKE … ESCAPE '\' pattern.
+func likeEscape(s string) string {
+	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(s)
+}
+
+// Notes returns eng's notes that f picks, the latest activity first (one
+// query).
+func (d *DB) Notes(eng string, f NoteFilter) ([]Note, error) {
+	q, args := `SELECT `+boardCols+` FROM board_notes n
 		LEFT JOIN board_messages m ON m.eng = n.eng AND m.num = n.num
-		WHERE n.eng = ? GROUP BY n.eng, n.num ORDER BY MAX(m.seq) DESC, n.num DESC`, eng)
+		WHERE n.eng = ?`, []any{eng}
+	if f.State != "" {
+		q, args = q+" AND n.state = ?", append(args, f.State)
+	}
+	if f.Q != "" {
+		p := "%" + likeEscape(f.Q) + "%"
+		q, args = q+` AND (n.title LIKE ? ESCAPE '\' OR n.host LIKE ? ESCAPE '\')`, append(args, p, p)
+	}
+	q += " GROUP BY n.eng, n.num ORDER BY MAX(m.seq) DESC, n.num DESC"
+	if f.Limit > 0 {
+		q, args = q+" LIMIT ?", append(args, f.Limit)
+	}
+	rows, err := d.Query(q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -160,6 +190,25 @@ func (d *DB) Notes(eng string) ([]Note, error) {
 			return nil, err
 		}
 		out = append(out, n)
+	}
+	return out, rows.Err()
+}
+
+// NoteCounts counts eng's notes by state.
+func (d *DB) NoteCounts(eng string) (map[string]int, error) {
+	rows, err := d.Query("SELECT state, count(*) FROM board_notes WHERE eng = ? GROUP BY state", eng)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]int{}
+	for rows.Next() {
+		var s string
+		var n int
+		if err := rows.Scan(&s, &n); err != nil {
+			return nil, err
+		}
+		out[s] = n
 	}
 	return out, rows.Err()
 }
@@ -354,18 +403,22 @@ func (d *DB) SeeNote(user, eng string, num int) error {
 }
 
 // unseenQuery finds, per note, the newest entry by someone other than ?1
-// that ?1 has not seen; entries from before ?1 joined the team don't count.
+// that ?1 has not seen. A team member follows every note of the team, from
+// the time they joined; someone who sees the engagement without being on
+// its team (a director, an admin) follows the notes they opened or wrote
+// in, so no one is flooded with a whole board they never looked at.
 const unseenQuery = `SELECT n.eng, n.num, n.title, n.state, n.finding, m.username, m.kind, m.text, m.ts, m.seq
 	FROM board_notes n
 	JOIN board_messages m ON m.seq = (SELECT MAX(x.seq) FROM board_messages x WHERE x.eng = n.eng AND x.num = n.num AND x.username != ?1)
 	LEFT JOIN board_seen s ON s.username = ?1 AND s.eng = n.eng AND s.num = n.num
 	LEFT JOIN engagement_members em ON em.eng = n.eng AND em.username = ?1
-	WHERE m.seq > COALESCE(s.seq, 0) AND (em.joined IS NULL OR em.joined = '' OR m.ts >= em.joined)`
+	WHERE m.seq > COALESCE(s.seq, 0)
+	AND ((em.username IS NOT NULL AND (em.joined = '' OR m.ts >= em.joined)) OR s.seq IS NOT NULL)`
 
-// UnseenNotes lists the notes with something new to user, newest first,
-// across every engagement; the caller keeps the ones user may see.
-func (d *DB) UnseenNotes(user string) ([]Unseen, error) {
-	rows, err := d.Query(unseenQuery+" ORDER BY m.seq DESC", user)
+// UnseenNotes lists up to limit notes with something new to user, newest
+// first, across every engagement; the caller keeps the ones user may see.
+func (d *DB) UnseenNotes(user string, limit int) ([]Unseen, error) {
+	rows, err := d.Query(unseenQuery+" ORDER BY m.seq DESC LIMIT ?2", user, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -375,6 +428,9 @@ func (d *DB) UnseenNotes(user string) ([]Unseen, error) {
 		var u Unseen
 		if err := rows.Scan(&u.Eng, &u.Num, &u.Title, &u.State, &u.Finding, &u.LastUser, &u.LastKind, &u.LastText, &u.LastTS, &u.Last); err != nil {
 			return nil, err
+		}
+		if u.Finding == pendingFinding {
+			u.Finding = ""
 		}
 		out = append(out, u)
 	}
@@ -386,4 +442,13 @@ func (d *DB) UnseenCount(user, eng string) (int, error) {
 	var n int
 	err := d.QueryRow("SELECT count(*) FROM ("+unseenQuery+" AND n.eng = ?2)", user, eng).Scan(&n)
 	return n, err
+}
+
+// ResetBoardClaims gives back every Make finding claim. The server calls it
+// once when it starts, before it takes requests: a claim then is one a stop
+// cut off. (Other commands open the database while the server runs, so
+// opening never does this.)
+func (d *DB) ResetBoardClaims() error {
+	_, err := d.Exec("UPDATE board_notes SET finding = '' WHERE finding = ?", pendingFinding)
+	return err
 }

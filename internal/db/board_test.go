@@ -30,7 +30,7 @@ func TestBoardNotesNumberedPerEngagement(t *testing.T) {
 	if _, err := d.PostNote("acme", 1, "bob", "reply"); err != nil {
 		t.Fatal(err)
 	}
-	ns, err := d.Notes("acme")
+	ns, err := d.Notes("acme", NoteFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,6 +48,43 @@ func TestBoardNotesNumberedPerEngagement(t *testing.T) {
 	msgs, older, err := d.NoteMessages("acme", 1, 50)
 	if err != nil || older != 0 || len(msgs) != 2 || msgs[0].Text != "first one" || msgs[1].User != "bob" || msgs[1].Kind != KindMsg {
 		t.Fatalf("messages %+v %d %v", msgs, older, err)
+	}
+}
+
+func TestBoardFilter(t *testing.T) {
+	d, _ := open(t)
+	newNote(t, d, "acme", "alice", "100% XSS")
+	newNote(t, d, "acme", "alice", "SQL_injection")
+	newNote(t, d, "acme", "alice", "plain")
+	d.SetNoteState("acme", 3, "bob", "open", "info", "")
+	got := func(f NoteFilter) (out []int) {
+		ns, err := d.Notes("acme", f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, n := range ns {
+			out = append(out, n.Num)
+		}
+		return out
+	}
+	// % and _ match only themselves
+	if g := got(NoteFilter{Q: "%"}); fmt.Sprint(g) != "[1]" {
+		t.Fatalf("q %%: %v", g)
+	}
+	if g := got(NoteFilter{Q: "_"}); fmt.Sprint(g) != "[2]" {
+		t.Fatalf("q _: %v", g)
+	}
+	if g := got(NoteFilter{Q: "ACME.TEST"}); len(g) != 3 {
+		t.Fatalf("host search: %v", g)
+	}
+	if g := got(NoteFilter{State: "info"}); fmt.Sprint(g) != "[3]" {
+		t.Fatalf("state: %v", g)
+	}
+	if g := got(NoteFilter{Limit: 2}); fmt.Sprint(g) != "[3 2]" {
+		t.Fatalf("limit: %v", g)
+	}
+	if c, _ := d.NoteCounts("acme"); c["open"] != 2 || c["info"] != 1 {
+		t.Fatalf("counts %v", c)
 	}
 }
 
@@ -167,21 +204,32 @@ func TestBoardMakeFindingClaim(t *testing.T) {
 	}
 }
 
-func TestBoardPendingResetOnOpen(t *testing.T) {
+func TestBoardPendingClaims(t *testing.T) {
 	d, p := open(t)
 	newNote(t, d, "acme", "alice", "x")
 	d.SetNoteState("acme", 1, "bob", "open", "confirmed", "")
 	if err := d.ClaimNote("acme", 1); err != nil {
 		t.Fatal(err)
 	}
-	d.Close()
+	// readers see a claim as under way, never as a finding called "pending"
+	if n, _ := d.Note("acme", 1); n.Finding != "" || !n.Pending {
+		t.Fatalf("claimed %+v", n)
+	}
+	// another command opening the database leaves a live claim alone
 	d2, err := Open(p)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer d2.Close()
-	if n, _ := d2.Note("acme", 1); n.Finding != "" {
-		t.Fatalf("pending left after a restart: %+v", n)
+	d2.Close()
+	if err := d.ClaimNote("acme", 1); !errors.Is(err, ErrBoardLocked) {
+		t.Fatalf("claim after another open: %v", err)
+	}
+	// the server's start gives it back
+	if err := d.ResetBoardClaims(); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := d.Note("acme", 1); n.Pending {
+		t.Fatalf("after reset %+v", n)
 	}
 }
 
@@ -230,10 +278,10 @@ func TestBoardUnseen(t *testing.T) {
 	d.AddMembers("acme", "alice", "bob")
 	newNote(t, d, "acme", "alice", "x")
 	// alice's own note is nothing new to her
-	if u, _ := d.UnseenNotes("alice"); len(u) != 0 {
+	if u, _ := d.UnseenNotes("alice", 50); len(u) != 0 {
 		t.Fatalf("own note unseen: %+v", u)
 	}
-	u, err := d.UnseenNotes("bob")
+	u, err := d.UnseenNotes("bob", 50)
 	if err != nil || len(u) != 1 || u[0].Num != 1 || u[0].LastUser != "alice" || u[0].LastText != "first x" {
 		t.Fatalf("bob %+v %v", u, err)
 	}
@@ -243,28 +291,28 @@ func TestBoardUnseen(t *testing.T) {
 	if err := d.SeeNote("bob", "acme", 1); err != nil {
 		t.Fatal(err)
 	}
-	if u, _ := d.UnseenNotes("bob"); len(u) != 0 {
+	if u, _ := d.UnseenNotes("bob", 50); len(u) != 0 {
 		t.Fatalf("seen note still new: %+v", u)
 	}
 	// a reply in the same second as the view still counts (seq, not time)
 	d.PostNote("acme", 1, "alice", "more")
-	if u, _ := d.UnseenNotes("bob"); len(u) != 1 || u[0].LastText != "more" {
+	if u, _ := d.UnseenNotes("bob", 50); len(u) != 1 || u[0].LastText != "more" {
 		t.Fatalf("reply not new: %+v", u)
 	}
 	// bob's own reply marks the note seen for him
 	d.PostNote("acme", 1, "bob", "ok")
-	if u, _ := d.UnseenNotes("bob"); len(u) != 0 {
+	if u, _ := d.UnseenNotes("bob", 50); len(u) != 0 {
 		t.Fatalf("after own reply: %+v", u)
 	}
 	// a new member is not flooded with what came before joining
 	d.now = func() time.Time { return time.Now().Add(time.Hour) }
 	d.AddMembers("acme", "carol")
-	if u, _ := d.UnseenNotes("carol"); len(u) != 0 {
+	if u, _ := d.UnseenNotes("carol", 50); len(u) != 0 {
 		t.Fatalf("new member flooded: %+v", u)
 	}
 	d.now = func() time.Time { return time.Now().Add(2 * time.Hour) }
 	d.PostNote("acme", 1, "alice", "after carol joined")
-	if u, _ := d.UnseenNotes("carol"); len(u) != 1 {
+	if u, _ := d.UnseenNotes("carol", 50); len(u) != 1 {
 		t.Fatalf("new member misses new replies: %+v", u)
 	}
 	// off the team: the read state goes with the membership
@@ -276,6 +324,27 @@ func TestBoardUnseen(t *testing.T) {
 	d.QueryRow("SELECT count(*) FROM board_seen WHERE username = 'carol'").Scan(&n)
 	if n != 0 {
 		t.Fatalf("%d seen rows left", n)
+	}
+}
+
+// A director who sees the engagement without being on its team follows the
+// notes they opened or wrote in, not the whole board.
+func TestBoardUnseenNonMember(t *testing.T) {
+	d, _ := open(t)
+	d.AddMembers("acme", "alice")
+	newNote(t, d, "acme", "alice", "x")
+	newNote(t, d, "acme", "alice", "y")
+	if u, _ := d.UnseenNotes("dora", 50); len(u) != 0 {
+		t.Fatalf("director flooded: %+v", u)
+	}
+	d.SeeNote("dora", "acme", 1)
+	d.PostNote("acme", 1, "alice", "news")
+	d.PostNote("acme", 2, "alice", "news too")
+	if u, _ := d.UnseenNotes("dora", 50); len(u) != 1 || u[0].Num != 1 {
+		t.Fatalf("director follows %+v", u)
+	}
+	if u, _ := d.UnseenNotes("dora", 0); len(u) != 0 {
+		t.Fatalf("limit 0: %+v", u)
 	}
 }
 
@@ -319,7 +388,7 @@ func TestMigrateV11Board(t *testing.T) {
 	}
 	newNote(t, d, "acme", "alice", "x")
 	// a member from before the board sees what is new
-	if u, _ := d.UnseenNotes("bob"); len(u) != 1 {
+	if u, _ := d.UnseenNotes("bob", 50); len(u) != 1 {
 		t.Fatalf("unseen after upgrade %+v", u)
 	}
 }
