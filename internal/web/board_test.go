@@ -40,7 +40,7 @@ func TestBoardCountsAndBars(t *testing.T) {
 		}
 	}
 	bars := between(b, `class="bars"`, "</section>")
-	for _, want := range []string{"0 of 2 reported", "2 findings", `class="seg-verification"`, `class="seg-high"`, ">critical<", ">0<"} {
+	for _, want := range []string{"0 of 2 reported", "2 findings", `class="seg-verification"`, `class="seg-high"`, ">Critical<", ">0<"} {
 		if !strings.Contains(bars, want) {
 			t.Fatalf("bars lack %q:\n%s", want, bars)
 		}
