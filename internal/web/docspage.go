@@ -14,7 +14,8 @@ import (
 
 // docsTabs are the developer pages, in the rail's order.
 var docsTabs = []struct{ Key, Label string }{
-	{"mcp", "MCP"}, {"scripts", "Scripts"}, {"git", "Git"}, {"config", "Config"}, {"webhooks", "Webhooks"},
+	{"mcp", "MCP"}, {"rules", "Script rules"}, {"exporters", "Script exporters"},
+	{"git", "Git"}, {"config", "Config"}, {"webhooks", "Webhooks"},
 }
 
 // docsView is a developer docs page: generated panels (from the code) and
@@ -46,6 +47,10 @@ type actionTools struct {
 func (s *Server) routesDocs(mux *http.ServeMux) {
 	mux.HandleFunc("GET /docs", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/docs/mcp", http.StatusSeeOther)
+	})
+	// the single scripts page became two tabs; old links land on the first
+	mux.HandleFunc("GET /docs/scripts", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/docs/rules", http.StatusMovedPermanently)
 	})
 	mux.HandleFunc("GET /docs/{page}", s.docsPage)
 }

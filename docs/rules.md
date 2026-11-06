@@ -1,10 +1,6 @@
-# Scripts
+# Script rules
 
-YARS runs two kinds of scripts kept in the main repository: **script rules** check a finding, **script exporters** turn the complete findings of an engagement into a file. Both read JSON on stdin and run with a clean environment.
-
-## Script rules
-
-A rule in `.yars/rules/*.yaml` names a script file in `.yars/rules`:
+A rule in `.yars/rules/*.yaml` names a script file in `.yars/rules`. The script reads the finding as JSON on stdin and runs with a clean environment:
 
 ```yaml
 - id: no-internal-hosts
@@ -14,7 +10,7 @@ A rule in `.yars/rules/*.yaml` names a script file in `.yars/rules`:
   enabled: true
 ```
 
-### stdin: the finding (rules.Doc)
+## stdin: the finding (rules.Doc)
 
 | Field | Type | Value |
 |---|---|---|
@@ -31,7 +27,7 @@ A rule in `.yars/rules/*.yaml` names a script file in `.yars/rules`:
 | `retest_result` | string | `fixed`, `partially_fixed`, `not_fixed` or `""` |
 | `attachments` | []string | files of `attachments/` the sections use |
 
-### stdout: the violations
+## stdout: the violations
 
 A JSON array; `[]` means the finding passes.
 
@@ -41,7 +37,7 @@ A JSON array; `[]` means the finding passes.
 | `quote` | string | the offending text, cut to 80 characters + … |
 | `target` | string | `title`, `section:<Name>`, `details:<Row>`, `cvss`, or empty (`finding`) |
 
-### Example
+## Example: no_internal_hosts.py
 
 ```python
 #!/usr/bin/env python3
@@ -59,7 +55,7 @@ for row, value in (doc["details"] or {}).items():
 json.dump(hits, sys.stdout)
 ```
 
-### Limits
+## Limits
 
 | Limit | Value |
 |---|---|
@@ -73,7 +69,7 @@ json.dump(hits, sys.stdout)
 | Script path | inside `.yars/rules` · symlinks resolved · executable |
 | Runs | Check button · `start_check` and `lint_finding all=true` (MCP) · `yars lint` · git push |
 
-### Failures
+## Failures
 
 A rule that can't run reports a violation with target `rules` at the rule's level:
 
@@ -85,51 +81,3 @@ A rule that can't run reports a violation with target `rules` at the rule's leve
 | `rule failed: <stderr>` | Non-zero exit |
 | `rule failed: invalid output (want a JSON array): …` | Not a JSON array |
 | `rule invalid (hosts.yaml): …` | The YAML file: unknown keys, duplicate id, not exactly one of `regex_forbid`, `regex_require`, `check`, `script`, `ai` |
-
-## Script exporters
-
-A destination in `.yars/exporters/*.yaml` of type `script` (edit them under **Export › Destinations**):
-
-```yaml
-name: CSV summary
-type: script
-script: csv_summary.py
-extension: csv
-statuses: [complete, reported]
-mark_reported: false
-```
-
-### stdin
-
-| Field | Shape |
-|---|---|
-| `engagement` | `{id, name, client, type, source, start, end, archived}` |
-| `engagement_id` | string |
-| `findings` | rules.Doc + `html_sections` for each finding with one of `statuses`, by severity, then ID |
-| `html_sections` | section name → rendered HTML |
-
-### stdout
-
-The file itself, saved as `<engagement id>.<extension>` (`application/octet-stream`).
-
-### Limits
-
-| Limit | Value |
-|---|---|
-| Timeout | 120 s · kill wait 2 s |
-| stdout | 100 MB |
-| stderr | 64 KB · the end shown |
-| Environment | `PATH`, `HOME` |
-| Working directory | `.yars/exporters` |
-| Script path | inside `.yars/exporters` · symlinks resolved · executable |
-| After success | `mark_reported: true` moves the sent complete findings to reported |
-
-### Failures
-
-| Message | Cause |
-|---|---|
-| `export script timed out` | Over 120 s |
-| `export script output too large` | stdout |
-| `export script failed: exit status 1: …` | Non-zero exit |
-| `… is outside the exporters directory` | Path |
-| `csv.yaml: script exporter needs script and a plain extension (letters/digits)` | The YAML file |

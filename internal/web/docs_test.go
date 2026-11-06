@@ -13,11 +13,12 @@ func TestDeveloperDocs(t *testing.T) {
 	}
 	pages := map[string][]string{
 		// the tool list comes from the MCP server's own definitions
-		"mcp":      {"list_engagements", "start_check", "list_templates", "list_notifications", "Authorization: Bearer", "/mcp", "2025-06-18", "Required", "Optional"},
-		"scripts":  {"10 s", "1 MB", "20", "stdin", "stdout", "quote", "target", "cvss_reasons", "Script exporters"},
-		"git":      {"--recurse-submodules", "/git/e/acme", "/git/yars"},
-		"config":   {"severities", "details_rows", "smtp", "password_env", "base_url"},
-		"webhooks": {"finding.status_changed", "finding.created", "chat.posted", "export.sent", "check.finished", "X-YARS-Signature", "sha256="},
+		"mcp":       {"list_engagements", "start_check", "list_templates", "list_notifications", "Authorization: Bearer", "/mcp", "2025-06-18", "Required", "Optional"},
+		"rules":     {"Script rules", "10 s", "1 MB", "Hits per rule", "stdin", "stdout", "quote", "target", "cvss_reasons", "no_internal_hosts.py"},
+		"exporters": {"Script exporters", "120 s", "100 MB", "html_sections", "csv_summary.py", "mark_reported"},
+		"git":       {"--recurse-submodules", "/git/e/acme", "/git/yars"},
+		"config":    {"severities", "details_rows", "smtp", "password_env", "base_url"},
+		"webhooks":  {"finding.status_changed", "finding.created", "chat.posted", "export.sent", "check.finished", "X-YARS-Signature", "sha256="},
 	}
 	for name, wants := range pages {
 		rec := e.do(t, "alice", "GET", "/docs/"+name, nil, nil)
@@ -47,6 +48,24 @@ func TestDeveloperDocs(t *testing.T) {
 	if rec := e.do(t, "alice", "GET", "/docs/nope", nil, nil); rec.Code != http.StatusNotFound {
 		t.Fatalf("unknown page %d", rec.Code)
 	}
+	// rules and exporters are separate tabs; each keeps to its own content
+	rules := e.do(t, "alice", "GET", "/docs/rules", nil, nil).Body.String()
+	exporters := e.do(t, "alice", "GET", "/docs/exporters", nil, nil).Body.String()
+	if strings.Contains(rules, "120 s") || strings.Contains(rules, "csv_summary.py") {
+		t.Error("rules tab shows exporter content")
+	}
+	if strings.Contains(exporters, "Hits per rule") || strings.Contains(exporters, "no_internal_hosts.py") {
+		t.Error("exporters tab shows rule content")
+	}
+	for _, b := range []string{rules, exporters} {
+		if !strings.Contains(b, `>Script rules</a>`) || !strings.Contains(b, `>Script exporters</a>`) || strings.Contains(b, `>Scripts</a>`) {
+			t.Error("rail lacks the two script tabs")
+		}
+	}
+	// the old single scripts page sends people to the rules tab
+	if rec := e.do(t, "alice", "GET", "/docs/scripts", nil, nil); rec.Code != http.StatusMovedPermanently || rec.Header().Get("Location") != "/docs/rules" {
+		t.Fatalf("/docs/scripts %d %s", rec.Code, rec.Header().Get("Location"))
+	}
 	// linked from the settings and the admin pages
 	if !strings.Contains(e.do(t, "alice", "GET", "/settings", nil, nil).Body.String(), `href="/docs"`) {
 		t.Error("no link on settings")
@@ -55,9 +74,9 @@ func TestDeveloperDocs(t *testing.T) {
 		t.Error("no link in the admin footer")
 	}
 	// rendered once, then from the cache
-	e.do(t, "alice", "GET", "/docs/scripts", nil, nil)
+	e.do(t, "alice", "GET", "/docs/rules", nil, nil)
 	before := e.srv.md.Misses()
-	e.do(t, "alice", "GET", "/docs/scripts", nil, nil)
+	e.do(t, "alice", "GET", "/docs/rules", nil, nil)
 	if e.srv.md.Misses() != before {
 		t.Error("docs not cached")
 	}
