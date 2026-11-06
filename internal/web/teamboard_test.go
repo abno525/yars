@@ -277,13 +277,17 @@ func TestTeamBoardLive(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("no board event")
 	}
-	// a finding tab does not hear it
+	// a finding tab and the findings list do not hear it
 	fsub := e.srv.Events.Subscribe("acme", "F-001", 8)
 	defer e.srv.Events.Unsubscribe(fsub)
+	esub := e.srv.Events.Subscribe("acme", "", 8)
+	defer e.srv.Events.Unsubscribe(esub)
 	e.do(t, "bob", "POST", "/e/acme/board/n/L-001/post", url.Values{"text": {"z"}}, nil)
 	select {
 	case ev := <-fsub.C():
 		t.Fatalf("finding tab got %+v", ev)
+	case ev := <-esub.C():
+		t.Fatalf("engagement stream got %+v", ev)
 	case <-time.After(50 * time.Millisecond):
 	}
 	e.do(t, "bob", "GET", "/e/acme/board?n=L-001", nil, nil)

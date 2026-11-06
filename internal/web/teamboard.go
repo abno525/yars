@@ -23,7 +23,7 @@ import (
 // board; open pages refresh on the "board" event (never a finding's).
 
 // boardEvent is the event (and the Fid) of board changes.
-const boardEvent = "board"
+const boardEvent = events.Board
 
 // leadRows caps the rows of the table; leadTail the entries of a thread.
 const (

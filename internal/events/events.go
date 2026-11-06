@@ -13,6 +13,10 @@ const (
 	Push     = "push"     // a git push to an engagement ("" = the main repo)
 	Check    = "check"    // a check run started, progressed or ended; a dismissal
 	Presence = "presence" // someone started, kept or stopped editing a section
+	// Board is a team board change; it is also the Fid of its events, which
+	// reach only subscribers of that Fid (the board page), never streams of
+	// a whole engagement.
+	Board = "board"
 )
 
 // Event says what changed. ID is set by the hub (increasing, from 1); Seq
@@ -54,6 +58,9 @@ func (s *Sub) C() <-chan Event { return s.c }
 func (s *Sub) Lost() <-chan struct{} { return s.lost }
 
 func (s *Sub) wants(e Event) bool {
+	if e.Fid == Board && s.fid != Board {
+		return false
+	}
 	return (s.eng == "" || e.Eng == "" || e.Eng == s.eng) && (s.fid == "" || e.Fid == "" || e.Fid == s.fid)
 }
 
