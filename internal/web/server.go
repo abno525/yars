@@ -122,6 +122,7 @@ type page struct {
 	Engagements   []store.Engagement
 	Eng           store.Engagement
 	CanManage     bool
+	CanEngs       bool   // creates engagements and changes teams (directors and admins)
 	CanAdmin      bool   // the Admin nav item
 	Nav           string // active top-bar item: "" (findings), "inbox", "admin" or "settings" (the user name)
 	Bare          bool   // no top bar: login and first run
@@ -331,6 +332,11 @@ func (s *Server) fail(w http.ResponseWriter, err error) {
 
 func canManage(u config.User) bool { return workflow.AtLeast(u, "director") }
 
+// canEngs: directors and admins create engagements and change their teams,
+// as the store allows (Admin › Engagements did this before the list).
+// Archive, reopen and an engagement's details stay with directors.
+func canEngs(u config.User) bool { return store.SeesAll(u) }
+
 // conf is the current configuration.
 func (s *Server) conf() config.Config {
 	s.cfgMu.RLock()
@@ -363,7 +369,7 @@ func (s *Server) base(r *http.Request, eng string) (*page, error) {
 	if err != nil {
 		return nil, err
 	}
-	p := &page{User: u, Engagements: engs, CanManage: canManage(u), CanAdmin: canAdmin(u)}
+	p := &page{User: u, Engagements: engs, CanManage: canManage(u), CanEngs: canEngs(u), CanAdmin: canAdmin(u)}
 	if p.Inbox, err = s.inboxFor(u, engs); err != nil {
 		return nil, err
 	}

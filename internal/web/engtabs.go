@@ -48,7 +48,8 @@ type reportView struct {
 
 // engSettingsView is the Settings tab.
 type engSettingsView struct {
-	CanEdit bool
+	CanEdit bool // the General details (directors)
+	CanTeam bool // the team (directors and admins)
 	Error   string
 	Form    store.Engagement
 	Members []option // Value = user, Label = role
@@ -273,7 +274,7 @@ func (s *Server) renderEngSettings(w http.ResponseWriter, r *http.Request, statu
 		s.fail(w, err)
 		return
 	}
-	v := engSettingsView{CanEdit: canManage(p.User) && !p.Archive.On, Error: errMsg, Form: p.Eng}
+	v := engSettingsView{CanEdit: canManage(p.User) && !p.Archive.On, CanTeam: canEngs(p.User) && !p.Archive.On, Error: errMsg, Form: p.Eng}
 	if form != nil {
 		v.Form = *form
 	}

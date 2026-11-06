@@ -7,15 +7,15 @@
   </div>
 </div>
 <form id="new-engagement" class="panel neweng" method="post" action="/engagements/new">
-  {{$idErr := or (index .FieldErrs "id") .Error}}{{$nameErr := index .FieldErrs "name"}}
+  {{$idErr := index .FieldErrs "id"}}{{$nameErr := index .FieldErrs "name"}}{{$startErr := index .FieldErrs "start"}}{{$endErr := index .FieldErrs "end"}}
   <div class="nefields two">
     <label class="nefield">ID<input class="monoin" name="id" value="{{.Form.Get "id"}}"{{if $idErr}} aria-invalid="true"{{end}} aria-describedby="id-err" required autofocus><span class="ferr" id="id-err">{{$idErr}}</span></label>
     <label class="nefield">Name<input name="name" value="{{.Form.Get "name"}}"{{if $nameErr}} aria-invalid="true"{{end}} aria-describedby="name-err" required><span class="ferr" id="name-err">{{$nameErr}}</span></label>
   </div>
   <label class="nefield flush">Client<input name="client" value="{{.Form.Get "client"}}"></label>
   <div class="nefields two">
-    <label class="nefield">Start<input name="start" type="date" value="{{.Form.Get "start"}}"></label>
-    <label class="nefield">End<input name="end" type="date" value="{{.Form.Get "end"}}"></label>
+    <label class="nefield">Start<input name="start" type="date" value="{{.Form.Get "start"}}"{{if $startErr}} aria-invalid="true"{{end}} aria-describedby="start-err"><span class="ferr" id="start-err">{{$startErr}}</span></label>
+    <label class="nefield">End<input name="end" type="date" value="{{.Form.Get "end"}}"{{if $endErr}} aria-invalid="true"{{end}} aria-describedby="end-err"><span class="ferr" id="end-err">{{$endErr}}</span></label>
   </div>
   <fieldset class="neteam">
     <div class="neteamhead"><legend>Team</legend><button type="button" class="btn secondary w128" data-check-all="member">Add everyone</button></div>

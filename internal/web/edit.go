@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"time"
 
 	"yars/internal/auth"
 	"yars/internal/config"
@@ -103,12 +104,21 @@ func (s *Server) newEngagementForm(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	if !p.CanManage {
+	if !p.CanEngs {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
 	p.Users = s.teamCandidates(p.User)
 	s.render(w, "new_engagement.html", p)
+}
+
+// isDate: "" or a real YYYY-MM-DD date (what a date input sends).
+func isDate(d string) bool {
+	if d == "" {
+		return true
+	}
+	t, err := time.Parse("2006-01-02", d)
+	return err == nil && t.Format("2006-01-02") == d
 }
 
 // teamCandidates are the people a new engagement's creator can put on the
@@ -129,7 +139,7 @@ func (s *Server) newEngagement(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	if !p.CanManage {
+	if !p.CanEngs {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
@@ -150,9 +160,22 @@ func (s *Server) newEngagement(w http.ResponseWriter, r *http.Request) {
 	if e.Name == "" {
 		p.FieldErrs["name"] = "Required"
 	}
+	if !isDate(e.Start) {
+		p.FieldErrs["start"] = "YYYY-MM-DD"
+	}
+	if !isDate(e.End) {
+		p.FieldErrs["end"] = "YYYY-MM-DD"
+	} else if e.Start != "" && e.End != "" && e.End < e.Start {
+		p.FieldErrs["end"] = "Before the start"
+	}
 	if len(p.FieldErrs) == 0 {
 		if err := s.Store.CreateEngagement(e, author(p.User)); err != nil {
-			p.Error = err.Error()
+			if _, gerr := s.Store.Engagement(e.ID); gerr != nil {
+				// not about a field: the detail (paths, git output) goes to the log
+				s.fail(w, err)
+				return
+			}
+			p.FieldErrs["id"] = "ID already used" // created meanwhile
 		} else {
 			// the creator and the ticked people form the team
 			team := []string{p.User.Username}

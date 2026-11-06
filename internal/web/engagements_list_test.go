@@ -3,6 +3,8 @@ package web
 import (
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -73,10 +75,17 @@ func TestEngagementsListFilterAndArchive(t *testing.T) {
 		t.Fatalf("archived filter:\n%s", b)
 	}
 	r = englistRow(b, "acme")
-	for _, want := range []string{`<tr class="off" data-eng="acme"`, `<span class="tag eng-archived">Archived</span>`, `action="/e/acme/reopen"`, `name="show" value="archived"`, ">Reopen<"} {
-		if !strings.Contains(b, want) {
+	if !strings.Contains(b, `<tr class="off" data-eng="acme"`) {
+		t.Fatalf("archived row not greyed:\n%s", b)
+	}
+	for _, want := range []string{`<span class="tag eng-archived">Archived</span>`, `action="/e/acme/reopen"`, `name="show" value="archived"`, ">Reopen<"} {
+		if !strings.Contains(r, want) {
 			t.Fatalf("archived row lacks %q:\n%s", want, r)
 		}
+	}
+	// an admin who is not a director can't reopen either
+	if rec := e.do(t, "ann", "POST", "/e/acme/reopen", url.Values{}, nil); rec.Code != http.StatusForbidden || !e.srv.Store.Archived("acme") {
+		t.Fatalf("reopen by a non-director admin %d", rec.Code)
 	}
 	// no "date · by" under the tag
 	if strings.Contains(r, " · dora") {
@@ -136,6 +145,79 @@ func TestNewEngagementPage(t *testing.T) {
 	b = e.do(t, "dora", "POST", "/engagements/new", url.Values{"id": {"a b"}, "name": {"X"}}, nil).Body.String()
 	if !strings.Contains(b, `<span class="ferr" id="id-err">Letters, digits, dot, dash, underscore</span>`) {
 		t.Fatalf("bad id:\n%s", b)
+	}
+	// the end can't be before the start; dates are YYYY-MM-DD
+	rec = e.do(t, "dora", "POST", "/engagements/new", url.Values{"id": {"late"}, "name": {"Late"}, "start": {"2026-11-07"}, "end": {"2026-11-04"}}, nil)
+	if b := rec.Body.String(); rec.Code != http.StatusBadRequest || !strings.Contains(b, `<span class="ferr" id="end-err">Before the start</span>`) || !strings.Contains(b, `name="end" type="date" value="2026-11-04" aria-invalid="true"`) {
+		t.Fatalf("end before start %d:\n%s", rec.Code, b)
+	}
+	if b := e.do(t, "dora", "POST", "/engagements/new", url.Values{"id": {"late"}, "name": {"Late"}, "start": {"7 Nov"}}, nil).Body.String(); !strings.Contains(b, `<span class="ferr" id="start-err">YYYY-MM-DD</span>`) {
+		t.Fatalf("bad start:\n%s", b)
+	}
+	if _, err := e.srv.Store.Engagement("late"); err == nil {
+		t.Fatal("created with bad dates")
+	}
+	if rec := e.do(t, "dora", "POST", "/engagements/new", url.Values{"id": {"late"}, "name": {"Late"}, "start": {"2026-11-04"}, "end": {"2026-11-04"}}, nil); rec.Code != http.StatusSeeOther {
+		t.Fatalf("one-day engagement %d", rec.Code)
+	}
+}
+
+// Admins manage engagements whatever their role, as the store allows:
+// create them and change their teams. Archive, reopen and the General
+// details stay with directors.
+func TestAdminManagesEngagements(t *testing.T) {
+	e := setup(t)
+	e.addUser(t, config.User{Username: "ann", Role: "pentester", IsAdmin: true})
+	if b := e.do(t, "ann", "GET", "/engagements", nil, nil).Body.String(); !strings.Contains(b, `href="/engagements/new"`) {
+		t.Fatal("admin has no New engagement")
+	}
+	if rec := e.do(t, "ann", "GET", "/engagements/new", nil, nil); rec.Code != 200 {
+		t.Fatalf("new engagement form for an admin %d", rec.Code)
+	}
+	if rec := e.do(t, "ann", "POST", "/engagements/new", url.Values{"id": {"beta"}, "name": {"Beta"}, "member": {"alice"}}, nil); rec.Code != http.StatusSeeOther {
+		t.Fatalf("create by an admin %d %s", rec.Code, rec.Body.String())
+	}
+	if m, _ := e.srv.Store.Members("beta"); strings.Join(m, ",") != "alice,ann" {
+		t.Fatalf("team %v", m)
+	}
+	b := e.do(t, "ann", "GET", "/e/acme/settings", nil, nil).Body.String()
+	if !strings.Contains(b, `action="/e/acme/settings/team"`) || !strings.Contains(b, `action="/e/acme/settings/team/remove"`) {
+		t.Fatalf("admin can't edit the team:\n%s", b)
+	}
+	if strings.Contains(b, `method="post" action="/e/acme/settings"`) {
+		t.Fatal("admin gets the General form (directors only)")
+	}
+	// a pentester gets none of it
+	if b := e.do(t, "alice", "GET", "/engagements", nil, nil).Body.String(); strings.Contains(b, `href="/engagements/new"`) {
+		t.Fatal("pentester has New engagement")
+	}
+	for _, m := range []string{"GET", "POST"} {
+		if rec := e.do(t, "alice", m, "/engagements/new", url.Values{"id": {"gamma"}, "name": {"G"}}, nil); rec.Code != http.StatusForbidden {
+			t.Fatalf("%s new engagement by a pentester %d", m, rec.Code)
+		}
+	}
+	if b := e.do(t, "alice", "GET", "/e/acme/settings", nil, nil).Body.String(); strings.Contains(b, "/settings/team") {
+		t.Fatal("pentester can edit the team")
+	}
+	// the old admin page only redirects, for anyone
+	for _, u := range []string{"alice", "ann"} {
+		if rec := e.do(t, u, "GET", "/admin/engagements", nil, nil); rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/engagements" {
+			t.Fatalf("/admin/engagements for %s: %d %q", u, rec.Code, rec.Header().Get("Location"))
+		}
+	}
+}
+
+// A failure creating the engagement that is not about a field is not shown
+// under the ID field (it may carry paths or git output).
+func TestNewEngagementInternalError(t *testing.T) {
+	e := setup(t)
+	// a folder in the way that is not an engagement
+	if err := os.MkdirAll(filepath.Join(e.dir, "engagements", "stray"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	rec := e.do(t, "dora", "POST", "/engagements/new", url.Values{"id": {"stray"}, "name": {"Stray"}}, nil)
+	if b := rec.Body.String(); rec.Code != http.StatusInternalServerError || strings.Contains(b, "already exists") || strings.Contains(b, e.dir) {
+		t.Fatalf("internal error %d:\n%s", rec.Code, b)
 	}
 }
 
