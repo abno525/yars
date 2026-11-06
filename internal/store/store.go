@@ -63,6 +63,9 @@ type Engagement struct {
 type FindingRef struct {
 	EngID, Dir string
 	F          *finding.Finding
+	// Hash is the ContentHash of finding.md as read ("" for a ref not read
+	// from disk).
+	Hash string
 }
 
 type Store struct {
@@ -991,8 +994,9 @@ func (s *Store) read(engID, dir string, states map[string]db.State) (FindingRef,
 			return FindingRef{}, nil, err
 		}
 	}
-	applyState(&f.Meta, st, contentHash(b))
-	return FindingRef{EngID: engID, Dir: dir, F: f}, b, nil
+	hash := contentHash(b)
+	applyState(&f.Meta, st, hash)
+	return FindingRef{EngID: engID, Dir: dir, F: f, Hash: hash}, b, nil
 }
 
 var numRe = regexp.MustCompile(`^F-(\d+)`)

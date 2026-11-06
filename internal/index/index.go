@@ -37,6 +37,13 @@ type Row struct {
 	RetestResult                                    string // fixed | not_fixed | partially_fixed | ""
 	Reviewers                                       []string
 	Since                                           time.Time // last workflow event (zero = none)
+	Updated                                         time.Time // last chat line of any kind (zero = none)
+	Hash                                            string    // store.ContentHash of finding.md
+	// Threads are the open threads, oldest first, each with its last
+	// message; Events the workflow events in order (the inbox reads both).
+	// Shared between copies of the row: read only.
+	Threads []Thread
+	Events  []Event
 	// Meta is the full front matter with workflow state, for workflow
 	// classification. Shared between copies of the row: read only.
 	Meta  *finding.Meta
@@ -54,22 +61,63 @@ func scoreOf(vec string) (string, float64) {
 	return cvss.FormatScore(s), s
 }
 
+// Thread is an open chat thread: who started it, where, and its last
+// message (the root when it has no reply).
+type Thread struct {
+	ID, Section, Kind, Starter string
+	LastUser, LastText         string
+	LastTS                     time.Time
+}
+
+// Event is one workflow event of the chat: the action and who did it.
+type Event struct {
+	Action, User string
+	TS           time.Time
+}
+
 func rowOf(engID string, ref store.FindingRef, msgs []chat.Message) Row {
 	m := ref.F.Meta
 	txt, sc := scoreOf(m.CVSS)
-	open, _ := chat.OpenCount(msgs)
 	r := Row{EngID: engID, Dir: ref.Dir, ID: m.ID, Title: m.Title, Status: m.Status, Shown: workflow.Shown(m),
-		Severity: cvss.Derive(m.CVSS, m.Severity), Author: m.Author, Reviewers: m.Reviewers,
-		Score: txt, score: sc, Meta: &m, OpenThreads: open, tgrams: Trigrams(m.Title), agrams: assetGrams(m.Assets)}
+		Severity: cvss.Derive(m.CVSS, m.Severity), Author: m.Author, Reviewers: m.Reviewers, Hash: ref.Hash,
+		Score: txt, score: sc, Meta: &m, tgrams: Trigrams(m.Title), agrams: assetGrams(m.Assets)}
 	if m.Retest != nil {
 		r.IsRetest, r.RetestResult = true, m.Retest.Result
 	}
 	for _, msg := range msgs {
-		if msg.Event != "" && msg.TS.After(r.Since) {
-			r.Since = msg.TS
+		if msg.Event != "" {
+			r.Events = append(r.Events, Event{Action: msg.Event, User: msg.User, TS: msg.TS})
+			if msg.TS.After(r.Since) {
+				r.Since = msg.TS
+			}
 		}
 	}
+	chatFields(&r, msgs)
 	return r
+}
+
+// chatFields sets what a row takes from the chat besides its events: the
+// open threads and the time of the last line.
+func chatFields(r *Row, msgs []chat.Message) {
+	r.OpenThreads, r.Threads, r.Updated = 0, nil, time.Time{}
+	for _, msg := range msgs {
+		if msg.TS.After(r.Updated) {
+			r.Updated = msg.TS
+		}
+	}
+	for _, it := range chat.Timeline(msgs) {
+		t := it.Thread
+		if t == nil || t.Resolved {
+			continue
+		}
+		last := t.Root
+		if n := len(t.Replies); n > 0 {
+			last = t.Replies[n-1]
+		}
+		r.OpenThreads++
+		r.Threads = append(r.Threads, Thread{ID: t.Root.ID, Section: t.Root.Section, Kind: t.Root.Kind, Starter: t.Root.User,
+			LastUser: last.User, LastText: last.Text, LastTS: last.TS})
+	}
 }
 
 // Query filters by exact field values (empty = any; an empty Status and
@@ -376,7 +424,7 @@ func (ix *Index) apply(c store.Change) {
 	}
 	row := e.rows[i]
 	if c.Kind == store.ChangeChat {
-		// only the open-thread count can have changed
+		// only the open threads and the last line can have changed
 		d := ix.store.DB()
 		if d == nil {
 			return
@@ -385,7 +433,7 @@ func (ix *Index) apply(c store.Change) {
 		if err != nil {
 			return
 		}
-		row.OpenThreads, _ = chat.OpenCount(msgs)
+		chatFields(&row, msgs)
 	} else {
 		ref, err := ix.store.Finding(c.Eng, row.Dir)
 		if err != nil || ref.F.Meta.ID != c.Fid {
