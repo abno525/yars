@@ -46,10 +46,15 @@ func TestEngagementsListFilterAndArchive(t *testing.T) {
 	}
 	r := englistRow(b, "beta")
 	for _, want := range []string{`href="/e/beta"`, ">Beta<", "B Corp", `<span class="mono">beta</span>`, `<span class="tag etype-retest">Retest</span>`,
-		`<span class="tag eng-active">Active</span>`, `action="/e/beta/archive"`, `class="btn secondary sm w112">Archive<`} {
+		`<span class="tag eng-active">Active</span>`, `action="/e/beta/archive"`, `class="btn secondary sm w112"`, `>Archive<`} {
 		if !strings.Contains(r, want) {
 			t.Fatalf("beta row lacks %q:\n%s", want, r)
 		}
+	}
+	// Archive asks first (the whole team loses write access); the name is
+	// a JS string, escaped
+	if !strings.Contains(r, `onclick="return confirm(&#34;Archive Beta?&#34;)"`) {
+		t.Fatalf("archive does not confirm:\n%s", r)
 	}
 	if r := englistRow(b, "acme"); !strings.Contains(r, `<span class="tag etype-pentest">Pentest</span>`) || !strings.Contains(r, "1 of 1") && !strings.Contains(r, "0 of 1") {
 		t.Fatalf("acme row:\n%s", r)

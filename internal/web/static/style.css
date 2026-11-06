@@ -771,7 +771,8 @@ progress::-moz-progress-bar { background: var(--accent); }
 .englist td.stack > a { color: var(--text); font-weight: 600; }
 .englist td form { margin: 0; display: flex; }
 .englist tr.off td { background: var(--panel); }
-.englist tr.off td.stack > a { color: var(--muted); }
+.englist tr.off td.stack > a { color: var(--arch-name); }
+.englist tr.off td.mono, .englist tr.off td.num { color: var(--muted); }
 .tag.etype-pentest { background: var(--navy); color: #FFFFFF; border-color: var(--navy); }
 .tag.etype-retest { background: transparent; color: var(--ink); border-color: var(--ink); }
 .minibar .bar { height: 10px; }
@@ -949,17 +950,17 @@ a.atab:hover { color: var(--ink); background: var(--panel); }
 .btn.ghost[aria-expanded=true] { background: var(--save-bg); color: var(--save-fg); border-color: var(--save-bg); }
 
 /* ---------- accounts: shared pieces ---------- */
-:root { --arch-bg: #EEF0F3; --arch-line: #C9CED6; --arch-tag: #5B6474; --bad-bg: #FBE4E1; --bad-line: #F1B9B3; --warn-tag: #F6C343; }
+:root { --arch-bg: #EEF0F3; --arch-line: #C9CED6; --arch-tag: #5B6474; --arch-name: #3E4654; --ok-line: #9BCFA8; --bad-bg: #FBE4E1; --bad-line: #F1B9B3; --warn-tag: #F6C343; }
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) { --arch-bg: #121316; --arch-line: #2A2D33; --arch-tag: #6B7280; --bad-bg: #2A1210; --bad-line: #7A2A22; }
+  :root:not([data-theme="light"]) { --arch-bg: #121316; --arch-line: #2A2D33; --arch-tag: #6B7280; --arch-name: #B4BAC4; --ok-line: #2F6B3E; --bad-bg: #2A1210; --bad-line: #7A2A22; }
 }
-:root[data-theme="dark"] { --arch-bg: #121316; --arch-line: #2A2D33; --arch-tag: #6B7280; --bad-bg: #2A1210; --bad-line: #7A2A22; }
+:root[data-theme="dark"] { --arch-bg: #121316; --arch-line: #2A2D33; --arch-tag: #6B7280; --arch-name: #B4BAC4; --ok-line: #2F6B3E; --bad-bg: #2A1210; --bad-line: #7A2A22; }
 .clip { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .strong { font-weight: 600; }
 .w360 { width: 360px; }
 .tag.role { background: var(--navy); color: #FFFFFF; border-color: var(--navy); }
 .tag.adminflag, .tag.shown { background: var(--accent); color: var(--on-accent); }
-.tag.eng-active { background: var(--surface); color: var(--green); border-color: var(--green); }
+.tag.eng-active { background: var(--surface); color: var(--green); border-color: var(--ok-line); }
 .tag.eng-archived { background: var(--arch-tag); color: #FFFFFF; }
 .tag.bad { background: var(--red); color: #FFFFFF; }
 .tag.warn { background: var(--warn-tag); color: #0F172A; }
@@ -1140,7 +1141,7 @@ code.block { display: block; padding: 8px 10px; background: var(--code-bg); font
 .healthtable th.c-result { width: 360px; }
 .healthtable td a.lk { color: var(--ink); font-weight: 400; text-decoration: underline; }
 .healthtable td.dt, .pbody td.dt { font: 500 13px var(--mono); color: var(--muted); }
-.healthtable .tag.good { background: var(--surface); color: var(--green); border-color: var(--green); }
+.healthtable .tag.good { background: var(--surface); color: var(--green); border-color: var(--ok-line); }
 .healthtable .tag.bad { background: var(--red); color: #FFFFFF; }
 
 /* ---------- export ---------- */

@@ -26,7 +26,7 @@
         <td class="mono" title="{{.Start}}{{if .End}} – {{.End}}{{end}}">{{dateRange .Start .End}}</td>
         <td class="num">{{.Bars.Total}}</td>
         <td class="mono">{{.Bars.Reported}} of {{.Bars.Total}}</td>
-        <td>{{if $.CanManage}}<form method="post" action="/e/{{.ID}}/{{if .Archived}}reopen{{else}}archive{{end}}"><input type="hidden" name="show" value="{{$.EngShow}}"><button class="btn secondary sm w112">{{if .Archived}}Reopen{{else}}Archive{{end}}</button></form>{{else}}<span class="slot w112"></span>{{end}}</td>
+        <td>{{if $.CanManage}}<form method="post" action="/e/{{.ID}}/{{if .Archived}}reopen{{else}}archive{{end}}"><input type="hidden" name="show" value="{{$.EngShow}}">{{if .Archived}}<button class="btn secondary sm w112">Reopen</button>{{else}}<button class="btn secondary sm w112" onclick="return confirm({{printf "Archive %s?" .Name}})">Archive</button>{{end}}</form>{{else}}<span class="slot w112"></span>{{end}}</td>
       </tr>
     {{else}}
       <tr><td colspan="7" class="muted empty">—</td></tr>
