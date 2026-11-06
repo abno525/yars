@@ -2,6 +2,7 @@ package web
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strconv"
 	"strings"
@@ -90,6 +91,17 @@ func TestTeamBoardPage(t *testing.T) {
 		if rec := e.do(t, "carol", "GET", p, nil, nil); rec.Code != http.StatusNotFound {
 			t.Errorf("%s: %d", p, rec.Code)
 		}
+	}
+}
+
+// Without a database (content only) there is no board: 404, not 500.
+func TestTeamBoardNoDB(t *testing.T) {
+	e := setup(t)
+	s := &Server{Store: store.New(e.srv.Store.Repo(), config.Default(), nil)}
+	rec := httptest.NewRecorder()
+	s.withBoard(func(http.ResponseWriter, *http.Request) { t.Fatal("handler ran") })(rec, httptest.NewRequest("GET", "/e/acme/board", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("no database: %d", rec.Code)
 	}
 }
 

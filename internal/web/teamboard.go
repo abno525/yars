@@ -102,10 +102,21 @@ type newLeadView struct {
 }
 
 func (s *Server) routesTeamBoard(mux *http.ServeMux) {
-	mux.HandleFunc("GET /e/{eng}/board", s.teamBoard)
-	mux.HandleFunc("POST /e/{eng}/board", s.teamBoardCreate)
-	mux.HandleFunc("GET /e/{eng}/board/n/{note}", s.teamBoardNote)
-	mux.HandleFunc("POST /e/{eng}/board/n/{note}/{act}", s.teamBoardAct)
+	mux.HandleFunc("GET /e/{eng}/board", s.withBoard(s.teamBoard))
+	mux.HandleFunc("POST /e/{eng}/board", s.withBoard(s.teamBoardCreate))
+	mux.HandleFunc("GET /e/{eng}/board/n/{note}", s.withBoard(s.teamBoardNote))
+	mux.HandleFunc("POST /e/{eng}/board/n/{note}/{act}", s.withBoard(s.teamBoardAct))
+}
+
+// withBoard answers 404 without a database: there is no board (and no tab).
+func (s *Server) withBoard(h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if s.Store.DB() == nil {
+			http.NotFound(w, r)
+			return
+		}
+		h(w, r)
+	}
 }
 
 // clock is a stored time as the board shows it: the time today, the day
