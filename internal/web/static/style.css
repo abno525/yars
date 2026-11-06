@@ -1734,8 +1734,11 @@ code.plain { font: 500 13px var(--mono); color: var(--text); background: transpa
 :root[data-theme="dark"] { --lead-first: #0E0F11; }
 .tboard { height: 760px; display: grid; grid-template-columns: minmax(0, 1fr) 560px; gap: 24px; }
 .tbleft { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 16px; }
-.seg.tbseg > a { --seg-w: 104px; }
-.tbsearch { flex: 1; min-width: 0; margin: 0; display: flex; }
+/* segments 104 each (at 1440); in a narrower window they give way before the search does */
+.seg.tbseg { flex: 0 1 auto; min-width: 0; }
+.seg.tbseg > a { --seg-w: 104px; flex: 0 1 104px; min-width: 0; }
+.tbsearch { flex: 1; min-width: 144px; margin: 0; display: flex; }
+.etab .badge, .etab .badge0 { margin-left: 8px; height: 20px; }
 .tbsearch input[type=search] { width: 100%; min-width: 0; }
 .tbscroll { flex: 1; min-height: 0; overflow-y: auto; border: 1px solid var(--line); background: var(--surface); }
 .table.tbtable { border: 0; table-layout: fixed; font-size: 14px; }
@@ -1841,6 +1844,7 @@ code.plain { font: 500 13px var(--mono); color: var(--text); background: transpa
 .tbfields textarea { flex: 1; min-height: 0; resize: none; font: 400 15px/1.5 var(--sans); }
 .tbfields textarea[aria-invalid=true] { border-color: var(--red); }
 .tbfields .seg { width: fit-content; }
+.tbfields .seg > label { position: relative; } /* keeps the hidden radio inside, no page scroll */
 .tbnew > .tbcrow { padding: 12px 20px; border-top: 1px solid var(--line); }
 /* inbox: New on team board (who · what 260) */
 .inboxt th.c-what, .inboxt td.c-what { width: 260px; }
