@@ -13,9 +13,10 @@ import (
 	"yars/internal/store"
 )
 
-// engTabs is the tab bar under an engagement's title.
+// engTabs is the tab bar under an engagement's title; On is the open tab.
 type engTabs struct {
 	Items []link
+	On    string
 }
 
 // overviewView is the Overview tab: counts and the severity chart.
@@ -68,17 +69,26 @@ func (s *Server) routesEngTabs(mux *http.ServeMux) {
 	mux.HandleFunc("POST /e/{eng}/settings/team/remove", s.engTeamRemove)
 }
 
-// tabsFor fills the tab bar with tab ("findings", "overview", "report",
-// "settings") on.
+// tabsFor fills the tab bar with tab ("findings", "board", "overview",
+// "report", "settings") on. Team board counts the notes with something
+// new to the user; it needs the database (not on a local clone).
 func (s *Server) tabsFor(p *page, tab string) error {
 	sum, err := s.Index.Summary(p.Eng.ID)
 	if err != nil {
 		return err
 	}
 	base := "/e/" + p.Eng.ID
+	p.ETab.On = tab
+	p.ETab.Items = append(p.ETab.Items, link{Key: "findings", Label: "Findings · " + strconv.Itoa(sum.Total), URL: base, Active: tab == "findings"})
+	if s.Store.DB() != nil {
+		n, err := s.Store.UnseenCount(p.User, p.Eng.ID)
+		if err != nil {
+			return err
+		}
+		p.ETab.Items = append(p.ETab.Items, link{Key: "board", Label: "Team board", URL: base + "/board", Active: tab == "board", Count: n})
+	}
 	for _, t := range []struct{ key, label, url string }{
-		{"findings", "Findings · " + strconv.Itoa(sum.Total), base}, {"overview", "Overview", base + "/overview"},
-		{"report", "Report", base + "/report"}, {"settings", "Settings", base + "/settings"},
+		{"overview", "Overview", base + "/overview"}, {"report", "Report", base + "/report"}, {"settings", "Settings", base + "/settings"},
 	} {
 		p.ETab.Items = append(p.ETab.Items, link{Key: t.key, Label: t.label, URL: t.url, Active: t.key == tab})
 	}

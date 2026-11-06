@@ -95,6 +95,30 @@ document.addEventListener('htmx:beforeSwap', function (evt) {
   if (busy) evt.detail.shouldSwap = false;
 });
 
+// Team board: a live refresh (sse:…) waits while something is being typed
+// or a menu is open there; the user's own clicks always swap.
+document.addEventListener('htmx:beforeSwap', function (evt) {
+  var t = evt.detail.target;
+  var ev = evt.detail.requestConfig && evt.detail.requestConfig.triggeringEvent;
+  if (!t || t.id !== 'board' || !ev || String(ev.type).indexOf('sse:') !== 0) return;
+  var busy = Array.prototype.some.call(t.querySelectorAll('textarea, input:not([type=hidden]), select'), function (i) {
+    return i === document.activeElement || (i.value !== undefined && i.defaultValue !== undefined && i.value !== i.defaultValue);
+  }) || !!t.querySelector('details[open]');
+  if (busy) evt.detail.shouldSwap = false;
+});
+// Quote request: a request block goes into the reply at the cursor.
+document.addEventListener('click', function (evt) {
+  var b = evt.target.closest && evt.target.closest('[data-quote]');
+  if (!b) return;
+  var ta = b.closest('form') && b.closest('form').querySelector('textarea[name=text]');
+  if (!ta) return;
+  var s = ta.selectionStart || 0, e = ta.selectionEnd || 0, v = ta.value, q = b.getAttribute('data-quote');
+  var pre = s > 0 && v.charAt(s - 1) !== '\n' ? '\n' : '';
+  ta.value = v.slice(0, s) + pre + q + v.slice(e);
+  ta.selectionStart = ta.selectionEnd = s + pre.length + q.length;
+  ta.focus();
+});
+
 // Director inbox: the "N selected" count is a CSS counter, which Chrome
 // does not recount when the lists are swapped; re-inserting it does.
 document.addEventListener('htmx:afterSettle', function () {

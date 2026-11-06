@@ -172,6 +172,7 @@ type page struct {
 	Unread        int        // the bell: unread notifications
 	Notes         notesView  // the notifications page
 	Docs          docsView   // the developer docs
+	TeamBoard     teamBoardView
 }
 
 var funcs = template.FuncMap{"join": strings.Join, "checkedIn": checkedIn, "retestLabel": workflow.RetestLabel, "fpath": findingURL,
@@ -266,6 +267,7 @@ func (s *Server) Handler() http.Handler {
 	s.routesMerge(private)
 	s.routesNotifications(private)
 	s.routesDocs(private)
+	s.routesTeamBoard(private)
 	private.HandleFunc("POST /e/{eng}/archive", s.engArchive(true))
 	private.HandleFunc("POST /e/{eng}/reopen", s.engArchive(false))
 

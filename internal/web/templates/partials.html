@@ -84,11 +84,12 @@
     <a class="btn secondary w128" href="/e/{{.Eng.ID}}/export">Export</a>
     {{if .CanManage}}<a class="btn secondary w128" href="/e/{{.Eng.ID}}/retest/new">New retest</a>{{else}}<span class="slot w128"></span>{{end}}
     {{if .Archive.On}}{{if .Archive.CanReopen}}<form method="post" action="/e/{{.Eng.ID}}/reopen"><button class="btn secondary w128">Reopen</button></form>{{else}}<span class="slot w128"></span>{{end}}
-    {{else}}<a class="btn primary w128" href="/e/{{.Eng.ID}}/findings/new">New finding</a>{{end}}
+    {{else}}<a class="btn {{if eq .ETab.On "board"}}secondary{{else}}primary{{end}} w128" href="/e/{{.Eng.ID}}/findings/new">New finding</a>{{end}}
+    {{if eq .ETab.On "board"}}{{if .Archive.On}}<span class="slot w128"></span>{{else}}<a class="btn primary w128" href="/e/{{.Eng.ID}}/board?new=1" hx-get="/e/{{.Eng.ID}}/board?new=1" hx-target="#board" hx-swap="outerHTML" hx-push-url="true">New lead</a>{{end}}{{end}}
   </div>
 </div>
 {{template "archive_bar" .Archive}}
-<nav class="etabs" aria-label="Engagement">{{range .ETab.Items}}<a class="etab{{if .Active}} on{{end}}" href="{{.URL}}"{{if .Active}} aria-current="page"{{end}}>{{.Label}}</a>{{end}}</nav>
+<nav class="etabs" aria-label="Engagement">{{range .ETab.Items}}<a class="etab{{if .Active}} on{{end}}" href="{{.URL}}"{{if .Active}} aria-current="page"{{end}}>{{.Label}}{{if eq .Key "board"}} {{if .Count}}<span class="badge">{{.Count}}</span>{{else}}<span class="badge0">0</span>{{end}}{{end}}</a>{{end}}</nav>
 {{end}}
 
 {{define "chart"}}

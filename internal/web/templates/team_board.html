@@ -1,0 +1,142 @@
+{{define "content"}}
+{{template "enghead" .}}
+{{template "team_board" .TeamBoard}}
+{{end}}
+
+{{define "team_board"}}
+<div id="board" class="tboard" data-sse-url="{{.SSEURL}}" hx-get="{{.RefreshURL}}" hx-trigger="sse:board, sse:resync, sse:poll" hx-swap="outerHTML" data-sse>
+  <div class="tbleft">
+    <div class="filters">
+      <nav class="seg nocap tbseg" aria-label="State">{{range .Filters}}<a class="{{if .Active}}on{{end}}" href="{{.URL}}" hx-get="{{.URL}}" hx-target="#board" hx-swap="outerHTML" hx-push-url="true">{{.Label}} · {{.Count}}</a>{{end}}</nav>
+      <form class="tbsearch" action="{{.URL}}" method="get" hx-get="{{.URL}}" hx-target="#board" hx-swap="outerHTML" hx-push-url="true" hx-trigger="input changed delay:300ms from:#tb-q, submit">
+        {{if .State}}<input type="hidden" name="state" value="{{.State}}">{{end}}
+        <input type="search" id="tb-q" name="q" value="{{.Q}}" placeholder="Search" aria-label="Search leads" maxlength="200" autocomplete="off">
+      </form>
+    </div>
+    <div class="tbscroll">
+    <table class="table tbtable">
+      <thead><tr>
+        <th class="c-lid">ID</th><th class="c-lstate">State</th><th>Title</th><th class="c-lby">By</th><th class="c-lrep">Replies</th><th class="c-lact" aria-sort="descending">Activity ↓</th>
+      </tr></thead>
+      <tbody>
+      {{range .Rows}}
+        <tr class="{{if .Sel}}sel{{end}}{{if .Off}} off{{end}}" hx-get="{{.URL}}" hx-trigger="click[!target.closest('a')]" hx-target="#board" hx-swap="outerHTML" hx-push-url="true">
+          <td class="lid"><a href="{{.URL}}" hx-get="{{.URL}}" hx-target="#board" hx-swap="outerHTML" hx-push-url="true">{{.ID}}</a></td>
+          <td><span class="tag lead-{{.State}}">{{.StateLabel}}</span></td>
+          <td class="ltitle"><span class="lline"><span class="lname" title="{{.Title}}">{{.Title}}</span>{{if .FindingURL}}<a class="lfid" href="{{.FindingURL}}">{{.Finding}}</a>{{end}}</span><span class="lhost" title="{{.Host}}">{{.Host}}</span></td>
+          <td class="clip">{{.By}}</td>
+          <td class="cnt">{{if .Replies}}<span class="badge">{{.Replies}}</span>{{else}}<span class="badge0">0</span>{{end}}</td>
+          <td class="lact">{{.Activity}}</td>
+        </tr>
+      {{else}}
+        <tr><td colspan="6" class="muted empty">—</td></tr>
+      {{end}}
+      {{if .More}}<tr class="more"><td colspan="6" class="muted">{{len .Rows}} newest</td></tr>{{end}}
+      </tbody>
+    </table>
+    </div>
+  </div>
+  {{with .New}}{{template "lead_new" $}}{{else}}{{with .Sel}}{{template "lead_thread" .}}{{else}}<section class="tbthread empty" aria-label="Thread"></section>{{end}}{{end}}
+</div>
+{{end}}
+
+{{define "lead_keep"}}<input type="hidden" name="keep_state" value="{{.KeepState}}"><input type="hidden" name="keep_q" value="{{.KeepQ}}">{{end}}
+
+{{define "lead_thread"}}
+<section class="tbthread" aria-label="Thread">
+  <div class="tbhead">
+    <div class="tbtitle"><span class="mono">{{.ID}}</span><h2 title="{{.Title}}">{{.Title}}</h2></div>
+    <div class="tbmeta">
+      <span class="tag lead-{{.State}}">{{.StateLabel}}</span>
+      <span class="tbfid">{{if .FindingURL}}<a href="{{.FindingURL}}">{{.Finding}}</a>{{end}}</span>
+      <span class="tbhost" title="{{.Host}}">{{.Host}}</span>
+      <span class="tbby"><strong>{{.By}}</strong> · <span class="mono">{{.When}}</span></span>
+    </div>
+    <div class="tbacts">
+      {{if .CanMake}}<form hx-post="{{.PostURL}}finding" hx-target="#board" hx-swap="outerHTML" hx-disabled-elt="find button">{{template "lead_keep" .}}<button class="btn primary sm w136">Make finding</button></form>{{else}}<button type="button" class="btn sm w136" disabled>Make finding</button>{{end}}
+      {{if .CanDismiss}}
+      <details class="pop tbpop">
+        <summary class="btn ghost sm w112">Dismiss</summary>
+        <form class="tbdlg" hx-post="{{.PostURL}}dismiss" hx-target="#board" hx-swap="outerHTML">
+          {{template "lead_keep" .}}<input type="hidden" name="from" value="{{.State}}">
+          <label>Reason<input name="reason" maxlength="1000" autocomplete="off" required></label>
+          <div class="acts"><button class="btn danger sm w112">Dismiss</button></div>
+        </form>
+      </details>
+      {{else}}<button type="button" class="btn sm w112" disabled>Dismiss</button>{{end}}
+      {{if .CanMove}}
+      <details class="pop tbpop">
+        <summary class="btn secondary sm w112">Set state ▾</summary>
+        <form class="tbmenu" role="menu" aria-label="Set state" hx-post="{{.PostURL}}state" hx-target="#board" hx-swap="outerHTML">
+          {{template "lead_keep" .}}<input type="hidden" name="from" value="{{.State}}">
+          {{$cur := .State}}{{range .Moves}}<button role="menuitem" name="to" value="{{.Value}}"{{if eq .Value $cur}} disabled{{end}}>{{.Label}}</button>{{end}}
+        </form>
+      </details>
+      {{else}}<button type="button" class="btn sm w112" disabled>Set state ▾</button>{{end}}
+      <span class="tbstate{{if .Error}} error{{end}}" role="status" title="{{.Error}}">{{.Error}}</span>
+    </div>
+  </div>
+  <div class="tbanalysis">
+    <h3>Analysis</h3>
+    <div class="tbrow">
+      {{if .ReadOnly}}<select class="w152" aria-label="Likely severity" disabled><option>{{if .Severity}}{{.SevLabel}}{{else}}Likely severity{{end}}</option></select>
+      {{else}}<form class="tbsev" hx-post="{{.PostURL}}severity" hx-trigger="change" hx-target="#board" hx-swap="outerHTML">{{template "lead_keep" .}}
+        <select class="w152" name="severity" aria-label="Likely severity"><option value="">Likely severity</option>{{$sev := .Severity}}{{range .Severities}}<option value="{{.Value}}"{{if eq .Value $sev}} selected{{end}}>{{.Label}}</option>{{end}}</select>
+      </form>{{end}}
+      <span class="tbdup">{{if .DupURL}}Duplicate of <a href="{{.DupURL}}">{{.DupOf}}</a>{{end}}</span>
+    </div>
+    {{if .ReadOnly}}<div class="tbrow"><input class="grow" aria-label="Duplicate of" placeholder="Duplicate of…" value="{{.DupOf}}" disabled><button type="button" class="btn sm w96" disabled>Link</button></div>
+    {{else}}<form class="tbrow" hx-post="{{.PostURL}}dup" hx-target="#board" hx-swap="outerHTML">{{template "lead_keep" .}}<input class="grow" name="dup" aria-label="Duplicate of" placeholder="Duplicate of…" value="{{.DupOf}}" maxlength="16" autocomplete="off"><button class="btn ghost sm w96">Link</button></form>{{end}}
+  </div>
+  <div class="tbmsgs">
+    {{with .Strip}}{{template "lead_strip" .}}{{end}}
+    {{if .Older}}<div class="tbolder">{{.Older}} earlier</div>{{end}}
+    {{range .Items}}
+      {{if .Strip}}{{template "lead_strip" .Strip}}
+      {{else}}
+      <article class="tbmsg{{if .First}} first{{end}}">
+        <div class="msg-head"><strong>{{.User}}</strong>{{with .Severity}}<span class="sevchip">{{.}}</span>{{end}}<span class="time">{{.Time}}</span></div>
+        {{if .Msg}}<div class="md">{{.HTML}}</div>{{end}}
+      </article>
+      {{end}}
+    {{end}}
+    {{if .NoReplies}}<div class="tbnone">No replies</div>{{end}}
+  </div>
+  {{if .ReadOnly}}
+  <div class="tbcomposer">
+    <textarea aria-label="Reply" placeholder="Read-only" disabled></textarea>
+    <div class="tbcrow"><span class="tberr"></span><button type="button" class="btn sm w136" disabled>Quote request</button><button type="button" class="btn sm w96" disabled>Post</button></div>
+  </div>
+  {{else}}
+  <form class="tbcomposer" hx-post="{{.PostURL}}post" hx-target="#board" hx-swap="outerHTML">
+    {{template "lead_keep" .}}
+    <textarea id="tb-text" name="text" aria-label="Reply" placeholder="Reply" maxlength="10000"{{if .TextError}} aria-invalid="true"{{end}}>{{.Text}}</textarea>
+    <div class="tbcrow"><span class="tberr error">{{.TextError}}</span><button type="button" class="btn ghost sm w136" data-quote="{{.Quote}}">Quote request</button><button class="btn save sm w96">Post</button></div>
+  </form>
+  {{end}}
+</section>
+{{end}}
+
+{{define "lead_strip"}}<div class="tbstrip"><strong>{{.What}}</strong>{{if .URL}}<a href="{{.URL}}">{{.Text}}</a>{{else}}<span class="tbsx" title="{{.Text}}">{{.Text}}</span>{{end}}<span class="tbwho">{{.User}} · <span class="mono">{{.Time}}</span></span></div>{{end}}
+
+{{define "lead_new"}}
+{{$e := .New.Errs}}
+<section class="tbthread" aria-label="New lead">
+  <form class="tbnew" hx-post="{{.URL}}" hx-target="#board" hx-swap="outerHTML">
+    <input type="hidden" name="keep_state" value="{{.State}}"><input type="hidden" name="keep_q" value="{{.Q}}">
+    <div class="tbhead"><div class="tbtitle"><h2>New lead</h2></div></div>
+    <div class="tbfields">
+      <label class="nefield">Title<input name="title" value="{{.New.Title}}" maxlength="200" autocomplete="off" required{{if index $e "title"}} aria-invalid="true" aria-describedby="err-title"{{end}}><span class="ferr" id="err-title">{{index $e "title"}}</span></label>
+      <label class="nefield">Host<input name="host" value="{{.New.Host}}" maxlength="2000" autocomplete="off" class="monoin"{{if index $e "host"}} aria-invalid="true"{{end}}><span class="ferr" id="err-host">{{index $e "host"}}</span></label>
+      <div class="nefield"><span>State</span>
+        <div class="seg n2" role="radiogroup" aria-label="State">
+          <label><input type="radio" name="state" value="open"{{if ne .New.State "info"}} checked{{end}}><span>Open</span></label><label><input type="radio" name="state" value="info"{{if eq .New.State "info"}} checked{{end}}><span>Info</span></label>
+        </div>
+        <span class="ferr" id="err-state">{{index $e "state"}}</span>
+      </div>
+      <label class="nefield grow">First message<textarea name="text" maxlength="10000" required{{if index $e "text"}} aria-invalid="true"{{end}}>{{.New.Text}}</textarea><span class="ferr" id="err-text">{{index $e "text"}}</span></label>
+    </div>
+    <div class="tbcrow"><span class="tberr"></span><a class="btn secondary sm w96" href="{{.URL}}" hx-get="{{.URL}}" hx-target="#board" hx-swap="outerHTML" hx-push-url="true">Cancel</a><button class="btn primary sm w96">Create</button></div>
+  </form>
+</section>
+{{end}}

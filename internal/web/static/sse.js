@@ -6,7 +6,7 @@
 // up when shown again. When the stream keeps failing, the page falls back to
 // "sse:poll" every 30 s, paused while the tab is hidden.
 (function () {
-  var NAMES = ['chat', 'workflow', 'content', 'presence', 'check'];
+  var NAMES = ['chat', 'workflow', 'content', 'presence', 'check', 'board'];
   var RESYNC = ['push', 'resync'];
   var POLL_MS = 30000;
   var MAX_ERRORS = 3;
