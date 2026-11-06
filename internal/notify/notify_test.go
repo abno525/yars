@@ -111,6 +111,27 @@ func TestWhoIsNotified(t *testing.T) {
 	}
 }
 
+// A take back tells the assigned reviewers: the finding left their queue and
+// their sign-offs are gone.
+func TestTakeBackNotifiesReviewers(t *testing.T) {
+	n, d, _ := newNotifier(t)
+	e := ev(store.EventStatus)
+	e.Actor, e.Action, e.Reviewers = "pen1", "take_back", []string{"rev1", "rev2", "pen1"}
+	n.Handle(e)
+	n.Wait()
+	for _, u := range []string{"rev1", "rev2"} {
+		if got := list(t, d, u); got != "taken_back:pen1:" {
+			t.Errorf("%s: %q", u, got)
+		}
+	}
+	if got := list(t, d, "pen1"); got != "" {
+		t.Errorf("the actor heard of it: %q", got)
+	}
+	if Label(TakenBack) != "Taken back" {
+		t.Errorf("label %q", Label(TakenBack))
+	}
+}
+
 func TestPrefsAndEmail(t *testing.T) {
 	n, d, m := newNotifier(t)
 	// pen1: returned by email only; rev1 keeps the default (in app)

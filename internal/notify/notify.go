@@ -28,13 +28,14 @@ const (
 	Mentioned = "mentioned"
 	Check     = "check"
 	Token     = "token"
+	TakenBack = "taken_back" // the author took a finding I review back to draft
 )
 
 // Event is one choosable notification event.
 type Event struct{ Key, Label string }
 
 // Events in the order the settings list them.
-var Events = []Event{{Returned, "Returned to me"}, {Review, "Review requested"}, {Reply, "Reply in my thread"},
+var Events = []Event{{Returned, "Returned to me"}, {Review, "Review requested"}, {TakenBack, "Taken back"}, {Reply, "Reply in my thread"},
 	{Approved, "Approved"}, {Mentioned, "Mentioned"}, {Check, "Check finished"}, {Token, "Token expiring"}}
 
 // Label is an event's name for people.
@@ -115,6 +116,11 @@ func recipients(e store.Event) map[string]string {
 			add(e.Author, Returned)
 		case "approve":
 			add(e.Author, Approved)
+		case "take_back":
+			// it left their queue, and any sign-off they gave is gone
+			for _, u := range e.Reviewers {
+				add(u, TakenBack)
+			}
 		}
 	case store.EventChat:
 		for _, u := range store.Mentions(e.Text) {
