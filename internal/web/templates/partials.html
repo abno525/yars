@@ -8,7 +8,7 @@
     </nav>
   </div>
   {{if .Bulk.On}}
-  <form class="fbulkform" hx-post="{{.Bulk.URL}}" hx-target="#findings" hx-swap="outerHTML" hx-disabled-elt=".fbulkform button">
+  <form class="fbulkform" hx-post="{{.Bulk.URL}}" hx-target="#findings" hx-swap="outerHTML" hx-disabled-elt="find button">
   <div class="fbulk" role="toolbar" aria-label="Bulk actions">
     <span class="nsel" data-nsel>{{.Bulk.Selected}} selected</span>
     <span class="vs"></span>

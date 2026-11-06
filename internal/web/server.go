@@ -8,6 +8,7 @@ import (
 	"html/template"
 	"io/fs"
 	"log"
+	"maps"
 	"net/http"
 	"net/url"
 	"slices"
@@ -86,6 +87,8 @@ type Server struct {
 	pageSize  int           // board rows per page (0 = boardPage)
 	chatLoads atomic.Int64  // full chat reads, for tests of the poll shortcut
 	flash     flashes       // one-time secrets for the page after a create
+	// bulkBudget is how long a bulk run starts new rows (0 = bulkTime)
+	bulkBudget time.Duration
 }
 
 // boardPage is how many findings the board shows before "Load more".
@@ -130,6 +133,7 @@ type page struct {
 	Bulk          bulkBar           // the board: bulk state change
 	Summary       index.Summary     // the board: counts by status and severity, progress
 	Bars          boardBars         // the board: progress and severity bars
+	BarsOOB       bool              // the bars are sent out of band (after a bulk run)
 	EngRows       []engRow          // the home table
 	EngShow       string            // … its filter: "", "active" or "archived"
 	FieldErrs     map[string]string // a form's errors by field name
@@ -472,6 +476,18 @@ func (s *Server) engPage(r *http.Request, eng string, keep map[string]bool) (*pa
 		return nil, err
 	}
 	q := r.URL.Query()
+	if keep == nil {
+		// a Load more after a run: the same list as the run's page
+		for _, d := range q["keep"] {
+			if store.ValidID(d) && len(keep) < maxBulkIDs {
+				if keep == nil {
+					keep = map[string]bool{}
+				}
+				keep[d] = true
+			}
+		}
+	}
+	q.Del("keep") // filter, sort and bar links start a fresh list
 	// the status filter is the shown state: signed off apart from verification
 	query := index.Query{EngID: eng, Shown: q.Get("status"), Severity: q.Get("severity"),
 		Author: q.Get("author"), Sort: q.Get("sort"), Desc: q.Get("desc") == "1", Keep: keep}
@@ -502,7 +518,12 @@ func (s *Server) engPage(r *http.Request, eng string, keep map[string]bool) (*pa
 	}
 	p.Rows, p.Offset, p.PageSize = rows[off:end], off, s.pageSize
 	if end < len(rows) {
-		p.MoreURL = mk(func(v url.Values) { v.Set("offset", strconv.Itoa(end)) })
+		p.MoreURL = mk(func(v url.Values) {
+			v.Set("offset", strconv.Itoa(end))
+			for _, d := range slices.Sorted(maps.Keys(keep)) {
+				v.Add("keep", d)
+			}
+		})
 	}
 	if p.Summary, err = s.Index.Summary(eng); err != nil {
 		return nil, err

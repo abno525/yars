@@ -372,6 +372,7 @@ table.kv { width: 100%; border-collapse: collapse; }
 .event.ev-clear::before, .event.ev-approve::before { background: var(--green); }
 .event.ev-report::before { background: var(--ink); }
 .event.ev-reopen::before, .event.ev-revise::before { background: var(--accent); }
+.event.ev-take_back::before { background: var(--bar-draft); }
 .event .what { min-width: 0; overflow-wrap: anywhere; }
 .event .text { white-space: pre-wrap; }
 .event .time { font: 500 12px var(--mono); color: var(--muted); white-space: nowrap; }
@@ -1349,6 +1350,7 @@ input.bigin { height: 48px; font: 600 18px var(--sans); border: 2px solid var(--
 .dot.ev-clear, .dot.ev-approve { background: var(--green); }
 .dot.ev-report { background: var(--navy-600); }
 .dot.ev-reopen, .dot.ev-revise, .dot.ev-retest { background: var(--accent); }
+.dot.ev-take_back { background: var(--bar-draft); }
 .hdiff .panelname .mono { font-size: 13px; }
 .seg.dmode > a { --seg-w: 88px; height: 30px; text-transform: none; }
 .dhead { height: 48px; padding: 0 20px; display: flex; align-items: center; gap: 12px; background: var(--panel); border-bottom: 1px solid var(--line); }

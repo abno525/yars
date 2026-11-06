@@ -7,9 +7,11 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"yars/internal/auth"
 	"yars/internal/config"
+	"yars/internal/finding"
 	"yars/internal/index"
 	"yars/internal/store"
 	"yars/internal/workflow"
@@ -31,10 +33,13 @@ type bulkView struct {
 
 // A bulk run takes at most maxBulkIDs findings (each moved row sends its
 // notifications) and a reason of at most maxBulkReason bytes (copied into
-// every row's chat).
+// every row's chat). It starts new rows for at most bulkTime (submit and
+// approve run every rule, AI too, per row); the rows after that are skipped,
+// to run again.
 const (
 	maxBulkIDs    = 500
 	maxBulkReason = 4000
+	bulkTime      = 2 * time.Minute
 )
 
 // bulkDone labels a finding the action succeeded on (the inbox's result
@@ -151,6 +156,11 @@ func (s *Server) bulk(w http.ResponseWriter, r *http.Request) {
 	}
 	v := bulkView{Action: action}
 	seen := map[string]bool{} // a finding named twice runs once
+	budget := s.bulkBudget
+	if budget <= 0 {
+		budget = bulkTime
+	}
+	start, late := time.Now(), false
 	for _, id := range ids {
 		it := bulkItem{Key: id}
 		e, fid := eng, id
@@ -167,18 +177,23 @@ func (s *Server) bulk(w http.ResponseWriter, r *http.Request) {
 			seen[e+"/"+ref.Dir] = true
 			it.Key, it.Eng, it.ID, it.Dir, it.Title = e+"/"+ref.F.Meta.ID, e, ref.F.Meta.ID, ref.Dir, ref.F.Meta.Title
 			switch {
+			case late:
+				err = &workflow.Denied{Reason: "not run: time limit reached; run again"}
 			case act == "":
 				err = s.bulkReviewers(ref, names, users, u)
 			default:
-				// the bulk menu's own limits, then the store's checks on
-				// the finding as it is inside the change
+				// the bulk menu's own limits, then the store's checks; both
+				// again on the finding as it is inside the change
 				if err = workflow.BulkCheck(u, ref.F.Meta, act); err == nil {
 					if workflow.Gated(act) {
 						s.lintDeadline(w) // each row may run every rule
 					}
-					err = s.Store.Transition(e, ref.Dir, act, reason, u)
+					err = s.Store.TransitionChecked(e, ref.Dir, act, reason, u, func(m finding.Meta) error {
+						return workflow.BulkCheck(u, m, act)
+					})
 				}
 			}
+			late = late || time.Since(start) > budget
 		} else if seen[it.Key] {
 			continue
 		} else {
@@ -215,7 +230,9 @@ func (s *Server) bulk(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		p.Bulk.ran(v)
-		s.exec(w, "engagement.html", "findings", p)
+		// the progress panel above the list counts the moved rows too
+		p.BarsOOB = true
+		s.exec(w, "engagement.html", "findings_ran", p)
 		return
 	}
 	s.exec(w, "engagement.html", "bulk_result", v)
@@ -272,7 +289,9 @@ func (s *Server) bulkBarFor(u config.User, eng, query string, rows []index.Row) 
 	}
 	if b.Assign {
 		for _, c := range s.Auth.Users() {
-			if workflow.AtLeast(c, "reviewer") && s.Store.CanSee(c, eng) {
+			// below director nobody makes themselves a reviewer
+			self := c.Username == u.Username && !workflow.AtLeast(u, "director")
+			if workflow.AtLeast(c, "reviewer") && !c.Disabled && !self && s.Store.CanSee(c, eng) {
 				b.Users = append(b.Users, c.Username)
 			}
 		}
@@ -336,23 +355,24 @@ func (s *Server) bulkRef(u config.User, eng, fid string) (store.FindingRef, erro
 	return s.Store.Finding(eng, fid)
 }
 
-// bulkReviewers adds names to the finding's reviewers as u; every name must
-// be an account that may review this finding (not its author).
+// bulkReviewers adds names to the finding's reviewers as u, merged with the
+// list as it is inside the change (Store.AddReviewers). A name that cannot
+// review this finding (its author, say) is skipped for this row only; the
+// row is refused when no name is left.
 func (s *Server) bulkReviewers(ref store.FindingRef, names []string, users []config.User, u config.User) error {
 	m := ref.F.Meta
+	var ok, refused []string
 	for _, n := range names {
-		ok := slices.ContainsFunc(users, func(c config.User) bool {
+		if slices.ContainsFunc(users, func(c config.User) bool {
 			return c.Username == n && s.Store.CanReview(c, ref.EngID, m)
-		})
-		if !ok {
-			return &workflow.Denied{Reason: n + " cannot review this finding"}
+		}) {
+			ok = append(ok, n)
+		} else {
+			refused = append(refused, n+" cannot review this finding")
 		}
 	}
-	next := slices.Clone(m.Reviewers)
-	for _, n := range names {
-		if !slices.Contains(next, n) {
-			next = append(next, n)
-		}
+	if len(ok) == 0 {
+		return &workflow.Denied{Reason: strings.Join(refused, "; ")}
 	}
-	return s.Store.SetReviewers(ref.EngID, ref.Dir, next, u)
+	return s.Store.AddReviewers(ref.EngID, ref.Dir, ok, u)
 }
