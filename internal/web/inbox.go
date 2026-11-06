@@ -179,6 +179,13 @@ func findingRow(k workflow.Inbox, u config.User, r index.Row, engName string) in
 		ir.Act, ir.Primary, ir.What = "Approve", true, "signed off"
 		if ev, ok := lastEvent(r, string(workflow.Clear), func(n string) bool { return n != u.Username && slices.Contains(m.ClearedBy, n) }); ok {
 			ir.Who, ir.At = ev.User, ev.TS
+		} else {
+			// state set without events (a migration, a seed)
+			for _, n := range m.ClearedBy {
+				if n != u.Username {
+					ir.Who = n
+				}
+			}
 		}
 	case workflow.InboxReport:
 		ir.Act, ir.Primary, ir.What = "Mark reported", true, "approved"
@@ -191,6 +198,13 @@ func findingRow(k workflow.Inbox, u config.User, r index.Row, engName string) in
 		if r.Modified.After(ir.At) {
 			ir.At = r.Modified
 		}
+	}
+	// no event to date it: the last chat line, else the last edit
+	if ir.At.IsZero() {
+		ir.At = r.Updated
+	}
+	if ir.At.IsZero() {
+		ir.At = r.Modified
 	}
 	return ir
 }

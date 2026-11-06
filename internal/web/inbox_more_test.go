@@ -7,8 +7,11 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"yars/internal/chat"
+	"yars/internal/finding"
+	"yars/internal/index"
 	"yars/internal/store"
 	"yars/internal/workflow"
 )
@@ -184,6 +187,17 @@ func TestInboxFollowsTeam(t *testing.T) {
 	}
 	if b := e.do(t, "alice", "GET", "/inbox", nil, nil).Body.String(); strings.Contains(b, "SQL injection") {
 		t.Fatalf("after leaving the team:\n%s", b)
+	}
+}
+
+// State set without chat events (a migration, a seed) still names who
+// signed off and has a time.
+func TestInboxRowWithoutEvents(t *testing.T) {
+	m := &finding.Meta{ID: "F-001", Title: "T", Status: "verification", Author: "alice", Reviewers: []string{"bob"}, ClearedBy: []string{"bob"}}
+	mod := time.Now().Add(-2 * time.Hour)
+	r := findingRow(workflow.InboxApprove, wDora, index.Row{EngID: "acme", Dir: "F-001-t", ID: "F-001", Meta: m, Modified: mod}, "ACME")
+	if r.Who != "bob" || !r.At.Equal(mod) {
+		t.Fatalf("row %+v", r)
 	}
 }
 

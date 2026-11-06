@@ -794,13 +794,13 @@ progress::-moz-progress-bar { background: var(--accent); }
 .inboxt th:first-child, .inboxt td:first-child { padding-left: 20px; }
 .inboxt th:last-child, .inboxt td:last-child { padding-right: 20px; }
 .inboxt td { height: 56px; }
-.inboxt .title { width: auto; }
-.inboxt .c-pick { width: 68px; }
-.inboxt .c-tag { width: 136px; }
-.inboxt .c-eng { width: 186px; }
-.inboxt .c-what { width: 276px; }
-.inboxt .c-age { width: 88px; }
-.inboxt .c-go { width: 132px; }
+.table.inboxt .title { width: auto; }
+.table.inboxt .c-pick { width: 68px; }
+.table.inboxt .c-tag { width: 136px; }
+.table.inboxt .c-eng { width: 186px; }
+.table.inboxt .c-what { width: 276px; }
+.table.inboxt .c-age { width: 88px; }
+.table.inboxt .c-go { width: 132px; }
 .inboxt td.title a { color: var(--text); font-weight: 600; }
 .c-eng .engid { display: inline-block; max-width: 96px; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
 .inboxt td.c-what { font-size: 14px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
