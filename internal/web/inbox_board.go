@@ -20,24 +20,24 @@ const boardInboxRows = 50
 type boardInboxRow struct {
 	Title, State, StateLabel string
 	EngID, EngName, ID, URL  string
-	Who, What, Time          string
+	Who, What                string
+	At                       time.Time
 }
 
-// ageOf is age of a stored RFC 3339 time.
-func ageOf(at string) string {
-	t, _ := time.Parse(time.RFC3339, at)
-	return age(t)
-}
-
-// boardInbox lists the queue for u; engs are the engagements u sees.
-func (s *Server) boardInbox(u config.User, engs []store.Engagement) ([]boardInboxRow, error) {
-	notes, err := s.Store.UnseenNotes(u, boardInboxRows)
-	if err != nil || len(notes) == 0 {
-		return nil, err
-	}
+// boardInbox lists the queue for u, of the open engagements among engs (the
+// ones u sees), and how many notes it has in all.
+func (s *Server) boardInbox(u config.User, engs []store.Engagement) ([]inboxRow, int, error) {
 	names := map[string]string{}
+	var ids []string
 	for _, e := range engs {
-		names[e.ID] = e.Name
+		if !e.Archived {
+			names[e.ID] = e.Name
+			ids = append(ids, e.ID)
+		}
+	}
+	notes, total, err := s.Store.UnseenQueue(u, ids, boardInboxRows)
+	if err != nil || len(notes) == 0 {
+		return nil, 0, err
 	}
 	var out []boardInboxRow
 	for _, n := range notes {
@@ -59,8 +59,9 @@ func (s *Server) boardInbox(u config.User, engs []store.Engagement) ([]boardInbo
 		case db.KindFinding:
 			what = "Finding · " + n.LastText
 		}
+		at, _ := time.Parse(time.RFC3339, n.LastTS)
 		out = append(out, boardInboxRow{Title: n.Title, State: n.State, StateLabel: leadStateLabel[n.State], EngID: n.Eng, EngName: name,
-			ID: id, URL: boardQuery{}.url(n.Eng, id), Who: n.LastUser, What: what, Time: ageOf(n.LastTS)})
+			ID: id, URL: boardQuery{}.url(n.Eng, id), Who: n.LastUser, What: what, At: at})
 	}
-	return out, nil
+	return boardRows(out), total, nil
 }

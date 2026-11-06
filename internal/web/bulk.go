@@ -209,7 +209,8 @@ func (s *Server) bulk(w http.ResponseWriter, r *http.Request) {
 		v.Items = append(v.Items, it)
 	}
 	if inPlace {
-		l, err := s.inboxAfterBulk(before, v)
+		// the user's own layout (only a director's has the bar)
+		l, err := s.inboxAfterBulk(u, before, v)
 		if err != nil {
 			s.fail(w, err)
 			return
@@ -243,10 +244,11 @@ func (s *Server) bulk(w http.ResponseWriter, r *http.Request) {
 type bulkBar struct {
 	On       bool   // the engagement is open: checkboxes and the bar
 	URL      string // where the bar posts: /e/<eng>/bulk with the list's query
+	Cross    bool   // across engagements (the inbox): rows are keyed "eng/dir", not by folder
 	Options  []bulkMenuItem
 	Assign   bool              // Assign reviewers (reviewers and directors)
 	Users    []string          // who may be assigned
-	Pick     map[string]bool   // rows the user may select, by folder
+	Pick     map[string]bool   // rows the user may select, by key
 	Acts     map[string]string // the menu actions each row can take ("submit withdraw")
 	Picked   map[string]bool   // ticked rows
 	Skipped  map[string]string // rows the last run skipped: why
@@ -275,17 +277,7 @@ func (s *Server) bulkBarFor(u config.User, eng, query string, rows []index.Row) 
 		b.Options = append(b.Options, bulkMenuItem{BulkOption: o, Reason: workflow.NeedsReason(o.Action)})
 	}
 	for _, row := range rows {
-		if row.Meta == nil || !workflow.BulkPick(u, *row.Meta) {
-			continue
-		}
-		b.Pick[row.Dir] = true
-		var acts []string
-		for _, o := range opts {
-			if workflow.BulkCheck(u, *row.Meta, o.Action) == nil {
-				acts = append(acts, string(o.Action))
-			}
-		}
-		b.Acts[row.Dir] = strings.Join(acts, " ")
+		b.addRow(u, row, opts)
 	}
 	if b.Assign {
 		for _, c := range s.Auth.Users() {
@@ -299,6 +291,32 @@ func (s *Server) bulkBarFor(u config.User, eng, query string, rows []index.Row) 
 	return b
 }
 
+// key is how the bar names a row: its folder, or "eng/dir" on a bar across
+// engagements (two engagements can both have F-001).
+func (b *bulkBar) key(eng, dir string) string {
+	if b.Cross {
+		return eng + "/" + dir
+	}
+	return dir
+}
+
+// addRow makes row pickable when u may tick it, with the menu actions it
+// can take.
+func (b *bulkBar) addRow(u config.User, row index.Row, opts []workflow.BulkOption) {
+	if row.Meta == nil || !workflow.BulkPick(u, *row.Meta) {
+		return
+	}
+	k := b.key(row.EngID, row.Dir)
+	b.Pick[k] = true
+	var acts []string
+	for _, o := range opts {
+		if workflow.BulkCheck(u, *row.Meta, o.Action) == nil {
+			acts = append(acts, string(o.Action))
+		}
+	}
+	b.Acts[k] = strings.Join(acts, " ")
+}
+
 // ran marks the outcome of a run on the bar: the selection stays ticked,
 // skipped rows are tinted and the summary counts both.
 func (b *bulkBar) ran(v bulkView) {
@@ -308,9 +326,10 @@ func (b *bulkBar) ran(v bulkView) {
 		if it.Dir == "" {
 			continue
 		}
-		b.Picked[it.Dir] = true
+		k := b.key(it.Eng, it.Dir)
+		b.Picked[k] = true
 		if !it.OK {
-			b.Skipped[it.Dir] = it.Reason
+			b.Skipped[k] = it.Reason
 		}
 	}
 	for dir := range b.Picked {

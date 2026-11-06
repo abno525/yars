@@ -2,17 +2,15 @@
 {{define "inbox_list"}}
 <section class="q q-{{.Name}}">
   <div class="qh"><h2>{{.Heading}} <span class="qcnt{{if not .Total}} zero{{end}}">{{.Total}}</span></h2></div>
-  <table class="table inboxt{{if .Director}} picks{{end}}">
+  <table class="table inboxt{{if .Bulk}} picks{{end}}">
     <thead>
       <tr>
-        {{if .Director}}<th class="c-pick"></th>{{end}}
+        {{if .Bulk}}<th class="c-pick"><input type="checkbox" data-pick-all aria-label="Select all: {{.Heading}}"></th>{{end}}
         <th class="title">Title</th>
-        <th class="c-tag">Severity</th>
-        <th class="c-eng">Finding</th>
-        <th class="c-tag">Status</th>
-        <th class="c-why">{{if eq .Name "returned"}}Returned by{{else}}Author{{end}}</th>
-        <th class="c-age">Age</th>
-        {{if .Director}}<th class="c-res">Result</th>{{end}}
+        <th class="c-tag">{{.TagHead}}</th>
+        <th class="c-eng">Engagement · ID</th>
+        <th class="c-what">{{.WhoHead}}</th>
+        <th class="c-age">Time</th>
         <th class="c-go"></th>
       </tr>
     </thead>
@@ -24,87 +22,44 @@
 {{end}}
 
 {{define "inbox_rows"}}
+  {{$b := .Bulk}}
   {{range .Rows}}
-    {{$res := index $.Results (printf "%s/%s" .EngID .ID)}}
-    <tr{{with $res}} data-key="{{.Key}}" class="{{if .OK}}ok{{else}}denied{{end}}"{{end}}>
-      {{if $.Director}}<td class="c-pick"><input type="checkbox" name="id" value="{{.EngID}}/{{.Dir}}" aria-label="Select {{.Title}}"></td>{{end}}
-      <td class="title"><a href="{{fpath .EngID .Dir}}" title="{{.Title}}">{{.Title}}</a></td>
-      <td class="c-tag">{{if .Severity}}<span class="tag sev-{{.Severity}}">{{.Severity}}</span>{{end}}</td>
+    <tr{{with .Key}} data-key="{{.}}"{{end}}{{if $b}} data-acts="{{index $b.Acts .Key}}"{{with index $b.Skipped .Key}} class="skip" title="{{.}}"{{else}}{{if index $b.Picked .Key}} class="sel"{{end}}{{end}}{{end}}>
+      {{if $b}}<td class="c-pick">{{if index $b.Pick .Key}}<input type="checkbox" name="id" value="{{.Key}}" aria-label="Select {{.EngID}} {{.ID}}"{{if index $b.Picked .Key}} checked{{end}}>{{end}}</td>{{end}}
+      <td class="title"><a href="{{.URL}}" title="{{.Title}}">{{.Title}}</a></td>
+      <td class="c-tag">{{if .Tag}}<span class="tag {{.TagClass}}">{{.Tag}}</span>{{end}}</td>
       <td class="c-eng mono" title="{{.EngName}} · {{.ID}}"><span class="engid">{{.EngID}}</span> · <span class="fid">{{.ID}}</span></td>
-      <td class="c-tag"><span class="tag status-{{.Shown}}">{{statusLabel .Shown}}</span></td>
-      <td class="c-why">{{with and .Meta .Meta.Returned}}<strong>{{.By}}</strong> · {{.Reason}}{{else}}<strong>{{.Author}}</strong>{{end}}</td>
-      <td class="c-age mono">{{age .Since}}</td>
-      {{if $.Director}}<td class="c-res">{{with $res}}{{if .OK}}<span class="tag good">{{$.Done}}</span>{{else}}<span class="bres" title="{{.Reason}}">{{.Reason}}</span>{{end}}{{end}}</td>{{end}}
-      <td class="c-go">{{if eq $.Name "returned"}}<a class="btn primary sm w96" href="{{fpath .EngID .Dir}}">Fix</a>{{else if eq $.Name "approve"}}<a class="btn primary sm w96" href="{{fpath .EngID .Dir}}">Approve</a>{{else}}<a class="btn secondary sm w96" href="{{fpath .EngID .Dir}}">Review</a>{{end}}</td>
+      <td class="c-what{{with .WhatClass}} {{.}}{{end}}" title="{{with .Who}}{{.}} · {{end}}{{.What}}">{{with .Who}}<strong>{{.}}</strong> · {{end}}{{.What}}</td>
+      <td class="c-age mono">{{age .At}}</td>
+      <td class="c-go"><a class="btn {{if .Primary}}primary{{else}}secondary{{end}} sm w104" href="{{.ActURL}}">{{.Act}}</a></td>
     </tr>
   {{else}}
-    {{if not .Offset}}<tr><td colspan="{{if $.Director}}9{{else}}7{{end}}" class="muted empty">—</td></tr>{{end}}
+    {{if not .Offset}}<tr><td colspan="{{.Cols}}" class="muted empty">—</td></tr>{{end}}
   {{end}}
   {{if .MoreURL}}
-    <tr class="more" id="inbox-more-{{.Name}}"><td colspan="{{if .Director}}9{{else}}7{{end}}"><button type="button" class="btn secondary w152" hx-get="{{.MoreURL}}" hx-target="#inbox-more-{{.Name}}" hx-swap="outerHTML">Load {{.PageSize}} more</button></td></tr>
+    <tr class="more" id="inbox-more-{{.Name}}"><td colspan="{{.Cols}}"><button type="button" class="btn secondary w152" hx-get="{{.MoreURL}}" hx-target="#inbox-more-{{.Name}}" hx-swap="outerHTML">Load {{.PageSize}} more</button></td></tr>
   {{end}}
 {{end}}
 
-{{define "inbox_lists"}}
-<div id="inbox-lists" class="inbox">
-  {{if .Director}}
-  {{template "inbox_list" .Approve}}
-  {{template "inbox_list" .Review}}
-  {{template "inbox_list" .Returned}}
-  {{else}}
-  {{template "inbox_list" .Returned}}
-  {{template "inbox_list" .Review}}
-  {{end}}
-  {{template "inbox_board" .Board}}
-  {{with .Unlisted}}{{template "bulk_result" .}}{{end}}
+{{define "inbox_queues"}}
+<div class="inbox">
+  {{range .Queues}}{{template "inbox_list" .}}{{end}}
 </div>
 {{end}}
 
-{{define "inbox_board"}}
-<section class="q q-board">
-  <div class="qh"><h2>New on team board <span class="qcnt{{if not .}} zero{{end}}">{{len .}}</span></h2></div>
-  <table class="table inboxt">
-    <thead><tr><th class="title">Title</th><th class="c-tag">State</th><th class="c-eng">Note</th><th class="c-what">Latest</th><th class="c-age">Age</th><th class="c-go"></th></tr></thead>
-    <tbody>
-    {{range .}}
-      <tr>
-        <td class="title"><a href="{{.URL}}" title="{{.Title}}">{{.Title}}</a></td>
-        <td class="c-tag"><span class="tag lead-{{.State}}">{{.StateLabel}}</span></td>
-        <td class="c-eng mono" title="{{.EngName}} · {{.ID}}"><span class="engid">{{.EngID}}</span> · <span class="fid">{{.ID}}</span></td>
-        <td class="c-what" title="{{.What}}"><strong>{{.Who}}</strong> · {{.What}}</td>
-        <td class="c-age mono">{{.Time}}</td>
-        <td class="c-go"><a class="btn secondary sm w96" href="{{.URL}}">Open</a></td>
-      </tr>
-    {{else}}
-      <tr><td colspan="6" class="muted empty">—</td></tr>
-    {{end}}
-    </tbody>
-  </table>
-</section>
+{{/* a director's inbox: the bar over every queue, in one form the run swaps */}}
+{{define "inbox_lists"}}
+{{if .Bulk}}
+<form class="fbulkform" hx-post="/inbox/bulk" hx-target="this" hx-swap="outerHTML" hx-disabled-elt="find button">
+  {{template "bulkbar" .Bulk}}
+  {{template "inbox_queues" .}}
+</form>
+{{else}}
+{{template "inbox_queues" .}}
+{{end}}
 {{end}}
 
 {{define "content"}}
 <div class="titlerow"><div class="titlecol"><h1>Inbox</h1></div></div>
-{{if .InboxLists.Director}}
-<form class="bulkform" hx-post="/inbox/bulk" hx-target="#inbox-lists" hx-swap="outerHTML">
-  {{template "inbox_lists" .InboxLists}}
-  <div class="bulkbar" role="toolbar" aria-label="Bulk actions">
-    <span class="selcount"></span>
-    <span class="bsep"></span>
-    <button class="btn bb w112" name="action" value="approve">Approve</button>
-    <button class="btn bb w136" name="action" value="report">Mark reported</button>
-    <details class="bulkassign">
-      <summary class="btn bb w160">Assign reviewers</summary>
-      <div class="bpick">
-        {{range .Users}}<label><input type="checkbox" name="reviewer" value="{{.Username}}"><span>{{.Username}}</span></label>{{end}}
-        <button class="btn primary sm w96" name="action" value="reviewers">Assign</button>
-      </div>
-    </details>
-    <span class="grow"></span>
-    <button type="reset" class="btn bb plain w152">Clear selection</button>
-  </div>
-</form>
-{{else}}
 {{template "inbox_lists" .InboxLists}}
-{{end}}
 {{end}}

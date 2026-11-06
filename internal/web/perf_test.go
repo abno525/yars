@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"yars/internal/gitrepo"
+	"yars/internal/workflow"
 )
 
 // Pages start no git process once the index is warm.
@@ -32,17 +33,18 @@ func TestInboxCachedPerGeneration(t *testing.T) {
 	e.toVerification(t)
 	bob, _ := e.srv.Auth.Lookup("bob")
 	engs, _ := e.srv.Index.Engagements()
+	const rv = workflow.InboxReview
 	v1, err := e.srv.inboxFor(bob, engs)
-	if err != nil || len(v1.Review) != 1 {
-		t.Fatalf("review %+v %v", v1.Review, err)
+	if err != nil || len(v1.Lists[rv]) != 1 {
+		t.Fatalf("review %+v %v", v1.Lists[rv], err)
 	}
 	b0 := e.srv.inboxes.builds
 	v2, _ := e.srv.inboxFor(bob, engs)
-	if e.srv.inboxes.builds != b0 || &v2.Review[0] != &v1.Review[0] {
+	if e.srv.inboxes.builds != b0 || &v2.Lists[rv][0] != &v1.Lists[rv][0] {
 		t.Fatal("inbox rebuilt without a change")
 	}
 	e.do(t, "bob", "POST", fpath+"/action/clear", url.Values{}, nil)
-	if v3, _ := e.srv.inboxFor(bob, engs); len(v3.Review) != 0 || e.srv.inboxes.builds == b0 {
-		t.Fatalf("change not seen: %+v", v3.Review)
+	if v3, _ := e.srv.inboxFor(bob, engs); len(v3.Lists[rv]) != 0 || e.srv.inboxes.builds == b0 {
+		t.Fatalf("change not seen: %+v", v3.Lists[rv])
 	}
 }

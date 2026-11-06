@@ -81,29 +81,26 @@ func TestInboxGroupsAndBulkBar(t *testing.T) {
 	e := setup(t)
 	e.toVerification(t)
 	b := e.do(t, "bob", "GET", "/inbox", nil, nil).Body.String()
-	if !strings.Contains(b, `Awaiting my review <span class="qcnt">1</span>`) || !strings.Contains(b, `Returned to me <span class="qcnt zero">0</span>`) || !strings.Contains(b, `<th class="title">Title</th>`) {
+	if !strings.Contains(b, `Awaiting my review <span class="qcnt">1</span>`) || !strings.Contains(b, `Open threads on my findings <span class="qcnt zero">0</span>`) || !strings.Contains(b, `<th class="title">Title</th>`) {
 		t.Fatalf("group counts:\n%s", b)
 	}
 	if strings.Count(b, `<a class="on"`) != 1 || !strings.Contains(b, `<a class="on" href="/inbox">`) {
 		t.Fatalf("only Inbox is the active nav item:\n%s", b)
 	}
-	if strings.Contains(b, `class="bulkbar"`) || strings.Contains(b, `name="id"`) || strings.Contains(b, "Ready to approve") {
+	if strings.Contains(b, `class="fbulk"`) || strings.Contains(b, `name="id"`) || strings.Contains(b, "Ready to approve") {
 		t.Fatalf("reviewer sees director parts:\n%s", b)
-	}
-	if !strings.Contains(section(b, "Awaiting my review"), `class="tag status-verification"`) {
-		t.Fatal("no status tag")
 	}
 	e.srv.Store.Transition("acme", fdir, workflow.Clear, "", wBob)
 	b = e.do(t, "dora", "GET", "/inbox", nil, nil).Body.String()
-	for _, want := range []string{`class="bulkbar"`, `value="approve"`, `value="report"`, `value="reviewers"`, `name="reviewer" value="carol"`, `name="id" value="acme/F-001-sql-injection"`, `Ready to approve <span class="qcnt">1</span>`} {
+	for _, want := range []string{`class="fbulk"`, `value="approve"`, `value="report"`, `value="reviewers"`, `name="reviewer" value="carol"`, `name="id" value="acme/F-001-sql-injection"`, `Ready to approve <span class="qcnt">1</span>`} {
 		if !strings.Contains(b, want) {
 			t.Fatalf("director inbox lacks %s:\n%s", want, b)
 		}
 	}
 }
 
-// An htmx bulk post from the inbox swaps the lists: rows keep their place
-// and show their result in the status slot.
+// An htmx bulk post from the inbox swaps the bar and the queues: rows keep
+// their place, a moved row says what it is now, the bar sums up.
 func TestInboxBulkSwap(t *testing.T) {
 	e := setup(t)
 	e.toVerification(t)
@@ -113,15 +110,15 @@ func TestInboxBulkSwap(t *testing.T) {
 	form := url.Values{"action": {"approve"}, "id": {"acme/" + fdir, "acme/" + d2}}
 	rec := e.do(t, "dora", "POST", "/inbox/bulk", form, hx)
 	b := rec.Body.String()
-	if rec.Code != 200 || !strings.Contains(b, `id="inbox-lists"`) || strings.Contains(b, "<html") {
+	if rec.Code != 200 || !strings.Contains(b, `class="fbulkform"`) || strings.Contains(b, "<html") {
 		t.Fatalf("code %d:\n%s", rec.Code, b)
 	}
-	r := row(b, "acme/F-001")
-	if !strings.Contains(section(b, "Ready to approve"), `data-key="acme/F-001"`) || !strings.Contains(r, `class="ok"`) || !strings.Contains(r, ">Approved<") || !strings.Contains(r, "status-complete") {
+	r := row(b, "acme/"+fdir)
+	if !strings.Contains(queue(b, "approve"), `data-key="acme/`+fdir+`"`) || !strings.Contains(r, `class="sel"`) || !strings.Contains(r, "· approved") || !strings.Contains(r, ">Mark reported<") {
 		t.Fatalf("approved row %q:\n%s", r, b)
 	}
-	if r := row(b, "acme/F-002"); !strings.Contains(r, `class="denied"`) || !strings.Contains(r, "only possible in verification") {
-		t.Fatalf("denied row %q:\n%s", r, b)
+	if !strings.Contains(b, `<span class="mv">1 moved</span> <span class="sk">· 1 skipped</span>`) || strings.Contains(b, "Result</th>") {
+		t.Fatalf("summary:\n%s", b)
 	}
 	if e.status(t) != "complete" {
 		t.Fatal("not approved")

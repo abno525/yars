@@ -692,14 +692,14 @@ progress::-moz-progress-bar { background: var(--accent); }
 .form-grid label { display: flex; flex-direction: column; gap: 6px; }
 
 /* board and inbox */
-:root { --bar-draft: #C9CED6; --bar-complete: #13233F; --bar-info: #E6E8EC; --bulk-line: #4A6390; --bulk-off: #7F8DA8; }
+:root { --bar-draft: #C9CED6; --bar-complete: #13233F; --bar-info: #E6E8EC; --bulk-line: #4A6390; --bulk-off: #7F8DA8; --text-2: #3E4654; }
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) { --bar-draft: #3A3E46; --bar-complete: #2E4A78; --bar-info: #3A3E46; }
+  :root:not([data-theme="light"]) { --bar-draft: #3A3E46; --bar-complete: #2E4A78; --bar-info: #3A3E46; --text-2: #C3C9D3; }
 }
-:root[data-theme="dark"] { --bar-draft: #3A3E46; --bar-complete: #2E4A78; --bar-info: #3A3E46; }
+:root[data-theme="dark"] { --bar-draft: #3A3E46; --bar-complete: #2E4A78; --bar-info: #3A3E46; --text-2: #C3C9D3; }
 .w160 { width: 160px; }
 .mono { font: 500 13px var(--mono); color: var(--muted); }
-.table td.clip, .table td.revs, .table td.c-eng, .table td.c-why { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.table td.clip, .table td.revs, .table td.c-eng { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* progress and severity bars */
 .bars { border: 1px solid var(--line); background: var(--surface); padding: 16px 20px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 40px; }
@@ -780,8 +780,6 @@ progress::-moz-progress-bar { background: var(--accent); }
 /* inbox groups */
 .inbox { display: flex; flex-direction: column; gap: 16px; }
 .q { border: 1px solid var(--line); background: var(--surface); }
-.q-returned { border-color: var(--red); box-shadow: inset 4px 0 0 var(--red); }
-.q-approve { box-shadow: inset 4px 0 0 var(--accent); }
 .qh { height: 48px; padding: 0 20px; display: flex; align-items: center; border-bottom: 1px solid var(--line); }
 .qh h2 { display: flex; align-items: center; gap: 10px; font: 700 13px/1 var(--sans); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
 .qcnt { min-width: 22px; height: 22px; padding: 0 6px; display: inline-flex; align-items: center; justify-content: center; font: 700 12px/1 var(--sans); letter-spacing: 0; background: var(--off-bg); color: var(--text); }
@@ -790,55 +788,30 @@ progress::-moz-progress-bar { background: var(--accent); }
 .inboxt thead th { height: 40px; padding: 0 8px; text-align: left; font: 700 12px/1 var(--sans); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--line); white-space: nowrap; }
 .inboxt thead th:first-child { padding-left: 20px; }
 .inboxt thead th:last-child { padding-right: 20px; }
-.inboxt th.title { width: auto; }
-.inboxt th.c-pick { width: 56px; }
-.inboxt th.c-tag { width: 136px; }
-.inboxt th.c-eng { width: 170px; }
-.inboxt th.c-why { width: 160px; }
-.inboxt th.c-age { width: 64px; }
-.inboxt th.c-res { width: 136px; }
-.inboxt th.c-go { width: 124px; }
+/* every queue: [pick 40] | title | tag 120 | engagement · ID 170 | who · what 260 | time 72 | action 104; 16 between, 20 at the ends */
 .table.inboxt { border: 0; table-layout: fixed; }
-.inboxt td { height: 60px; padding: 0 8px; }
-.inboxt td:first-child { padding-left: 20px; }
-.inboxt td:last-child { padding-right: 20px; }
-.inboxt td.title { width: auto; }
-.inboxt td.c-pick { width: 56px; }
-.inboxt td.c-tag { width: 136px; }
-.inboxt td.c-eng { width: 170px; }
-.inboxt td.c-why { width: 160px; font-size: 14px; }
+.inboxt th, .inboxt td { padding: 0 8px; }
+.inboxt th:first-child, .inboxt td:first-child { padding-left: 20px; }
+.inboxt th:last-child, .inboxt td:last-child { padding-right: 20px; }
+.inboxt td { height: 56px; }
+.inboxt .title { width: auto; }
+.inboxt .c-pick { width: 68px; }
+.inboxt .c-tag { width: 136px; }
+.inboxt .c-eng { width: 186px; }
+.inboxt .c-what { width: 276px; }
+.inboxt .c-age { width: 88px; }
+.inboxt .c-go { width: 132px; }
+.inboxt td.title a { color: var(--text); font-weight: 600; }
 .c-eng .engid { display: inline-block; max-width: 96px; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
-.inboxt td.c-age { width: 64px; }
-.inboxt td.c-res { width: 136px; overflow: hidden; }
-.inboxt td.c-go { width: 124px; }
-.inboxt tr.ok, .inboxt tr.denied, .bulk-result tr.ok, .bulk-result tr.denied { color: var(--text); }
-.inboxt tr.ok td { background: var(--green-bg); }
-.bres { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--red); font-size: 13px; font-weight: 600; }
-
-/* director bulk bar: shown above the lists, counts the ticked rows */
-.bulkform { display: flex; flex-direction: column; gap: 16px; counter-reset: sel; }
-.bulkform input[name=id]:checked { counter-increment: sel; }
-.bulkbar {
-  order: -1; position: sticky; top: 64px; z-index: 6; height: 48px; padding: 0 8px 0 20px; display: flex; align-items: center; gap: 8px;
-  background: var(--head-bg); color: #FFFFFF;
-}
-.selcount { width: 104px; flex: none; font-weight: 700; font-size: 14px; white-space: nowrap; overflow: hidden; }
-.selcount::before { content: counter(sel) " selected"; }
-.bsep { width: 1px; height: 24px; flex: none; margin: 0 8px; background: var(--head-field-line); }
+.inboxt td.c-what { font-size: 14px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.inboxt td.c-what.bad { color: var(--red); font-weight: 600; }
+.inboxt td.c-what.good { color: var(--green-text); font-weight: 600; }
+.inboxt .c-pick input { width: 20px; height: 20px; accent-color: var(--ink); vertical-align: middle; cursor: pointer; }
+.table.inboxt tbody tr.sel td { background: var(--pick-bg); }
+.table.inboxt tbody tr.skip td { background: var(--panel); }
+.w104 { width: 104px; }
+.bulk-result tr.ok, .bulk-result tr.denied { color: var(--text); }
 .grow { flex: 1; }
-.btn.bb { height: 32px; font-size: 13px; background: transparent; color: #FFFFFF; border-color: var(--bulk-line); }
-.btn.bb:hover { background: var(--head-field); filter: none; }
-.btn.bb.plain { border-color: transparent; color: var(--head-text); }
-.bulkform:not(:has(input[name=id]:checked)) .bulkbar .bb:not(.plain) { color: var(--bulk-off); border-color: var(--head-field-line); pointer-events: none; }
-.bulkassign { position: relative; flex: none; }
-.bulkassign > summary { list-style: none; }
-.bulkassign > summary::-webkit-details-marker { display: none; }
-.bpick {
-  position: absolute; top: 40px; left: 0; width: 240px; padding: 12px; display: flex; flex-direction: column; gap: 8px;
-  background: var(--surface); color: var(--text); border: 1px solid var(--line); box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
-}
-.bpick label { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 500; cursor: pointer; }
-.bpick label span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* admin: tabs across the top (every area keeps its fixed-width slot), the area below */
 .admin { display: flex; flex-direction: column; gap: 24px; }
@@ -1846,6 +1819,3 @@ code.plain { font: 500 13px var(--mono); color: var(--text); background: transpa
 .tbfields .seg { width: fit-content; }
 .tbfields .seg > label { position: relative; } /* keeps the hidden radio inside, no page scroll */
 .tbnew > .tbcrow { padding: 12px 20px; border-top: 1px solid var(--line); }
-/* inbox: New on team board (who · what 260) */
-.inboxt th.c-what, .inboxt td.c-what { width: 260px; }
-.inboxt td.c-what { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

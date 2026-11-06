@@ -8,7 +8,9 @@ import "testing"
 func TestLatestRuns(t *testing.T) {
 	d, _ := open(t)
 	old, _ := d.StartRun("e", "F-001", "h0", "alice")
-	d.TxFor("e", func(tx *Tx) error { return tx.FinishRun(old, RunDone, "", []CheckResult{{Rule: "r", Level: "error", QuoteHash: "q0"}}) })
+	d.TxFor("e", func(tx *Tx) error {
+		return tx.FinishRun(old, RunDone, "", []CheckResult{{Rule: "r", Level: "error", QuoteHash: "q0"}})
+	})
 	id, _ := d.StartRun("e", "F-001", "h1", "alice")
 	err := d.TxFor("e", func(tx *Tx) error {
 		if err := tx.FinishRun(id, RunDone, "", []CheckResult{

@@ -53,9 +53,10 @@ func TestSignedOffShown(t *testing.T) {
 		t.Fatalf("finding head tag:\n%s", page)
 	}
 
-	in := e.do(t, "dora", "GET", "/inbox", nil, nil).Body.String()
-	if !strings.Contains(in, `class="tag status-signed-off">signed off<`) {
-		t.Fatalf("inbox tag:\n%s", in)
+	// the inbox has no status column (2.2): Ready to approve says it
+	in := queue(e.do(t, "dora", "GET", "/inbox", nil, nil).Body.String(), "approve")
+	if !strings.Contains(in, "SQL injection") || !strings.Contains(in, "· signed off") {
+		t.Fatalf("inbox row:\n%s", in)
 	}
 
 	// approved: the signed off step is past

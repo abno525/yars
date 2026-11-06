@@ -22,6 +22,7 @@ import (
 	"yars/internal/index"
 	"yars/internal/seed"
 	"yars/internal/store"
+	"yars/internal/workflow"
 )
 
 // The budget test runs only on request (it needs a quiet machine):
@@ -173,8 +174,8 @@ func TestInboxPaginates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	review := len(v.Review)
-	if review <= 6 || v.Count() != review {
+	review := len(v.Lists[workflow.InboxReview])
+	if review <= 6 || v.Count() < review {
 		t.Fatalf("fixture has only %d findings in verification", review)
 	}
 	body := func(path string, hx bool) string {
@@ -192,14 +193,14 @@ func TestInboxPaginates(t *testing.T) {
 	}
 	titles := regexp.MustCompile(`<td class="title">`)
 	full := body("/inbox", false)
-	if n := len(titles.FindAllString(full, -1)); n > 9 {
+	if n := len(titles.FindAllString(full, -1)); n > 3*len(workflow.QueueOrder) {
 		t.Fatalf("%d rows on the first page, want at most 3 per list", n)
 	}
 	if !strings.Contains(full, "/inbox?list=review&amp;offset=3") {
 		t.Fatal("no load-more for the review list")
 	}
 	// the badge still counts everything
-	if !strings.Contains(full, `<span class="badge">`+strconv.Itoa(review)) {
+	if !strings.Contains(full, `<span class="badge">`+strconv.Itoa(v.Count())) {
 		t.Errorf("badge does not count %d", review)
 	}
 	next := body("/inbox?list=review&offset=3", true)

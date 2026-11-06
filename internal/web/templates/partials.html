@@ -9,33 +9,7 @@
   </div>
   {{if .Bulk.On}}
   <form class="fbulkform" hx-post="{{.Bulk.URL}}" hx-target="#findings" hx-swap="outerHTML" hx-disabled-elt="find button">
-  <div class="fbulk" role="toolbar" aria-label="Bulk actions">
-    <span class="nsel" data-nsel>{{.Bulk.Selected}} selected</span>
-    <span class="vs"></span>
-    <div class="bdd">
-      <button type="button" class="btn save sm w152" data-bulk-menu aria-haspopup="menu" aria-expanded="false"{{if not .Bulk.Selected}} disabled{{end}}>Set state ▾</button>
-      <div class="bmenu" role="menu" aria-label="Set state" hidden>
-        {{range .Bulk.Options}}<button {{if .Reason}}type="button" data-bulk-reason="{{.Label}}"{{else}}name="action" value="{{.Action}}"{{end}} role="menuitem" data-act="{{.Action}}"{{if not .Enabled}} disabled{{end}}>{{.Label}}{{with .Verb}} <span class="v">· {{.}}</span>{{end}}</button>{{end}}
-      </div>
-    </div>
-    {{if .Bulk.Assign}}
-    <div class="bdd">
-      <button type="button" class="btn secondary sm w152" data-bulk-menu aria-haspopup="true" aria-expanded="false"{{if not .Bulk.Selected}} disabled{{end}}>Assign reviewers</button>
-      <div class="bmenu bpicker" hidden>
-        <div class="bplist">{{range .Bulk.Users}}<label><input type="checkbox" name="reviewer" value="{{.}}"><span>{{.}}</span></label>{{end}}</div>
-        <div class="bpfoot"><button class="btn primary sm w96" name="action" value="reviewers">Assign</button></div>
-      </div>
-    </div>
-    {{else}}<span class="slot w152"></span>{{end}}
-    <span class="grow"></span>
-    <span class="bsum" role="status">{{if .Bulk.Ran}}<span class="mv">{{.Bulk.Moved}} moved</span> <span class="sk">· {{.Bulk.Skip}} skipped</span>{{end}}</span>
-    <button type="button" class="btn sm w96 bclear" data-bulk-clear>Clear</button>
-    <section class="bdlg" role="dialog" aria-labelledby="bulk-reason-head" hidden>
-      <h2 id="bulk-reason-head" data-bulk-head>Return {{.Bulk.Selected}} findings</h2>
-      <label>Reason<textarea name="reason" rows="3" maxlength="4000" required disabled></textarea></label>
-      <div class="acts"><button class="btn danger w112" name="action" value="return" data-bulk-go>Return</button><button type="button" class="btn secondary w96" data-bulk-cancel>Cancel</button></div>
-    </section>
-  </div>
+  {{template "bulkbar" .Bulk}}
   {{end}}
   <table class="table findings">
     <thead><tr>
@@ -50,6 +24,37 @@
   </table>
   {{if .Bulk.On}}</form>{{end}}
 </div>
+{{end}}
+
+{{/* the bulk bar (a bulkBar), inside its form: the findings list and the director's inbox */}}
+{{define "bulkbar"}}
+  <div class="fbulk" role="toolbar" aria-label="Bulk actions">
+    <span class="nsel" data-nsel>{{.Selected}} selected</span>
+    <span class="vs"></span>
+    <div class="bdd">
+      <button type="button" class="btn save sm w152" data-bulk-menu aria-haspopup="menu" aria-expanded="false"{{if not .Selected}} disabled{{end}}>Set state ▾</button>
+      <div class="bmenu" role="menu" aria-label="Set state" hidden>
+        {{range .Options}}<button {{if .Reason}}type="button" data-bulk-reason="{{.Label}}"{{else}}name="action" value="{{.Action}}"{{end}} role="menuitem" data-act="{{.Action}}"{{if not .Enabled}} disabled{{end}}>{{.Label}}{{with .Verb}} <span class="v">· {{.}}</span>{{end}}</button>{{end}}
+      </div>
+    </div>
+    {{if .Assign}}
+    <div class="bdd">
+      <button type="button" class="btn secondary sm w152" data-bulk-menu aria-haspopup="true" aria-expanded="false"{{if not .Selected}} disabled{{end}}>Assign reviewers</button>
+      <div class="bmenu bpicker" hidden>
+        <div class="bplist">{{range .Users}}<label><input type="checkbox" name="reviewer" value="{{.}}"><span>{{.}}</span></label>{{end}}</div>
+        <div class="bpfoot"><button class="btn primary sm w96" name="action" value="reviewers">Assign</button></div>
+      </div>
+    </div>
+    {{else}}<span class="slot w152"></span>{{end}}
+    <span class="grow"></span>
+    <span class="bsum" role="status">{{if .Ran}}<span class="mv">{{.Moved}} moved</span> <span class="sk">· {{.Skip}} skipped</span>{{end}}</span>
+    <button type="button" class="btn sm w96 bclear" data-bulk-clear>Clear</button>
+    <section class="bdlg" role="dialog" aria-labelledby="bulk-reason-head" hidden>
+      <h2 id="bulk-reason-head" data-bulk-head>Return {{.Selected}} findings</h2>
+      <label>Reason<textarea name="reason" rows="3" maxlength="4000" required disabled></textarea></label>
+      <div class="acts"><button class="btn danger w112" name="action" value="return" data-bulk-go>Return</button><button type="button" class="btn secondary w96" data-bulk-cancel>Cancel</button></div>
+    </section>
+  </div>
 {{end}}
 
 {{define "finding_rows"}}

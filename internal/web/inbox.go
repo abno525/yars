@@ -2,27 +2,53 @@ package web
 
 import (
 	"net/http"
+	"slices"
 	"strconv"
 	"sync"
+	"time"
 
 	"yars/internal/config"
+	"yars/internal/db"
 	"yars/internal/index"
 	"yars/internal/store"
 	"yars/internal/workflow"
 )
 
+// The inbox: one layout for every role. Queues come in workflow.QueueOrder;
+// a role always sees its own (workflow.Queues), another queue only while it
+// holds something of the user's (a reviewer's own returned finding). Every
+// row has the same columns: title | tag | engagement · ID | who · what |
+// time | one action (a link; nothing changes on GET).
+
+// inboxRow is one row of any queue, ready to draw.
 type inboxRow struct {
-	EngName string
-	index.Row
+	Key                string // "eng/dir" of a finding (the pick value); "" for a note
+	Title, URL         string
+	TagClass, Tag      string // severity or note state; "" = an empty slot
+	EngID, EngName, ID string
+	Who, What          string
+	WhatClass          string // bad | good | ""
+	At                 time.Time
+	Act, ActURL        string
+	Primary            bool
+	row                index.Row // the finding (bulk menu, refresh after a run)
 }
 
+// inboxView is a user's queues. Lists (findings and threads) are built once
+// per index generation and shared: read only. Board is read per request.
 type inboxView struct {
-	Review, Approve, Returned []inboxRow
-	Board                     []boardInboxRow // New on team board (per request, never cached)
+	Lists      map[workflow.Inbox][]inboxRow
+	Board      []inboxRow
+	BoardTotal int // notes with something new (Board is capped)
 }
 
+// Count is the nav badge: every row of every queue the user sees.
 func (v inboxView) Count() int {
-	return len(v.Review) + len(v.Approve) + len(v.Returned) + len(v.Board)
+	n := v.BoardTotal
+	for _, l := range v.Lists {
+		n += len(l)
+	}
+	return n
 }
 
 // inboxCache holds each user's inbox for one index generation; views are
@@ -34,14 +60,28 @@ type inboxCache struct {
 	builds int // classifications done (for tests)
 }
 
-// inboxFor classifies every finding across engagements for u, once per
-// index generation.
+var inboxHeadings = map[workflow.Inbox]string{
+	workflow.InboxReturned: "Returned to me", workflow.InboxReview: "Awaiting my review", workflow.InboxApprove: "Ready to approve",
+	workflow.InboxReport: "Ready to mark reported", workflow.InboxThreads: "Open threads on my findings",
+	workflow.InboxBoard: "New on team board", workflow.InboxDraft: "My drafts",
+}
+
+// inboxWho heads the who · what column of each queue.
+var inboxWho = map[workflow.Inbox]string{
+	workflow.InboxReturned: "Returned by", workflow.InboxReview: "Author", workflow.InboxApprove: "Signed off by",
+	workflow.InboxReport: "Approved by", workflow.InboxThreads: "Last message", workflow.InboxBoard: "Latest",
+	workflow.InboxDraft: "Checks",
+}
+
+// inboxFor classifies every finding across the open engagements u sees,
+// once per index generation.
 func (s *Server) inboxFor(u config.User, engs []store.Engagement) (inboxView, error) {
 	gen, err := s.Index.Gen()
 	if err != nil {
 		return inboxView{}, err
 	}
-	// team changes move the index generation, so the key needs no team set
+	// team changes and archiving move the index generation, so the key
+	// needs no team set
 	key := u.Username + "\x00" + u.Role + "\x00" + strconv.FormatBool(u.IsAdmin)
 	c := &s.inboxes
 	c.mu.Lock()
@@ -59,25 +99,29 @@ func (s *Server) inboxFor(u config.User, engs []store.Engagement) (inboxView, er
 	if err != nil {
 		return inboxView{}, err
 	}
-	rows, err := s.Index.Rows(index.Query{Sort: "severity", Visible: vis})
+	open := map[string]bool{}
+	names := map[string]string{}
+	for _, e := range engs {
+		if (vis == nil || vis[e.ID]) && !e.Archived {
+			open[e.ID] = true
+			names[e.ID] = e.Name
+		}
+	}
+	rows, err := s.Index.Rows(index.Query{Sort: "severity", Visible: open})
 	if err != nil {
 		return inboxView{}, err
 	}
-	names := map[string]string{}
-	for _, e := range engs {
-		names[e.ID] = e.Name
-	}
+	v.Lists = map[workflow.Inbox][]inboxRow{}
 	for _, r := range rows {
-		ir := inboxRow{EngName: names[r.EngID], Row: r}
-		switch workflow.Pending(u, *r.Meta) {
-		case workflow.InboxReview:
-			v.Review = append(v.Review, ir)
-		case workflow.InboxApprove:
-			v.Approve = append(v.Approve, ir)
-		case workflow.InboxReturned:
-			v.Returned = append(v.Returned, ir)
+		if r.Meta == nil {
+			continue
 		}
+		if k := workflow.Pending(u, *r.Meta); k != workflow.InboxNone {
+			v.Lists[k] = append(v.Lists[k], findingRow(k, u, r, names[r.EngID]))
+		}
+		v.Lists[workflow.InboxThreads] = append(v.Lists[workflow.InboxThreads], threadRows(u, r, names[r.EngID])...)
 	}
+	slices.SortStableFunc(v.Lists[workflow.InboxThreads], func(a, b inboxRow) int { return b.At.Compare(a.At) })
 	c.mu.Lock()
 	c.builds++
 	if c.gen == gen {
@@ -87,49 +131,265 @@ func (s *Server) inboxFor(u config.User, engs []store.Engagement) (inboxView, er
 	return v, nil
 }
 
-// inboxList is one page of an inbox list; "Load more" appends the next.
+// baseRow is a finding's part of a row: title, severity, where it is.
+func baseRow(r index.Row, engName string) inboxRow {
+	ir := inboxRow{Key: r.EngID + "/" + r.Dir, Title: r.Title, URL: findingURL(r.EngID, r.Dir), EngID: r.EngID, EngName: engName,
+		ID: r.ID, row: r}
+	if r.Severity != "" {
+		ir.TagClass, ir.Tag = "sev-"+r.Severity, r.Severity
+	}
+	ir.ActURL = ir.URL
+	return ir
+}
+
+// lastEvent is the newest event of action on the row by someone ok accepts.
+func lastEvent(r index.Row, action string, ok func(user string) bool) (index.Event, bool) {
+	for i := len(r.Events) - 1; i >= 0; i-- {
+		if ev := r.Events[i]; ev.Action == action && ok(ev.User) {
+			return ev, true
+		}
+	}
+	return index.Event{}, false
+}
+
+func anyone(string) bool { return true }
+
+// findingRow is the row of a finding in queue k for u.
+func findingRow(k workflow.Inbox, u config.User, r index.Row, engName string) inboxRow {
+	ir := baseRow(r, engName)
+	m := r.Meta
+	ir.At = r.Since
+	switch k {
+	case workflow.InboxReturned:
+		ir.Act, ir.Primary = "Fix", true
+		if m.Returned != nil {
+			ir.Who, ir.What = m.Returned.By, excerpt(m.Returned.Reason)
+		}
+	case workflow.InboxReview:
+		ir.Act, ir.Who, ir.What = "Review", r.Author, "submitted"
+		// u signed off or returned it before: it came back changed
+		if _, ok := lastEvent(r, string(workflow.Clear), func(n string) bool { return n == u.Username }); ok {
+			ir.What = "edited after your review"
+		} else if _, ok := lastEvent(r, string(workflow.Return), func(n string) bool { return n == u.Username }); ok {
+			ir.What = "edited after your review"
+		}
+	case workflow.InboxApprove:
+		ir.Act, ir.Primary, ir.What = "Approve", true, "signed off"
+		if ev, ok := lastEvent(r, string(workflow.Clear), func(n string) bool { return n != u.Username && slices.Contains(m.ClearedBy, n) }); ok {
+			ir.Who, ir.At = ev.User, ev.TS
+		}
+	case workflow.InboxReport:
+		ir.Act, ir.Primary, ir.What = "Mark reported", true, "approved"
+		if ev, ok := lastEvent(r, string(workflow.Approve), anyone); ok {
+			ir.Who, ir.At = ev.User, ev.TS
+		}
+	case workflow.InboxDraft:
+		ir.Act, ir.At = "Continue", r.Updated
+	}
+	return ir
+}
+
+// threadRows are u's open threads of a finding u wrote or reviews whose
+// last message is someone else's. A check run's thread counts only once a
+// person wrote in it.
+func threadRows(u config.User, r index.Row, engName string) []inboxRow {
+	if r.Author != u.Username && !slices.Contains(r.Reviewers, u.Username) {
+		return nil
+	}
+	var out []inboxRow
+	for _, t := range r.Threads {
+		if t.LastUser == u.Username || t.LastUser == store.CheckUser {
+			continue
+		}
+		ir := baseRow(r, engName)
+		ir.Who, ir.What, ir.At, ir.Act = t.LastUser, excerpt(t.LastText), t.LastTS, "Reply"
+		// the anchor is a slug of the section name: letters, digits, dashes
+		if t.Section != "" {
+			ir.ActURL += "#s-" + anchor(t.Section)
+		} else {
+			ir.ActURL += "#chat"
+		}
+		out = append(out, ir)
+	}
+	return out
+}
+
+// draftChecks fills in how the last check of each draft went (read now:
+// runs do not wait for the index) and offers Submit when it passed on this
+// content and nothing else blocks the draft. rows are copied, never changed.
+func (s *Server) draftChecks(rows []inboxRow) ([]inboxRow, error) {
+	if len(rows) == 0 {
+		return rows, nil
+	}
+	out := slices.Clone(rows)
+	runs := map[string]db.RunCount{}
+	if d := s.Store.DB(); d != nil {
+		keys := make([][2]string, len(out))
+		for i, r := range out {
+			keys[i] = [2]string{r.EngID, r.ID}
+		}
+		var err error
+		if runs, err = d.LatestRuns(keys); err != nil {
+			return nil, err
+		}
+	}
+	cfg := s.Store.Config()
+	for i := range out {
+		r := &out[i]
+		run, ok := runs[r.EngID+"/"+r.ID]
+		pass := false
+		switch {
+		case !ok:
+			r.What = "Not checked"
+		case run.State == db.RunRunning:
+			r.What = "Checking"
+		case run.ContentHash != r.row.Hash:
+			r.What = "Edited since the check"
+		case run.State == db.RunFailed:
+			r.What, r.WhatClass = "Check failed", "bad"
+		case run.Errors > 0:
+			r.What, r.WhatClass = plural(run.Errors, "error"), "bad"
+			if run.Warnings > 0 {
+				r.What += " · " + plural(run.Warnings, "warning")
+			}
+		case run.Warnings > 0:
+			r.What, pass = plural(run.Warnings, "warning"), true
+		default:
+			r.What, r.WhatClass, pass = "Checks pass", "good", true
+		}
+		if pass && len(workflow.Gate(*r.row.Meta, cfg)) == 0 {
+			r.Act, r.Primary = "Submit", true
+		}
+	}
+	return out, nil
+}
+
+// inboxList is one page of a queue; "Load more" appends the next.
 type inboxList struct {
-	Name     string // review | approve | returned
+	Name     workflow.Inbox
 	Heading  string
-	Total    int // rows in the whole list
+	TagHead  string // the tag column: Severity, or State for notes
+	WhoHead  string
+	Total    int // rows in the whole queue
 	Rows     []inboxRow
 	Offset   int
 	PageSize int
 	MoreURL  string // the next page ("" = no more)
-	Director bool   // rows can be selected for bulk actions
-	// after a bulk action: the outcome per "eng/ID", and the label of a
-	// success
-	Results map[string]*bulkItem
-	Done    string
+	// Bulk is the director's bar the queue's picks belong to (queues 3 and
+	// 4); nil = no pick column
+	Bulk *bulkBar
 }
 
-// inboxLists are the inbox page's lists, one page each.
+// Cols is how many columns the queue's table has.
+func (l inboxList) Cols() int {
+	if l.Bulk != nil {
+		return 7
+	}
+	return 6
+}
+
+// inboxLists are the inbox page's queues, one page each, in order.
 type inboxLists struct {
-	Review, Approve, Returned inboxList
-	Board                     []boardInboxRow
-	Director                  bool
-	Unlisted                  *bulkView // bulk results for findings in no list
+	Queues []inboxList
+	Bulk   *bulkBar // the director's bar ("" = none)
 }
 
-var inboxHeadings = map[string]string{"review": "Awaiting my review", "approve": "Ready to approve", "returned": "Returned to me"}
+// inboxPicks are the queues with checkboxes on a director's inbox.
+func inboxPicks(k workflow.Inbox) bool {
+	return k == workflow.InboxApprove || k == workflow.InboxReport
+}
 
 // inboxPage is the page of rows from off; it reaches at least to row upTo
-// (so a bulk result further down stays visible).
-func (s *Server) inboxPage(name string, rows []inboxRow, off, upTo int, director bool) inboxList {
+// (so a run's row further down stays visible).
+func (s *Server) inboxPage(name workflow.Inbox, rows []inboxRow, off, upTo int) inboxList {
 	off = min(max(off, 0), len(rows))
 	end := min(max(off+s.pageSize, upTo+1), len(rows))
-	l := inboxList{Name: name, Heading: inboxHeadings[name], Total: len(rows), Rows: rows[off:end], Offset: off,
-		PageSize: s.pageSize, Director: director}
+	l := inboxList{Name: name, Heading: inboxHeadings[name], TagHead: "Severity", WhoHead: inboxWho[name], Total: len(rows),
+		Rows: rows[off:end], Offset: off, PageSize: s.pageSize}
+	if name == workflow.InboxBoard {
+		l.TagHead = "State"
+	}
 	if end < len(rows) {
-		l.MoreURL = "/inbox?list=" + name + "&offset=" + strconv.Itoa(end)
+		l.MoreURL = "/inbox?list=" + string(name) + "&offset=" + strconv.Itoa(end)
 	}
 	return l
 }
 
-func (s *Server) inboxListsOf(v inboxView, director bool) inboxLists {
-	return inboxLists{Review: s.inboxPage("review", v.Review, 0, 0, director),
-		Approve:  s.inboxPage("approve", v.Approve, 0, 0, director),
-		Returned: s.inboxPage("returned", v.Returned, 0, 0, director), Director: director}
+// shownQueues are the queues of v that u sees, in the fixed order.
+func shownQueues(u config.User, v inboxView) []workflow.Inbox {
+	own := workflow.Queues(u)
+	var out []workflow.Inbox
+	for _, k := range workflow.QueueOrder {
+		if slices.Contains(own, k) || len(v.Lists[k]) > 0 || (k == workflow.InboxBoard && len(v.Board) > 0) {
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
+// queueRows are the rows of queue k, the drafts with their checks.
+func (s *Server) queueRows(v inboxView, k workflow.Inbox) ([]inboxRow, error) {
+	switch k {
+	case workflow.InboxBoard:
+		return v.Board, nil
+	case workflow.InboxDraft:
+		return s.draftChecks(v.Lists[k])
+	}
+	return v.Lists[k], nil
+}
+
+// inboxListsOf lays v out for u: each queue's first page, and for a
+// director the bulk bar over Ready to approve and Ready to mark reported.
+// upTo keeps a run's rows on the page (by queue: the last row to show).
+func (s *Server) inboxListsOf(u config.User, v inboxView, upTo map[workflow.Inbox]int) (inboxLists, error) {
+	var out inboxLists
+	if canManage(u) {
+		var rows []index.Row
+		for _, k := range workflow.QueueOrder {
+			if inboxPicks(k) {
+				for _, r := range v.Lists[k] {
+					rows = append(rows, r.row)
+				}
+			}
+		}
+		b := s.inboxBar(u, rows)
+		out.Bulk = &b
+	}
+	for _, k := range shownQueues(u, v) {
+		rows, err := s.queueRows(v, k)
+		if err != nil {
+			return inboxLists{}, err
+		}
+		l := s.inboxPage(k, rows, 0, upTo[k])
+		if out.Bulk != nil && inboxPicks(k) {
+			l.Bulk = out.Bulk
+		}
+		out.Queues = append(out.Queues, l)
+	}
+	return out, nil
+}
+
+// inboxBar is the director's bar for the findings of the pick queues, keyed
+// by "eng/dir" (the inbox spans engagements).
+func (s *Server) inboxBar(u config.User, rows []index.Row) bulkBar {
+	b := bulkBar{On: true, URL: "/inbox/bulk", Cross: true, Assign: workflow.BulkAssign(u),
+		Pick: map[string]bool{}, Acts: map[string]string{}}
+	opts := workflow.BulkOptions(u)
+	for _, o := range opts {
+		b.Options = append(b.Options, bulkMenuItem{BulkOption: o, Reason: workflow.NeedsReason(o.Action)})
+	}
+	for _, r := range rows {
+		b.addRow(u, r, opts)
+	}
+	if b.Assign {
+		// across engagements: anyone who may review; each row checks its own team
+		for _, c := range s.Auth.Users() {
+			if workflow.AtLeast(c, "reviewer") && !c.Disabled {
+				b.Users = append(b.Users, c.Username)
+			}
+		}
+	}
+	return b
 }
 
 // reviewerChoices are the accounts the bulk picker offers.
@@ -151,27 +411,42 @@ func (s *Server) inbox(w http.ResponseWriter, r *http.Request) {
 	}
 	p.Nav = "inbox"
 	q := r.URL.Query()
-	off, _ := strconv.Atoi(q.Get("offset"))
-	lists := map[string][]inboxRow{"review": p.Inbox.Review, "approve": p.Inbox.Approve, "returned": p.Inbox.Returned}
-	if rows, ok := lists[q.Get("list")]; ok && r.Header.Get("HX-Request") == "true" {
-		s.exec(w, "inbox.html", "inbox_rows", s.inboxPage(q.Get("list"), rows, off, 0, p.CanManage))
+	if k := workflow.Inbox(q.Get("list")); slices.Contains(workflow.QueueOrder, k) && r.Header.Get("HX-Request") == "true" {
+		off, _ := strconv.Atoi(q.Get("offset"))
+		rows, err := s.queueRows(p.Inbox, k)
+		if err != nil {
+			s.fail(w, err)
+			return
+		}
+		l := s.inboxPage(k, rows, off, 0)
+		if canManage(p.User) && inboxPicks(k) {
+			var fr []index.Row
+			for _, ir := range l.Rows {
+				fr = append(fr, ir.row)
+			}
+			b := s.inboxBar(p.User, fr)
+			l.Bulk = &b
+		}
+		s.exec(w, "inbox.html", "inbox_rows", l)
 		return
 	}
-	p.InboxLists = s.inboxListsOf(p.Inbox, p.CanManage)
-	p.InboxLists.Board = p.Inbox.Board
-	if p.CanManage {
-		p.Users = s.reviewerChoices()
+	if p.InboxLists, err = s.inboxListsOf(p.User, p.Inbox, nil); err != nil {
+		s.fail(w, err)
+		return
 	}
 	s.render(w, "inbox.html", p)
 }
 
-// inboxAfterBulk is the inbox as it was before a bulk action, each acted-on
-// row refreshed and carrying its result, so no row moves; findings in no
-// list get a result table of their own.
-func (s *Server) inboxAfterBulk(before inboxView, v bulkView) (inboxLists, error) {
-	res := map[string]*bulkItem{}
-	for i := range v.Items {
-		res[v.Items[i].Key] = &v.Items[i]
+// inboxAfterBulk is the inbox as it was before a run, so no row moves: each
+// row the run touched is refreshed from the index and shows what it is now
+// (the row of its new queue, or its new state), ticked, a skipped one tinted;
+// the bar carries the summary.
+func (s *Server) inboxAfterBulk(u config.User, before inboxView, v bulkView) (inboxLists, error) {
+	touched := map[string]bool{}
+	for _, it := range v.Items {
+		if it.Dir != "" {
+			touched[it.Eng+"/"+it.Dir] = true
+		}
 	}
 	fresh, loaded := map[string]index.Row{}, map[string]bool{}
 	for _, it := range v.Items {
@@ -179,43 +454,64 @@ func (s *Server) inboxAfterBulk(before inboxView, v bulkView) (inboxLists, error
 			continue
 		}
 		loaded[it.Eng] = true
+		// the run may have withdrawn some: those too
 		rows, err := s.Index.Rows(index.Query{EngID: it.Eng})
 		if err != nil {
 			return inboxLists{}, err
 		}
-		for _, r := range rows {
-			fresh[it.Eng+"/"+r.ID] = r
+		gone, err := s.Index.Rows(index.Query{EngID: it.Eng, Status: workflow.Withdrawn})
+		if err != nil {
+			return inboxLists{}, err
+		}
+		for _, r := range append(rows, gone...) {
+			fresh[it.Eng+"/"+r.Dir] = r
 		}
 	}
-	listed := map[string]bool{}
-	page := func(name string, rows []inboxRow) inboxList {
-		upTo := 0
+	after := inboxView{Lists: map[workflow.Inbox][]inboxRow{}, Board: before.Board, BoardTotal: before.BoardTotal}
+	upTo := map[workflow.Inbox]int{}
+	for k, rows := range before.Lists {
 		out := make([]inboxRow, len(rows))
-		for i, r := range rows {
-			k := r.EngID + "/" + r.ID
-			out[i] = r
-			if res[k] == nil {
+		for i, ir := range rows {
+			out[i] = ir
+			if !touched[ir.Key] {
 				continue
 			}
-			listed[k], upTo = true, i
-			if f, ok := fresh[k]; ok {
-				out[i].Row = f
+			upTo[k] = i
+			if f, ok := fresh[ir.Key]; ok && k != workflow.InboxThreads {
+				out[i] = movedRow(u, f, ir.EngName)
 			}
 		}
-		l := s.inboxPage(name, out, 0, upTo, true)
-		l.Results, l.Done = res, bulkDone[v.Action]
-		return l
+		after.Lists[k] = out
 	}
-	l := inboxLists{Review: page("review", before.Review), Approve: page("approve", before.Approve),
-		Returned: page("returned", before.Returned), Board: before.Board, Director: true}
-	rest := bulkView{Action: v.Action}
-	for _, it := range v.Items {
-		if !listed[it.Key] {
-			rest.Items = append(rest.Items, it)
-		}
+	l, err := s.inboxListsOf(u, after, upTo)
+	if err != nil {
+		return inboxLists{}, err
 	}
-	if len(rest.Items) > 0 {
-		l.Unlisted = &rest
+	if l.Bulk != nil {
+		l.Bulk.ran(v)
 	}
 	return l, nil
+}
+
+// movedRow is a finding's row after a run: the row of the queue it is in
+// now, or (in none) who moved it and its new state.
+func movedRow(u config.User, r index.Row, engName string) inboxRow {
+	if r.Meta != nil {
+		if k := workflow.Pending(u, *r.Meta); k != workflow.InboxNone && k != workflow.InboxDraft {
+			return findingRow(k, u, r, engName)
+		}
+	}
+	ir := baseRow(r, engName)
+	ir.Who, ir.What, ir.At, ir.Act = u.Username, workflow.StatusLabel(r.Shown), r.Since, "Open"
+	return ir
+}
+
+// boardRows turns the queue's notes into inbox rows (newest first).
+func boardRows(rows []boardInboxRow) []inboxRow {
+	out := make([]inboxRow, 0, len(rows))
+	for _, n := range rows {
+		out = append(out, inboxRow{Title: n.Title, URL: n.URL, TagClass: "lead-" + n.State, Tag: n.StateLabel, EngID: n.EngID,
+			EngName: n.EngName, ID: n.ID, Who: n.Who, What: n.What, At: n.At, Act: "Open", ActURL: n.URL})
+	}
+	return out
 }

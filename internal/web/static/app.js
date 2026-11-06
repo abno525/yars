@@ -119,18 +119,12 @@ document.addEventListener('click', function (evt) {
   ta.focus();
 });
 
-// Director inbox: the "N selected" count is a CSS counter, which Chrome
-// does not recount when the lists are swapped; re-inserting it does.
-document.addEventListener('htmx:afterSettle', function () {
-  var n = document.querySelector('.bulkform .selcount');
-  if (n) n.replaceWith(n.cloneNode(true));
-});
-
-/* ---------- findings list: bulk state change ---------- */
+/* ---------- findings list and director inbox: bulk state change ---------- */
 
 // The bar counts the ticked rows, enables Set state and Assign reviewers
 // only with a selection, and each Set state entry only when a ticked row
-// can take it (the row's data-acts). Select all ticks every pickable row.
+// can take it (the row's data-acts). Each table's select all ticks the
+// pickable rows of that table only (the inbox has two).
 function yarsBulkSync(form) {
   var picks = Array.prototype.slice.call(form.querySelectorAll('input[name=id]'));
   var on = picks.filter(function (c) { return c.checked; });
@@ -148,12 +142,14 @@ function yarsBulkSync(form) {
     if (b.disabled) yarsBulkMenu(b, false);
   });
   form.querySelectorAll('.bmenu [data-act]').forEach(function (b) { b.disabled = !acts[b.getAttribute('data-act')]; });
-  var all = form.querySelector('[data-pick-all]');
-  if (all) {
-    all.checked = on.length > 0 && on.length === picks.length;
-    all.indeterminate = on.length > 0 && on.length < picks.length;
-    all.disabled = picks.length === 0;
-  }
+  form.querySelectorAll('[data-pick-all]').forEach(function (all) {
+    var scope = all.closest('table') || form;
+    var mine = scope.querySelectorAll('input[name=id]');
+    var ticked = scope.querySelectorAll('input[name=id]:checked').length;
+    all.checked = ticked > 0 && ticked === mine.length;
+    all.indeterminate = ticked > 0 && ticked < mine.length;
+    all.disabled = mine.length === 0;
+  });
   var dlg = form.querySelector('.bdlg');
   if (dlg && !dlg.hidden) {
     if (on.length === 0) yarsBulkReason(form, null);
@@ -199,7 +195,7 @@ document.addEventListener('change', function (evt) {
   if (!form) return;
   if (evt.target.hasAttribute('data-pick-all')) {
     var to = evt.target.checked;
-    form.querySelectorAll('input[name=id]').forEach(function (c) { c.checked = to; });
+    (evt.target.closest('table') || form).querySelectorAll('input[name=id]').forEach(function (c) { c.checked = to; });
   }
   if (evt.target.matches('input[name=id], [data-pick-all]')) yarsBulkSync(form);
 });

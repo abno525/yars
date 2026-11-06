@@ -24,22 +24,9 @@ func TestInboxColumnOrder(t *testing.T) {
 	e := setup(t)
 	e.toVerification(t)
 	b := section(e.do(t, "bob", "GET", "/inbox", nil, nil).Body.String(), "Awaiting my review")
-	title, sev, eng, num := strings.Index(b, "SQL injection"), strings.Index(b, `class="tag sev-high"`), strings.Index(b, "ACME Web"), strings.Index(b, "F-001")
+	title, sev, eng, num := strings.Index(b, "SQL injection"), strings.Index(b, `class="tag sev-high"`), strings.Index(b, `<span class="engid">acme`), strings.Index(b, `<span class="fid">F-001`)
 	if title < 0 || !(title < sev && sev < eng && eng < num) {
 		t.Fatalf("order title %d sev %d eng %d num %d:\n%s", title, sev, eng, num, b)
-	}
-}
-
-// An empty list's row spans every column: 9 with the director's pick and
-// result columns, 7 otherwise; New on team board has its own 6.
-func TestInboxEmptyRowSpansColumns(t *testing.T) {
-	e := setup(t)
-	for u, want := range map[string]string{"alice": `<td colspan="7" class="muted empty">`, "dora": `<td colspan="9" class="muted empty">`} {
-		b := e.do(t, u, "GET", "/inbox", nil, nil).Body.String()
-		lists := strings.Count(b, `<section class="q q-`)
-		if lists < 2 || strings.Count(b, want) != lists-1 || strings.Count(b, `<td colspan="6" class="muted empty">`) != 1 || strings.Count(b, `class="muted empty"`) != lists {
-			t.Fatalf("%s: %d lists, empty rows:\n%s", u, lists, b)
-		}
 	}
 }
 
