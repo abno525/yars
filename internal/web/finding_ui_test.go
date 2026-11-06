@@ -109,6 +109,51 @@ func TestWorkflowSlotsComplete(t *testing.T) {
 	}
 }
 
+// slotOrder is the data-slot names of the bar's action row, left to right.
+func slotOrder(t *testing.T, b string) []string {
+	t.Helper()
+	wf := wfSection(t, b)
+	i := strings.Index(wf, `class="wf-actions"`)
+	if i < 0 {
+		t.Fatalf("no wf-actions:\n%s", wf)
+	}
+	var out []string
+	for _, part := range strings.Split(wf[i:], `data-slot="`)[1:] {
+		out = append(out, part[:strings.Index(part, `"`)])
+	}
+	return out
+}
+
+// Withdraw is the right-most action in every status that has it, whether
+// the viewer may take it or sees its empty slot; empty slots sit left of it.
+func TestWithdrawRightMost(t *testing.T) {
+	e := setup(t)
+	check := func(stage, u string, want []string) {
+		t.Helper()
+		got := slotOrder(t, e.do(t, u, "GET", fpath, nil, nil).Body.String())
+		if len(got) == 0 {
+			t.Fatalf("%s as %s: no slots", stage, u)
+		}
+		if strings.Join(got, ",") != strings.Join(want, ",") {
+			t.Fatalf("%s as %s: slots %v, want %v", stage, u, got, want)
+		}
+	}
+	check("draft", "alice", []string{"submit", "withdraw"})
+	check("draft", "bob", []string{"submit", "withdraw"})
+	e.toVerification(t)
+	check("verification", "dora", []string{"return", "clear", "approve", "withdraw"})
+	check("verification", "bob", []string{"return", "clear", "approve", "withdraw"})
+	e = setup(t)
+	e.toComplete(t)
+	check("complete", "dora", []string{"reopen", "report", "withdraw"})
+	check("complete", "alice", []string{"reopen", "report", "withdraw"})
+	// the button itself is last in the row, not just its slot
+	a := actionsOf(t, e.do(t, "dora", "GET", fpath, nil, nil).Body.String())
+	if strings.LastIndex(a, `data-action="withdraw"`) < strings.LastIndex(a, `data-action="report"`) {
+		t.Fatalf("withdraw before report:\n%s", a)
+	}
+}
+
 func TestWorkflowDraftAndWithdrawn(t *testing.T) {
 	e := setup(t)
 	alice := actionsOf(t, e.do(t, "alice", "GET", fpath, nil, nil).Body.String())

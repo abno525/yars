@@ -108,11 +108,12 @@ type wfSlotSpec struct {
 	width string
 }
 
-// wfLayout fixes the button slots of each status, left to right.
+// wfLayout fixes the button slots of each status, left to right. Withdraw
+// is always last, so it sits at the bar's right edge in every status.
 var wfLayout = map[string][]wfSlotSpec{
-	"draft":            {{workflow.Withdraw, "w136"}, {workflow.Submit, "w112"}},
-	"verification":     {{workflow.Withdraw, "w136"}, {workflow.Return, "w112"}, {workflow.Clear, "w112"}, {workflow.Approve, "w112"}},
-	"complete":         {{workflow.Withdraw, "w136"}, {workflow.Reopen, "w136"}, {workflow.Report, "w136"}},
+	"draft":            {{workflow.Submit, "w112"}, {workflow.Withdraw, "w136"}},
+	"verification":     {{workflow.Return, "w112"}, {workflow.Clear, "w112"}, {workflow.Approve, "w112"}, {workflow.Withdraw, "w136"}},
+	"complete":         {{workflow.Reopen, "w136"}, {workflow.Report, "w136"}, {workflow.Withdraw, "w136"}},
 	"reported":         {{workflow.Withdraw, "w136"}},
 	workflow.Withdrawn: {{workflow.Revise, "w136"}},
 }

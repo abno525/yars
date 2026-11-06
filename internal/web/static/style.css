@@ -518,9 +518,10 @@ progress::-moz-progress-bar { background: var(--accent); }
 .pickfoot { height: 56px; padding: 0 16px; display: flex; align-items: center; justify-content: space-between; background: var(--panel); }
 .wfstate { width: 128px; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; font-weight: 600; color: var(--muted); }
 .wfstate.error { color: var(--red); }
-/* as wide as the widest status (136 + 3 × 112 + gaps): Withdraw / Restore
-   and the state text stay put when the status changes */
-.wf-actions { width: 496px; display: flex; gap: 8px; align-items: center; }
+/* as wide as the widest status (136 + 3 × 112 + gaps), packed right:
+   Withdraw / Restore sit at the right edge and the state text stays put
+   when the status changes */
+.wf-actions { width: 496px; display: flex; justify-content: flex-end; gap: 8px; align-items: center; }
 .wf-action { display: flex; margin: 0; }
 .btn.danger[aria-expanded=true] { background: var(--red); color: #FFFFFF; }
 /* reason form under the bar (Return, Withdraw) */
