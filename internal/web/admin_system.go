@@ -31,7 +31,8 @@ type systemAdmin struct {
 	Op, OpResult                                     string   // the operation run and what came of it
 	OpOK                                             bool     // … it worked
 	OpItems                                          []string // Migrate status: what still needs migrating
-	LastBackup, BackupBy, BackupKey                  string   // the last backup download ("—" when none)
+	LastBackup, BackupBy, BackupKey, BackupSize      string   // the last backup download ("—" when none)
+	GitClone                                         string   // the main repo's clone path ("—" without the git server)
 	Health                                           healthAdmin
 }
 
@@ -137,9 +138,18 @@ func (s *Server) systemPage(w http.ResponseWriter, r *http.Request, v systemAdmi
 		v.DataDir = s.Store.Repo().Dir
 		v.Started = s.started.Format("2006-01-02 15:04")
 		v.Uptime = dur(time.Since(s.started))
-		v.LastBackup, v.BackupBy, v.BackupKey = "—", "—", "—"
+		v.LastBackup, v.BackupBy, v.BackupKey, v.BackupSize = "—", "—", "—", "—"
 		if l, _, err := d.AuditQuery(db.AuditFilter{Action: "backup", Limit: 1}); err == nil && len(l) == 1 {
-			v.LastBackup, v.BackupBy, v.BackupKey = when(l[0].TS), l[0].Actor, l[0].Detail
+			v.LastBackup, v.BackupBy = when(l[0].TS), l[0].Actor
+			// "with key · 48.0 MB" (older entries have no size)
+			v.BackupKey, v.BackupSize, _ = strings.Cut(l[0].Detail, " · ")
+			if v.BackupSize == "" {
+				v.BackupSize = "—"
+			}
+		}
+		v.GitClone = "—"
+		if s.Git != nil {
+			v.GitClone = "/git/yars"
 		}
 		v.Health = s.lastHealthOr(r.Context())
 		if js := s.flash.take(r, "sysop"); js != "" {
@@ -235,7 +245,8 @@ func (s *Server) backup(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", `attachment; filename="`+name+`"`)
 	w.Header().Set("Cache-Control", "no-store")
-	zw := zip.NewWriter(w)
+	cw := &countWriter{w: w}
+	zw := zip.NewWriter(cw)
 	add := func(src, rel string, info fs.FileInfo) error {
 		h, err := zip.FileInfoHeader(info)
 		if err != nil {
@@ -291,7 +302,19 @@ func (s *Server) backup(w http.ResponseWriter, r *http.Request) {
 	if withKey {
 		detail = "with key"
 	}
-	s.Store.DB().Audit(auth.UserFrom(r.Context()).Username, "backup", "", detail)
+	s.Store.DB().Audit(auth.UserFrom(r.Context()).Username, "backup", "", detail+" · "+size(cw.n))
+}
+
+// countWriter counts the bytes written through it (the backup's size).
+type countWriter struct {
+	w io.Writer
+	n int64
+}
+
+func (c *countWriter) Write(p []byte) (int, error) {
+	n, err := c.w.Write(p)
+	c.n += int64(n)
+	return n, err
 }
 
 // lastHealthOr is the last run of the health checks, which the System page

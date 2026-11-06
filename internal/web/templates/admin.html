@@ -267,15 +267,16 @@
   <div class="pbody flush">
     <div class="stats">
       <div class="st"><span class="sl">Last backup</span><span class="sv">{{.LastBackup}}</span></div>
+      <div class="st"><span class="sl">Size</span><span class="sv">{{.BackupSize}}</span></div>
       <div class="st"><span class="sl">By</span><span class="sv">{{.BackupBy}}</span></div>
       <div class="st"><span class="sl">Keys</span><span class="sv">{{.BackupKey}}</span></div>
-      <div class="st"><span class="sl">Database</span><span class="sv">{{.DBSize}}</span></div>
     </div>
     <div class="sfields">
       <div class="sfield"><span class="sl">Contents</span>
         <div class="sfc">
           <label class="chk"><input type="checkbox" checked disabled>Database</label>
           <label class="chk"><input type="checkbox" checked disabled>Repos</label>
+          <label class="chk"><input type="checkbox" checked disabled>Settings</label>
           <label class="chk"><input type="checkbox" name="key" value="1">Keys</label>
         </div>
       </div>
@@ -313,6 +314,7 @@
       <div class="st"><span class="sl">Running since</span><span class="sv">{{.Started}}</span></div>
       <div class="st"><span class="sl">Up for</span><span class="sv">{{.Uptime}}</span></div>
       <div class="st"><span class="sl">Database</span><span class="sv">{{.DBSize}}</span></div>
+      <div class="st"><span class="sl">Git clone</span><span class="sv mono">{{.GitClone}}</span></div>
     </div>
     <div class="stats">
       <div class="st"><span class="sl">Users</span><span class="sv">{{.Users}}</span></div>

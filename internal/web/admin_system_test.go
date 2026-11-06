@@ -80,7 +80,7 @@ func TestBackupZip(t *testing.T) {
 		t.Fatal("key not included when asked for")
 	}
 	l, _ := e.srv.Store.DB().AuditLog(1)
-	if len(l) != 1 || l[0].Action != "backup" || l[0].Detail != "with key" {
+	if len(l) != 1 || l[0].Action != "backup" || !strings.HasPrefix(l[0].Detail, "with key · ") || !strings.HasSuffix(l[0].Detail, " KB") {
 		t.Fatalf("audit %+v", l)
 	}
 }
@@ -120,6 +120,16 @@ func TestAdminSystem(t *testing.T) {
 	b = e.do(t, "dora", "GET", "/admin/system", nil, nil).Body.String()
 	if st := between(b, "<h2>Backup", "</form>"); !strings.Contains(st, `<span class="sv">dora</span>`) || strings.Contains(st, `<span class="sv">—</span>`) {
 		t.Fatalf("last backup:\n%s", st)
+	}
+	// the backup's own size, not the database's (the Server panel has that);
+	// the settings (.yars in the main repo) go in too
+	st := between(b, "<h2>Backup", "</form>")
+	if !strings.Contains(st, `<span class="sl">Size</span><span class="sv">`) || strings.Contains(st, `<span class="sl">Database</span>`) ||
+		!strings.Contains(st, `<span class="sv">without key</span>`) || !strings.Contains(st, "checked disabled>Settings</label>") {
+		t.Fatalf("backup stats:\n%s", st)
+	}
+	if sv := between(b, "<h2>Server", "</section>"); !strings.Contains(sv, `<span class="sl">Git clone</span>`) {
+		t.Fatalf("server panel:\n%s", sv)
 	}
 	// an operation answers with a redirect (a reload doesn't run it again);
 	// the page after it shows the result once
