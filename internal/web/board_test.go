@@ -34,7 +34,7 @@ func TestBoardCountsAndBars(t *testing.T) {
 	}
 	b := e.do(t, "alice", "GET", "/e/acme", nil, nil).Body.String()
 	seg := between(b, `class="seg`, "</nav>")
-	for _, want := range []string{">all · 2<", ">draft · 1<", ">verification · 1<", ">complete · 0<", ">reported · 0<", ">withdrawn · 0<"} {
+	for _, want := range []string{">All · 2<", ">Draft · 1<", ">Verification · 1<", ">Signed off · 0<", ">Complete · 0<", ">Reported · 0<", ">Withdrawn · 0<"} {
 		if !strings.Contains(seg, want) {
 			t.Fatalf("filters lack %q:\n%s", want, seg)
 		}
@@ -59,7 +59,7 @@ func TestBoardCountsAndBars(t *testing.T) {
 	e.do(t, "alice", "POST", fpath+"/action/withdraw", url.Values{"reason": {"dup"}}, nil)
 	b = e.do(t, "alice", "GET", "/e/acme", nil, nil).Body.String()
 	seg = between(b, `class="seg`, "</nav>")
-	if !strings.Contains(seg, ">all · 1<") || !strings.Contains(seg, ">withdrawn · 1<") || !strings.Contains(between(b, `class="bars"`, "</section>"), "1 finding<") {
+	if !strings.Contains(seg, ">All · 1<") || !strings.Contains(seg, ">Withdrawn · 1<") || !strings.Contains(between(b, `class="bars"`, "</section>"), "1 finding<") {
 		t.Fatalf("after withdraw:\n%s", b)
 	}
 }

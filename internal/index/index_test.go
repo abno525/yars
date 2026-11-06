@@ -13,6 +13,7 @@ import (
 	"yars/internal/db"
 	"yars/internal/gitrepo"
 	"yars/internal/store"
+	"yars/internal/workflow"
 )
 
 var alice = gitrepo.Author{Name: "alice", Email: "a@x"}
@@ -167,6 +168,55 @@ func TestWithdrawnOnlyUnderFilter(t *testing.T) {
 	}
 }
 
+// A verification finding whose every reviewer signed off shows as signed
+// off: its own filter, its own count, sorted between verification and
+// complete. The stored status, and a Status query, stay verification.
+func TestSignedOffShown(t *testing.T) {
+	ix, s := fixture(t)
+	rows, _ := ix.Rows(Query{EngID: "acme"})
+	c := rows[2] // C, verification
+	f, _ := s.CreateFinding("acme", "D", alice)
+	setMeta(t, s, "acme", f.Dir, "verification", "low")
+	bob := config.User{Username: "bob", Role: "reviewer"}
+	if err := s.SetReviewers("acme", c.Dir, []string{"bob"}, config.User{Username: "alice", Role: "pentester"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Transition("acme", c.Dir, workflow.Clear, "", bob); err != nil {
+		t.Fatal(err)
+	}
+	rows, _ = ix.Rows(Query{EngID: "acme"})
+	shown := map[string]string{}
+	for _, r := range rows {
+		shown[r.Title] = r.Shown
+	}
+	if shown["C"] != workflow.SignedOff || shown["D"] != "verification" || shown["A"] != "reported" {
+		t.Fatalf("shown %v", shown)
+	}
+	if rows, _ := ix.Rows(Query{EngID: "acme", Status: "verification"}); titles(rows) != "C,D" {
+		t.Fatalf("status query %q", titles(rows))
+	}
+	if rows, _ := ix.Rows(Query{EngID: "acme", Shown: workflow.SignedOff}); titles(rows) != "C" {
+		t.Fatalf("signed off filter %q", titles(rows))
+	}
+	if rows, _ := ix.Rows(Query{EngID: "acme", Shown: "verification"}); titles(rows) != "D" {
+		t.Fatalf("verification filter %q", titles(rows))
+	}
+	if rows, _ := ix.Rows(Query{EngID: "acme", Sort: "status"}); titles(rows) != "B,D,C,A" {
+		t.Fatalf("status sort %q", titles(rows))
+	}
+	sum, _ := ix.Summary("acme")
+	if sum.ByStatus["verification"] != 2 || sum.ByShown["verification"] != 1 || sum.ByShown[workflow.SignedOff] != 1 {
+		t.Fatalf("counts %v %v", sum.ByStatus, sum.ByShown)
+	}
+	var keys []string
+	for _, c := range sum.Statuses {
+		keys = append(keys, c.Key)
+	}
+	if strings.Join(keys, ",") != "draft,verification,signed-off,complete,reported,withdrawn" || sum.Statuses[2].N != 1 || sum.Statuses[2].Pct != 25 {
+		t.Fatalf("statuses %+v", sum.Statuses)
+	}
+}
+
 func TestSummary(t *testing.T) {
 	ix, s := fixture(t)
 	f, _ := s.CreateFinding("acme", "D", alice)
@@ -190,7 +240,7 @@ func TestSummary(t *testing.T) {
 	if sum.BySeverity["critical"] != 1 || sum.BySeverity["high"] != 1 || sum.BySeverity["low"] != 1 || sum.BySeverity["medium"] != 1 {
 		t.Errorf("severity %v", sum.BySeverity)
 	}
-	if len(sum.Statuses) != 5 || sum.Statuses[0].Key != "draft" || sum.Statuses[4].Key != "withdrawn" || sum.Statuses[4].N != 1 {
+	if len(sum.Statuses) != 6 || sum.Statuses[0].Key != "draft" || sum.Statuses[5].Key != "withdrawn" || sum.Statuses[5].N != 1 {
 		t.Errorf("ordered statuses %+v", sum.Statuses)
 	}
 	if len(sum.Severities) == 0 || sum.Severities[0].Key != "critical" || sum.Severities[0].N != 1 || sum.Severities[0].Pct != 25 {

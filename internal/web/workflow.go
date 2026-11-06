@@ -33,7 +33,8 @@ type wfCandidate struct {
 
 type wfView struct {
 	Status       string
-	Steps        []string
+	Shown        string   // the current step: Status, or signed off (workflow.Shown)
+	Steps        []string // workflow.ShownSteps
 	Actions      []wfAction
 	Gate         []string
 	Reviewers    []wfReviewer
@@ -210,7 +211,7 @@ func (s *Server) wfFor(ref store.FindingRef, r *http.Request) wfView {
 	m := ref.F.Meta
 	base := findingURL(ref.EngID, ref.Dir)
 	archived := s.Store.Archived(ref.EngID)
-	v := wfView{Status: m.Status, Steps: workflow.Statuses, CanAssign: workflow.CanAssign(u, m) && !archived,
+	v := wfView{Status: m.Status, Shown: workflow.Shown(m), Steps: workflow.ShownSteps, CanAssign: workflow.CanAssign(u, m) && !archived,
 		ReviewersURL: base + "/reviewers", URL: base + "/workflow", Returned: m.Returned, Withdrawn: m.Withdrawn,
 		IsWithdrawn: m.Status == workflow.Withdrawn, ReadOnly: archived}
 	if v.IsWithdrawn {

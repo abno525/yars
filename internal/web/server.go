@@ -164,7 +164,7 @@ type page struct {
 
 var funcs = template.FuncMap{"join": strings.Join, "checkedIn": checkedIn, "retestLabel": workflow.RetestLabel, "fpath": findingURL,
 	"static": staticPrefix, "score0": score0, "cleared": cleared, "age": age, "day": day, "when": when, "ending": ending,
-	"actionTag": actionTag, "actionName": actionName,
+	"actionTag": actionTag, "actionName": actionName, "statusLabel": workflow.StatusLabel, "shown": workflow.Shown,
 	"stepArgs": func(s stepRow, retryURL string) any {
 		return struct {
 			Step     stepRow
@@ -428,7 +428,8 @@ func (s *Server) engagement(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q := r.URL.Query()
-	query := index.Query{EngID: eng, Status: q.Get("status"), Severity: q.Get("severity"),
+	// the status filter is the shown state: signed off apart from verification
+	query := index.Query{EngID: eng, Shown: q.Get("status"), Severity: q.Get("severity"),
 		Author: q.Get("author"), Sort: q.Get("sort"), Desc: q.Get("desc") == "1"}
 	rows, err := s.Index.Rows(query)
 	if err != nil {
@@ -460,12 +461,13 @@ func (s *Server) engagement(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p.Bars = barsOf(p.Summary)
-	for _, st := range append([]string{""}, index.StatusOrder...) {
-		label, n := st, p.Summary.ByStatus[st]
+	for _, st := range append([]string{""}, index.ShownOrder...) {
+		label, n := workflow.StatusLabel(st), p.Summary.ByShown[st]
 		if st == "" {
 			label, n = "all", p.Summary.Total
 		}
-		p.StatusFilters = append(p.StatusFilters, link{Label: label, Active: st == query.Status, Count: n,
+		label = strings.ToUpper(label[:1]) + label[1:] // sentence case: "Signed off"
+		p.StatusFilters = append(p.StatusFilters, link{Label: label, Active: st == query.Shown, Count: n,
 			URL: mk(func(v url.Values) { setOrDel(v, "status", st) })})
 	}
 	cols := columns

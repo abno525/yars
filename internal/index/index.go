@@ -30,6 +30,7 @@ import (
 // vector when present; Score is the formatted base score or "".
 type Row struct {
 	EngID, Dir, ID, Title, Status, Severity, Author string
+	Shown                                           string // Status as the UI shows it (workflow.Shown)
 	Score                                           string
 	OpenThreads                                     int
 	IsRetest                                        bool   // copied into a retest engagement
@@ -57,7 +58,7 @@ func rowOf(engID string, ref store.FindingRef, msgs []chat.Message) Row {
 	m := ref.F.Meta
 	txt, sc := scoreOf(m.CVSS)
 	open, _ := chat.OpenCount(msgs)
-	r := Row{EngID: engID, Dir: ref.Dir, ID: m.ID, Title: m.Title, Status: m.Status,
+	r := Row{EngID: engID, Dir: ref.Dir, ID: m.ID, Title: m.Title, Status: m.Status, Shown: workflow.Shown(m),
 		Severity: cvss.Derive(m.CVSS, m.Severity), Author: m.Author, Reviewers: m.Reviewers,
 		Score: txt, score: sc, Meta: &m, OpenThreads: open, tgrams: Trigrams(m.Title), agrams: assetGrams(m.Assets)}
 	if m.Retest != nil {
@@ -71,13 +72,14 @@ func rowOf(engID string, ref store.FindingRef, msgs []chat.Message) Row {
 	return r
 }
 
-// Query filters by exact field values (empty = any; an empty Status leaves
-// out withdrawn findings) and sorts by
-// id|title|status|severity|author (default id).
+// Query filters by exact field values (empty = any; an empty Status and
+// Shown leave out withdrawn findings) and sorts by
+// id|title|status|severity|author (default id). Status matches the stored
+// status, Shown the state the UI shows (signed off apart from verification).
 type Query struct {
-	EngID, Status, Severity, Author string
-	Sort                            string
-	Desc                            bool
+	EngID, Status, Shown, Severity, Author string
+	Sort                                   string
+	Desc                                   bool
 	// Visible limits the rows to these engagements (a user's teams); nil
 	// means every engagement.
 	Visible map[string]bool
@@ -85,6 +87,10 @@ type Query struct {
 
 // StatusOrder is the workflow order, withdrawn last.
 var StatusOrder = workflow.AllStatuses
+
+// ShownOrder is the order of the shown states: signed off between
+// verification and complete, withdrawn last.
+var ShownOrder = workflow.ShownAll
 
 // Count is one bar segment: how many findings have Key, and their share of
 // the engagement's non-withdrawn findings in percent.
@@ -100,9 +106,10 @@ type Summary struct {
 	Withdrawn  int            // withdrawn findings
 	Done       int            // complete + reported
 	Progress   int            // Done / Total in percent (0 when empty)
-	ByStatus   map[string]int // every status, withdrawn included
+	ByStatus   map[string]int // every stored status, withdrawn included
+	ByShown    map[string]int // every shown state (signed off apart), withdrawn included
 	BySeverity map[string]int // non-withdrawn only; "" = no severity
-	Statuses   []Count        // StatusOrder, withdrawn last (Pct of Total; 0 for withdrawn)
+	Statuses   []Count        // shown states in ShownOrder, withdrawn last (Pct of Total; 0 for withdrawn)
 	Severities []Count        // the configured severities in order
 }
 
@@ -114,9 +121,10 @@ func pct(n, of int) int {
 }
 
 func summarize(rows []Row, sevs []string) Summary {
-	s := Summary{ByStatus: map[string]int{}, BySeverity: map[string]int{}}
+	s := Summary{ByStatus: map[string]int{}, ByShown: map[string]int{}, BySeverity: map[string]int{}}
 	for _, r := range rows {
 		s.ByStatus[r.Status]++
+		s.ByShown[r.Shown]++
 		if !workflow.Active(r.Status) {
 			s.Withdrawn++
 			continue
@@ -128,8 +136,8 @@ func summarize(rows []Row, sevs []string) Summary {
 		}
 	}
 	s.Progress = pct(s.Done, s.Total)
-	for _, st := range StatusOrder {
-		c := Count{Key: st, N: s.ByStatus[st]}
+	for _, st := range ShownOrder {
+		c := Count{Key: st, N: s.ByShown[st]}
 		if workflow.Active(st) {
 			c.Pct = pct(c.N, s.Total)
 		}
@@ -522,7 +530,8 @@ func (ix *Index) Rows(q Query) ([]Row, error) {
 	}
 	// no status filter means every finding that is not withdrawn
 	match := func(r Row) bool {
-		return (r.Status == q.Status || (q.Status == "" && workflow.Active(r.Status))) && (q.Severity == "" || r.Severity == q.Severity) &&
+		status := r.Status == q.Status || (q.Status == "" && (q.Shown != "" || workflow.Active(r.Status)))
+		return status && (q.Shown == "" || r.Shown == q.Shown) && (q.Severity == "" || r.Severity == q.Severity) &&
 			(q.Author == "" || r.Author == q.Author)
 	}
 	var out []Row
@@ -551,7 +560,7 @@ func (ix *Index) Rows(q Query) ([]Row, error) {
 		case "title":
 			return strings.Compare(strings.ToLower(a.Title), strings.ToLower(b.Title))
 		case "status":
-			return rank(StatusOrder, a.Status) - rank(StatusOrder, b.Status)
+			return rank(ShownOrder, a.Shown) - rank(ShownOrder, b.Shown)
 		case "severity":
 			return rank(sev, a.Severity) - rank(sev, b.Severity)
 		case "author":

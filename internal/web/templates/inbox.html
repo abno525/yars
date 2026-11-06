@@ -31,7 +31,7 @@
       <td class="title"><a href="{{fpath .EngID .Dir}}" title="{{.Title}}">{{.Title}}</a></td>
       <td class="c-tag">{{if .Severity}}<span class="tag sev-{{.Severity}}">{{.Severity}}</span>{{end}}</td>
       <td class="c-eng mono" title="{{.EngName}} · {{.ID}}"><span class="engid">{{.EngID}}</span> · <span class="fid">{{.ID}}</span></td>
-      <td class="c-tag"><span class="tag status-{{.Status}}">{{.Status}}</span></td>
+      <td class="c-tag"><span class="tag status-{{.Shown}}">{{statusLabel .Shown}}</span></td>
       <td class="c-why">{{with and .Meta .Meta.Returned}}<strong>{{.By}}</strong> · {{.Reason}}{{else}}<strong>{{.Author}}</strong>{{end}}</td>
       <td class="c-age mono">{{age .Since}}</td>
       {{if $.Director}}<td class="c-res">{{with $res}}{{if .OK}}<span class="tag good">{{$.Done}}</span>{{else}}<span class="bres" title="{{.Reason}}">{{.Reason}}</span>{{end}}{{end}}</td>{{end}}

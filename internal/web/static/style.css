@@ -192,6 +192,7 @@ label { font-size: 13px; font-weight: 600; }
 }
 .tag.status-draft { background: var(--tag-draft); color: #0F172A; }
 .tag.status-verification { background: var(--verification); color: #FFFFFF; }
+.tag.status-signed-off { background: var(--surface); color: var(--green); border-color: var(--green); }
 .tag.status-complete { background: var(--navy); color: #FFFFFF; border-color: var(--navy); }
 .tag.status-reported { background: transparent; color: var(--ink); border-color: var(--ink); }
 .tag.sev-critical { background: var(--sev-critical); color: #FFFFFF; }
@@ -219,6 +220,7 @@ label { font-size: 13px; font-weight: 600; }
   background: var(--bg); color: var(--ink); border: 0; font: 600 13px/1 var(--sans); white-space: nowrap; overflow: hidden;
   text-overflow: ellipsis; text-transform: capitalize; text-decoration: none; cursor: pointer;
 }
+.seg.nocap > a { text-transform: none; } /* labels already in sentence case ("Signed off") */
 .seg > a + a, .seg > button + button, .seg > label + label > span { border-left: 1px solid var(--ink); }
 .seg > label { display: inline-flex; margin: 0; font-weight: 600; }
 .seg input { position: absolute; opacity: 0; pointer-events: none; }
@@ -559,7 +561,7 @@ progress::-moz-progress-bar { background: var(--accent); }
 .table.reasons-view { border: 0; border-top: 1px solid var(--line); table-layout: fixed; }
 .reasons-view th.c-metric { width: 200px; }
 .reasons-view th.c-std, .reasons-view th.c-chosen { width: 120px; }
-.reasons-view tbody th { padding: 12px 16px; text-align: left; vertical-align: top; font: 600 15px/1.5 var(--sans); color: var(--text); text-transform: none; letter-spacing: 0; }
+.reasons-view tbody th { padding: 12px 16px; text-align: left; vertical-align: top; font: 600 15px/1.5 var(--sans); color: var(--text); text-transform: none; letter-spacing: 0; background: transparent; }
 .reasons-view td { height: auto; padding: 12px 16px; vertical-align: top; line-height: 1.5; }
 .reasons-view td.c-chosen { font-weight: 600; color: var(--accent-text); }
 .metrics { padding: 4px 24px 8px; }
@@ -705,13 +707,15 @@ progress::-moz-progress-bar { background: var(--accent); }
 .bar { display: block; width: 100%; height: 16px; }
 .bar rect { stroke: var(--surface); stroke-width: 2px; vector-effect: non-scaling-stroke; }
 .legend { display: flex; gap: 8px; font-size: 13px; overflow: hidden; }
-.lg { width: 120px; flex: none; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
-.lgname { overflow: hidden; text-overflow: ellipsis; text-transform: capitalize; }
+.lg { flex: 1 1 0; min-width: 0; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.lgname { overflow: hidden; text-overflow: ellipsis; }
+.lgname::first-letter { text-transform: uppercase; }
 .lg .n { font: 500 13px var(--mono); color: var(--muted); }
 .sw { width: 10px; height: 10px; flex: none; }
 .seg-empty { fill: var(--off-bg); }
 .seg-draft { fill: var(--bar-draft); background: var(--bar-draft); }
 .seg-verification { fill: var(--verification); background: var(--verification); }
+.seg-signed-off { fill: var(--green); background: var(--green); }
 .seg-complete { fill: var(--bar-complete); background: var(--bar-complete); }
 .seg-reported { fill: var(--accent); background: var(--accent); }
 .seg-critical { fill: var(--sev-critical); background: var(--sev-critical); }

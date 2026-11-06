@@ -6,7 +6,7 @@
     <nav class="crumbs"><a href="/e/{{.Eng.ID}}">{{.Eng.Name}}</a><span class="sep" aria-hidden="true">/</span><span class="idchip">{{$f.Meta.ID}}</span></nav>
     <h1 title="{{$f.Meta.Title}}"{{if $wd}} class="withdrawn-title"{{end}}>{{$f.Meta.Title}}</h1>
     <div class="meta">
-      <span class="tag status-{{$f.Meta.Status}}">{{$f.Meta.Status}}</span>
+      {{$st := shown $f.Meta}}<span class="tag status-{{$st}}">{{statusLabel $st}}</span>
       {{template "sevpill" .CVSS}}
       <span class="muted by" title="{{$f.Meta.Author}}">by {{$f.Meta.Author}}</span>
     </div>
