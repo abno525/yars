@@ -313,8 +313,11 @@ func TestReviewersRejectUnknown(t *testing.T) {
 	if rec := e.do(t, "pen2", "POST", fpath+"/reviewers", url.Values{"reviewer": {"dora"}}, nil); rec.Code != http.StatusBadRequest {
 		t.Fatalf("other pentester assign code %d", rec.Code)
 	}
-	// a reviewer may assign reviewers
-	if rec := e.do(t, "bob", "POST", fpath+"/reviewers", url.Values{"reviewer": {"bob", "carol"}}, nil); rec.Code != http.StatusSeeOther {
+	// a reviewer may assign other reviewers, never themselves
+	if rec := e.do(t, "bob", "POST", fpath+"/reviewers", url.Values{"reviewer": {"bob", "carol"}}, nil); rec.Code == http.StatusSeeOther {
+		t.Fatal("bob assigned himself")
+	}
+	if rec := e.do(t, "bob", "POST", fpath+"/reviewers", url.Values{"reviewer": {"carol"}}, nil); rec.Code != http.StatusSeeOther {
 		t.Fatalf("reviewer assign code %d", rec.Code)
 	}
 }

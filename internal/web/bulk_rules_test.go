@@ -205,7 +205,7 @@ func TestBulkAssignOnlyAdds(t *testing.T) {
 		t.Fatal(err)
 	}
 	d2 := e.second(t, "carol")
-	_, b := e.bulkPost(t, "carol", url.Values{"action": {"reviewers"}, "id": {fdir, d2}, "reviewer": {"carol"}})
+	_, b := e.bulkPost(t, "bob", url.Values{"action": {"reviewers"}, "id": {fdir, d2}, "reviewer": {"carol"}})
 	if !strings.Contains(summaryOf(b), "1 moved") || !strings.Contains(frow(b, d2), `class="skip"`) {
 		t.Fatalf("assign: %s\n%s", summaryOf(b), frow(b, d2))
 	}

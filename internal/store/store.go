@@ -1383,6 +1383,18 @@ type Actor interface{ GitAuthor() gitrepo.Author }
 // database together with a workflow event in the chat (no git commit).
 // Permission and gate failures are *workflow.Denied.
 func (s *Store) Transition(engID, dir string, act workflow.Action, reason string, u config.User) error {
+	return s.TransitionChecked(engID, dir, act, reason, u, nil)
+}
+
+// TransitionChecked is Transition with a further rule of the caller (the
+// bulk bar's own limits), checked on the finding as it is inside the change.
+func (s *Store) TransitionChecked(engID, dir string, act workflow.Action, reason string, u config.User, check func(finding.Meta) error) error {
+	if check == nil {
+		check = func(finding.Meta) error { return nil }
+	}
+	if !workflow.NeedsReason(act) {
+		reason = "" // only Return and Withdraw carry one
+	}
 	if s.db == nil {
 		return ErrNoDB
 	}
@@ -1398,6 +1410,9 @@ func (s *Store) Transition(engID, dir string, act workflow.Action, reason string
 			return err
 		}
 		if err := workflow.CheckWithGate(u, ref.F.Meta, act, s.Config()); err != nil {
+			return err
+		}
+		if err := check(ref.F.Meta); err != nil {
 			return err
 		}
 		vs, err := s.undismissed(engID, ref.F.Meta.ID, s.Linter.Lint(context.Background(), ref.F, rules.All))
@@ -1417,6 +1432,9 @@ func (s *Store) Transition(engID, dir string, act workflow.Action, reason string
 			return nil, &workflow.Denied{Reason: "the finding changed while its checks ran; try again"}
 		}
 		if err := workflow.CheckWithGate(u, ref.F.Meta, act, s.Config()); err != nil {
+			return nil, err
+		}
+		if err := check(ref.F.Meta); err != nil {
 			return nil, err
 		}
 		uncleared := func() {
@@ -1530,6 +1548,14 @@ func (s *Store) SetReviewers(engID, dir string, names []string, u config.User) e
 					return nil, &workflow.Denied{Reason: "only the author or a director can remove a reviewer"}
 				}
 			}
+			isOld := func(n string) bool {
+				return slices.ContainsFunc(st.Reviewers, func(r db.Reviewer) bool { return r.Name == n })
+			}
+			for _, n := range list {
+				if !isOld(n) && !workflow.CanAddReviewer(u, m, n) {
+					return nil, &workflow.Denied{Reason: errSelfAssign}
+				}
+			}
 		}
 		sort.Strings(list)
 		var next []db.Reviewer
@@ -1548,6 +1574,56 @@ func (s *Store) SetReviewers(engID, dir string, names []string, u config.User) e
 			next = append(next, r)
 		}
 		st.Reviewers = next
+		return nil, nil
+	})
+	if err == nil && len(done.Added) > 0 {
+		s.Emit(done)
+	}
+	return err
+}
+
+const errSelfAssign = "only the author or a director can make you a reviewer"
+
+// AddReviewers adds names to the reviewer list as u, merged with the list as
+// it is inside the change, so a reviewer someone added meanwhile (and their
+// sign-off) stays. The author's name, and u's own when u may only add
+// (workflow.CanAddReviewer), are skipped; when no name could be added and
+// none was on the list already, it is *workflow.Denied.
+func (s *Store) AddReviewers(engID, dir string, names []string, u config.User) error {
+	var done Event
+	err := s.changeState(engID, dir, func(ref FindingRef, st *db.State, _ string) ([]chat.Message, error) {
+		m := ref.F.Meta
+		if !workflow.CanAddReviewers(u, m) {
+			return nil, &workflow.Denied{Reason: "only a reviewer, the author or a director can assign reviewers while the finding is open"}
+		}
+		done = findingEvent(EventReviewers, u.Username, ref)
+		var refused []string
+		kept := false
+		for _, n := range names {
+			switch n = strings.TrimSpace(n); {
+			case n == "":
+			case slices.ContainsFunc(st.Reviewers, func(r db.Reviewer) bool { return r.Name == n }):
+				kept = true
+			case n == m.Author:
+				refused = append(refused, n+" wrote this finding")
+			case !workflow.CanAddReviewer(u, m, n):
+				refused = append(refused, errSelfAssign)
+			default:
+				st.Reviewers = append(st.Reviewers, db.Reviewer{Name: n})
+				done.Added = append(done.Added, n)
+			}
+		}
+		if len(done.Added) == 0 && !kept {
+			if len(refused) == 0 {
+				refused = []string{"no reviewer given"}
+			}
+			return nil, &workflow.Denied{Reason: strings.Join(refused, "; ")}
+		}
+		sort.Slice(st.Reviewers, func(i, j int) bool { return st.Reviewers[i].Name < st.Reviewers[j].Name })
+		done.Reviewers = nil
+		for _, r := range st.Reviewers {
+			done.Reviewers = append(done.Reviewers, r.Name)
+		}
 		return nil, nil
 	})
 	if err == nil && len(done.Added) > 0 {

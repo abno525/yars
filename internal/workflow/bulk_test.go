@@ -168,6 +168,11 @@ func TestTakeBackAndAuthorReport(t *testing.T) {
 	if CanAssign(bob, meta("draft")) || CanAssign(rev2, meta("verification")) {
 		t.Error("a reviewer may replace the reviewer list")
 	}
+	// a reviewer adds others, never themselves; a director joins freely
+	if CanAddReviewer(rev2, meta("draft"), rev2.Username) || !CanAddReviewer(rev2, meta("draft"), "carol") ||
+		!CanAddReviewer(dora, meta("verification"), dora.Username) || CanAddReviewer(pen2, meta("draft"), "carol") {
+		t.Error("CanAddReviewer")
+	}
 }
 
 // Who may tick which row of the bulk bar: a pentester own findings only, a

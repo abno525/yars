@@ -261,6 +261,16 @@ func CanAddReviewers(u config.User, m finding.Meta) bool {
 	return CanAssign(u, m) || AtLeast(u, "reviewer")
 }
 
+// CanAddReviewer reports whether u may add name to m's reviewers: whoever
+// may assign adds anyone; another reviewer adds others but never themselves,
+// so someone else always chooses who reviews (four eyes).
+func CanAddReviewer(u config.User, m finding.Meta, name string) bool {
+	if CanAssign(u, m) {
+		return true
+	}
+	return CanAddReviewers(u, m) && name != u.Username
+}
+
 // ReviewerCandidate reports whether u may be assigned as a reviewer of m.
 func ReviewerCandidate(u config.User, m finding.Meta) bool {
 	return AtLeast(u, "reviewer") && u.Username != m.Author

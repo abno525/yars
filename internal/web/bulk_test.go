@@ -101,13 +101,18 @@ func TestBulkReviewers(t *testing.T) {
 	if rec := e.do(t, "alice", "POST", "/e/acme/bulk", form, nil); rec.Code != http.StatusForbidden {
 		t.Fatalf("pentester bulk assign code %d", rec.Code)
 	}
-	// a reviewer assigns on any open finding, but never its author
-	b := e.do(t, "carol", "POST", "/e/acme/bulk", url.Values{"action": {"reviewers"}, "id": {"001", "002"}, "reviewer": {"carol"}}, nil).Body.String()
+	// a reviewer assigns others on any open finding, never themselves
+	b := e.do(t, "carol", "POST", "/e/acme/bulk", url.Values{"action": {"reviewers"}, "id": {"001", "002"}, "reviewer": {"dora"}}, nil).Body.String()
 	if !strings.Contains(row(b, "acme/F-001"), `class="ok"`) || !strings.Contains(row(b, "acme/F-002"), `class="ok"`) {
 		t.Fatalf("reviewer assign rows:\n%s", b)
 	}
+	b = e.do(t, "carol", "POST", "/e/acme/bulk", url.Values{"action": {"reviewers"}, "id": {"001"}, "reviewer": {"carol"}}, nil).Body.String()
+	if !strings.Contains(row(b, "acme/F-001"), `class="denied"`) {
+		t.Fatalf("reviewer self-assign rows:\n%s", b)
+	}
 	// existing reviewers stay; the author is never a reviewer
 	e.srv.Store.SetReviewers("acme", d2, []string{"carol"}, wDora)
+	e.srv.Store.SetReviewers("acme", fdir, []string{"carol"}, wDora)
 	b = e.do(t, "dora", "POST", "/e/acme/bulk", url.Values{"action": {"reviewers"}, "id": {"001", "002"}, "reviewer": {"bob"}}, nil).Body.String()
 	if !strings.Contains(row(b, "acme/F-001"), `class="ok"`) {
 		t.Fatalf("dora F-001:\n%s", b)

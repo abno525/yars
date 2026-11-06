@@ -70,7 +70,7 @@ func TestTransitionAuthorReport(t *testing.T) {
 // one: dropping a reviewer who signed off would undo the four-eyes check.
 func TestReviewerAssigns(t *testing.T) {
 	s, _, fd := ready(t)
-	if err := s.SetReviewers(eng, fd, []string{"bob", "carol"}, uCarol); err != nil {
+	if err := s.SetReviewers(eng, fd, []string{"bob", "carol"}, uBob); err != nil {
 		t.Fatal(err)
 	}
 	if got := load(t, s, fd).F.Meta.Reviewers; !slices.Equal(got, []string{"bob", "carol"}) {
