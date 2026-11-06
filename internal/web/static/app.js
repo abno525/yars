@@ -363,6 +363,104 @@ document.addEventListener('htmx:afterRequest', function (evt) {
   try { localStorage.removeItem(k); } catch (e) { /* none kept */ }
 });
 
+/* ---------- keyboard: E edits a section, Ctrl+S saves it ---------- */
+
+// The templates mark the controls: Edit buttons carry aria-keyshortcuts="E",
+// editor Save buttons "Control+S". A section is a section.panel with an id
+// (finding page, report tab, template page); the one last clicked, focused
+// or linked to (#s-…) is remembered by id, since htmx swaps the element.
+var yarsLastPanel = '';
+var yarsFocusAfter = ''; // the section to put focus back into after its swap
+
+function yarsPanelOf(el) {
+  return el && el.closest ? el.closest('section.panel[id]') : null;
+}
+function yarsRemember(el) {
+  var p = yarsPanelOf(el);
+  if (p) yarsLastPanel = p.id;
+}
+document.addEventListener('pointerdown', function (evt) { yarsRemember(evt.target); }, true);
+document.addEventListener('focusin', function (evt) { yarsRemember(evt.target); });
+window.addEventListener('hashchange', function () {
+  if (location.hash.length > 1) yarsRemember(document.getElementById(decodeURIComponent(location.hash.slice(1))));
+});
+
+// yarsTyping: the key goes into a field, so single-key shortcuts stay out.
+function yarsTyping(t) {
+  return !!(t && (t.isContentEditable || (t.closest && t.closest('input, textarea, select, [contenteditable]'))));
+}
+
+// yarsFirstField focuses an open editor's first field (or its own autofocus).
+function yarsFirstField(p) {
+  var f = p.querySelector('[autofocus]') || p.querySelector('textarea, input:not([type=hidden]), select');
+  if (f) f.focus();
+}
+
+// E: the focused section, else the one last selected, else the first text
+// section. An already open editor gets focus back instead.
+function yarsEdit() {
+  var cands = [yarsPanelOf(document.activeElement), yarsLastPanel ? document.getElementById(yarsLastPanel) : null];
+  for (var i = 0; i < cands.length; i++) {
+    var p = cands[i];
+    if (!p) continue;
+    if (p.classList.contains('editing')) { yarsFirstField(p); return true; }
+    var b = p.querySelector('button[aria-keyshortcuts~="E"]:not(:disabled)');
+    if (b) { yarsFocusAfter = p.id; b.click(); return true; }
+  }
+  var first = document.querySelector('section.panel[id^="s-"] button[aria-keyshortcuts~="E"]:not(:disabled)');
+  if (!first) return false;
+  yarsFocusAfter = yarsPanelOf(first).id;
+  first.click();
+  return true;
+}
+
+// Ctrl+S: the open editor holding focus, else the one last selected, else
+// the only one open. It presses that editor's own Save button (never a
+// first submit button such as Clear vector); a disabled Save does nothing.
+function yarsSave() {
+  var open = Array.prototype.filter.call(document.querySelectorAll('section.panel.editing[id]'), function (p) {
+    return !!p.querySelector('button[aria-keyshortcuts~="Control+S"]');
+  });
+  var a = yarsPanelOf(document.activeElement);
+  var l = yarsLastPanel ? document.getElementById(yarsLastPanel) : null;
+  var p = open.indexOf(a) >= 0 ? a : open.indexOf(l) >= 0 ? l : open.length === 1 ? open[0] : null;
+  if (!p) return;
+  var btn = p.querySelector('button[aria-keyshortcuts~="Control+S"]');
+  var form = btn.form;
+  if (!form || btn.disabled) return;
+  yarsLastPanel = yarsFocusAfter = p.id;
+  if (form.requestSubmit) form.requestSubmit(btn); else btn.click();
+}
+
+document.addEventListener('keydown', function (evt) {
+  if ((evt.ctrlKey || evt.metaKey) && !evt.altKey && (evt.key === 's' || evt.key === 'S')) {
+    // never the browser's "Save page" dialog on a YARS page
+    evt.preventDefault();
+    if (!evt.repeat && !document.querySelector('dialog[open]')) yarsSave();
+    return;
+  }
+  if (evt.key !== 'e' && evt.key !== 'E') return;
+  if (evt.ctrlKey || evt.metaKey || evt.altKey || evt.shiftKey || evt.isComposing || evt.repeat || evt.defaultPrevented) return;
+  if (yarsTyping(evt.target) || document.querySelector('dialog[open]')) return;
+  if (yarsEdit()) evt.preventDefault();
+});
+
+// After a keyboard edit or save the section keeps focus: an open editor on
+// its first field, a saved section on its Edit button.
+document.addEventListener('htmx:afterSettle', function (evt) {
+  var t = evt.detail.target;
+  if (!yarsFocusAfter || !t || t.id !== yarsFocusAfter) return;
+  var p = document.getElementById(yarsFocusAfter);
+  yarsFocusAfter = '';
+  if (!p) return;
+  if (p.classList.contains('editing')) { yarsFirstField(p); return; }
+  var b = p.querySelector('button[aria-keyshortcuts~="E"]');
+  if (b) { b.focus({preventScroll: true}); return; }
+  p.setAttribute('tabindex', '-1');
+  p.focus({preventScroll: true});
+});
+document.addEventListener('htmx:responseError', function () { yarsFocusAfter = ''; });
+
 // Attachments: Add file uploads into the finding's attachments/ (images go
 // through Redact first, so a redacted original never reaches the server);
 // Insert puts the Markdown link at the cursor.

@@ -148,7 +148,7 @@
       <span class="pstate" data-pstate>{{if .Conflict}}Conflict{{end}}</span>
       <button type="button" class="btn secondary sm w96 invisible" data-draft-restore>Restore</button>
       <button type="button" class="btn secondary sm w96" hx-get="{{.SaveURL}}" hx-target="#s-{{.Anchor}}" hx-swap="outerHTML" data-guard-cancel>Cancel</button>
-      <button class="btn save sm w96"{{if .Conflict}} disabled{{end}}>Save</button>
+      <button class="btn save sm w96" aria-keyshortcuts="Control+S"{{if .Conflict}} disabled{{end}}>Save</button>
     </div>
   </form>
 </section>
@@ -161,7 +161,7 @@
     <span class="panel-tools">
       {{if .Presence.URL}}{{template "presence" .Presence}}{{end}}
       {{if .ReadOnly}}<span class="slot w96"></span>{{else}}<button class="btn ghost sm w96" type="button" data-section="{{.Name}}" onclick="yarsComment(this.dataset.section)">Comment</button>{{end}}
-      {{if .EditURL}}<button class="btn ghost sm w96" hx-get="{{.EditURL}}" hx-target="#s-{{.Anchor}}" hx-swap="outerHTML">Edit</button>{{else}}<span class="slot w96 lockslot">{{template "lock"}}</span>{{end}}
+      {{if .EditURL}}<button class="btn ghost sm w96" aria-keyshortcuts="E" hx-get="{{.EditURL}}" hx-target="#s-{{.Anchor}}" hx-swap="outerHTML">Edit</button>{{else}}<span class="slot w96 lockslot">{{template "lock"}}</span>{{end}}
     </span>
   </div>
   <div class="md">{{if .HTML}}{{.HTML}}{{else}}<p class="muted">Empty</p>{{end}}</div>

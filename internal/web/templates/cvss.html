@@ -8,7 +8,7 @@
     <h2 id="s-cvss">CVSS 3.1{{if .HasStored}} <code class="vector" title="{{.Vector}}">{{.Vector}}</code>{{end}}</h2>
     <div class="panel-tools">
       {{if .ReadOnly}}<span class="slot w96"></span>{{else}}<button class="btn ghost sm w96" type="button" data-section="CVSS" onclick="yarsComment(this.dataset.section)">Comment</button>{{end}}
-      {{if .Locked}}<span class="slot w96 lockslot">{{template "lock"}}</span>{{else}}<button class="btn ghost sm w96" hx-get="{{.EditURL}}" hx-target="#cvss" hx-swap="outerHTML">{{if .HasStored}}Edit{{else}}Calculate{{end}}</button>{{end}}
+      {{if .Locked}}<span class="slot w96 lockslot">{{template "lock"}}</span>{{else}}<button class="btn ghost sm w96" aria-keyshortcuts="E" hx-get="{{.EditURL}}" hx-target="#cvss" hx-swap="outerHTML">{{if .HasStored}}Edit{{else}}Calculate{{end}}</button>{{end}}
     </div>
   </div>
   {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
@@ -100,7 +100,7 @@
       {{if .HasStored}}<button class="btn danger sm w128" name="action" value="clear" hx-confirm="Remove the CVSS vector?">Clear vector</button>{{else}}<span class="slot w128"></span>{{end}}
       <span class="pstate error">{{with .Missing}}{{len .}} reason{{if gt (len .) 1}}s{{end}} missing{{end}}</span>
       <button type="button" class="btn secondary sm w96" hx-get="{{.ViewURL}}" hx-target="#cvss" hx-swap="outerHTML">Cancel</button>
-      <button class="btn save sm w96"{{if not .Complete}} disabled{{end}}>Save</button>
+      <button class="btn save sm w96" aria-keyshortcuts="Control+S"{{if not .Complete}} disabled{{end}}>Save</button>
     </div>
   </form>
 </section>
