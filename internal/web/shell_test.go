@@ -64,6 +64,12 @@ func TestShellAssets(t *testing.T) {
 	if strings.Contains(css, "fonts.googleapis") || strings.Contains(css, "border-radius: 8px") {
 		t.Fatal("style.css: remote fonts or rounded corners")
 	}
+	// pages run up to 1760 px wide; the finding page's Status + Chat column is 560
+	for _, want := range []string{"main { max-width: 1760px;", ".finding-grid { display: grid; grid-template-columns: minmax(0, 1fr) 560px;"} {
+		if !strings.Contains(css, want) {
+			t.Fatalf("style.css lacks %q", want)
+		}
+	}
 	js := e.do(t, "alice", "GET", "/static/app.js", nil, nil).Body.String()
 	for _, want := range []string{"htmx:responseError", "toasts", "localStorage", "data-theme", "try"} {
 		if !strings.Contains(js, want) {
