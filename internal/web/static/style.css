@@ -1665,3 +1665,58 @@ code.plain { font: 500 13px var(--mono); color: var(--text); background: transpa
 .hookrow .chk { width: 112px; flex: none; }
 .evgrid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0 16px; }
 .hookform .pstate { flex: none; height: 20px; text-align: left; }
+
+/* ---------- findings: bulk state change ---------- */
+/* bar: N selected 104 | Set state 152 | Assign reviewers 152 (or slot) | summary 240 | Clear 96 */
+:root { --pick-bg: #EEF2F8; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --pick-bg: #111C30; }
+}
+:root[data-theme="dark"] { --pick-bg: #111C30; }
+.fbulkform { margin: 0; display: flex; flex-direction: column; gap: 16px; }
+.fbulk {
+  position: relative; z-index: 2; height: 48px; padding: 0 8px 0 20px; display: flex; align-items: center; gap: 8px;
+  background: var(--panel); border: 1px solid var(--line);
+}
+.fbulk .nsel { width: 104px; flex: none; font-size: 14px; font-weight: 700; white-space: nowrap; overflow: hidden; }
+.fbulk .vs { width: 1px; height: 24px; flex: none; margin: 0 4px; background: var(--line); }
+.bdd { position: relative; flex: none; display: flex; }
+.bdd > .btn[aria-expanded=true] { outline: 2px solid var(--accent); outline-offset: -2px; }
+.bmenu {
+  position: absolute; top: 36px; left: 0; z-index: 5; width: 240px; padding: 4px 0; display: flex; flex-direction: column;
+  background: var(--surface); border: 1px solid var(--ink); box-shadow: 0 6px 16px rgba(15, 23, 42, 0.16);
+}
+.bmenu[hidden] { display: none; }
+.bmenu > button {
+  height: 40px; padding: 0 12px; display: flex; align-items: center; gap: 6px; border: 0; background: transparent;
+  color: var(--text); font: 600 14px var(--sans); text-align: left; white-space: nowrap; cursor: pointer;
+}
+.bmenu > button .v { font-weight: 400; color: var(--muted); }
+.bmenu > button:not(:disabled):hover, .bmenu > button:focus-visible { background: var(--pick-bg); outline: 0; }
+.bmenu > button:disabled, .bmenu > button:disabled .v { color: var(--off-fg); cursor: not-allowed; }
+.bmenu.bpicker { padding: 0; }
+.bplist { max-height: 264px; overflow-y: auto; }
+.bplist label {
+  height: 40px; padding: 0 12px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--line-soft);
+  font-size: 14px; font-weight: 600; cursor: pointer;
+}
+.bplist label span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bpfoot { height: 48px; padding: 0 12px; display: flex; align-items: center; justify-content: flex-end; background: var(--panel); }
+.bsum { width: 240px; flex: none; font-size: 13px; text-align: right; white-space: nowrap; overflow: hidden; }
+.bsum .mv { color: var(--green); font-weight: 600; }
+.bsum .sk { color: var(--muted); }
+.btn.bclear { background: transparent; border-color: transparent; color: var(--ink); }
+/* one reason for every selected finding (Return, Withdraw), under Set state */
+.bdlg {
+  position: absolute; top: 52px; left: 149px; z-index: 6; width: 560px; padding: 20px; display: flex; flex-direction: column; gap: 16px;
+  background: var(--surface); border: 1px solid var(--ink); box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
+}
+.bdlg[hidden] { display: none; }
+.bdlg h2 { font-size: 18px; font-weight: 600; line-height: 24px; }
+.bdlg label { display: flex; flex-direction: column; gap: 6px; }
+.bdlg textarea { min-height: 96px; height: 96px; border: 2px solid var(--accent); font: 400 15px/1.5 var(--sans); color: var(--text); resize: none; }
+.bdlg .acts { display: flex; justify-content: flex-end; gap: 12px; }
+.findings th.col-pick, .findings td.c-pick { width: 40px; padding: 0 4px 0 16px; }
+.findings th.col-pick input, .findings td.c-pick input { width: 20px; height: 20px; accent-color: var(--ink); vertical-align: middle; cursor: pointer; }
+.table.findings tbody tr.sel td { background: var(--pick-bg); }
+.table.findings tbody tr.skip td { background: var(--panel); }

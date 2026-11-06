@@ -97,12 +97,14 @@ func TestBulkReviewers(t *testing.T) {
 	e := setup(t)
 	d2 := e.second(t, "bob")
 	form := url.Values{"action": {"reviewers"}, "id": {"001", "002"}, "reviewer": {"carol"}}
-	b := e.do(t, "alice", "POST", "/e/acme/bulk", form, nil).Body.String()
-	if !strings.Contains(row(b, "acme/F-001"), `class="ok"`) {
-		t.Fatalf("own finding row:\n%s", b)
+	// a pentester's bulk bar has no Assign reviewers
+	if rec := e.do(t, "alice", "POST", "/e/acme/bulk", form, nil); rec.Code != http.StatusForbidden {
+		t.Fatalf("pentester bulk assign code %d", rec.Code)
 	}
-	if r := row(b, "acme/F-002"); !strings.Contains(r, `class="denied"`) || !strings.Contains(r, "author or a director") {
-		t.Fatalf("other's finding row %q", r)
+	// a reviewer assigns on any open finding, but never its author
+	b := e.do(t, "carol", "POST", "/e/acme/bulk", url.Values{"action": {"reviewers"}, "id": {"001", "002"}, "reviewer": {"carol"}}, nil).Body.String()
+	if !strings.Contains(row(b, "acme/F-001"), `class="ok"`) || !strings.Contains(row(b, "acme/F-002"), `class="ok"`) {
+		t.Fatalf("reviewer assign rows:\n%s", b)
 	}
 	// existing reviewers stay; the author is never a reviewer
 	e.srv.Store.SetReviewers("acme", d2, []string{"carol"}, wDora)
@@ -130,7 +132,7 @@ func TestBulkBadRequests(t *testing.T) {
 	if rec := e.do(t, "dora", "POST", "/e/acme/bulk", url.Values{"action": {"approve"}}, nil); rec.Code != http.StatusBadRequest {
 		t.Fatalf("empty selection code %d", rec.Code)
 	}
-	if rec := e.do(t, "dora", "POST", "/e/acme/bulk", url.Values{"action": {"submit"}, "id": {"001"}}, nil); rec.Code != http.StatusBadRequest {
+	if rec := e.do(t, "dora", "POST", "/e/acme/bulk", url.Values{"action": {"bogus"}, "id": {"001"}}, nil); rec.Code != http.StatusBadRequest {
 		t.Fatalf("unsupported action code %d", rec.Code)
 	}
 }

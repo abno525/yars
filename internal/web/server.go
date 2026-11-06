@@ -127,6 +127,7 @@ type page struct {
 	PageSize      int    // rows per board page
 	MoreURL       string // the next board page ("" = no more)
 	StatusFilters []link
+	Bulk          bulkBar           // the board: bulk state change
 	Summary       index.Summary     // the board: counts by status and severity, progress
 	Bars          boardBars         // the board: progress and severity bars
 	EngRows       []engRow          // the home table
@@ -166,13 +167,25 @@ type page struct {
 
 var funcs = template.FuncMap{"join": strings.Join, "checkedIn": checkedIn, "retestLabel": workflow.RetestLabel, "fpath": findingURL,
 	"static": staticPrefix, "score0": score0, "cleared": cleared, "age": age, "day": day, "when": when, "ending": ending,
-	"actionTag": actionTag, "actionName": actionName, "statusLabel": workflow.StatusLabel, "shown": workflow.Shown, "dateRange": dateRange,
+	"actionTag": actionTag, "actionName": actionName, "statusLabel": workflow.StatusLabel, "shown": workflow.Shown, "dateRange": dateRange, "colspan": colspan,
 	"stepArgs": func(s stepRow, retryURL string) any {
 		return struct {
 			Step     stepRow
 			RetryURL string
 		}{s, retryURL}
 	}}
+
+// colspan is how many columns the findings table has (its pick column too).
+func colspan(p *page) int {
+	n := len(p.Columns)
+	if n == 0 {
+		n = len(columns)
+	}
+	if p.Bulk.On {
+		n++
+	}
+	return n
+}
 
 // findingURL is a finding's page: /e/<eng>/f/<number>.
 func findingURL(eng, dir string) string { return "/e/" + eng + "/f/" + store.ShortID(dir) }
@@ -426,19 +439,45 @@ var columns = []struct{ Key, Label string }{
 
 func (s *Server) engagement(w http.ResponseWriter, r *http.Request) {
 	eng := r.PathValue("eng")
-	p, err := s.base(r, eng)
+	p, err := s.engPage(r, eng, nil)
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
+	if r.Header.Get("HX-Request") == "true" {
+		if r.URL.Query().Has("offset") {
+			s.exec(w, "engagement.html", "finding_rows", p)
+			return
+		}
+		s.exec(w, "engagement.html", "findings", p)
+		return
+	}
+	if s.Git != nil {
+		p.CloneURL = gitBase(r) + "/git/e/" + p.Eng.ID
+	}
+	if err := s.tabsFor(p, "findings"); err != nil {
+		s.fail(w, err)
+		return
+	}
+	s.render(w, "engagement.html", p)
+}
+
+// engPage is an engagement's findings list as the URL's query filters and
+// sorts it, with the bulk bar of an open engagement. The keep rows (those a
+// bulk run just changed) stay in the list whatever their status now, and the
+// first page runs long enough to show them.
+func (s *Server) engPage(r *http.Request, eng string, keep map[string]bool) (*page, error) {
+	p, err := s.base(r, eng)
+	if err != nil {
+		return nil, err
+	}
 	q := r.URL.Query()
 	// the status filter is the shown state: signed off apart from verification
 	query := index.Query{EngID: eng, Shown: q.Get("status"), Severity: q.Get("severity"),
-		Author: q.Get("author"), Sort: q.Get("sort"), Desc: q.Get("desc") == "1"}
+		Author: q.Get("author"), Sort: q.Get("sort"), Desc: q.Get("desc") == "1", Keep: keep}
 	rows, err := s.Index.Rows(query)
 	if err != nil {
-		s.fail(w, err)
-		return
+		return nil, err
 	}
 	mk := func(mod func(url.Values)) string {
 		v := url.Values{}
@@ -456,13 +495,17 @@ func (s *Server) engagement(w http.ResponseWriter, r *http.Request) {
 	off, _ := strconv.Atoi(q.Get("offset"))
 	off = min(max(off, 0), len(rows))
 	end := min(off+s.pageSize, len(rows))
+	for i := end; i < len(rows); i++ {
+		if keep[rows[i].Dir] {
+			end = i + 1
+		}
+	}
 	p.Rows, p.Offset, p.PageSize = rows[off:end], off, s.pageSize
 	if end < len(rows) {
 		p.MoreURL = mk(func(v url.Values) { v.Set("offset", strconv.Itoa(end)) })
 	}
 	if p.Summary, err = s.Index.Summary(eng); err != nil {
-		s.fail(w, err)
-		return
+		return nil, err
 	}
 	p.Bars = barsOf(p.Summary)
 	for _, st := range append([]string{""}, index.ShownOrder...) {
@@ -490,22 +533,15 @@ func (s *Server) engagement(w http.ResponseWriter, r *http.Request) {
 				setOrDel(v, "desc", map[bool]string{true: "1"}[desc])
 			})})
 	}
-	if r.Header.Get("HX-Request") == "true" {
-		if q.Has("offset") {
-			s.exec(w, "engagement.html", "finding_rows", p)
-			return
+	if !p.Eng.Archived {
+		v := url.Values{}
+		for k, x := range q {
+			v[k] = x
 		}
-		s.exec(w, "engagement.html", "findings", p)
-		return
+		v.Del("offset")
+		p.Bulk = s.bulkBarFor(p.User, eng, v.Encode(), p.Rows)
 	}
-	if s.Git != nil {
-		p.CloneURL = gitBase(r) + "/git/e/" + p.Eng.ID
-	}
-	if err := s.tabsFor(p, "findings"); err != nil {
-		s.fail(w, err)
-		return
-	}
-	s.render(w, "engagement.html", p)
+	return p, nil
 }
 
 func setOrDel(v url.Values, k, val string) {

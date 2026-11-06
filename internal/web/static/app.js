@@ -102,6 +102,124 @@ document.addEventListener('htmx:afterSettle', function () {
   if (n) n.replaceWith(n.cloneNode(true));
 });
 
+/* ---------- findings list: bulk state change ---------- */
+
+// The bar counts the ticked rows, enables Set state and Assign reviewers
+// only with a selection, and each Set state entry only when a ticked row
+// can take it (the row's data-acts). Select all ticks every pickable row.
+function yarsBulkSync(form) {
+  var picks = Array.prototype.slice.call(form.querySelectorAll('input[name=id]'));
+  var on = picks.filter(function (c) { return c.checked; });
+  var acts = {};
+  picks.forEach(function (c) {
+    var tr = c.closest('tr');
+    if (!tr) return;
+    tr.classList.toggle('sel', c.checked && !tr.classList.contains('skip'));
+    if (c.checked) (tr.getAttribute('data-acts') || '').split(' ').forEach(function (a) { if (a) acts[a] = true; });
+  });
+  var n = form.querySelector('[data-nsel]');
+  if (n) n.textContent = on.length + ' selected';
+  form.querySelectorAll('[data-bulk-menu]').forEach(function (b) {
+    b.disabled = on.length === 0;
+    if (b.disabled) yarsBulkMenu(b, false);
+  });
+  form.querySelectorAll('.bmenu [data-act]').forEach(function (b) { b.disabled = !acts[b.getAttribute('data-act')]; });
+  var all = form.querySelector('[data-pick-all]');
+  if (all) {
+    all.checked = on.length > 0 && on.length === picks.length;
+    all.indeterminate = on.length > 0 && on.length < picks.length;
+    all.disabled = picks.length === 0;
+  }
+  var dlg = form.querySelector('.bdlg');
+  if (dlg && !dlg.hidden) {
+    if (on.length === 0) yarsBulkReason(form, null);
+    else yarsBulkHead(form);
+  }
+}
+function yarsBulkMenu(btn, open) {
+  var menu = btn.parentNode.querySelector('.bmenu');
+  if (!menu) return;
+  menu.hidden = !open;
+  btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+function yarsBulkCloseMenus(except) {
+  document.querySelectorAll('.fbulk [data-bulk-menu][aria-expanded=true]').forEach(function (b) { if (b !== except) yarsBulkMenu(b, false); });
+}
+function yarsBulkHead(form) {
+  var dlg = form.querySelector('.bdlg');
+  var n = form.querySelectorAll('input[name=id]:checked').length;
+  var head = dlg.querySelector('[data-bulk-head]');
+  if (head) head.textContent = (dlg.getAttribute('data-verb') || 'Return') + ' ' + n + (n === 1 ? ' finding' : ' findings');
+}
+// yarsBulkReason opens the reason panel for a Return or Withdraw entry (or
+// closes it, item null); the reason only goes with the form while it is open.
+function yarsBulkReason(form, item) {
+  var dlg = form.querySelector('.bdlg');
+  if (!dlg) return;
+  var ta = dlg.querySelector('textarea[name=reason]');
+  var go = dlg.querySelector('[data-bulk-go]');
+  if (!item) {
+    dlg.hidden = true;
+    if (ta) ta.disabled = true;
+    return;
+  }
+  var verb = item.getAttribute('data-act') === 'withdraw' ? 'Withdraw' : 'Return';
+  dlg.setAttribute('data-verb', verb);
+  if (go) { go.value = item.getAttribute('data-act'); go.textContent = verb; }
+  yarsBulkHead(form);
+  dlg.hidden = false;
+  if (ta) { ta.disabled = false; ta.focus(); }
+}
+document.addEventListener('change', function (evt) {
+  var form = evt.target.closest && evt.target.closest('.fbulkform');
+  if (!form) return;
+  if (evt.target.hasAttribute('data-pick-all')) {
+    var to = evt.target.checked;
+    form.querySelectorAll('input[name=id]').forEach(function (c) { c.checked = to; });
+  }
+  if (evt.target.matches('input[name=id], [data-pick-all]')) yarsBulkSync(form);
+});
+document.addEventListener('click', function (evt) {
+  if (!evt.target.closest) return;
+  var form = evt.target.closest('.fbulkform');
+  var menuBtn = evt.target.closest('[data-bulk-menu]');
+  yarsBulkCloseMenus(menuBtn || evt.target.closest('.bdd') && evt.target.closest('.bdd').querySelector('[data-bulk-menu]'));
+  if (!form) return;
+  if (menuBtn) { yarsBulkMenu(menuBtn, menuBtn.getAttribute('aria-expanded') !== 'true'); return; }
+  var reason = evt.target.closest('[data-bulk-reason]');
+  if (reason) { yarsBulkCloseMenus(null); yarsBulkReason(form, reason); return; }
+  if (evt.target.closest('[data-bulk-cancel]')) { yarsBulkReason(form, null); return; }
+  if (evt.target.closest('[data-bulk-clear]')) {
+    form.querySelectorAll('input[name=id]').forEach(function (c) { c.checked = false; });
+    form.querySelectorAll('tr.skip').forEach(function (tr) { tr.classList.remove('skip'); tr.removeAttribute('title'); });
+    var sum = form.querySelector('.bsum');
+    if (sum) sum.textContent = '';
+    yarsBulkReason(form, null);
+    yarsBulkSync(form);
+  }
+});
+document.addEventListener('keydown', function (evt) {
+  if (evt.key !== 'Escape') return;
+  yarsBulkCloseMenus(null);
+  document.querySelectorAll('.fbulkform').forEach(function (f) { yarsBulkReason(f, null); });
+});
+// While a run is out every bar button is disabled (hx-disabled-elt), so a
+// double click sends one request; a refused run (403, 422: a toast, no swap)
+// gets the bar's own enabling back.
+document.addEventListener('htmx:afterRequest', function (evt) {
+  var f = evt.detail.elt && evt.detail.elt.closest && evt.detail.elt.closest('.fbulkform');
+  if (f && f.isConnected) setTimeout(function () { yarsBulkSync(f); }, 0);
+});
+document.addEventListener('htmx:load', function (evt) {
+  var root = evt.detail.elt;
+  if (!root.querySelectorAll) return;
+  var forms = root.matches && root.matches('.fbulkform') ? [root] : root.querySelectorAll('.fbulkform');
+  Array.prototype.forEach.call(forms, yarsBulkSync);
+  // rows from Load more join the form already there
+  var f = root.closest && root.closest('.fbulkform');
+  if (f) yarsBulkSync(f);
+});
+
 /* ---------- Go to (Ctrl-K) ---------- */
 
 // The palette searches findings as you type (htmx fills #goto-results);

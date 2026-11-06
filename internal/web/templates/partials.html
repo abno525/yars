@@ -7,8 +7,39 @@
     {{end}}
     </nav>
   </div>
+  {{if .Bulk.On}}
+  <form class="fbulkform" hx-post="{{.Bulk.URL}}" hx-target="#findings" hx-swap="outerHTML" hx-disabled-elt=".fbulkform button">
+  <div class="fbulk" role="toolbar" aria-label="Bulk actions">
+    <span class="nsel" data-nsel>{{.Bulk.Selected}} selected</span>
+    <span class="vs"></span>
+    <div class="bdd">
+      <button type="button" class="btn save sm w152" data-bulk-menu aria-haspopup="menu" aria-expanded="false"{{if not .Bulk.Selected}} disabled{{end}}>Set state ▾</button>
+      <div class="bmenu" role="menu" aria-label="Set state" hidden>
+        {{range .Bulk.Options}}<button {{if .Reason}}type="button" data-bulk-reason="{{.Label}}"{{else}}name="action" value="{{.Action}}"{{end}} role="menuitem" data-act="{{.Action}}"{{if not .Enabled}} disabled{{end}}>{{.Label}}{{with .Verb}} <span class="v">· {{.}}</span>{{end}}</button>{{end}}
+      </div>
+    </div>
+    {{if .Bulk.Assign}}
+    <div class="bdd">
+      <button type="button" class="btn secondary sm w152" data-bulk-menu aria-haspopup="true" aria-expanded="false"{{if not .Bulk.Selected}} disabled{{end}}>Assign reviewers</button>
+      <div class="bmenu bpicker" hidden>
+        <div class="bplist">{{range .Bulk.Users}}<label><input type="checkbox" name="reviewer" value="{{.}}"><span>{{.}}</span></label>{{end}}</div>
+        <div class="bpfoot"><button class="btn primary sm w96" name="action" value="reviewers">Assign</button></div>
+      </div>
+    </div>
+    {{else}}<span class="slot w152"></span>{{end}}
+    <span class="grow"></span>
+    <span class="bsum" role="status">{{if .Bulk.Ran}}<span class="mv">{{.Bulk.Moved}} moved</span> <span class="sk">· {{.Bulk.Skip}} skipped</span>{{end}}</span>
+    <button type="button" class="btn sm w96 bclear" data-bulk-clear>Clear</button>
+    <section class="bdlg" role="dialog" aria-labelledby="bulk-reason-head" hidden>
+      <h2 id="bulk-reason-head" data-bulk-head>Return {{.Bulk.Selected}} findings</h2>
+      <label>Reason<textarea name="reason" rows="3" maxlength="4000" required disabled></textarea></label>
+      <div class="acts"><button class="btn danger w112" name="action" value="return" data-bulk-go>Return</button><button type="button" class="btn secondary w96" data-bulk-cancel>Cancel</button></div>
+    </section>
+  </div>
+  {{end}}
   <table class="table findings">
     <thead><tr>
+      {{if .Bulk.On}}<th class="col-pick"><input type="checkbox" data-pick-all aria-label="Select all"></th>{{end}}
       {{range .Columns}}
       <th class="col-{{.Key}}"><a href="{{.URL}}" hx-get="{{.URL}}" hx-target="#findings" hx-swap="outerHTML" hx-push-url="true">{{.Label}}{{if .Active}}{{if .Desc}} ↓{{else}} ↑{{end}}{{end}}</a></th>
       {{end}}
@@ -17,12 +48,14 @@
     {{template "finding_rows" .}}
     </tbody>
   </table>
+  {{if .Bulk.On}}</form>{{end}}
 </div>
 {{end}}
 
 {{define "finding_rows"}}
     {{range .Rows}}
-      <tr>
+      <tr data-fid="{{.Dir}}"{{if $.Bulk.On}} data-acts="{{index $.Bulk.Acts .Dir}}"{{end}}{{with index $.Bulk.Skipped .Dir}} class="skip" title="{{.}}"{{else}}{{if index $.Bulk.Picked .Dir}} class="sel"{{end}}{{end}}>
+        {{if $.Bulk.On}}<td class="c-pick">{{if index $.Bulk.Pick .Dir}}<input type="checkbox" name="id" value="{{.Dir}}" aria-label="Select {{.ID}}"{{if index $.Bulk.Picked .Dir}} checked{{end}}>{{end}}</td>{{end}}
         <td class="fid"><a href="{{fpath .EngID .Dir}}">{{.ID}}</a></td>
         <td class="title"><a href="{{fpath .EngID .Dir}}" title="{{.Title}}">{{.Title}}</a></td>
         <td>{{if .Severity}}<span class="tag sev-{{.Severity}}">{{.Severity}}</span>{{end}}</td>
@@ -34,10 +67,10 @@
         <td class="revs">{{$r := .}}{{range .Reviewers}}<span class="rv{{if cleared $r .}} cleared{{end}}">{{.}}{{if cleared $r .}}<span class="sr"> (signed off)</span>{{end}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
       </tr>
     {{else}}
-      {{if not $.Offset}}<tr><td colspan="9" class="muted empty">No findings match.</td></tr>{{end}}
+      {{if not $.Offset}}<tr><td colspan="{{colspan $}}" class="muted empty">No findings match.</td></tr>{{end}}
     {{end}}
     {{if .MoreURL}}
-      <tr class="more" id="findings-more"><td colspan="9"><button type="button" class="btn secondary w152" hx-get="{{.MoreURL}}" hx-target="#findings-more" hx-swap="outerHTML">Load {{.PageSize}} more</button></td></tr>
+      <tr class="more" id="findings-more"><td colspan="{{colspan $}}"><button type="button" class="btn secondary w152" hx-get="{{.MoreURL}}" hx-target="#findings-more" hx-swap="outerHTML">Load {{.PageSize}} more</button></td></tr>
     {{end}}
 {{end}}
 
