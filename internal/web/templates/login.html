@@ -1,10 +1,12 @@
 {{define "content"}}
+<div class="barestack">
 <form class="barecard" method="post" action="/login">
   <div class="barefields">
     <label>Username<input name="username" autocomplete="username" required autofocus></label>
     <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
-    <div class="alertslot">{{with .Error}}<div class="alert" role="alert">{{.}}</div>{{end}}</div>
   </div>
   <button class="btn primary barebtn">Log in</button>
 </form>
+{{with .Error}}<div class="barealert" role="alert" title="{{.}}"><span class="clip">{{.}}</span></div>{{end}}
+</div>
 {{end}}

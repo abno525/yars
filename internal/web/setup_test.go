@@ -113,3 +113,18 @@ func TestLoginPage(t *testing.T) {
 		t.Fatalf("setup with accounts: %d", rec.Code)
 	}
 }
+
+// A clean login form has no error box or reserved space for one; after a
+// failed attempt the box sits under the form, outside it.
+func TestLoginErrorBox(t *testing.T) {
+	e := setup(t)
+	b := e.do(t, "", "GET", "/login", nil, nil).Body.String()
+	if strings.Contains(b, `role="alert"`) || strings.Contains(b, "alertslot") {
+		t.Fatalf("clean login has an error box or slot:\n%s", b)
+	}
+	b = e.do(t, "", "POST", "/login", url.Values{"username": {"alice"}, "password": {"bad"}}, nil).Body.String()
+	end, alert := strings.Index(b, "</form>"), strings.Index(b, `role="alert"`)
+	if end < 0 || alert < end || !strings.Contains(b[alert:], "Wrong username or password") {
+		t.Fatalf("error box not under the form:\n%s", b)
+	}
+}
