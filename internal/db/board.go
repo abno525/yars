@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -435,6 +436,49 @@ func (d *DB) UnseenNotes(user string, limit int) ([]Unseen, error) {
 		out = append(out, u)
 	}
 	return out, rows.Err()
+}
+
+// UnseenIn lists up to limit notes with something new to user, newest
+// first, of the engagements engs only, and how many there are in all. The
+// engagement filter runs before the limit, so other engagements never take
+// a slot.
+func (d *DB) UnseenIn(user string, engs []string, limit int) ([]Unseen, int, error) {
+	if len(engs) == 0 {
+		return nil, 0, nil
+	}
+	args := []any{user, limit}
+	ph := make([]string, len(engs))
+	for i, e := range engs {
+		args = append(args, e)
+		ph[i] = "?" + strconv.Itoa(i+3)
+	}
+	q := unseenQuery + " AND n.eng IN (" + strings.Join(ph, ", ") + ")"
+	var total int
+	// the count names ?2 (the limit) too, so both statements take the same
+	// numbered arguments
+	if err := d.QueryRow("SELECT count(*) FROM ("+q+") WHERE ?2 = ?2", args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	if total == 0 {
+		return nil, 0, nil
+	}
+	rows, err := d.Query(q+" ORDER BY m.seq DESC LIMIT ?2", args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	var out []Unseen
+	for rows.Next() {
+		var u Unseen
+		if err := rows.Scan(&u.Eng, &u.Num, &u.Title, &u.State, &u.Finding, &u.LastUser, &u.LastKind, &u.LastText, &u.LastTS, &u.Last); err != nil {
+			return nil, 0, err
+		}
+		if u.Finding == pendingFinding {
+			u.Finding = ""
+		}
+		out = append(out, u)
+	}
+	return out, total, rows.Err()
 }
 
 // UnseenCount is how many of eng's notes have something new to user.

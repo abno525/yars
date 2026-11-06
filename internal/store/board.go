@@ -421,6 +421,25 @@ func (s *Store) UnseenNotes(u config.User, limit int) ([]Unseen, error) {
 	return out, nil
 }
 
+// UnseenQueue lists up to limit notes with something new to u, newest
+// first, of those of engs that u may see, and how many there are in all.
+func (s *Store) UnseenQueue(u config.User, engs []string, limit int) ([]Unseen, int, error) {
+	if s.db == nil {
+		return nil, 0, nil
+	}
+	vis, err := s.Visible(u)
+	if err != nil {
+		return nil, 0, err
+	}
+	var keep []string
+	for _, e := range engs {
+		if ValidID(e) && (vis == nil || vis[e]) {
+			keep = append(keep, e)
+		}
+	}
+	return s.db.UnseenIn(u.Username, keep, limit)
+}
+
 // UnseenCount is how many of eng's notes have something new to u.
 func (s *Store) UnseenCount(u config.User, eng string) (int, error) {
 	if s.db == nil {
