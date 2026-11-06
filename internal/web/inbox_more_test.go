@@ -170,6 +170,23 @@ func TestInboxDraftStaleRunning(t *testing.T) {
 	}
 }
 
+// Off the team: the engagement's drafts and threads leave the user's inbox
+// on the next request (the cached queues follow team changes).
+func TestInboxFollowsTeam(t *testing.T) {
+	e := setup(t)
+	e.srv.Store.PostChat("acme", fdir, chat.Message{Text: "why?"}, wBob)
+	b := e.do(t, "alice", "GET", "/inbox", nil, nil).Body.String()
+	if !strings.Contains(queue(b, "drafts"), "SQL injection") || !strings.Contains(queue(b, "threads"), "SQL injection") {
+		t.Fatalf("before:\n%s", b)
+	}
+	if err := e.srv.Store.RemoveMember("acme", "alice", wDora); err != nil {
+		t.Fatal(err)
+	}
+	if b := e.do(t, "alice", "GET", "/inbox", nil, nil).Body.String(); strings.Contains(b, "SQL injection") {
+		t.Fatalf("after leaving the team:\n%s", b)
+	}
+}
+
 // A brand-new draft with no chat line shows when its file last changed.
 func TestInboxNewDraftTime(t *testing.T) {
 	e := setup(t)
