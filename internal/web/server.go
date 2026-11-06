@@ -171,7 +171,7 @@ type page struct {
 
 var funcs = template.FuncMap{"join": strings.Join, "checkedIn": checkedIn, "retestLabel": workflow.RetestLabel, "fpath": findingURL,
 	"static": staticPrefix, "score0": score0, "cleared": cleared, "age": age, "day": day, "when": when, "ending": ending,
-	"actionTag": actionTag, "actionName": actionName, "statusLabel": workflow.StatusLabel, "shown": workflow.Shown, "dateRange": dateRange, "colspan": colspan,
+	"actionTag": actionTag, "actionName": actionName, "statusLabel": workflow.StatusLabel, "statusTitle": workflow.StatusTitle, "shown": workflow.Shown, "dateRange": dateRange, "colspan": colspan,
 	"stepArgs": func(s stepRow, retryURL string) any {
 		return struct {
 			Step     stepRow
@@ -530,11 +530,10 @@ func (s *Server) engPage(r *http.Request, eng string, keep map[string]bool) (*pa
 	}
 	p.Bars = barsOf(p.Summary)
 	for _, st := range append([]string{""}, index.ShownOrder...) {
-		label, n := workflow.StatusLabel(st), p.Summary.ByShown[st]
+		label, n := workflow.StatusTitle(st), p.Summary.ByShown[st]
 		if st == "" {
-			label, n = "all", p.Summary.Total
+			label, n = "All", p.Summary.Total
 		}
-		label = strings.ToUpper(label[:1]) + label[1:] // sentence case: "Signed off"
 		p.StatusFilters = append(p.StatusFilters, link{Label: label, Active: st == query.Shown, Count: n,
 			URL: mk(func(v url.Values) { setOrDel(v, "status", st) })})
 	}

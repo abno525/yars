@@ -90,6 +90,10 @@ func TestWorkflowSlotsFixed(t *testing.T) {
 	if !strings.Contains(bob, `data-action="clear" disabled`) || !strings.Contains(bob, `data-action="return"`) || strings.Contains(bob, "Signed off") {
 		t.Fatalf("bob after sign-off:\n%s", bob)
 	}
+	// the state slot is still rendered, empty, so the buttons keep their place
+	if !strings.HasPrefix(bob, `class="wfstate" title=""></span>`) || strings.Count(bob, "data-slot=") != 4 {
+		t.Fatalf("bob's state slot after sign-off:\n%s", bob)
+	}
 	if a := actionsOf(t, e.do(t, "dora", "GET", fpath, nil, nil).Body.String()); strings.Contains(a, `data-action="approve" disabled`) {
 		t.Fatalf("approve still disabled:\n%s", a)
 	}
@@ -111,8 +115,12 @@ func TestFindingHeadAlignsWithBar(t *testing.T) {
 		}
 	}
 	css := e.do(t, "dora", "GET", "/static/style.css", nil, nil).Body.String()
-	if !strings.Contains(css, ".titlerow .actions.fhead { gap: 8px; padding-right: 17px; }") {
-		t.Fatal("no fhead rule in style.css")
+	// one inset for both, so they can't drift apart
+	for _, want := range []string{".titlerow .actions.fhead { gap: 8px; padding-right: calc(var(--wf-inset) + 1px); }",
+		".wfrow { height: 56px; padding: 0 var(--wf-inset);", "--wf-inset: 16px;"} {
+		if !strings.Contains(css, want) {
+			t.Fatalf("style.css lacks %s", want)
+		}
 	}
 }
 

@@ -25,7 +25,7 @@ func TestSignedOffShown(t *testing.T) {
 
 	b := e.do(t, "dora", "GET", "/e/acme", nil, nil).Body.String()
 	for _, want := range []string{`class="tag status-signed-off">signed off<`, `>Verification · 0</a>`, `>Signed off · 1</a>`,
-		`href="/e/acme?status=signed-off"`, `<span class="lgname">signed off</span>`, `class="seg-signed-off"`} {
+		`href="/e/acme?status=signed-off"`, `<span class="lgname">Signed off</span>`, `<span class="lgname">Verification</span>`, `class="seg-signed-off"`} {
 		if !strings.Contains(b, want) {
 			t.Fatalf("list lacks %s:\n%s", want, b)
 		}

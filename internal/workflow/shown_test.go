@@ -37,6 +37,12 @@ func TestShown(t *testing.T) {
 	if StatusLabel(SignedOff) != "signed off" || StatusLabel("draft") != "draft" {
 		t.Fatal("labels")
 	}
+	// sentence case for filters and legends, safe on an empty key
+	for in, want := range map[string]string{SignedOff: "Signed off", "draft": "Draft", "critical": "Critical", "": ""} {
+		if got := StatusTitle(in); got != want {
+			t.Errorf("StatusTitle(%q) = %q, want %q", in, got, want)
+		}
+	}
 	// the stored statuses are unchanged
 	if slices.Contains(Statuses, SignedOff) || slices.Contains(AllStatuses, SignedOff) {
 		t.Fatal("signed off is not a stored status")

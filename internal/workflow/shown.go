@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"slices"
+	"strings"
 
 	"yars/internal/finding"
 )
@@ -37,4 +38,14 @@ func StatusLabel(s string) string {
 		return "signed off"
 	}
 	return s
+}
+
+// StatusTitle is StatusLabel in sentence case ("Signed off"), for filter
+// segments and legends; it works for severities too.
+func StatusTitle(s string) string {
+	l := StatusLabel(s)
+	if l == "" {
+		return ""
+	}
+	return strings.ToUpper(l[:1]) + l[1:]
 }

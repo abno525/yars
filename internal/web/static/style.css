@@ -12,6 +12,7 @@
   --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   --logo: "Bungee", "Arial Black", Impact, sans-serif;
+  --wf-inset: 16px; /* workflow bar side padding; the finding head buttons align to it */
 
   --navy: #13233F;
   --navy-600: #1E3A66;
@@ -192,7 +193,7 @@ label { font-size: 13px; font-weight: 600; }
 }
 .tag.status-draft { background: var(--tag-draft); color: #0F172A; }
 .tag.status-verification { background: var(--verification); color: #FFFFFF; }
-.tag.status-signed-off { background: var(--surface); color: var(--green); border-color: var(--green); }
+.tag.status-signed-off { background: transparent; color: var(--green); border-color: var(--green); }
 .tag.status-complete { background: var(--navy); color: #FFFFFF; border-color: var(--navy); }
 .tag.status-reported { background: transparent; color: var(--ink); border-color: var(--ink); }
 .tag.sev-critical { background: var(--sev-critical); color: #FFFFFF; }
@@ -274,8 +275,8 @@ label { font-size: 13px; font-weight: 600; }
 .titlerow { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 16px; }
 .titlecol { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .titlerow h1 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-/* finding head: buttons line up with the workflow bar's (16 padding + 1 border) */
-.titlerow .actions.fhead { gap: 8px; padding-right: 17px; }
+/* finding head: buttons line up with the workflow bar's (its padding + 1 border) */
+.titlerow .actions.fhead { gap: 8px; padding-right: calc(var(--wf-inset) + 1px); }
 .titlerow .sub { font-size: 14px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-height: 21px; }
 .crumbs { display: flex; align-items: center; gap: 8px; font-size: 13px; min-width: 0; }
 .crumbs a { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -467,7 +468,8 @@ table.kv { width: 100%; border-collapse: collapse; }
 .step.done { background: var(--navy); color: #FFFFFF; }
 .step.current { background: var(--accent); color: var(--on-accent); }
 /* second row: reviewers (clipped) | state 128 | fixed button slots */
-.wfrow { height: 56px; padding: 0 16px; display: grid; grid-template-columns: minmax(0, 1fr) 128px auto auto; align-items: center; gap: 12px; border-top: 1px solid var(--line); }
+/* --wf-inset is shared with .actions.fhead, so the finding head buttons stay over these */
+.wfrow { height: 56px; padding: 0 var(--wf-inset); display: grid; grid-template-columns: minmax(0, 1fr) 128px auto auto; align-items: center; gap: 12px; border-top: 1px solid var(--line); }
 /* Check (152) and its state slot (164): stale, a failed rule, AI down */
 .wfcheck { display: flex; align-items: center; gap: 8px; }
 .checkslot { width: 164px; flex: none; display: flex; justify-content: flex-end; align-items: center; overflow: hidden; white-space: nowrap; }
@@ -707,10 +709,9 @@ progress::-moz-progress-bar { background: var(--accent); }
 .barval { font: 500 13px var(--mono); color: var(--muted); white-space: nowrap; }
 .bar { display: block; width: 100%; height: 16px; }
 .bar rect { stroke: var(--surface); stroke-width: 2px; vector-effect: non-scaling-stroke; }
-.legend { display: flex; gap: 8px; font-size: 13px; overflow: hidden; }
-.lg { flex: 1 1 0; min-width: 0; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
-.lgname { overflow: hidden; text-overflow: ellipsis; }
-.lgname::first-letter { text-transform: uppercase; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 13px; }
+.lg { flex: none; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.lgname { white-space: nowrap; } /* sentence case from statusTitle */
 .lg .n { font: 500 13px var(--mono); color: var(--muted); }
 .sw { width: 10px; height: 10px; flex: none; }
 .seg-empty { fill: var(--off-bg); }

@@ -8,6 +8,6 @@
 
 {{define "legend"}}
 <div class="legend">
-  {{range .Legend}}<span class="lg"><span class="sw seg-{{.Key}}"></span><span class="lgname">{{statusLabel .Key}}</span><span class="n">{{.N}}</span></span>{{end}}
+  {{range .Legend}}<span class="lg"><span class="sw seg-{{.Key}}"></span><span class="lgname">{{statusTitle .Key}}</span><span class="n">{{.N}}</span></span>{{end}}
 </div>
 {{end}}
