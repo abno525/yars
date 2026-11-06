@@ -18,9 +18,12 @@ type inboxRow struct {
 
 type inboxView struct {
 	Review, Approve, Returned []inboxRow
+	Board                     []boardInboxRow // New on team board (per request, never cached)
 }
 
-func (v inboxView) Count() int { return len(v.Review) + len(v.Approve) + len(v.Returned) }
+func (v inboxView) Count() int {
+	return len(v.Review) + len(v.Approve) + len(v.Returned) + len(v.Board)
+}
 
 // inboxCache holds each user's inbox for one index generation; views are
 // shared between requests, so they are read only.
@@ -103,6 +106,7 @@ type inboxList struct {
 // inboxLists are the inbox page's lists, one page each.
 type inboxLists struct {
 	Review, Approve, Returned inboxList
+	Board                     []boardInboxRow
 	Director                  bool
 	Unlisted                  *bulkView // bulk results for findings in no list
 }
@@ -154,6 +158,7 @@ func (s *Server) inbox(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p.InboxLists = s.inboxListsOf(p.Inbox, p.CanManage)
+	p.InboxLists.Board = p.Inbox.Board
 	if p.CanManage {
 		p.Users = s.reviewerChoices()
 	}
@@ -202,7 +207,7 @@ func (s *Server) inboxAfterBulk(before inboxView, v bulkView) (inboxLists, error
 		return l
 	}
 	l := inboxLists{Review: page("review", before.Review), Approve: page("approve", before.Approve),
-		Returned: page("returned", before.Returned), Director: true}
+		Returned: page("returned", before.Returned), Board: before.Board, Director: true}
 	rest := bulkView{Action: v.Action}
 	for _, it := range v.Items {
 		if !listed[it.Key] {

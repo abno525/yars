@@ -1842,3 +1842,6 @@ code.plain { font: 500 13px var(--mono); color: var(--text); background: transpa
 .tbfields textarea[aria-invalid=true] { border-color: var(--red); }
 .tbfields .seg { width: fit-content; }
 .tbnew > .tbcrow { padding: 12px 20px; border-top: 1px solid var(--line); }
+/* inbox: New on team board (who · what 260) */
+.inboxt th.c-what, .inboxt td.c-what { width: 260px; }
+.inboxt td.c-what { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

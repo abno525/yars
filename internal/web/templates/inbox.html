@@ -55,8 +55,32 @@
   {{template "inbox_list" .Returned}}
   {{template "inbox_list" .Review}}
   {{end}}
+  {{template "inbox_board" .Board}}
   {{with .Unlisted}}{{template "bulk_result" .}}{{end}}
 </div>
+{{end}}
+
+{{define "inbox_board"}}
+<section class="q q-board">
+  <div class="qh"><h2>New on team board <span class="qcnt{{if not .}} zero{{end}}">{{len .}}</span></h2></div>
+  <table class="table inboxt">
+    <thead><tr><th class="title">Title</th><th class="c-tag">State</th><th class="c-eng">Note</th><th class="c-what">Latest</th><th class="c-age">Age</th><th class="c-go"></th></tr></thead>
+    <tbody>
+    {{range .}}
+      <tr>
+        <td class="title"><a href="{{.URL}}" title="{{.Title}}">{{.Title}}</a></td>
+        <td class="c-tag"><span class="tag lead-{{.State}}">{{.StateLabel}}</span></td>
+        <td class="c-eng mono" title="{{.EngName}} · {{.ID}}"><span class="engid">{{.EngID}}</span> · <span class="fid">{{.ID}}</span></td>
+        <td class="c-what" title="{{.What}}"><strong>{{.Who}}</strong> · {{.What}}</td>
+        <td class="c-age mono">{{.Time}}</td>
+        <td class="c-go"><a class="btn secondary sm w96" href="{{.URL}}">Open</a></td>
+      </tr>
+    {{else}}
+      <tr><td colspan="6" class="muted empty">—</td></tr>
+    {{end}}
+    </tbody>
+  </table>
+</section>
 {{end}}
 
 {{define "content"}}

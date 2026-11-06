@@ -31,13 +31,13 @@ func TestInboxColumnOrder(t *testing.T) {
 }
 
 // An empty list's row spans every column: 9 with the director's pick and
-// result columns, 7 otherwise.
+// result columns, 7 otherwise; New on team board has its own 6.
 func TestInboxEmptyRowSpansColumns(t *testing.T) {
 	e := setup(t)
 	for u, want := range map[string]string{"alice": `<td colspan="7" class="muted empty">`, "dora": `<td colspan="9" class="muted empty">`} {
 		b := e.do(t, u, "GET", "/inbox", nil, nil).Body.String()
 		lists := strings.Count(b, `<section class="q q-`)
-		if lists == 0 || strings.Count(b, want) != lists || strings.Count(b, `class="muted empty"`) != lists {
+		if lists < 2 || strings.Count(b, want) != lists-1 || strings.Count(b, `<td colspan="6" class="muted empty">`) != 1 || strings.Count(b, `class="muted empty"`) != lists {
 			t.Fatalf("%s: %d lists, empty rows:\n%s", u, lists, b)
 		}
 	}

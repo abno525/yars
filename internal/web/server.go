@@ -375,6 +375,10 @@ func (s *Server) base(r *http.Request, eng string) (*page, error) {
 	if p.Inbox, err = s.inboxFor(u, engs); err != nil {
 		return nil, err
 	}
+	// a copy of the cached view: the board queue is read now
+	if p.Inbox.Board, err = s.boardInbox(u, engs); err != nil {
+		return nil, err
+	}
 	if p.Unread, err = s.Store.UnreadCount(u); err != nil {
 		return nil, err
 	}
