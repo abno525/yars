@@ -354,6 +354,14 @@ func TestMCPPermissions(t *testing.T) {
 	set("reviewers", "bob")
 	set("severity", "high")
 	f.ok(alice, "transition", map[string]any{"engagement": "acme", "finding": "F-001", "action": "submit"})
+	// the author takes it back (a reviewer cannot) and submits again
+	if text, isErr := f.call(bob, "transition", map[string]any{"engagement": "acme", "finding": "F-001", "action": "take_back"}); !isErr || !strings.Contains(text, "author") {
+		t.Fatalf("reviewer took back via MCP: %s", text)
+	}
+	if out := f.ok(alice, "transition", map[string]any{"engagement": "acme", "finding": "F-001", "action": "take_back"}); !strings.Contains(out, "now draft") {
+		t.Fatalf("take back: %s", out)
+	}
+	f.ok(alice, "transition", map[string]any{"engagement": "acme", "finding": "F-001", "action": "submit"})
 	if text, isErr := f.call(alice, "transition", map[string]any{"engagement": "acme", "finding": "F-001", "action": "approve"}); !isErr || !strings.Contains(text, "director") {
 		t.Fatalf("pentester approved: %s", text)
 	}
@@ -365,9 +373,12 @@ func TestMCPPermissions(t *testing.T) {
 	if text, isErr := f.call(alice, "update_section", map[string]any{"engagement": "acme", "finding": "F-001", "section": "Impact", "body": "late"}); !isErr || !strings.Contains(text, "complete") {
 		t.Fatalf("locked edit: %s", text)
 	}
-	// report is open to directors only
-	if text, isErr := f.call(bob, "transition", map[string]any{"engagement": "acme", "finding": "F-001", "action": "report"}); !isErr || !strings.Contains(text, "director") {
-		t.Fatalf("reviewer reported via MCP: %s", text)
+	// report is open to directors only over MCP (the author marks it on
+	// the finding page or the bulk bar)
+	for _, u := range []config.User{bob, alice} {
+		if text, isErr := f.call(u, "transition", map[string]any{"engagement": "acme", "finding": "F-001", "action": "report"}); !isErr || !strings.Contains(text, "director") {
+			t.Fatalf("%s reported via MCP: %s", u.Username, text)
+		}
 	}
 	f.ok(dora, "transition", map[string]any{"engagement": "acme", "finding": "F-001", "action": "report"})
 }

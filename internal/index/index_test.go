@@ -168,6 +168,25 @@ func TestWithdrawnOnlyUnderFilter(t *testing.T) {
 	}
 }
 
+// Keep holds rows in the list whatever their status (after a bulk change,
+// the rows it moved stay in a status-filtered list); other filters apply.
+func TestQueryKeep(t *testing.T) {
+	ix, s := fixture(t)
+	rows, _ := ix.Rows(Query{EngID: "acme"})
+	b := rows[1]
+	setStatus(t, s, "acme", b.ID, "withdrawn")
+	keep := map[string]bool{b.Dir: true}
+	if got, _ := ix.Rows(Query{EngID: "acme", Shown: "reported", Keep: keep}); titles(got) != "A,B" {
+		t.Fatalf("kept in a filtered list %q", titles(got))
+	}
+	if got, _ := ix.Rows(Query{EngID: "acme", Keep: keep}); titles(got) != "A,B,C" {
+		t.Fatalf("kept withdrawn in the default list %q", titles(got))
+	}
+	if got, _ := ix.Rows(Query{EngID: "acme", Shown: "reported", Severity: "nope", Keep: keep}); len(got) != 0 {
+		t.Fatalf("keep skipped another filter %q", titles(got))
+	}
+}
+
 // A verification finding whose every reviewer signed off shows as signed
 // off: its own filter, its own count, sorted between verification and
 // complete. The stored status, and a Status query, stay verification.

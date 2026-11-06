@@ -84,7 +84,7 @@ func (s *Server) routesHistory(mux *http.ServeMux) {
 // eventLabels says what a workflow event did, in the past tense.
 var eventLabels = map[string]string{
 	"submit": "submitted", "return": "returned", "clear": "signed off", "approve": "approved", "reopen": "reopened",
-	"report": "marked reported", "withdraw": "withdrew", "revise": "revised", "retest": "set the result", store.EventMerge: "merged in",
+	"report": "marked reported", "withdraw": "withdrew", "revise": "revised", "take_back": "took back", "retest": "set the result", store.EventMerge: "merged in",
 }
 
 func eventLabel(ev string) string {

@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"testing"
 
+	"yars/internal/config"
 	"yars/internal/workflow"
 )
 
@@ -23,9 +24,11 @@ func TestMarkExported(t *testing.T) {
 	if err := s.Transition(eng, fd, workflow.Approve, "", uDora); err != nil {
 		t.Fatal(err)
 	}
-	// a pentester can't press Mark reported, but sending marks it
-	if err := s.Transition(eng, fd, workflow.Report, "", uAlice); !denied(err) {
-		t.Fatalf("pentester marked by hand: %v", err)
+	// a pentester other than the author can't press Mark reported, but
+	// sending marks it
+	pen2 := config.User{Username: "pen2", Role: "pentester"}
+	if err := s.Transition(eng, fd, workflow.Report, "", pen2); !denied(err) {
+		t.Fatalf("other pentester marked by hand: %v", err)
 	}
 	if err := s.MarkExported(eng, fd, "Jira", uAlice); err != nil {
 		t.Fatal(err)

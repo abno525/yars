@@ -1461,6 +1461,9 @@ func (s *Store) Transition(engID, dir string, act workflow.Action, reason string
 		case workflow.Reopen:
 			uncleared()
 			st.ApprovedHash = ""
+		case workflow.TakeBack:
+			uncleared() // the author changes it again: sign-offs start over
+			st.ReturnedBy, st.ReturnedReason = "", ""
 		case workflow.Approve:
 			st.ApprovedHash = hash // approval is for exactly this content
 		}
@@ -1510,14 +1513,22 @@ func (s *Store) SetReviewers(engID, dir string, names []string, u config.User) e
 	var done Event
 	err := s.changeState(engID, dir, func(ref FindingRef, st *db.State, _ string) ([]chat.Message, error) {
 		m := ref.F.Meta
-		if !workflow.CanAssign(u, m) {
-			return nil, &workflow.Denied{Reason: "only the author or a director can assign reviewers while the finding is open"}
+		if !workflow.CanAddReviewers(u, m) {
+			return nil, &workflow.Denied{Reason: "only a reviewer, the author or a director can assign reviewers while the finding is open"}
 		}
 		done = findingEvent(EventReviewers, u.Username, ref)
 		var list []string
 		for _, n := range names {
 			if n = strings.TrimSpace(n); n != "" && n != m.Author && !slices.Contains(list, n) {
 				list = append(list, n)
+			}
+		}
+		if !workflow.CanAssign(u, m) {
+			// a reviewer only adds: nobody assigned (or signed off) is dropped
+			for _, old := range st.Reviewers {
+				if !slices.Contains(list, old.Name) {
+					return nil, &workflow.Denied{Reason: "only the author or a director can remove a reviewer"}
+				}
 			}
 		}
 		sort.Strings(list)

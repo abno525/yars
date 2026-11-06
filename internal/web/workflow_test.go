@@ -43,6 +43,15 @@ func (e *env) toVerification(t *testing.T) {
 	}
 }
 
+// pen2 adds a second pentester on the acme team.
+func (e *env) pen2(t *testing.T) {
+	t.Helper()
+	e.addUser(t, config.User{Username: "pen2", Role: "pentester"})
+	if err := e.srv.Store.DB().AddMembers("acme", "pen2"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func (e *env) toComplete(t *testing.T) {
 	t.Helper()
 	e.toVerification(t)
@@ -169,17 +178,29 @@ func TestSignOffAlias(t *testing.T) {
 func TestMarkReportedAction(t *testing.T) {
 	e := setup(t)
 	e.toComplete(t)
-	if b := e.do(t, "alice", "GET", fpath, nil, nil).Body.String(); strings.Contains(b, fshort+"/action/report") {
-		t.Fatal("pentester sees Mark reported")
+	e.pen2(t)
+	if b := e.do(t, "pen2", "GET", fpath, nil, nil).Body.String(); strings.Contains(b, fshort+"/action/report") {
+		t.Fatal("other pentester sees Mark reported")
 	}
-	if b := e.do(t, "dora", "GET", fpath, nil, nil).Body.String(); !strings.Contains(b, fshort+"/action/report") || !strings.Contains(b, "Mark reported") {
-		t.Fatal("director lacks Mark reported")
+	for _, u := range []string{"alice", "dora"} {
+		if b := e.do(t, u, "GET", fpath, nil, nil).Body.String(); !strings.Contains(b, fshort+"/action/report") || !strings.Contains(b, "Mark reported") {
+			t.Fatalf("%s lacks Mark reported", u)
+		}
 	}
-	if rec := e.do(t, "alice", "POST", fpath+"/action/report", url.Values{}, nil); rec.Code != http.StatusBadRequest || e.status(t) != "complete" {
-		t.Fatalf("pentester report code %d", rec.Code)
+	if rec := e.do(t, "pen2", "POST", fpath+"/action/report", url.Values{}, nil); rec.Code != http.StatusBadRequest || e.status(t) != "complete" {
+		t.Fatalf("other pentester report code %d", rec.Code)
 	}
 	if rec := e.do(t, "dora", "POST", fpath+"/action/report", url.Values{}, nil); rec.Code != http.StatusSeeOther || e.status(t) != "reported" {
 		t.Fatalf("report code %d status %s", rec.Code, e.status(t))
+	}
+}
+
+// The author marks their own complete finding reported.
+func TestAuthorMarksReported(t *testing.T) {
+	e := setup(t)
+	e.toComplete(t)
+	if rec := e.do(t, "alice", "POST", fpath+"/action/report", url.Values{}, nil); rec.Code != http.StatusSeeOther || e.status(t) != "reported" {
+		t.Fatalf("author report code %d status %s", rec.Code, e.status(t))
 	}
 }
 
@@ -288,7 +309,12 @@ func TestReviewersRejectUnknown(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("code %d", rec.Code)
 	}
-	if rec := e.do(t, "bob", "POST", fpath+"/reviewers", url.Values{"reviewer": {"dora"}}, nil); rec.Code != http.StatusBadRequest {
-		t.Fatalf("non-author assign code %d", rec.Code)
+	e.pen2(t)
+	if rec := e.do(t, "pen2", "POST", fpath+"/reviewers", url.Values{"reviewer": {"dora"}}, nil); rec.Code != http.StatusBadRequest {
+		t.Fatalf("other pentester assign code %d", rec.Code)
+	}
+	// a reviewer may assign reviewers
+	if rec := e.do(t, "bob", "POST", fpath+"/reviewers", url.Values{"reviewer": {"bob", "carol"}}, nil); rec.Code != http.StatusSeeOther {
+		t.Fatalf("reviewer assign code %d", rec.Code)
 	}
 }

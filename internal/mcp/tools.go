@@ -392,8 +392,8 @@ var tools = []tool{
 		required: []param{pEng, pFinding, {"field", "field name"}, {"value", "new value"}},
 		optional: []param{{"base", "cvss_base (cvss, cvss_reason.*), details_base (details.*) or assets_base (assets) from read_finding; refuses the edit if someone changed it meanwhile"}},
 		run:      setField},
-	{name: "transition", action: "status", serverOnly: true, desc: "Move a finding through the workflow: submit (draft→verification), return (verification→draft, needs reason), clear or sign_off (reviewer sign-off), approve (director: verification→complete), reopen (complete→verification), report (director: complete→reported), withdraw (author while draft or verification, director also when complete or reported; needs reason; takes it out of the report), revise (author or director: withdrawn→draft).",
-		required: []param{pEng, pFinding, {"action", "submit | return | clear | sign_off | approve | reopen | report | withdraw | revise"}},
+	{name: "transition", action: "status", serverOnly: true, desc: "Move a finding through the workflow: submit (draft→verification), return (verification→draft, needs reason), clear or sign_off (reviewer sign-off), approve (director: verification→complete), reopen (complete→verification), report (director: complete→reported), withdraw (author while draft or verification, director also when complete or reported; needs reason; takes it out of the report), revise (author or director: withdrawn→draft), take_back (author or director: verification→draft, no reason; sign-offs start over).",
+		required: []param{pEng, pFinding, {"action", "submit | return | clear | sign_off | approve | reopen | report | withdraw | revise | take_back"}},
 		optional: []param{{"reason", "required for return and withdraw"}},
 		run: func(s *Server, ctx context.Context, u config.User, a args) (string, error) {
 			ref, err := s.ref(a)
@@ -402,7 +402,7 @@ var tools = []tool{
 			}
 			act, ok := workflow.ParseAction(a.str("action"))
 			if !ok {
-				return "", errors.New("unknown action (submit, return, clear or sign_off, approve, reopen, report, withdraw, revise)")
+				return "", errors.New("unknown action (submit, return, clear or sign_off, approve, reopen, report, withdraw, revise, take_back)")
 			}
 			if act == workflow.Report && !workflow.AtLeast(u, "director") {
 				return "", &workflow.Denied{Reason: "only a director can mark reported"}

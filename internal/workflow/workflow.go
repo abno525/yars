@@ -25,9 +25,12 @@ const (
 	// Revise brings a withdrawn finding back as a draft.
 	Withdraw Action = "withdraw"
 	Revise   Action = "revise"
+	// TakeBack is the author (or a director) pulling a finding in
+	// verification back to draft, without a reason.
+	TakeBack Action = "take_back"
 )
 
-var Actions = []Action{Submit, Return, Clear, Approve, Reopen, Report, Withdraw, Revise}
+var Actions = []Action{Submit, Return, Clear, Approve, Reopen, Report, Withdraw, Revise, TakeBack}
 
 // aliases are other accepted names of actions.
 var aliases = map[string]Action{"sign_off": Clear}
@@ -86,13 +89,16 @@ func Target(a Action) (from []string, to string) {
 		return []string{"draft", "verification", "complete", "reported"}, Withdrawn
 	case Revise:
 		return []string{Withdrawn}, "draft"
+	case TakeBack:
+		return []string{"verification"}, "draft"
 	}
 	return nil, ""
 }
 
 func Label(a Action) string {
 	return map[Action]string{Submit: "Submit for verification", Return: "Return to draft", Clear: "Sign off",
-		Approve: "Approve", Reopen: "Reopen", Report: "Mark reported", Withdraw: "Withdraw", Revise: "Restore"}[a]
+		Approve: "Approve", Reopen: "Reopen", Report: "Mark reported", Withdraw: "Withdraw", Revise: "Restore",
+		TakeBack: "Take back"}[a]
 }
 
 // AtLeast reports whether u's role is role or a stronger one. Roles only add
@@ -141,9 +147,17 @@ func Check(u config.User, m finding.Meta, a Action) error {
 		if !reviewedByOther(u, m) {
 			return deny("at least one assigned reviewer other than you must clear the finding first")
 		}
-	case Reopen, Report:
+	case Reopen:
 		if !manager(u) {
 			return deny("only a director can %s", strings.ToLower(Label(a)))
+		}
+	case Report:
+		if u.Username != m.Author && !manager(u) {
+			return deny("only the author or a director can mark a finding reported")
+		}
+	case TakeBack:
+		if u.Username != m.Author && !manager(u) {
+			return deny("only the author or a director can take a finding back")
 		}
 	case Withdraw:
 		switch {
@@ -228,12 +242,23 @@ func CanEdit(u config.User, m finding.Meta) bool {
 	return true
 }
 
-// CanAssign reports whether u may change the reviewer list.
+// CanAssign reports whether u may change the reviewer list (add and remove):
+// the author or a director, while the finding is open.
 func CanAssign(u config.User, m finding.Meta) bool {
 	if m.Status != "draft" && m.Status != "verification" {
 		return false
 	}
 	return u.Username == m.Author || manager(u)
+}
+
+// CanAddReviewers reports whether u may add reviewers without removing any:
+// whoever may assign, and any reviewer, while the finding is open. Removing
+// a reviewer (one who signed off, say) stays with CanAssign.
+func CanAddReviewers(u config.User, m finding.Meta) bool {
+	if m.Status != "draft" && m.Status != "verification" {
+		return false
+	}
+	return CanAssign(u, m) || AtLeast(u, "reviewer")
 }
 
 // ReviewerCandidate reports whether u may be assigned as a reviewer of m.

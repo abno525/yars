@@ -83,6 +83,9 @@ type Query struct {
 	// Visible limits the rows to these engagements (a user's teams); nil
 	// means every engagement.
 	Visible map[string]bool
+	// Keep are finding folders that pass the status filter whatever their
+	// status (rows a bulk change just moved); the other filters still apply.
+	Keep map[string]bool
 }
 
 // StatusOrder is the workflow order, withdrawn last.
@@ -531,7 +534,8 @@ func (ix *Index) Rows(q Query) ([]Row, error) {
 	// no status filter means every finding that is not withdrawn
 	match := func(r Row) bool {
 		status := r.Status == q.Status || (q.Status == "" && (q.Shown != "" || workflow.Active(r.Status)))
-		return status && (q.Shown == "" || r.Shown == q.Shown) && (q.Severity == "" || r.Severity == q.Severity) &&
+		status = status && (q.Shown == "" || r.Shown == q.Shown)
+		return (status || q.Keep[r.Dir]) && (q.Severity == "" || r.Severity == q.Severity) &&
 			(q.Author == "" || r.Author == q.Author)
 	}
 	var out []Row
