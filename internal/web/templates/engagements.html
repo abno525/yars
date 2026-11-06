@@ -5,32 +5,35 @@
     {{if .CanManage}}<a class="btn primary w152" href="/engagements/new">New engagement</a>{{else}}<span class="slot w152"></span>{{end}}
   </div>
 </div>
-<table class="table englist">
-  <thead><tr>
-    <th>Name</th>
-    <th class="col-client">Client</th>
-    <th class="col-dates">Dates</th>
-    <th class="col-kind">Type</th>
-    <th class="col-num">Findings</th>
-    <th class="col-progress">Progress</th>
-    <th class="col-reported">Reported</th>
-  </tr></thead>
-  <tbody>
-  {{range .EngRows}}
-    <tr>
-      <td class="title"><a href="/e/{{.ID}}" title="{{.Name}}">{{.Name}}</a></td>
-      <td class="clip" title="{{.Client}}">{{if .Client}}{{.Client}}{{else}}<span class="muted">—</span>{{end}}</td>
-      <td class="clip mono">{{if .Start}}{{.Start}}{{if .End}} – {{.End}}{{end}}{{else}}<span class="muted">—</span>{{end}}</td>
-      <td>{{if eq .Type "retest"}}<span class="tag kind-retest">retest</span>{{end}}</td>
-      <td class="num">{{.Bars.Total}}</td>
-      <td class="minibar">{{template "bar" .Bars.Progress}}</td>
-      <td class="mono">{{.Bars.Reported}} of {{.Bars.Total}}</td>
-    </tr>
-  {{else}}
-    <tr><td colspan="7" class="muted empty">—</td></tr>
-  {{end}}
-  </tbody>
-</table>
+<section class="englistsec">
+  <nav class="seg small nocap" aria-label="Show">{{range .StatusFilters}}<a{{if .Active}} class="on"{{end}} href="{{.URL}}">{{.Label}} · {{.Count}}</a>{{end}}</nav>
+  <table class="table englist">
+    <thead><tr>
+      <th>Name</th>
+      <th class="col-tag">Type</th>
+      <th class="col-tag">State</th>
+      <th class="col-dates">Dates</th>
+      <th class="col-num">Findings</th>
+      <th class="col-reported">Reported</th>
+      <th class="col-act"><span class="sr">Actions</span></th>
+    </tr></thead>
+    <tbody>
+    {{range .EngRows}}
+      <tr{{if .Archived}} class="off"{{end}} data-eng="{{.ID}}">
+        <td class="stack"><a href="/e/{{.ID}}" title="{{.Name}}">{{.Name}}</a><span class="muted">{{if .Client}}{{.Client}} · {{end}}<span class="mono">{{.ID}}</span></span></td>
+        <td>{{if eq .Type "retest"}}<span class="tag etype-retest">Retest</span>{{else}}<span class="tag etype-pentest">Pentest</span>{{end}}</td>
+        <td>{{if .Archived}}<span class="tag eng-archived">Archived</span>{{else}}<span class="tag eng-active">Active</span>{{end}}</td>
+        <td class="mono" title="{{.Start}}{{if .End}} – {{.End}}{{end}}">{{dateRange .Start .End}}</td>
+        <td class="num">{{.Bars.Total}}</td>
+        <td class="mono">{{.Bars.Reported}} of {{.Bars.Total}}</td>
+        <td>{{if $.CanManage}}<form method="post" action="/e/{{.ID}}/{{if .Archived}}reopen{{else}}archive{{end}}"><input type="hidden" name="show" value="{{$.EngShow}}"><button class="btn secondary sm w112">{{if .Archived}}Reopen{{else}}Archive{{end}}</button></form>{{else}}<span class="slot w112"></span>{{end}}</td>
+      </tr>
+    {{else}}
+      <tr><td colspan="7" class="muted empty">—</td></tr>
+    {{end}}
+    </tbody>
+  </table>
+</section>
 {{if .CloneURL}}
 <section class="panel">
   <div class="panelhead">

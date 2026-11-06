@@ -242,8 +242,8 @@ func TestNotificationPrefs(t *testing.T) {
 // column headers.
 func TestAccountPagesStyled(t *testing.T) {
 	e := setup(t)
-	for _, p := range []string{"/settings", "/settings/tokens/new", "/admin/users", "/admin/engagements?team=acme", "/admin/ai",
-		"/admin/system", "/admin/health", "/admin/activity"} {
+	for _, p := range []string{"/settings", "/settings/tokens/new", "/admin/users", "/admin/ai",
+		"/admin/system", "/admin/activity", "/", "/engagements/new"} {
 		b := e.do(t, "dora", "GET", p, nil, nil).Body.String()
 		if strings.Contains(b, ` style="`) || strings.Contains(b, "<style") {
 			t.Errorf("%s: inline style", p)

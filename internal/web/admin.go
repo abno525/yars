@@ -19,10 +19,13 @@ type adminTab struct {
 	On         bool
 }
 
+// adminTabs is the tab bar of every admin page. Engagements are managed on
+// the engagements list; System is the health page; Tokens is a section of
+// Activity. Webhooks has no tab (its page keeps its address).
 var adminTabs = []struct{ Key, Label, URL string }{
-	{"users", "Users", "/admin/users"}, {"engagements", "Engagements", "/admin/engagements"}, {"rules", "Rules", "/admin/rules"},
-	{"ai", "AI", "/admin/ai"}, {"system", "System", "/admin/system"}, {"health", "Health", "/admin/health"},
-	{"activity", "Activity", "/admin/activity"}, {"structure", "Structure", "/admin/structure"}, {"webhooks", "Webhooks", "/admin/webhooks"},
+	{"users", "Users", "/admin/users"}, {"rules", "Rules", "/admin/rules"}, {"structure", "Structure", "/admin/structure"},
+	{"ai", "AI", "/admin/ai"}, {"system", "System", "/admin/system"}, {"activity", "Activity", "/admin/activity"},
+	{"tokens", "Tokens", "/admin/activity#tokens"},
 }
 
 type adminView struct {
@@ -30,10 +33,8 @@ type adminView struct {
 	Tabs      []adminTab
 	Rules     rulesAdmin
 	Users     usersAdmin
-	Engs      engsAdmin
 	AI        aiAdmin
 	System    systemAdmin
-	Health    healthAdmin
 	Activity  activityAdmin
 	Structure structView
 	Hooks     hooksAdmin
@@ -43,9 +44,12 @@ func (s *Server) routesAdmin(mux *http.ServeMux) {
 	mux.HandleFunc("GET /admin", s.adminOnly(func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/admin/users", http.StatusSeeOther)
 	}))
+	// Admin › Engagements was folded into the engagements list
+	mux.HandleFunc("GET /admin/engagements", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/engagements", http.StatusSeeOther)
+	})
 	s.routesAdminRules(mux)
 	s.routesAdminUsers(mux)
-	s.routesAdminEngagements(mux)
 	s.routesAdminAI(mux)
 	s.routesAdminSystem(mux)
 	s.routesAdminActivity(mux)

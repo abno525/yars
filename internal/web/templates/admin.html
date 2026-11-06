@@ -7,10 +7,8 @@
   <div class="adminbody">
     {{if eq .Admin.Tab "rules"}}{{template "admin_rules" .Admin.Rules}}{{end}}
     {{if eq .Admin.Tab "users"}}{{template "admin_users" .Admin.Users}}{{end}}
-    {{if eq .Admin.Tab "engagements"}}{{template "admin_engagements" .Admin.Engs}}{{end}}
     {{if eq .Admin.Tab "ai"}}{{template "admin_ai" .Admin.AI}}{{end}}
     {{if eq .Admin.Tab "system"}}{{template "admin_system" .Admin.System}}{{end}}
-    {{if eq .Admin.Tab "health"}}{{template "admin_health" .Admin.Health}}{{end}}
     {{if eq .Admin.Tab "activity"}}{{template "admin_activity" .Admin.Activity}}{{end}}
     {{if eq .Admin.Tab "structure"}}{{template "admin_structure" .Admin.Structure}}{{end}}
     {{if eq .Admin.Tab "webhooks"}}{{template "admin_webhooks" .Admin.Hooks}}{{end}}
@@ -205,79 +203,6 @@
 </div>
 {{end}}
 
-{{define "admin_engagements"}}
-<div class="sidegrid">
-  <div class="fstack">
-    <nav class="seg" aria-label="Show">{{range .Filters}}<a class="{{if .Active}}on{{end}}" href="{{.URL}}">{{.Label}} · {{.Count}}</a>{{end}}</nav>
-    <section class="panel">
-      <div class="panelhead"><h2>Engagements</h2><span class="pstate error" title="{{.Error}}">{{.Error}}</span></div>
-      <table class="table stable engadmin">
-        <thead><tr><th>Engagement</th><th class="c-num">Team</th><th class="c-num">Findings</th><th class="c-state">Status</th><th class="c-acts">Actions</th></tr></thead>
-        <tbody>
-          {{range .Rows}}
-          <tr class="{{if .Archived}}off{{end}}{{if .Editing}} editing{{end}}">
-            <td class="stack"><a class="strong" href="/e/{{.ID}}" title="{{.Name}}">{{.Name}}</a><span class="idline"><span class="muted" title="{{.Client}}">{{if .Client}}{{.Client}}{{else}}—{{end}}</span><span class="mono" title="{{.ID}}">{{.ID}}</span></span></td>
-            <td class="num">{{.Team}}</td>
-            <td class="num">{{.Findings}}</td>
-            <td class="stack">{{if .Archived}}<span class="tag eng-archived">Archived</span><span class="mono">{{.ArchivedAt}}{{if .ArchivedBy}} · {{.ArchivedBy}}{{end}}</span>{{else}}<span class="tag eng-active">Active</span>{{end}}</td>
-            <td><div class="actions">
-              <a class="btn ghost sm w96" href="/admin/engagements?team={{.ID}}">Team</a>
-              {{if .Archived}}{{if $.CanReopen}}<form method="post" action="/admin/engagements/{{.ID}}/reopen"><button class="btn secondary sm w96">Reopen</button></form>{{else}}<span class="slot w96"></span>{{end}}
-              {{else}}<form method="post" action="/admin/engagements/{{.ID}}/archive"><button class="btn secondary sm w96">Archive</button></form>{{end}}
-            </div></td>
-          </tr>
-          {{else}}
-          <tr><td colspan="5" class="muted">—</td></tr>
-          {{end}}
-        </tbody>
-      </table>
-    </section>
-    {{with .Team}}
-    <section class="panel compact" id="team">
-      <div class="panelhead"><h2>Team · {{.Eng.Name}}</h2>
-        <form method="post" action="/admin/engagements/{{.Eng.ID}}/team"><input type="hidden" name="everyone" value="1"><button class="btn secondary sm w128">Add everyone</button></form>
-      </div>
-      <table class="table stable teamtable flush">
-        <thead><tr><th>User</th><th class="c-role">Role</th><th class="c-act">Action</th></tr></thead>
-        <tbody>
-          {{$eng := .Eng.ID}}
-          {{range .Members}}
-          <tr><td class="strong clip">{{.Value}}</td><td class="muted">{{.Label}}</td>
-            <td><form method="post" action="/admin/engagements/{{$eng}}/team/remove"><input type="hidden" name="user" value="{{.Value}}"><button class="btn danger sm w96" aria-label="Remove {{.Value}}">Remove</button></form></td></tr>
-          {{else}}
-          <tr><td colspan="3" class="muted">—</td></tr>
-          {{end}}
-        </tbody>
-      </table>
-      <form class="inline flush addrow" method="post" action="/admin/engagements/{{.Eng.ID}}/team">
-        <select class="grow" name="user" aria-label="Add person">{{range .Others}}<option value="{{.Value}}">{{.Value}} · {{.Label}}</option>{{end}}</select>
-        <button class="btn primary sm w96"{{if not .Others}} disabled{{end}}>Add</button>
-      </form>
-    </section>
-    {{end}}
-  </div>
-  <form class="panel compact sidecol" method="post" action="/admin/engagements" id="new-eng">
-    <div class="panelhead"><h2>New engagement</h2></div>
-    <div class="vfields">
-      <label>Name<input name="name" value="{{.Form.Get "name"}}" required></label>
-      <label>ID<input class="monoin" name="id" value="{{.Form.Get "id"}}" pattern="[A-Za-z0-9._\-]+" required></label>
-      <label>Client<input name="client" value="{{.Form.Get "client"}}"></label>
-      <div class="rgrid">
-        <label>Start<input name="start" type="date" value="{{.Form.Get "start"}}"></label>
-        <label>End<input name="end" type="date" value="{{.Form.Get "end"}}"></label>
-      </div>
-      <div class="rf">
-        <div class="rfhead"><span>Team</span><button type="button" class="btn secondary sm w128" data-check-all="member">Add everyone</button></div>
-        <div class="checklist">
-          {{range .Users}}<label class="chk"><input type="checkbox" name="member" value="{{.Value}}"{{if .On}} checked{{end}}><span class="grow clip">{{.Value}}</span><span class="muted">{{.Label}}</span></label>{{end}}
-        </div>
-      </div>
-    </div>
-    <div class="pfoot flush"><button class="btn primary w216">Create engagement</button></div>
-  </form>
-</div>
-{{end}}
-
 {{define "admin_ai"}}
 <div class="sidegrid">
   <form class="panel" method="post" action="/admin/ai">
@@ -316,60 +241,87 @@
 {{end}}
 
 {{define "admin_system"}}
-<div class="twogrid">
-  <section class="panel">
-    <div class="panelhead"><h2>Stats</h2><span class="mono">{{.Uptime}}</span></div>
-    <div class="tiles">
-      <div class="tile"><span class="tv">{{.Users}}</span><span class="tl">Users</span></div>
-      <div class="tile"><span class="tv">{{.Engagements}}</span><span class="tl">Engagements</span></div>
-      <div class="tile"><span class="tv">{{.Archived}}</span><span class="tl">Archived</span></div>
-      <div class="tile"><span class="tv">{{.Findings}}</span><span class="tl">Findings</span></div>
-      <div class="tile"><span class="tv">{{.Messages}}</span><span class="tl">Chat messages</span></div>
-      <div class="tile"><span class="tv">{{.DBSize}}</span><span class="tl">Database</span></div>
-      <div class="tile"><span class="tv">{{.IndexBuild}}</span><span class="tl">Index build</span></div>
-      <div class="tile"><span class="tv">v{{.Schema}}</span><span class="tl">Schema</span></div>
-    </div>
-  </section>
-  <section class="panel">
-    <div class="panelhead"><h2>Data</h2></div>
-    <form class="kvrows flush" method="get" action="/admin/system/backup">
-      <div class="kvrow"><span class="flabel">Data folder</span><span class="mono clip" title="{{.DataDir}}">{{.DataDir}}</span><span></span></div>
-      <div class="kvrow"><span class="flabel">Running since</span><span class="mono">{{.Started}}</span><span></span></div>
-      <div class="kvrow"><span class="flabel">Full backup</span><label class="chk"><input type="checkbox" name="key" value="1">secret.key</label><button class="btn secondary sm w160">Download backup</button></div>
-    </form>
-  </section>
-</div>
-<section class="panel">
-  <div class="panelhead"><h2>Operations</h2><span class="pstate{{if and .Op (not .OpOK)}} error{{end}}" title="{{.OpResult}}">{{.OpResult}}</span></div>
-  <div class="oprow">
-    <form method="post" action="/admin/system/sync"><button class="btn secondary w160">Sync pointers</button></form>
-    <form method="post" action="/admin/system/reindex"><button class="btn secondary w160">Rebuild index</button></form>
-    <form method="post" action="/admin/system/migrate"><button class="btn secondary w160">Migrate status</button></form>
+{{with .Health}}
+<section class="panel sys">
+  <div class="panelhead">
+    <h2>Health{{if .Errors}}<span class="tag bad">{{.Errors}} error{{if ne .Errors 1}}s{{end}}</span>{{end}}{{if .Warnings}}<span class="tag warn">{{.Warnings}} warning{{if ne .Warnings 1}}s{{end}}</span>{{end}}</h2>
+    <div class="actions"><span class="checked">Checked <span class="mono">{{.Checked}}</span></span><a class="btn save sm w128" href="/admin/system">Check again</a></div>
   </div>
-  {{if .OpItems}}
-  <table class="table stable">
-    <thead><tr><th>To migrate</th></tr></thead>
-    <tbody>{{range .OpItems}}<tr><td class="mono clip" title="{{.}}">{{.}}</td></tr>{{end}}</tbody>
-  </table>
-  {{end}}
+  <div class="pbody flush">
+    <table class="table stable healthtable">
+      <thead><tr><th class="c-check">Check</th><th class="c-state">Status</th><th class="c-result">Result</th><th>Detail</th></tr></thead>
+      <tbody>
+        {{range .Rows}}
+        <tr><td class="clip">{{if .URL}}<a class="lk" href="{{.URL}}">{{.Name}}</a>{{else}}{{.Name}}{{end}}</td><td><span class="tag {{.State}}">{{.Label}}</span></td><td class="clip" title="{{.Result}}">{{.Result}}</td><td class="dt clip" title="{{.Detail}}">{{.Detail}}</td></tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
 </section>
 {{end}}
-
-{{define "admin_health"}}
-<section class="panel">
+<form class="panel sys" id="backup" method="get" action="/admin/system/backup">
   <div class="panelhead">
-    <h2>Health {{if .Errors}}<span class="tag bad">{{.Errors}} error{{if ne .Errors 1}}s{{end}}</span>{{end}}{{if .Warnings}}<span class="tag warn">{{.Warnings}} warning{{if ne .Warnings 1}}s{{end}}</span>{{end}}</h2>
-    <div class="actions"><span class="mono">{{.Checked}}</span><a class="btn secondary sm w128" href="/admin/health">Check again</a></div>
+    <h2>Backup</h2>
+    <div class="actions"><button class="btn primary sm w152">Download backup</button></div>
   </div>
-  <table class="table stable healthtable">
-    <thead><tr><th class="c-check">Check</th><th class="c-state">State</th><th>Detail</th><th class="c-took">Took</th></tr></thead>
-    <tbody>
-      {{range .Rows}}
-      <tr class="h-{{.State}}"><td class="strong">{{.Name}}</td><td><span class="tag {{.State}}">{{.Label}}</span></td><td class="mono clip" title="{{.Detail}}">{{.Detail}}</td><td class="mono">{{.Took}}</td></tr>
-      {{end}}
-    </tbody>
-  </table>
-  <div class="kvrows flush"><div class="kvrow"><span class="flabel">Running for</span><span class="mono">{{.Uptime}}</span><span></span></div></div>
+  <div class="pbody flush">
+    <div class="stats">
+      <div class="st"><span class="sl">Last backup</span><span class="sv">{{.LastBackup}}</span></div>
+      <div class="st"><span class="sl">By</span><span class="sv">{{.BackupBy}}</span></div>
+      <div class="st"><span class="sl">Keys</span><span class="sv">{{.BackupKey}}</span></div>
+      <div class="st"><span class="sl">Database</span><span class="sv">{{.DBSize}}</span></div>
+    </div>
+    <div class="sfields">
+      <div class="sfield"><span class="sl">Contents</span>
+        <div class="sfc">
+          <label class="chk"><input type="checkbox" checked disabled>Database</label>
+          <label class="chk"><input type="checkbox" checked disabled>Repos</label>
+          <label class="chk"><input type="checkbox" name="key" value="1">Keys</label>
+        </div>
+      </div>
+    </div>
+  </div>
+</form>
+<section class="panel sys">
+  <div class="panelhead">
+    <h2>Operations</h2>
+    <div class="actions">
+      <form method="post" action="/admin/system/sync"><button class="btn secondary sm w136">Sync pointers</button></form>
+      <form method="post" action="/admin/system/reindex"><button class="btn secondary sm w136">Rebuild index</button></form>
+      <form method="post" action="/admin/system/migrate"><button class="btn secondary sm w136">Migrate status</button></form>
+    </div>
+  </div>
+  <div class="pbody flush">
+    <div class="stats">
+      <div class="st"><span class="sl">Index build</span><span class="sv">{{.IndexBuild}}</span></div>
+      <div class="st"><span class="sl">Schema</span><span class="sv">v{{.Schema}}</span></div>
+      <div class="st wide"><span class="sl">Last operation</span><span class="sv{{if and .Op (not .OpOK)}} error{{end}}" title="{{.OpResult}}">{{if .OpResult}}{{.OpResult}}{{else}}—{{end}}</span></div>
+    </div>
+    {{if .OpItems}}
+    <table class="table stable">
+      <thead><tr><th>To migrate</th></tr></thead>
+      <tbody>{{range .OpItems}}<tr><td class="dt clip" title="{{.}}">{{.}}</td></tr>{{end}}</tbody>
+    </table>
+    {{end}}
+  </div>
+</section>
+<section class="panel sys">
+  <div class="panelhead"><h2>Server</h2></div>
+  <div class="pbody flush">
+    <div class="stats">
+      <div class="st"><span class="sl">Data folder</span><span class="sv" title="{{.DataDir}}">{{.DataDir}}</span></div>
+      <div class="st"><span class="sl">Running since</span><span class="sv">{{.Started}}</span></div>
+      <div class="st"><span class="sl">Up for</span><span class="sv">{{.Uptime}}</span></div>
+      <div class="st"><span class="sl">Database</span><span class="sv">{{.DBSize}}</span></div>
+    </div>
+    <div class="stats">
+      <div class="st"><span class="sl">Users</span><span class="sv">{{.Users}}</span></div>
+      <div class="st"><span class="sl">Engagements</span><span class="sv">{{.Engagements}}</span></div>
+      <div class="st"><span class="sl">Archived</span><span class="sv">{{.Archived}}</span></div>
+      <div class="st"><span class="sl">Findings</span><span class="sv">{{.Findings}}</span></div>
+      <div class="st"><span class="sl">Chat messages</span><span class="sv">{{.Messages}}</span></div>
+    </div>
+  </div>
 </section>
 {{end}}
 

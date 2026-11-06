@@ -141,13 +141,16 @@ func (s *Server) newEngagement(w http.ResponseWriter, r *http.Request) {
 		Client: strings.TrimSpace(r.FormValue("client")), Type: "pentest",
 		Start: r.FormValue("start"), End: r.FormValue("end"),
 	}
-	switch {
-	case !store.ValidID(e.ID):
-		p.Error = "ID may contain only letters, digits, dot, dash and underscore."
-	case e.Name == "":
-		p.Error = "Name is required."
+	p.FieldErrs = map[string]string{}
+	if !store.ValidID(e.ID) {
+		p.FieldErrs["id"] = "Letters, digits, dot, dash, underscore"
+	} else if _, err := s.Store.Engagement(e.ID); err == nil {
+		p.FieldErrs["id"] = "ID already used"
 	}
-	if p.Error == "" {
+	if e.Name == "" {
+		p.FieldErrs["name"] = "Required"
+	}
+	if len(p.FieldErrs) == 0 {
 		if err := s.Store.CreateEngagement(e, author(p.User)); err != nil {
 			p.Error = err.Error()
 		} else {

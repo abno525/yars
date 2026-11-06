@@ -127,9 +127,11 @@ type page struct {
 	PageSize      int    // rows per board page
 	MoreURL       string // the next board page ("" = no more)
 	StatusFilters []link
-	Summary       index.Summary // the board: counts by status and severity, progress
-	Bars          boardBars     // the board: progress and severity bars
-	EngRows       []engRow      // the home table
+	Summary       index.Summary     // the board: counts by status and severity, progress
+	Bars          boardBars         // the board: progress and severity bars
+	EngRows       []engRow          // the home table
+	EngShow       string            // … its filter: "", "active" or "archived"
+	FieldErrs     map[string]string // a form's errors by field name
 	Columns       []link
 	Finding       store.FindingRef
 	Panels        []panel
@@ -164,7 +166,7 @@ type page struct {
 
 var funcs = template.FuncMap{"join": strings.Join, "checkedIn": checkedIn, "retestLabel": workflow.RetestLabel, "fpath": findingURL,
 	"static": staticPrefix, "score0": score0, "cleared": cleared, "age": age, "day": day, "when": when, "ending": ending,
-	"actionTag": actionTag, "actionName": actionName, "statusLabel": workflow.StatusLabel, "shown": workflow.Shown,
+	"actionTag": actionTag, "actionName": actionName, "statusLabel": workflow.StatusLabel, "shown": workflow.Shown, "dateRange": dateRange,
 	"stepArgs": func(s stepRow, retryURL string) any {
 		return struct {
 			Step     stepRow
@@ -216,6 +218,7 @@ func (s *Server) Handler() http.Handler {
 
 	private := http.NewServeMux()
 	private.HandleFunc("GET /{$}", s.home)
+	private.HandleFunc("GET /engagements", s.home)
 	private.HandleFunc("GET /events", s.events)
 	private.HandleFunc("GET /go", s.goEngagement)
 	private.HandleFunc("GET /inbox", s.inbox)
@@ -241,7 +244,8 @@ func (s *Server) Handler() http.Handler {
 	s.routesMerge(private)
 	s.routesNotifications(private)
 	s.routesDocs(private)
-	private.HandleFunc("POST /e/{eng}/reopen", s.engReopen)
+	private.HandleFunc("POST /e/{eng}/archive", s.engArchive(true))
+	private.HandleFunc("POST /e/{eng}/reopen", s.engArchive(false))
 
 	root := http.NewServeMux()
 	root.HandleFunc("GET /login", s.loginPage)
@@ -391,7 +395,7 @@ func (s *Server) home(w http.ResponseWriter, r *http.Request) {
 	if s.Git != nil {
 		p.CloneURL = gitBase(r) + "/git/yars"
 	}
-	if p.EngRows, err = s.engRows(p.Engagements); err != nil {
+	if err = s.engList(p, r.URL.Query().Get("show")); err != nil {
 		s.fail(w, err)
 		return
 	}

@@ -20,8 +20,9 @@ import (
 	"yars/internal/db"
 )
 
-// systemAdmin is Admin › System: counts, sizes, the backup download and
-// the CLI operations as buttons, with the last operation's result.
+// systemAdmin is Admin › System: the health checks, the backup download,
+// the CLI operations as buttons with the last one's result, and the
+// server's counts and sizes.
 type systemAdmin struct {
 	Users, Engagements, Archived, Findings, Messages int
 	DBSize, IndexBuild, DataDir, Started, Uptime     string
@@ -29,18 +30,25 @@ type systemAdmin struct {
 	Op, OpResult                                     string   // the operation run and what came of it
 	OpOK                                             bool     // … it worked
 	OpItems                                          []string // Migrate status: what still needs migrating
+	LastBackup, BackupBy, BackupKey                  string   // the last backup download ("—" when none)
+	Health                                           healthAdmin
 }
 
-// healthAdmin is Admin › Health: one row per check.
+// healthAdmin is the System page's Health panel: one row per check.
 type healthAdmin struct {
 	Rows             []healthRow
-	Checked, Uptime  string
+	Checked          string
 	Errors, Warnings int
 }
 
+// healthRow is one check: its state ("good", "warn", "bad", "off") and
+// tag label, the result in a few words and the detail behind it.
 type healthRow struct {
-	Name, State, Label, Detail, Took string
+	Name, URL, State, Label, Result, Detail string
 }
+
+// healthResult is what a check found.
+type healthResult struct{ State, Label, Result, Detail string }
 
 func (s *Server) routesAdminSystem(mux *http.ServeMux) {
 	mux.HandleFunc("GET /admin/system", s.adminOnly(func(w http.ResponseWriter, r *http.Request) {
@@ -50,7 +58,10 @@ func (s *Server) routesAdminSystem(mux *http.ServeMux) {
 	mux.HandleFunc("POST /admin/system/sync", s.adminOnly(s.systemOp("sync")))
 	mux.HandleFunc("POST /admin/system/reindex", s.adminOnly(s.systemOp("reindex")))
 	mux.HandleFunc("POST /admin/system/migrate", s.adminOnly(s.systemOp("migrate")))
-	mux.HandleFunc("GET /admin/health", s.adminOnly(s.healthPage))
+	// Health is part of the System page
+	mux.HandleFunc("GET /admin/health", s.adminOnly(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/admin/system", http.StatusSeeOther)
+	}))
 }
 
 // dur shows a duration for people: ms or s when short, hours and minutes
@@ -118,6 +129,11 @@ func (s *Server) systemPage(w http.ResponseWriter, r *http.Request, v systemAdmi
 		v.DataDir = s.Store.Repo().Dir
 		v.Started = s.started.Format("2006-01-02 15:04")
 		v.Uptime = dur(time.Since(s.started))
+		v.LastBackup, v.BackupBy, v.BackupKey = "—", "—", "—"
+		if l, _, err := d.AuditQuery(db.AuditFilter{Action: "backup", Limit: 1}); err == nil && len(l) == 1 {
+			v.LastBackup, v.BackupBy, v.BackupKey = when(l[0].TS), l[0].Actor, l[0].Detail
+		}
+		v.Health = s.health(r.Context())
 		p.Admin.System = v
 		return nil
 	})
@@ -247,38 +263,47 @@ func (s *Server) backup(w http.ResponseWriter, r *http.Request) {
 	s.Store.DB().Audit(auth.UserFrom(r.Context()).Username, "backup", "", detail)
 }
 
-func (s *Server) healthPage(w http.ResponseWriter, r *http.Request) {
-	s.adminPage(w, r, "health", http.StatusOK, func(p *page) error {
-		v := healthAdmin{Checked: time.Now().Format("15:04"), Uptime: dur(time.Since(s.started))}
-		check := func(name string, fn func() (state, label, detail string)) {
-			start := time.Now()
-			st, label, detail := fn()
-			v.Rows = append(v.Rows, healthRow{Name: name, State: st, Label: label, Detail: detail, Took: dur(time.Since(start))})
-			switch st {
-			case "bad":
-				v.Errors++
-			case "warn":
-				v.Warnings++
-			}
+// health runs every check of the System page's Health panel.
+func (s *Server) health(ctx context.Context) healthAdmin {
+	v := healthAdmin{Checked: time.Now().Format("15:04")}
+	check := func(name, url string, fn func() healthResult) {
+		h := fn()
+		if h.Detail == "" {
+			h.Detail = "—"
 		}
-		check("Git", s.healthGit)
-		check("Database", s.healthDB)
-		check("Disk", s.healthDisk)
-		check("AI", func() (string, string, string) { return s.healthAI(r.Context()) })
-		check("Rules", s.healthRules)
-		p.Admin.Health = v
-		return nil
-	})
+		v.Rows = append(v.Rows, healthRow{Name: name, URL: url, State: h.State, Label: h.Label, Result: h.Result, Detail: h.Detail})
+		switch h.State {
+		case "bad":
+			v.Errors++
+		case "warn":
+			v.Warnings++
+		}
+	}
+	check("Rules", "/admin/rules", s.healthRules)
+	check("Git server repos", "", s.healthGit)
+	check("AI provider", "/admin/ai", func() healthResult { return s.healthAI(ctx) })
+	check("Disk free", "", s.healthDisk)
+	check("Database integrity", "", s.healthDB)
+	return v
 }
 
-func (s *Server) healthGit() (string, string, string) {
+func hBad(result, detail string) healthResult {
+	return healthResult{State: "bad", Label: "Error", Result: result, Detail: detail}
+}
+
+func hGood(result, detail string) healthResult {
+	return healthResult{State: "good", Label: "OK", Result: result, Detail: detail}
+}
+
+func (s *Server) healthGit() healthResult {
 	out, err := exec.Command("git", "--version").Output()
 	if err != nil {
-		return "bad", "Error", "git: " + err.Error()
+		return hBad("git missing", err.Error())
 	}
+	ver := strings.TrimSpace(string(out))
 	ids, err := s.Store.EngagementIDs()
 	if err != nil {
-		return "bad", "Error", err.Error()
+		return hBad("unreadable", err.Error())
 	}
 	broken := 0
 	for _, id := range ids {
@@ -286,56 +311,58 @@ func (s *Server) healthGit() (string, string, string) {
 			broken++
 		}
 	}
-	detail := strings.TrimPrefix(strings.TrimSpace(string(out)), "git version ") + " · " + plural(len(ids)+1, "repo")
+	res := plural(len(ids)+1, "repo")
 	if broken > 0 {
-		return "bad", "Error", detail + " · " + strconv.Itoa(broken) + " unreadable"
+		return hBad(res+" · "+strconv.Itoa(broken)+" unreadable", ver)
 	}
-	return "good", "OK", detail
+	return hGood(res, ver)
 }
 
-func (s *Server) healthDB() (string, string, string) {
+func (s *Server) healthDB() healthResult {
 	d := s.Store.DB()
 	res, err := d.Check()
 	if err != nil {
-		return "bad", "Error", err.Error()
+		return hBad("check failed", err.Error())
 	}
 	n, _ := d.Size()
 	ver, _ := d.Version()
-	detail := "quick_check " + res + " · " + size(n) + " · schema v" + strconv.Itoa(ver)
+	detail := "quick_check " + res + " · schema v" + strconv.Itoa(ver)
 	if res != "ok" || ver != db.SchemaVersion {
-		return "bad", "Error", detail
+		return hBad(size(n), detail)
 	}
-	return "good", "OK", detail
+	return hGood(size(n), detail)
 }
 
-func (s *Server) healthDisk() (string, string, string) {
+func (s *Server) healthDisk() healthResult {
 	var st syscall.Statfs_t
 	dir := s.Store.Repo().Dir
 	if err := syscall.Statfs(dir, &st); err != nil {
-		return "bad", "Error", err.Error()
+		return hBad("unknown", err.Error())
 	}
 	free, total := int64(st.Bavail)*int64(st.Bsize), int64(st.Blocks)*int64(st.Bsize)
-	detail := size(free) + " free of " + size(total) + " · " + dir
+	res := size(free) + " of " + size(total)
 	switch {
 	case free < 1<<30:
-		return "bad", "Error", detail
+		return hBad(res, dir)
 	case total > 0 && free*10 < total:
-		return "warn", "Warning", detail
+		return healthResult{State: "warn", Label: "Warning", Result: res, Detail: dir}
 	}
-	return "good", "OK", detail
+	return hGood(res, dir)
 }
 
-func (s *Server) healthAI(ctx context.Context) (string, string, string) {
+func (s *Server) healthAI(ctx context.Context) healthResult {
+	off := healthResult{State: "off", Label: "Off", Result: "Off"}
 	rn := s.runner()
 	if rn == nil {
-		return "off", "Off", "—"
+		return off
 	}
 	c, key, fromEnv := rn.Effective()
 	if c.Provider == "" {
-		return "off", "Off", "—"
+		return off
 	}
+	res := c.Provider + " · " + c.Model
 	if key == "" {
-		return "bad", "Error", c.Provider + " · no key"
+		return hBad(res, "no key")
 	}
 	src := "stored key"
 	if fromEnv {
@@ -345,19 +372,19 @@ func (s *Server) healthAI(ctx context.Context) (string, string, string) {
 	defer cancel()
 	took, err := rn.Ping(ctx)
 	if err != nil {
-		return "warn", "Warning", c.Provider + " · " + c.Model + " · " + err.Error()
+		return healthResult{State: "warn", Label: "Warning", Result: res, Detail: err.Error()}
 	}
-	return "good", "OK", c.Provider + " · " + c.Model + " · " + src + " · reply in " + dur(took)
+	return hGood(res, src+" · reply in "+dur(took))
 }
 
-func (s *Server) healthRules() (string, string, string) {
+func (s *Server) healthRules() healthResult {
 	if s.Rules == nil {
-		return "off", "Off", "—"
+		return healthResult{State: "off", Label: "Off", Result: "Off"}
 	}
 	set := s.Rules.Rules()
-	detail := plural(len(set.Rules), "rule")
+	res := strconv.Itoa(len(set.Rules)) + " loaded"
 	if n := len(set.Problems); n > 0 {
-		return "warn", "Warning", detail + " · " + plural(n, "problem")
+		return healthResult{State: "warn", Label: "Warning", Result: res + " · " + strconv.Itoa(n) + " invalid", Detail: fmt.Sprint(set.Problems[0])}
 	}
-	return "good", "OK", detail
+	return hGood(res, "")
 }

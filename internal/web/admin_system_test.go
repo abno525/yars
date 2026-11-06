@@ -78,10 +78,37 @@ func TestAdminSystem(t *testing.T) {
 	e := setup(t)
 	e.srv.MigrateStatus = func() []string { return []string{".yars/users.yaml"} }
 	b := e.do(t, "dora", "GET", "/admin/system", nil, nil).Body.String()
-	for _, want := range []string{"Users", "Engagements", "Findings", "Database", "Index build", "Download backup", `name="key"`, "Sync pointers", "Rebuild index", "Migrate status"} {
+	for _, want := range []string{"Users", "Engagements", "Findings", "Chat messages", "Data folder", "Index build", `name="key"`} {
 		if !strings.Contains(b, want) {
 			t.Fatalf("system page lacks %q", want)
 		}
+	}
+	// every panel's actions sit in its header, next to the title
+	heads := map[string][]string{
+		"Health":     {"Checked", ">Check again<"},
+		"Backup":     {">Download backup<"},
+		"Operations": {">Sync pointers<", ">Rebuild index<", ">Migrate status<"},
+	}
+	for h, wants := range heads {
+		head := between(b, "<h2>"+h, `<div class="pbody`)
+		if head == "" {
+			t.Fatalf("no %s panel", h)
+		}
+		for _, w := range wants {
+			if !strings.Contains(head, w) {
+				t.Fatalf("%s header lacks %q:\n%s", h, w, head)
+			}
+		}
+	}
+	// stat rows: equal cells
+	if strings.Count(b, `<div class="st">`) < 10 {
+		t.Fatalf("stat cells:\n%s", b)
+	}
+	// a backup shows as the last one, with who made it
+	e.do(t, "dora", "GET", "/admin/system/backup", nil, nil)
+	b = e.do(t, "dora", "GET", "/admin/system", nil, nil).Body.String()
+	if st := between(b, "<h2>Backup", "</form>"); !strings.Contains(st, `<span class="sv">dora</span>`) || strings.Contains(st, `<span class="sv">—</span>`) {
+		t.Fatalf("last backup:\n%s", st)
 	}
 	if rec := e.do(t, "dora", "POST", "/admin/system/reindex", url.Values{}, nil); rec.Code != 200 || !strings.Contains(rec.Body.String(), "Rebuilt") {
 		t.Fatalf("reindex %d", rec.Code)
@@ -159,8 +186,9 @@ func TestAdminAI(t *testing.T) {
 
 func TestAdminHealth(t *testing.T) {
 	e := setup(t)
-	b := e.do(t, "dora", "GET", "/admin/health", nil, nil).Body.String()
-	for _, want := range []string{">Git<", ">Database<", ">Disk<", ">AI<", `class="tag good"`, "Running for"} {
+	b := e.do(t, "dora", "GET", "/admin/system", nil, nil).Body.String()
+	for _, want := range []string{`<th class="c-check">Check</th><th class="c-state">Status</th><th class="c-result">Result</th><th>Detail</th>`,
+		">Rules<", ">Git server repos<", ">AI provider<", ">Disk free<", ">Database integrity<", `class="tag good"`, `href="/admin/rules"`, `href="/admin/ai"`} {
 		if !strings.Contains(b, want) {
 			t.Fatalf("health lacks %q:\n%s", want, b)
 		}
