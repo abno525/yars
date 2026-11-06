@@ -193,6 +193,12 @@ func (s *Server) teamBoardFor(u config.User, eng string, q boardQuery, sel int) 
 	base := "/e/" + eng + "/board"
 	v := teamBoardView{URL: base, State: q.State, Q: q.Q, ReadOnly: s.Store.Archived(eng),
 		SSEURL: "/events?" + url.Values{"eng": {eng}, "f": {boardEvent}}.Encode()}
+	// the stamp before the content: a write during the render leaves the
+	// refresh URL behind, so the next refresh shows it
+	stamp, err := s.Store.NoteStamp(eng)
+	if err != nil {
+		return v, err
+	}
 	counts, err := s.Store.NoteCounts(eng)
 	if err != nil {
 		return v, err
@@ -245,9 +251,8 @@ func (s *Server) teamBoardFor(u config.User, eng string, q boardQuery, sel int) 
 			return v, err
 		}
 	}
-	stamp, err := s.Store.NoteStamp(eng)
-	if err != nil {
-		return v, err
+	if s.boardRead != nil {
+		s.boardRead()
 	}
 	rq := url.Values{}
 	setOrDel(rq, "state", q.State)

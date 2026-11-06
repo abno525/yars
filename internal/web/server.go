@@ -93,6 +93,8 @@ type Server struct {
 	healthRuns atomic.Int64
 	// bulkBudget is how long a bulk run starts new rows (0 = bulkTime)
 	bulkBudget time.Duration
+	// boardRead runs once the team board's content is read (tests)
+	boardRead func()
 }
 
 // boardPage is how many findings the board shows before "Load more".
