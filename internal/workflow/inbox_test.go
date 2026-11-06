@@ -25,6 +25,17 @@ func TestPendingReportAndDrafts(t *testing.T) {
 	if Pending(dora, meta("reported")) != InboxNone || Pending(dora, meta("withdrawn")) != InboxNone {
 		t.Error("reported or withdrawn pending")
 	}
+	// a director assigned as a reviewer: once someone else signed off, the
+	// finding is hers to approve (her role's queue), not to review
+	m = meta("verification", "bob")
+	m.Reviewers = []string{"bob", "dora"}
+	if Pending(dora, m) != InboxApprove {
+		t.Errorf("director as reviewer: %q", Pending(dora, m))
+	}
+	m.ClearedBy = nil
+	if Pending(dora, m) != InboxReview {
+		t.Errorf("director as reviewer, nobody signed off: %q", Pending(dora, m))
+	}
 }
 
 // The queues come in one fixed order; each role has its own set.

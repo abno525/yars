@@ -312,10 +312,11 @@ func Queues(u config.User) []Inbox {
 // finding queue (threads and the board are classified elsewhere).
 func Pending(u config.User, m finding.Meta) Inbox {
 	switch {
-	case m.Status == "verification" && reviewer(u, m) && !slices.Contains(m.ClearedBy, u.Username):
-		return InboxReview
+	// a director who also reviews it approves it once someone else signed off
 	case m.Status == "verification" && manager(u) && reviewedByOther(u, m):
 		return InboxApprove
+	case m.Status == "verification" && reviewer(u, m) && !slices.Contains(m.ClearedBy, u.Username):
+		return InboxReview
 	case m.Status == "complete" && manager(u):
 		return InboxReport
 	case m.Status == "draft" && m.Author == u.Username && m.Returned != nil:
