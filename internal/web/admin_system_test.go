@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"yars/internal/auth"
+	"yars/internal/config"
 	"yars/internal/db"
 	"yars/internal/secret"
 )
@@ -45,7 +46,17 @@ func TestBackupZip(t *testing.T) {
 	}
 	// the live database file inside the data dir is never copied as is
 	os.WriteFile(filepath.Join(e.dir, ".yars", "yars.db"), []byte("live"), 0o600)
-	rec := e.do(t, "dora", "GET", "/admin/system/backup", nil, nil)
+	// a download, the key with it, is a POST: a link from another site can't start one
+	if rec := e.do(t, "dora", "GET", "/admin/system/backup?key=1", nil, nil); rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("GET backup %d", rec.Code)
+	}
+	if rec := e.do(t, "dora", "POST", "/admin/system/backup", url.Values{"key": {"1"}}, map[string]string{"Sec-Fetch-Site": "cross-site"}); rec.Code != http.StatusForbidden {
+		t.Fatalf("cross-site backup %d", rec.Code)
+	}
+	if rec := e.do(t, "alice", "POST", "/admin/system/backup", url.Values{}, nil); rec.Code != http.StatusForbidden {
+		t.Fatalf("non-admin backup %d", rec.Code)
+	}
+	rec := e.do(t, "dora", "POST", "/admin/system/backup", url.Values{}, nil)
 	if rec.Code != 200 || rec.Header().Get("Content-Type") != "application/zip" || !strings.Contains(rec.Header().Get("Content-Disposition"), "yars-backup-") {
 		t.Fatalf("backup %d %v", rec.Code, rec.Header())
 	}
@@ -64,7 +75,7 @@ func TestBackupZip(t *testing.T) {
 			t.Fatalf("backup has %s", name)
 		}
 	}
-	files = zipNames(t, e.do(t, "dora", "GET", "/admin/system/backup?key=1", nil, nil).Body.Bytes())
+	files = zipNames(t, e.do(t, "dora", "POST", "/admin/system/backup", url.Values{"key": {"1"}}, nil).Body.Bytes())
 	if _, ok := files[".yars/secret.key"]; !ok {
 		t.Fatal("key not included when asked for")
 	}
@@ -105,20 +116,70 @@ func TestAdminSystem(t *testing.T) {
 		t.Fatalf("stat cells:\n%s", b)
 	}
 	// a backup shows as the last one, with who made it
-	e.do(t, "dora", "GET", "/admin/system/backup", nil, nil)
+	e.do(t, "dora", "POST", "/admin/system/backup", url.Values{}, nil)
 	b = e.do(t, "dora", "GET", "/admin/system", nil, nil).Body.String()
 	if st := between(b, "<h2>Backup", "</form>"); !strings.Contains(st, `<span class="sv">dora</span>`) || strings.Contains(st, `<span class="sv">—</span>`) {
 		t.Fatalf("last backup:\n%s", st)
 	}
-	if rec := e.do(t, "dora", "POST", "/admin/system/reindex", url.Values{}, nil); rec.Code != 200 || !strings.Contains(rec.Body.String(), "Rebuilt") {
-		t.Fatalf("reindex %d", rec.Code)
+	// an operation answers with a redirect (a reload doesn't run it again);
+	// the page after it shows the result once
+	op := func(path, want string) {
+		t.Helper()
+		rec := e.do(t, "dora", "POST", path, url.Values{}, nil)
+		if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/admin/system" {
+			t.Fatalf("%s %d %q", path, rec.Code, rec.Header().Get("Location"))
+		}
+		if b := e.do(t, "dora", "GET", "/admin/system", nil, nil).Body.String(); !strings.Contains(b, want) {
+			t.Fatalf("%s result lacks %q:\n%s", path, want, b)
+		}
+		if b := e.do(t, "dora", "GET", "/admin/system", nil, nil).Body.String(); strings.Contains(b, want) {
+			t.Fatalf("%s result shown twice", path)
+		}
 	}
-	if rec := e.do(t, "dora", "POST", "/admin/system/sync", url.Values{}, nil); rec.Code != 200 || !strings.Contains(rec.Body.String(), "Synced") {
-		t.Fatalf("sync %d", rec.Code)
+	op("/admin/system/reindex", "Rebuilt")
+	op("/admin/system/sync", "Synced")
+	op("/admin/system/migrate", ".yars/users.yaml")
+	e.do(t, "dora", "POST", "/admin/system/migrate", url.Values{}, nil)
+	if b := e.do(t, "dora", "GET", "/admin/system", nil, nil).Body.String(); !strings.Contains(b, "v"+strconv.Itoa(db.SchemaVersion)) {
+		t.Fatal("migrate status lacks the schema")
 	}
-	rec := e.do(t, "dora", "POST", "/admin/system/migrate", url.Values{}, nil)
-	if rec.Code != 200 || !strings.Contains(rec.Body.String(), ".yars/users.yaml") || !strings.Contains(rec.Body.String(), "v"+strconv.Itoa(db.SchemaVersion)) {
-		t.Fatalf("migrate status %d", rec.Code)
+}
+
+// The health checks run on Check again, not on every page load or after
+// an operation; the page shows the last run. The AI provider is only
+// pinged on Check again.
+func TestSystemHealthCached(t *testing.T) {
+	e := setup(t)
+	// a provider with a key, at an address that refuses at once
+	e.srv.Cfg.AI = config.AIConfig{Provider: "openai", BaseURL: "http://127.0.0.1:1/v1", Model: "m1", APIKeyEnv: "YARS_TEST_AI_KEY"}
+	t.Setenv("YARS_TEST_AI_KEY", "k")
+	e.rules(t, styleRules, nil)
+	b := e.do(t, "dora", "GET", "/admin/system", nil, nil).Body.String()
+	if n := e.srv.healthRuns.Load(); n != 1 {
+		t.Fatalf("%d runs on first load", n)
+	}
+	if !strings.Contains(between(b, ">AI provider<", "</tr>"), ">Not run<") {
+		t.Fatalf("AI pinged on a page load:\n%s", b)
+	}
+	e.do(t, "dora", "GET", "/admin/system", nil, nil)
+	e.do(t, "dora", "POST", "/admin/system/reindex", url.Values{}, nil)
+	e.do(t, "dora", "GET", "/admin/system", nil, nil)
+	if n := e.srv.healthRuns.Load(); n != 1 {
+		t.Fatalf("%d runs after reloads and an operation", n)
+	}
+	if rec := e.do(t, "alice", "POST", "/admin/system/check", url.Values{}, nil); rec.Code != http.StatusForbidden {
+		t.Fatalf("non-admin check %d", rec.Code)
+	}
+	rec := e.do(t, "dora", "POST", "/admin/system/check", url.Values{}, nil)
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/admin/system" || e.srv.healthRuns.Load() != 2 {
+		t.Fatalf("check again %d runs %d", rec.Code, e.srv.healthRuns.Load())
+	}
+	b = e.do(t, "dora", "GET", "/admin/system", nil, nil).Body.String()
+	if strings.Contains(between(b, ">AI provider<", "</tr>"), ">Not run<") {
+		t.Fatalf("AI not checked by Check again:\n%s", b)
+	}
+	if !strings.Contains(b, `action="/admin/system/check"`) {
+		t.Fatal("no Check again form")
 	}
 }
 

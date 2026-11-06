@@ -3,6 +3,7 @@ package web
 import (
 	"archive/zip"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/fs"
@@ -39,6 +40,7 @@ type healthAdmin struct {
 	Rows             []healthRow
 	Checked          string
 	Errors, Warnings int
+	at               time.Time // when the checks ran
 }
 
 // healthRow is one check: its state ("good", "warn", "bad", "off") and
@@ -54,7 +56,13 @@ func (s *Server) routesAdminSystem(mux *http.ServeMux) {
 	mux.HandleFunc("GET /admin/system", s.adminOnly(func(w http.ResponseWriter, r *http.Request) {
 		s.systemPage(w, r, systemAdmin{})
 	}))
-	mux.HandleFunc("GET /admin/system/backup", s.adminOnly(s.backup))
+	// a POST, so the cross-origin check covers it: a link elsewhere can't
+	// make an admin's browser save a backup (with the key)
+	mux.HandleFunc("POST /admin/system/backup", s.adminOnly(s.backup))
+	mux.HandleFunc("POST /admin/system/check", s.adminOnly(func(w http.ResponseWriter, r *http.Request) {
+		s.runHealth(r.Context(), true)
+		http.Redirect(w, r, "/admin/system", http.StatusSeeOther)
+	}))
 	mux.HandleFunc("POST /admin/system/sync", s.adminOnly(s.systemOp("sync")))
 	mux.HandleFunc("POST /admin/system/reindex", s.adminOnly(s.systemOp("reindex")))
 	mux.HandleFunc("POST /admin/system/migrate", s.adminOnly(s.systemOp("migrate")))
@@ -133,40 +141,63 @@ func (s *Server) systemPage(w http.ResponseWriter, r *http.Request, v systemAdmi
 		if l, _, err := d.AuditQuery(db.AuditFilter{Action: "backup", Limit: 1}); err == nil && len(l) == 1 {
 			v.LastBackup, v.BackupBy, v.BackupKey = when(l[0].TS), l[0].Actor, l[0].Detail
 		}
-		v.Health = s.health(r.Context())
+		v.Health = s.lastHealthOr(r.Context())
+		if js := s.flash.take(r, "sysop"); js != "" {
+			var op sysOp
+			if json.Unmarshal([]byte(js), &op) == nil {
+				v.Op, v.OpResult, v.OpOK, v.OpItems = op.Op, op.Result, op.OK, op.Items
+			}
+		}
 		p.Admin.System = v
 		return nil
 	})
 }
 
-// systemOp runs one of the CLI operations and shows its result.
+// sysOp is an operation's result, carried to the page after the redirect.
+type sysOp struct {
+	Op, Result string
+	OK         bool
+	Items      []string
+}
+
+// systemOp runs one of the CLI operations, then redirects to the System
+// page, which shows its result once (a reload doesn't run it again).
 func (s *Server) systemOp(op string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		v := systemAdmin{Op: op}
-		switch op {
-		case "sync":
-			if err := s.Store.SyncPointers(); err != nil {
-				v.OpResult = err.Error()
-			} else {
-				v.OpOK, v.OpResult = true, "Synced"
-			}
-		case "reindex":
-			if d, err := s.Index.Rebuild(); err != nil {
-				v.OpResult = err.Error()
-			} else {
-				v.OpOK, v.OpResult = true, "Rebuilt · "+dur(d)
-			}
-		case "migrate":
-			if s.MigrateStatus != nil {
-				v.OpItems = s.MigrateStatus()
-			}
-			ver, _ := s.Store.DB().Version()
-			v.OpOK = len(v.OpItems) == 0
-			v.OpResult = "Schema v" + strconv.Itoa(ver) + " · " + plural(len(v.OpItems), "item") + " to migrate"
+		v := s.runOp(op)
+		s.Store.DB().Audit(auth.UserFrom(r.Context()).Username, "system."+op, "", v.Result)
+		if js, err := json.Marshal(v); err == nil {
+			s.flash.put(r, "sysop", string(js))
 		}
-		s.Store.DB().Audit(auth.UserFrom(r.Context()).Username, "system."+op, "", v.OpResult)
-		s.systemPage(w, r, v)
+		http.Redirect(w, r, "/admin/system", http.StatusSeeOther)
 	}
+}
+
+// runOp runs one operation of the System page.
+func (s *Server) runOp(op string) sysOp {
+	v := sysOp{Op: op}
+	switch op {
+	case "sync":
+		if err := s.Store.SyncPointers(); err != nil {
+			v.Result = err.Error()
+		} else {
+			v.OK, v.Result = true, "Synced"
+		}
+	case "reindex":
+		if d, err := s.Index.Rebuild(); err != nil {
+			v.Result = err.Error()
+		} else {
+			v.OK, v.Result = true, "Rebuilt · "+dur(d)
+		}
+	case "migrate":
+		if s.MigrateStatus != nil {
+			v.Items = s.MigrateStatus()
+		}
+		ver, _ := s.Store.DB().Version()
+		v.OK = len(v.Items) == 0
+		v.Result = "Schema v" + strconv.Itoa(ver) + " · " + plural(len(v.Items), "item") + " to migrate"
+	}
+	return v
 }
 
 // backupSkip reports files of the data directory a backup leaves out: the
@@ -186,7 +217,7 @@ func backupSkip(rel string, withKey bool) bool {
 // engagement repo (their .git folders included) and a snapshot of the
 // database (VACUUM INTO) at .yars/yars.db; the secret key only with key=1.
 func (s *Server) backup(w http.ResponseWriter, r *http.Request) {
-	withKey := r.URL.Query().Get("key") == "1"
+	withKey := r.PostFormValue("key") == "1"
 	dir := s.Store.Repo().Dir
 	tmp, err := os.MkdirTemp("", "yars-backup-")
 	if err != nil {
@@ -263,9 +294,39 @@ func (s *Server) backup(w http.ResponseWriter, r *http.Request) {
 	s.Store.DB().Audit(auth.UserFrom(r.Context()).Username, "backup", "", detail)
 }
 
+// lastHealthOr is the last run of the health checks, which the System page
+// shows without running them again; before any run it runs them, without
+// the AI ping.
+func (s *Server) lastHealthOr(ctx context.Context) healthAdmin {
+	if h := s.lastHealth.Load(); h != nil {
+		v := *h
+		v.Checked = checkedAt(v.at)
+		return v
+	}
+	return s.runHealth(ctx, false)
+}
+
+// runHealth runs the checks and keeps the result; ping also asks the AI
+// provider for a reply (a paid call, so only on Check again).
+func (s *Server) runHealth(ctx context.Context, ping bool) healthAdmin {
+	v := s.health(ctx, ping)
+	s.lastHealth.Store(&v)
+	return v
+}
+
+// checkedAt shows when the checks ran: the time today, else the day.
+func checkedAt(t time.Time) string {
+	if y, m, d := t.Date(); y == time.Now().Year() && m == time.Now().Month() && d == time.Now().Day() {
+		return t.Format("15:04")
+	}
+	return t.Format("02 Jan")
+}
+
 // health runs every check of the System page's Health panel.
-func (s *Server) health(ctx context.Context) healthAdmin {
-	v := healthAdmin{Checked: time.Now().Format("15:04")}
+func (s *Server) health(ctx context.Context, ping bool) healthAdmin {
+	s.healthRuns.Add(1)
+	now := time.Now()
+	v := healthAdmin{at: now, Checked: checkedAt(now)}
 	check := func(name, url string, fn func() healthResult) {
 		h := fn()
 		if h.Detail == "" {
@@ -281,7 +342,7 @@ func (s *Server) health(ctx context.Context) healthAdmin {
 	}
 	check("Rules", "/admin/rules", s.healthRules)
 	check("Git server repos", "", s.healthGit)
-	check("AI provider", "/admin/ai", func() healthResult { return s.healthAI(ctx) })
+	check("AI provider", "/admin/ai", func() healthResult { return s.healthAI(ctx, ping) })
 	check("Disk free", "", s.healthDisk)
 	check("Database integrity", "", s.healthDB)
 	return v
@@ -350,7 +411,7 @@ func (s *Server) healthDisk() healthResult {
 	return hGood(res, dir)
 }
 
-func (s *Server) healthAI(ctx context.Context) healthResult {
+func (s *Server) healthAI(ctx context.Context, ping bool) healthResult {
 	off := healthResult{State: "off", Label: "Off", Result: "Off"}
 	rn := s.runner()
 	if rn == nil {
@@ -367,6 +428,9 @@ func (s *Server) healthAI(ctx context.Context) healthResult {
 	src := "stored key"
 	if fromEnv {
 		src = c.APIKeyEnv
+	}
+	if !ping {
+		return healthResult{State: "off", Label: "Not run", Result: res, Detail: src}
 	}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()

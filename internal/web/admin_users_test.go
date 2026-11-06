@@ -14,7 +14,7 @@ import (
 func TestAdminPagesAdminOnly(t *testing.T) {
 	e := setup(t)
 	e.addUser(t, config.User{Username: "dir2", Role: "director"})
-	pages := []string{"/admin/users", "/admin/ai", "/admin/system", "/admin/activity", "/admin/system/backup"}
+	pages := []string{"/admin/users", "/admin/ai", "/admin/system", "/admin/activity"}
 	for _, p := range pages {
 		for _, u := range []string{"alice", "dir2"} {
 			if rec := e.do(t, u, "GET", p, nil, nil); rec.Code != http.StatusForbidden {
@@ -27,7 +27,7 @@ func TestAdminPagesAdminOnly(t *testing.T) {
 	}
 	posts := []string{"/admin/users", "/admin/users/bob/role", "/admin/users/bob/admin", "/admin/users/bob/disabled", "/admin/users/bob/reset",
 		"/admin/ai", "/admin/ai/test",
-		"/admin/system/sync", "/admin/system/reindex", "/admin/activity/sessions/1/revoke", "/admin/activity/tokens/1/revoke"}
+		"/admin/system/sync", "/admin/system/reindex", "/admin/system/migrate", "/admin/system/check", "/admin/system/backup", "/admin/activity/sessions/1/revoke", "/admin/activity/tokens/1/revoke"}
 	for _, p := range posts {
 		if rec := e.do(t, "alice", "POST", p, url.Values{}, nil); rec.Code != http.StatusForbidden {
 			t.Errorf("POST %s by alice: %d", p, rec.Code)

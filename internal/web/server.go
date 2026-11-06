@@ -87,6 +87,10 @@ type Server struct {
 	pageSize  int           // board rows per page (0 = boardPage)
 	chatLoads atomic.Int64  // full chat reads, for tests of the poll shortcut
 	flash     flashes       // one-time secrets for the page after a create
+	// lastHealth is the last run of Admin › System's checks; healthRuns
+	// counts runs (tests)
+	lastHealth atomic.Pointer[healthAdmin]
+	healthRuns atomic.Int64
 	// bulkBudget is how long a bulk run starts new rows (0 = bulkTime)
 	bulkBudget time.Duration
 }
