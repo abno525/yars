@@ -276,24 +276,52 @@ func ReviewerCandidate(u config.User, m finding.Meta) bool {
 	return AtLeast(u, "reviewer") && u.Username != m.Author
 }
 
+// Inbox names an inbox queue.
 type Inbox string
 
 const (
 	InboxNone     Inbox = ""
-	InboxReview   Inbox = "review"
-	InboxApprove  Inbox = "approve"
-	InboxReturned Inbox = "returned"
+	InboxReturned Inbox = "returned" // 1 Returned to me
+	InboxReview   Inbox = "review"   // 2 Awaiting my review
+	InboxApprove  Inbox = "approve"  // 3 Ready to approve
+	InboxReport   Inbox = "report"   // 4 Ready to mark reported
+	InboxThreads  Inbox = "threads"  // 5 Open threads on my findings
+	InboxBoard    Inbox = "board"    // 6 New on team board
+	InboxDraft    Inbox = "drafts"   // 7 My drafts
 )
 
-// Pending classifies whether a finding needs u's attention.
+// QueueOrder is the one order the inbox shows its queues in.
+var QueueOrder = []Inbox{InboxReturned, InboxReview, InboxApprove, InboxReport, InboxThreads, InboxBoard, InboxDraft}
+
+var roleQueues = map[string][]Inbox{
+	"pentester": {InboxReturned, InboxThreads, InboxBoard, InboxDraft},
+	"reviewer":  {InboxReview, InboxThreads, InboxBoard},
+	"director":  {InboxApprove, InboxReport, InboxBoard},
+}
+
+// Queues are the inbox queues of u's role, in QueueOrder; everyone has New
+// on team board.
+func Queues(u config.User) []Inbox {
+	if q, ok := roleQueues[u.Role]; ok {
+		return q
+	}
+	return []Inbox{InboxBoard}
+}
+
+// Pending classifies whether a finding needs u's attention, and in which
+// finding queue (threads and the board are classified elsewhere).
 func Pending(u config.User, m finding.Meta) Inbox {
 	switch {
 	case m.Status == "verification" && reviewer(u, m) && !slices.Contains(m.ClearedBy, u.Username):
 		return InboxReview
 	case m.Status == "verification" && manager(u) && reviewedByOther(u, m):
 		return InboxApprove
+	case m.Status == "complete" && manager(u):
+		return InboxReport
 	case m.Status == "draft" && m.Author == u.Username && m.Returned != nil:
 		return InboxReturned
+	case m.Status == "draft" && m.Author == u.Username:
+		return InboxDraft
 	}
 	return InboxNone
 }
