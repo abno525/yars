@@ -87,6 +87,7 @@
 {{define "bulk_result"}}
 <div class="bulk-result" id="bulk-result" data-action="{{.Action}}">
   <table class="table">
+    <thead><tr><th class="c-id">Finding</th><th class="title">Title</th><th>Result</th></tr></thead>
     <tbody>
     {{range .Items}}
       <tr data-key="{{.Key}}" class="{{if .OK}}ok{{else}}denied{{end}}">

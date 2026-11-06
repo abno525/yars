@@ -38,10 +38,10 @@
       <td class="c-go">{{if eq $.Name "returned"}}<a class="btn primary sm w96" href="{{fpath .EngID .Dir}}">Fix</a>{{else if eq $.Name "approve"}}<a class="btn primary sm w96" href="{{fpath .EngID .Dir}}">Approve</a>{{else}}<a class="btn secondary sm w96" href="{{fpath .EngID .Dir}}">Review</a>{{end}}</td>
     </tr>
   {{else}}
-    {{if not .Offset}}<tr><td class="muted empty">—</td></tr>{{end}}
+    {{if not .Offset}}<tr><td colspan="{{if $.Director}}9{{else}}7{{end}}" class="muted empty">—</td></tr>{{end}}
   {{end}}
   {{if .MoreURL}}
-    <tr class="more" id="inbox-more-{{.Name}}"><td colspan="9"><button type="button" class="btn secondary w152" hx-get="{{.MoreURL}}" hx-target="#inbox-more-{{.Name}}" hx-swap="outerHTML">Load {{.PageSize}} more</button></td></tr>
+    <tr class="more" id="inbox-more-{{.Name}}"><td colspan="{{if .Director}}9{{else}}7{{end}}"><button type="button" class="btn secondary w152" hx-get="{{.MoreURL}}" hx-target="#inbox-more-{{.Name}}" hx-swap="outerHTML">Load {{.PageSize}} more</button></td></tr>
   {{end}}
 {{end}}
 

@@ -62,6 +62,10 @@ func TestBulkApproveMixed(t *testing.T) {
 	if r := row(b, "acme/F-001"); !strings.Contains(r, `class="ok"`) {
 		t.Fatalf("F-001 row %q", r)
 	}
+	// every table has a header row
+	if !strings.Contains(b, `<thead><tr><th class="c-id">Finding</th><th class="title">Title</th><th>Result</th></tr></thead>`) {
+		t.Fatalf("bulk result has no header row:\n%s", b)
+	}
 	if r := row(b, "acme/F-002"); !strings.Contains(r, `class="denied"`) || !strings.Contains(r, "only possible in verification") {
 		t.Fatalf("F-002 row %q", r)
 	}
