@@ -42,3 +42,18 @@ func TestInboxNewOnTeamBoard(t *testing.T) {
 		t.Fatal("reply not listed")
 	}
 }
+
+// A director's bulk action from the inbox answers with the lists: the
+// board queue stays as it was.
+func TestInboxBulkKeepsBoardQueue(t *testing.T) {
+	e := setup(t)
+	e.toVerification(t)
+	e.lead(t, "alice", "Open redirect", "", "open")
+	e.do(t, "dora", "GET", "/e/acme/board?n=L-001", nil, nil) // dora follows it
+	e.do(t, "alice", "POST", "/e/acme/board/n/L-001/post", url.Values{"text": {"after dora"}}, nil)
+	rec := e.do(t, "dora", "POST", "/inbox/bulk", url.Values{"action": {"approve"}, "id": {"acme/F-001-sql-injection"}}, map[string]string{"HX-Request": "true"})
+	b := rec.Body.String()
+	if rec.Code != 200 || !strings.Contains(b, `class="q q-board"`) || !strings.Contains(b, `<span class="fid">L-001</span>`) {
+		t.Fatalf("bulk %d:\n%s", rec.Code, b)
+	}
+}

@@ -348,6 +348,43 @@ func TestBoardUnseenNonMember(t *testing.T) {
 	}
 }
 
+// The queue runs on every page: 2000 notes over 20 boards stay quick.
+func TestBoardUnseenScale(t *testing.T) {
+	d, _ := open(t)
+	tx, err := d.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := d.stamp()
+	for e := 0; e < 20; e++ {
+		eng := fmt.Sprint("eng", e)
+		tx.Exec("INSERT INTO engagement_members(eng, username, joined) VALUES (?, 'bob', '')", eng)
+		for n := 1; n <= 100; n++ {
+			tx.Exec("INSERT INTO board_notes(eng, num, title, author, state, created) VALUES (?, ?, 't', 'alice', 'open', ?)", eng, n, ts)
+			for m := 0; m < 4; m++ {
+				tx.Exec("INSERT INTO board_messages(eng, num, ts, username, kind, text) VALUES (?, ?, ?, ?, 'msg', 'x')", eng, n, ts, []string{"alice", "carol"}[m%2])
+			}
+			if n%2 == 0 {
+				tx.Exec("INSERT INTO board_seen(username, eng, num, seq) VALUES ('bob', ?, ?, 1 << 40)", eng, n)
+			}
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	u, err := d.UnseenNotes("bob", 50)
+	if err != nil || len(u) != 50 {
+		t.Fatalf("%d %v", len(u), err)
+	}
+	if c, _ := d.UnseenCount("bob", "eng3"); c != 50 {
+		t.Fatalf("count %d", c)
+	}
+	if took := time.Since(start); took > 300*time.Millisecond {
+		t.Fatalf("unseen took %s", took)
+	}
+}
+
 func TestBoardPurged(t *testing.T) {
 	d, _ := open(t)
 	newNote(t, d, "acme", "alice", "x")
