@@ -1,7 +1,9 @@
 package web
 
 import (
+	"maps"
 	"net/http"
+	"net/url"
 	"slices"
 	"strconv"
 	"sync"
@@ -184,7 +186,11 @@ func findingRow(k workflow.Inbox, u config.User, r index.Row, engName string) in
 			ir.Who, ir.At = ev.User, ev.TS
 		}
 	case workflow.InboxDraft:
+		// the last edit or chat line, whichever came last
 		ir.Act, ir.At = "Continue", r.Updated
+		if r.Modified.After(ir.At) {
+			ir.At = r.Modified
+		}
 	}
 	return ir
 }
@@ -241,8 +247,10 @@ func (s *Server) draftChecks(rows []inboxRow) ([]inboxRow, error) {
 		switch {
 		case !ok:
 			r.What = "Not checked"
-		case run.State == db.RunRunning:
+		case run.State == db.RunRunning && s.Store.CheckRunning(r.EngID, r.ID):
 			r.What = "Checking"
+		case run.State == db.RunRunning: // cut off by a stop
+			r.What, r.WhatClass = "Check failed", "bad"
 		case run.ContentHash != r.row.Hash:
 			r.What = "Edited since the check"
 		case run.State == db.RunFailed:
@@ -300,8 +308,10 @@ func inboxPicks(k workflow.Inbox) bool {
 }
 
 // inboxPage is the page of rows from off; it reaches at least to row upTo
-// (so a run's row further down stays visible).
-func (s *Server) inboxPage(name workflow.Inbox, rows []inboxRow, off, upTo int) inboxList {
+// (so a run's row further down stays visible). moved are the rows a run
+// touched: they stay where they were on this page, and Load more leaves them
+// out of the queue as it is now, so it goes on where this page stops.
+func (s *Server) inboxPage(name workflow.Inbox, rows []inboxRow, off, upTo int, moved map[string]bool) inboxList {
 	off = min(max(off, 0), len(rows))
 	end := min(max(off+s.pageSize, upTo+1), len(rows))
 	l := inboxList{Name: name, Heading: inboxHeadings[name], TagHead: "Severity", WhoHead: inboxWho[name], Total: len(rows),
@@ -310,9 +320,28 @@ func (s *Server) inboxPage(name workflow.Inbox, rows []inboxRow, off, upTo int) 
 		l.TagHead = "State"
 	}
 	if end < len(rows) {
-		l.MoreURL = "/inbox?list=" + string(name) + "&offset=" + strconv.Itoa(end)
+		next := end
+		for _, r := range rows[:end] {
+			if moved[r.Key] {
+				next--
+			}
+		}
+		q := url.Values{"list": {string(name)}, "offset": {strconv.Itoa(next)}}
+		keys := slices.Sorted(maps.Keys(moved))
+		for _, k := range keys {
+			q.Add("not", k)
+		}
+		l.MoreURL = "/inbox?" + q.Encode()
 	}
 	return l
+}
+
+// without drops the rows named in not (a Load more after a run).
+func without(rows []inboxRow, not []string) []inboxRow {
+	if len(not) == 0 {
+		return rows
+	}
+	return slices.DeleteFunc(slices.Clone(rows), func(r inboxRow) bool { return r.Key != "" && slices.Contains(not, r.Key) })
 }
 
 // shownQueues are the queues of v that u sees, in the fixed order.
@@ -340,8 +369,9 @@ func (s *Server) queueRows(v inboxView, k workflow.Inbox) ([]inboxRow, error) {
 
 // inboxListsOf lays v out for u: each queue's first page, and for a
 // director the bulk bar over Ready to approve and Ready to mark reported.
-// upTo keeps a run's rows on the page (by queue: the last row to show).
-func (s *Server) inboxListsOf(u config.User, v inboxView, upTo map[workflow.Inbox]int) (inboxLists, error) {
+// upTo keeps a run's rows on the page (by queue: the last row to show);
+// moved are the rows the run touched.
+func (s *Server) inboxListsOf(u config.User, v inboxView, upTo map[workflow.Inbox]int, moved map[string]bool) (inboxLists, error) {
 	var out inboxLists
 	if canManage(u) {
 		var rows []index.Row
@@ -360,7 +390,10 @@ func (s *Server) inboxListsOf(u config.User, v inboxView, upTo map[workflow.Inbo
 		if err != nil {
 			return inboxLists{}, err
 		}
-		l := s.inboxPage(k, rows, 0, upTo[k])
+		l := s.inboxPage(k, rows, 0, upTo[k], moved)
+		if k == workflow.InboxBoard {
+			l.Total = max(l.Total, v.BoardTotal) // the list is capped, the count is not
+		}
 		if out.Bulk != nil && inboxPicks(k) {
 			l.Bulk = out.Bulk
 		}
@@ -392,17 +425,6 @@ func (s *Server) inboxBar(u config.User, rows []index.Row) bulkBar {
 	return b
 }
 
-// reviewerChoices are the accounts the bulk picker offers.
-func (s *Server) reviewerChoices() []config.User {
-	var out []config.User
-	for _, u := range s.Auth.Users() {
-		if workflow.AtLeast(u, "reviewer") {
-			out = append(out, u)
-		}
-	}
-	return out
-}
-
 func (s *Server) inbox(w http.ResponseWriter, r *http.Request) {
 	p, err := s.base(r, "")
 	if err != nil {
@@ -418,7 +440,13 @@ func (s *Server) inbox(w http.ResponseWriter, r *http.Request) {
 			s.fail(w, err)
 			return
 		}
-		l := s.inboxPage(k, rows, off, 0)
+		// after a run: the rows it touched are on the first page already
+		not := q["not"]
+		moved := map[string]bool{}
+		for _, n := range not {
+			moved[n] = true
+		}
+		l := s.inboxPage(k, without(rows, not), off, 0, moved)
 		if canManage(p.User) && inboxPicks(k) {
 			var fr []index.Row
 			for _, ir := range l.Rows {
@@ -430,7 +458,7 @@ func (s *Server) inbox(w http.ResponseWriter, r *http.Request) {
 		s.exec(w, "inbox.html", "inbox_rows", l)
 		return
 	}
-	if p.InboxLists, err = s.inboxListsOf(p.User, p.Inbox, nil); err != nil {
+	if p.InboxLists, err = s.inboxListsOf(p.User, p.Inbox, nil, nil); err != nil {
 		s.fail(w, err)
 		return
 	}
@@ -483,7 +511,7 @@ func (s *Server) inboxAfterBulk(u config.User, before inboxView, v bulkView) (in
 		}
 		after.Lists[k] = out
 	}
-	l, err := s.inboxListsOf(u, after, upTo)
+	l, err := s.inboxListsOf(u, after, upTo, touched)
 	if err != nil {
 		return inboxLists{}, err
 	}

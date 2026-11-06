@@ -272,6 +272,15 @@ func stepOutcome(run int64, r rules.Rule, vs []rules.Violation) db.CheckStep {
 	return x
 }
 
+// CheckRunning reports whether this server is running a check of the
+// finding now (a run a stopped server left "running" is not).
+func (s *Store) CheckRunning(engID, fid string) bool {
+	s.checksMu.Lock()
+	defer s.checksMu.Unlock()
+	_, ok := s.running[checkKey(engID, fid)]
+	return ok
+}
+
 // WaitChecks waits until no check run is in progress.
 func (s *Store) WaitChecks() { s.checkWG.Wait() }
 

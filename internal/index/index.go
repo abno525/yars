@@ -38,6 +38,7 @@ type Row struct {
 	Reviewers                                       []string
 	Since                                           time.Time // last workflow event (zero = none)
 	Updated                                         time.Time // last chat line of any kind (zero = none)
+	Modified                                        time.Time // finding.md last changed on disk (zero = unknown)
 	Hash                                            string    // store.ContentHash of finding.md
 	// Threads are the open threads, oldest first, each with its last
 	// message; Events the workflow events in order (the inbox reads both).
@@ -79,7 +80,7 @@ func rowOf(engID string, ref store.FindingRef, msgs []chat.Message) Row {
 	m := ref.F.Meta
 	txt, sc := scoreOf(m.CVSS)
 	r := Row{EngID: engID, Dir: ref.Dir, ID: m.ID, Title: m.Title, Status: m.Status, Shown: workflow.Shown(m),
-		Severity: cvss.Derive(m.CVSS, m.Severity), Author: m.Author, Reviewers: m.Reviewers, Hash: ref.Hash,
+		Severity: cvss.Derive(m.CVSS, m.Severity), Author: m.Author, Reviewers: m.Reviewers, Hash: ref.Hash, Modified: ref.Modified,
 		Score: txt, score: sc, Meta: &m, tgrams: Trigrams(m.Title), agrams: assetGrams(m.Assets)}
 	if m.Retest != nil {
 		r.IsRetest, r.RetestResult = true, m.Retest.Result
