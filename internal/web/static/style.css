@@ -781,7 +781,7 @@ progress::-moz-progress-bar { background: var(--accent); }
 .inbox { display: flex; flex-direction: column; gap: 16px; }
 .q { border: 1px solid var(--line); background: var(--surface); }
 .qh { height: 48px; padding: 0 20px; display: flex; align-items: center; border-bottom: 1px solid var(--line); }
-.qh h2 { display: flex; align-items: center; gap: 10px; font: 700 13px/1 var(--sans); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.qh h2 { display: flex; align-items: center; gap: 10px; font: 700 12px/1 var(--sans); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
 .qcnt { min-width: 22px; height: 22px; padding: 0 6px; display: inline-flex; align-items: center; justify-content: center; font: 700 12px/1 var(--sans); letter-spacing: 0; background: var(--off-bg); color: var(--text); }
 .qcnt { background: var(--accent); color: var(--on-accent); }
 .qcnt.zero { background: var(--badge0-bg); color: #FFFFFF; }
