@@ -3,7 +3,7 @@
 <div class="retestgrid" id="retest">
   <section class="panel compact orig">
     <div class="panelhead">
-      <div class="panelname"><h2>Original</h2><span class="mono clip" title="{{.Source}}">{{.Source}}</span>{{if not .SourceMissing}}<span class="tag status-{{.SourceStatus}}">{{.SourceStatus}}</span>{{end}}</div>
+      <div class="panelname"><h2>Original</h2><span class="mono clip" title="{{.Source}}">{{.Source}}</span>{{if not .SourceMissing}}<span class="tag status-{{.SourceStatus}}">{{statusLabel .SourceStatus}}</span>{{end}}</div>
       {{if .SourceMissing}}<span class="slot w96"></span>{{else}}<a class="btn secondary sm w96" href="{{.SourceURL}}">Open</a>{{end}}
     </div>
     {{if .SourceMissing}}<p class="muted">—</p>{{else}}

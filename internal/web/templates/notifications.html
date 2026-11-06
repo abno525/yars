@@ -32,7 +32,7 @@
 {{range $i, $r := .Rows}}
 <a class="res{{if eq $i 0}} sel{{end}}" href="{{fpath .EngID .Dir}}">
   <span class="resline"><span class="mono">{{.EngID}} · {{.ID}}</span><span class="restitle">{{.Title}}</span></span>
-  {{if .Severity}}<span class="tag sev-{{.Severity}}">{{.Severity}}</span>{{else}}<span class="tag status-{{.Status}}">{{.Status}}</span>{{end}}
+  {{if .Severity}}<span class="tag sev-{{.Severity}}">{{.Severity}}</span>{{else}}<span class="tag status-{{.Shown}}">{{statusLabel .Shown}}</span>{{end}}
 </a>
 {{end}}
 {{end}}

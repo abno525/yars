@@ -34,7 +34,7 @@
           <td class="fid"><label for="pick-{{.Dir}}">{{.ID}}</label></td>
           <td class="title"><label for="pick-{{.Dir}}" title="{{.Title}}">{{.Title}}</label></td>
           <td>{{if .Severity}}<span class="tag sev-{{.Severity}}">{{.Severity}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
-          <td><span class="tag status-{{.Status}}">{{.Status}}</span></td>
+          <td><span class="tag status-{{.Shown}}">{{statusLabel .Shown}}</span></td>
         </tr>
       {{else}}
         <tr><td colspan="5" class="muted">—</td></tr>

@@ -67,7 +67,7 @@
         <tr>
           <td class="fid"><a href="{{.URL}}">{{.ID}}</a></td>
           <td class="title"><a href="{{.URL}}" title="{{.Title}}">{{.Title}}</a></td>
-          <td><span class="tag status-{{.Status}}">{{.Status}}</span></td>
+          <td><span class="tag status-{{.Shown}}">{{statusLabel .Shown}}</span></td>
           <td>{{if .Severity}}<span class="tag sev-{{.Severity}}">{{.Severity}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
           <td class="num">{{.Pct}}%</td>
           <td>{{if .MergeURL}}<a class="btn secondary sm w96" href="{{.MergeURL}}">Merge</a>{{else}}<span class="slot w96"></span>{{end}}</td>

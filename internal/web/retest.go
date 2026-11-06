@@ -51,7 +51,7 @@ func (s *Server) retestFor(r *http.Request, ref store.FindingRef) *retestView {
 		// the original is shown only to those on its engagement's team
 		if src, err := s.Store.Finding(eng, dir); err == nil && s.Store.CanSee(auth.UserFrom(r.Context()), eng) {
 			m := src.F.Meta
-			v.SourceStatus = m.Status
+			v.SourceStatus = workflow.Shown(m)
 			v.SourceSev = cvss.Derive(m.CVSS, m.Severity)
 			for _, name := range s.conf().DetailsRows {
 				if x := strings.TrimSpace(m.Details[name]); x != "" {

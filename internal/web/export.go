@@ -36,8 +36,9 @@ type destCard struct {
 // pickRow is a finding in the export picker.
 type pickRow struct {
 	Dir, ID, Title, Status, Author, Keys string
-	On, Off                              bool // ticked; not exportable (not complete or reported)
-	OwnKey                               bool // the author has a personal key
+	Shown                                string // the state the UI shows (workflow.Shown)
+	On, Off                              bool   // ticked; not exportable (not complete or reported)
+	OwnKey                               bool   // the author has a personal key
 }
 
 // sendItem is what became of one finding in a send (stored as JSON in the
@@ -271,7 +272,7 @@ func (s *Server) exportPage(r *http.Request, form url.Values) (*page, error) {
 		if !workflow.Active(row.Status) {
 			continue // withdrawn findings never leave
 		}
-		pr := pickRow{Dir: row.Dir, ID: row.ID, Title: row.Title, Status: row.Status, Author: row.Author}
+		pr := pickRow{Dir: row.Dir, ID: row.ID, Title: row.Title, Status: row.Status, Shown: row.Shown, Author: row.Author}
 		pr.Off = !slices.Contains(exportable, row.Status)
 		if form != nil {
 			pr.On = !pr.Off && checkedIn(form, "finding", row.Dir)

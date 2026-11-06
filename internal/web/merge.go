@@ -18,9 +18,9 @@ type dupView struct {
 }
 
 type dupRow struct {
-	ID, Title, Status, Severity string
-	Pct                         int
-	URL, MergeURL               string
+	ID, Title, Shown, Severity string // Shown: workflow.Shown
+	Pct                        int
+	URL, MergeURL              string
 }
 
 // mergeView is the Merge confirm page.
@@ -32,8 +32,8 @@ type mergeView struct {
 }
 
 type mergeTarget struct {
-	Dir, ID, Title, Status, Severity string
-	On                               bool
+	Dir, ID, Title, Shown, Severity string // Shown: workflow.Shown
+	On                              bool
 }
 
 type mergePart struct {
@@ -52,7 +52,7 @@ func (s *Server) routesMerge(mux *http.ServeMux) {
 func dupsOf(eng string, ms []index.Match, mergeFrom string) dupView {
 	var v dupView
 	for _, m := range ms {
-		d := dupRow{ID: m.ID, Title: m.Title, Status: m.Status, Severity: m.Severity, Pct: m.Pct, URL: findingURL(eng, m.Dir)}
+		d := dupRow{ID: m.ID, Title: m.Title, Shown: m.Shown, Severity: m.Severity, Pct: m.Pct, URL: findingURL(eng, m.Dir)}
 		if mergeFrom != "" {
 			d.MergeURL = mergeFrom + "/merge?into=" + m.Dir
 		}
@@ -131,7 +131,7 @@ func (s *Server) renderMerge(w http.ResponseWriter, r *http.Request, status int,
 		if row.Dir == ref.Dir {
 			continue
 		}
-		v.Targets = append(v.Targets, mergeTarget{Dir: row.Dir, ID: row.ID, Title: row.Title, Status: row.Status, Severity: row.Severity, On: row.Dir == into})
+		v.Targets = append(v.Targets, mergeTarget{Dir: row.Dir, ID: row.ID, Title: row.Title, Shown: row.Shown, Severity: row.Severity, On: row.Dir == into})
 	}
 	atts, err := s.Store.Attachments(ref.EngID, ref.Dir)
 	if err != nil {

@@ -40,7 +40,7 @@
           <td><input type="checkbox" name="finding" value="{{.Dir}}" id="pick-{{.Dir}}"{{if .Off}} disabled{{else if .On}} checked{{end}} aria-label="{{.ID}}"></td>
           <td class="fid"><label for="pick-{{.Dir}}">{{.ID}}</label></td>
           <td class="title strong" title="{{.Title}}"><label for="pick-{{.Dir}}">{{.Title}}</label></td>
-          <td><span class="tag status-{{.Status}}">{{.Status}}</span></td>
+          <td><span class="tag status-{{.Shown}}">{{statusLabel .Shown}}</span></td>
           <td class="stack">{{if .Off}}<span>—</span>{{else}}<span>{{.Author}}</span><span class="mono{{if .OwnKey}} ownkey{{end}}" title="{{.Keys}}">{{.Keys}}</span>{{end}}</td>
         </tr>
         {{else}}
