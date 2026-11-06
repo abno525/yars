@@ -302,7 +302,7 @@ func TestAdminHealthExport(t *testing.T) {
 func TestAdminActivity(t *testing.T) {
 	e := setup(t)
 	b := e.do(t, "dora", "GET", "/admin/activity", nil, nil).Body.String()
-	for _, want := range []string{"<th class=\"c-time\">Time</th>", ">login<", "Sessions", "Tokens"} {
+	for _, want := range []string{"<th class=\"c-time\">Time</th>", ">login<", "Sessions"} {
 		if !strings.Contains(b, want) {
 			t.Fatalf("activity lacks %q", want)
 		}
@@ -329,11 +329,11 @@ func TestAdminActivity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if b := e.do(t, "dora", "GET", "/admin/activity", nil, nil).Body.String(); !strings.Contains(b, "…"+info.Last4) {
+	if b := e.do(t, "dora", "GET", "/admin/tokens", nil, nil).Body.String(); !strings.Contains(b, "…"+info.Last4) || !strings.Contains(b, ">Tokens · 1<") {
 		t.Fatal("token not listed")
 	}
-	if rec := e.do(t, "dora", "POST", "/admin/activity/tokens/"+strconv.FormatInt(info.ID, 10)+"/revoke", url.Values{}, nil); rec.Code != http.StatusSeeOther {
-		t.Fatalf("revoke token %d", rec.Code)
+	if rec := e.do(t, "dora", "POST", "/admin/activity/tokens/"+strconv.FormatInt(info.ID, 10)+"/revoke", url.Values{}, nil); rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/admin/tokens" {
+		t.Fatalf("revoke token %d %q", rec.Code, rec.Header().Get("Location"))
 	}
 	if l, _ := e.srv.Store.DB().UserTokens("bob"); len(l) != 0 {
 		t.Fatal("token not revoked")

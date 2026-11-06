@@ -1,6 +1,6 @@
 # Webhooks
 
-Admins add webhooks under **Admin › Webhooks**: a URL and the events it takes. YARS POSTs each event as JSON, one request per event.
+Admins add webhooks at `/admin/webhooks` (the **Webhooks** button on this page): a URL and the events it takes. YARS POSTs each event as JSON, one request per event.
 
 ## Request
 

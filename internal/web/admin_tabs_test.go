@@ -3,6 +3,7 @@ package web
 import (
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -34,8 +35,10 @@ func TestAdminTabsNoEngagements(t *testing.T) {
 		t.Fatalf("GET /engagements: %d", rec.Code)
 	}
 	e.rules(t, styleRules, nil)
-	want := "Users /admin/users|Rules /admin/rules|Structure /admin/structure|AI /admin/ai|System /admin/system|Activity /admin/activity|Tokens /admin/activity#tokens"
-	for _, p := range []string{"/admin/users", "/admin/rules", "/admin/structure", "/admin/ai", "/admin/system", "/admin/activity", "/admin/webhooks"} {
+	// Users, Rules and Tokens carry their counts, as on the board
+	nr := strconv.Itoa(len(e.srv.Rules.Rules().Rules))
+	want := "Users · 4 /admin/users|Rules · " + nr + " /admin/rules|Structure /admin/structure|AI /admin/ai|System /admin/system|Activity /admin/activity|Tokens · 0 /admin/tokens"
+	for _, p := range []string{"/admin/users", "/admin/rules", "/admin/structure", "/admin/ai", "/admin/system", "/admin/activity", "/admin/tokens", "/admin/webhooks"} {
 		b := e.do(t, "dora", "GET", p, nil, nil).Body.String()
 		var got []string
 		for _, m := range atabRe.FindAllStringSubmatch(between(b, `class="atabs"`, "</nav>"), -1) {
@@ -48,5 +51,33 @@ func TestAdminTabsNoEngagements(t *testing.T) {
 	b := e.do(t, "dora", "GET", "/admin/system", nil, nil).Body.String()
 	if !strings.Contains(b, `<a class="atab on" href="/admin/system">System</a>`) {
 		t.Fatal("System tab not on")
+	}
+	// Tokens is its own page, its tab on
+	b = e.do(t, "dora", "GET", "/admin/tokens", nil, nil).Body.String()
+	if !strings.Contains(b, `<a class="atab on" href="/admin/tokens">Tokens · 0</a>`) || strings.Contains(b, `<a class="atab on" href="/admin/activity"`) || !strings.Contains(b, `class="table stable tokentable"`) {
+		t.Fatalf("tokens page:\n%s", between(b, `class="atabs"`, "</nav>"))
+	}
+	if rec := e.do(t, "alice", "GET", "/admin/tokens", nil, nil); rec.Code != http.StatusForbidden {
+		t.Fatalf("tokens page for a non-admin %d", rec.Code)
+	}
+}
+
+// A red dot marks the Rules tab while a rule doesn't load and the System
+// tab while the last health check found an error; no check runs for it.
+func TestAdminTabDots(t *testing.T) {
+	e := setup(t)
+	e.rules(t, "- id: bad-level\n  target: title\n  regex_forbid: x\n  level: critical\n", nil)
+	b := e.do(t, "dora", "GET", "/admin/users", nil, nil).Body.String()
+	tabs := between(b, `class="atabs"`, "</nav>")
+	if !strings.Contains(tabs, `href="/admin/rules">Rules · 0<span class="adot" title="1 invalid"></span></a>`) {
+		t.Fatalf("rules dot:\n%s", tabs)
+	}
+	if strings.Contains(between(tabs, `href="/admin/system"`, "</a>"), "adot") || e.srv.healthRuns.Load() != 0 {
+		t.Fatalf("system dot before any check (runs %d):\n%s", e.srv.healthRuns.Load(), tabs)
+	}
+	e.do(t, "dora", "POST", "/admin/system/check", nil, nil) // the invalid rule is an error
+	tabs = between(e.do(t, "dora", "GET", "/admin/users", nil, nil).Body.String(), `class="atabs"`, "</nav>")
+	if !strings.Contains(tabs, `href="/admin/system">System<span class="adot" title="1 error"></span></a>`) {
+		t.Fatalf("system dot:\n%s", tabs)
 	}
 }

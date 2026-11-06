@@ -11,7 +11,8 @@ import (
 )
 
 // activityAdmin is Admin › Activity: the audit log (filtered, a page at a
-// time), the signed-in sessions and every API token, each revocable.
+// time) and the signed-in sessions, each revocable; Tokens (its own tab)
+// lists every API token.
 type activityAdmin struct {
 	Rows              []db.AuditEntry
 	Actors, Actions   []option
@@ -38,6 +39,7 @@ const auditPage = 50
 
 func (s *Server) routesAdminActivity(mux *http.ServeMux) {
 	mux.HandleFunc("GET /admin/activity", s.adminOnly(s.activityPage))
+	mux.HandleFunc("GET /admin/tokens", s.adminOnly(s.tokensPage))
 	mux.HandleFunc("POST /admin/activity/sessions/{id}/revoke", s.adminOnly(s.sessionRevoke))
 	mux.HandleFunc("POST /admin/activity/tokens/{id}/revoke", s.adminOnly(s.adminTokenRevoke))
 }
@@ -101,11 +103,18 @@ func (s *Server) activityPage(w http.ResponseWriter, r *http.Request) {
 		for _, x := range ss {
 			v.Sessions = append(v.Sessions, sessionRow{ID: x.ID, User: x.User, Created: when(x.Created), LastSeen: when(x.LastSeen)})
 		}
+		p.Admin.Activity = v
+		return nil
+	})
+}
+
+// tokensPage is Admin › Tokens: every API token, each revocable.
+func (s *Server) tokensPage(w http.ResponseWriter, r *http.Request) {
+	s.adminPage(w, r, "tokens", http.StatusOK, func(p *page) error {
 		now := time.Now()
 		for _, t := range s.Tokens.List() {
-			v.Tokens = append(v.Tokens, tokenRowOf(t, now))
+			p.Admin.Activity.Tokens = append(p.Admin.Activity.Tokens, tokenRowOf(t, now))
 		}
-		p.Admin.Activity = v
 		return nil
 	})
 }
@@ -134,5 +143,5 @@ func (s *Server) adminTokenRevoke(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	http.Redirect(w, r, "/admin/activity#tokens", http.StatusSeeOther)
+	http.Redirect(w, r, "/admin/tokens", http.StatusSeeOther)
 }

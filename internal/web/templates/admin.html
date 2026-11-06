@@ -2,7 +2,7 @@
 <h1>Admin</h1>
 <div class="admin">
   <nav class="atabs" aria-label="Admin">
-    {{range .Admin.Tabs}}{{if .URL}}<a class="atab{{if .On}} on{{end}}" href="{{.URL}}">{{.Label}}</a>{{else}}<span class="atab" aria-hidden="true"></span>{{end}}{{end}}
+    {{range .Admin.Tabs}}{{if .URL}}<a class="atab{{if .On}} on{{end}}" href="{{.URL}}">{{.Label}}{{with .Dot}}<span class="adot" title="{{.}}"></span>{{end}}</a>{{else}}<span class="atab" aria-hidden="true"></span>{{end}}{{end}}
   </nav>
   <div class="adminbody">
     {{if eq .Admin.Tab "rules"}}{{template "admin_rules" .Admin.Rules}}{{end}}
@@ -10,6 +10,7 @@
     {{if eq .Admin.Tab "ai"}}{{template "admin_ai" .Admin.AI}}{{end}}
     {{if eq .Admin.Tab "system"}}{{template "admin_system" .Admin.System}}{{end}}
     {{if eq .Admin.Tab "activity"}}{{template "admin_activity" .Admin.Activity}}{{end}}
+    {{if eq .Admin.Tab "tokens"}}{{template "admin_tokens" .Admin.Activity}}{{end}}
     {{if eq .Admin.Tab "structure"}}{{template "admin_structure" .Admin.Structure}}{{end}}
     {{if eq .Admin.Tab "webhooks"}}{{template "admin_webhooks" .Admin.Hooks}}{{end}}
   </div>
@@ -365,6 +366,9 @@
     </tbody>
   </table>
 </section>
+{{end}}
+
+{{define "admin_tokens"}}
 <section class="panel" id="tokens">
   <div class="panelhead"><h2>Tokens <span class="{{if .Tokens}}qcnt{{else}}qcnt zero{{end}}">{{len .Tokens}}</span></h2></div>
   <table class="table stable tokentable">

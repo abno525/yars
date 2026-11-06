@@ -2,6 +2,7 @@ package web
 
 import (
 	"net/http"
+	"strconv"
 
 	"yars/internal/auth"
 	"yars/internal/config"
@@ -17,15 +18,38 @@ func canAdmin(u config.User) bool { return u.IsAdmin }
 type adminTab struct {
 	Label, URL string
 	On         bool
+	Dot        string // a red dot with this title: something is wrong there
 }
 
 // adminTabs is the tab bar of every admin page. Engagements are managed on
-// the engagements list; System is the health page; Tokens is a section of
-// Activity. Webhooks has no tab (its page keeps its address).
+// the engagements list; System is the health page. Webhooks has no tab
+// (its page keeps its address, linked from the admin footer's docs).
 var adminTabs = []struct{ Key, Label, URL string }{
 	{"users", "Users", "/admin/users"}, {"rules", "Rules", "/admin/rules"}, {"structure", "Structure", "/admin/structure"},
 	{"ai", "AI", "/admin/ai"}, {"system", "System", "/admin/system"}, {"activity", "Activity", "/admin/activity"},
-	{"tokens", "Tokens", "/admin/activity#tokens"},
+	{"tokens", "Tokens", "/admin/tokens"},
+}
+
+// tabExtras are the counts on the Users, Rules and Tokens tabs and the
+// dots on Rules (a rule doesn't load) and System (the last health check
+// found an error). They read what is at hand; no check runs for them.
+func (s *Server) tabExtras() (counts map[string]int, dots map[string]string) {
+	counts, dots = map[string]int{}, map[string]string{}
+	if n, err := s.Store.DB().UserCount(); err == nil {
+		counts["users"] = n
+	}
+	if s.Rules != nil {
+		set := s.Rules.Rules()
+		counts["rules"] = len(set.Rules)
+		if n := len(set.Problems); n > 0 {
+			dots["rules"] = strconv.Itoa(n) + " invalid"
+		}
+	}
+	counts["tokens"] = len(s.Tokens.List())
+	if h := s.lastHealth.Load(); h != nil && h.Errors > 0 {
+		dots["system"] = plural(h.Errors, "error")
+	}
+	return counts, dots
 }
 
 type adminView struct {
@@ -76,8 +100,13 @@ func (s *Server) adminBase(r *http.Request, tab string) (*page, error) {
 	}
 	p.Nav = "admin"
 	p.Admin.Tab = tab
+	counts, dots := s.tabExtras()
 	for _, t := range adminTabs {
-		p.Admin.Tabs = append(p.Admin.Tabs, adminTab{Label: t.Label, URL: t.URL, On: t.Key == tab})
+		label := t.Label
+		if n, ok := counts[t.Key]; ok {
+			label += " · " + strconv.Itoa(n)
+		}
+		p.Admin.Tabs = append(p.Admin.Tabs, adminTab{Label: label, URL: t.URL, On: t.Key == tab, Dot: dots[t.Key]})
 	}
 	return p, nil
 }

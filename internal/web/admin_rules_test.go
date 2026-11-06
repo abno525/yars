@@ -103,7 +103,7 @@ func TestAdminRulesPage(t *testing.T) {
 	if n := len(regexp.MustCompile(`class="atab[ "]`).FindAllString(b, -1)); n != len(adminTabs) {
 		t.Fatalf("%d tab slots", n)
 	}
-	if !strings.Contains(b, `<a class="atab on" href="/admin/rules">Rules</a>`) {
+	if !strings.Contains(b, `<a class="atab on" href="/admin/rules">Rules · `) {
 		t.Fatal("Rules tab")
 	}
 	for _, want := range []string{"<thead>", ">Rule<", ">Kind<", ">Applies to<", ">Level<", ">On<",
