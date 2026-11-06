@@ -662,9 +662,22 @@ progress::-moz-progress-bar { background: var(--accent); }
 .checks .dismissed td { color: var(--muted); }
 .tag.lvl-error { background: var(--red); color: var(--bg); }
 .tag.lvl-warning { background: var(--sev-medium); color: #0F172A; }
-.tag.check-running { background: var(--verification); color: #FFFFFF; }
-.tag.check-done { background: var(--green); color: var(--bg); }
-.tag.check-failed, .tag.check-invalid { background: var(--red); color: var(--bg); }
+/* the checks panel's state flag: the Check button's size (152 × 40), every
+   state bordered in its own colour on a light fill */
+:root { --run-bg: #EDF1F8; --run-text: #1E3A66; --stale-bg: #FFF4EC; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --run-bg: #0F1A2E; --run-text: #9CB6E0; --stale-bg: #2A1A0E; }
+}
+:root[data-theme="dark"] { --run-bg: #0F1A2E; --run-text: #9CB6E0; --stale-bg: #2A1A0E; }
+.checkstate {
+  width: 152px; height: 40px; flex: none; padding: 0 8px; display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid; font: 700 13px/1 var(--sans); letter-spacing: 0.06em; text-transform: uppercase;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.checkstate.check-running { border-color: var(--verification); background: var(--run-bg); color: var(--run-text); }
+.checkstate.check-done { border-color: var(--green); background: var(--green-bg); color: var(--green-text); }
+.checkstate.check-failed, .checkstate.check-invalid { border-color: var(--red); background: var(--bad-bg); color: var(--red); }
+.checkstate.check-stale { border-color: var(--accent-text); background: var(--stale-bg); color: var(--accent-text); }
 .tag.check-stale { background: transparent; color: var(--accent-text); border-color: var(--accent-text); }
 
 /* forms and export */

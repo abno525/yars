@@ -10,7 +10,7 @@
       <span class="cnt">Warnings {{if .Warnings}}<span class="badge">{{.Warnings}}</span>{{else}}<span class="badge0">0</span>{{end}}</span>
     </div>
     <div class="actions">
-      <span class="slot w128">{{if .State}}<span class="tag check-{{.State}}" title="{{.Error}}">{{.StateLabel}}</span>{{end}}</span>
+      <span class="slot w152">{{if .State}}<span class="checkstate check-{{.State}}" title="{{.Error}}">{{.StateLabel}}</span>{{end}}</span>
       <span class="runinfo mono" title="{{.Progress}}">{{.Progress}}</span>
     </div>
   </div>

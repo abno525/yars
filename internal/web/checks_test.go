@@ -77,7 +77,7 @@ func TestChecksPanel(t *testing.T) {
 	if rec.Code != 200 || !regexp.MustCompile(`<button[^>]*class="btn secondary w152 checking"[^>]*disabled[^>]*>.*Checking <span class="mono">\d/2</span><progress value="\d" max="2"></progress></button>`).MatchString(run) {
 		t.Fatalf("running bar %d:\n%s", rec.Code, run)
 	}
-	if !strings.Contains(run, `id="workflow"`) || !strings.Contains(run, `hx-swap-oob="true"`) || !strings.Contains(run, `class="tag check-running"`) {
+	if !strings.Contains(run, `id="workflow"`) || !strings.Contains(run, `hx-swap-oob="true"`) || !strings.Contains(run, `class="checkstate check-running"`) {
 		t.Fatalf("bar with the panel out of band:\n%s", run)
 	}
 	e.srv.Store.WaitChecks()
@@ -85,7 +85,8 @@ func TestChecksPanel(t *testing.T) {
 	if !strings.Contains(done, "script says hi") || !strings.Contains(done, "q1") || !strings.Contains(done, ">Impact<") {
 		t.Fatalf("finished panel:\n%s", done)
 	}
-	if !strings.Contains(done, `class="tag check-done"`) {
+	// the state flag is the Check button's size (152 × 40), in a slot as wide
+	if !strings.Contains(done, `<span class="slot w152"><span class="checkstate check-done"`) {
 		t.Fatalf("done state:\n%s", done)
 	}
 	if bar := e.do(t, "alice", "GET", fpath+"/workflow", nil, nil).Body.String(); !regexp.MustCompile(`class="btn secondary w152"[^>]*>.*Check</button>`).MatchString(bar) {
@@ -107,7 +108,7 @@ func TestChecksPanelLayout(t *testing.T) {
 	if strings.Contains(p, "style=") {
 		t.Fatalf("inline style:\n%s", p)
 	}
-	if !strings.Contains(p, `class="slot w128"`) || !strings.Contains(p, "<thead>") {
+	if !strings.Contains(p, `class="slot w152"`) || !strings.Contains(p, "<thead>") {
 		t.Fatalf("status slot / headers:\n%s", p)
 	}
 	// alice (pentester) may dismiss the warning, not the error: the error's
@@ -234,14 +235,14 @@ func TestChecksStaleAndInvalid(t *testing.T) {
 	e.do(t, "alice", "POST", fpath+"/checks", url.Values{}, nil)
 	e.srv.Store.WaitChecks()
 	p := e.do(t, "alice", "GET", fpath+"/checks", nil, nil).Body.String()
-	if !strings.Contains(p, `class="tag check-invalid"`) || !strings.Contains(p, "Invalid output") {
+	if !strings.Contains(p, `class="checkstate check-invalid"`) || !strings.Contains(p, "Invalid output") {
 		t.Fatalf("invalid state:\n%s", p)
 	}
 	if err := e.srv.Store.UpdateSection("acme", "F-001-sql-injection", "Impact", "changed", "", gitrepo.Author{Name: "x", Email: "x@x"}); err != nil {
 		t.Fatal(err)
 	}
 	p = e.do(t, "alice", "GET", fpath+"/checks", nil, nil).Body.String()
-	if !strings.Contains(p, `class="tag check-stale"`) {
+	if !strings.Contains(p, `class="checkstate check-stale"`) {
 		t.Fatalf("stale state:\n%s", p)
 	}
 }
