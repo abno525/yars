@@ -83,14 +83,36 @@ func TestWorkflowSlotsFixed(t *testing.T) {
 	if !strings.Contains(dora, `data-action="approve" disabled`) || !strings.Contains(dora, "Needs 1 sign-off") || !strings.Contains(dora, `data-action="withdraw"`) {
 		t.Fatalf("dora before sign-off:\n%s", dora)
 	}
-	// after signing off, the Sign off button stays (disabled) in its place
+	// after signing off, the Sign off button stays (disabled) in its place;
+	// the green reviewer chip says it, so no "Signed off" text in the row
 	e.do(t, "bob", "POST", fpath+"/action/clear", url.Values{}, nil)
 	bob = actionsOf(t, e.do(t, "bob", "GET", fpath, nil, nil).Body.String())
-	if !strings.Contains(bob, `data-action="clear" disabled`) || !strings.Contains(bob, "Signed off") {
+	if !strings.Contains(bob, `data-action="clear" disabled`) || !strings.Contains(bob, `data-action="return"`) || strings.Contains(bob, "Signed off") {
 		t.Fatalf("bob after sign-off:\n%s", bob)
 	}
 	if a := actionsOf(t, e.do(t, "dora", "GET", fpath, nil, nil).Body.String()); strings.Contains(a, `data-action="approve" disabled`) {
 		t.Fatalf("approve still disabled:\n%s", a)
+	}
+}
+
+// The finding header buttons line up with the workflow bar buttons below
+// them: 136 wide, 8 apart, the bar's right inset (16 padding + 1 border).
+func TestFindingHeadAlignsWithBar(t *testing.T) {
+	e := setup(t)
+	b := e.do(t, "dora", "GET", fpath, nil, nil).Body.String()
+	i := strings.Index(b, `<div class="actions fhead">`)
+	if i < 0 {
+		t.Fatalf("no fhead actions:\n%s", b)
+	}
+	head := b[i : strings.Index(b[i:], "</div>")+i]
+	for _, want := range []string{`class="btn secondary w136" href="/e/acme/f/001/history"`, `class="btn secondary w136" href="/e/acme/export"`} {
+		if !strings.Contains(head, want) {
+			t.Fatalf("head lacks %s:\n%s", want, head)
+		}
+	}
+	css := e.do(t, "dora", "GET", "/static/style.css", nil, nil).Body.String()
+	if !strings.Contains(css, ".titlerow .actions.fhead { gap: 8px; padding-right: 17px; }") {
+		t.Fatal("no fhead rule in style.css")
 	}
 }
 
@@ -293,7 +315,7 @@ func TestFindingPageNoInlineStyles(t *testing.T) {
 	noInline(t, "draft", b)
 	// a pentester gets an empty slot where Save as template is; History fills
 	// the slot it used to keep
-	if !strings.Contains(b, `class="slot w152"`) || !strings.Contains(b, `class="btn secondary w128" href="/e/acme/f/001/history"`) || !strings.Contains(b, `class="btn secondary w128" href="/e/acme/export"`) {
+	if !strings.Contains(b, `class="slot w152"`) || !strings.Contains(b, `class="btn secondary w136" href="/e/acme/f/001/history"`) || !strings.Contains(b, `class="btn secondary w136" href="/e/acme/export"`) {
 		t.Fatalf("title row slots:\n%s", b)
 	}
 	e.toVerification(t)

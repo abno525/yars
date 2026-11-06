@@ -132,7 +132,7 @@ func TestMergePage(t *testing.T) {
 	e.srv.Store.UpdateSection("acme", src.Dir, "Impact", "Export leaks.", "", a)
 	e.srv.Store.UpdateAssets("acme", src.Dir, []finding.Asset{{Host: "x.example"}}, "", a)
 	// title row: Merge into for directors only
-	if p := e.do(t, "dora", "GET", "/e/acme/f/002", nil, nil).Body.String(); !strings.Contains(p, `class="btn secondary w128" href="/e/acme/f/002/merge"`) {
+	if p := e.do(t, "dora", "GET", "/e/acme/f/002", nil, nil).Body.String(); !strings.Contains(p, `class="btn secondary w136" href="/e/acme/f/002/merge"`) {
 		t.Fatalf("no Merge into for a director:\n%s", p)
 	}
 	if p := e.do(t, "alice", "GET", "/e/acme/f/002", nil, nil).Body.String(); strings.Contains(p, "/merge") {

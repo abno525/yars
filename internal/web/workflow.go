@@ -187,8 +187,6 @@ func (v *wfView) arrange(u config.User, m finding.Meta) {
 		v.State, v.StateError = plural(n, "error")+" to fix", true
 	case needsSignOff:
 		v.State = "Needs 1 sign-off"
-	case m.Status == "verification" && signed:
-		v.State = "Signed off"
 	case m.Status == "verification" && u.Username == m.Author:
 		v.State = "Own finding"
 	}

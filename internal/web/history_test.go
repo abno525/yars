@@ -25,7 +25,7 @@ func TestHistoryPage(t *testing.T) {
 		t.Fatal(err)
 	}
 	// the finding page links its history
-	if b := e.do(t, "alice", "GET", fshort, nil, nil).Body.String(); !strings.Contains(b, `class="btn secondary w128" href="`+fshort+`/history"`) {
+	if b := e.do(t, "alice", "GET", fshort, nil, nil).Body.String(); !strings.Contains(b, `class="btn secondary w136" href="`+fshort+`/history"`) {
 		t.Fatalf("no History button:\n%s", b)
 	}
 	rec := e.do(t, "bob", "GET", fshort+"/history", nil, nil)

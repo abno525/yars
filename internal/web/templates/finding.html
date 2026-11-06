@@ -11,12 +11,12 @@
       <span class="muted by" title="{{$f.Meta.Author}}">by {{$f.Meta.Author}}</span>
     </div>
   </div>
-  <div class="actions">
+  <div class="actions fhead">
     {{$fu := fpath .Eng.ID .Finding.Dir}}
-    {{if .CanMerge}}<a class="btn secondary w128" href="{{$fu}}/merge">Merge into</a>{{else}}<span class="slot w128"></span>{{end}}
+    {{if .CanMerge}}<a class="btn secondary w136" href="{{$fu}}/merge">Merge into</a>{{else}}<span class="slot w136"></span>{{end}}
     {{if .Tpl.CanEdit}}<a class="btn secondary w152" href="{{$fu}}/template">Save as template</a>{{else}}<span class="slot w152"></span>{{end}}
-    <a class="btn secondary w128" href="{{$fu}}/history">History</a>
-    {{if $wd}}<span class="slot w128"></span>{{else}}<a class="btn secondary w128" href="/e/{{.Eng.ID}}/export">Export</a>{{end}}
+    <a class="btn secondary w136" href="{{$fu}}/history">History</a>
+    {{if $wd}}<span class="slot w136"></span>{{else}}<a class="btn secondary w136" href="/e/{{.Eng.ID}}/export">Export</a>{{end}}
   </div>
 </div>
 {{template "archive_bar" .Archive}}
