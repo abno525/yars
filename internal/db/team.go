@@ -21,8 +21,9 @@ func (d *DB) AddMembers(eng string, users ...string) error {
 // AddMembers is AddMembers inside a transaction.
 func (tx *Tx) AddMembers(eng string, users ...string) error {
 	tx.touch(eng)
+	joined := tx.stamp()
 	for _, u := range users {
-		if _, err := tx.Exec("INSERT OR IGNORE INTO engagement_members(eng, username) VALUES (?, ?)", eng, u); err != nil {
+		if _, err := tx.Exec("INSERT OR IGNORE INTO engagement_members(eng, username, joined) VALUES (?, ?, ?)", eng, u, joined); err != nil {
 			return err
 		}
 	}
@@ -78,6 +79,9 @@ func (d *DB) BackfillTeams(engs []string) error {
 func (d *DB) RemoveMember(eng, user string) error {
 	return d.TxFor(eng, func(tx *Tx) error {
 		if _, err := tx.Exec("DELETE FROM engagement_members WHERE eng = ? AND username = ?", eng, user); err != nil {
+			return err
+		}
+		if _, err := tx.Exec("DELETE FROM board_seen WHERE eng = ? AND username = ?", eng, user); err != nil {
 			return err
 		}
 		_, err := tx.Exec("DELETE FROM notifications WHERE eng = ? AND username = ?", eng, user)

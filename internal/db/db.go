@@ -18,7 +18,7 @@ import (
 // Path is where the database lives inside a data directory (git-ignored).
 func Path(dataDir string) string { return filepath.Join(dataDir, ".yars", "yars.db") }
 
-const schemaVersion = 11
+const schemaVersion = 12
 
 // SchemaVersion is the database schema this build writes.
 const SchemaVersion = schemaVersion
@@ -286,6 +286,42 @@ var migrations = []string{
 	// server finishes the job once against the engagements on disk
 	// (BackfillTeams)
 	`INSERT OR REPLACE INTO server_settings(key, value) VALUES ('` + teamBackfillKey + `', 'pending');`,
+	// v12: the team board: notes of an engagement, each with a timeline of
+	// messages and events (kind), what each user last saw of a note (the
+	// timeline's seq), and when a user joined a team (older board activity
+	// is not new to them)
+	`CREATE TABLE board_notes (
+		eng            TEXT NOT NULL,
+		num            INTEGER NOT NULL,
+		title          TEXT NOT NULL,
+		host           TEXT NOT NULL DEFAULT '',
+		author         TEXT NOT NULL,
+		state          TEXT NOT NULL,
+		severity       TEXT NOT NULL DEFAULT '',
+		dup_of         TEXT NOT NULL DEFAULT '',
+		finding        TEXT NOT NULL DEFAULT '',
+		dismiss_reason TEXT NOT NULL DEFAULT '',
+		created        TEXT NOT NULL,
+		PRIMARY KEY (eng, num)
+	) WITHOUT ROWID;
+	CREATE TABLE board_messages (
+		seq      INTEGER PRIMARY KEY AUTOINCREMENT,
+		eng      TEXT NOT NULL,
+		num      INTEGER NOT NULL,
+		ts       TEXT NOT NULL,
+		username TEXT NOT NULL,
+		kind     TEXT NOT NULL,
+		text     TEXT NOT NULL DEFAULT ''
+	);
+	CREATE INDEX board_messages_note ON board_messages(eng, num, seq);
+	CREATE TABLE board_seen (
+		username TEXT NOT NULL,
+		eng      TEXT NOT NULL,
+		num      INTEGER NOT NULL,
+		seq      INTEGER NOT NULL,
+		PRIMARY KEY (username, eng, num)
+	) WITHOUT ROWID;
+	ALTER TABLE engagement_members ADD COLUMN joined TEXT NOT NULL DEFAULT '';`,
 }
 
 // teamBackfillKey marks the one-time team backfill as still to do.
@@ -316,6 +352,11 @@ func Open(path string) (*DB, error) {
 	sdb.SetMaxOpenConns(8)
 	d := &DB{DB: sdb, now: time.Now}
 	if err := d.migrate(); err != nil {
+		sdb.Close()
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	// a Make finding cut off by a stop left its claim: offer it again
+	if _, err := d.Exec("UPDATE board_notes SET finding = '' WHERE finding = ?", pendingFinding); err != nil {
 		sdb.Close()
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
@@ -360,6 +401,15 @@ func (d *DB) migrate() error {
 type Tx struct {
 	*sql.Tx
 	touched map[string]bool
+	now     func() time.Time
+}
+
+// stamp is the transaction's time as stored (the database's clock).
+func (tx *Tx) stamp() string {
+	if tx.now == nil {
+		return time.Now().UTC().Format(time.RFC3339)
+	}
+	return tx.now().UTC().Format(time.RFC3339)
 }
 
 // touch marks eng as changed by this transaction.
@@ -398,7 +448,7 @@ func (d *DB) tx(eng string, fn func(*Tx) error) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	tx := &Tx{Tx: stx}
+	tx := &Tx{Tx: stx, now: d.now}
 	if eng != "" {
 		tx.touch(eng)
 	}

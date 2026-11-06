@@ -82,7 +82,8 @@ func (tx *Tx) Purge(eng string) error {
 	if _, err := tx.Exec("DELETE FROM check_results WHERE run_id IN (SELECT id FROM check_runs WHERE eng = ?)", eng); err != nil {
 		return err
 	}
-	for _, t := range []string{"finding_state", "reviewers", "chat", "chat_hidden", "check_runs", "dismissals", "engagement_members", "engagement_meta"} {
+	for _, t := range []string{"finding_state", "reviewers", "chat", "chat_hidden", "check_runs", "dismissals", "engagement_members", "engagement_meta",
+		"board_notes", "board_messages", "board_seen"} {
 		if _, err := tx.Exec("DELETE FROM "+t+" WHERE eng = ?", eng); err != nil {
 			return err
 		}
