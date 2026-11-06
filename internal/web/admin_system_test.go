@@ -249,10 +249,43 @@ func TestAdminHealth(t *testing.T) {
 	e := setup(t)
 	b := e.do(t, "dora", "GET", "/admin/system", nil, nil).Body.String()
 	for _, want := range []string{`<th class="c-check">Check</th><th class="c-state">Status</th><th class="c-result">Result</th><th>Detail</th>`,
-		">Rules<", ">Git server repos<", ">AI provider<", ">Disk free<", ">Database integrity<", `class="tag good"`, `href="/admin/rules"`, `href="/admin/ai"`} {
+		">Rules<", ">Destinations<", ">pandoc &#43; PDF engine<", ">Git server repos<", ">AI provider<", ">Disk free<", ">Database integrity<",
+		`class="tag good"`, `href="/admin/rules"`, `href="/admin/ai"`} {
 		if !strings.Contains(b, want) {
 			t.Fatalf("health lacks %q:\n%s", want, b)
 		}
+	}
+	// the board's order
+	if i, j, k := strings.Index(b, `<a class="lk" href="/admin/rules">Rules</a>`), strings.Index(b, ">Destinations<"), strings.Index(b, ">Git server repos<"); !(i < j && j < k) {
+		t.Fatalf("order %d %d %d", i, j, k)
+	}
+	// exporting off: both rows say so
+	for _, name := range []string{">Destinations<", ">pandoc &#43; PDF engine<"} {
+		if !strings.Contains(between(b, name, "</tr>"), `<span class="tag off">Off</span>`) {
+			t.Fatalf("%s with exporting off:\n%s", name, between(b, name, "</tr>"))
+		}
+	}
+	// an invalid rule is an error
+	e.rules(t, "- id: bad-level\n  target: title\n  regex_forbid: x\n  level: critical\n", nil)
+	e.do(t, "dora", "POST", "/admin/system/check", url.Values{}, nil)
+	b = e.do(t, "dora", "GET", "/admin/system", nil, nil).Body.String()
+	if r := between(b, `<a class="lk" href="/admin/rules">Rules</a>`, "</tr>"); !strings.Contains(r, `<span class="tag bad">Error</span>`) || !strings.Contains(r, "1 invalid") {
+		t.Fatalf("invalid rule:\n%s", r)
+	}
+}
+
+// With exporting on, Destinations lists them and the pandoc row has the
+// version of pandoc.
+func TestAdminHealthExport(t *testing.T) {
+	e := setup(t)
+	e.exporters(t, "#!/bin/sh\necho pandoc 3.1.11\necho Features: +server\n")
+	e.do(t, "dora", "POST", "/admin/system/check", url.Values{}, nil)
+	b := e.do(t, "dora", "GET", "/admin/system", nil, nil).Body.String()
+	if r := between(b, ">Destinations<", "</tr>"); !strings.Contains(r, `<span class="tag good">OK</span>`) || !strings.Contains(r, "Confluence HTML, Client report (DOCX)") {
+		t.Fatalf("destinations with exporting on:\n%s", r)
+	}
+	if r := between(b, ">pandoc &#43; PDF engine<", "</tr>"); !strings.Contains(r, "pandoc 3.1.11") || strings.Contains(r, "Features") {
+		t.Fatalf("pandoc with exporting on:\n%s", r)
 	}
 }
 

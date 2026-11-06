@@ -341,6 +341,8 @@ func (s *Server) health(ctx context.Context, ping bool) healthAdmin {
 		}
 	}
 	check("Rules", "/admin/rules", s.healthRules)
+	check("Destinations", "", s.healthDests)
+	check("pandoc + PDF engine", "", s.healthPandoc)
 	check("Git server repos", "", s.healthGit)
 	check("AI provider", "/admin/ai", func() healthResult { return s.healthAI(ctx, ping) })
 	check("Disk free", "", s.healthDisk)
@@ -443,12 +445,73 @@ func (s *Server) healthAI(ctx context.Context, ping bool) healthResult {
 
 func (s *Server) healthRules() healthResult {
 	if s.Rules == nil {
-		return healthResult{State: "off", Label: "Off", Result: "Off"}
+		return hOff
 	}
 	set := s.Rules.Rules()
 	res := strconv.Itoa(len(set.Rules)) + " loaded"
 	if n := len(set.Problems); n > 0 {
-		return healthResult{State: "warn", Label: "Warning", Result: res + " · " + strconv.Itoa(n) + " invalid", Detail: fmt.Sprint(set.Problems[0])}
+		return hBad(res+" · "+strconv.Itoa(n)+" invalid", fmt.Sprint(set.Problems[0]))
 	}
 	return hGood(res, "")
+}
+
+var hOff = healthResult{State: "off", Label: "Off", Result: "Off"}
+
+func hWarn(result, detail string) healthResult {
+	return healthResult{State: "warn", Label: "Warning", Result: result, Detail: detail}
+}
+
+// healthDests lists the export destinations (.yars/exporters); one that
+// doesn't load is an error.
+func (s *Server) healthDests() healthResult {
+	if s.Export == nil {
+		return hOff
+	}
+	es, errs := s.exporters()
+	var names []string
+	for _, e := range es {
+		names = append(names, e.Name)
+	}
+	res := strings.Join(names, ", ")
+	if res == "" {
+		res = "None"
+	}
+	if len(errs) > 0 {
+		return hBad(res+" · "+strconv.Itoa(len(errs))+" invalid", errs[0])
+	}
+	if len(es) == 0 {
+		return healthResult{State: "off", Label: "Off", Result: res, Detail: ".yars/exporters"}
+	}
+	return hGood(res, plural(len(es), "destination"))
+}
+
+// firstLine is the first line of a command's output.
+func firstLine(b []byte) string {
+	l, _, _ := strings.Cut(strings.TrimSpace(string(b)), "\n")
+	return strings.TrimSpace(l)
+}
+
+// healthPandoc checks pandoc (Word and PDF downloads) and xelatex, its PDF
+// engine.
+func (s *Server) healthPandoc() healthResult {
+	if s.Export == nil {
+		return hOff
+	}
+	if s.Export.PandocPath == "" {
+		return hWarn("pandoc missing", "PDF and Word downloads off")
+	}
+	out, err := exec.Command(s.Export.PandocPath, "--version").Output()
+	if err != nil {
+		return hBad("pandoc fails", err.Error())
+	}
+	ver := firstLine(out)
+	xe, err := exec.LookPath("xelatex")
+	if err != nil {
+		return hWarn(ver+" · no xelatex", "PDF downloads fail")
+	}
+	xo, err := exec.Command(xe, "--version").Output()
+	if err != nil {
+		return hWarn(ver+" · xelatex fails", err.Error())
+	}
+	return hGood(ver+" · xelatex", firstLine(xo))
 }
