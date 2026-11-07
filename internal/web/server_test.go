@@ -24,6 +24,8 @@ import (
 var (
 	hashOnce sync.Once
 	pwHash   string
+	// paralleled is the tests setup has made parallel
+	paralleled sync.Map
 )
 
 type env struct {
@@ -31,9 +33,43 @@ type env struct {
 	h    http.Handler
 	dir  string
 	toks map[string]string
+	// parallel is set by setup: the test runs beside other parallel tests
+	parallel bool
 }
 
+// setup is a server of its own (temp dirs, database, git repos) for a test
+// that runs in parallel with the other setup tests. Parallel tests only start
+// once every serial test has finished, so a serial test never shares the
+// process with them.
 func setup(t *testing.T) *env {
+	t.Helper()
+	// a test may build several servers; t.Parallel may be called once
+	if _, again := paralleled.LoadOrStore(t, true); !again {
+		t.Parallel()
+	}
+	e := newEnv(t)
+	e.parallel = true
+	return e
+}
+
+// setupSerial is setup for a test that must not run beside others: it counts
+// git processes (gitrepo.Spawned is one counter per process), writes scripts
+// and runs them (a fork in a parallel test can hold the file open for
+// writing: ETXTBSY, golang/go#22315), sets env vars, or has a time limit.
+func setupSerial(t *testing.T) *env {
+	t.Helper()
+	return newEnv(t)
+}
+
+// serialOnly fails a parallel test that does something only a serial one may.
+func (e *env) serialOnly(t *testing.T, what string) {
+	t.Helper()
+	if e.parallel {
+		t.Fatalf("%s: use setupSerial, not setup", what)
+	}
+}
+
+func newEnv(t *testing.T) *env {
 	t.Helper()
 	// minimum cost: a login check reads the cost from the stored hash, so the
 	// four logins below are fast; production hashes stay at 12

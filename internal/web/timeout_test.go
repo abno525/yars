@@ -16,7 +16,7 @@ import (
 // longer than the server's write timeout: the action lifts it, so the
 // browser gets the redirect instead of a dropped connection.
 func TestSubmitOutlivesWriteTimeout(t *testing.T) {
-	e := setup(t)
+	e := setupSerial(t)
 	e.do(t, "alice", "POST", fpath+"/reviewers", url.Values{"reviewer": {"bob"}}, nil)
 	e.do(t, "alice", "POST", fpath+"/severity", url.Values{"severity": {"high"}}, nil)
 	e.rules(t, "- id: scripted\n  script: check.sh\n  level: warning\n", map[string]string{"check.sh": "cat >/dev/null; sleep 1; echo '[]'\n"})
@@ -47,7 +47,7 @@ func TestSubmitOutlivesWriteTimeout(t *testing.T) {
 
 // MCP lint and transition run every rule too: /mcp outlives the timeout.
 func TestMCPOutlivesWriteTimeout(t *testing.T) {
-	e := setup(t)
+	e := setupSerial(t)
 	e.srv.MCP = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(time.Second)
 		w.Write([]byte("done"))

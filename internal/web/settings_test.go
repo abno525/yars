@@ -175,7 +175,7 @@ func TestTokenCreatedOnce(t *testing.T) {
 
 // Personal keys are stored encrypted and shown only by their ending.
 func TestConnectionsMasked(t *testing.T) {
-	e := setup(t)
+	e := setupSerial(t)
 	e.exporters(t, fakePandoc)
 	svc := "jira@" + e.jira(t, true).host()
 	const key = "ATATT3xFfGF0-personal-key-9k2Q"

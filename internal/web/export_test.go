@@ -34,6 +34,7 @@ cat > "$out"
 
 func (e *env) exporters(t *testing.T, pandocBody string) {
 	t.Helper()
+	e.serialOnly(t, "a fake pandoc is written and run")
 	dir := filepath.Join(e.dir, ".yars", "exporters")
 	os.MkdirAll(dir, 0o755)
 	os.WriteFile(filepath.Join(dir, "docx.yaml"), []byte("name: Client report (DOCX)\ntype: pandoc\nformat: docx\n"), 0o644)
@@ -154,7 +155,7 @@ func (e *env) follow(t *testing.T, user string, rec *httptest.ResponseRecorder) 
 }
 
 func TestExportPage(t *testing.T) {
-	e := setup(t)
+	e := setupSerial(t)
 	e.toComplete(t)
 	e.exporters(t, fakePandoc)
 	e.srv.Store.CreateFinding("acme", "Draft one", gitrepo.Author{Name: "alice"})
@@ -185,7 +186,7 @@ func TestExportPage(t *testing.T) {
 
 // Downloads are files of complete findings; they never mark anything.
 func TestExportDownloads(t *testing.T) {
-	e := setup(t)
+	e := setupSerial(t)
 	e.toComplete(t)
 	e.exporters(t, fakePandoc)
 	rec := e.do(t, "alice", "POST", "/e/acme/export", url.Values{"download": {"pdf"}, "finding": {fdir}}, nil)
@@ -235,7 +236,7 @@ func zipList(t *testing.T, b []byte) string {
 
 // Only complete and reported findings are exported, never withdrawn ones.
 func TestExportPicksComplete(t *testing.T) {
-	e := setup(t)
+	e := setupSerial(t)
 	e.exporters(t, fakePandoc)
 	rec := e.do(t, "dora", "POST", "/e/acme/export", url.Values{"download": {"docx"}, "finding": {fdir}}, nil)
 	if rec.Code != http.StatusBadRequest || rec.Header().Get("Content-Disposition") != "" || !strings.Contains(rec.Body.String(), "F-001 is draft") {
@@ -262,7 +263,7 @@ func TestExportPicksComplete(t *testing.T) {
 // A file destination: the sender (a pentester here) gets the file, and the
 // findings sent are marked reported because the destination says so.
 func TestExportSendFile(t *testing.T) {
-	e := setup(t)
+	e := setupSerial(t)
 	e.toComplete(t)
 	f2 := e.secondComplete(t)
 	e.exporters(t, fakePandoc)
@@ -297,7 +298,7 @@ func TestExportSendFile(t *testing.T) {
 // Each finding goes to Jira with its author's own key when there is one,
 // otherwise the server's; the history says which.
 func TestExportSendAsAuthor(t *testing.T) {
-	e := setup(t)
+	e := setupSerial(t)
 	e.toComplete(t)
 	f2 := e.secondComplete(t)
 	e.exporters(t, fakePandoc)
@@ -338,7 +339,7 @@ func TestExportSendAsAuthor(t *testing.T) {
 // A failed send is recorded with its error, marks nothing and can be
 // retried from the history.
 func TestExportRetry(t *testing.T) {
-	e := setup(t)
+	e := setupSerial(t)
 	e.toComplete(t)
 	e.exporters(t, fakePandoc)
 	j := e.jira(t, true)
@@ -381,7 +382,7 @@ func itoa(n int64) string { return strconv.FormatInt(n, 10) }
 
 // An archived engagement can't send (the slot stays), downloads still work.
 func TestExportArchived(t *testing.T) {
-	e := setup(t)
+	e := setupSerial(t)
 	e.toComplete(t)
 	e.exporters(t, fakePandoc)
 	if err := e.srv.Store.Archive("acme", wDora); err != nil {
@@ -401,7 +402,7 @@ func TestExportArchived(t *testing.T) {
 
 // Every button on the export pages has a fixed width.
 func TestExportFixedWidths(t *testing.T) {
-	e := setup(t)
+	e := setupSerial(t)
 	e.toComplete(t)
 	e.exporters(t, fakePandoc)
 	j := e.jira(t, true)
@@ -435,7 +436,7 @@ func TestExportFixedWidths(t *testing.T) {
 }
 
 func TestExportPreview(t *testing.T) {
-	e := setup(t)
+	e := setupSerial(t)
 	e.toComplete(t)
 	e.exporters(t, fakePandoc)
 	b := e.do(t, "alice", "GET", "/e/acme/export/preview?finding="+fdir, nil, nil).Body.String()
@@ -455,7 +456,7 @@ func TestExportPreview(t *testing.T) {
 // Destinations are edited by directors, written to .yars/exporters and
 // committed to the main repository; a file export.Load refuses is not saved.
 func TestExportSetup(t *testing.T) {
-	e := setup(t)
+	e := setupSerial(t)
 	e.exporters(t, fakePandoc)
 	if rec := e.do(t, "alice", "GET", "/e/acme/export/setup", nil, nil); rec.Code != http.StatusForbidden {
 		t.Fatalf("pentester setup %d", rec.Code)
@@ -530,7 +531,7 @@ func TestExportSetup(t *testing.T) {
 }
 
 func TestExportEmbedsOnlyAttachments(t *testing.T) {
-	e := setup(t)
+	e := setupSerial(t)
 	e.exporters(t, fakePandoc)
 	att := filepath.Join(e.dir, "engagements", "acme", "findings", fdir, "attachments")
 	os.MkdirAll(att, 0o755)
@@ -546,7 +547,7 @@ func TestExportEmbedsOnlyAttachments(t *testing.T) {
 // An export may run longer than the server's write timeout (the exporter's
 // own limit is longer): the export request lifts it, so the file arrives.
 func TestExportOutlivesWriteTimeout(t *testing.T) {
-	e := setup(t)
+	e := setupSerial(t)
 	e.toComplete(t)
 	e.exporters(t, "#!/bin/sh\nsleep 1\n"+strings.TrimPrefix(fakePandoc, "#!/bin/sh\n"))
 	hs := e.srv.HTTPServer("127.0.0.1:0")
@@ -577,7 +578,7 @@ func TestExportOutlivesWriteTimeout(t *testing.T) {
 }
 
 func TestExportFailureMarksNothing(t *testing.T) {
-	e := setup(t)
+	e := setupSerial(t)
 	e.toComplete(t)
 	e.exporters(t, "#!/bin/sh\necho 'pandoc: boom' >&2\nexit 1\n")
 	page := e.follow(t, "dora", e.do(t, "dora", "POST", "/e/acme/export", url.Values{"dest": {"docx"}, "finding": {fdir}}, nil))

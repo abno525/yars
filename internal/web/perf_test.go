@@ -10,7 +10,7 @@ import (
 
 // Pages start no git process once the index is warm.
 func TestPagesStartNoGit(t *testing.T) {
-	e := setup(t)
+	e := setupSerial(t) // counts git processes
 	pages := []string{"/", "/inbox", "/e/acme", fpath, fpath + "/chat"}
 	for _, p := range pages {
 		if c := e.do(t, "bob", "GET", p, nil, nil).Code; c != 200 {

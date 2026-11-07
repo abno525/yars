@@ -32,7 +32,7 @@ func (e *env) addTemplate(t *testing.T, slug, title string) {
 // A template shows its version, owner (who made it) and last edit from
 // git; History lists every version.
 func TestTemplateOwnerAndVersions(t *testing.T) {
-	e := setup(t)
+	e := setupSerial(t) // counts git processes
 	if rec := e.do(t, "bob", "POST", "/templates/new", url.Values{"title": {"SQL injection"}}, nil); rec.Code != http.StatusSeeOther {
 		t.Fatalf("create %d", rec.Code)
 	}

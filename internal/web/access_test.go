@@ -198,7 +198,7 @@ func TestThemeSaved(t *testing.T) {
 }
 
 func TestExportAudited(t *testing.T) {
-	e := setup(t)
+	e := setupSerial(t)
 	e.toComplete(t)
 	e.exporters(t, fakePandoc)
 	if rec := e.do(t, "alice", "POST", "/e/acme/export", url.Values{"dest": {"docx"}, "finding": {"F-001-sql-injection"}}, nil); rec.Code != http.StatusSeeOther {

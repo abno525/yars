@@ -39,7 +39,7 @@ func (h *hookSink) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // Sending to a destination is an export.sent event; marking the finding
 // reported on the way is a status change. Downloads send nothing.
 func TestExportSentEvent(t *testing.T) {
-	e := setup(t)
+	e := setupSerial(t)
 	e.toComplete(t)
 	e.exporters(t, fakePandoc)
 	var mu sync.Mutex

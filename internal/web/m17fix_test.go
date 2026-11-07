@@ -46,7 +46,7 @@ func TestTemplateSearchKeepsPreviewInStep(t *testing.T) {
 
 // What the team wrote in the Report tab is in the exported report.
 func TestExportIncludesReportTab(t *testing.T) {
-	e := setup(t)
+	e := setupSerial(t)
 	e.toComplete(t)
 	e.exporters(t, fakePandoc)
 	if err := e.srv.Store.UpdateReportSection("acme", "Executive summary", "Two **critical** issues.", "", e.authorOf(wAlice)); err != nil {

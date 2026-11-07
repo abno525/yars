@@ -14,6 +14,9 @@ import (
 
 func (e *env) rules(t *testing.T, yaml string, scripts map[string]string) {
 	t.Helper()
+	if len(scripts) > 0 {
+		e.serialOnly(t, "rule scripts are written and run")
+	}
 	rd := filepath.Join(e.dir, ".yars", "rules")
 	os.MkdirAll(rd, 0o755)
 	os.WriteFile(filepath.Join(rd, "style.yaml"), []byte(yaml), 0o644)
@@ -48,7 +51,7 @@ const styleRules = `
 `
 
 func TestChecksPanel(t *testing.T) {
-	e := setup(t)
+	e := setupSerial(t)
 	e.rules(t, styleRules, map[string]string{"check.sh": `cat >/dev/null; sleep 0.3; echo '[{"message":"script says hi","quote":"q1","target":"section:Impact"}]'` + "\n"})
 	b := e.do(t, "alice", "GET", fpath, nil, nil).Body.String()
 	p := checksPanel(t, b)
@@ -100,7 +103,7 @@ func TestChecksPanel(t *testing.T) {
 }
 
 func TestChecksPanelLayout(t *testing.T) {
-	e := setup(t)
+	e := setupSerial(t)
 	e.rules(t, styleRules, map[string]string{"check.sh": `cat >/dev/null; echo '[{"message":"warn","quote":"q"}]'` + "\n"})
 	e.do(t, "alice", "POST", fpath+"/checks", url.Values{}, nil)
 	e.srv.Store.WaitChecks()
@@ -138,7 +141,7 @@ func TestChecksPanelLayout(t *testing.T) {
 }
 
 func TestChecksDismiss(t *testing.T) {
-	e := setup(t)
+	e := setupSerial(t)
 	e.rules(t, styleRules, map[string]string{"check.sh": "cat >/dev/null; echo '[]'\n"})
 	form := url.Values{"rule": {"title-word"}, "quote": {"injection"}, "reason": {"Injection is the client's term"}}
 	if rec := e.do(t, "alice", "POST", fpath+"/checks/dismiss", form, nil); rec.Code != 403 {
@@ -178,7 +181,7 @@ func TestChecksDismiss(t *testing.T) {
 
 // Violations without a quote are dismissed one place at a time.
 func TestChecksDismissEmptyQuoteByTarget(t *testing.T) {
-	e := setup(t)
+	e := setupSerial(t)
 	e.rules(t, "- id: scripted\n  script: check.sh\n  level: warning\n", map[string]string{"check.sh": `cat >/dev/null; echo '[{"message":"Host empty","target":"details:Host"},{"message":"Port empty","target":"details:Port"}]'` + "\n"})
 	e.do(t, "alice", "POST", fpath+"/checks", url.Values{}, nil)
 	e.srv.Store.WaitChecks()
@@ -205,7 +208,7 @@ func TestChecksDismissEmptyQuoteByTarget(t *testing.T) {
 // Running the checks again posts nothing for known violations, and a fixed
 // one leaves no line in the chat.
 func TestChecksRerunPostsNothing(t *testing.T) {
-	e := setup(t)
+	e := setupSerial(t)
 	script := map[string]string{"check.sh": `cat >/dev/null; echo '[{"message":"script says hi","quote":"q1","target":"section:Impact"}]'` + "\n"}
 	e.rules(t, "- id: scripted\n  script: check.sh\n  level: warning\n", script)
 	run := func() string {
@@ -230,7 +233,7 @@ func TestChecksRerunPostsNothing(t *testing.T) {
 }
 
 func TestChecksStaleAndInvalid(t *testing.T) {
-	e := setup(t)
+	e := setupSerial(t)
 	e.rules(t, styleRules, map[string]string{"check.sh": "cat >/dev/null; echo not json\n"})
 	e.do(t, "alice", "POST", fpath+"/checks", url.Values{}, nil)
 	e.srv.Store.WaitChecks()
@@ -261,7 +264,7 @@ func wfBar(t *testing.T, b string) string {
 // Each rule of a run is a row: Pass, hits, or failed with Retry; Retry runs
 // that rule again. The bar flags a failed rule, and stale checks.
 func TestCheckStepRowsAndRetry(t *testing.T) {
-	e := setup(t)
+	e := setupSerial(t)
 	e.rules(t, styleRules, map[string]string{"check.sh": "cat >/dev/null; echo boom >&2; exit 3\n"})
 	e.do(t, "alice", "POST", fpath+"/checks", url.Values{}, nil)
 	e.srv.Store.WaitChecks()
@@ -307,7 +310,7 @@ func TestCheckStepRowsAndRetry(t *testing.T) {
 }
 
 func TestChecksProgressEvents(t *testing.T) {
-	e := setup(t)
+	e := setupSerial(t)
 	e.rules(t, styleRules, map[string]string{"check.sh": "cat >/dev/null; echo '[]'\n"})
 	sub := e.srv.Events.Subscribe("acme", "", 64)
 	defer e.srv.Events.Unsubscribe(sub)
@@ -325,7 +328,7 @@ func TestChecksProgressEvents(t *testing.T) {
 }
 
 func TestPreviewShowsHints(t *testing.T) {
-	e := setup(t)
+	e := setupSerial(t)
 	e.rules(t, "- id: impact-bt\n  target: section:Impact\n  regex_forbid: '`'\n  message: No backticks in Impact\n", nil)
 	edit := e.do(t, "alice", "GET", fpath+"/s/Impact/edit", nil, nil).Body.String()
 	var pv string

@@ -159,7 +159,7 @@ func TestAdminSystem(t *testing.T) {
 // an operation; the page shows the last run. The AI provider is only
 // pinged on Check again.
 func TestSystemHealthCached(t *testing.T) {
-	e := setup(t)
+	e := setupSerial(t) // t.Setenv
 	// a provider with a key, at an address that refuses at once
 	e.srv.Cfg.AI = config.AIConfig{Provider: "openai", BaseURL: "http://127.0.0.1:1/v1", Model: "m1", APIKeyEnv: "YARS_TEST_AI_KEY"}
 	t.Setenv("YARS_TEST_AI_KEY", "k")
@@ -194,7 +194,7 @@ func TestSystemHealthCached(t *testing.T) {
 }
 
 func TestAdminAI(t *testing.T) {
-	e := setup(t)
+	e := setupSerial(t) // t.Setenv
 	const key = "sk-live-0123456789abcdef3f2a"
 	form := url.Values{"provider": {"openai"}, "base_url": {"https://api.example.com/v1"}, "model": {"m1"}, "key": {key}}
 	if rec := e.do(t, "dora", "POST", "/admin/ai", form, nil); rec.Code != http.StatusSeeOther {
@@ -287,7 +287,7 @@ func TestAdminHealth(t *testing.T) {
 // With exporting on, Destinations lists them and the pandoc row has the
 // version of pandoc.
 func TestAdminHealthExport(t *testing.T) {
-	e := setup(t)
+	e := setupSerial(t)
 	e.exporters(t, "#!/bin/sh\necho pandoc 3.1.11\necho Features: +server\n")
 	e.do(t, "dora", "POST", "/admin/system/check", url.Values{}, nil)
 	b := e.do(t, "dora", "GET", "/admin/system", nil, nil).Body.String()

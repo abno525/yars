@@ -106,7 +106,7 @@ func TestHistoryPage(t *testing.T) {
 
 // The history is read from git once per engagement HEAD.
 func TestHistoryCachedPerHead(t *testing.T) {
-	e := setup(t)
+	e := setupSerial(t) // counts git processes
 	e.do(t, "alice", "GET", fshort+"/history", nil, nil)
 	n := gitrepo.Spawned()
 	e.do(t, "alice", "GET", fshort+"/history", nil, nil)

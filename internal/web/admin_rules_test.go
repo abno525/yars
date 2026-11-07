@@ -58,7 +58,7 @@ func (e *env) upload(t *testing.T, user, path string, fields map[string]string, 
 }
 
 func TestAdminDirectorsOnly(t *testing.T) {
-	e := setup(t)
+	e := setupSerial(t)
 	e.rules(t, styleRules, nil)
 	for _, u := range []string{"alice", "bob"} {
 		for _, r := range []struct{ method, path string }{
@@ -83,7 +83,7 @@ func TestAdminDirectorsOnly(t *testing.T) {
 }
 
 func TestAdminRulesPage(t *testing.T) {
-	e := setup(t)
+	e := setupSerial(t)
 	e.rules(t, styleRules, map[string]string{"check.sh": "cat >/dev/null; echo '[]'\n"})
 	rec := e.do(t, "dora", "GET", "/admin/rules", nil, nil)
 	b := rec.Body.String()
@@ -134,7 +134,7 @@ func TestAdminRulesPage(t *testing.T) {
 }
 
 func TestAdminRuleInvalidRegex(t *testing.T) {
-	e := setup(t)
+	e := setupSerial(t)
 	e.rules(t, styleRules, nil)
 	before := e.ruleFile(t, "style.yaml")
 	form := url.Values{"old": {"title-word"}, "id": {"title-word"}, "kind": {"pattern"}, "level": {"error"}, "target": {"title"},
@@ -161,7 +161,7 @@ func TestAdminRuleInvalidRegex(t *testing.T) {
 }
 
 func TestAdminRuleSave(t *testing.T) {
-	e := setup(t)
+	e := setupSerial(t)
 	e.rules(t, styleRules, map[string]string{"check.sh": "cat >/dev/null; echo '[]'\n"})
 	form := url.Values{"id": {"no-todo"}, "kind": {"pattern"}, "level": {"warning"}, "target": {"sections"},
 		"mode": {"forbid"}, "pattern": {"todo"}, "icase": {"1"}, "message": {"No TODO left"}}
@@ -207,7 +207,7 @@ func TestAdminRuleSave(t *testing.T) {
 }
 
 func TestAdminRuleScriptUpload(t *testing.T) {
-	e := setup(t)
+	e := setupSerial(t)
 	e.rules(t, styleRules, map[string]string{"check.sh": "cat >/dev/null; echo '[]'\n"})
 	fields := map[string]string{"id": "evidence", "kind": "script", "level": "warning", "target": ""}
 	if rec := e.upload(t, "dora", "/admin/rules/save", fields, "", ""); rec.Code != http.StatusBadRequest {
@@ -243,7 +243,7 @@ func TestAdminRuleScriptUpload(t *testing.T) {
 }
 
 func TestAdminRuleToggle(t *testing.T) {
-	e := setup(t)
+	e := setupSerial(t)
 	e.rules(t, styleRules, nil)
 	rec := e.do(t, "dora", "POST", "/admin/rules/toggle", url.Values{"id": {"title-word"}, "on": {"0"}}, nil)
 	if rec.Code != http.StatusSeeOther {
@@ -273,7 +273,7 @@ func TestAdminRuleToggle(t *testing.T) {
 }
 
 func TestAdminRuleBench(t *testing.T) {
-	e := setup(t)
+	e := setupSerial(t)
 	e.rules(t, styleRules, map[string]string{"check.sh": "cat >/dev/null; echo '[]'\n"})
 	f := e.do(t, "dora", "GET", "/admin/rules/bench/findings?eng=acme", nil, nil).Body.String()
 	if !strings.Contains(f, `id="bench-fid"`) || !strings.Contains(f, `value="`+fdir+`"`) {
@@ -307,7 +307,7 @@ func TestAdminRuleBench(t *testing.T) {
 // Run on engagement: every finding of the engagement, its hits and first
 // quote, and a false-positive mark for the rows with hits.
 func TestAdminRuleBenchEngagement(t *testing.T) {
-	e := setup(t)
+	e := setupSerial(t)
 	e.rules(t, styleRules, map[string]string{"check.sh": "cat >/dev/null; echo '[]'\n"})
 	if _, err := e.srv.Store.CreateFinding("acme", "Missing HSTS header", gitrepo.Author{Name: "alice"}); err != nil {
 		t.Fatal(err)

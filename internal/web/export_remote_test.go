@@ -10,7 +10,7 @@ import (
 // Sending a finding again updates its issue instead of making another; an
 // issue deleted at Jira is made again. The result says which.
 func TestExportUpdatesSentFinding(t *testing.T) {
-	e := setup(t)
+	e := setupSerial(t)
 	e.toComplete(t)
 	e.exporters(t, fakePandoc)
 	j := e.jira(t, false)
@@ -49,7 +49,7 @@ func TestExportUpdatesSentFinding(t *testing.T) {
 // A send that failed on the author's own key offers the author to renew it
 // and anyone to send again with the server's key.
 func TestExportFailedOwnKey(t *testing.T) {
-	e := setup(t)
+	e := setupSerial(t)
 	e.toComplete(t)
 	e.exporters(t, fakePandoc)
 	j := e.jira(t, true)
@@ -99,7 +99,7 @@ func TestExportFailedOwnKey(t *testing.T) {
 
 // Without a server key there is no server-key button; its slot stays.
 func TestExportFailedNoServerKey(t *testing.T) {
-	e := setup(t)
+	e := setupSerial(t)
 	e.toComplete(t)
 	e.exporters(t, fakePandoc)
 	j := e.jira(t, true)

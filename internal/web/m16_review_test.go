@@ -31,7 +31,7 @@ func (j *jiraStub) lastUser() string {
 // destination of the same service gets the server's key, and a key bound to
 // no host (stored before keys had hosts) is never sent.
 func TestExportKeyBoundToHost(t *testing.T) {
-	e := setup(t)
+	e := setupSerial(t)
 	e.toComplete(t)
 	e.exporters(t, fakePandoc)
 	client := e.jira(t, false)
@@ -89,7 +89,7 @@ func TestExportKeyBoundToHost(t *testing.T) {
 // director who is not an admin can't change its address or key variables
 // or create one, but can edit the rest.
 func TestDestAddressAdminOnly(t *testing.T) {
-	e := setup(t)
+	e := setupSerial(t)
 	e.exporters(t, fakePandoc)
 	j := e.jira(t, true)
 	e.addUser(t, config.User{Username: "dir2", Role: "director"})
@@ -145,7 +145,7 @@ func TestDestAddressAdminOnly(t *testing.T) {
 // A failed send is retried once: after its retry the old row offers no
 // Retry and refuses one, so its findings are never sent twice.
 func TestExportRetryOnce(t *testing.T) {
-	e := setup(t)
+	e := setupSerial(t)
 	e.toComplete(t)
 	e.exporters(t, fakePandoc)
 	j := e.jira(t, false)
