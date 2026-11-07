@@ -275,6 +275,13 @@ func (c *Checker) file(u config.User, old, new string, ch gitrepo.Change) []stri
 		if !manager(u) {
 			return []string{"only a director can create or change engagements"}
 		}
+		if ch.Status == 'D' {
+			return []string{"engagement.yaml cannot be deleted (a director archives an engagement in YARS)"}
+		}
+		b, _ := c.show(new, p)
+		if _, err := store.ParseEngagement(b); err != nil {
+			return []string{"cannot parse: " + err.Error()}
+		}
 		return nil
 	}
 	// everything else lives inside an existing engagement and finding

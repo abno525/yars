@@ -228,6 +228,23 @@ func TestPolicyConfigMustLoad(t *testing.T) {
 	}
 }
 
+// engagement.yaml must parse and cannot be deleted: either makes the
+// engagement fail (500) or vanish from YARS.
+func TestPolicyEngagementYAML(t *testing.T) {
+	f := newFx(t)
+	if ps := f.push("dora", func(d string) { write(d, "engagement.yaml", "name: [x\n") }); !has(ps, "engagement.yaml: cannot parse") {
+		t.Fatalf("broken engagement.yaml accepted: %v", ps)
+	}
+	f.reclone()
+	if ps := f.push("dora", func(d string) { os.Remove(filepath.Join(d, "engagement.yaml")) }); !has(ps, "cannot be deleted") {
+		t.Fatalf("engagement.yaml deletion accepted: %v", ps)
+	}
+	f.reclone()
+	if ps := f.push("dora", func(d string) { write(d, "engagement.yaml", "name: ACME Corp\n") }); len(ps) != 0 {
+		t.Fatalf("valid engagement.yaml refused: %v", ps)
+	}
+}
+
 // When the server's own config does not load, only a director's push that
 // changes it to one that loads is accepted.
 func TestPolicyBrokenConfigRepair(t *testing.T) {

@@ -601,13 +601,20 @@ func (s *Store) Engagement(id string) (Engagement, error) {
 	if err != nil {
 		return Engagement{}, err
 	}
-	var e Engagement
-	if err := yaml.Unmarshal(b, &e); err != nil {
+	e, err := ParseEngagement(b)
+	if err != nil {
 		return Engagement{}, fmt.Errorf("engagement %s: %w", id, err)
 	}
 	e.ID = id
 	e.Archived = s.Archived(id)
 	return e, nil
+}
+
+// ParseEngagement reads an engagement.yaml.
+func ParseEngagement(b []byte) (Engagement, error) {
+	var e Engagement
+	err := yaml.Unmarshal(b, &e)
+	return e, err
 }
 
 // commit commits paths (data-dir relative, all in one engagement) in that
