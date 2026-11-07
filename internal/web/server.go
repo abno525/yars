@@ -168,20 +168,23 @@ type page struct {
 	ExportV       exportView
 	Source        store.Engagement
 	Form          url.Values
-	Tpl           tplView     // templates, the template picker
-	History       historyView // a finding's history
-	ETab          engTabs     // the engagement tabs (Findings, Overview, Report, Settings)
-	Overview      overviewView
-	Report        reportView
-	EngSettings   engSettingsView
-	Assets        assetsView // a finding's affected assets
-	Dups          dupView    // possible duplicates of a finding
-	Merge         mergeView  // the Merge confirm page
-	CanMerge      bool       // the finding page: Merge into
-	Unread        int        // the bell: unread notifications
-	Notes         notesView  // the notifications page
-	Docs          docsView   // the developer docs
-	TeamBoard     teamBoardView
+	// the login lockout (D27): when it ends (RFC 3339) and the time left
+	// (m:ss); "" = none
+	LockUntil, LockLeft string
+	Tpl                 tplView     // templates, the template picker
+	History             historyView // a finding's history
+	ETab                engTabs     // the engagement tabs (Findings, Overview, Report, Settings)
+	Overview            overviewView
+	Report              reportView
+	EngSettings         engSettingsView
+	Assets              assetsView // a finding's affected assets
+	Dups                dupView    // possible duplicates of a finding
+	Merge               mergeView  // the Merge confirm page
+	CanMerge            bool       // the finding page: Merge into
+	Unread              int        // the bell: unread notifications
+	Notes               notesView  // the notifications page
+	Docs                docsView   // the developer docs
+	TeamBoard           teamBoardView
 }
 
 var funcs = template.FuncMap{"join": strings.Join, "checkedIn": checkedIn, "retestLabel": workflow.RetestLabel, "fpath": findingURL,
@@ -426,11 +429,25 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		// the username stays filled in (never the password)
 		form := url.Values{"username": {r.FormValue("username")}}
-		s.renderStatus(w, http.StatusUnauthorized, "login.html", &page{Bare: true, Error: "Wrong username or password", Form: form})
+		p := &page{Bare: true, Error: "Wrong username or password", Form: form}
+		if until, locked := s.Auth.LockedUntil(r.FormValue("username")); locked {
+			p.LockUntil, p.LockLeft = until.UTC().Format(time.RFC3339), lockLeft(time.Until(until))
+		}
+		s.renderStatus(w, http.StatusUnauthorized, "login.html", p)
 		return
 	}
 	auth.SetCookie(w, tok)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+// lockLeft shows the rest of a lockout as m:ss.
+func lockLeft(d time.Duration) string {
+	sec := max(int(d.Round(time.Second).Seconds()), 0)
+	ss := strconv.Itoa(sec % 60)
+	if len(ss) < 2 {
+		ss = "0" + ss
+	}
+	return strconv.Itoa(sec/60) + ":" + ss
 }
 
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) {

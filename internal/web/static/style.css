@@ -985,6 +985,7 @@ input.grow, select.grow { flex: 1; min-width: 0; }
 .usertable th.c-role { width: 136px; }
 .usertable th.c-date { width: 112px; }
 .usertable th.c-num { width: 80px; }
+.usertable th.c-lock { width: 128px; }
 .stack > .idline { display: flex; gap: 8px; }
 .idline > span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .idline > .mono { flex: none; max-width: 60%; }

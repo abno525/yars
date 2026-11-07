@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"net/http"
 	"sync"
+	"time"
 
 	"golang.org/x/crypto/bcrypt"
 
@@ -82,22 +83,43 @@ func (a *Auth) Check(username, pw string) (config.User, bool) {
 	return u, true
 }
 
-// Verify is the password check alone (a temporary password included).
+// Verify reports whether pw is the account's password now (a temporary one
+// included), for a signed-in user's own checks: it is no login attempt.
 func (a *Auth) Verify(username, pw string) bool {
-	_, ok := a.verify(username, pw)
-	return ok
+	u, ok := a.Lookup(username)
+	return ok && bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(pw)) == nil
 }
 
+// verify is every password login (web, git over HTTP): an attempt of the
+// username is reserved first, so a name locked out (D27: 5 failures, then
+// 15 minutes) gets no guess at all, whether or not it has an account. A
+// success clears the count; the failure that reaches the limit starts the
+// lockout and goes to the audit log.
 func (a *Auth) verify(username, pw string) (config.User, bool) {
+	ok, _, err := a.db.LoginAttempt(username)
+	if err != nil || !ok {
+		return config.User{}, false
+	}
 	u, ok := a.Lookup(username)
 	hash := a.dummy
 	if ok {
 		hash = []byte(u.PasswordHash)
 	}
-	if bcrypt.CompareHashAndPassword(hash, []byte(pw)) != nil || !ok {
+	good := bcrypt.CompareHashAndPassword(hash, []byte(pw)) == nil && ok
+	if locked, until, err := a.db.LoginDone(username, good); err == nil && locked {
+		a.db.Audit(username, "login.lockout", username, until.Format(time.RFC3339))
+	}
+	if !good {
 		return config.User{}, false
 	}
 	return u, true
+}
+
+// LockedUntil reports whether username is locked out of password logins
+// now, and until when.
+func (a *Auth) LockedUntil(username string) (time.Time, bool) {
+	t, ok, _ := a.db.LockedUntil(username)
+	return t, ok
 }
 
 // Login checks credentials and returns a new session token. Successes and

@@ -157,7 +157,7 @@
   <section class="panel">
     <div class="panelhead"><h2>Users</h2><span class="pstate error" title="{{.Error}}">{{.Error}}</span></div>
     <table class="table stable usertable">
-      <thead><tr><th>User</th><th class="c-role">Role</th><th class="c-flag">Admin</th><th class="c-flag">Disabled</th><th class="c-date">Created</th><th class="c-num">Tokens</th><th class="c-act">Action</th></tr></thead>
+      <thead><tr><th>User</th><th class="c-role">Role</th><th class="c-flag">Admin</th><th class="c-flag">Disabled</th><th class="c-date">Created</th><th class="c-num">Tokens</th><th class="c-lock">Lockout</th><th class="c-act">Action</th></tr></thead>
       <tbody>
         {{range .Rows}}
         <tr{{if .Disabled}} class="off"{{end}}>
@@ -182,6 +182,7 @@
           </td>
           <td class="mono">{{.Created}}</td>
           <td class="num">{{.Tokens}}</td>
+          <td>{{if .Locked}}<form method="post" action="/admin/users/{{.Username}}/unlock"><button class="btn secondary sm w96" title="Locked until {{.Locked}}">Clear</button></form>{{else}}<span class="slot w96"></span>{{end}}</td>
           <td><form method="post" action="/admin/users/{{.Username}}/reset"><button class="btn ghost sm w112">Reset pass</button></form></td>
         </tr>
         {{end}}

@@ -25,6 +25,7 @@ type userRow struct {
 	config.User
 	Tokens int
 	Self   bool
+	Locked string // locked out of password logins until (HH:MM); "" = not
 }
 
 type tempPassword struct{ User, Password string }
@@ -38,6 +39,21 @@ func (s *Server) routesAdminUsers(mux *http.ServeMux) {
 	mux.HandleFunc("POST /admin/users/{name}/admin", s.adminOnly(s.userFlag("admin")))
 	mux.HandleFunc("POST /admin/users/{name}/disabled", s.adminOnly(s.userFlag("disabled")))
 	mux.HandleFunc("POST /admin/users/{name}/reset", s.adminOnly(s.userReset))
+	mux.HandleFunc("POST /admin/users/{name}/unlock", s.adminOnly(s.userUnlock))
+}
+
+// userUnlock ends the account's login lockout (D27).
+func (s *Server) userUnlock(w http.ResponseWriter, r *http.Request) {
+	u, ok := s.target(w, r)
+	if !ok {
+		return
+	}
+	if err := s.Store.DB().ClearLockout(u.Username); err != nil {
+		s.fail(w, err)
+		return
+	}
+	s.Store.DB().Audit(auth.UserFrom(r.Context()).Username, "login.unlock", u.Username, "")
+	http.Redirect(w, r, "/admin/users", http.StatusSeeOther)
 }
 
 func (s *Server) usersPage(w http.ResponseWriter, r *http.Request, status int, v usersAdmin) {
@@ -50,9 +66,17 @@ func (s *Server) usersPage(w http.ResponseWriter, r *http.Request, status int, v
 		for _, t := range s.Tokens.List() {
 			count[t.User]++
 		}
+		locks, err := s.Store.DB().Lockouts()
+		if err != nil {
+			return err
+		}
 		for _, u := range users {
 			u.Created = day(u.Created)
-			v.Rows = append(v.Rows, userRow{User: u, Tokens: count[u.Username], Self: u.Username == p.User.Username})
+			row := userRow{User: u, Tokens: count[u.Username], Self: u.Username == p.User.Username}
+			if t, ok := locks[u.Username]; ok {
+				row.Locked = t.Local().Format("15:04")
+			}
+			v.Rows = append(v.Rows, row)
 		}
 		v.Roles = config.Roles
 		if v.Form == nil {

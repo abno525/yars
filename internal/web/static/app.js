@@ -83,6 +83,25 @@ function yarsPickCountAll() {
 }
 document.addEventListener('DOMContentLoaded', yarsPickCountAll);
 window.addEventListener('pageshow', yarsPickCountAll);
+
+// Login lockout: the alert counts down (m:ss); at 0 it goes and the form
+// works again, without a reload.
+function yarsLockout() {
+  var box = document.querySelector('[data-lock-until]');
+  if (!box) return;
+  var until = Date.parse(box.getAttribute('data-lock-until'));
+  var left = box.querySelector('[data-lock-left]');
+  function tick() {
+    var s = Math.max(0, Math.round((until - Date.now()) / 1000));
+    left.textContent = Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+    if (s > 0) { setTimeout(tick, 1000); return; }
+    box.remove();
+    var form = document.querySelector('form[data-locked]');
+    if (form) form.querySelectorAll('[disabled]').forEach(function (el) { el.disabled = false; });
+  }
+  tick();
+}
+document.addEventListener('DOMContentLoaded', yarsLockout);
 document.addEventListener('htmx:afterSettle', yarsPickCountAll);
 
 document.addEventListener('click', function (evt) {

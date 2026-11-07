@@ -1,13 +1,14 @@
 {{define "content"}}
 <div class="barestack">
-<form class="barecard" method="post" action="/login">
+<form class="barecard" method="post" action="/login"{{if .LockLeft}} data-locked{{end}}>
   <div class="barefields">
     {{$name := .Form.Get "username"}}
     <label>Username<input name="username" value="{{$name}}" autocomplete="username" required{{if not $name}} autofocus{{end}}></label>
-    <label>Password<input name="password" type="password" autocomplete="current-password" required{{if $name}} autofocus{{end}}></label>
+    <label>Password<input name="password" type="password" autocomplete="current-password" required{{if $name}} autofocus{{end}}{{if .LockLeft}} disabled{{end}}></label>
   </div>
-  <button class="btn primary barebtn">Log in</button>
+  <button class="btn primary barebtn"{{if .LockLeft}} disabled{{end}}>Log in</button>
 </form>
-{{with .Error}}<div class="barealert" role="alert" title="{{.}}"><span class="clip">{{.}}</span></div>{{end}}
+{{if .LockLeft}}<div class="barealert" role="alert" data-lock-until="{{.LockUntil}}"><span>Too many attempts</span><span>Try again in <span class="mono" data-lock-left>{{.LockLeft}}</span></span></div>
+{{else}}{{with .Error}}<div class="barealert" role="alert" title="{{.}}"><span class="clip">{{.}}</span></div>{{end}}{{end}}
 </div>
 {{end}}
