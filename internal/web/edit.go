@@ -234,6 +234,10 @@ func (s *Server) newFinding(w http.ResponseWriter, r *http.Request) {
 		bad("Title is required.")
 		return
 	}
+	if store.CheckTitle(title) != nil {
+		bad("The title must be one line of 1–200 characters.")
+		return
+	}
 	if mode == "template" && tpl == "" {
 		bad("Pick a template.")
 		return

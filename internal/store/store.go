@@ -24,6 +24,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"gopkg.in/yaml.v3"
 
@@ -808,11 +809,25 @@ func (s *Store) CreateRetest(e Engagement, source string, dirs []string, assigne
 	})
 }
 
+// CheckTitle accepts a finding title: one line of 1–200 characters once
+// trimmed.
+func CheckTitle(title string) error {
+	title = strings.TrimSpace(title)
+	breaks := strings.ContainsFunc(title, func(r rune) bool {
+		// line breaks, line/paragraph separators and terminal controls
+		return (unicode.IsControl(r) && r != '\t') || r == ' ' || r == ' '
+	})
+	if title == "" || breaks || len([]rune(title)) > 200 {
+		return fmt.Errorf("%w: the title must be one line of 1–200 characters", ErrInvalidValue)
+	}
+	return nil
+}
+
 // UpdateTitle changes a finding's title (single line, 1–200 characters).
 func (s *Store) UpdateTitle(engID, dir, title string, a Actor) error {
 	title = strings.TrimSpace(title)
-	if title == "" || strings.ContainsAny(title, "\r\n") || len([]rune(title)) > 200 {
-		return fmt.Errorf("%w: the title must be one line of 1–200 characters", ErrInvalidValue)
+	if err := CheckTitle(title); err != nil {
+		return err
 	}
 	return s.mutateContent(engID, dir, a, func(f *finding.Finding) (string, error) {
 		return "edit title", f.SetMeta("title", title)
@@ -1050,6 +1065,9 @@ func (s *Store) createFinding(engID, title string, a gitrepo.Author, build func(
 
 // createLocked writes and commits the new finding under the engagement lock.
 func (s *Store) createLocked(engID, title string, a gitrepo.Author, build func(id string) (*finding.Finding, error)) (FindingRef, error) {
+	if err := CheckTitle(title); err != nil {
+		return FindingRef{}, err
+	}
 	if _, err := s.Engagement(engID); err != nil {
 		return FindingRef{}, err
 	}

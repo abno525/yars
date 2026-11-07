@@ -26,6 +26,9 @@ func TestCreateFindingFlow(t *testing.T) {
 	if rec := e.do(t, "alice", "POST", "/e/acme/findings/new", url.Values{"title": {"  "}}, nil); rec.Code != http.StatusBadRequest {
 		t.Fatalf("empty title code %d", rec.Code)
 	}
+	if rec := e.do(t, "alice", "POST", "/e/acme/findings/new", url.Values{"title": {strings.Repeat("a", 201)}}, nil); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "1–200 characters") {
+		t.Fatalf("overlong title code %d", rec.Code)
+	}
 	if rec := e.do(t, "alice", "POST", "/e/nope/findings/new", url.Values{"title": {"x"}}, nil); rec.Code != 404 {
 		t.Fatalf("unknown engagement code %d", rec.Code)
 	}
