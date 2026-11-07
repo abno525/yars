@@ -38,6 +38,9 @@ func (d *DB) AddUser(u config.User) error {
 		return fmt.Errorf("user %s already exists", u.Username)
 	}
 	return d.Tx(func(tx *Tx) error {
+		if err := emailFree(tx, u.Username, u.Email); err != nil {
+			return err
+		}
 		_, err := tx.Exec("INSERT INTO users(username, email, role, password_hash, created, is_admin, disabled, theme, must_change) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
 			u.Username, u.Email, u.Role, u.PasswordHash, d.stamp(), b2i(u.IsAdmin), b2i(u.Disabled), u.Theme, b2i(u.MustChange))
 		return err
@@ -83,9 +86,44 @@ func (d *DB) UserCount() (int, error) {
 	return n, err
 }
 
-// SetEmail changes the account's email (used for its git commits).
+// ErrEmailTaken: another account has that email already (git pushes are
+// matched to accounts by the commit's author email).
+var ErrEmailTaken = errors.New("email used by another account")
+
+// commitEmail is the SQL for the email an account commits as (its own, or
+// <username>@yars.local without one; see config.User.GitAuthor).
+const commitEmail = "lower(CASE WHEN email = '' THEN username || '@yars.local' ELSE email END)"
+
+// emailFree returns ErrEmailTaken when an account other than name commits
+// as the email that name would commit as with email.
+func emailFree(tx *Tx, name, email string) error {
+	own := config.User{Username: name, Email: email}.GitAuthor().Email
+	var n int
+	if err := tx.QueryRow("SELECT count(*) FROM users WHERE username != ? AND "+commitEmail+" = lower(?)", name, own).Scan(&n); err != nil {
+		return err
+	}
+	if n > 0 {
+		return ErrEmailTaken
+	}
+	return nil
+}
+
+// SetEmail changes the account's email (used for its git commits); one
+// another account commits as is refused (ErrEmailTaken).
 func (d *DB) SetEmail(name, email string) error {
-	return d.update(name, "UPDATE users SET email = ? WHERE username = ?", email, name)
+	return d.Tx(func(tx *Tx) error {
+		if err := emailFree(tx, name, email); err != nil {
+			return err
+		}
+		res, err := tx.Exec("UPDATE users SET email = ? WHERE username = ?", email, name)
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n != 1 {
+			return fmt.Errorf("no user %s", name)
+		}
+		return nil
+	})
 }
 
 func (d *DB) User(name string) (config.User, bool, error) {

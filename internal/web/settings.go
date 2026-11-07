@@ -1,6 +1,7 @@
 package web
 
 import (
+	"errors"
 	"net/http"
 	"slices"
 	"strconv"
@@ -246,7 +247,10 @@ func (s *Server) settingsAccount(w http.ResponseWriter, r *http.Request) {
 		s.settingsError(w, r, func(v *settingsView) { v.AccountErr = msg })
 		return
 	}
-	if err := s.Store.DB().SetEmail(u.Username, email); err != nil {
+	if err := s.Store.DB().SetEmail(u.Username, email); errors.Is(err, db.ErrEmailTaken) {
+		s.settingsError(w, r, func(v *settingsView) { v.AccountErr = "Email used by another account" })
+		return
+	} else if err != nil {
 		s.fail(w, err)
 		return
 	}

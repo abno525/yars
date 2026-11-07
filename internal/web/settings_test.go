@@ -57,6 +57,10 @@ func TestSettingsEmailAndPassword(t *testing.T) {
 	if rec := e.do(t, "alice", "POST", "/settings/account", url.Values{"email": {"not an email"}}, nil); rec.Code != http.StatusBadRequest {
 		t.Fatalf("bad email %d", rec.Code)
 	}
+	// another account's email (git pushes are matched by it) is refused
+	if rec := e.do(t, "bob", "POST", "/settings/account", url.Values{"email": {"Alice@acme.test"}}, nil); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "Email used by another account") {
+		t.Fatalf("taken email %d", rec.Code)
+	}
 	bad := []url.Values{
 		{"current": {"wrong"}, "new": {"long enough pw"}, "repeat": {"long enough pw"}},
 		{"current": {"pw"}, "new": {"long enough pw"}, "repeat": {"other"}},

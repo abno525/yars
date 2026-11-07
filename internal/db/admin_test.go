@@ -59,6 +59,44 @@ func TestEmailCreatedAndFirstUser(t *testing.T) {
 	}
 }
 
+// A push counts a commit as the account whose email it carries, so no two
+// accounts share one, in any letter case, counting the <username>@yars.local
+// address an account without an email commits as.
+func TestEmailUnique(t *testing.T) {
+	d, _ := open(t)
+	if err := d.AddUser(config.User{Username: "alice", Role: "pentester"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.AddUser(config.User{Username: "bob", Role: "pentester", Email: "bob@corp.example"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.AddUser(config.User{Username: "mallory", Role: "pentester"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range []string{"bob@corp.example", "BOB@Corp.Example", "alice@yars.local", "Alice@YARS.local"} {
+		if err := d.SetEmail("mallory", e); !errors.Is(err, ErrEmailTaken) {
+			t.Errorf("mallory took %s: %v", e, err)
+		}
+	}
+	if err := d.AddUser(config.User{Username: "eve", Role: "pentester", Email: "bob@CORP.example"}); !errors.Is(err, ErrEmailTaken) {
+		t.Errorf("new account with bob's email: %v", err)
+	}
+	// a new account without an email commits as <name>@yars.local
+	if err := d.SetEmail("mallory", "carol@yars.local"); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.AddUser(config.User{Username: "carol", Role: "pentester"}); !errors.Is(err, ErrEmailTaken) {
+		t.Errorf("carol would commit as mallory's email: %v", err)
+	}
+	// clearing one's own email falls back to the own address: fine unless taken
+	if err := d.SetEmail("bob", "BOB@corp.example"); err != nil {
+		t.Fatalf("own email in another case: %v", err)
+	}
+	if err := d.SetEmail("alice", ""); err != nil {
+		t.Fatalf("clearing: %v", err)
+	}
+}
+
 func TestSessionsList(t *testing.T) {
 	d, _ := open(t)
 	d.AddUser(config.User{Username: "ann", Role: "pentester"})
