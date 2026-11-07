@@ -63,6 +63,14 @@ func (s *Server) conflictOf(ref store.FindingRef, section, mine, base string) *c
 	d := &conflictDiff{MineBase: short(base), TheirsAt: short(store.BodyHash(theirs))}
 	d.By, d.At = s.lastChange(ref, section)
 	norm := func(t string) string { return strings.Trim(strings.ReplaceAll(t, "\r\n", "\n"), "\n") }
+	if old, ok := s.baseText(ref, section, base); ok {
+		// each side against the text both started from: what it removed
+		// and what it added
+		d.Mine = histLines(history.Diff(norm(old), norm(mine)))
+		d.Theirs = histLines(history.Diff(norm(old), norm(theirs)))
+		return d
+	}
+	// the base is not in the history: show the two texts against each other
 	for _, l := range history.Diff(norm(theirs), norm(mine)) {
 		switch l.Op {
 		case '+':
@@ -75,6 +83,28 @@ func (s *Server) conflictOf(ref store.FindingRef, section, mine, base string) *c
 		}
 	}
 	return d
+}
+
+// baseText finds the section's text whose hash is base in the finding's
+// history (newest first).
+func (s *Server) baseText(ref store.FindingRef, section, base string) (string, bool) {
+	if base == "" {
+		return "", false
+	}
+	vs, err := s.versions(ref)
+	if err != nil {
+		return "", false
+	}
+	for _, v := range vs {
+		f, err := finding.Parse(v.Raw)
+		if err != nil {
+			continue
+		}
+		if b, ok := f.Section(section); ok && store.BodyHash(b) == base {
+			return b, true
+		}
+	}
+	return "", false
 }
 
 func short(h string) string {

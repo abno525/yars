@@ -3,10 +3,12 @@ package web
 import (
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"testing"
 
 	"yars/internal/config"
+	"yars/internal/store"
 	"yars/internal/workflow"
 )
 
@@ -52,6 +54,38 @@ func TestRootScrollbarGutter(t *testing.T) {
 	css := e.do(t, "alice", "GET", staticPrefix()+"/style.css", nil, nil).Body.String()
 	if rule := between(css, "\nhtml {", "}"); !strings.Contains(rule, "scrollbar-gutter: stable") {
 		t.Fatalf("html rule: %q", rule)
+	}
+}
+
+// The conflict view shows each side against the text both started from:
+// the base line removed, each side's own line added.
+func TestConflictDiffAgainstBase(t *testing.T) {
+	e := setup(t)
+	st := e.srv.Store
+	alice := config.User{Username: "alice", Role: "pentester"}
+	if err := st.UpdateSection("acme", "F-001-sql-injection", "Impact", "base line", "", alice); err != nil {
+		t.Fatal(err)
+	}
+	ref, _ := st.Finding("acme", "F-001-sql-injection")
+	body, _ := ref.F.Section("Impact")
+	base := store.BodyHash(body)
+	if err := st.UpdateSection("acme", "F-001-sql-injection", "Impact", "their line", "", alice); err != nil {
+		t.Fatal(err)
+	}
+	rec := e.do(t, "alice", "POST", "/e/acme/f/F-001-sql-injection/s/Impact", url.Values{"body": {"my line"}, "base": {base}}, nil)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("code %d", rec.Code)
+	}
+	diff := between(rec.Body.String(), `class="cdiff`, "</section>")
+	cols := strings.SplitN(diff, `class="ccol"`, 3)
+	if len(cols) != 3 {
+		t.Fatalf("diff:\n%s", diff)
+	}
+	for i, want := range []string{"my line", "their line"} {
+		col := cols[i+1]
+		if !regexp.MustCompile(`class="ln del">.*?base line`).MatchString(col) || !regexp.MustCompile(`class="ln add">.*?`+want).MatchString(col) {
+			t.Errorf("column %d lacks the base removed and %q added:\n%s", i, want, col)
+		}
 	}
 }
 
