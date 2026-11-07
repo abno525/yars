@@ -31,6 +31,17 @@ func TestFindingsBoardLive(t *testing.T) {
 	}
 }
 
+// The editor's attachment strip has a bounded height and scrolls: a finding
+// with thousands of attachments made the editor 327,680 px tall.
+func TestAttachStripBounded(t *testing.T) {
+	e := setup(t)
+	css := e.do(t, "alice", "GET", staticPrefix()+"/style.css", nil, nil).Body.String()
+	rule := between(css, ".attstrip {", "}")
+	if !strings.Contains(rule, "max-height: 440px") || !strings.Contains(rule, "overflow-y: auto") {
+		t.Fatalf(".attstrip rule: %s", rule)
+	}
+}
+
 // A title made only of bidi controls is empty once cleaned: the form says
 // so (400 with the form), not a bare error from the store.
 func TestNewFindingBidiOnlyTitle(t *testing.T) {
