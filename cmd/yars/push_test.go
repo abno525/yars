@@ -90,6 +90,45 @@ func TestPushChunkedBody(t *testing.T) {
 	}
 }
 
+// Through the real hook: with the server's config.yaml broken, a
+// pentester's push is refused with the reason, and a director's push that
+// repairs config.yaml over /git/yars is accepted.
+func TestPushRepairsBrokenConfig(t *testing.T) {
+	p := newPushEnv(t)
+	main := filepath.Dir(filepath.Dir(p.repo.Dir))
+	in := func(dir string, args ...string) (string, error) {
+		cmd := exec.Command("git", append([]string{"-C", dir, "-c", "user.name=dora", "-c", "user.email=dora@yars.local", "-c", "commit.gpgsign=false"}, args...)...)
+		cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+		out, err := cmd.CombinedOutput()
+		return string(out), err
+	}
+	os.WriteFile(filepath.Join(main, ".yars", "config.yaml"), []byte("severities: [x\n"), 0o644)
+	if out, err := in(main, "add", ".yars/config.yaml"); err != nil {
+		t.Fatalf("%v %s", err, out)
+	}
+	if out, err := in(main, "commit", "-qm", "broken config"); err != nil {
+		t.Fatalf("%v %s", err, out)
+	}
+	p.editFinding(func(f *finding.Finding) { f.SetSection("Impact", "blocked") })
+	if out, err := p.git("push", "origin", "HEAD"); err == nil || !strings.Contains(out, "cannot be loaded") {
+		t.Fatalf("push with a broken server config: %v\n%s", err, out)
+	}
+	if out, err := in(p.clone, "pull", "-q", "--no-rebase", "--no-edit", "origin", "main"); err != nil {
+		t.Fatalf("pull: %v %s", err, out)
+	}
+	os.WriteFile(filepath.Join(p.clone, ".yars", "config.yaml"), []byte("severities: [critical, high, medium, low, info]\n"), 0o644)
+	if out, err := in(p.clone, "commit", "-qm", "repair config", "--", ".yars/config.yaml"); err != nil {
+		t.Fatalf("%v %s", err, out)
+	}
+	dora := strings.Replace(p.url, "http://", "http://dora:pw@", 1) + "/git/yars"
+	if out, err := in(p.clone, "push", dora, "HEAD:main"); err != nil {
+		t.Fatalf("repair push refused: %v\n%s", err, out)
+	}
+	if out, err := p.git("push", "-q", "origin", "HEAD"); err != nil {
+		t.Fatalf("push after the repair: %v\n%s", err, out)
+	}
+}
+
 // A chunked body over the cap is refused (413) and leaves no spool file.
 func TestPushChunkedBodyCapped(t *testing.T) {
 	tmp := t.TempDir()
