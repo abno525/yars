@@ -80,8 +80,8 @@
     <h3>Analysis</h3>
     <div class="tbrow">
       {{if .ReadOnly}}<select class="w152" aria-label="Likely severity" disabled><option>{{if .Severity}}{{.SevLabel}}{{else}}Likely severity{{end}}</option></select>
-      {{else}}<form class="tbsev" hx-post="{{.PostURL}}severity" hx-trigger="change" hx-target="#board" hx-swap="outerHTML">{{template "lead_keep" .}}
-        <select class="w152" name="severity" aria-label="Likely severity"><option value="">Likely severity</option>{{$sev := .Severity}}{{range .Severities}}<option value="{{.Value}}"{{if eq .Value $sev}} selected{{end}}>{{.Label}}</option>{{end}}</select>
+      {{else}}<form class="tbsev" hx-post="{{.PostURL}}severity" hx-trigger="yars:choose" hx-target="#board" hx-swap="outerHTML">{{template "lead_keep" .}}
+        <select class="w152" name="severity" aria-label="Likely severity" data-choose><option value="">Likely severity</option>{{$sev := .Severity}}{{range .Severities}}<option value="{{.Value}}"{{if eq .Value $sev}} selected{{end}}>{{.Label}}</option>{{end}}</select>
       </form>{{end}}
       <span class="tbdup">{{if .DupURL}}Duplicate of <a href="{{.DupURL}}">{{.DupOf}}</a>{{end}}</span>
     </div>

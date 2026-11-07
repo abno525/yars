@@ -34,10 +34,10 @@
   {{else if .Locked}}
     <p class="scoreline"><span class="mname">Severity</span> {{if .Severity}}<span class="tag sev-{{.Severity}}">{{.Severity}}</span>{{else}}<span class="muted">—</span>{{end}}</p>
   {{else}}
-    <form class="sevform" hx-post="{{.SeverityURL}}" hx-target="#cvss" hx-swap="outerHTML" hx-trigger="change">
+    <form class="sevform" hx-post="{{.SeverityURL}}" hx-target="#cvss" hx-swap="outerHTML" hx-trigger="yars:choose">
       <input type="hidden" name="base" value="{{.SevBase}}">
       <label>Severity
-        <select name="severity">
+        <select name="severity" data-choose>
           <option value="" {{if not .Severity}}selected{{end}} disabled>—</option>
           {{$cur := .Severity}}
           {{range .Severities}}<option value="{{.}}"{{if eq . $cur}} selected{{end}}>{{.}}</option>{{end}}

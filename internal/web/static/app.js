@@ -84,6 +84,38 @@ function yarsPickCountAll() {
 document.addEventListener('DOMContentLoaded', yarsPickCountAll);
 window.addEventListener('pageshow', yarsPickCountAll);
 
+// A select marked data-choose acts on an explicit choice only: a click on
+// an option, or Enter. Moving through the options with the keyboard
+// changes the value without acting. Its form is submitted, or one with
+// hx-trigger="yars:choose" is sent by htmx.
+function yarsChoose(sel) {
+  var form = sel.form;
+  if (!form) return;
+  if (form.hasAttribute('hx-post') || form.hasAttribute('hx-get')) htmx.trigger(form, 'yars:choose');
+  else form.submit();
+}
+document.addEventListener('keydown', function (e) {
+  var s = e.target;
+  if (!s.matches || !s.matches('select[data-choose]')) return;
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    s.removeAttribute('data-keyed');
+    yarsChoose(s);
+  } else if (e.key !== 'Tab' && e.key !== 'Shift') {
+    s.setAttribute('data-keyed', '');
+  }
+});
+document.addEventListener('pointerdown', function (e) {
+  var s = e.target.closest && e.target.closest('select[data-choose]');
+  if (s) s.removeAttribute('data-keyed');
+});
+document.addEventListener('change', function (e) {
+  var s = e.target;
+  if (!s.matches || !s.matches('select[data-choose]')) return;
+  if (s.hasAttribute('data-keyed')) { s.removeAttribute('data-keyed'); return; }
+  yarsChoose(s);
+});
+
 // Login lockout: the alert counts down (m:ss) from the seconds the server
 // gave (not the browser's clock); at 0 it goes and the form works again,
 // without a reload. Another username is not locked: the form works for it.
