@@ -6,6 +6,7 @@ package policy
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"slices"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	"yars/internal/db"
 	"yars/internal/finding"
 	"yars/internal/gitrepo"
+	"yars/internal/rules"
 	"yars/internal/store"
 	"yars/internal/workflow"
 )
@@ -41,6 +43,14 @@ type Checker struct {
 	// load (Cfg is then the defaults): only a push that changes that file
 	// is accepted, so a director can repair it over git.
 	ConfigErr error
+
+	// Linter, when set, runs the server's check rules (the Check button's
+	// engine) on each finding the push changes, as its last commit has it.
+	Linter store.Linter
+
+	// Notes is what the pusher should hear even of an accepted push: rule
+	// warnings, and rule errors of drafts.
+	Notes []string
 
 	// Carry lists approved findings a director changed in the checked push;
 	// once the push is accepted the hook moves their approval to the new
@@ -165,6 +175,10 @@ func (c *Checker) Check(username string, ups []Update) []string {
 			repairs = repairs || rep
 		}
 		if len(ps) == 0 {
+			// the slow part last: only a push that passed everything else
+			ps = append(ps, c.checkRules(old, up.New)...)
+		}
+		if len(ps) == 0 {
 			c.carry(u, old, up.New)
 		}
 	}
@@ -275,6 +289,74 @@ func (c *Checker) checkCommit(u config.User, cm gitrepo.PushedCommit, base strin
 		}
 	}
 	return ps, repairs
+}
+
+// checkRules runs the check rules on each finding old..new changes, as new
+// has it, and returns the refusals: errors of a finding in verification or
+// later (the website gates Submit and Approve on them, so they can't be
+// pushed in past that), not counting the ones dismissed on the finding.
+// Warnings, and errors of drafts, go to Notes.
+func (c *Checker) checkRules(old, new string) []string {
+	if c.Linter == nil || c.Eng == "" {
+		return nil
+	}
+	changes, err := c.Repo.ChangedFiles(old, new)
+	if err != nil {
+		return []string{"server: " + err.Error()}
+	}
+	short := new
+	if len(short) > 7 {
+		short = short[:7]
+	}
+	var ps []string
+	for _, ch := range changes {
+		seg := strings.Split(ch.Path, "/")
+		if ch.Status == 'D' || len(seg) != 3 || seg[0] != "findings" || seg[2] != "finding.md" {
+			continue
+		}
+		nb, err := c.Repo.Show(new, ch.Path)
+		if err != nil {
+			continue
+		}
+		f, err := finding.Parse(nb)
+		if err != nil {
+			continue // refused as unparseable already
+		}
+		status := "draft"
+		if ob, err := c.Repo.Show(old, ch.Path); err == nil && old != "" {
+			status = c.status(c.Eng, f.Meta.ID, ob)
+		}
+		f.Meta.Status = status
+		var dismissed map[string]db.Dismissal
+		if c.DB != nil {
+			if dismissed, err = c.DB.Dismissals(c.Eng, f.Meta.ID); err != nil {
+				return []string{"server: " + err.Error()}
+			}
+		}
+		blocks := status == "verification" || status == "complete" || status == "reported"
+		for _, v := range c.Linter.Lint(context.Background(), f, rules.All) {
+			if _, ok := dismissed[db.DismissKey(v.Rule, store.ViolationHash(v.Target, v.Quote))]; ok {
+				continue
+			}
+			level := v.Level
+			if v.Target == "rules" || v.Target == "ai" {
+				level = "could not run" // a broken rule or a missing AI provider
+			} else if level == "error" && !blocks {
+				level = "error; blocks Submit"
+			}
+			line := "commit " + short + " " + ch.Path + ": check " + v.Rule + " (" + level + "): " + v.Message
+			if q := strings.Join(strings.Fields(v.Quote), " "); q != "" {
+				line += fmt.Sprintf(" (%q)", q)
+			}
+			switch {
+			case level == "error":
+				ps = append(ps, line)
+			case !slices.Contains(c.Notes, line): // a rule may report per section
+				c.Notes = append(c.Notes, line)
+			}
+		}
+	}
+	return ps
 }
 
 // carry records the approved findings a director's accepted push changes

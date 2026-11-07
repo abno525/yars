@@ -15,6 +15,7 @@ import (
 	"yars/internal/db"
 	"yars/internal/finding"
 	"yars/internal/gitrepo"
+	"yars/internal/rules"
 	"yars/internal/store"
 	"yars/internal/workflow"
 )
@@ -776,6 +777,63 @@ func TestPolicyControlCharacterName(t *testing.T) {
 	ps := f.push("alice", func(d string) { write(d, fdir+"/attachments/a\nb.txt", "x") })
 	if !hasLine(ps, "commit "+short(t, f.clone, "HEAD")+" ", "control characters") || has(ps, "server") {
 		t.Fatalf("newline in a name: %v", ps)
+	}
+}
+
+// ruleEngine is a rules engine with one error rule (no TODO) and one
+// warning rule (no FIXME).
+func ruleEngine(t *testing.T) *rules.Engine {
+	dir := t.TempDir()
+	write(dir, "style.yaml", "- id: no-todo\n  regex_forbid: TODO\n  message: No TODO left\n- id: no-fixme\n  level: warning\n  regex_forbid: FIXME\n  message: No FIXME\n")
+	return rules.NewEngine(dir, config.Default())
+}
+
+// The check rules run on every pushed finding (its final content): an
+// error refuses a finding in verification or later, naming the commit,
+// file and rule; a draft is accepted (the website saves drafts with errors
+// too) and the push hears its errors and warnings as notes; an error a
+// reviewer dismissed does not count.
+func TestPolicyRulesOnPush(t *testing.T) {
+	f := newFx(t)
+	f.c.Linter = ruleEngine(t)
+	todo := func(d string) {
+		editMeta(d, func(fd *finding.Finding) { fd.SetSection("Impact", "TODO and FIXME") })
+	}
+	if ps := f.push("alice", todo); len(ps) != 0 {
+		t.Fatalf("draft refused: %v", ps)
+	}
+	head := short(t, f.clone, "HEAD")
+	if !hasLine(f.c.Notes, "commit "+head+" "+fdir+"/finding.md: check no-todo (error; blocks Submit): No TODO left", "") ||
+		!hasLine(f.c.Notes, "commit "+head+" "+fdir+"/finding.md: check no-fixme (warning): No FIXME", "") {
+		t.Fatalf("notes %v", f.c.Notes)
+	}
+	st := f.st
+	st.SetReviewers("acme", "F-001-sqli", []string{"bob"}, user("alice"))
+	st.UpdateSeverity("acme", "F-001-sqli", "high", "", user("alice").GitAuthor())
+	if err := st.Transition("acme", "F-001-sqli", workflow.Submit, "", user("alice")); err != nil {
+		t.Fatal(err)
+	}
+	f.reclone()
+	f.c.Notes = nil
+	ps := f.push("bob", func(d string) {
+		editMeta(d, func(fd *finding.Finding) { fd.SetSection("Impact", "TODO by the reviewer") })
+	})
+	if !hasLine(ps, "commit "+short(t, f.clone, "HEAD")+" "+fdir+"/finding.md: check no-todo (error): No TODO left", "TODO") {
+		t.Fatalf("error in verification accepted: %v", ps)
+	}
+	// dismissed on the server copy: the same violation no longer counts
+	st.Linter = f.c.Linter
+	if err := st.UpdateSection("acme", "F-001-sqli", "Impact", "TODO kept on purpose", "", user("bob")); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.DismissWhy("acme", "F-001-sqli", "no-todo", "section:Impact", "TODO", "a quote", user("bob")); err != nil {
+		t.Fatal(err)
+	}
+	f.reclone()
+	if ps := f.push("bob", func(d string) {
+		editMeta(d, func(fd *finding.Finding) { fd.SetSection("Remediation", "Patch it.") })
+	}); len(ps) != 0 {
+		t.Fatalf("dismissed error blocks: %v", ps)
 	}
 }
 

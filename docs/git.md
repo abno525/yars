@@ -63,4 +63,14 @@ Only `refs/heads/main` can be pushed, and every commit in the push is checked on
 | `…/finding.md: only a director can delete a finding` | Deleted finding | `git checkout HEAD~1 -- <path>` |
 | `the engagement is archived (read only)` | Archived engagement | a director reopens it |
 
-Rules (`.yars/rules`) run on every push; an error-level violation of a finding that is submitted or later rejects the push.
+## Check rules on push
+
+Once a push passes the rules above, the server's check rules (`.yars/rules` as the server has them, never the pushed ones) run on each finding the push changes, as its last commit has it: the regex, built-in and script rules the Check button runs. AI rules don't run on push, since they wait on the AI provider; Check on the finding page runs them, and the push lists them as `(could not run)`.
+
+| Output | When | Push |
+|---|---|---|
+| `commit 1a2b3c4 findings/F-005-…/finding.md: check <rule> (error): <message>` | An error on a finding in verification, complete or reported | refused; fix it in a new commit |
+| `… check <rule> (error; blocks Submit): <message>` | An error on a draft (the website saves drafts with errors too; Submit is gated) | accepted |
+| `… check <rule> (warning): <message>` | A warning | accepted |
+
+Errors and warnings dismissed on the finding's Checks panel don't count. The results are not stored as a check run; press Check to see them on the finding page.

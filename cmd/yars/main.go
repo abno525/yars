@@ -450,7 +450,15 @@ func cmdHook(args []string, in io.Reader, errOut io.Writer) int {
 		}
 		c.Repo, c.Eng = er, eng
 	}
+	// the server's own rules, as the Check button runs them (AI rules
+	// excepted: they wait on the provider for up to a minute and a half)
+	re := rules.NewEngine(rules.DirFor(r.Dir), cfg)
+	re.Runner = pushRunner{re.Runner}
+	c.Linter = re
 	ps := c.Check(user, ups)
+	for _, n := range c.Notes {
+		fmt.Fprintln(errOut, "yars: "+n)
+	}
 	for _, p := range ps {
 		fmt.Fprintln(errOut, "yars: "+p)
 	}
@@ -466,6 +474,14 @@ func cmdHook(args []string, in io.Reader, errOut io.Writer) int {
 		}
 	}
 	return 0
+}
+
+// pushRunner runs script rules on a push as the Check button does, and
+// reports AI rules as not run.
+type pushRunner struct{ rules.SlowRunner }
+
+func (p pushRunner) AI(_ context.Context, r rules.Rule, _, _ string) []rules.Violation {
+	return []rules.Violation{{Rule: r.ID, Level: "warning", Target: "ai", Message: "AI rules run with Check on the finding page, not on push"}}
 }
 
 // cmdLint checks findings against the style rules. Exit code 1 when any

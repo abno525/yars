@@ -520,6 +520,35 @@ func TestPushRefusesWhatWebRefuses(t *testing.T) {
 	}
 }
 
+// Through the real hook: the server's check rules run on pushed findings.
+// A draft with a rule error goes in, and the push output says so; in
+// verification the same error refuses the push (commit, file, rule); AI
+// rules are reported as not run.
+func TestPushRunsCheckRules(t *testing.T) {
+	p := newPushEnv(t)
+	p.editFinding(func(f *finding.Finding) { f.SetMeta("title", "SQLi.") })
+	out, err := p.git("push", "origin", "HEAD")
+	head := func() string { s, _ := p.git("rev-parse", "--short=7", "HEAD"); return strings.TrimSpace(s) }
+	if err != nil || !strings.Contains(out, "remote: yars: commit "+head()+" findings/F-001-sqli/finding.md: check title-no-trailing-dot (error; blocks Submit): The title must not end with a dot") {
+		t.Fatalf("draft with a rule error: %v\n%s", err, out)
+	}
+	if err := p.st.DB().Tx(func(tx *db.Tx) error {
+		return tx.PutState("acme", "F-001", db.State{Status: "verification", Reviewers: []db.Reviewer{{Name: "alice"}}})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	p.editFinding(func(f *finding.Finding) { f.SetSection("Impact", "Reviewer's words.") })
+	out, err = p.git("push", "origin", "HEAD")
+	if err == nil || !strings.Contains(out, "remote: yars: commit "+head()+" findings/F-001-sqli/finding.md: check title-no-trailing-dot (error): The title must not end with a dot") ||
+		!strings.Contains(out, "check acronyms-expanded (could not run): AI rules run with Check on the finding page, not on push") {
+		t.Fatalf("rule error in verification: %v\n%s", err, out)
+	}
+	p.editFinding(func(f *finding.Finding) { f.SetMeta("title", "SQLi") })
+	if out, err := p.git("push", "-q", "origin", "HEAD"); err != nil {
+		t.Fatalf("fixed: %v\n%s", err, out)
+	}
+}
+
 func TestPushForceRejected(t *testing.T) {
 	p := newPushEnv(t)
 	p.editFinding(func(f *finding.Finding) { f.SetSection("Impact", "one") })
