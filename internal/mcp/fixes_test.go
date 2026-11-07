@@ -24,6 +24,8 @@ func TestMCPArgumentTypes(t *testing.T) {
 		{"set_field", map[string]any{"engagement": "acme", "finding": "F-001", "field": "severity", "value": 3}, `argument "value" must be a string`},
 		{"list_findings", map[string]any{"engagement": 1}, `argument "engagement" must be a string`},
 		{"lint_finding", map[string]any{"engagement": "acme", "finding": "F-001", "all": "true"}, `argument "all" must be a boolean`},
+		{"update_section", map[string]any{"engagement": "acme", "finding": "F-001", "section": "Impact"}, `missing argument "body"`},
+		{"set_field", map[string]any{"engagement": "acme", "finding": "F-001", "field": "reviewers"}, `missing argument "value"`},
 	} {
 		if out, isErr := f.call(alice, c.tool, c.args); !isErr || out != c.want {
 			t.Errorf("%s %v: %v %q, want %q", c.tool, c.args, isErr, out, c.want)

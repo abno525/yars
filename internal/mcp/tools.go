@@ -36,9 +36,15 @@ func (a args) need(keys ...string) error {
 	return nil
 }
 
-// badType names the first declared argument of t whose JSON type is wrong
-// (null included), so it is refused instead of read as "" or false.
+// badType names the first required argument of t that is left out, or the
+// first declared one whose JSON type is wrong (null included), so it is
+// refused instead of read as "" or false. An empty string stays valid.
 func (t tool) badType(a args) string {
+	for _, p := range t.required {
+		if _, ok := a[p.name]; !ok {
+			return fmt.Sprintf("missing argument %q", p.name)
+		}
+	}
 	for _, ps := range [][]param{t.required, t.optional} {
 		for _, p := range ps {
 			if v, ok := a[p.name]; ok {
