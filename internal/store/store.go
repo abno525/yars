@@ -1396,12 +1396,19 @@ func (s *Store) PostChat(engID, dir string, m chat.Message, u config.User) (chat
 // is locked. Clearances need no reset: they are bound to the content hash,
 // so any change voids them.
 func (s *Store) mutateContent(engID, dir string, who Actor, fn func(f *finding.Finding) (string, error)) error {
+	// the status as read: a front-matter edit (SetMeta) parses the meta
+	// again from the file, which holds no workflow state
+	status := ""
 	return s.mutateThen(engID, dir, who.GitAuthor(), func(f *finding.Finding) (string, error) {
+		status = f.Meta.Status
 		if u, ok := who.(config.User); ok && !workflow.CanEdit(u, f.Meta) {
 			return "", &workflow.Denied{Reason: "this finding is " + f.Meta.Status + "; only a director can edit it"}
 		}
 		return fn(f)
-	}, s.carryApproval)
+	}, func(ref FindingRef, oldHash, newHash string) error {
+		ref.F.Meta.Status = status
+		return s.carryApproval(ref, oldHash, newHash)
+	})
 }
 
 // carryApproval moves an approval to the new content after an edit of a

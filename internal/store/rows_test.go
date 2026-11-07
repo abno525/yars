@@ -3,6 +3,8 @@ package store
 import (
 	"errors"
 	"testing"
+
+	"yars/internal/workflow"
 )
 
 // D14: details rows are checked one by one. Editing row B with B's base
@@ -131,6 +133,29 @@ func TestReasonBaseCoversItsMetric(t *testing.T) {
 	// another metric's reason is not affected
 	if _, err := s.UpdateCVSSRows(eng, fd, CVSSChange{Reasons: map[string]string{"PR": "x"}, Bases: map[string]string{"PR": read["PR"]}}, alice); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A director's Details or CVSS edit of a complete finding keeps it
+// complete, like a section edit (the approval moves to the new content).
+func TestDirectorMetaEditKeepsApproval(t *testing.T) {
+	s, _, fd := ready(t)
+	s.Transition(eng, fd, workflow.Submit, "", uAlice)
+	s.Transition(eng, fd, workflow.Clear, "", uBob)
+	if err := s.Transition(eng, fd, workflow.Approve, "", uDora); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpdateDetails(eng, fd, map[string]string{"Location": "POST /x"}, "", uDora); err != nil {
+		t.Fatal(err)
+	}
+	if st := load(t, s, fd).F.Meta.Status; st != "complete" {
+		t.Fatalf("details edit: %s", st)
+	}
+	if err := s.UpdateCVSS(eng, fd, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H", nil, "", uDora); err != nil {
+		t.Fatal(err)
+	}
+	if st := load(t, s, fd).F.Meta.Status; st != "complete" {
+		t.Fatalf("cvss edit: %s", st)
 	}
 }
 
