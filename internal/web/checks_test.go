@@ -102,6 +102,31 @@ func TestChecksPanel(t *testing.T) {
 	}
 }
 
+// A started run's answer (bar plus panel, running) fetches both again once
+// swapped in: check events that came while the POST was in flight (a fast
+// run's last one) would otherwise be lost and leave them at Running.
+func TestChecksStartedRefetchOnLoad(t *testing.T) {
+	e := setupSerial(t)
+	e.rules(t, styleRules, map[string]string{"check.sh": `cat >/dev/null; sleep 0.3; echo '[]'` + "\n"})
+	run := e.do(t, "alice", "POST", fpath+"/checks", url.Values{}, nil).Body.String()
+	trig := regexp.MustCompile(`id="(workflow|checks)"[^>]*hx-trigger="([^"]*)"`)
+	got := map[string]string{}
+	for _, m := range trig.FindAllStringSubmatch(run, -1) {
+		got[m[1]] = m[2]
+	}
+	for _, id := range []string{"workflow", "checks"} {
+		if !strings.HasSuffix(got[id], ", load") {
+			t.Errorf("started %s does not refetch on load: %q", id, got[id])
+		}
+	}
+	e.srv.Store.WaitChecks()
+	for _, p := range []string{fpath + "/checks", fpath + "/workflow"} {
+		if b := e.do(t, "alice", "GET", p, nil, nil).Body.String(); strings.Contains(b, ", load\"") {
+			t.Errorf("%s refetches on load (a loop):\n%s", p, b)
+		}
+	}
+}
+
 func TestChecksPanelLayout(t *testing.T) {
 	e := setupSerial(t)
 	e.rules(t, styleRules, map[string]string{"check.sh": `cat >/dev/null; echo '[{"message":"warn","quote":"q"}]'` + "\n"})

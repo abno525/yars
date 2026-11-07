@@ -288,7 +288,9 @@ func (s *Server) checksRun(w http.ResponseWriter, r *http.Request) {
 // shows the progress) with the checks panel out of band.
 func (s *Server) checksStarted(w http.ResponseWriter, r *http.Request, ref store.FindingRef) {
 	wf, checks := s.wfGated(r, ref)
-	checks.OOB = true
+	// both fetch themselves again once in the page (load): check events
+	// sent before this answer was swapped in are not lost
+	checks.OOB, wf.Refetch = true, true
 	s.exec(w, "finding.html", "check_started", struct {
 		WF     wfView
 		Checks checksView

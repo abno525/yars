@@ -57,6 +57,10 @@ type wfView struct {
 	State      string
 	StateError bool
 	Check      wfCheck // the Check button and its state slot
+
+	// Refetch: the bar answers a started check; it fetches itself again once
+	// swapped in, since check events may have come before it was
+	Refetch bool
 }
 
 // wfCheck is the Check button of the bar (152 px) and the slot before it:
