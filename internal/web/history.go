@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"reflect"
 	"slices"
 	"sort"
 	"strings"
@@ -114,16 +115,49 @@ func (s *Server) canRestore(u config.User, ref store.FindingRef) bool {
 	return (u.Username == ref.F.Meta.Author || canManage(u)) && workflow.CanEdit(u, ref.F.Meta) && !s.Store.Archived(ref.EngID)
 }
 
-func changedNames(cs []history.SectionChange) string {
+// changedNames names what a version changed: the front matter parts (title,
+// severity, CVSS, details, assets) and then the sections.
+func changedNames(before, after []byte, cs []history.SectionChange) string {
 	var n []string
 	for _, c := range cs {
 		if c.Name == history.FrontMatter {
-			n = append(n, "details")
+			n = append(n, frontMatterNames(before, after)...)
 			continue
 		}
 		n = append(n, c.Name)
 	}
 	return strings.Join(n, ", ")
+}
+
+// frontMatterNames lists the front matter parts that differ; anything else
+// there (keys YARS does not know) counts as "details", as before.
+func frontMatterNames(before, after []byte) []string {
+	b, berr := finding.Parse(before)
+	a, aerr := finding.Parse(after)
+	if berr != nil || aerr != nil {
+		return []string{"details"}
+	}
+	bm, am := b.Meta, a.Meta
+	var n []string
+	if bm.Title != am.Title {
+		n = append(n, "the title")
+	}
+	if bm.Severity != am.Severity {
+		n = append(n, "severity")
+	}
+	if bm.CVSS != am.CVSS || !reflect.DeepEqual(bm.CVSSReasons, am.CVSSReasons) {
+		n = append(n, "CVSS")
+	}
+	if !reflect.DeepEqual(bm.Details, am.Details) || !reflect.DeepEqual(bm.Extra, am.Extra) || bm.ID != am.ID || bm.Author != am.Author {
+		n = append(n, "details")
+	}
+	if !reflect.DeepEqual(bm.Assets, am.Assets) {
+		n = append(n, "assets")
+	}
+	if len(n) == 0 {
+		n = []string{"details"} // only formatting changed
+	}
+	return n
 }
 
 // historyOf builds the event list (filtered by show) and the selected
@@ -154,7 +188,7 @@ func (s *Server) historyOf(r *http.Request, ref store.FindingRef) (historyView, 
 		}
 		act := "created"
 		if i+1 < len(vs) {
-			if names := changedNames(history.Changes(before, ver.Raw)); names != "" {
+			if names := changedNames(before, ver.Raw, history.Changes(before, ver.Raw)); names != "" {
 				act = "edited " + names
 			} else {
 				act = ver.Subject

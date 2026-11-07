@@ -76,6 +76,28 @@ func TestReceivePushRestoresEngagementTree(t *testing.T) {
 	}
 }
 
+// A title edit rewrites only the title line: a file without severity or
+// cvss keys (pushed over git) gets no empty ones added.
+func TestTitleEditOnlyTitle(t *testing.T) {
+	s, dir := withEngagement(t)
+	ref, err := s.CreateFinding(eng, "SQL injection", alice)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := filepath.Join(dir, "engagements", eng, "findings", ref.Dir, "finding.md")
+	os.WriteFile(p, []byte("---\nid: F-001\ntitle: SQL injection\nauthor: alice\n---\n\n## Description\n\nx\n"), 0o644)
+	ed := filepath.Join(dir, "engagements", eng)
+	git(t, ed, "add", "-A")
+	git(t, ed, "-c", "user.name=alice", "-c", "user.email=a@x", "commit", "-qm", "pushed")
+	if err := s.UpdateTitle(eng, ref.Dir, "Blind SQL injection", uAlice); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(p)
+	if want := "---\nid: F-001\ntitle: Blind SQL injection\nauthor: alice\n---\n\n## Description\n\nx\n"; string(b) != want {
+		t.Fatalf("file after a title edit:\n%s", b)
+	}
+}
+
 // A director may push any .gitignore: YARS commits the paths it names even
 // when the pattern ignores them (a new template, a new finding).
 func TestCommitIgnoredPaths(t *testing.T) {
