@@ -62,6 +62,20 @@ func TestReceivePushMainRepo(t *testing.T) {
 	}
 }
 
+// The same for an engagement repo: a push that checked its tree out but
+// never moved the branch leaves HEAD's tree behind.
+func TestReceivePushRestoresEngagementTree(t *testing.T) {
+	s, dir := withEngagement(t)
+	ed := filepath.Join(dir, "engagements", eng)
+	s.ReceivePush(eng, uBob, func() {
+		os.WriteFile(filepath.Join(ed, "engagement.yaml"), []byte("rejected push"), 0o644)
+		exec.Command("git", "-C", ed, "add", "engagement.yaml").Run()
+	})
+	if st, _ := exec.Command("git", "-C", ed, "status", "--porcelain", "--untracked-files=no").Output(); len(st) != 0 {
+		t.Fatalf("engagement tree dirty after a push that did not land:\n%s", st)
+	}
+}
+
 // A push (commits that land outside the store) emits the events the same
 // changes made through YARS would: created for a new finding, updated with
 // what changed for an edited one, attributed to the pusher.
