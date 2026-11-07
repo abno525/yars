@@ -29,7 +29,7 @@ func TestArchivedPageNoEditForms(t *testing.T) {
 			t.Errorf("archived finding page has %q", bad)
 		}
 	}
-	if !strings.Contains(b, `<span class="tag eng-archived">Archived</span>`) || !strings.Contains(b, `<span class="slot w112"`) {
+	if !strings.Contains(b, `<span class="tag eng-archived">Archived</span>`) || !strings.Contains(b, `<div class="wf-actions">`) {
 		t.Fatal("archived finding page: no tag or no kept slots")
 	}
 	// directors reopen from the board

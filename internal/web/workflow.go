@@ -183,6 +183,11 @@ func (v *wfView) arrange(u config.User, m finding.Meta) {
 		}
 		v.Slots = append(v.Slots, sl)
 	}
+	// the viewer's last button ends at the right edge (under Export): the
+	// slots after it are ones this viewer never fills here
+	for len(v.Slots) > 0 && !v.Slots[len(v.Slots)-1].Present {
+		v.Slots = v.Slots[:len(v.Slots)-1]
+	}
 	switch n := len(v.Gate); {
 	case n > 0 && v.HasGated:
 		v.State, v.StateError = plural(n, "error")+" to fix", true

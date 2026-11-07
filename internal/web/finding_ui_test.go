@@ -61,22 +61,27 @@ func TestCommentOnDetailsAndCVSS(t *testing.T) {
 	}
 }
 
-// Every viewer of a status sees the same fixed slots; an action the viewer
-// may not take keeps its place as an empty slot of the same width.
+// Every viewer of a status sees the same fixed slots up to the viewer's last
+// button; an action before it the viewer may not take keeps its place as an
+// empty slot of the same width, and the ones after it are left out, so the
+// last button ends at the bar's right edge (board 3.5).
 func TestWorkflowSlotsFixed(t *testing.T) {
 	e := setup(t)
 	e.toVerification(t)
-	for _, u := range []string{"alice", "bob", "carol", "dora"} {
+	for u, want := range map[string]int{"alice": 4, "bob": 2, "carol": 0, "dora": 4} {
 		a := actionsOf(t, e.do(t, u, "GET", fpath, nil, nil).Body.String())
-		if n := strings.Count(a, "data-slot="); n != 4 {
-			t.Fatalf("%s: %d slots in verification:\n%s", u, n, a)
+		if n := strings.Count(a, "data-slot="); n != want {
+			t.Fatalf("%s: %d slots in verification, want %d:\n%s", u, n, want, a)
 		}
 	}
 	bob := actionsOf(t, e.do(t, "bob", "GET", fpath, nil, nil).Body.String())
-	for _, want := range []string{`data-action="return"`, `data-action="clear"`, `class="slot w136" data-slot="withdraw"`, `class="slot w112" data-slot="approve"`, ">Sign off<"} {
+	for _, want := range []string{`data-action="return"`, `data-action="clear"`, ">Sign off<"} {
 		if !strings.Contains(bob, want) {
 			t.Fatalf("bob lacks %s:\n%s", want, bob)
 		}
+	}
+	if strings.Contains(bob, `data-slot="withdraw"`) || strings.Contains(bob, `data-slot="approve"`) {
+		t.Fatalf("bob holds slots he never fills:\n%s", bob)
 	}
 	// a director before any sign-off: Approve shown disabled, with the reason
 	dora := actionsOf(t, e.do(t, "dora", "GET", fpath, nil, nil).Body.String())
@@ -91,7 +96,7 @@ func TestWorkflowSlotsFixed(t *testing.T) {
 		t.Fatalf("bob after sign-off:\n%s", bob)
 	}
 	// the state slot is still rendered, empty, so the buttons keep their place
-	if !strings.HasPrefix(bob, `class="wfstate" title=""></span>`) || strings.Count(bob, "data-slot=") != 4 {
+	if !strings.HasPrefix(bob, `class="wfstate" title=""></span>`) || strings.Count(bob, "data-slot=") != 2 {
 		t.Fatalf("bob's state slot after sign-off:\n%s", bob)
 	}
 	if a := actionsOf(t, e.do(t, "dora", "GET", fpath, nil, nil).Body.String()); strings.Contains(a, `data-action="approve" disabled`) {
@@ -133,14 +138,15 @@ func TestWorkflowSlotsComplete(t *testing.T) {
 			t.Fatalf("dora on complete lacks %s:\n%s", want, dora)
 		}
 	}
-	// the author marks it reported; Reopen and Withdraw keep empty slots
+	// the author marks it reported; Reopen keeps its empty slot, Withdraw
+	// (after her last button) is left out
 	alice := actionsOf(t, e.do(t, "alice", "GET", fpath, nil, nil).Body.String())
-	if strings.Count(alice, "data-action=") != 1 || !strings.Contains(alice, `data-action="report"`) || strings.Count(alice, `class="slot w136"`) != 2 {
+	if strings.Count(alice, "data-action=") != 1 || !strings.Contains(alice, `data-action="report"`) || strings.Count(alice, `class="slot w136"`) != 1 || strings.Contains(alice, `data-slot="withdraw"`) {
 		t.Fatalf("alice on complete:\n%s", alice)
 	}
 	e.pen2(t)
 	pen2 := actionsOf(t, e.do(t, "pen2", "GET", fpath, nil, nil).Body.String())
-	if strings.Contains(pen2, "data-action=") || strings.Count(pen2, `class="slot w136"`) != 3 {
+	if strings.Contains(pen2, "data-slot=") {
 		t.Fatalf("pen2 on complete:\n%s", pen2)
 	}
 }
@@ -160,29 +166,26 @@ func slotOrder(t *testing.T, b string) []string {
 	return out
 }
 
-// Withdraw is the right-most action in every status that has it, whether
-// the viewer may take it or sees its empty slot; empty slots sit left of it.
+// Withdraw is the right-most action in every status that has it; empty
+// slots sit left of it, and a viewer who can't withdraw has no slot for it.
 func TestWithdrawRightMost(t *testing.T) {
 	e := setup(t)
 	check := func(stage, u string, want []string) {
 		t.Helper()
 		got := slotOrder(t, e.do(t, u, "GET", fpath, nil, nil).Body.String())
-		if len(got) == 0 {
-			t.Fatalf("%s as %s: no slots", stage, u)
-		}
 		if strings.Join(got, ",") != strings.Join(want, ",") {
 			t.Fatalf("%s as %s: slots %v, want %v", stage, u, got, want)
 		}
 	}
 	check("draft", "alice", []string{"submit", "withdraw"})
-	check("draft", "bob", []string{"submit", "withdraw"})
+	check("draft", "bob", nil)
 	e.toVerification(t)
 	check("verification", "dora", []string{"return", "clear", "approve", "withdraw"})
-	check("verification", "bob", []string{"return", "clear", "approve", "withdraw"})
+	check("verification", "bob", []string{"return", "clear"})
 	e = setup(t)
 	e.toComplete(t)
 	check("complete", "dora", []string{"reopen", "report", "withdraw"})
-	check("complete", "alice", []string{"reopen", "report", "withdraw"})
+	check("complete", "alice", []string{"reopen", "report"})
 	// the button itself is last in the row, not just its slot
 	a := actionsOf(t, e.do(t, "dora", "GET", fpath, nil, nil).Body.String())
 	if strings.LastIndex(a, `data-action="withdraw"`) < strings.LastIndex(a, `data-action="report"`) {
@@ -196,7 +199,7 @@ func TestWorkflowDraftAndWithdrawn(t *testing.T) {
 	if !strings.Contains(alice, `data-action="submit" disabled`) || !strings.Contains(alice, `data-action="withdraw"`) || !strings.Contains(alice, "to fix") {
 		t.Fatalf("alice draft:\n%s", alice)
 	}
-	if b := actionsOf(t, e.do(t, "bob", "GET", fpath, nil, nil).Body.String()); strings.Contains(b, "data-action=") || strings.Count(b, "data-slot=") != 2 {
+	if b := actionsOf(t, e.do(t, "bob", "GET", fpath, nil, nil).Body.String()); strings.Contains(b, "data-slot=") {
 		t.Fatalf("bob draft:\n%s", b)
 	}
 	e.do(t, "alice", "POST", fpath+"/action/withdraw", url.Values{"reason": {"Duplicate"}}, nil)
@@ -212,7 +215,7 @@ func TestWorkflowDraftAndWithdrawn(t *testing.T) {
 	if !strings.Contains(b, `class="tag status-withdrawn"`) || !strings.Contains(b, "Withdrawn by alice") || !strings.Contains(b, `class="withdrawn-title"`) {
 		t.Fatalf("withdrawn page:\n%s", b)
 	}
-	if bob := actionsOf(t, e.do(t, "bob", "GET", fpath, nil, nil).Body.String()); strings.Contains(bob, "data-action=") || !strings.Contains(bob, `class="slot w136" data-slot="revise"`) {
+	if bob := actionsOf(t, e.do(t, "bob", "GET", fpath, nil, nil).Body.String()); strings.Contains(bob, "data-slot=") {
 		t.Fatalf("bob withdrawn:\n%s", bob)
 	}
 }
