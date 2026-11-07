@@ -84,6 +84,9 @@ func TestReceivePushRename(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := s.AddAttachment(eng, ref.Dir, "shot.png", []byte("png"), uAlice); err != nil {
+		t.Fatal(err)
+	}
 	rec := &recorder{}
 	s.OnEvent(rec.add)
 	ed := filepath.Join(dir, "engagements", eng)

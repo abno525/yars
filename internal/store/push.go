@@ -232,6 +232,11 @@ func (s *Store) pushEvents(eng, before, after, actor string) ([]Event, error) {
 				if b, err := r.Show(before, path.Join("findings", prev, "finding.md")); err == nil {
 					old, _ = finding.Parse(b)
 				}
+				// its other files moved along: changed only if they differ
+				// from the old folder's
+				if cs, err := r.ChangedFiles(before+":findings/"+prev, after+":findings/"+dir); err == nil {
+					t.files = slices.ContainsFunc(cs, func(c gitrepo.Change) bool { return c.Path != "finding.md" })
+				}
 			}
 		}
 		switch {
