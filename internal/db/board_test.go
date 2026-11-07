@@ -278,10 +278,10 @@ func TestBoardUnseen(t *testing.T) {
 	d.AddMembers("acme", "alice", "bob")
 	newNote(t, d, "acme", "alice", "x")
 	// alice's own note is nothing new to her
-	if u, _ := d.UnseenNotes("alice", 50); len(u) != 0 {
+	if u, _ := unseenAll(t, d, "alice", 50); len(u) != 0 {
 		t.Fatalf("own note unseen: %+v", u)
 	}
-	u, err := d.UnseenNotes("bob", 50)
+	u, err := unseenAll(t, d, "bob", 50)
 	if err != nil || len(u) != 1 || u[0].Num != 1 || u[0].LastUser != "alice" || u[0].LastText != "first x" {
 		t.Fatalf("bob %+v %v", u, err)
 	}
@@ -291,28 +291,28 @@ func TestBoardUnseen(t *testing.T) {
 	if err := d.SeeNote("bob", "acme", 1); err != nil {
 		t.Fatal(err)
 	}
-	if u, _ := d.UnseenNotes("bob", 50); len(u) != 0 {
+	if u, _ := unseenAll(t, d, "bob", 50); len(u) != 0 {
 		t.Fatalf("seen note still new: %+v", u)
 	}
 	// a reply in the same second as the view still counts (seq, not time)
 	d.PostNote("acme", 1, "alice", "more")
-	if u, _ := d.UnseenNotes("bob", 50); len(u) != 1 || u[0].LastText != "more" {
+	if u, _ := unseenAll(t, d, "bob", 50); len(u) != 1 || u[0].LastText != "more" {
 		t.Fatalf("reply not new: %+v", u)
 	}
 	// bob's own reply marks the note seen for him
 	d.PostNote("acme", 1, "bob", "ok")
-	if u, _ := d.UnseenNotes("bob", 50); len(u) != 0 {
+	if u, _ := unseenAll(t, d, "bob", 50); len(u) != 0 {
 		t.Fatalf("after own reply: %+v", u)
 	}
 	// a new member is not flooded with what came before joining
 	d.now = func() time.Time { return time.Now().Add(time.Hour) }
 	d.AddMembers("acme", "carol")
-	if u, _ := d.UnseenNotes("carol", 50); len(u) != 0 {
+	if u, _ := unseenAll(t, d, "carol", 50); len(u) != 0 {
 		t.Fatalf("new member flooded: %+v", u)
 	}
 	d.now = func() time.Time { return time.Now().Add(2 * time.Hour) }
 	d.PostNote("acme", 1, "alice", "after carol joined")
-	if u, _ := d.UnseenNotes("carol", 50); len(u) != 1 {
+	if u, _ := unseenAll(t, d, "carol", 50); len(u) != 1 {
 		t.Fatalf("new member misses new replies: %+v", u)
 	}
 	// off the team: the read state goes with the membership
@@ -334,16 +334,16 @@ func TestBoardUnseenNonMember(t *testing.T) {
 	d.AddMembers("acme", "alice")
 	newNote(t, d, "acme", "alice", "x")
 	newNote(t, d, "acme", "alice", "y")
-	if u, _ := d.UnseenNotes("dora", 50); len(u) != 0 {
+	if u, _ := unseenAll(t, d, "dora", 50); len(u) != 0 {
 		t.Fatalf("director flooded: %+v", u)
 	}
 	d.SeeNote("dora", "acme", 1)
 	d.PostNote("acme", 1, "alice", "news")
 	d.PostNote("acme", 2, "alice", "news too")
-	if u, _ := d.UnseenNotes("dora", 50); len(u) != 1 || u[0].Num != 1 {
+	if u, _ := unseenAll(t, d, "dora", 50); len(u) != 1 || u[0].Num != 1 {
 		t.Fatalf("director follows %+v", u)
 	}
-	if u, _ := d.UnseenNotes("dora", 0); len(u) != 0 {
+	if u, _ := unseenAll(t, d, "dora", 0); len(u) != 0 {
 		t.Fatalf("limit 0: %+v", u)
 	}
 }
@@ -372,10 +372,16 @@ func TestBoardUnseenScale(t *testing.T) {
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
+	// what the inbox queue runs: the count and the first page over every
+	// engagement the user sees, then a tab badge
+	engs := make([]string, 20)
+	for e := range engs {
+		engs[e] = fmt.Sprint("eng", e)
+	}
 	start := time.Now()
-	u, err := d.UnseenNotes("bob", 50)
-	if err != nil || len(u) != 50 {
-		t.Fatalf("%d %v", len(u), err)
+	u, total, err := d.UnseenIn("bob", engs, 50)
+	if err != nil || len(u) != 50 || total != 1000 {
+		t.Fatalf("%d of %d %v", len(u), total, err)
 	}
 	if c, _ := d.UnseenCount("bob", "eng3"); c != 50 {
 		t.Fatalf("count %d", c)
@@ -383,6 +389,24 @@ func TestBoardUnseenScale(t *testing.T) {
 	if took := time.Since(start); took > 300*time.Millisecond {
 		t.Fatalf("unseen took %s", took)
 	}
+}
+
+// unseenAll is UnseenIn over every engagement with notes.
+func unseenAll(t *testing.T, d *DB, user string, limit int) ([]Unseen, error) {
+	t.Helper()
+	rows, err := d.Query("SELECT DISTINCT eng FROM board_notes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var engs []string
+	for rows.Next() {
+		var e string
+		rows.Scan(&e)
+		engs = append(engs, e)
+	}
+	rows.Close()
+	u, _, err := d.UnseenIn(user, engs, limit)
+	return u, err
 }
 
 func TestBoardPurged(t *testing.T) {
@@ -425,7 +449,7 @@ func TestMigrateV11Board(t *testing.T) {
 	}
 	newNote(t, d, "acme", "alice", "x")
 	// a member from before the board sees what is new
-	if u, _ := d.UnseenNotes("bob", 50); len(u) != 1 {
+	if u, _ := unseenAll(t, d, "bob", 50); len(u) != 1 {
 		t.Fatalf("unseen after upgrade %+v", u)
 	}
 }

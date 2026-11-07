@@ -268,7 +268,7 @@ func TestUnseenVisible(t *testing.T) {
 	s, _ := withEngagement(t)
 	s.DB().AddMembers(eng, "alice", "bob")
 	boardNote(t, s, "x", "h", "open")
-	if u, _ := s.UnseenNotes(bRev, 50); len(u) != 1 {
+	if u, n, _ := s.UnseenQueue(bRev, []string{eng}, 50); len(u) != 1 || n != 1 {
 		t.Fatalf("bob %+v", u)
 	}
 	// off the team: nothing of that engagement
@@ -277,7 +277,7 @@ func TestUnseenVisible(t *testing.T) {
 	}
 	s.SeeNote(eng, 1, bRev) // a stale tab still reads it
 	s.PostNote(eng, 1, "more", bPen)
-	if u, _ := s.UnseenNotes(bRev, 50); len(u) != 0 {
+	if u, n, _ := s.UnseenQueue(bRev, []string{eng}, 50); len(u) != 0 || n != 0 {
 		t.Fatalf("removed member sees %+v", u)
 	}
 }

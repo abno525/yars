@@ -416,28 +416,6 @@ const unseenQuery = `SELECT n.eng, n.num, n.title, n.state, n.finding, m.usernam
 	WHERE m.seq > COALESCE(s.seq, 0)
 	AND ((em.username IS NOT NULL AND (em.joined = '' OR m.ts >= em.joined)) OR s.seq IS NOT NULL)`
 
-// UnseenNotes lists up to limit notes with something new to user, newest
-// first, across every engagement; the caller keeps the ones user may see.
-func (d *DB) UnseenNotes(user string, limit int) ([]Unseen, error) {
-	rows, err := d.Query(unseenQuery+" ORDER BY m.seq DESC LIMIT ?2", user, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []Unseen
-	for rows.Next() {
-		var u Unseen
-		if err := rows.Scan(&u.Eng, &u.Num, &u.Title, &u.State, &u.Finding, &u.LastUser, &u.LastKind, &u.LastText, &u.LastTS, &u.Last); err != nil {
-			return nil, err
-		}
-		if u.Finding == pendingFinding {
-			u.Finding = ""
-		}
-		out = append(out, u)
-	}
-	return out, rows.Err()
-}
-
 // UnseenIn lists up to limit notes with something new to user, newest
 // first, of the engagements engs only, and how many there are in all. The
 // engagement filter runs before the limit, so other engagements never take

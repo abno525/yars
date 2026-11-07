@@ -394,33 +394,6 @@ func (s *Store) SeeNote(eng string, num int, u config.User) error {
 	return s.db.SeeNote(u.Username, eng, num)
 }
 
-// UnseenNotes lists up to limit notes with something new to u, newest
-// first, of the engagements u may see that still exist.
-func (s *Store) UnseenNotes(u config.User, limit int) ([]Unseen, error) {
-	if s.db == nil {
-		return nil, nil
-	}
-	vis, err := s.Visible(u)
-	if err != nil {
-		return nil, err
-	}
-	all, err := s.db.UnseenNotes(u.Username, limit)
-	if err != nil || len(all) == 0 {
-		return nil, err
-	}
-	ids, err := s.EngagementIDs()
-	if err != nil {
-		return nil, err
-	}
-	var out []Unseen
-	for _, n := range all {
-		if (vis == nil || vis[n.Eng]) && slices.Contains(ids, n.Eng) {
-			out = append(out, n)
-		}
-	}
-	return out, nil
-}
-
 // UnseenQueue lists up to limit notes with something new to u, newest
 // first, of those of engs that u may see, and how many there are in all.
 func (s *Store) UnseenQueue(u config.User, engs []string, limit int) ([]Unseen, int, error) {
