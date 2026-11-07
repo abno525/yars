@@ -605,7 +605,7 @@ func TestPolicySharedEmail(t *testing.T) {
 	f := newFx(t)
 	f.c.Users = append(slices.Clone(users), config.User{Username: "bob2", Role: "pentester", Email: "Alice@yars.local"})
 	ps := f.push("alice", func(d string) { write(d, fdir+"/attachments/a.txt", "x") })
-	if !has(ps, "bob2") || !has(ps, "alice@yars.local") {
+	if !has(ps, "bob2") || !has(ps, "alice@yars.local") || !has(ps, "Settings › Account") {
 		t.Fatalf("shared email accepted: %v", ps)
 	}
 }
