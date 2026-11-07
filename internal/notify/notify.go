@@ -103,8 +103,11 @@ func recipients(e store.Event) map[string]string {
 	}
 	switch e.Kind {
 	case store.EventReviewers:
-		for _, u := range e.Added {
-			add(u, Review)
+		// on a draft there is nothing to review yet: submit asks them
+		if e.State == "verification" {
+			for _, u := range e.Added {
+				add(u, Review)
+			}
 		}
 	case store.EventStatus:
 		switch e.Action {

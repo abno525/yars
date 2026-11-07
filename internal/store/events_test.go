@@ -54,7 +54,7 @@ func TestDomainEvents(t *testing.T) {
 	if err := s.SetReviewers(eng, fd, []string{"bob"}, uAlice); err != nil {
 		t.Fatal(err)
 	}
-	if e := rec.last(EventReviewers); !slices.Equal(e.Added, []string{"bob"}) || e.Actor != "alice" {
+	if e := rec.last(EventReviewers); !slices.Equal(e.Added, []string{"bob"}) || e.Actor != "alice" || e.State != "draft" {
 		t.Fatalf("reviewers %+v", e)
 	}
 	// keeping bob and adding carol: only carol is new

@@ -73,10 +73,26 @@ func ev(kind string) store.Event {
 	return store.Event{Kind: kind, Eng: "demo", Dir: "F-005-sqli", Fid: "F-005", Title: "SQL injection", Author: "pen1", Reviewers: []string{"rev1"}}
 }
 
+// A reviewer assigned on a draft hears nothing yet: there is nothing to
+// review until submit, which asks once.
+func TestDraftAssignmentNotNotified(t *testing.T) {
+	n, d, _ := newNotifier(t)
+	e := ev(store.EventReviewers)
+	e.Actor, e.Added, e.State = "pen1", []string{"rev1"}, "draft"
+	n.Handle(e)
+	e = ev(store.EventStatus)
+	e.Actor, e.Action = "pen1", "submit"
+	n.Handle(e)
+	n.Wait()
+	if got := list(t, d, "rev1"); got != "review:pen1:" {
+		t.Fatalf("rev1: %s", got)
+	}
+}
+
 func TestWhoIsNotified(t *testing.T) {
 	n, d, _ := newNotifier(t)
 	e := ev(store.EventReviewers)
-	e.Actor, e.Added = "pen1", []string{"rev1", "out", "gone"}
+	e.Actor, e.Added, e.State = "pen1", []string{"rev1", "out", "gone"}, "verification"
 	n.Handle(e)
 	e = ev(store.EventStatus)
 	e.Actor, e.Action, e.Reason = "rev1", "return", "add a PoC"

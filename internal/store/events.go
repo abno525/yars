@@ -29,7 +29,7 @@ type Event struct {
 	Reviewers                         []string
 	// finding.status_changed
 	Action, From, To, Reason string
-	// finding.reviewers: who was added
+	// finding.reviewers: who was added (State is the finding's status)
 	Added []string
 	// finding.updated: the parts that changed ("Title", "Severity", "CVSS",
 	// "Details", "Assets", section names, "Attachments")
@@ -41,7 +41,7 @@ type Event struct {
 	Destination, URL, Error string
 	OK                      bool
 	Findings                []string
-	// check.finished
+	// check.finished: the run's state; finding.reviewers: the status
 	State            string
 	Errors, Warnings int
 }

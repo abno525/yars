@@ -1571,6 +1571,7 @@ func (s *Store) SetReviewers(engID, dir string, names []string, u config.User) e
 			return nil, reviewersDenied(m)
 		}
 		done = findingEvent(EventReviewers, u.Username, ref)
+		done.State = m.Status
 		var list []string
 		for _, n := range names {
 			if n = strings.TrimSpace(n); n != "" && n != m.Author && !slices.Contains(list, n) {
@@ -1642,6 +1643,7 @@ func (s *Store) AddReviewers(engID, dir string, names []string, u config.User) e
 			return nil, reviewersDenied(m)
 		}
 		done = findingEvent(EventReviewers, u.Username, ref)
+		done.State = m.Status
 		var refused []string
 		kept := false
 		for _, n := range names {

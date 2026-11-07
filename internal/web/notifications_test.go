@@ -51,8 +51,8 @@ func TestNotificationsFlow(t *testing.T) {
 		t.Fatalf("bell before %s", got)
 	}
 	returnToAlice(t, e)
-	// bob was asked to review (assigned, then submitted)
-	if got := bell(t, e, "bob"); got != "2" {
+	// bob was asked to review once: assigned on the draft, asked on submit
+	if got := bell(t, e, "bob"); got != "1" {
 		t.Fatalf("bob's bell %s", got)
 	}
 	// a mention through the web chat
