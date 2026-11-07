@@ -114,6 +114,8 @@ func (s *Server) inboxFor(u config.User, engs []store.Engagement) (inboxView, er
 		return inboxView{}, err
 	}
 	v.Lists = map[workflow.Inbox][]inboxRow{}
+	// open threads are a pentester's and a reviewer's queue only
+	threads := slices.Contains(workflow.Queues(u), workflow.InboxThreads)
 	for _, r := range rows {
 		if r.Meta == nil {
 			continue
@@ -121,7 +123,9 @@ func (s *Server) inboxFor(u config.User, engs []store.Engagement) (inboxView, er
 		if k := workflow.Pending(u, *r.Meta); k != workflow.InboxNone {
 			v.Lists[k] = append(v.Lists[k], findingRow(k, u, r, names[r.EngID]))
 		}
-		v.Lists[workflow.InboxThreads] = append(v.Lists[workflow.InboxThreads], threadRows(u, r, names[r.EngID])...)
+		if threads {
+			v.Lists[workflow.InboxThreads] = append(v.Lists[workflow.InboxThreads], threadRows(u, r, names[r.EngID])...)
+		}
 	}
 	slices.SortStableFunc(v.Lists[workflow.InboxThreads], func(a, b inboxRow) int { return b.At.Compare(a.At) })
 	c.mu.Lock()
