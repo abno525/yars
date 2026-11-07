@@ -1543,7 +1543,7 @@ func (s *Store) SetReviewers(engID, dir string, names []string, u config.User) e
 	err := s.changeState(engID, dir, func(ref FindingRef, st *db.State, _ string) ([]chat.Message, error) {
 		m := ref.F.Meta
 		if !workflow.CanAddReviewers(u, m) {
-			return nil, &workflow.Denied{Reason: "only a reviewer, the author or a director can assign reviewers while the finding is open"}
+			return nil, reviewersDenied(m)
 		}
 		done = findingEvent(EventReviewers, u.Username, ref)
 		var list []string
@@ -1595,6 +1595,15 @@ func (s *Store) SetReviewers(engID, dir string, names []string, u config.User) e
 
 const errSelfAssign = "only the author or a director can make you a reviewer"
 
+// reviewersDenied is why the reviewer list of m cannot change: the finding
+// is no longer open, or the user may not assign.
+func reviewersDenied(m finding.Meta) error {
+	if m.Status != "draft" && m.Status != "verification" {
+		return &workflow.Denied{Reason: "reviewers can only change in draft or verification (finding is " + m.Status + ")"}
+	}
+	return &workflow.Denied{Reason: "only a reviewer, the author or a director can assign reviewers"}
+}
+
 // AddReviewers adds names to the reviewer list as u, merged with the list as
 // it is inside the change, so a reviewer someone added meanwhile (and their
 // sign-off) stays. The author's name, and u's own when u may only add
@@ -1605,7 +1614,7 @@ func (s *Store) AddReviewers(engID, dir string, names []string, u config.User) e
 	err := s.changeState(engID, dir, func(ref FindingRef, st *db.State, _ string) ([]chat.Message, error) {
 		m := ref.F.Meta
 		if !workflow.CanAddReviewers(u, m) {
-			return nil, &workflow.Denied{Reason: "only a reviewer, the author or a director can assign reviewers while the finding is open"}
+			return nil, reviewersDenied(m)
 		}
 		done = findingEvent(EventReviewers, u.Username, ref)
 		var refused []string
