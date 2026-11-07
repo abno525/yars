@@ -6,6 +6,44 @@ import (
 	"testing"
 )
 
+// An argument of the wrong JSON type is refused by name and nothing
+// changes; it is never read as an empty string or false.
+func TestMCPArgumentTypes(t *testing.T) {
+	f := newFx(t)
+	f.ok(alice, "update_section", map[string]any{"engagement": "acme", "finding": "F-001", "section": "Impact", "body": "Kept."})
+	f.ok(alice, "set_field", map[string]any{"engagement": "acme", "finding": "F-001", "field": "reviewers", "value": "bob"})
+	head := f.lastCommit()
+	for _, c := range []struct {
+		tool string
+		args map[string]any
+		want string
+	}{
+		{"update_section", map[string]any{"engagement": "acme", "finding": "F-001", "section": "Impact", "body": []any{"new"}}, `argument "body" must be a string`},
+		{"update_section", map[string]any{"engagement": "acme", "finding": "F-001", "section": "Impact", "body": nil}, `argument "body" must be a string`},
+		{"set_field", map[string]any{"engagement": "acme", "finding": "F-001", "field": "reviewers", "value": []any{"bob"}}, `argument "value" must be a string`},
+		{"set_field", map[string]any{"engagement": "acme", "finding": "F-001", "field": "severity", "value": 3}, `argument "value" must be a string`},
+		{"list_findings", map[string]any{"engagement": 1}, `argument "engagement" must be a string`},
+		{"lint_finding", map[string]any{"engagement": "acme", "finding": "F-001", "all": "true"}, `argument "all" must be a boolean`},
+	} {
+		if out, isErr := f.call(alice, c.tool, c.args); !isErr || out != c.want {
+			t.Errorf("%s %v: %v %q, want %q", c.tool, c.args, isErr, out, c.want)
+		}
+	}
+	if got := f.lastCommit(); got != head {
+		t.Fatalf("a refused call committed: %s", got)
+	}
+	var rd struct {
+		Markdown string `json:"finding_md"`
+		State    struct {
+			Reviewers []string `json:"reviewers"`
+		} `json:"state"`
+	}
+	json.Unmarshal([]byte(f.ok(alice, "read_finding", map[string]any{"engagement": "acme", "finding": "F-001"})), &rd)
+	if !strings.Contains(rd.Markdown, "Kept.") || strings.Join(rd.State.Reviewers, ",") != "bob" {
+		t.Fatalf("changed by a refused call: %+v", rd)
+	}
+}
+
 // create_finding refuses the titles set_field title refuses.
 func TestMCPCreateFindingTitle(t *testing.T) {
 	f := newFx(t)

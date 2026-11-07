@@ -36,6 +36,28 @@ func (a args) need(keys ...string) error {
 	return nil
 }
 
+// badType names the first declared argument of t whose JSON type is wrong
+// (null included), so it is refused instead of read as "" or false.
+func (t tool) badType(a args) string {
+	for _, ps := range [][]param{t.required, t.optional} {
+		for _, p := range ps {
+			if v, ok := a[p.name]; ok {
+				if _, isStr := v.(string); !isStr {
+					return fmt.Sprintf("argument %q must be a string", p.name)
+				}
+			}
+		}
+	}
+	for _, p := range t.boolArgs {
+		if v, ok := a[p.name]; ok {
+			if _, isBool := v.(bool); !isBool {
+				return fmt.Sprintf("argument %q must be a boolean", p.name)
+			}
+		}
+	}
+	return ""
+}
+
 type param struct{ name, desc string }
 
 type tool struct {

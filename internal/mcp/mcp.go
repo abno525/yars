@@ -122,7 +122,11 @@ func (s *Server) Handle(ctx context.Context, u config.User, msg []byte) []byte {
 		if !ok {
 			return reply(req.ID, nil, &rpcErr{-32602, "unknown tool " + p.Name})
 		}
-		if msg := s.gate(ctx, u, t, args(p.Arguments)); msg != "" {
+		msg := t.badType(args(p.Arguments))
+		if msg == "" {
+			msg = s.gate(ctx, u, t, args(p.Arguments))
+		}
+		if msg != "" {
 			return reply(req.ID, map[string]any{"content": []map[string]any{{"type": "text", "text": msg}}, "isError": true}, nil)
 		}
 		text, err := t.run(s, ctx, u, args(p.Arguments))
