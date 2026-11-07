@@ -24,7 +24,7 @@ func TestLoginLockout(t *testing.T) {
 	}
 	rec := e.do(t, "", "POST", "/login", url.Values{"username": {"alice"}, "password": {"wrong"}}, nil)
 	b := rec.Body.String()
-	if !regexp.MustCompile(`<div class="barealert" role="alert" data-lock-until="[^"]+"><span>Too many attempts</span><span>Try again in <span class="mono" data-lock-left>1[45]:\d\d</span></span></div>`).MatchString(b) {
+	if !regexp.MustCompile(`<div class="barealert" role="alert" data-lock-secs="(8\d\d|900)" data-lock-name="alice"><span>Too many attempts</span><span>Try again in <span class="mono" data-lock-left>1[45]:\d\d</span></span></div>`).MatchString(b) {
 		t.Fatalf("5th failure:\n%s", b)
 	}
 	if !strings.Contains(b, `value="alice"`) || !strings.Contains(b, `<button class="btn primary barebtn" disabled>Log in</button>`) {

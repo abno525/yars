@@ -84,20 +84,30 @@ function yarsPickCountAll() {
 document.addEventListener('DOMContentLoaded', yarsPickCountAll);
 window.addEventListener('pageshow', yarsPickCountAll);
 
-// Login lockout: the alert counts down (m:ss); at 0 it goes and the form
-// works again, without a reload.
+// Login lockout: the alert counts down (m:ss) from the seconds the server
+// gave (not the browser's clock); at 0 it goes and the form works again,
+// without a reload. Another username is not locked: the form works for it.
 function yarsLockout() {
-  var box = document.querySelector('[data-lock-until]');
-  if (!box) return;
-  var until = Date.parse(box.getAttribute('data-lock-until'));
+  var box = document.querySelector('[data-lock-secs]');
+  var form = document.querySelector('form[data-locked]');
+  if (!box || !form) return;
+  var end = performance.now() + 1000 * Number(box.getAttribute('data-lock-secs'));
+  var name = box.getAttribute('data-lock-name');
   var left = box.querySelector('[data-lock-left]');
+  var user = form.querySelector('input[name="username"]');
+  var done = false;
+  function locked(on) {
+    box.hidden = !on;
+    form.querySelectorAll('input[name="password"], button').forEach(function (el) { el.disabled = on; });
+  }
+  user.addEventListener('input', function () { if (!done) locked(user.value === name); });
   function tick() {
-    var s = Math.max(0, Math.round((until - Date.now()) / 1000));
+    var s = Math.max(0, Math.round((end - performance.now()) / 1000));
     left.textContent = Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
     if (s > 0) { setTimeout(tick, 1000); return; }
+    done = true;
+    locked(false);
     box.remove();
-    var form = document.querySelector('form[data-locked]');
-    if (form) form.querySelectorAll('[disabled]').forEach(function (el) { el.disabled = false; });
   }
   tick();
 }

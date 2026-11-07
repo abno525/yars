@@ -8,7 +8,7 @@
   </div>
   <button class="btn primary barebtn"{{if .LockLeft}} disabled{{end}}>Log in</button>
 </form>
-{{if .LockLeft}}<div class="barealert" role="alert" data-lock-until="{{.LockUntil}}"><span>Too many attempts</span><span>Try again in <span class="mono" data-lock-left>{{.LockLeft}}</span></span></div>
+{{if .LockLeft}}<div class="barealert" role="alert" data-lock-secs="{{.LockSecs}}" data-lock-name="{{.Form.Get "username"}}"><span>Too many attempts</span><span>Try again in <span class="mono" data-lock-left>{{.LockLeft}}</span></span></div>
 {{else}}{{with .Error}}<div class="barealert" role="alert" title="{{.}}"><span class="clip">{{.}}</span></div>{{end}}{{end}}
 </div>
 {{end}}

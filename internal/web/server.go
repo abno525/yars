@@ -168,23 +168,24 @@ type page struct {
 	ExportV       exportView
 	Source        store.Engagement
 	Form          url.Values
-	// the login lockout (D27): when it ends (RFC 3339) and the time left
-	// (m:ss); "" = none
-	LockUntil, LockLeft string
-	Tpl                 tplView     // templates, the template picker
-	History             historyView // a finding's history
-	ETab                engTabs     // the engagement tabs (Findings, Overview, Report, Settings)
-	Overview            overviewView
-	Report              reportView
-	EngSettings         engSettingsView
-	Assets              assetsView // a finding's affected assets
-	Dups                dupView    // possible duplicates of a finding
-	Merge               mergeView  // the Merge confirm page
-	CanMerge            bool       // the finding page: Merge into
-	Unread              int        // the bell: unread notifications
-	Notes               notesView  // the notifications page
-	Docs                docsView   // the developer docs
-	TeamBoard           teamBoardView
+	// the login lockout (D27): the time left as m:ss ("" = none) and in
+	// seconds (the countdown runs from these, not the browser's clock)
+	LockLeft    string
+	LockSecs    int
+	Tpl         tplView     // templates, the template picker
+	History     historyView // a finding's history
+	ETab        engTabs     // the engagement tabs (Findings, Overview, Report, Settings)
+	Overview    overviewView
+	Report      reportView
+	EngSettings engSettingsView
+	Assets      assetsView // a finding's affected assets
+	Dups        dupView    // possible duplicates of a finding
+	Merge       mergeView  // the Merge confirm page
+	CanMerge    bool       // the finding page: Merge into
+	Unread      int        // the bell: unread notifications
+	Notes       notesView  // the notifications page
+	Docs        docsView   // the developer docs
+	TeamBoard   teamBoardView
 }
 
 var funcs = template.FuncMap{"join": strings.Join, "checkedIn": checkedIn, "retestLabel": workflow.RetestLabel, "fpath": findingURL,
@@ -431,7 +432,8 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		form := url.Values{"username": {r.FormValue("username")}}
 		p := &page{Bare: true, Error: "Wrong username or password", Form: form}
 		if until, locked := s.Auth.LockedUntil(r.FormValue("username")); locked {
-			p.LockUntil, p.LockLeft = until.UTC().Format(time.RFC3339), lockLeft(time.Until(until))
+			left := time.Until(until)
+			p.LockLeft, p.LockSecs = lockLeft(left), max(int(left.Round(time.Second).Seconds()), 0)
 		}
 		s.renderStatus(w, http.StatusUnauthorized, "login.html", p)
 		return

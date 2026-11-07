@@ -99,6 +99,44 @@ func TestLoginAttemptsAtomic(t *testing.T) {
 	}
 }
 
+// A lockout survives any number of other names sprayed: the cap drops
+// only rows that are not locked, and a table full of lockouts refuses new
+// names instead.
+func TestLockoutSurvivesSpray(t *testing.T) {
+	d := openTest(t)
+	loginRows = 20
+	t.Cleanup(func() { loginRows = 10000 })
+	now := time.Date(2026, 11, 7, 12, 0, 0, 0, time.UTC)
+	d.now = func() time.Time { return now }
+	lock := func(name string) {
+		for i := 0; i < LoginTries; i++ {
+			d.LoginAttempt(name)
+			d.LoginDone(name, false)
+		}
+	}
+	lock("admin")
+	for i := 0; i < 3*loginRows; i++ {
+		now = now.Add(time.Second)
+		d.LoginAttempt("spray" + time.Duration(i).String())
+	}
+	if _, locked, _ := d.LockedUntil("admin"); !locked {
+		t.Fatal("the spray dropped the lockout")
+	}
+	if ok, _, _ := d.LoginAttempt("admin"); ok {
+		t.Fatal("admin got a guess")
+	}
+	// fill the table with lockouts: a new name is refused, no lock dropped
+	for i := 0; i < loginRows; i++ {
+		lock("l" + time.Duration(i).String())
+	}
+	if ok, _, _ := d.LoginAttempt("fresh"); ok {
+		t.Fatal("a new name got a guess while the table is full of lockouts")
+	}
+	if _, locked, _ := d.LockedUntil("admin"); !locked {
+		t.Fatal("lockout dropped when full")
+	}
+}
+
 // Old failures stop counting after 15 minutes.
 func TestLoginFailuresExpire(t *testing.T) {
 	d := openTest(t)
