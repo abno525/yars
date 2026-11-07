@@ -1821,7 +1821,7 @@ func (s *Store) UpdateCVSSRows(engID, dir string, ch CVSSChange, a Actor) (map[s
 		}
 		// stored canonical, in the configured version (as a push must be)
 		if _, err := CheckCVSS(s.Config(), v.String()); err != nil {
-			return err
+			return nil, err
 		}
 	}
 	reasons := ch.Reasons
