@@ -23,7 +23,7 @@
       </select>
     </label>
     <label class="field">CVSS vector<input class="monoin" name="cvss" value="{{$t.CVSS}}"></label>
-    <div class="field"><span class="flabel">Score</span><span class="fvalue"><span class="tag score">{{score0 $t.Score}}</span>{{if $t.Severity}}<span class="tag sev-{{$t.Severity}}">{{$t.Severity}}</span>{{end}}</span></div>
+    <div class="field"><span class="flabel">Score</span><span class="fvalue"><span class="tag score">{{score $t.Score}}</span>{{if $t.Severity}}<span class="tag sev-{{$t.Severity}}">{{$t.Severity}}</span>{{end}}</span></div>
   </div>
   <div class="pfoot flush"><button class="btn save sm w96">Save</button></div>
 </form>
@@ -33,7 +33,7 @@
   <div class="fgrid tplmeta">
     <div class="field"><span class="flabel">Severity</span><span class="fvalue">{{if $t.Severity}}<span class="tag sev-{{$t.Severity}}">{{$t.Severity}}</span>{{else}}—{{end}}</span></div>
     <div class="field"><span class="flabel">CVSS vector</span><span class="fvalue mono" title="{{$t.CVSS}}">{{if $t.CVSS}}{{$t.CVSS}}{{else}}—{{end}}</span></div>
-    <div class="field"><span class="flabel">Score</span><span class="fvalue"><span class="tag score">{{score0 $t.Score}}</span></span></div>
+    <div class="field"><span class="flabel">Score</span><span class="fvalue"><span class="tag score">{{score $t.Score}}</span></span></div>
   </div>
 </section>
 {{end}}

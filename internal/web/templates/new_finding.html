@@ -48,7 +48,7 @@
             hx-get="/e/{{$.Eng}}/findings/new/preview?t={{.Slug}}" hx-trigger="change" hx-target="#tplpreview" hx-swap="outerHTML"></td>
           <td class="title"><label for="tpl-{{.Slug}}" title="{{.Title}}">{{.Title}}</label></td>
           <td>{{if .Severity}}<span class="tag sev-{{.Severity}}">{{.Severity}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
-          <td class="num">{{score0 .Score}}</td>
+          <td class="num">{{score .Score}}</td>
           <td class="num">{{if .Used}}<span class="badge">{{.Used}}</span>{{else}}<span class="badge0">0</span>{{end}}</td>
         </tr>
       {{else}}

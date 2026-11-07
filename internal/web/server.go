@@ -185,7 +185,7 @@ type page struct {
 }
 
 var funcs = template.FuncMap{"join": strings.Join, "checkedIn": checkedIn, "retestLabel": workflow.RetestLabel, "fpath": findingURL,
-	"static": staticPrefix, "score0": score0, "cleared": cleared, "age": age, "day": day, "when": when, "ending": ending,
+	"static": staticPrefix, "score": scoreText, "cleared": cleared, "age": age, "day": day, "when": when, "ending": ending,
 	"actionTag": actionTag, "actionName": actionName, "statusLabel": workflow.StatusLabel, "statusTitle": workflow.StatusTitle, "shown": workflow.Shown, "dateRange": dateRange, "colspan": colspan,
 	// a read panel refetches itself when the finding changed (MCP, a push,
 	// another tab); an open editor has no trigger, so it is never replaced

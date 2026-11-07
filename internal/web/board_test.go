@@ -24,7 +24,7 @@ func between(b, from, to string) string {
 }
 
 // The board: status filters with counts (withdrawn too), progress and
-// severity bars, black 0 chat badges, 0.0 for findings without a score.
+// severity bars, black 0 chat badges, "—" for findings without a score.
 func TestBoardCountsAndBars(t *testing.T) {
 	e := setup(t)
 	e.toVerification(t) // F-001: high, verification
@@ -49,8 +49,9 @@ func TestBoardCountsAndBars(t *testing.T) {
 	if !strings.Contains(between(tbl, "F-002", "</tr>"), `class="badge">1<`) || !strings.Contains(between(tbl, "F-001", "</tr>"), `class="badge0">0<`) {
 		t.Fatalf("chat badges:\n%s", tbl)
 	}
-	if !strings.Contains(between(tbl, "F-002", "</tr>"), `class="num">0.0<`) {
-		t.Fatalf("no 0.0 score:\n%s", tbl)
+	// D20: no vector is no score ("—"), not 0.0
+	if !strings.Contains(between(tbl, "F-002", "</tr>"), `class="num">—<`) {
+		t.Fatalf("no dash for a finding without a score:\n%s", tbl)
 	}
 	if !strings.Contains(between(tbl, "F-001", "</tr>"), `class="rv"`) {
 		t.Fatalf("reviewer without clearance mark:\n%s", tbl)

@@ -80,10 +80,11 @@ func (s *Server) engRows(engs []store.Engagement) ([]engRow, error) {
 	return out, nil
 }
 
-// score0 shows a missing CVSS score as 0.0.
-func score0(s string) string {
+// scoreText shows a CVSS score; a finding without a valid vector has none
+// ("—", not 0.0: a real score of 0.0 shows as such).
+func scoreText(s string) string {
 	if s == "" {
-		return "0.0"
+		return "—"
 	}
 	return s
 }
