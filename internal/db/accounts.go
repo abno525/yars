@@ -129,7 +129,7 @@ func (d *DB) update(name, q string, args ...any) error {
 }
 
 // DeleteUser removes an account with its sessions, tokens, keys,
-// notification choices and team places.
+// notification choices, team places and board read state.
 func (d *DB) DeleteUser(name string) error {
 	return d.Tx(func(tx *Tx) error {
 		res, err := tx.Exec("DELETE FROM users WHERE username = ?", name)
@@ -138,6 +138,11 @@ func (d *DB) DeleteUser(name string) error {
 		}
 		if n, _ := res.RowsAffected(); n != 1 {
 			return fmt.Errorf("no user %s", name)
+		}
+		// no foreign key: a new account of the same name must not follow
+		// the notes this one opened
+		if _, err := tx.Exec("DELETE FROM board_seen WHERE username = ?", name); err != nil {
+			return err
 		}
 		rows, err := tx.Query("DELETE FROM engagement_members WHERE username = ? RETURNING eng", name)
 		if err != nil {
