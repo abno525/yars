@@ -982,11 +982,12 @@ input.grow, select.grow { flex: 1; min-width: 0; }
 .table th.c-acts { width: 248px; }
 .table td .actions { gap: 8px; }
 .usertable select { width: 120px; height: 32px; font-size: 14px; }
-.usertable th.c-role { width: 136px; }
+.usertable th.c-role { width: 128px; }
 .usertable th.c-date { width: 112px; }
 .usertable th.c-num { width: 80px; }
-.usertable th.c-lock { width: 128px; }
-.stack > .idline { display: flex; gap: 8px; }
+/* Unlock and Reset pass share the action cell: narrower flag columns
+   keep the user column wide enough */
+.usertable th.c-flag { width: 80px; }.stack > .idline { display: flex; gap: 8px; }
 .idline > span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .idline > .mono { flex: none; max-width: 60%; }
 
