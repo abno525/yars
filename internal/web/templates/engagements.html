@@ -35,12 +35,12 @@
   </table>
 </section>
 {{if .CloneURL}}
-<section class="panel">
+<section class="panel compact">
   <div class="panelhead">
     <h2>Clone</h2>
-    <button type="button" class="btn ghost sm w96" data-copy="clone-cmd">Copy</button>
+    <button type="button" class="btn secondary sm w96" data-copy="clone-cmd">Copy</button>
   </div>
-  <pre><code id="clone-cmd">git clone --recurse-submodules {{.CloneURL}}
+  <pre class="flush"><code id="clone-cmd">git clone --recurse-submodules {{.CloneURL}}
 cd yars/engagements/&lt;engagement&gt; &amp;&amp; git switch main</code></pre>
 </section>
 {{end}}

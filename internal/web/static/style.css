@@ -349,6 +349,7 @@ table.kv { width: 100%; border-collapse: collapse; }
 .clonebar code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .clonebar .btn { height: 46px; border: 0; border-left: 1px solid var(--line); background: var(--panel); font-size: 13px; }
 .panel pre { margin: 16px 24px; padding: 12px 16px; background: var(--code-bg); overflow-x: auto; }
+.panel pre.flush { margin: 0; padding: 16px 20px; }
 
 /* ---------- finding page ---------- */
 .finding-grid { display: grid; grid-template-columns: minmax(0, 1fr) 560px; gap: 24px; align-items: start; }
