@@ -99,6 +99,47 @@ func TestSignOffUsesStoredRun(t *testing.T) {
 	if slow != 0 {
 		t.Fatalf("sign off ran the slow rules %d times", slow)
 	}
+	// Approve uses the same source as Ready to approve: no inline AI run
+	if err := s.Transition(eng, fd, workflow.Approve, "", uDora); err != nil {
+		t.Fatalf("approve: %v", err)
+	}
+	if slow != 0 {
+		t.Fatalf("approve ran the slow rules %d times", slow)
+	}
+}
+
+// A check run in progress does not hide the finished run before it: its
+// warning still blocks Sign off while the new run goes on.
+func TestRunningCheckKeepsFinishedResults(t *testing.T) {
+	s, _, fd := ready(t)
+	if err := s.Transition(eng, fd, workflow.Submit, "", uAlice); err != nil {
+		t.Fatal(err)
+	}
+	var slow int
+	s.Linter = slowLinter{&slow}
+	ref := load(t, s, fd)
+	id, err := s.DB().StartRun(eng, ref.F.Meta.ID, ref.Hash, "bob")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.DB().TxFor(eng, func(tx *db.Tx) error {
+		return tx.FinishRun(id, db.RunDone, "", []db.CheckResult{{Rule: "ai-x", Level: "warning", Message: "AI says vague", Target: "section:Impact", Quote: "q", QuoteHash: "qh"}})
+	})
+	second, err := s.DB().StartRun(eng, ref.F.Meta.ID, ref.Hash, "bob")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.DB().RunProgress(second, 0, 3)
+	if err := s.Transition(eng, fd, workflow.Clear, "", uBob); !denied(err) || !strings.Contains(err.Error(), "AI says vague") {
+		t.Fatalf("sign off while a new run goes on: %v", err)
+	}
+	// cut off by a restart: no results, so it hides nothing either
+	if err := s.DB().FailRun(second, "interrupted"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Transition(eng, fd, workflow.Clear, "", uBob); !denied(err) || !strings.Contains(err.Error(), "AI says vague") {
+		t.Fatalf("sign off after an interrupted run: %v", err)
+	}
 }
 
 // An open error also blocks Sign off (not only Submit and Approve).

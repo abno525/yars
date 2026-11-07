@@ -2,6 +2,7 @@ package web
 
 import (
 	"errors"
+	"fmt"
 	"maps"
 	"net/http"
 	"net/url"
@@ -13,6 +14,7 @@ import (
 	"yars/internal/config"
 	"yars/internal/db"
 	"yars/internal/index"
+	"yars/internal/rules"
 	"yars/internal/store"
 	"yars/internal/workflow"
 )
@@ -295,6 +297,61 @@ func (s *Server) draftChecks(rows []inboxRow) ([]inboxRow, error) {
 	return out, nil
 }
 
+// openCache remembers which findings have open checks (Store.OpenChecks),
+// by "eng/dir", for as long as nothing they depend on changed: the index
+// (content), the database (runs, dismissals) and the rule set. Every page a
+// director loads filters Ready to approve for the nav badge.
+type openCache struct {
+	mu   sync.Mutex
+	key  openKey
+	open map[string]bool
+	runs int // OpenChecks calls (for tests)
+}
+
+type openKey struct {
+	gen  uint64
+	seq  int64
+	set  *rules.Set
+	lint string // the linter in use (tests swap it)
+}
+
+// valid returns the cached answers (a copy) and the key they are for, after
+// dropping them if anything changed since.
+func (c *openCache) valid(s *Server) (map[string]bool, openKey, error) {
+	var k openKey
+	var err error
+	// the stamps before the content: a change in between only means the
+	// next request reads again
+	if d := s.Store.DB(); d != nil {
+		if k.seq, err = d.Seq(); err != nil {
+			return nil, k, err
+		}
+	}
+	if k.gen, err = s.Index.Gen(); err != nil {
+		return nil, k, err
+	}
+	k.lint = fmt.Sprintf("%p", s.Store.Linter)
+	if s.Rules != nil {
+		k.set = s.Rules.Rules()
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.open == nil || c.key != k {
+		c.key, c.open = k, map[string]bool{}
+	}
+	return maps.Clone(c.open), k, nil
+}
+
+// put records an answer read for key k (dropped when the key moved on).
+func (c *openCache) put(k openKey, finding string, open bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.runs++
+	if c.key == k {
+		c.open[finding] = open
+	}
+}
+
 // withoutOpenChecks drops from Ready to approve the findings with open
 // (undismissed) check errors or warnings (Store.OpenChecks, the gate's own
 // source): a director gets clean findings only. Read now, since runs,
@@ -305,16 +362,25 @@ func (s *Server) withoutOpenChecks(v inboxView) (inboxView, error) {
 	if len(rows) == 0 || s.Store.Linter == nil {
 		return v, nil
 	}
+	known, key, err := s.openCache.valid(s)
+	if err != nil {
+		return v, err
+	}
 	drop := map[string]bool{}
 	for _, r := range rows {
-		open, err := s.Store.OpenChecks(r.EngID, r.row.Dir)
-		if errors.Is(err, store.ErrNotFound) {
-			continue // gone since the index read it: the next one drops it
+		open, ok := known[r.Key]
+		if !ok {
+			vs, err := s.Store.OpenChecks(r.EngID, r.row.Dir)
+			if errors.Is(err, store.ErrNotFound) {
+				continue // gone since the index read it: the next one drops it
+			}
+			if err != nil {
+				return v, err
+			}
+			open = len(vs) > 0
+			s.openCache.put(key, r.Key, open)
 		}
-		if err != nil {
-			return v, err
-		}
-		if len(open) > 0 {
+		if open {
 			drop[r.Key] = true
 		}
 	}

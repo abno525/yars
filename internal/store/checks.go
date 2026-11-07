@@ -81,13 +81,13 @@ func notice(v rules.Violation) bool { return v.Target == "rules" || v.Target == 
 // (Sign off, Approve): it needs the finding clean, warnings dismissed too.
 func SignsOff(act workflow.Action) bool { return act == workflow.Clear || act == workflow.Approve }
 
-// blocking lists what blocks act on the finding (content hash): Submit and
-// Approve run every rule now and are blocked by its undismissed errors; Sign
-// off and Approve are also blocked by every open check, warnings too
-// (OpenChecks).
+// blocking lists what blocks act on the finding (content hash): Submit runs
+// every rule now and is blocked by its undismissed errors; Sign off and
+// Approve are blocked by every open check, warnings too (OpenChecks, the
+// source the page and Ready to approve show, so what they offer passes).
 func (s *Store) blocking(act workflow.Action, ref FindingRef, hash string) ([]string, error) {
 	var out []string
-	if workflow.Gated(act) {
+	if act == workflow.Submit {
 		vs, err := s.undismissed(ref.EngID, ref.F.Meta.ID, s.Linter.Lint(context.Background(), ref.F, rules.All))
 		if err != nil {
 			return nil, err
@@ -114,8 +114,9 @@ func (s *Store) blocking(act workflow.Action, ref FindingRef, hash string) ([]st
 
 // OpenChecks lists the finding's open (undismissed) check errors and
 // warnings, notices about the rules left out: the fast rules run now, plus
-// the results of the latest finished check run when it ran on the current
-// content (script and AI rules are never run here). It is the one source of
+// the results of the latest check run that finished on the current content
+// (a run in progress does not hide it; script and AI rules are never run
+// here). It is the one source of
 // "open checks" for the Sign off and Approve gate, the finding page and
 // Ready to approve.
 func (s *Store) OpenChecks(engID, dir string) ([]rules.Violation, error) {
@@ -153,11 +154,11 @@ func (s *Store) openChecks(ref FindingRef, hash string) ([]rules.Violation, erro
 	}
 	ds := map[string]db.Dismissal{}
 	if s.db != nil {
-		run, ok, err := s.db.LatestRun(ref.EngID, fid)
+		run, ok, err := s.db.LatestFinishedRun(ref.EngID, fid, hash)
 		if err != nil {
 			return nil, err
 		}
-		if ok && run.State != db.RunRunning && run.ContentHash == hash {
+		if ok {
 			res, err := s.db.RunResults(run.ID)
 			if err != nil {
 				return nil, err

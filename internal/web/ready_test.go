@@ -89,6 +89,39 @@ func TestBulkApproveSkipsOpenChecks(t *testing.T) {
 	}
 }
 
+// The open-checks filter of Ready to approve runs on every page a director
+// loads (the nav badge): it reads each finding once, then again only after
+// something changed.
+func TestReadyToApproveCached(t *testing.T) {
+	e := setup(t)
+	e.rules(t, softRule, nil)
+	e.toVerification(t)
+	st := e.srv.Store
+	st.Dismiss("acme", fdir, "soft", "SQL", wBob)
+	if err := st.Transition("acme", fdir, workflow.Clear, "", wBob); err != nil {
+		t.Fatal(err)
+	}
+	runs := func() int {
+		e.srv.openCache.mu.Lock()
+		defer e.srv.openCache.mu.Unlock()
+		return e.srv.openCache.runs
+	}
+	e.do(t, "dora", "GET", "/inbox", nil, nil)
+	n := runs()
+	if n == 0 {
+		t.Fatal("not read")
+	}
+	e.do(t, "dora", "GET", "/inbox", nil, nil)
+	e.do(t, "dora", "GET", "/notifications", nil, nil)
+	if runs() != n {
+		t.Fatalf("read again with nothing changed: %d then %d", n, runs())
+	}
+	st.Undismiss("acme", fdir, "soft", "", "SQL", wBob)
+	if q := queue(e.do(t, "dora", "GET", "/inbox", nil, nil).Body.String(), "approve"); strings.Contains(q, "SQL injection") || runs() == n {
+		t.Fatalf("a stale answer after the undismissal (%d reads):\n%s", runs(), q)
+	}
+}
+
 // D25: Ready to approve leaves out a signed-off finding whose check run on
 // its current content has an open warning; dismissed, it is listed again.
 func TestReadyToApproveSkipsOpenChecks(t *testing.T) {

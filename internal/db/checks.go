@@ -164,6 +164,20 @@ func (d *DB) LatestRun(eng, fid string) (CheckRun, bool, error) {
 	return r, err == nil, err
 }
 
+// LatestFinishedRun returns the newest check run of a finding that ended
+// with its results stored (FinishRun: done, or failed when a rule could not
+// run) on the given content (false when none): a run in progress, or one
+// cut off without results (FailRun: interrupted, crashed), never hides the
+// one before it.
+func (d *DB) LatestFinishedRun(eng, fid, contentHash string) (CheckRun, bool, error) {
+	r, err := scanRun(d.QueryRow("SELECT "+runCols+" FROM check_runs WHERE eng = ? AND fid = ? AND content_hash = ? AND state != ? AND finished != '' AND done_count = total ORDER BY id DESC LIMIT 1",
+		eng, fid, contentHash, RunRunning))
+	if errors.Is(err, sql.ErrNoRows) {
+		return r, false, nil
+	}
+	return r, err == nil, err
+}
+
 // RunCount is a finding's newest check run in short: its state, the content
 // it ran on, and its errors and warnings that are not dismissed (notices
 // about the rules or AI left out).
