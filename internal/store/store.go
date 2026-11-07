@@ -970,7 +970,10 @@ func (s *Store) ListFindings(engID string) ([]FindingRef, error) {
 	return out, nil
 }
 
-var shortRe = regexp.MustCompile(`^F-(\d+)(?:-|$)`)
+var (
+	shortRe  = regexp.MustCompile(`^F-(\d+)(?:-|$)`)
+	idOnlyRe = regexp.MustCompile(`^F-(\d+)$`)
+)
 
 // ShortID is how a finding appears in URLs: just its number ("001" for
 // F-001-sqli). Directories that don't follow the F-<n> scheme keep their name.
@@ -994,6 +997,13 @@ func (s *Store) Finding(engID, dir string) (FindingRef, error) {
 func (s *Store) read(engID, dir string, states map[string]db.State) (FindingRef, []byte, error) {
 	if !ValidID(engID) || !ValidID(dir) {
 		return FindingRef{}, nil, ErrNotFound
+	}
+	if m := idOnlyRe.FindStringSubmatch(dir); m != nil {
+		// an ID (F-013) names the folder of that number, unless a folder
+		// is called just that
+		if _, err := s.root.Stat(path.Join(engDir(engID), "findings", dir)); err != nil {
+			dir = m[1]
+		}
 	}
 	if n, err := strconv.Atoi(dir); err == nil && strings.Trim(dir, "0123456789") == "" {
 		ents, _ := s.readDir(path.Join(engDir(engID), "findings"))
