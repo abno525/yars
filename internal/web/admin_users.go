@@ -195,9 +195,13 @@ func (s *Server) userFlag(flag string) http.HandlerFunc {
 			s.fail(w, err)
 			return
 		}
-		detail := "off"
-		if on {
-			detail = "on"
+		// user.admin says which way; user.disable / user.enable say it themselves
+		detail := ""
+		if flag == "admin" {
+			detail = "off"
+			if on {
+				detail = "on"
+			}
 		}
 		d.Audit(actor.Username, action, u.Username, detail)
 		http.Redirect(w, r, "/admin/users", http.StatusSeeOther)

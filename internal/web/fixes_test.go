@@ -55,6 +55,27 @@ func TestRootScrollbarGutter(t *testing.T) {
 	}
 }
 
+// Admin activity: disabling and enabling an account carry no "on"/"off"
+// detail, which read backwards next to the action.
+func TestAuditDisableEnableDetail(t *testing.T) {
+	e := setup(t)
+	e.do(t, "dora", "POST", "/admin/users/alice/disabled", url.Values{"on": {"1"}}, nil)
+	e.do(t, "dora", "POST", "/admin/users/alice/disabled", url.Values{}, nil)
+	l, _ := e.srv.Store.DB().AuditLog(10)
+	seen := map[string]bool{}
+	for _, a := range l {
+		if a.Action == "user.disable" || a.Action == "user.enable" {
+			seen[a.Action] = true
+			if a.Detail != "" {
+				t.Errorf("%s detail %q", a.Action, a.Detail)
+			}
+		}
+	}
+	if !seen["user.disable"] || !seen["user.enable"] {
+		t.Fatalf("audit %+v", l)
+	}
+}
+
 // A finding's tab and its history's tab name the finding; the site has a
 // favicon (no 404 on every first load).
 func TestTabTitlesAndFavicon(t *testing.T) {
