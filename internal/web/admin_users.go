@@ -115,7 +115,9 @@ func (s *Server) userAdd(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	u := config.User{Username: name, Email: email, Role: r.FormValue("role"), PasswordHash: hash, IsAdmin: r.FormValue("admin") == "1"}
+	// the password is the admin's, given to the user: they set their own
+	// on first login
+	u := config.User{Username: name, Email: email, Role: r.FormValue("role"), PasswordHash: hash, IsAdmin: r.FormValue("admin") == "1", MustChange: true}
 	if err := s.Store.DB().AddUser(u); err != nil {
 		v.Error = err.Error()
 		s.usersPage(w, r, http.StatusBadRequest, v)
@@ -209,7 +211,7 @@ func (s *Server) userFlag(flag string) http.HandlerFunc {
 }
 
 // userReset gives the account a new temporary password, shown once; its
-// sessions end.
+// sessions end and the user sets a new password on the next login.
 func (s *Server) userReset(w http.ResponseWriter, r *http.Request) {
 	u, ok := s.target(w, r)
 	if !ok {
@@ -221,7 +223,7 @@ func (s *Server) userReset(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	if err := s.Store.DB().SetPassword(u.Username, hash); err != nil {
+	if err := s.Store.DB().ResetPassword(u.Username, hash); err != nil {
 		s.fail(w, err)
 		return
 	}

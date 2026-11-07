@@ -272,7 +272,7 @@ func (s *Server) settingsPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// every session of the account ends; this browser signs in again
-	if err := s.Store.DB().SetPassword(u.Username, hash); err != nil {
+	if err := s.Store.DB().ChangePassword(u.Username, hash); err != nil {
 		s.fail(w, err)
 		return
 	}

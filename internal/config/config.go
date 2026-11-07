@@ -130,6 +130,9 @@ type User struct {
 	Theme string `yaml:"theme,omitempty"`
 	// Created is when the account was added (RFC 3339; from the database).
 	Created string `yaml:"-"`
+	// MustChange: the password is a temporary one an admin gave (Add user,
+	// Reset password); the user sets a new one before anything else.
+	MustChange bool `yaml:"-"`
 }
 
 // GitAuthor is the account's git identity.

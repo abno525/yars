@@ -70,9 +70,25 @@ func hashSecret(tok string) string {
 	return hex.EncodeToString(h[:])
 }
 
-// Check verifies credentials without creating a session (git HTTP auth).
-// Unknown users take as long as wrong passwords.
+// Check verifies credentials without creating a session (git HTTP auth, a
+// current password). Unknown users take as long as wrong passwords. A
+// temporary password (MustChange) is good for logging in to set a new one
+// only, so Check refuses it.
 func (a *Auth) Check(username, pw string) (config.User, bool) {
+	u, ok := a.verify(username, pw)
+	if !ok || u.MustChange {
+		return config.User{}, false
+	}
+	return u, true
+}
+
+// Verify is the password check alone (a temporary password included).
+func (a *Auth) Verify(username, pw string) bool {
+	_, ok := a.verify(username, pw)
+	return ok
+}
+
+func (a *Auth) verify(username, pw string) (config.User, bool) {
 	u, ok := a.Lookup(username)
 	hash := a.dummy
 	if ok {
@@ -85,9 +101,10 @@ func (a *Auth) Check(username, pw string) (config.User, bool) {
 }
 
 // Login checks credentials and returns a new session token. Successes and
-// failures go to the audit log.
+// failures go to the audit log. A temporary password logs in: the session
+// may only set a new password (web: the set-password page).
 func (a *Auth) Login(username, pw string) (string, bool) {
-	if _, ok := a.Check(username, pw); !ok {
+	if _, ok := a.verify(username, pw); !ok {
 		a.db.AuditLoginFail(username)
 		return "", false
 	}

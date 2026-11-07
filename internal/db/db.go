@@ -18,7 +18,7 @@ import (
 // Path is where the database lives inside a data directory (git-ignored).
 func Path(dataDir string) string { return filepath.Join(dataDir, ".yars", "yars.db") }
 
-const schemaVersion = 14
+const schemaVersion = 15
 
 // SchemaVersion is the database schema this build writes.
 const SchemaVersion = schemaVersion
@@ -328,6 +328,8 @@ var migrations = []string{
 	UPDATE check_runs SET stored = 1 WHERE state != 'running' AND finished != '' AND done_count = total;`,
 	// v14: dismissals per result row (perRowDismissals, in Go)
 	`SELECT 1;`,
+	// v15: an account with a temporary password sets a new one first
+	`ALTER TABLE users ADD COLUMN must_change INTEGER NOT NULL DEFAULT 0;`,
 }
 
 // goMigrations are the steps written in Go, by the index of their entry in

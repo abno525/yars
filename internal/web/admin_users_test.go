@@ -59,7 +59,8 @@ func TestAdminUsers(t *testing.T) {
 	if m == nil {
 		t.Fatalf("no temporary password:\n%s", rec.Body.String())
 	}
-	if _, ok := e.srv.Auth.Check("pen3", m[1]); !ok {
+	// it logs in (to set a new password: D26)
+	if _, ok := e.srv.Auth.Login("pen3", m[1]); !ok {
 		t.Fatal("temporary password does not work")
 	}
 	if rec := e.do(t, "dora", "POST", "/admin/users", url.Values{"username": {"pen3"}, "role": {"pentester"}}, nil); rec.Code != http.StatusBadRequest {
@@ -104,7 +105,7 @@ func TestAdminUsers(t *testing.T) {
 	if rec.Code != 200 || m == nil {
 		t.Fatalf("reset %d", rec.Code)
 	}
-	if _, ok := e.srv.Auth.Check("bob", m[1]); !ok {
+	if _, ok := e.srv.Auth.Login("bob", m[1]); !ok {
 		t.Fatal("reset password does not work")
 	}
 	// an admin can't lock themselves out

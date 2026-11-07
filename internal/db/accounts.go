@@ -38,17 +38,17 @@ func (d *DB) AddUser(u config.User) error {
 		return fmt.Errorf("user %s already exists", u.Username)
 	}
 	return d.Tx(func(tx *Tx) error {
-		_, err := tx.Exec("INSERT INTO users(username, email, role, password_hash, created, is_admin, disabled, theme) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-			u.Username, u.Email, u.Role, u.PasswordHash, d.stamp(), b2i(u.IsAdmin), b2i(u.Disabled), u.Theme)
+		_, err := tx.Exec("INSERT INTO users(username, email, role, password_hash, created, is_admin, disabled, theme, must_change) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+			u.Username, u.Email, u.Role, u.PasswordHash, d.stamp(), b2i(u.IsAdmin), b2i(u.Disabled), u.Theme, b2i(u.MustChange))
 		return err
 	})
 }
 
-const userCols = "username, email, role, password_hash, is_admin, disabled, theme, created"
+const userCols = "username, email, role, password_hash, is_admin, disabled, theme, created, must_change"
 
 func scanUser(sc interface{ Scan(...any) error }) (config.User, error) {
 	var u config.User
-	err := sc.Scan(&u.Username, &u.Email, &u.Role, &u.PasswordHash, &u.IsAdmin, &u.Disabled, &u.Theme, &u.Created)
+	err := sc.Scan(&u.Username, &u.Email, &u.Role, &u.PasswordHash, &u.IsAdmin, &u.Disabled, &u.Theme, &u.Created, &u.MustChange)
 	return u, err
 }
 
@@ -169,8 +169,24 @@ func (d *DB) DeleteUser(name string) error {
 // (a reset after a compromise must lock the old cookies out). API tokens
 // are kept; revoke them separately.
 func (d *DB) SetPassword(name, hash string) error {
+	return d.setPassword(name, hash, "")
+}
+
+// ResetPassword is SetPassword with a temporary password an admin gave: the
+// user must set a new one before anything else.
+func (d *DB) ResetPassword(name, hash string) error {
+	return d.setPassword(name, hash, ", must_change = 1")
+}
+
+// ChangePassword is the user's own new password: SetPassword that also
+// ends the need to set one.
+func (d *DB) ChangePassword(name, hash string) error {
+	return d.setPassword(name, hash, ", must_change = 0")
+}
+
+func (d *DB) setPassword(name, hash, also string) error {
 	return d.Tx(func(tx *Tx) error {
-		res, err := tx.Exec("UPDATE users SET password_hash = ? WHERE username = ?", hash, name)
+		res, err := tx.Exec("UPDATE users SET password_hash = ?"+also+" WHERE username = ?", hash, name)
 		if err != nil {
 			return err
 		}

@@ -281,6 +281,7 @@ func (s *Server) Handler() http.Handler {
 	s.routesNotifications(private)
 	s.routesDocs(private)
 	s.routesTeamBoard(private)
+	s.routesPassword(private)
 	private.HandleFunc("POST /e/{eng}/archive", s.engArchive(true))
 	private.HandleFunc("POST /e/{eng}/reopen", s.engArchive(false))
 
@@ -293,7 +294,7 @@ func (s *Server) Handler() http.Handler {
 	root.HandleFunc("GET /favicon.ico", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, staticPrefix()+"/favicon.svg", http.StatusMovedPermanently)
 	})
-	root.Handle("/", s.Auth.Require(s.teamGate(private)))
+	root.Handle("/", s.Auth.Require(s.mustChangeGate(s.teamGate(private))))
 	if s.Git != nil {
 		root.Handle("/git/", longLived(s.Git)) // HTTP Basic auth, no cookies; big pushes and clones take time
 	}
