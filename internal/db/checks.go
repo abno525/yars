@@ -181,7 +181,7 @@ func (d *DB) LatestFinishedRun(eng, fid, contentHash string) (CheckRun, bool, er
 // their results stored on the given content, newest first (see
 // LatestFinishedRun).
 func (d *DB) FinishedRuns(eng, fid, contentHash string, limit int) ([]CheckRun, error) {
-	rows, err := d.Query("SELECT "+runCols+" FROM check_runs WHERE eng = ? AND fid = ? AND content_hash = ? AND state != ? AND finished != '' AND done_count = total ORDER BY id DESC LIMIT ?",
+	rows, err := d.Query("SELECT "+runCols+" FROM check_runs WHERE eng = ? AND fid = ? AND content_hash = ? AND state != ? AND stored = 1 ORDER BY id DESC LIMIT ?",
 		eng, fid, contentHash, RunRunning, limit)
 	if err != nil {
 		return nil, err
@@ -267,7 +267,7 @@ func (tx *Tx) FinishRun(id int64, state, reason string, results []CheckResult) e
 		return err
 	}
 	tx.touch(eng)
-	if _, err := tx.Exec("UPDATE check_runs SET state = ?, error = ?, finished = ?, done_count = total WHERE id = ?",
+	if _, err := tx.Exec("UPDATE check_runs SET state = ?, error = ?, finished = ?, done_count = total, stored = 1 WHERE id = ?",
 		state, reason, stampNow(), id); err != nil {
 		return err
 	}

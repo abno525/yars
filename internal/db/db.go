@@ -18,7 +18,7 @@ import (
 // Path is where the database lives inside a data directory (git-ignored).
 func Path(dataDir string) string { return filepath.Join(dataDir, ".yars", "yars.db") }
 
-const schemaVersion = 12
+const schemaVersion = 13
 
 // SchemaVersion is the database schema this build writes.
 const SchemaVersion = schemaVersion
@@ -322,6 +322,10 @@ var migrations = []string{
 		PRIMARY KEY (username, eng, num)
 	) WITHOUT ROWID;
 	ALTER TABLE engagement_members ADD COLUMN joined TEXT NOT NULL DEFAULT '';`,
+	// v13: a check run that ended with its results stored (FinishRun), as
+	// opposed to one cut off without them (FailRun: interrupted, crashed)
+	`ALTER TABLE check_runs ADD COLUMN stored INTEGER NOT NULL DEFAULT 0;
+	UPDATE check_runs SET stored = 1 WHERE state != 'running' AND finished != '' AND done_count = total;`,
 }
 
 // teamBackfillKey marks the one-time team backfill as still to do.

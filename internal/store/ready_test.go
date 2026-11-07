@@ -133,8 +133,10 @@ func TestRunningCheckKeepsFinishedResults(t *testing.T) {
 	if err := s.Transition(eng, fd, workflow.Clear, "", uBob); !denied(err) || !strings.Contains(err.Error(), "AI says vague") {
 		t.Fatalf("sign off while a new run goes on: %v", err)
 	}
-	// cut off by a restart: no results, so it hides nothing either
-	if err := s.DB().FailRun(second, "interrupted"); err != nil {
+	// cut off (a crash after its last rule): no results, so it hides
+	// nothing either
+	s.DB().RunProgress(second, 3, 3)
+	if err := s.DB().FailRun(second, "crashed: boom"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Transition(eng, fd, workflow.Clear, "", uBob); !denied(err) || !strings.Contains(err.Error(), "AI says vague") {
