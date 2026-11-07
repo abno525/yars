@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"yars/internal/auth"
@@ -26,6 +27,59 @@ type pushEnv struct {
 	st    *store.Store
 	clone string // recursive clone of the main repo
 	url   string
+	gs    *gitserve.Server
+	// beforeReceive, when set, runs once as a push's POST arrives, before
+	// the engagement lock is taken (after the client read the refs).
+	beforeReceive atomic.Pointer[func()]
+}
+
+// A push that loses the race to a website commit (made between the client's
+// ref read and its POST) is refused with a hint, leaves the server's work
+// tree at HEAD (the website edit stays on disk), and a pull plus push works.
+func TestPushLosesRaceToWebCommit(t *testing.T) {
+	p := newPushEnv(t)
+	alice := config.User{Username: "alice", Role: "pentester"}
+	webEdit := func() {
+		if err := p.st.UpdateSection("acme", "F-001-sqli", "Remediation", "Web edit.", "", alice); err != nil {
+			t.Error(err)
+		}
+	}
+	p.beforeReceive.Store(&webEdit)
+	p.editFinding(func(f *finding.Finding) { f.SetSection("Impact", "Pushed impact.") })
+	out, err := p.git("push", "origin", "HEAD")
+	if err == nil {
+		t.Fatalf("push over a newer web commit accepted:\n%s", out)
+	}
+	if !strings.Contains(out, "remote: yars:") || !strings.Contains(out, "pull") {
+		t.Errorf("no pull hint:\n%s", out)
+	}
+	if st, _ := exec.Command("git", "-C", p.repo.Dir, "status", "--porcelain", "--untracked-files=no").Output(); len(st) != 0 {
+		t.Fatalf("server work tree dirty after the lost race:\n%s", st)
+	}
+	ref, _ := p.st.Finding("acme", "F-001-sqli")
+	if b, _ := ref.F.Section("Remediation"); !strings.Contains(b, "Web edit.") {
+		t.Fatalf("web edit reverted on disk: %q", b)
+	}
+	if out, err := p.git("pull", "-q", "--no-rebase", "--no-edit", "origin", "main"); err != nil {
+		t.Fatalf("pull: %v\n%s", err, out)
+	}
+	if out, err := p.git("push", "-q", "origin", "HEAD"); err != nil {
+		t.Fatalf("push after pull: %v\n%s", err, out)
+	}
+}
+
+// A work tree left dirty by a push that never moved the branch (a crash
+// between checkout and the ref update) is put back to HEAD by Setup.
+func TestSetupRestoresDirtyEngagementTree(t *testing.T) {
+	p := newPushEnv(t)
+	os.WriteFile(filepath.Join(p.repo.Dir, "findings", "F-001-sqli", "finding.md"), []byte("half a push"), 0o644)
+	exec.Command("git", "-C", p.repo.Dir, "add", "-A").Run()
+	if err := p.gs.Setup(); err != nil {
+		t.Fatal(err)
+	}
+	if st, _ := exec.Command("git", "-C", p.repo.Dir, "status", "--porcelain", "--untracked-files=no").Output(); len(st) != 0 {
+		t.Fatalf("dirty tree kept on start:\n%s", st)
+	}
 }
 
 // Each engagement can be cloned on its own; its history holds only that
@@ -67,8 +121,16 @@ func newPushEnv(t *testing.T) *pushEnv {
 	st.CreateFinding("acme", "SQLi", alice.GitAuthor())
 	d.AddMembers("acme", "alice") // alice's team
 
+	p := &pushEnv{t: t, st: st}
+	receive := func(eng string, u config.User, serve func()) {
+		if fn := p.beforeReceive.Swap(nil); fn != nil {
+			(*fn)()
+		}
+		st.ReceivePush(eng, u, serve)
+	}
 	gs := &gitserve.Server{Repo: r, Auth: auth.New(d), HookCmd: hookCmd(bin, dir), Sync: st.SyncPointers, Invalidate: st.Invalidate,
-		Receive: st.ReceivePush, Tokens: auth.NewTokens(d), CanSee: st.CanSee}
+		Receive: receive, Tokens: auth.NewTokens(d), CanSee: st.CanSee}
+	p.gs = gs
 	if err := gs.Setup(); err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +148,7 @@ func newPushEnv(t *testing.T) *pushEnv {
 		t.Fatalf("clone: %v %s", err, out)
 	}
 	er, _ := st.EngRepo("acme")
-	p := &pushEnv{t: t, repo: er, st: st, clone: clone, url: srv.URL}
+	p.repo, p.clone, p.url = er, clone, srv.URL
 	if out, err := p.git("switch", "-q", "main"); err != nil {
 		t.Fatalf("switch: %v %s", err, out)
 	}

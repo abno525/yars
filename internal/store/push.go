@@ -102,6 +102,17 @@ func (s *Store) ReceivePush(eng string, u config.User, serve func()) {
 	serve()
 	s.Invalidate(eng)
 	after, err := s.freshHead(eng)
+	if err == nil && after == before {
+		// a push whose ref update failed after git checked its tree out
+		// must not leave that tree behind
+		if r, rerr := s.EngRepo(eng); rerr == nil {
+			if reset, rerr := r.RestoreHead(); rerr != nil {
+				log.Printf("push to %s: restore work tree: %v", eng, rerr)
+			} else if reset {
+				log.Printf("push to %s: work tree put back to HEAD after a failed push", eng)
+			}
+		}
+	}
 	l.Unlock()
 	if err != nil || after == "" || after == before {
 		return

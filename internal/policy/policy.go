@@ -131,6 +131,12 @@ func (c *Checker) Check(username string, ups []Update) []string {
 		if old == zero {
 			old = ""
 		}
+		// a commit made on the website between the client's read of the
+		// refs and its push: refuse before git checks the pushed tree out
+		if c.Repo.Ref(up.Ref) != old {
+			ps = append(ps, up.Ref+": the server has newer commits; pull, then push again")
+			continue
+		}
 		// every pushed commit must be authored as the pusher (audit trail)
 		authors, err := c.Repo.Authors(old, up.New)
 		if err != nil {

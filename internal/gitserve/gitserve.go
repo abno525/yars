@@ -77,6 +77,12 @@ func (s *Server) Setup() error {
 			if err := s.setupRepo(r); err != nil {
 				return err
 			}
+			// a push interrupted between checking its tree out and moving
+			// the branch leaves a tree that is not HEAD; YARS commits
+			// everything it writes, so nothing else can be lost here
+			if _, err := r.RestoreHead(); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

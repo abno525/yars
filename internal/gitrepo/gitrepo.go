@@ -299,6 +299,29 @@ func (r *Repo) Unstage(paths []string) {
 	r.run(nil, append([]string{"reset", "-q", "--"}, paths...)...)
 }
 
+// Ref returns the commit a ref points to ("" when it does not exist).
+func (r *Repo) Ref(ref string) string {
+	out, err := r.run(nil, "rev-parse", "-q", "--verify", "--end-of-options", ref)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(out)
+}
+
+// RestoreHead puts the index and work tree back to HEAD when they differ
+// from it (tracked files only), e.g. after a push checked its tree out but
+// then failed to move the branch. It reports whether anything was reset.
+func (r *Repo) RestoreHead() (bool, error) {
+	out, err := r.run(nil, "status", "--porcelain", "--untracked-files=no", "--ignore-submodules=all")
+	if err != nil || strings.TrimSpace(out) == "" {
+		return false, err
+	}
+	if _, err := r.run(nil, "reset", "-q", "--hard", "HEAD"); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // Head returns the current commit hash, or "" if there are no commits yet.
 func (r *Repo) Head() (string, error) {
 	out, err := r.run(nil, "rev-parse", "-q", "--verify", "HEAD")
