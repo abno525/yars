@@ -386,7 +386,7 @@ func TestBoardUnseenScale(t *testing.T) {
 	if c, _ := d.UnseenCount("bob", "eng3"); c != 50 {
 		t.Fatalf("count %d", c)
 	}
-	if took := time.Since(start); took > 300*time.Millisecond {
+	if took := time.Since(start); took > raceScale*300*time.Millisecond {
 		t.Fatalf("unseen took %s", took)
 	}
 }
