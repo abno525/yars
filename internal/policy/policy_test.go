@@ -588,6 +588,14 @@ func TestPolicyAuthorEmail(t *testing.T) {
 	if ps := f.pushWith("dora", "dora", "dora@elsewhere.example", edit); !has(ps, "dora@elsewhere.example") {
 		t.Fatalf("director with another email accepted: %v", ps)
 	}
+	// letter case folds as the database compares (ASCII only): an account
+	// email with the Kelvin sign is not kim's address
+	f.reclone()
+	f.c.Users = append(f.c.Users, config.User{Username: "mallory", Role: "pentester", Email: "Kim@corp.example"})
+	f.st.DB().AddMembers("acme", "mallory")
+	if ps := f.pushWith("mallory", "Kim", "kim@corp.example", edit); !has(ps, "kim@corp.example") {
+		t.Fatalf("Kelvin-sign email matched kim's: %v", ps)
+	}
 }
 
 func TestPolicyGitattributes(t *testing.T) {

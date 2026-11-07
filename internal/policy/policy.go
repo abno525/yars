@@ -152,7 +152,7 @@ func (c *Checker) Check(username string, ups []Update) []string {
 		}
 		want := u.GitAuthor()
 		for _, a := range authors {
-			if !strings.EqualFold(a.Email, want.Email) {
+			if !config.SameEmail(a.Email, want.Email) {
 				ps = append(ps, fmt.Sprintf("commit %.7s: authored by %s <%s>, but the account %s has the email %s; run git config user.email %s, then git commit --amend --reset-author (or rebase older commits)",
 					a.Hash, a.Name, a.Email, u.Username, want.Email, want.Email))
 			}

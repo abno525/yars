@@ -144,6 +144,23 @@ func (u User) GitAuthor() gitrepo.Author {
 	return gitrepo.Author{Name: u.Username, Email: email}
 }
 
+// SameEmail reports whether two emails are one address: equal once ASCII
+// letters are lowercased, as the database compares them (SQL lower()).
+// Other characters must match exactly, so a look-alike such as the Kelvin
+// sign never stands for a "k".
+func SameEmail(a, b string) bool {
+	return asciiLower(strings.TrimSpace(a)) == asciiLower(strings.TrimSpace(b))
+}
+
+func asciiLower(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r >= 'A' && r <= 'Z' {
+			return r + 'a' - 'A'
+		}
+		return r
+	}, s)
+}
+
 // Roles in increasing power; each role can do everything the ones before it can.
 var Roles = []string{"pentester", "reviewer", "director"}
 
