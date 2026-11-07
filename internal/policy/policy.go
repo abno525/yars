@@ -245,7 +245,7 @@ func (c *Checker) file(u config.User, old, new string, ch gitrepo.Change) []stri
 		return []string{"only regular files are allowed (no symlinks or submodules)"}
 	}
 	for i, s := range seg {
-		if strings.HasPrefix(strings.ToLower(s), ".git") && !(i == 0 && p == ".gitattributes") {
+		if strings.HasPrefix(strings.ToLower(s), ".git") && !(i == 0 && (p == ".gitattributes" || p == ".gitignore")) {
 			return []string{"git control files are not allowed here"}
 		}
 	}

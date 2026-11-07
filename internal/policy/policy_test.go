@@ -228,6 +228,18 @@ func TestPolicyConfigMustLoad(t *testing.T) {
 	}
 }
 
+// The main repo's .gitignore is a director's to change.
+func TestPolicyGitignore(t *testing.T) {
+	f := newFx(t).on("")
+	if ps := f.push("alice", func(d string) { write(d, ".gitignore", "*.tmp\n") }); !has(ps, "only a director can change .gitignore") {
+		t.Fatalf("pentester: %v", ps)
+	}
+	f.reclone()
+	if ps := f.push("dora", func(d string) { write(d, ".gitignore", "*.tmp\n") }); len(ps) != 0 {
+		t.Fatalf("director refused: %v", ps)
+	}
+}
+
 // A section name used twice is refused: only the first body can be shown
 // or edited, and both would ship in exports.
 func TestPolicyDuplicateSection(t *testing.T) {
