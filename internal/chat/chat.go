@@ -150,6 +150,14 @@ func Validate(existing []Message, m Message) error {
 			if e.Event != "" || e.Reply != "" || e.Resolves != "" || e.Reopens != "" {
 				return errors.New("can only reply to, resolve or reopen a thread")
 			}
+			if m.Resolves != "" {
+				// resolving again would change nothing
+				for _, it := range Timeline(existing) {
+					if t := it.Thread; t != nil && t.Root.ID == ref && t.Resolved {
+						return errors.New("thread already resolved")
+					}
+				}
+			}
 			return nil
 		}
 	}
