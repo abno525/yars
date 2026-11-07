@@ -60,6 +60,7 @@ func TestOpenWarningDisablesSignOffAndApprove(t *testing.T) {
 // its current content has an open warning; dismissed, it is listed again.
 func TestReadyToApproveSkipsOpenChecks(t *testing.T) {
 	e := setup(t)
+	e.rules(t, "- id: none\n  target: title\n  regex_forbid: 'zzz'\n", nil)
 	e.toVerification(t)
 	st := e.srv.Store
 	if err := st.Transition("acme", fdir, workflow.Clear, "", wBob); err != nil {
@@ -69,6 +70,19 @@ func TestReadyToApproveSkipsOpenChecks(t *testing.T) {
 	if !strings.Contains(approve(), "SQL injection") {
 		t.Fatal("clean signed-off finding not listed")
 	}
+	// a warning rule added after the sign-off, no run since: not listed,
+	// Approve disabled on the page and refused by the store
+	e.rules(t, softRule, nil)
+	if q := approve(); strings.Contains(q, "SQL injection") {
+		t.Fatalf("listed with a new open warning:\n%s", q)
+	}
+	if b := e.do(t, "dora", "GET", fpath, nil, nil).Body.String(); !strings.Contains(slotButton(t, b, "approve"), " disabled") {
+		t.Fatal("approve enabled with a new open warning")
+	}
+	if err := st.Transition("acme", fdir, workflow.Approve, "", wDora); err == nil || !strings.Contains(err.Error(), "say what SQL means") {
+		t.Fatalf("store approve: %v", err)
+	}
+	e.rules(t, "- id: none\n  target: title\n  regex_forbid: 'zzz'\n", nil)
 	ref, _ := st.Finding("acme", fdir)
 	id, err := st.DB().StartRun("acme", "F-001", ref.Hash, "bob")
 	if err != nil {

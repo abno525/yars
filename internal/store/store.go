@@ -1466,7 +1466,7 @@ func (s *Store) TransitionChecked(engID, dir string, act workflow.Action, reason
 	// Style rules (scripts, AI) can be slow, so they run outside the lock on
 	// a snapshot; the change is refused if the finding changed meanwhile.
 	linted := ""
-	if (workflow.Gated(act) || act == workflow.Clear) && s.Linter != nil {
+	if (workflow.Gated(act) || SignsOff(act)) && s.Linter != nil {
 		ref, raw, err := s.read(engID, dir, nil)
 		if err != nil {
 			return err
@@ -1477,11 +1477,11 @@ func (s *Store) TransitionChecked(engID, dir string, act workflow.Action, reason
 		if err := check(ref.F.Meta); err != nil {
 			return err
 		}
-		vs, err := s.undismissed(engID, ref.F.Meta.ID, s.Linter.Lint(context.Background(), ref.F, rules.All))
+		errs, err := s.blocking(act, ref, contentHash(raw))
 		if err != nil {
 			return err
 		}
-		if errs := Blocking(act, vs); len(errs) > 0 {
+		if len(errs) > 0 {
 			return &workflow.Denied{Reason: "cannot " + strings.ToLower(workflow.Label(act)) + ": " + strings.Join(errs, "; ")}
 		}
 		linted = contentHash(raw)

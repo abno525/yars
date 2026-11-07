@@ -2,6 +2,7 @@ package web
 
 import (
 	"errors"
+	"log"
 	"net/http"
 	"slices"
 	"strconv"
@@ -32,22 +33,23 @@ type wfCandidate struct {
 }
 
 type wfView struct {
-	Status       string
-	Shown        string   // the current step: Status, or signed off (workflow.Shown)
-	Steps        []string // workflow.ShownSteps
-	Actions      []wfAction
-	Gate         []string
-	OpenWarnings int // open check warnings keeping Sign off or Approve disabled
-	Reviewers    []wfReviewer
-	Candidates   []wfCandidate
-	CanAssign    bool
-	HasGated     bool
-	ReviewersURL string
-	URL          string // the bar alone (live refresh)
-	Returned     *finding.Returned
-	Withdrawn    *finding.Returned // who withdrew the finding and why
-	IsWithdrawn  bool              // no step is current or done
-	ReadOnly     bool              // the engagement is archived: no actions
+	Status  string
+	Shown   string   // the current step: Status, or signed off (workflow.Shown)
+	Steps   []string // workflow.ShownSteps
+	Actions []wfAction
+	Gate    []string
+	// open check errors and warnings keeping Sign off or Approve disabled
+	OpenErrors, OpenWarnings int
+	Reviewers                []wfReviewer
+	Candidates               []wfCandidate
+	CanAssign                bool
+	HasGated                 bool
+	ReviewersURL             string
+	URL                      string // the bar alone (live refresh)
+	Returned                 *finding.Returned
+	Withdrawn                *finding.Returned // who withdrew the finding and why
+	IsWithdrawn              bool              // no step is current or done
+	ReadOnly                 bool              // the engagement is archived: no actions
 
 	// The bar as drawn: the first chips, how many more, the fixed button
 	// slots of the status, the reason forms they open and the state text.
@@ -196,6 +198,8 @@ func (v *wfView) arrange(u config.User, m finding.Meta) {
 	switch n := len(v.Gate); {
 	case n > 0 && v.HasGated:
 		v.State, v.StateError = plural(n, "error")+" to fix", true
+	case v.OpenErrors > 0:
+		v.State, v.StateError = plural(v.OpenErrors, "error")+" open", true
 	case v.OpenWarnings > 0:
 		v.State = plural(v.OpenWarnings, "warning") + " open"
 	case needsSignOff:
@@ -264,11 +268,26 @@ func (s *Server) wfGated(r *http.Request, ref store.FindingRef) (wfView, checksV
 	wf := s.wfFor(ref, r)
 	// a director gets clean findings only: any open check (warnings too)
 	// keeps Sign off and Approve disabled until it is fixed or dismissed
-	if checks.Errors+checks.Warnings > 0 {
+	// (the store's own source: Store.OpenChecks)
+	signs := slices.ContainsFunc(wf.Actions, func(a wfAction) bool {
+		act, _ := workflow.ParseAction(a.Name)
+		return store.SignsOff(act)
+	})
+	if signs {
+		open, err := s.Store.OpenChecks(ref.EngID, ref.Dir)
+		if err != nil {
+			log.Printf("open checks of %s/%s: %v", ref.EngID, ref.Dir, err)
+		}
+		for _, v := range open {
+			if v.Level == "warning" {
+				wf.OpenWarnings++
+			} else {
+				wf.OpenErrors++
+			}
+		}
 		for i, a := range wf.Actions {
-			if act, _ := workflow.ParseAction(a.Name); store.SignsOff(act) {
+			if act, _ := workflow.ParseAction(a.Name); store.SignsOff(act) && (len(open) > 0 || err != nil) {
 				wf.Actions[i].Disabled = true
-				wf.OpenWarnings = checks.Warnings
 			}
 		}
 	}

@@ -81,19 +81,102 @@ func notice(v rules.Violation) bool { return v.Target == "rules" || v.Target == 
 // (Sign off, Approve): it needs the finding clean, warnings dismissed too.
 func SignsOff(act workflow.Action) bool { return act == workflow.Clear || act == workflow.Approve }
 
-// Blocking lists the undismissed violations vs that block act: errors for
-// Submit, errors and warnings (notices about the rules left out) for Sign
-// off and Approve.
-func Blocking(act workflow.Action, vs []rules.Violation) []string {
-	out := rules.Errors(vs)
+// blocking lists what blocks act on the finding (content hash): Submit and
+// Approve run every rule now and are blocked by its undismissed errors; Sign
+// off and Approve are also blocked by every open check, warnings too
+// (OpenChecks).
+func (s *Store) blocking(act workflow.Action, ref FindingRef, hash string) ([]string, error) {
+	var out []string
+	if workflow.Gated(act) {
+		vs, err := s.undismissed(ref.EngID, ref.F.Meta.ID, s.Linter.Lint(context.Background(), ref.F, rules.All))
+		if err != nil {
+			return nil, err
+		}
+		out = rules.Errors(vs)
+	}
 	if SignsOff(act) {
-		for _, v := range vs {
-			if v.Level == "warning" && !notice(v) {
-				out = append(out, v.Message+" (warning)")
+		open, err := s.openChecks(ref, hash)
+		if err != nil {
+			return nil, err
+		}
+		for _, v := range open {
+			msg := v.Message
+			if v.Level == "warning" {
+				msg += " (warning)"
+			}
+			if !slices.Contains(out, msg) {
+				out = append(out, msg)
 			}
 		}
 	}
-	return out
+	return out, nil
+}
+
+// OpenChecks lists the finding's open (undismissed) check errors and
+// warnings, notices about the rules left out: the fast rules run now, plus
+// the results of the latest finished check run when it ran on the current
+// content (script and AI rules are never run here). It is the one source of
+// "open checks" for the Sign off and Approve gate, the finding page and
+// Ready to approve.
+func (s *Store) OpenChecks(engID, dir string) ([]rules.Violation, error) {
+	ref, raw, err := s.read(engID, dir, nil)
+	if err != nil {
+		return nil, err
+	}
+	return s.openChecks(ref, contentHash(raw))
+}
+
+func (s *Store) openChecks(ref FindingRef, hash string) ([]rules.Violation, error) {
+	if s.Linter == nil {
+		return nil, nil
+	}
+	fid := ref.F.Meta.ID
+	type keyed struct {
+		v   rules.Violation
+		key string
+	}
+	var all []keyed
+	seen := map[string]bool{}
+	add := func(v rules.Violation, qh string) {
+		if notice(v) || (v.Level != "error" && v.Level != "warning") {
+			return
+		}
+		k := db.DismissKey(v.Rule, qh)
+		if seen[k+"\x00"+v.Target] {
+			return
+		}
+		seen[k+"\x00"+v.Target] = true
+		all = append(all, keyed{v, k})
+	}
+	for _, v := range s.Linter.Lint(context.Background(), ref.F, rules.Fast) {
+		add(v, ViolationHash(v.Target, v.Quote))
+	}
+	ds := map[string]db.Dismissal{}
+	if s.db != nil {
+		run, ok, err := s.db.LatestRun(ref.EngID, fid)
+		if err != nil {
+			return nil, err
+		}
+		if ok && run.State != db.RunRunning && run.ContentHash == hash {
+			res, err := s.db.RunResults(run.ID)
+			if err != nil {
+				return nil, err
+			}
+			for _, r := range res {
+				add(rules.Violation{Rule: r.Rule, Level: r.Level, Message: r.Message, Target: r.Target, Quote: r.Quote}, r.QuoteHash)
+			}
+		}
+		if ds, err = s.db.Dismissals(ref.EngID, fid); err != nil {
+			return nil, err
+		}
+	}
+	var out []rules.Violation
+	for _, x := range all {
+		if _, ok := ds[x.key]; !ok {
+			out = append(out, x.v)
+		}
+	}
+	return out, nil
 }
 
 // Dismissals returns the dismissed violations of finding fid.

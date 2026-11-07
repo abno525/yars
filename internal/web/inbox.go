@@ -1,6 +1,7 @@
 package web
 
 import (
+	"errors"
 	"maps"
 	"net/http"
 	"net/url"
@@ -294,33 +295,34 @@ func (s *Server) draftChecks(rows []inboxRow) ([]inboxRow, error) {
 	return out, nil
 }
 
-// withoutOpenChecks drops from Ready to approve the findings whose check
-// run on their current content has open (undismissed) errors or warnings:
-// a director gets clean findings only (read now: runs and dismissals do not
-// wait for the index). v is shared: a changed view gets its own lists map.
+// withoutOpenChecks drops from Ready to approve the findings with open
+// (undismissed) check errors or warnings (Store.OpenChecks, the gate's own
+// source): a director gets clean findings only. Read now, since runs,
+// dismissals and rule changes do not wait for the index. v is shared: a
+// changed view gets its own lists map.
 func (s *Server) withoutOpenChecks(v inboxView) (inboxView, error) {
 	rows := v.Lists[workflow.InboxApprove]
-	d := s.Store.DB()
-	if len(rows) == 0 || d == nil {
+	if len(rows) == 0 || s.Store.Linter == nil {
 		return v, nil
 	}
-	keys := make([][2]string, len(rows))
-	for i, r := range rows {
-		keys[i] = [2]string{r.EngID, r.ID}
+	drop := map[string]bool{}
+	for _, r := range rows {
+		open, err := s.Store.OpenChecks(r.EngID, r.row.Dir)
+		if errors.Is(err, store.ErrNotFound) {
+			continue // gone since the index read it: the next one drops it
+		}
+		if err != nil {
+			return v, err
+		}
+		if len(open) > 0 {
+			drop[r.Key] = true
+		}
 	}
-	runs, err := d.LatestRuns(keys)
-	if err != nil {
-		return v, err
-	}
-	open := func(r inboxRow) bool {
-		run, ok := runs[r.EngID+"/"+r.ID]
-		return ok && run.ContentHash == r.row.Hash && run.Errors+run.Warnings > 0
-	}
-	if !slices.ContainsFunc(rows, open) {
+	if len(drop) == 0 {
 		return v, nil
 	}
 	lists := maps.Clone(v.Lists)
-	lists[workflow.InboxApprove] = slices.DeleteFunc(slices.Clone(rows), open)
+	lists[workflow.InboxApprove] = slices.DeleteFunc(slices.Clone(rows), func(r inboxRow) bool { return drop[r.Key] })
 	v.Lists = lists
 	return v, nil
 }
