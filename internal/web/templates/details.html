@@ -8,6 +8,7 @@
     </div>
   </div>
   <table class="kv details">
+    {{template "kv_head"}}
     <tbody>
     {{range .Rows}}
       <tr><th scope="row">{{.Name}}</th><td class="text">{{if .Value}}{{.Value}}{{else}}<span class="muted">—</span>{{end}}</td></tr>
@@ -18,10 +19,13 @@
 </section>
 {{end}}
 
+{{define "kv_head"}}<thead><tr><th scope="col">Field</th><th scope="col">Value</th></tr></thead>{{end}}
+
 {{define "details_other"}}
 {{if .Other}}
   <h3 class="subhead">Other</h3>
   <table class="kv details">
+    {{template "kv_head"}}
     <tbody>
     {{range .Other}}<tr><th scope="row">{{.Name}}</th><td class="text">{{.Value}}</td></tr>{{end}}
     </tbody>
