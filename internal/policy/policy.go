@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"unicode"
 
 	"yars/internal/config"
 	"yars/internal/db"
@@ -230,20 +231,20 @@ func (c *Checker) checkCommit(u config.User, cm gitrepo.PushedCommit) ([]string,
 		return append(ps, "server: "+err.Error()), false
 	}
 	// sizes first: nothing over the limit is read into memory
-	var specs []string
+	var ids, paths []string
 	for _, ch := range changes {
-		if ch.Status != 'D' {
-			specs = append(specs, cm.Hash+":"+ch.Path)
+		if ch.Status != 'D' && ch.Mode != "160000" {
+			ids, paths = append(ids, ch.Blob), append(paths, ch.Path)
 		}
 	}
-	sizes, err := c.Repo.Sizes(specs)
+	sizes, err := c.Repo.Sizes(ids)
 	if err != nil {
 		return append(ps, "server: "+err.Error()), false
 	}
 	big := map[string]int64{}
-	for i, sp := range specs {
+	for i, p := range paths {
 		if sizes[i] > store.MaxAttachment {
-			big[strings.TrimPrefix(sp, cm.Hash+":")] = sizes[i]
+			big[p] = sizes[i]
 		}
 	}
 	repairs := false
@@ -253,6 +254,10 @@ func (c *Checker) checkCommit(u config.User, cm gitrepo.PushedCommit) ([]string,
 		}
 		var probs []string
 		switch n, tooBig := big[ch.Path]; {
+		case strings.ContainsFunc(ch.Path, unicode.IsControl):
+			// shown quoted: the name may hold a line break
+			ps = append(ps, fmt.Sprintf("commit %s %q: the file name has control characters (such as a line break); rename it", short, ch.Path))
+			continue
 		case tooBig:
 			probs = []string{fmt.Sprintf("%.1f MB; files over 10 MB are not accepted (remove it from the commit: git rm --cached)", float64(n)/(1<<20))}
 		case c.Token != nil && !c.Token.Allows(c.scopeFor(parent, ch)):

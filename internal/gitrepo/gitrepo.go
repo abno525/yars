@@ -141,6 +141,7 @@ type Change struct {
 	Status byte   // A, M, D, T (renames/copies are reported as D+A)
 	Path   string //
 	Mode   string // new file mode (e.g. 100644, 120000 for symlinks); 000000 when deleted
+	Blob   string // the new content's object id (zeros when deleted)
 }
 
 // ChangedFiles lists files that differ between two commits. An empty old
@@ -162,7 +163,7 @@ func (r *Repo) ChangedFiles(old, new string) ([]Change, error) {
 		if len(meta) < 5 {
 			continue
 		}
-		cs = append(cs, Change{Status: meta[4][0], Path: f[i+1], Mode: meta[1]})
+		cs = append(cs, Change{Status: meta[4][0], Path: f[i+1], Mode: meta[1], Blob: meta[3]})
 	}
 	return cs, nil
 }
@@ -218,8 +219,8 @@ func (r *Repo) Commits(old, new string) ([]PushedCommit, error) {
 	return cs, nil
 }
 
-// Sizes returns the size in bytes of files at revisions ("<rev>:<path>"
-// each) without reading them, in one git process; a missing one is -1.
+// Sizes returns the size in bytes of objects (ids, never paths) without
+// reading them, in one git process; a missing one is -1.
 func (r *Repo) Sizes(specs []string) ([]int64, error) {
 	if len(specs) == 0 {
 		return nil, nil

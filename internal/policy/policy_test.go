@@ -674,6 +674,16 @@ func TestPolicyAttachmentRules(t *testing.T) {
 	}
 }
 
+// A file name with a control character (git allows a line break) is
+// refused by name, with its commit, never as a server error.
+func TestPolicyControlCharacterName(t *testing.T) {
+	f := newFx(t)
+	ps := f.push("alice", func(d string) { write(d, fdir+"/attachments/a\nb.txt", "x") })
+	if !hasLine(ps, "commit "+short(t, f.clone, "HEAD")+" ", "control characters") || has(ps, "server") {
+		t.Fatalf("newline in a name: %v", ps)
+	}
+}
+
 // A long refusal lists the first problems and sums up the rest.
 func TestPolicyProblemsCapped(t *testing.T) {
 	f := newFx(t)
