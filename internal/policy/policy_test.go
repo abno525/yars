@@ -213,7 +213,9 @@ func TestPolicyConfigMustLoad(t *testing.T) {
 		}
 	}
 	f.reclone()
-	if ps := f.push("dora", func(d string) { write(d, ".yars/config.yaml", "severities: [critical, high, medium, low, info, extreme]\n") }); len(ps) != 0 {
+	if ps := f.push("dora", func(d string) {
+		write(d, ".yars/config.yaml", "severities: [critical, high, medium, low, info, extreme]\n")
+	}); len(ps) != 0 {
 		t.Fatalf("valid config refused: %v", ps)
 	}
 }
