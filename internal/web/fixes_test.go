@@ -5,6 +5,8 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	"yars/internal/config"
 )
 
 // The findings board refreshes itself on the engagement's events (a push,
@@ -49,6 +51,19 @@ func TestRootScrollbarGutter(t *testing.T) {
 	css := e.do(t, "alice", "GET", staticPrefix()+"/style.css", nil, nil).Body.String()
 	if rule := between(css, "\nhtml {", "}"); !strings.Contains(rule, "scrollbar-gutter: stable") {
 		t.Fatalf("html rule: %q", rule)
+	}
+}
+
+// Notifications show the finding's title as it is now.
+func TestNotificationsCurrentTitle(t *testing.T) {
+	e := setup(t)
+	returnToAlice(t, e)
+	if err := e.srv.Store.UpdateTitle("acme", "F-001-sql-injection", "Blind SQL injection in login", e.authorOf(config.User{Username: "dora", Role: "director"})); err != nil {
+		t.Fatal(err)
+	}
+	b := e.do(t, "alice", "GET", "/notifications", nil, nil).Body.String()
+	if !strings.Contains(b, "Blind SQL injection in login") {
+		t.Fatalf("notifications keep the old title:\n%s", between(b, "<tbody", "</tbody>"))
 	}
 }
 
