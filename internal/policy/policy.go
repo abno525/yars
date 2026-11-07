@@ -333,10 +333,16 @@ func parse(b []byte) (*finding.Finding, []string) {
 		return nil, []string{"cannot parse: " + err.Error()}
 	}
 	var ps []string
+	seen := map[string]bool{}
 	for _, s := range f.Sections {
 		if err := finding.ValidateBody(s.Body); err != nil {
 			ps = append(ps, "section "+s.Name+": "+err.Error())
 		}
+		if seen[s.Name] {
+			// only the first one can be shown or edited
+			ps = append(ps, "section "+s.Name+" appears twice; merge them into one")
+		}
+		seen[s.Name] = true
 	}
 	if l, ok := f.Legacy(); ok {
 		ps = append(ps, "workflow state is managed in YARS, not in the file; remove "+strings.Join(l.Keys, ", ")+" from the front matter")

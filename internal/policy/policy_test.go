@@ -228,6 +228,20 @@ func TestPolicyConfigMustLoad(t *testing.T) {
 	}
 }
 
+// A section name used twice is refused: only the first body can be shown
+// or edited, and both would ship in exports.
+func TestPolicyDuplicateSection(t *testing.T) {
+	f := newFx(t)
+	ps := f.push("alice", func(d string) {
+		p := filepath.Join(d, fdir, "finding.md")
+		b, _ := os.ReadFile(p)
+		os.WriteFile(p, append(b, []byte("\n## Impact\n\nsecond impact\n")...), 0o644)
+	})
+	if !has(ps, "section Impact appears twice") {
+		t.Fatalf("duplicate section accepted: %v", ps)
+	}
+}
+
 // A path outside the layout is explained in the pushed repository's own
 // terms, not the server's data-dir paths.
 func TestPolicyOutsideMessagePerRepo(t *testing.T) {
