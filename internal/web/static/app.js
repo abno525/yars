@@ -101,11 +101,11 @@ document.addEventListener('keydown', function (e) {
     e.preventDefault();
     s.removeAttribute('data-keyed');
     yarsChoose(s);
-  } else if (e.altKey || e.key === ' ' || e.key === 'F4' || e.key === 'Tab' || e.key === 'Shift') {
-    // keys that open the list (an option picked there is a choice) or
-    // leave the select
+  } else if (e.altKey || e.key === ' ' || e.key === 'F4') {
+    // keys that open the list: an option picked there is a choice
     s.removeAttribute('data-keyed');
-  } else {
+  } else if (e.key !== 'Tab' && e.key !== 'Shift') {
+    // Tab leaves the flag to focusout, which restores the saved value
     s.setAttribute('data-keyed', '');
   }
 });

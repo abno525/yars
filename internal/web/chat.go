@@ -46,9 +46,18 @@ func excerpt(md string) string {
 		l = exFence.ReplaceAllString(l, "")
 		l = exHead.ReplaceAllString(l, "")
 		l = exCode.ReplaceAllString(l, "$1")
-		l = exStrong.ReplaceAllString(l, "$1$2$3")
-		l = exUnder.ReplaceAllString(l, "$1$2$3")
-		lines[i] = exEm.ReplaceAllString(l, "$1$2$3")
+		// a match takes the character after it, so neighbours ("**a**
+		// **b**") need another pass
+		for range 4 {
+			before := l
+			l = exStrong.ReplaceAllString(l, "$1$2$3")
+			l = exUnder.ReplaceAllString(l, "$1$2$3")
+			l = exEm.ReplaceAllString(l, "$1$2$3")
+			if l == before {
+				break
+			}
+		}
+		lines[i] = l
 	}
 	r := []rune(strings.Join(strings.Fields(strings.Join(lines, "\n")), " "))
 	if len(r) > excerptLen {

@@ -23,6 +23,7 @@ func TestExcerptKeepsText(t *testing.T) {
 		"keep `a > b` as text":         "keep a > b as text",
 		"a*b*c stays":                  "a*b*c stays",
 		"run\n```sh\ncurl -i x\n```":   "run curl -i x",
+		"**a** **b** and *c* *d*":      "a b and c d",
 	} {
 		if got := excerpt(in); got != want {
 			t.Errorf("excerpt(%q) = %q, want %q", in, got, want)
