@@ -21,6 +21,7 @@ type detailsView struct {
 	Locked                    bool
 	ReadOnly                  bool // archived engagement: no Comment either
 	ViewURL, EditURL, SaveURL string
+	LiveURL                   string // the read panel's live refresh
 }
 
 func (s *Server) routesDetails(mux *http.ServeMux) {
@@ -42,7 +43,7 @@ func (s *Server) detailsFor(ref store.FindingRef, typed map[string]string) detai
 	d := ref.F.Meta.Details
 	base := findingURL(ref.EngID, ref.Dir) + "/details"
 	v := detailsView{Base: store.DetailsHash(ref.F.Meta), ViewURL: base, EditURL: base + "/edit", SaveURL: base,
-		ReadOnly: s.Store.Archived(ref.EngID)}
+		ReadOnly: s.Store.Archived(ref.EngID), LiveURL: s.liveURL(base, ref)}
 	known := map[string]bool{}
 	for _, name := range s.conf().DetailsRows {
 		val := d[name]
@@ -63,7 +64,7 @@ func (s *Server) detailsFor(ref store.FindingRef, typed map[string]string) detai
 }
 
 func (s *Server) detailsGet(w http.ResponseWriter, r *http.Request) {
-	if ref, ok := s.cvssRef(w, r); ok {
+	if ref, ok := s.liveRef(w, r); ok {
 		v := s.detailsFor(ref, nil)
 		v.Locked = s.locked(r, ref)
 		s.exec(w, "finding.html", "details_panel", v)

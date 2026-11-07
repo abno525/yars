@@ -42,6 +42,7 @@ type cvssView struct {
 	Severities                []string
 	ViewURL, EditURL, CalcURL string
 	SaveURL, SeverityURL      string
+	LiveURL                   string // the read panel's live refresh
 }
 
 func (s *Server) routesCVSS(mux *http.ServeMux) {
@@ -61,6 +62,7 @@ func (s *Server) buildCVSS(ref store.FindingRef, sel cvss.Vector, reasons map[st
 		Base: store.CVSSHash(m), RowBases: store.CVSSRowHashes(m), SevBase: store.SeverityHash(m), Severity: cvss.Derive(m.CVSS, m.Severity), Severities: cfg.Severities,
 		ViewURL: base + "/cvss", EditURL: base + "/cvss/edit", CalcURL: base + "/cvss/calc",
 		SaveURL: base + "/cvss", SeverityURL: base + "/severity", ReadOnly: s.Store.Archived(ref.EngID),
+		LiveURL: s.liveURL(base+"/cvss", ref),
 	}
 	if _, err := cvss.Parse(m.CVSS); err == nil {
 		v.HasStored = true
@@ -174,8 +176,23 @@ func (s *Server) locked(r *http.Request, ref store.FindingRef) bool {
 	return !workflow.CanEdit(auth.UserFrom(r.Context()), ref.F.Meta) || s.Store.Archived(ref.EngID)
 }
 
+// liveRef is cvssRef for a read panel's GET: a live refresh of a panel
+// that is still current gets 204; one of a finding that is gone reloads
+// the page (HX-Refresh), which then says so.
+func (s *Server) liveRef(w http.ResponseWriter, r *http.Request) (store.FindingRef, bool) {
+	ref, err := s.Store.Finding(r.PathValue("eng"), r.PathValue("fid"))
+	if err != nil {
+		if r.URL.Query().Get("live") != "" && errors.Is(err, store.ErrNotFound) {
+			w.Header().Set("HX-Refresh", "true")
+		}
+		s.fail(w, err)
+		return ref, false
+	}
+	return ref, !s.unchanged(w, r, ref)
+}
+
 func (s *Server) cvssGet(w http.ResponseWriter, r *http.Request) {
-	if ref, ok := s.cvssRef(w, r); ok {
+	if ref, ok := s.liveRef(w, r); ok {
 		v := s.cvssPanel(ref)
 		v.Locked = s.locked(r, ref)
 		s.exec(w, "finding.html", "cvss_panel", v)

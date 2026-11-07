@@ -311,6 +311,12 @@ func (s *Server) sectionRef(w http.ResponseWriter, r *http.Request) (store.Findi
 }
 
 func (s *Server) sectionView(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Query().Get("live") != "" {
+		// a live refresh: 204 while current, a reload once the finding is gone
+		if _, ok := s.liveRef(w, r); !ok {
+			return
+		}
+	}
 	if ref, name, ok := s.sectionRef(w, r); ok {
 		// Cancel comes here: the editor is closed (a live refresh is not
 		// Cancel: the user may be editing it in another tab)

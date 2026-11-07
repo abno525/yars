@@ -111,7 +111,7 @@ type link struct {
 
 type panel struct {
 	Name, Anchor, EditURL, SaveURL, PreviewURL, Raw string
-	ViewURL                                         string // the read panel alone (live refresh; "" = none)
+	LiveURL                                         string // the read panel alone (live refresh; "" = none)
 	Base, Error                                     string
 	Open                                            int // open chat threads anchored here
 	HTML, Current                                   template.HTML
@@ -648,26 +648,48 @@ func (s *Server) panelFor(ref store.FindingRef, name string) panel {
 	}
 	p.Presence = presView{URL: presURL(ref, name)}
 	base := findingURL(ref.EngID, ref.Dir) + "/s/" + url.PathEscape(name)
-	p.EditURL, p.SaveURL, p.ViewURL = base+"/edit", base, base
+	p.EditURL, p.SaveURL, p.LiveURL = base+"/edit", base, s.liveURL(base, ref)
 	p.PreviewURL = "/e/" + ref.EngID + "/preview?" + url.Values{"f": {ref.Dir}, "s": {name}}.Encode()
 	return p
+}
+
+// liveKey identifies what a finding's read panels show: its file, status
+// and whether its engagement is archived. A live refresh that sends the key
+// its panel was drawn with gets 204 (nothing to swap) while it holds, so a
+// push to another finding or a poll tick costs no rendering.
+func (s *Server) liveKey(ref store.FindingRef) string {
+	return store.BodyHash(ref.Hash + "\x00" + ref.F.Meta.Status + "\x00" + workflow.Shown(ref.F.Meta) + "\x00" + strconv.FormatBool(s.Store.Archived(ref.EngID)))
+}
+
+// unchanged answers 204 to a live refresh whose panel is still current.
+func (s *Server) unchanged(w http.ResponseWriter, r *http.Request, ref store.FindingRef) bool {
+	if h := r.URL.Query().Get("h"); h != "" && h == s.liveKey(ref) {
+		w.WriteHeader(http.StatusNoContent)
+		return true
+	}
+	return false
+}
+
+// liveURL is a read panel's refresh URL, with the key it is drawn for.
+func (s *Server) liveURL(view string, ref store.FindingRef) string {
+	return view + "?live=1&h=" + s.liveKey(ref)
 }
 
 // headView is the finding page's title column: it refreshes itself when the
 // finding changes (a new title or severity by MCP or a push, a status).
 type headView struct {
-	EngID, EngName, URL string
-	Meta                finding.Meta
-	CVSS                cvssView // the severity pill
+	EngID, EngName, LiveURL string
+	Meta                    finding.Meta
+	CVSS                    cvssView // the severity pill
 }
 
 func (s *Server) headFor(ref store.FindingRef, engName string) headView {
-	return headView{EngID: ref.EngID, EngName: engName, URL: findingURL(ref.EngID, ref.Dir) + "/head", Meta: ref.F.Meta, CVSS: s.cvssPanel(ref)}
+	return headView{EngID: ref.EngID, EngName: engName, LiveURL: s.liveURL(findingURL(ref.EngID, ref.Dir)+"/head", ref), Meta: ref.F.Meta, CVSS: s.cvssPanel(ref)}
 }
 
 // findingHead answers the title column alone (live refresh).
 func (s *Server) findingHead(w http.ResponseWriter, r *http.Request) {
-	ref, ok := s.cvssRef(w, r)
+	ref, ok := s.liveRef(w, r)
 	if !ok {
 		return
 	}

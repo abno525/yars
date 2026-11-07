@@ -23,9 +23,9 @@ func TestFindingPanelsRefreshLive(t *testing.T) {
 	e := setup(t)
 	b := e.do(t, "alice", "GET", fpath, nil, nil).Body.String()
 	for id, url := range map[string]string{"fhead": fshort + "/head", "details": fshort + "/details", "assets": fshort + "/assets",
-		"cvss": fshort + "/cvss?live=1", "s-impact": fshort + "/s/Impact?live=1"} {
+		"cvss": fshort + "/cvss", "s-impact": fshort + "/s/Impact"} {
 		tag := openTag(t, b, id)
-		if !strings.Contains(tag, `hx-get="`+url+`"`) || !strings.Contains(tag, "sse:content") || !strings.Contains(tag, "sse:resync") || !strings.Contains(tag, "data-sse") {
+		if !strings.Contains(tag, `hx-get="`+url+`?live=1&amp;h=`) || !strings.Contains(tag, "sse:content") || !strings.Contains(tag, "sse:resync") || !strings.Contains(tag, "data-sse") {
 			t.Errorf("#%s does not refresh live: %s", id, tag)
 		}
 	}
@@ -47,6 +47,48 @@ func TestFindingPanelsRefreshLive(t *testing.T) {
 	}
 	if d := e.do(t, "alice", "GET", fpath+"/details", nil, nil).Body.String(); !strings.Contains(d, "POST /api") {
 		t.Fatalf("details refresh:\n%s", d)
+	}
+}
+
+// A live refresh of a panel that is still current answers 204 (nothing to
+// swap, nothing rendered): a push to another finding or a poll tick costs
+// little. Once the finding changed it answers the new panel.
+func TestLiveRefreshUnchangedIs204(t *testing.T) {
+	e := setup(t)
+	b := e.do(t, "alice", "GET", fpath, nil, nil).Body.String()
+	urls := map[string]string{}
+	for _, id := range []string{"fhead", "details", "assets", "cvss", "s-impact"} {
+		m := regexp.MustCompile(`hx-get="([^"]+)"`).FindStringSubmatch(openTag(t, b, id))
+		urls[id] = strings.ReplaceAll(m[1], "&amp;", "&")
+	}
+	for id, u := range urls {
+		if rec := e.do(t, "alice", "GET", u, nil, nil); rec.Code != 204 || rec.Body.Len() != 0 {
+			t.Errorf("%s unchanged: %d %q", id, rec.Code, rec.Body.String())
+		}
+	}
+	e.srv.Store.UpdateSection("acme", fdir, "Impact", "new impact", "", e.authorOf(wAlice))
+	for id, u := range urls {
+		if rec := e.do(t, "alice", "GET", u, nil, nil); rec.Code != 200 {
+			t.Errorf("%s changed: %d", id, rec.Code)
+		}
+	}
+	// a status change (no file change) refreshes too: the lock depends on it
+	e.toVerification(t)
+	ref, _ := e.srv.Store.Finding("acme", fdir)
+	if rec := e.do(t, "alice", "GET", fshort+"/head?live=1&h="+e.srv.liveKey(ref), nil, nil); rec.Code != 204 {
+		t.Fatalf("current key: %d", rec.Code)
+	}
+}
+
+// A finding that is gone (deleted or merged away by a push) reloads the
+// page from any live refresh instead of keeping stale panels.
+func TestLiveRefreshGoneReloads(t *testing.T) {
+	e := setup(t)
+	for _, p := range []string{"/head?live=1&h=x", "/details?live=1&h=x", "/s/Impact?live=1&h=x"} {
+		rec := e.do(t, "alice", "GET", "/e/acme/f/999"+p, nil, nil)
+		if rec.Header().Get("HX-Refresh") != "true" {
+			t.Errorf("%s: %d, no HX-Refresh", p, rec.Code)
+		}
 	}
 }
 

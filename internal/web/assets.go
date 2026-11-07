@@ -17,6 +17,7 @@ type assetsView struct {
 	Base, Error               string
 	Locked, ReadOnly          bool
 	ViewURL, EditURL, SaveURL string
+	LiveURL                   string // the read panel's live refresh
 }
 
 // maxAssetRows keeps one form within reason.
@@ -34,11 +35,11 @@ func (s *Server) assetsFor(ref store.FindingRef, rows []finding.Asset) assetsVie
 		rows = ref.F.Meta.Assets
 	}
 	return assetsView{Rows: rows, Base: store.AssetsHash(ref.F.Meta), ViewURL: base, EditURL: base + "/edit", SaveURL: base,
-		ReadOnly: s.Store.Archived(ref.EngID)}
+		ReadOnly: s.Store.Archived(ref.EngID), LiveURL: s.liveURL(base, ref)}
 }
 
 func (s *Server) assetsGet(w http.ResponseWriter, r *http.Request) {
-	if ref, ok := s.cvssRef(w, r); ok {
+	if ref, ok := s.liveRef(w, r); ok {
 		v := s.assetsFor(ref, nil)
 		v.Locked = s.locked(r, ref)
 		s.exec(w, "finding.html", "assets_panel", v)

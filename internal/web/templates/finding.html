@@ -1,5 +1,5 @@
 {{define "finding_head"}}
-<div class="titlecol" id="fhead" hx-get="{{.URL}}" hx-trigger="{{liveTrigger}}, sse:workflow" hx-swap="outerHTML" data-sse>
+<div class="titlecol" id="fhead" hx-get="{{.LiveURL}}" hx-trigger="{{liveTrigger}}, sse:workflow" hx-swap="outerHTML" data-sse>
   <nav class="crumbs"><a href="/e/{{.EngID}}">{{.EngName}}</a><span class="sep" aria-hidden="true">/</span><span class="idchip">{{.Meta.ID}}</span></nav>
   <h1 title="{{.Meta.Title}}"{{if eq .Meta.Status "withdrawn"}} class="withdrawn-title"{{end}}>{{.Meta.Title}}</h1>
   <div class="meta">
