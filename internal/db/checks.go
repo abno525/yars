@@ -170,12 +170,32 @@ func (d *DB) LatestRun(eng, fid string) (CheckRun, bool, error) {
 // cut off without results (FailRun: interrupted, crashed), never hides the
 // one before it.
 func (d *DB) LatestFinishedRun(eng, fid, contentHash string) (CheckRun, bool, error) {
-	r, err := scanRun(d.QueryRow("SELECT "+runCols+" FROM check_runs WHERE eng = ? AND fid = ? AND content_hash = ? AND state != ? AND finished != '' AND done_count = total ORDER BY id DESC LIMIT 1",
-		eng, fid, contentHash, RunRunning))
-	if errors.Is(err, sql.ErrNoRows) {
-		return r, false, nil
+	runs, err := d.FinishedRuns(eng, fid, contentHash, 1)
+	if err != nil || len(runs) == 0 {
+		return CheckRun{}, false, err
 	}
-	return r, err == nil, err
+	return runs[0], true, nil
+}
+
+// FinishedRuns returns up to limit check runs of a finding that ended with
+// their results stored on the given content, newest first (see
+// LatestFinishedRun).
+func (d *DB) FinishedRuns(eng, fid, contentHash string, limit int) ([]CheckRun, error) {
+	rows, err := d.Query("SELECT "+runCols+" FROM check_runs WHERE eng = ? AND fid = ? AND content_hash = ? AND state != ? AND finished != '' AND done_count = total ORDER BY id DESC LIMIT ?",
+		eng, fid, contentHash, RunRunning, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []CheckRun
+	for rows.Next() {
+		r, err := scanRun(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
 }
 
 // RunCount is a finding's newest check run in short: its state, the content

@@ -140,6 +140,20 @@ func TestRunningCheckKeepsFinishedResults(t *testing.T) {
 	if err := s.Transition(eng, fd, workflow.Clear, "", uBob); !denied(err) || !strings.Contains(err.Error(), "AI says vague") {
 		t.Fatalf("sign off after an interrupted run: %v", err)
 	}
+	// a run where the AI rule failed (provider down) says nothing about its
+	// earlier warning; another rule's result of that run counts
+	third, _ := s.DB().StartRun(eng, ref.F.Meta.ID, ref.Hash, "bob")
+	s.DB().AddSteps([]db.CheckStep{{RunID: third, Pos: 0, Rule: "ai-x", Kind: "ai", State: db.StepFailed}, {RunID: third, Pos: 1, Rule: "re", Kind: "pattern", State: db.StepHits}})
+	s.DB().TxFor(eng, func(tx *db.Tx) error {
+		return tx.FinishRun(third, db.RunFailed, "AI down", []db.CheckResult{
+			{Rule: "ai-x", Level: "warning", Message: "AI not reachable", Target: "ai", QuoteHash: "n"},
+			{Rule: "re", Level: "warning", Message: "regex says", Target: "title", Quote: "SQL", QuoteHash: "r"},
+		})
+	})
+	err = s.Transition(eng, fd, workflow.Clear, "", uBob)
+	if !denied(err) || !strings.Contains(err.Error(), "AI says vague") || !strings.Contains(err.Error(), "regex says") || strings.Contains(err.Error(), "not reachable") {
+		t.Fatalf("sign off after a run where the AI failed: %v", err)
+	}
 }
 
 // An open error also blocks Sign off (not only Submit and Approve).

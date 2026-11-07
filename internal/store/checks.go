@@ -154,19 +154,10 @@ func (s *Store) openChecks(ref FindingRef, hash string) ([]rules.Violation, erro
 	}
 	ds := map[string]db.Dismissal{}
 	if s.db != nil {
-		run, ok, err := s.db.LatestFinishedRun(ref.EngID, fid, hash)
-		if err != nil {
+		if err := s.storedChecks(ref.EngID, fid, hash, add); err != nil {
 			return nil, err
 		}
-		if ok {
-			res, err := s.db.RunResults(run.ID)
-			if err != nil {
-				return nil, err
-			}
-			for _, r := range res {
-				add(rules.Violation{Rule: r.Rule, Level: r.Level, Message: r.Message, Target: r.Target, Quote: r.Quote}, r.QuoteHash)
-			}
-		}
+		var err error
 		if ds, err = s.db.Dismissals(ref.EngID, fid); err != nil {
 			return nil, err
 		}
@@ -178,6 +169,59 @@ func (s *Store) openChecks(ref FindingRef, hash string) ([]rules.Violation, erro
 		}
 	}
 	return out, nil
+}
+
+// storedChecks hands add the results stored for the finding's content: the
+// latest finished run's, and for each rule that failed in it (a step that
+// failed, or a notice about the rules: the AI was down, say) the results of
+// the newest earlier run on the same content where that rule did run. A
+// failed rule says nothing about its earlier violations, as in finishCheck.
+func (s *Store) storedChecks(eng, fid, hash string, add func(rules.Violation, string)) error {
+	runs, err := s.db.FinishedRuns(eng, fid, hash, 20)
+	if err != nil {
+		return err
+	}
+	var wanted map[string]bool // nil: every rule (the latest run)
+	for _, run := range runs {
+		res, err := s.db.RunResults(run.ID)
+		if err != nil {
+			return err
+		}
+		steps, err := s.db.RunSteps(run.ID)
+		if err != nil {
+			return err
+		}
+		failed := map[string]bool{}
+		for _, x := range steps {
+			if x.State == db.StepFailed {
+				failed[x.Rule] = true
+			}
+		}
+		for _, r := range res {
+			if r.Target == "rules" || r.Target == "ai" {
+				failed[r.Rule] = true
+			}
+		}
+		for _, r := range res {
+			if failed[r.Rule] || (wanted != nil && !wanted[r.Rule]) {
+				continue
+			}
+			add(rules.Violation{Rule: r.Rule, Level: r.Level, Message: r.Message, Target: r.Target, Quote: r.Quote}, r.QuoteHash)
+		}
+		if wanted == nil {
+			wanted = failed
+		} else {
+			for rule := range wanted {
+				if !failed[rule] {
+					delete(wanted, rule)
+				}
+			}
+		}
+		if len(wanted) == 0 {
+			break
+		}
+	}
+	return nil
 }
 
 // Dismissals returns the dismissed violations of finding fid.
