@@ -85,6 +85,36 @@ func TestCVSSRowsCheckedPerRow(t *testing.T) {
 	}
 }
 
+// Only the rows written are checked: a stale base of a row not written
+// does not refuse the edit, and once bases are given a written row
+// without one is refused (never a silent overwrite).
+func TestRowChecksCoverWrittenRows(t *testing.T) {
+	s, _, fd := newFinding(t)
+	vec := "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
+	s.UpdateCVSS(eng, fd, vec, nil, "", alice)
+	read := CVSSRowHashes(load(t, s, fd).F.Meta)
+	// someone sets AC meanwhile
+	if _, err := s.UpdateCVSSRows(eng, fd, CVSSChange{Reasons: map[string]string{"AC": "theirs"}}, alice); err != nil {
+		t.Fatal(err)
+	}
+	// AV written with every base read before: accepted, AC kept
+	av := "CVSS:3.1/AV:L/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
+	if _, err := s.UpdateCVSSRows(eng, fd, CVSSChange{Vector: &av, Bases: read}, alice); err != nil {
+		t.Fatalf("vector refused over another row: %v", err)
+	}
+	if m := load(t, s, fd).F.Meta; m.CVSS != av || m.CVSSReasons["AC"] != "theirs" {
+		t.Fatalf("meta %q %v", m.CVSS, m.CVSSReasons)
+	}
+	// AC written without its base while other bases are sent: refused
+	if _, err := s.UpdateCVSSRows(eng, fd, CVSSChange{Reasons: map[string]string{"AC": "mine"}, Bases: map[string]string{"PR": read["PR"]}}, alice); !errors.Is(err, ErrConflict) {
+		t.Fatalf("written reason without a base: %v", err)
+	}
+	// the same for Details
+	if _, err := s.UpdateDetailsRows(eng, fd, map[string]string{"Cause": "x"}, map[string]string{"Location": RowHash("")}, alice); !errors.Is(err, ErrConflict) {
+		t.Fatalf("written row without a base: %v", err)
+	}
+}
+
 // The conflict message never blames someone else.
 func TestConflictMessage(t *testing.T) {
 	if ErrConflict.Error() != "the finding changed since you read it" {

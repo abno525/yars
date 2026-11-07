@@ -6,6 +6,33 @@ import (
 	"testing"
 )
 
+// P1-03 exactly: read_finding once, then every edit with the SAME
+// details_base / cvss_base. Each is checked against its own row only.
+func TestMCPSameGroupBaseEveryEdit(t *testing.T) {
+	f := newFx(t)
+	args := func(field, value, base string) map[string]any {
+		return map[string]any{"engagement": "acme", "finding": "F-001", "field": field, "value": value, "base": base}
+	}
+	f.ok(alice, "set_field", args("cvss", "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:N", ""))
+	var rd struct {
+		CVSSBase    string `json:"cvss_base"`
+		DetailsBase string `json:"details_base"`
+	}
+	json.Unmarshal([]byte(f.ok(alice, "read_finding", map[string]any{"engagement": "acme", "finding": "F-001"})), &rd)
+	f.ok(alice, "set_field", args("details.Location", "POST /login", rd.DetailsBase))
+	f.ok(alice, "set_field", args("details.Cause", "no escaping", rd.DetailsBase))
+	f.ok(alice, "set_field", args("details.Result", "data read", rd.DetailsBase))
+	f.ok(alice, "set_field", args("cvss_reason.AC", "needs a race", rd.CVSSBase))
+	f.ok(alice, "set_field", args("cvss_reason.AV", "internet", rd.CVSSBase))
+	// a row edited twice with the first read's base: the second is refused
+	if text, isErr := f.call(alice, "set_field", args("details.Location", "GET /", rd.DetailsBase)); !isErr || !strings.Contains(text, "changed since you read it") {
+		t.Fatalf("same row twice: %v %s", isErr, text)
+	}
+	if text, isErr := f.call(alice, "set_field", args("cvss_reason.AC", "x", rd.CVSSBase)); !isErr || !strings.Contains(text, "changed since you read it") {
+		t.Fatalf("same reason twice: %v %s", isErr, text)
+	}
+}
+
 // D14, the DeepSeek case: one read_finding, then several Details rows and
 // CVSS reasons edited one after another, each with its own field_bases
 // entry. Nobody else touched the finding, so none is refused; a stale base

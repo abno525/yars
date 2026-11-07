@@ -1774,15 +1774,21 @@ func (s *Store) UpdateCVSSRows(engID, dir string, ch CVSSChange, a Actor) (map[s
 	err := s.mutateContent(engID, dir, a, func(f *finding.Finding) (string, error) {
 		m := f.Meta
 		if ch.Table == "" || CVSSHash(m) != ch.Table {
-			if ch.Table != "" && len(ch.Bases) == 0 {
+			// exactly the rows written, each against its own base; once
+			// any base is given, a written row without one is refused
+			checked := ch.Table != "" || len(ch.Bases) > 0
+			stale := func(k, cur string) bool {
+				b, ok := ch.Bases[k]
+				if !ok {
+					return checked
+				}
+				return b != "" && RowHash(cur) != b
+			}
+			if ch.Vector != nil && stale(CVSSRow, m.CVSS) {
 				return "", ErrConflict
 			}
-			for k, b := range ch.Bases {
-				cur := m.CVSSReasons[k]
-				if k == CVSSRow {
-					cur = m.CVSS
-				}
-				if b != "" && RowHash(cur) != b {
+			for k := range reasons {
+				if stale(k, m.CVSSReasons[k]) {
 					return "", ErrConflict
 				}
 			}
@@ -1949,13 +1955,16 @@ func (s *Store) UpdateDetailsBase(engID, dir string, values map[string]string, b
 
 // UpdateDetailsRows replaces the given details rows, each checked on its
 // own: a row with a base (RowHash of the value it was read with) is refused
-// with ErrConflict only when that row changed since; rows without one are
-// not checked, other rows are kept. It returns each written row's new base.
+// with ErrConflict only when that row changed since; with no bases at all
+// nothing is checked, but once bases are given a written row without one
+// is refused. Other rows are kept. It returns each written row's new base.
 func (s *Store) UpdateDetailsRows(engID, dir string, values, bases map[string]string, a Actor) (map[string]string, error) {
 	var out map[string]string
 	err := s.mutateContent(engID, dir, a, func(f *finding.Finding) (string, error) {
 		for k := range values {
-			if b, ok := bases[k]; ok && b != "" && RowHash(f.Meta.Details[k]) != b {
+			b, ok := bases[k]
+			// once any base is given, a written row without one is refused
+			if (!ok && len(bases) > 0) || (b != "" && RowHash(f.Meta.Details[k]) != b) {
 				return "", ErrConflict
 			}
 		}

@@ -208,9 +208,15 @@ func TestMCPSetFieldBase(t *testing.T) {
 		DetailsBase string `json:"details_base"`
 	}
 	json.Unmarshal([]byte(f.ok(alice, "read_finding", map[string]any{"engagement": "acme", "finding": "F-001"})), &rd)
-	// a colleague changes the vector meanwhile
+	// a colleague changes the vector meanwhile: a reason is a row of its
+	// own (D14), so it is still set, on the new vector
 	f.ok(bob, "set_field", args("cvss", "CVSS:3.1/AV:L/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:N", ""))
-	if text, isErr := f.call(alice, "set_field", args("cvss_reason.AC", "race", rd.CVSSBase)); !isErr || !strings.Contains(text, "changed") {
+	f.ok(alice, "set_field", args("cvss_reason.AC", "race", rd.CVSSBase))
+	if ref, _ := f.s.Store.Finding("acme", "001"); !strings.Contains(ref.F.Meta.CVSS, "AV:L") {
+		t.Fatalf("vector written back: %s", ref.F.Meta.CVSS)
+	}
+	// the vector itself with the old base: refused
+	if text, isErr := f.call(alice, "set_field", args("cvss", "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N", rd.CVSSBase)); !isErr || !strings.Contains(text, "changed") {
 		t.Fatalf("stale cvss base: %s", text)
 	}
 	f.ok(alice, "set_field", args("details.Location", "a", rd.DetailsBase))

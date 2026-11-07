@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -330,6 +331,10 @@ var tools = []tool{
 			}{Engagement: ref.EngID, Dir: ref.Dir, State: st, Markdown: string(ref.F.Bytes()), CVSSBase: store.CVSSHash(ref.F.Meta),
 				DetailsBase: store.DetailsHash(ref.F.Meta), Assets: append([]finding.Asset{}, ref.F.Meta.Assets...), AssetsBase: store.AssetsHash(ref.F.Meta),
 				CanEdit: workflow.CanEdit(u, ref.F.Meta), Threads: []thread{}, Violations: []rules.Violation{}, Bases: s.fieldBases(ref.F.Meta)}
+			// the group bases carry each row's own: sent again with every
+			// edit, each is checked against its row only
+			out.DetailsBase = rowsToken(out.Bases, "details.")
+			out.CVSSBase = rowsToken(out.Bases, "cvss")
 			if e, err := s.Store.Engagement(ref.EngID); err != nil || e.Archived {
 				out.CanEdit = false // every write is refused while archived
 			}
@@ -635,6 +640,57 @@ func (s *Server) fieldBases(m finding.Meta) map[string]string {
 	return out
 }
 
+// rowsPrefix marks a base that carries the per-row bases of a group of
+// fields (read_finding's details_base and cvss_base): an assistant that
+// sends the same one with each edit is checked per row.
+const rowsPrefix = "rows."
+
+// rowsToken packs the bases of the fields with prefix pre.
+func rowsToken(bases map[string]string, pre ...string) string {
+	sub := map[string]string{}
+	for k, v := range bases {
+		for _, p := range pre {
+			if strings.HasPrefix(k, p) {
+				sub[k] = v
+			}
+		}
+	}
+	b, _ := json.Marshal(sub)
+	return rowsPrefix + base64.RawURLEncoding.EncodeToString(b)
+}
+
+// rowBase is the base of field in base: its entry when base is a rows
+// token (none: "", unchecked), else base itself; table reports a plain
+// base, which may also be the whole table's.
+func rowBase(base, field string) (row string, table bool) {
+	tok, ok := strings.CutPrefix(base, rowsPrefix)
+	if !ok {
+		return base, base != ""
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(tok)
+	var m map[string]string
+	if err != nil || json.Unmarshal(raw, &m) != nil {
+		return base, true // unreadable: refused as a stale base
+	}
+	if b, ok := m[field]; ok {
+		return b, false
+	}
+	return store.RowHash(""), false // not there when it was read: empty
+}
+
+// cvssChange is the change of one CVSS row (key: store.CVSSRow or a
+// metric) checked against base: a rows token's entry for field, or a plain
+// base (the row's own, or the whole cvss_base).
+func cvssChange(base, field, key string, vector *string, reasons map[string]string) store.CVSSChange {
+	ch := store.CVSSChange{Vector: vector, Reasons: reasons}
+	rb, table := rowBase(base, field)
+	ch.Bases = map[string]string{key: rb}
+	if table {
+		ch.Table = base
+	}
+	return ch
+}
+
 func setField(s *Server, ctx context.Context, u config.User, a args) (string, error) {
 	ref, err := s.ref(a)
 	if err != nil {
@@ -653,7 +709,7 @@ func setField(s *Server, ctx context.Context, u config.User, a args) (string, er
 	case field == "cvss":
 		// base: this row's field_bases entry, or the whole cvss_base
 		var nb map[string]string
-		nb, err = st.UpdateCVSSRows(eng, dir, store.CVSSChange{Vector: &value, Bases: map[string]string{store.CVSSRow: base}, Table: base}, u)
+		nb, err = st.UpdateCVSSRows(eng, dir, cvssChange(base, field, store.CVSSRow, &value, nil), u)
 		if err == nil {
 			return "set cvss; new base " + nb[store.CVSSRow], nil
 		}
@@ -667,7 +723,7 @@ func setField(s *Server, ctx context.Context, u config.User, a args) (string, er
 		}
 		// the vector is read inside the change: never written back stale
 		var nb map[string]string
-		nb, err = st.UpdateCVSSRows(eng, dir, store.CVSSChange{Reasons: map[string]string{key: value}, Bases: map[string]string{key: base}, Table: base}, u)
+		nb, err = st.UpdateCVSSRows(eng, dir, cvssChange(base, "cvss_reason."+key, key, nil, map[string]string{key: value}), u)
 		if err == nil {
 			return "set cvss_reason." + key + "; new base " + nb[key], nil
 		}
@@ -678,7 +734,11 @@ func setField(s *Server, ctx context.Context, u config.User, a args) (string, er
 		}
 		// base: this row's field_bases entry, or the whole details_base
 		var nb map[string]string
-		nb, err = st.UpdateDetailsBase(eng, dir, map[string]string{row: value}, base, u)
+		if rb, table := rowBase(base, field); table {
+			nb, err = st.UpdateDetailsBase(eng, dir, map[string]string{row: value}, base, u)
+		} else {
+			nb, err = st.UpdateDetailsRows(eng, dir, map[string]string{row: value}, map[string]string{row: rb}, u)
+		}
 		if err == nil {
 			return "set " + field + "; new base " + nb[row], nil
 		}

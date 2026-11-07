@@ -239,7 +239,7 @@ func (s *Server) cvssSave(w http.ResponseWriter, r *http.Request) {
 			_, err = s.Store.UpdateCVSSRows(ref.EngID, ref.Dir, ch, auth.UserFrom(r.Context()))
 		default:
 			if ch.Vector == nil {
-				ch.Vector = &vector
+				ch.Vector, ch.Bases[store.CVSSRow] = &vector, bases[store.CVSSRow]
 			}
 			_, err = s.Store.UpdateCVSSRows(ref.EngID, ref.Dir, ch, auth.UserFrom(r.Context()))
 		}
