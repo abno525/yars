@@ -57,6 +57,17 @@ func TestRootScrollbarGutter(t *testing.T) {
 	}
 }
 
+// Every inbox column has a header, the action column too.
+func TestInboxActionHeader(t *testing.T) {
+	e := setup(t)
+	for _, u := range []string{"alice", "dora"} {
+		b := e.do(t, u, "GET", "/inbox", nil, nil).Body.String()
+		if strings.Contains(b, `<th class="c-go"></th>`) || !strings.Contains(b, `<th class="c-go">Action</th>`) {
+			t.Errorf("%s: action column without a header", u)
+		}
+	}
+}
+
 // The conflict view shows each side against the text both started from:
 // the base line removed, each side's own line added.
 func TestConflictDiffAgainstBase(t *testing.T) {
