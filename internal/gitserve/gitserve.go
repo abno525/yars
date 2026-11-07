@@ -7,6 +7,7 @@ package gitserve
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -28,6 +29,9 @@ import (
 
 // RepoName is the fixed name in the clone URL: http(s)://host/git/yars.
 const RepoName = "yars"
+
+// DefaultMaxBody is the largest chunked request body (a push) accepted.
+const DefaultMaxBody = 2 << 30
 
 type Server struct {
 	Repo *gitrepo.Repo
@@ -54,6 +58,9 @@ type Server struct {
 	// CanSee, when set, decides who may reach an engagement's repo (its
 	// team, directors, admins); others get 403.
 	CanSee func(u config.User, eng string) bool
+	// MaxBody caps a request body sent without a length (chunked), which
+	// is spooled to a temporary file; 0 = DefaultMaxBody.
+	MaxBody int64
 
 	mu    sync.Mutex
 	cache map[string]cached
@@ -312,8 +319,17 @@ func (s *Server) Handler() http.Handler {
 		if r2.Method == http.MethodPost && r2.ContentLength < 0 {
 			// git sends a pack bigger than its http.postBuffer chunked, and
 			// net/http/cgi refuses chunked bodies: spool it so it has a length
-			f, err := spool(r2.Body)
+			limit := s.MaxBody
+			if limit <= 0 {
+				limit = DefaultMaxBody
+			}
+			f, err := spool(http.MaxBytesReader(w, r2.Body, limit))
 			if err != nil {
+				var tooBig *http.MaxBytesError
+				if errors.As(err, &tooBig) {
+					http.Error(w, fmt.Sprintf("request body over %d MiB", limit>>20), http.StatusRequestEntityTooLarge)
+					return
+				}
 				http.Error(w, "could not read the request body", http.StatusBadRequest)
 				return
 			}

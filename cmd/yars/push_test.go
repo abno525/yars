@@ -90,6 +90,25 @@ func TestPushChunkedBody(t *testing.T) {
 	}
 }
 
+// A chunked body over the cap is refused (413) and leaves no spool file.
+func TestPushChunkedBodyCapped(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("TMPDIR", tmp)
+	p := newPushEnvWith(t, func(gs *gitserve.Server) { gs.MaxBody = 64 << 10 })
+	blob := make([]byte, 256<<10)
+	rand.Read(blob)
+	os.WriteFile(filepath.Join(p.clone, "engagements", "acme", "findings", "F-001-sqli", "big.bin"), blob, 0o644)
+	p.git("add", "-A")
+	p.git("commit", "-qm", "too big")
+	out, err := p.git("-c", "http.postBuffer=4096", "push", "origin", "HEAD")
+	if err == nil || !strings.Contains(out, "413") {
+		t.Fatalf("oversized chunked push: %v\n%s", err, out)
+	}
+	if ents, _ := os.ReadDir(tmp); len(ents) != 0 {
+		t.Fatalf("spool files left: %v", ents)
+	}
+}
+
 // A work tree left dirty by a push that never moved the branch (a crash
 // between checkout and the ref update) is put back to HEAD on start, the
 // main repo's too.
@@ -132,6 +151,12 @@ func TestEngagementCloneHistory(t *testing.T) {
 
 func newPushEnv(t *testing.T) *pushEnv {
 	t.Helper()
+	return newPushEnvWith(t, nil)
+}
+
+// newPushEnvWith lets tune change the git server before it serves.
+func newPushEnvWith(t *testing.T, tune func(gs *gitserve.Server)) *pushEnv {
+	t.Helper()
 	bin := hookBinary(t)
 	dir := filepath.Join(t.TempDir(), "data")
 	if err := cmdInit([]string{dir}); err != nil {
@@ -159,6 +184,9 @@ func newPushEnv(t *testing.T) *pushEnv {
 	}
 	gs := &gitserve.Server{Repo: r, Auth: auth.New(d), HookCmd: hookCmd(bin, dir), Sync: st.SyncPointers, Invalidate: st.Invalidate,
 		Receive: receive, Tokens: auth.NewTokens(d), CanSee: st.CanSee}
+	if tune != nil {
+		tune(gs)
+	}
 	if err := gs.Setup(); err != nil {
 		t.Fatal(err)
 	}
