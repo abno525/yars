@@ -142,6 +142,10 @@ function yarsBulkSync(form) {
     if (b.disabled) yarsBulkMenu(b, false);
   });
   form.querySelectorAll('.bmenu [data-act]').forEach(function (b) { b.disabled = !acts[b.getAttribute('data-act')]; });
+  // Clear also clears a run's summary and skipped rows
+  var sum = form.querySelector('.bsum');
+  var ran = (sum && sum.textContent.trim() !== '') || form.querySelector('tr.skip') !== null;
+  form.querySelectorAll('[data-bulk-clear]').forEach(function (clear) { clear.disabled = on.length === 0 && !ran; });
   form.querySelectorAll('[data-pick-all]').forEach(function (all) {
     var scope = all.closest('table') || form;
     var mine = scope.querySelectorAll('input[name=id]');

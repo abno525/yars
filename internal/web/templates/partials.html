@@ -48,7 +48,7 @@
     {{else}}<span class="slot w152"></span>{{end}}
     <span class="grow"></span>
     <span class="bsum" role="status">{{if .Ran}}<span class="mv">{{.Moved}} moved</span> <span class="sk">· {{.Skip}} skipped</span>{{end}}</span>
-    <button type="button" class="btn sm w96 bclear" data-bulk-clear>Clear</button>
+    <button type="button" class="btn sm w96 bclear" data-bulk-clear{{if not (or .Selected .Ran)}} disabled{{end}}>Clear</button>
     <section class="bdlg" role="dialog" aria-labelledby="bulk-reason-head" hidden>
       <h2 id="bulk-reason-head" data-bulk-head>Return {{.Selected}} findings</h2>
       <label>Reason<textarea name="reason" rows="3" maxlength="4000" required disabled></textarea></label>

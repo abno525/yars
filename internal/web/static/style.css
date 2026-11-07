@@ -1686,6 +1686,7 @@ code.plain { font: 500 13px var(--mono); color: var(--text); background: transpa
 .bsum .mv { color: var(--green); font-weight: 600; }
 .bsum .sk { color: var(--muted); }
 .btn.bclear { background: transparent; border-color: transparent; color: var(--ink); }
+.btn.bclear:disabled { color: var(--muted); }
 /* one reason for every selected finding (Return, Withdraw), under Set state */
 .bdlg {
   position: absolute; top: 52px; left: 149px; z-index: 6; width: 560px; padding: 20px; display: flex; flex-direction: column; gap: 16px;
