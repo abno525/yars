@@ -51,14 +51,9 @@ type CheckStatus struct {
 func QuoteHash(quote string) string { return BodyHash(quote) }
 
 // ViolationHash identifies a violation of a rule for dismissals and
-// comments: its quote, or where it is when it has none (an empty section),
-// so that one dismissal covers one place only.
-func ViolationHash(target, quote string) string {
-	if quote == "" {
-		return BodyHash("\x00" + target)
-	}
-	return QuoteHash(quote)
-}
+// comments: where it is and its quote, so that one dismissal covers one
+// result row only (db.ViolationHash).
+func ViolationHash(target, quote string) string { return db.ViolationHash(target, quote) }
 
 // CanDismiss reports whether u may dismiss (or restore) a violation of the
 // given level on a finding: warnings need edit rights, errors also the
@@ -164,7 +159,8 @@ func (s *Store) openChecks(ref FindingRef, hash string) ([]rules.Violation, erro
 	}
 	var out []rules.Violation
 	for _, x := range all {
-		if _, ok := ds[x.key]; !ok {
+		_, own := ds[x.key]
+		if !own && !dismissedRow(ds, x.v) {
 			out = append(out, x.v)
 		}
 	}
@@ -240,7 +236,7 @@ func (s *Store) undismissed(engID, fid string, vs []rules.Violation) ([]rules.Vi
 	}
 	var out []rules.Violation
 	for _, v := range vs {
-		if _, ok := ds[db.DismissKey(v.Rule, ViolationHash(v.Target, v.Quote))]; !ok {
+		if _, ok := db.Lookup(ds, v.Rule, v.Target, v.Quote); !ok {
 			out = append(out, v)
 		}
 	}
@@ -488,7 +484,10 @@ func (s *Store) emitCheck(id int64, ref FindingRef) {
 	dis, _ := s.db.Dismissals(ref.EngID, ref.F.Meta.ID)
 	if res, err := s.db.RunResults(id); err == nil {
 		for _, r := range res {
-			if _, ok := dis[db.DismissKey(r.Rule, r.QuoteHash)]; ok {
+			if r.Target == "rules" || r.Target == "ai" {
+				continue
+			}
+			if _, ok := db.Lookup(dis, r.Rule, r.Target, r.Quote); ok {
 				continue
 			}
 			switch r.Level {
@@ -588,6 +587,23 @@ func finishCheck(tx *db.Tx, id int64, eng, fid string, vs []rules.Violation) err
 	if err != nil {
 		return err
 	}
+	// a dismissal made before they were per row covers this run's rows of
+	// its quote: each gets its own copy, so stored counts see them
+	for _, v := range vs {
+		if notice(v) || v.Quote == "" {
+			continue
+		}
+		own := db.DismissKey(v.Rule, ViolationHash(v.Target, v.Quote))
+		old, ok := dismissed[db.DismissKey(v.Rule, db.LegacyHash(v.Quote))]
+		if _, has := dismissed[own]; has || !ok {
+			continue
+		}
+		old.QuoteHash = ViolationHash(v.Target, v.Quote)
+		if err := tx.Dismiss(old); err != nil {
+			return err
+		}
+		dismissed[own] = old
+	}
 	now := time.Now().UTC().Truncate(time.Second)
 	add := func(m chat.Message) error {
 		m.ID, m.TS, m.User = chat.NewID(), now, CheckUser
@@ -602,7 +618,7 @@ func finishCheck(tx *db.Tx, id int64, eng, fid string, vs []rules.Violation) err
 		case notice(v):
 		case seen:
 			r.Thread = th
-		case dismissed[db.DismissKey(r.Rule, r.QuoteHash)].By != "":
+		case dismissedRow(dismissed, v):
 			found[k] = known[k]
 			r.Thread = known[k]
 		default:
@@ -636,6 +652,11 @@ func finishCheck(tx *db.Tx, id int64, eng, fid string, vs []rules.Violation) err
 		}
 	}
 	return tx.FinishRun(id, state, reason, results)
+}
+
+func dismissedRow(ds map[string]db.Dismissal, v rules.Violation) bool {
+	_, ok := db.Lookup(ds, v.Rule, v.Target, v.Quote)
+	return ok
 }
 
 // CheckStatus returns the finding's latest check run with its results and
@@ -713,19 +734,62 @@ func (s *Store) violationLevel(ref FindingRef, rule, qh string) (string, error) 
 	return level, nil
 }
 
+// placeOf finds where the finding's violation (rule, quote) is when the
+// caller did not say: the one target its latest run or the fast rules now
+// have it in. In several places the caller must name one (a dismissal
+// covers one result row).
+func (s *Store) placeOf(ref FindingRef, rule, quote string) (string, error) {
+	var places []string
+	note := func(target string) {
+		if target != "rules" && target != "ai" && !slices.Contains(places, target) {
+			places = append(places, target)
+		}
+	}
+	run, ok, err := s.db.LatestRun(ref.EngID, ref.F.Meta.ID)
+	if err != nil {
+		return "", err
+	}
+	if ok {
+		res, err := s.db.RunResults(run.ID)
+		if err != nil {
+			return "", err
+		}
+		for _, r := range res {
+			if r.Rule == rule && r.Quote == quote {
+				note(r.Target)
+			}
+		}
+	}
+	if s.Linter != nil {
+		for _, v := range s.Linter.Lint(context.Background(), ref.F, rules.Fast) {
+			if v.Rule == rule && v.Quote == quote {
+				note(v.Target)
+			}
+		}
+	}
+	switch len(places) {
+	case 0:
+		return "", nil
+	case 1:
+		return places[0], nil
+	}
+	return "", fmt.Errorf("%w: %s finds that quote in %s; name the place", ErrInvalidValue, rule, strings.Join(places, ", "))
+}
+
 // Dismiss marks the finding's violation (rule, quote) as not counting: the
 // submit/approve gate ignores it and check runs post no comment for it; its
 // open comment is resolved. Warnings need edit rights, errors also the
-// reviewer role (CanDismiss). A violation without a quote is dismissed with
-// DismissWhy, which takes its target.
+// reviewer role (CanDismiss). The quote must be in one place only (placeOf);
+// DismissWhy takes the place.
 func (s *Store) Dismiss(engID, dir, rule, quote string, u config.User) error {
 	return s.DismissWhy(engID, dir, rule, "", quote, "", u)
 }
 
 // DismissWhy is Dismiss of the violation (rule, target, quote) with the
 // reason: it is kept with the dismissal and posted as u's reply in the
-// violation's open thread before it is resolved. The target matters only
-// when the quote is empty (see ViolationHash).
+// violation's open thread before it is resolved. It covers that one result
+// row: the same quote in another place still counts. An empty target is
+// the quote's one place (placeOf).
 func (s *Store) DismissWhy(engID, dir, rule, target, quote, reason string, u config.User) error {
 	reason = strings.TrimSpace(reason)
 	if s.db == nil {
@@ -737,6 +801,11 @@ func (s *Store) DismissWhy(engID, dir, rule, target, quote, reason string, u con
 	ref, err := s.Finding(engID, dir)
 	if err != nil {
 		return err
+	}
+	if target == "" && quote != "" {
+		if target, err = s.placeOf(ref, rule, quote); err != nil {
+			return err
+		}
 	}
 	qh := ViolationHash(target, quote)
 	level, err := s.violationLevel(ref, rule, qh)
@@ -819,12 +888,28 @@ func (s *Store) Undismiss(engID, dir, rule, target, quote string, u config.User)
 	if err != nil {
 		return err
 	}
+	if target == "" && quote != "" {
+		if target, err = s.placeOf(ref, rule, quote); err != nil {
+			return err
+		}
+	}
 	fid, qh := ref.F.Meta.ID, ViolationHash(target, quote)
 	ds, err := s.db.Dismissals(engID, fid)
 	if err != nil {
 		return err
 	}
+	// its own dismissal, or one made before they were per row (that one
+	// covered the quote everywhere: restoring this row ends it)
+	legacy := ""
 	d, ok := ds[db.DismissKey(rule, qh)]
+	if quote != "" {
+		if old, has := ds[db.DismissKey(rule, db.LegacyHash(quote))]; has {
+			legacy = db.LegacyHash(quote)
+			if !ok {
+				d, ok = old, true
+			}
+		}
+	}
 	if !ok {
 		return nil
 	}
@@ -834,6 +919,11 @@ func (s *Store) Undismiss(engID, dir, rule, target, quote string, u config.User)
 	seq, err := s.db.TxForSeq(engID, func(tx *db.Tx) error {
 		if err := archivedIn(tx, engID); err != nil {
 			return err
+		}
+		if legacy != "" {
+			if err := tx.Undismiss(engID, fid, rule, legacy); err != nil {
+				return err
+			}
 		}
 		return tx.Undismiss(engID, fid, rule, qh)
 	})

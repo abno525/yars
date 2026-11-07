@@ -412,7 +412,7 @@ func TestDismissPermissions(t *testing.T) {
 	}
 	ref := load(t, s, fd)
 	ds, _ := s.Dismissals(eng, ref.F.Meta.ID)
-	if d := ds[db.DismissKey("no-sql", QuoteHash("SQL"))]; d.By != "bob" || d.Level != "error" {
+	if d := ds[db.DismissKey("no-sql", ViolationHash("title", "SQL"))]; d.By != "bob" || d.Level != "error" {
 		t.Fatalf("dismissals %+v", ds)
 	}
 	// dismissing closes the violation's open comment

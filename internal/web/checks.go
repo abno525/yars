@@ -150,8 +150,7 @@ func (s *Server) checksFor(r *http.Request, ref store.FindingRef) checksView {
 	}
 	ds := st.Dismissed
 	dismissed := func(it rules.Violation) (db.Dismissal, bool) {
-		d, ok := ds[db.DismissKey(it.Rule, store.ViolationHash(it.Target, it.Quote))]
-		return d, ok
+		return db.Lookup(ds, it.Rule, it.Target, it.Quote)
 	}
 	for _, it := range items {
 		if _, ok := dismissed(it); !ok && it.Level == "error" {

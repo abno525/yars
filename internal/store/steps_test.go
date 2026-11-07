@@ -84,7 +84,7 @@ func TestDismissReason(t *testing.T) {
 		t.Fatal(err)
 	}
 	ds, _ := s.Dismissals(eng, load(t, s, fd).F.Meta.ID)
-	if d := ds[db.DismissKey("no-sql", QuoteHash("SQL"))]; d.Reason != why || d.By != "bob" {
+	if d := ds[db.DismissKey("no-sql", ViolationHash("title", "SQL"))]; d.Reason != why || d.By != "bob" {
 		t.Fatalf("dismissal %+v", d)
 	}
 	th := checkThreads(t, s, fd)[""]

@@ -505,7 +505,7 @@ var tools = []tool{
 			out := []marked{}
 			for _, v := range s.Rules.Lint(ctx, ref.F, kinds) {
 				m := marked{Violation: v}
-				if d, ok := ds[db.DismissKey(v.Rule, store.ViolationHash(v.Target, v.Quote))]; ok {
+				if d, ok := db.Lookup(ds, v.Rule, v.Target, v.Quote); ok {
 					m.Dismissed, m.DismissedBy = true, d.By
 				}
 				out = append(out, m)
@@ -564,7 +564,7 @@ var tools = []tool{
 				out.RunID, out.State, out.Done, out.Total, out.Error, out.By, out.Started, out.Finished = r.ID, r.State, r.Done, r.Total, r.Error, r.By, r.Started, r.Finished
 			}
 			for _, x := range st.Results {
-				_, dis := st.Dismissed[db.DismissKey(x.Rule, x.QuoteHash)]
+				_, dis := db.Lookup(st.Dismissed, x.Rule, x.Target, x.Quote)
 				out.Results = append(out.Results, result{x.Rule, x.Level, x.Message, x.Target, x.Quote, x.Thread, dis})
 			}
 			return asJSON(out)

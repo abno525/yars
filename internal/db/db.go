@@ -18,7 +18,7 @@ import (
 // Path is where the database lives inside a data directory (git-ignored).
 func Path(dataDir string) string { return filepath.Join(dataDir, ".yars", "yars.db") }
 
-const schemaVersion = 13
+const schemaVersion = 14
 
 // SchemaVersion is the database schema this build writes.
 const SchemaVersion = schemaVersion
@@ -326,7 +326,13 @@ var migrations = []string{
 	// opposed to one cut off without them (FailRun: interrupted, crashed)
 	`ALTER TABLE check_runs ADD COLUMN stored INTEGER NOT NULL DEFAULT 0;
 	UPDATE check_runs SET stored = 1 WHERE state != 'running' AND finished != '' AND done_count = total;`,
+	// v14: dismissals per result row (perRowDismissals, in Go)
+	`SELECT 1;`,
 }
+
+// goMigrations are the steps written in Go, by the index of their entry in
+// migrations; each runs after that entry's SQL, in its transaction.
+var goMigrations = map[int]func(*sql.Tx) error{13: perRowDismissals}
 
 // teamBackfillKey marks the one-time team backfill as still to do.
 const teamBackfillKey = "migrate.team_backfill"
@@ -383,6 +389,12 @@ func (d *DB) migrate() error {
 		if _, err := tx.Exec(migrations[v]); err != nil {
 			tx.Rollback()
 			return err
+		}
+		if fn := goMigrations[v]; fn != nil {
+			if err := fn(tx); err != nil {
+				tx.Rollback()
+				return err
+			}
 		}
 		if _, err := tx.Exec(fmt.Sprintf("PRAGMA user_version = %d", v+1)); err != nil {
 			tx.Rollback()
