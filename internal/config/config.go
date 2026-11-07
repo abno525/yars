@@ -159,15 +159,19 @@ func ConfigPath(dataDir string) string { return filepath.Join(dataDir, ".yars", 
 func UsersPath(dataDir string) string  { return filepath.Join(dataDir, ".yars", "users.yaml") }
 
 func Load(dataDir string) (Config, error) {
-	c := Config{}
 	b, err := os.ReadFile(ConfigPath(dataDir))
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return c, err
+		return Config{}, err
 	}
-	if err == nil {
-		if err := yaml.Unmarshal(b, &c); err != nil {
-			return c, err
-		}
+	return Parse(b)
+}
+
+// Parse reads a config.yaml (nil or empty: all defaults) and validates it
+// as Load does.
+func Parse(b []byte) (Config, error) {
+	c := Config{}
+	if err := yaml.Unmarshal(b, &c); err != nil {
+		return c, err
 	}
 	d := Default()
 	if len(c.Severities) == 0 {

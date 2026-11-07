@@ -236,6 +236,13 @@ func (c *Checker) file(u config.User, old, new string, ch gitrepo.Change) []stri
 		if !manager(u) {
 			return []string{"only a director can change .yars (config, rules)"}
 		}
+		if p == ".yars/config.yaml" && ch.Status != 'D' {
+			// the server loads it on every push and on start
+			b, _ := c.show(new, p)
+			if _, err := config.Parse(b); err != nil {
+				return []string{"cannot load: " + err.Error()}
+			}
+		}
 		return nil
 	case p == ".gitattributes":
 		if !manager(u) {

@@ -202,6 +202,22 @@ func TestPolicyYarsDir(t *testing.T) {
 	}
 }
 
+// A config.yaml the server could not load is refused: it would refuse every
+// later push (the repair too) and stop the server from starting.
+func TestPolicyConfigMustLoad(t *testing.T) {
+	f := newFx(t).on("")
+	for _, body := range []string{"severities: [x\n", "severities: [critical, high]\n", "cvss:\n  version: \"4.0\"\n"} {
+		f.reclone()
+		if ps := f.push("dora", func(d string) { write(d, ".yars/config.yaml", body) }); !has(ps, ".yars/config.yaml: ") {
+			t.Errorf("config %q accepted: %v", body, ps)
+		}
+	}
+	f.reclone()
+	if ps := f.push("dora", func(d string) { write(d, ".yars/config.yaml", "severities: [critical, high, medium, low, info, extreme]\n") }); len(ps) != 0 {
+		t.Fatalf("valid config refused: %v", ps)
+	}
+}
+
 func TestPolicyServerFilesNeverPushed(t *testing.T) {
 	for _, p := range []string{".yars/users.yaml", ".yars/tokens.yaml", ".yars/secret.key", ".yars/yars.db", ".yars/yars.db-wal"} {
 		f := newFx(t).on("")
