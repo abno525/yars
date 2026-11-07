@@ -819,11 +819,11 @@ progress::-moz-progress-bar { background: var(--accent); }
 .admin { display: flex; flex-direction: column; gap: 24px; }
 .atabs { display: flex; border-bottom: 1px solid var(--line); }
 .atab {
-  width: 128px; height: 48px; padding: 0 8px; flex: none; display: flex; align-items: center; justify-content: center;
+  width: 180px; height: 44px; padding: 0 20px; flex: none; display: flex; align-items: center; justify-content: center;
   color: var(--muted); font: 600 14px var(--sans); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 a.atab:hover { color: var(--ink); background: var(--panel); }
-.atab.on { color: var(--ink); font-weight: 700; box-shadow: inset 0 -3px 0 var(--accent); }
+.atab.on { color: var(--ink); font-weight: 700; box-shadow: inset 0 -3px 0 var(--ink); }
 .atab .adot { width: 8px; height: 8px; margin-left: 8px; flex: none; background: var(--red); }
 .adminbody { display: flex; flex-direction: column; gap: 24px; min-width: 0; }
 
