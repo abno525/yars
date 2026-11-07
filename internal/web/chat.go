@@ -5,6 +5,7 @@ import (
 	"html/template"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 
 	"yars/internal/auth"
@@ -21,11 +22,35 @@ type chatMsg struct {
 
 const excerptLen = 140
 
-// excerpt turns Markdown into a short single line: emphasis and code marks
-// are dropped, whitespace collapsed, and long text cut with an ellipsis.
+// The Markdown structure an excerpt drops: quote markers, headings and code
+// fences at the start of a line, and paired emphasis and code marks. Any other
+// character is the text's own ("<script>", "C#", "#12", "2*3", "a__b") and
+// stays; html/template escapes it.
+var (
+	exFence  = regexp.MustCompile("^\\s*(```|~~~)\\S*\\s*$")
+	exQuote  = regexp.MustCompile(`^\s*(>\s?)+`)
+	exHead   = regexp.MustCompile(`^\s*#{1,6}\s+`)
+	exStrong = regexp.MustCompile(`(^|[^\w*])\*\*([^*\s](?:[^*]*[^*\s])?)\*\*($|[^\w*])`)
+	exUnder  = regexp.MustCompile(`(^|[^\w_])__([^_\s](?:[^_]*[^_\s])?)__($|[^\w_])`)
+	exEm     = regexp.MustCompile(`(^|[^\w*])\*([^*\s](?:[^*]*[^*\s])?)\*($|[^\w*])`)
+	exCode   = regexp.MustCompile("`([^`]+)`")
+)
+
+// excerpt turns Markdown into a short single line: quote markers, heading
+// marks and paired emphasis and code marks are dropped, whitespace
+// collapsed, and long text cut with an ellipsis.
 func excerpt(md string) string {
-	s := strings.NewReplacer("**", "", "__", "", "`", "", "*", "", "#", "", ">", "").Replace(md)
-	r := []rune(strings.Join(strings.Fields(s), " "))
+	lines := strings.Split(md, "\n")
+	for i, l := range lines {
+		l = exQuote.ReplaceAllString(l, "")
+		l = exFence.ReplaceAllString(l, "")
+		l = exHead.ReplaceAllString(l, "")
+		l = exCode.ReplaceAllString(l, "$1")
+		l = exStrong.ReplaceAllString(l, "$1$2$3")
+		l = exUnder.ReplaceAllString(l, "$1$2$3")
+		lines[i] = exEm.ReplaceAllString(l, "$1$2$3")
+	}
+	r := []rune(strings.Join(strings.Fields(strings.Join(lines, "\n")), " "))
 	if len(r) > excerptLen {
 		return strings.TrimSpace(string(r[:excerptLen])) + "…"
 	}
