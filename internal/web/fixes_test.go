@@ -42,6 +42,16 @@ func TestAttachStripBounded(t *testing.T) {
 	}
 }
 
+// The page keeps room for a scrollbar, so the top bar and right-aligned
+// buttons stay put between short and long pages.
+func TestRootScrollbarGutter(t *testing.T) {
+	e := setup(t)
+	css := e.do(t, "alice", "GET", staticPrefix()+"/style.css", nil, nil).Body.String()
+	if rule := between(css, "\nhtml {", "}"); !strings.Contains(rule, "scrollbar-gutter: stable") {
+		t.Fatalf("html rule: %q", rule)
+	}
+}
+
 // A title made only of bidi controls is empty once cleaned: the form says
 // so (400 with the form), not a bare error from the store.
 func TestNewFindingBidiOnlyTitle(t *testing.T) {
