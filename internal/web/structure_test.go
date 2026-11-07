@@ -48,7 +48,7 @@ func TestStructureSaveConflict(t *testing.T) {
 	}
 	v.Set("op", "save")
 	rec := e.do(t, "dora", "POST", "/admin/structure", v, nil)
-	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "Structure changed by someone else") {
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "The structure changed since you read it") {
 		t.Fatalf("stale save %d:\n%s", rec.Code, rec.Body.String())
 	}
 	if got, _ := os.ReadFile(filepath.Join(e.dir, ".yars", "config.yaml")); string(got) != pushed {

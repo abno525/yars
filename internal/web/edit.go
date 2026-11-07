@@ -354,8 +354,8 @@ func (s *Server) sectionSave(w http.ResponseWriter, r *http.Request) {
 			status = http.StatusConflict
 			p.Current, p.Conflict = p.HTML, true
 			p.Diff = s.conflictOf(ref, name, body, r.FormValue("base"))
-			p.Error = "Changed by someone else"
-			if p.Diff.By != "" {
+			p.Error = conflictText
+			if p.Diff.By != "" && p.Diff.By != auth.UserFrom(r.Context()).Username {
 				p.Error = "Changed by " + p.Diff.By
 			}
 		}

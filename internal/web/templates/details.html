@@ -37,6 +37,7 @@
     <div class="detail-fields">
     {{range .Rows}}
     <label class="detail-field"><span>{{.Name}}</span>
+      <input type="hidden" name="{{.BaseField}}" value="{{.Base}}">
       <textarea name="{{.Field}}" rows="2"{{if $.Error}} data-dirty{{end}}>{{.Value}}</textarea>
     </label>
     {{end}}

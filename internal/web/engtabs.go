@@ -260,7 +260,7 @@ func (s *Server) reportSectionSave(w http.ResponseWriter, r *http.Request) {
 		pn.Raw, pn.Error = body, err.Error()
 		status := http.StatusBadRequest
 		if errors.Is(err, store.ErrConflict) {
-			status, pn.Error = http.StatusConflict, "Section changed by someone else"
+			status, pn.Error = http.StatusConflict, "The section changed since you read it"
 			pn.Current, pn.Conflict = pn.HTML, true
 		}
 		s.execStatus(w, status, "eng_report.html", "editor", pn)

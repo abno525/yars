@@ -65,7 +65,7 @@ func TestAssetsPanelAndEditor(t *testing.T) {
 	// a stale base: 409, the typed rows stay
 	form.Set("host_0", "mine.example")
 	rec = e.do(t, "alice", "POST", fpath+"/assets", form, nil)
-	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "mine.example") || !strings.Contains(rec.Body.String(), "Assets changed by someone else") {
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "mine.example") || !strings.Contains(rec.Body.String(), "The finding changed since you read it") {
 		t.Fatalf("conflict %d:\n%s", rec.Code, rec.Body.String())
 	}
 	// invalid: 400 with the reason

@@ -32,6 +32,7 @@ type cvssView struct {
 	Vector, Score, Rating     string
 	Foreign, Error, Base      string
 	SevBase                   string
+	RowBases                  map[string]string // each row's base (store.CVSSRowHashes): the editor's
 	Complete, HasStored, OOB  bool
 	Locked                    bool
 	ReadOnly                  bool // archived engagement: no Comment either
@@ -57,7 +58,7 @@ func (s *Server) buildCVSS(ref store.FindingRef, sel cvss.Vector, reasons map[st
 	cfg := s.conf()
 	base := findingURL(ref.EngID, ref.Dir)
 	v := cvssView{
-		Base: store.CVSSHash(m), SevBase: store.SeverityHash(m), Severity: cvss.Derive(m.CVSS, m.Severity), Severities: cfg.Severities,
+		Base: store.CVSSHash(m), RowBases: store.CVSSRowHashes(m), SevBase: store.SeverityHash(m), Severity: cvss.Derive(m.CVSS, m.Severity), Severities: cfg.Severities,
 		ViewURL: base + "/cvss", EditURL: base + "/cvss/edit", CalcURL: base + "/cvss/calc",
 		SaveURL: base + "/cvss", SeverityURL: base + "/severity", ReadOnly: s.Store.Archived(ref.EngID),
 	}
@@ -142,6 +143,10 @@ func (s *Server) cvssFromForm(ref store.FindingRef, form url.Values) cvssView {
 	if b := form.Get("base"); b != "" {
 		v.Base = b
 	}
+	// the bases the editor was opened with go along each recalculation
+	if posted := cvssBases(form); len(posted) > 0 {
+		v.RowBases = posted
+	}
 	if pasteErr != nil {
 		v.Error = "Could not read pasted vector: " + pasteErr.Error()
 	}
@@ -215,11 +220,36 @@ func (s *Server) cvssSave(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	err := s.Store.UpdateCVSS(ref.EngID, ref.Dir, vector, reasons, form.Get("base"), auth.UserFrom(r.Context()))
+	var err error
+	if bases := cvssBases(form); len(bases) > 0 {
+		// per row: only the rows the user changed are written, each checked
+		// against the base it was read with
+		ch := store.CVSSChange{Reasons: map[string]string{}, Bases: map[string]string{}}
+		if b, ok := bases[store.CVSSRow]; !ok || store.RowHash(vector) != b {
+			ch.Vector, ch.Bases[store.CVSSRow] = &vector, b
+		}
+		for k, val := range reasons {
+			if b, ok := bases[k]; !ok || store.RowHash(strings.TrimSpace(val)) != b {
+				ch.Reasons[k], ch.Bases[k] = val, b
+			}
+		}
+		switch {
+		case ch.Vector == nil && len(ch.Reasons) == 0:
+		case ch.Vector == nil && v.HasStored:
+			_, err = s.Store.UpdateCVSSRows(ref.EngID, ref.Dir, ch, auth.UserFrom(r.Context()))
+		default:
+			if ch.Vector == nil {
+				ch.Vector = &vector
+			}
+			_, err = s.Store.UpdateCVSSRows(ref.EngID, ref.Dir, ch, auth.UserFrom(r.Context()))
+		}
+	} else {
+		err = s.Store.UpdateCVSS(ref.EngID, ref.Dir, vector, reasons, form.Get("base"), auth.UserFrom(r.Context()))
+	}
 	switch {
 	case errors.Is(err, store.ErrConflict):
-		v.Error = "CVSS changed by someone else"
-		v.Base = store.CVSSHash(ref.F.Meta)
+		v.Error = conflictText
+		v.Base, v.RowBases = store.CVSSHash(ref.F.Meta), store.CVSSRowHashes(ref.F.Meta)
 		s.execStatus(w, http.StatusConflict, "finding.html", "cvss_editor", v)
 		return
 	case errors.Is(err, store.ErrInvalidValue):
@@ -231,6 +261,21 @@ func (s *Server) cvssSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.panelAfterWrite(w, ref)
+}
+
+// conflictText is the conflict state of an editor: it never blames anyone
+// (the change may be the user's own, in another tab or by MCP).
+const conflictText = "The finding changed since you read it"
+
+// cvssBases reads the editor's per-row bases (base:cvss, base:<METRIC>).
+func cvssBases(form url.Values) map[string]string {
+	out := map[string]string{}
+	for k, vs := range form {
+		if name, ok := strings.CutPrefix(k, baseField); ok && len(vs) > 0 {
+			out[name] = vs[0]
+		}
+	}
+	return out
 }
 
 func (s *Server) panelAfterWrite(w http.ResponseWriter, ref store.FindingRef) {
@@ -254,7 +299,7 @@ func (s *Server) severitySave(w http.ResponseWriter, r *http.Request) {
 		// Show the current (other person's) severity so the user can decide again.
 		v := s.cvssPanel(ref)
 		v.OOB = true
-		v.Error = "Severity changed by someone else"
+		v.Error = conflictText
 		s.execStatus(w, http.StatusConflict, "finding.html", "cvss_panel", v)
 		return
 	}

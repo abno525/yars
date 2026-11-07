@@ -177,7 +177,7 @@ func explain(err error) string {
 	case errors.As(err, &d):
 		return "not allowed: " + d.Reason
 	case errors.Is(err, store.ErrConflict):
-		return "the finding changed meanwhile (someone else edited it); read_finding again and retry"
+		return "the finding changed since you read it; read_finding again and retry"
 	case errors.Is(err, store.ErrNotFound):
 		return "not found"
 	case errors.Is(err, store.ErrArchived):
@@ -321,6 +321,7 @@ var tools = []tool{
 				Sections    []sec             `json:"sections"`
 				CVSSBase    string            `json:"cvss_base"`
 				DetailsBase string            `json:"details_base"`
+				Bases       map[string]string `json:"field_bases"`
 				Assets      []finding.Asset   `json:"assets"`
 				AssetsBase  string            `json:"assets_base"`
 				CanEdit     bool              `json:"can_edit"`
@@ -328,7 +329,7 @@ var tools = []tool{
 				Violations  []rules.Violation `json:"violations"`
 			}{Engagement: ref.EngID, Dir: ref.Dir, State: st, Markdown: string(ref.F.Bytes()), CVSSBase: store.CVSSHash(ref.F.Meta),
 				DetailsBase: store.DetailsHash(ref.F.Meta), Assets: append([]finding.Asset{}, ref.F.Meta.Assets...), AssetsBase: store.AssetsHash(ref.F.Meta),
-				CanEdit: workflow.CanEdit(u, ref.F.Meta), Threads: []thread{}, Violations: []rules.Violation{}}
+				CanEdit: workflow.CanEdit(u, ref.F.Meta), Threads: []thread{}, Violations: []rules.Violation{}, Bases: s.fieldBases(ref.F.Meta)}
 			if e, err := s.Store.Engagement(ref.EngID); err != nil || e.Archived {
 				out.CanEdit = false // every write is refused while archived
 			}
@@ -398,7 +399,7 @@ var tools = []tool{
 			}
 			return asJSON(map[string]string{"id": ref.F.Meta.ID, "dir": ref.Dir})
 		}},
-	{name: "update_section", action: "edit", desc: "Replace the Markdown body of one ## section. Pass base (from read_finding) to refuse the edit if someone changed it meanwhile. Use ### or deeper headings inside the body.",
+	{name: "update_section", action: "edit", desc: "Replace the Markdown body of one ## section. Pass base (from read_finding) to refuse the edit if the section changed since you read it. Use ### or deeper headings inside the body.",
 		required: []param{pEng, pFinding, {"section", "section name, e.g. Impact"}, {"body", "new Markdown body"}},
 		optional: []param{{"base", "section base hash from read_finding"}},
 		run: func(s *Server, ctx context.Context, u config.User, a args) (string, error) {
@@ -426,7 +427,7 @@ var tools = []tool{
 		}},
 	{name: "set_field", action: "edit", desc: "Set a field: title, severity (no CVSS vector), cvss (vector or empty to clear), cvss_reason.<METRIC> (explanation for a non-standard value, e.g. cvss_reason.AC), details.<Row> (details table, e.g. details.Location), reviewers (comma-separated usernames; replaces the whole list, so a reviewer who is not the author or a director must include the current names and cannot add themselves), retest_result (fixed | not_fixed | partially_fixed), assets (the whole affected-asset list as JSON: [{\"host\":\"app.example\",\"url\":\"https://app.example/x\",\"port\":\"443\",\"note\":\"…\"}], [] to clear). Use transition for status.",
 		required: []param{pEng, pFinding, {"field", "field name"}, {"value", "new value"}},
-		optional: []param{{"base", "cvss_base (cvss, cvss_reason.*), details_base (details.*) or assets_base (assets) from read_finding; refuses the edit if someone changed it meanwhile"}},
+		optional: []param{{"base", "the field's entry in field_bases from read_finding (details.*, cvss, cvss_reason.*: refused only if that one row changed since; each set_field answer gives the row's new base), or cvss_base, details_base or assets_base (assets); refuses the edit if it changed since you read it"}},
 		run:      setField},
 	{name: "transition", action: "status", serverOnly: true, desc: "Move a finding through the workflow: submit (draft→verification), return (verification→draft, needs reason), clear or sign_off (reviewer sign-off), approve (director: verification→complete), reopen (complete→verification), report (director: complete→reported), withdraw (author while draft or verification, director also when complete or reported; needs reason; takes it out of the report), revise (author or director: withdrawn→draft), take_back (author or director: verification→draft, no reason; sign-offs start over).",
 		required: []param{pEng, pFinding, {"action", "submit | return | clear | sign_off | approve | reopen | report | withdraw | revise | take_back"}},
@@ -613,6 +614,27 @@ var toolByName = func() map[string]tool {
 	return m
 }()
 
+// fieldBases are the per-row bases of set_field, by field name: each
+// details row (configured or present), cvss and each cvss_reason. An edit
+// is refused only when its own row changed since it was read.
+func (s *Server) fieldBases(m finding.Meta) map[string]string {
+	out := map[string]string{}
+	for _, row := range s.conf().DetailsRows {
+		out["details."+row] = store.RowHash(m.Details[row])
+	}
+	for row, v := range m.Details {
+		out["details."+row] = store.RowHash(v)
+	}
+	for k, b := range store.CVSSRowHashes(m) {
+		if k == store.CVSSRow {
+			out["cvss"] = b
+		} else {
+			out["cvss_reason."+k] = b
+		}
+	}
+	return out
+}
+
 func setField(s *Server, ctx context.Context, u config.User, a args) (string, error) {
 	ref, err := s.ref(a)
 	if err != nil {
@@ -629,7 +651,12 @@ func setField(s *Server, ctx context.Context, u config.User, a args) (string, er
 	case field == "severity":
 		err = st.UpdateSeverity(eng, dir, value, "", u)
 	case field == "cvss":
-		err = st.UpdateCVSS(eng, dir, value, nil, base, u)
+		// base: this row's field_bases entry, or the whole cvss_base
+		var nb map[string]string
+		nb, err = st.UpdateCVSSRows(eng, dir, store.CVSSChange{Vector: &value, Bases: map[string]string{store.CVSSRow: base}, Table: base}, u)
+		if err == nil {
+			return "set cvss; new base " + nb[store.CVSSRow], nil
+		}
 	case strings.HasPrefix(field, "cvss_reason."):
 		key := strings.ToUpper(strings.TrimPrefix(field, "cvss_reason."))
 		if !slices.ContainsFunc(cvss.Metrics, func(m cvss.Metric) bool { return m.Key == key }) {
@@ -638,16 +665,23 @@ func setField(s *Server, ctx context.Context, u config.User, a args) (string, er
 		if _, err := cvss.Parse(ref.F.Meta.CVSS); err != nil {
 			return "", errors.New("set a CVSS vector first")
 		}
-		if base == "" { // the vector was read outside the lock: never write back a stale one
-			base = store.CVSSHash(ref.F.Meta)
+		// the vector is read inside the change: never written back stale
+		var nb map[string]string
+		nb, err = st.UpdateCVSSRows(eng, dir, store.CVSSChange{Reasons: map[string]string{key: value}, Bases: map[string]string{key: base}, Table: base}, u)
+		if err == nil {
+			return "set cvss_reason." + key + "; new base " + nb[key], nil
 		}
-		err = st.UpdateCVSS(eng, dir, ref.F.Meta.CVSS, map[string]string{key: value}, base, u)
 	case strings.HasPrefix(field, "details."):
 		row := strings.TrimPrefix(field, "details.")
 		if rows := s.conf().DetailsRows; !slices.Contains(rows, row) {
 			return "", fmt.Errorf("unknown details row %q; rows: %s", row, strings.Join(rows, ", "))
 		}
-		err = st.UpdateDetails(eng, dir, map[string]string{row: value}, base, u)
+		// base: this row's field_bases entry, or the whole details_base
+		var nb map[string]string
+		nb, err = st.UpdateDetailsBase(eng, dir, map[string]string{row: value}, base, u)
+		if err == nil {
+			return "set " + field + "; new base " + nb[row], nil
+		}
 	case field == "reviewers":
 		var names []string
 		for _, n := range strings.Split(value, ",") {

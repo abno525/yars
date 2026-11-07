@@ -40,7 +40,7 @@ import (
 
 var (
 	ErrNotFound    = errors.New("not found")
-	ErrConflict    = errors.New("section was changed by someone else")
+	ErrConflict    = errors.New("the finding changed since you read it")
 	ErrInvalidBody = errors.New("invalid section body")
 	// ErrInvalidValue marks a rejected front-matter value (CVSS vector, severity).
 	ErrInvalidValue = errors.New("invalid value")
@@ -1730,18 +1730,107 @@ func DetailsHash(m finding.Meta) string { return BodyHash(sortedPairs(m.Details)
 // merges reasons (empty value deletes, absent keys are kept). An empty
 // vector clears CVSS and keeps the last severity as a manual value.
 func (s *Store) UpdateCVSS(engID, dir, vector string, reasons map[string]string, base string, a Actor) error {
+	_, err := s.UpdateCVSSRows(engID, dir, CVSSChange{Vector: &vector, Reasons: reasons, Table: base}, a)
+	return err
+}
+
+// CVSSRow is the key of the vector among CVSSChange.Bases (the reasons are
+// keyed by metric).
+const CVSSRow = "cvss"
+
+// CVSSChange is an edit of the CVSS rows: the vector (nil keeps it, read
+// inside the change) and reasons by metric (empty deletes). Each row with a
+// base in Bases (RowHash of the value read) is refused only if that row
+// changed since; Table, the whole state's base (CVSSHash), passes them all
+// while nothing changed.
+type CVSSChange struct {
+	Vector  *string
+	Reasons map[string]string
+	Bases   map[string]string
+	Table   string
+}
+
+// CVSSRowHashes are the bases of the vector (CVSSRow) and of each reason.
+func CVSSRowHashes(m finding.Meta) map[string]string {
+	out := map[string]string{CVSSRow: RowHash(m.CVSS)}
+	for _, mt := range cvss.Metrics {
+		out[mt.Key] = RowHash(m.CVSSReasons[mt.Key])
+	}
+	return out
+}
+
+// UpdateCVSSRows applies ch (see UpdateCVSS) and returns the new bases of
+// every CVSS row.
+func (s *Store) UpdateCVSSRows(engID, dir string, ch CVSSChange, a Actor) (map[string]string, error) {
 	var v cvss.Vector
-	if strings.TrimSpace(vector) != "" {
+	if ch.Vector != nil && strings.TrimSpace(*ch.Vector) != "" {
 		var err error
-		if v, err = cvss.Parse(vector); err != nil {
-			return fmt.Errorf("%w: %v", ErrInvalidValue, err)
+		if v, err = cvss.Parse(*ch.Vector); err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrInvalidValue, err)
 		}
 	}
-	return s.mutateContent(engID, dir, a, func(f *finding.Finding) (string, error) {
+	reasons := ch.Reasons
+	var out map[string]string
+	err := s.mutateContent(engID, dir, a, func(f *finding.Finding) (string, error) {
 		m := f.Meta
-		if base != "" && CVSSHash(m) != base {
-			return "", ErrConflict
+		if ch.Table == "" || CVSSHash(m) != ch.Table {
+			if ch.Table != "" && len(ch.Bases) == 0 {
+				return "", ErrConflict
+			}
+			for k, b := range ch.Bases {
+				cur := m.CVSSReasons[k]
+				if k == CVSSRow {
+					cur = m.CVSS
+				}
+				if b != "" && RowHash(cur) != b {
+					return "", ErrConflict
+				}
+			}
 		}
+		if ch.Vector == nil {
+			// the vector as it is now (a reason edit never writes back an
+			// older one)
+			var err error
+			if v, err = cvss.Parse(m.CVSS); err != nil {
+				return "", fmt.Errorf("%w: set a CVSS vector first", ErrInvalidValue)
+			}
+		}
+		msg, err := writeCVSS(f, m, v, reasons)
+		if err == nil {
+			nm := m
+			nm.CVSS, nm.CVSSReasons = "", mergeReasons(m.CVSSReasons, reasons)
+			if v != nil {
+				nm.CVSS = v.String()
+			} else {
+				nm.CVSSReasons = m.CVSSReasons
+			}
+			out = CVSSRowHashes(nm)
+		}
+		return msg, err
+	})
+	return out, err
+}
+
+// mergeReasons is old with reasons applied (an empty one deletes).
+func mergeReasons(old, reasons map[string]string) map[string]string {
+	merged := map[string]string{}
+	for k, r := range old {
+		merged[k] = r
+	}
+	for k, r := range reasons {
+		if r = strings.TrimSpace(r); r == "" {
+			delete(merged, k)
+		} else {
+			merged[k] = r
+		}
+	}
+	return merged
+}
+
+// writeCVSS sets vector v (nil clears it) and merges reasons into f, whose
+// meta was m.
+func writeCVSS(f *finding.Finding, m finding.Meta, v cvss.Vector, reasons map[string]string) (string, error) {
+	{
 		if v == nil {
 			if m.CVSS == "" {
 				return "clear CVSS", nil
@@ -1752,17 +1841,7 @@ func (s *Store) UpdateCVSS(engID, dir, vector string, reasons map[string]string,
 			return "clear CVSS", f.SetMeta("cvss", nil)
 		}
 		score, _ := cvss.Score(v)
-		merged := map[string]string{}
-		for k, r := range m.CVSSReasons {
-			merged[k] = r
-		}
-		for k, r := range reasons {
-			if r = strings.TrimSpace(r); r == "" {
-				delete(merged, k)
-			} else {
-				merged[k] = r
-			}
-		}
+		merged := mergeReasons(m.CVSSReasons, reasons)
 		if err := f.SetMeta("severity", cvss.Rating(score)); err != nil {
 			return "", err
 		}
@@ -1797,7 +1876,7 @@ func (s *Store) UpdateCVSS(engID, dir, vector string, reasons map[string]string,
 			}
 		}
 		return "set CVSS " + cvss.FormatScore(score), nil
-	})
+	}
 }
 
 // SeverityHash identifies the stored severity for optimistic concurrency.
@@ -1820,23 +1899,97 @@ func (s *Store) UpdateSeverity(engID, dir, sev, base string, a Actor) error {
 	})
 }
 
+// RowHash identifies one value (a details row, the CVSS vector, one CVSS
+// reason) for optimistic concurrency per row.
+func RowHash(value string) string { return BodyHash("\x00row\x00" + value) }
+
+// DetailsRowHashes are the bases of each details row (RowHash).
+func DetailsRowHashes(m finding.Meta) map[string]string {
+	out := map[string]string{}
+	for k, v := range m.Details {
+		out[k] = RowHash(v)
+	}
+	return out
+}
+
 // UpdateDetails replaces the given details rows (other existing rows kept).
+// A non-empty base is the whole table's (DetailsHash), or for a single row
+// that row's own (RowHash).
 func (s *Store) UpdateDetails(engID, dir string, values map[string]string, base string, a Actor) error {
-	return s.mutateContent(engID, dir, a, func(f *finding.Finding) (string, error) {
-		if base != "" && DetailsHash(f.Meta) != base {
+	_, err := s.UpdateDetailsBase(engID, dir, values, base, a)
+	return err
+}
+
+// UpdateDetailsBase is UpdateDetails returning the new base (RowHash) of
+// each written row.
+func (s *Store) UpdateDetailsBase(engID, dir string, values map[string]string, base string, a Actor) (map[string]string, error) {
+	if base == "" {
+		return s.UpdateDetailsRows(engID, dir, values, nil, a)
+	}
+	var out map[string]string
+	err := s.mutateContent(engID, dir, a, func(f *finding.Finding) (string, error) {
+		ok := DetailsHash(f.Meta) == base
+		if len(values) == 1 {
+			for k := range values {
+				ok = ok || RowHash(f.Meta.Details[k]) == base
+			}
+		}
+		if !ok {
 			return "", ErrConflict
 		}
-		merged := map[string]string{}
-		for k, v := range f.Meta.Details {
-			merged[k] = v
+		msg, err := s.writeDetails(f, values)
+		out = map[string]string{}
+		for k := range values {
+			out[k] = RowHash(f.Meta.Details[k])
 		}
-		for k, v := range values {
-			lines := strings.Split(strings.ReplaceAll(v, "\r\n", "\n"), "\n")
-			for i := range lines {
-				lines[i] = strings.TrimRight(lines[i], " \t")
-			}
-			merged[k] = strings.Trim(strings.Join(lines, "\n"), "\n")
-		}
-		return "edit details", f.SetMeta("details", finding.OrderedMap(s.Config().DetailsRows, merged))
+		return msg, err
 	})
+	return out, err
+}
+
+// UpdateDetailsRows replaces the given details rows, each checked on its
+// own: a row with a base (RowHash of the value it was read with) is refused
+// with ErrConflict only when that row changed since; rows without one are
+// not checked, other rows are kept. It returns each written row's new base.
+func (s *Store) UpdateDetailsRows(engID, dir string, values, bases map[string]string, a Actor) (map[string]string, error) {
+	var out map[string]string
+	err := s.mutateContent(engID, dir, a, func(f *finding.Finding) (string, error) {
+		for k := range values {
+			if b, ok := bases[k]; ok && b != "" && RowHash(f.Meta.Details[k]) != b {
+				return "", ErrConflict
+			}
+		}
+		msg, err := s.writeDetails(f, values)
+		out = map[string]string{}
+		for k := range values {
+			out[k] = RowHash(f.Meta.Details[k])
+		}
+		return msg, err
+	})
+	return out, err
+}
+
+// CleanRow is a details value as stored: no trailing blanks on a line, no
+// blank lines around it.
+func CleanRow(v string) string {
+	lines := strings.Split(strings.ReplaceAll(v, "\r\n", "\n"), "\n")
+	for i := range lines {
+		lines[i] = strings.TrimRight(lines[i], " \t")
+	}
+	return strings.Trim(strings.Join(lines, "\n"), "\n")
+}
+
+func (s *Store) writeDetails(f *finding.Finding, values map[string]string) (string, error) {
+	merged := map[string]string{}
+	for k, v := range f.Meta.Details {
+		merged[k] = v
+	}
+	for k, v := range values {
+		merged[k] = CleanRow(v)
+	}
+	if err := f.SetMeta("details", finding.OrderedMap(s.Config().DetailsRows, merged)); err != nil {
+		return "", err
+	}
+	f.Meta.Details = merged
+	return "edit details", nil
 }

@@ -354,7 +354,7 @@ func bulkSkip(err error) string {
 	case errors.Is(err, store.ErrArchived):
 		return "archived"
 	case errors.Is(err, store.ErrConflict):
-		return "changed by someone else meanwhile; reload and try again"
+		return "changed since the page was loaded; reload and try again"
 	}
 	log.Printf("bulk: %v", err)
 	return "could not be changed; try again"

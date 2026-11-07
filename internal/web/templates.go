@@ -420,7 +420,7 @@ func (s *Server) templateSectionSave(w http.ResponseWriter, r *http.Request) {
 		p.Raw, p.Error = body, err.Error()
 		status := http.StatusBadRequest
 		if errors.Is(err, store.ErrConflict) {
-			status, p.Error = http.StatusConflict, "Section changed by someone else"
+			status, p.Error = http.StatusConflict, "The template changed since you read it"
 			p.Current, p.Conflict = p.HTML, true
 		}
 		s.execStatus(w, status, "template.html", "editor", p)

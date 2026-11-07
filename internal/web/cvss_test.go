@@ -229,7 +229,7 @@ func TestSeverityConflict(t *testing.T) {
 		t.Fatal("severity form has no base")
 	}
 	rec := e.do(t, "bob", "POST", fpath+"/severity", url.Values{"severity": {"low"}, "base": {"0000000000000000"}}, nil)
-	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "changed by someone else") {
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "The finding changed since you read it") {
 		t.Fatalf("code %d body:\n%s", rec.Code, rec.Body.String())
 	}
 }

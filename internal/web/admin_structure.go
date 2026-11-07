@@ -406,7 +406,7 @@ func (s *Server) structurePost(w http.ResponseWriter, r *http.Request) {
 		// the page shows the edits against the file as it is now; saving
 		// again overwrites it knowingly
 		now, nowBase := s.diskStructure()
-		s.structureRender(w, r, http.StatusConflict, c, now, nowBase, "Structure changed by someone else", "")
+		s.structureRender(w, r, http.StatusConflict, c, now, nowBase, "The structure changed since you read it", "")
 		return
 	}
 	if err != nil {

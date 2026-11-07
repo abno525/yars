@@ -108,7 +108,7 @@ func (s *Server) assetsPost(w http.ResponseWriter, r *http.Request) {
 	err := s.Store.UpdateAssets(ref.EngID, ref.Dir, rows, r.PostForm.Get("base"), auth.UserFrom(r.Context()))
 	switch {
 	case errors.Is(err, store.ErrConflict):
-		editor(http.StatusConflict, rows, "Assets changed by someone else")
+		editor(http.StatusConflict, rows, conflictText)
 		return
 	case errors.Is(err, store.ErrInvalidValue):
 		editor(http.StatusBadRequest, rows, strings.TrimPrefix(err.Error(), store.ErrInvalidValue.Error()+": "))

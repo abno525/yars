@@ -62,6 +62,7 @@
     </div>
     {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
     <input type="hidden" name="base" value="{{.Base}}">
+    {{range $k, $b := .RowBases}}<input type="hidden" name="base:{{$k}}" value="{{$b}}">{{end}}
     <div class="metrics flush">
     {{range .Metrics}}
     {{$m := .}}
