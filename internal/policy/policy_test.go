@@ -228,6 +228,21 @@ func TestPolicyConfigMustLoad(t *testing.T) {
 	}
 }
 
+// A path outside the layout is explained in the pushed repository's own
+// terms, not the server's data-dir paths.
+func TestPolicyOutsideMessagePerRepo(t *testing.T) {
+	f := newFx(t)
+	ps := f.push("alice", func(d string) { write(d, "findings/README.md", "x\n") })
+	if !has(ps, "findings/README.md: not allowed here; findings must live under findings/<finding>/") || has(ps, "engagements/<engagement>") {
+		t.Fatalf("engagement repo: %v", ps)
+	}
+	f.on("")
+	ps = f.push("dora", func(d string) { write(d, "notes.txt", "x\n") })
+	if !has(ps, "notes.txt: not allowed here; this repository holds settings (.yars)") || has(ps, "engagements/<engagement>") {
+		t.Fatalf("main repo: %v", ps)
+	}
+}
+
 // engagement.yaml must parse and cannot be deleted: either makes the
 // engagement fail (500) or vanish from YARS.
 func TestPolicyEngagementYAML(t *testing.T) {

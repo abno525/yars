@@ -222,7 +222,14 @@ func (c *Checker) listTree(rev, dir string) ([]string, error) {
 	return c.Repo.ListTree(rev, c.real(dir))
 }
 
-const outsideMsg = "not allowed here; findings must live under engagements/<engagement>/findings/<finding>/"
+// outside is the problem with a path outside the layout, in the pushed
+// repository's own terms.
+func (c *Checker) outside() string {
+	if c.Eng != "" {
+		return "not allowed here; findings must live under findings/<finding>/"
+	}
+	return "not allowed here; this repository holds settings (.yars); findings live in each engagement's repository (/git/e/<id>)"
+}
 
 // serverOnly are files that exist only on the server and are never in git.
 func serverOnly(p string) bool {
@@ -270,7 +277,7 @@ func (c *Checker) file(u config.User, old, new string, ch gitrepo.Change) []stri
 		}
 		return nil
 	case len(seg) < 3 || seg[0] != "engagements" || !store.ValidID(seg[1]):
-		return []string{outsideMsg}
+		return []string{c.outside()}
 	case len(seg) == 3 && seg[2] == "engagement.yaml":
 		if !manager(u) {
 			return []string{"only a director can create or change engagements"}
@@ -317,7 +324,7 @@ func (c *Checker) file(u config.User, old, new string, ch gitrepo.Change) []stri
 			return nil
 		}
 	}
-	return []string{outsideMsg}
+	return []string{c.outside()}
 }
 
 func parse(b []byte) (*finding.Finding, []string) {
