@@ -147,6 +147,24 @@ func restoreTree(name string, r *gitrepo.Repo) {
 	}
 }
 
+// renamedFrom is the folder that held finding id at rev, when it is not dir
+// ("" when there was none).
+func renamedFrom(r *gitrepo.Repo, rev, dir, id string) string {
+	if id == "" {
+		return ""
+	}
+	names, err := r.ListTree(rev, "findings")
+	if err != nil {
+		return ""
+	}
+	for _, n := range names {
+		if n != dir && (n == id || strings.HasPrefix(n, id+"-")) {
+			return n
+		}
+	}
+	return ""
+}
+
 // pushEvents diffs before..after of eng's repo per finding folder.
 func (s *Store) pushEvents(eng, before, after, actor string) ([]Event, error) {
 	r, err := s.EngRepo(eng)
@@ -209,6 +227,11 @@ func (s *Store) pushEvents(eng, before, after, actor string) ([]Event, error) {
 		if before != "" {
 			if b, err := r.Show(before, p); err == nil {
 				old, _ = finding.Parse(b)
+			} else if prev := renamedFrom(r, before, dir, cur.Meta.ID); prev != "" {
+				// the folder was renamed: the same finding, not a new one
+				if b, err := r.Show(before, path.Join("findings", prev, "finding.md")); err == nil {
+					old, _ = finding.Parse(b)
+				}
 			}
 		}
 		switch {

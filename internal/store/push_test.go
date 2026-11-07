@@ -76,6 +76,42 @@ func TestReceivePushRestoresEngagementTree(t *testing.T) {
 	}
 }
 
+// Renaming a finding's folder is not a new finding: no finding.created; a
+// rename that also edits it is finding.updated.
+func TestReceivePushRename(t *testing.T) {
+	s, dir := withEngagement(t)
+	ref, err := s.CreateFinding(eng, "SQL injection", alice)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := &recorder{}
+	s.OnEvent(rec.add)
+	ed := filepath.Join(dir, "engagements", eng)
+	s.ReceivePush(eng, uBob, func() {
+		git(t, ed, "mv", "findings/"+ref.Dir, "findings/F-001-sqli-renamed")
+		git(t, ed, "-c", "user.name=bob", "-c", "user.email=bob@x", "commit", "-qm", "rename")
+	})
+	if got := rec.kinds(); len(got) != 0 {
+		t.Fatalf("events for a pure rename: %v", got)
+	}
+	s.ReceivePush(eng, uBob, func() {
+		git(t, ed, "mv", "findings/F-001-sqli-renamed", "findings/F-001-sqli-login")
+		p := filepath.Join(ed, "findings", "F-001-sqli-login", "finding.md")
+		b, _ := os.ReadFile(p)
+		f, _ := finding.Parse(b)
+		f.SetSection("Impact", "Renamed and edited.")
+		os.WriteFile(p, f.Bytes(), 0o644)
+		git(t, ed, "add", "-A")
+		git(t, ed, "-c", "user.name=bob", "-c", "user.email=bob@x", "commit", "-qm", "rename and edit")
+	})
+	if got := rec.kinds(); !slices.Equal(got, []string{EventUpdated}) {
+		t.Fatalf("events for a rename with an edit: %v", got)
+	}
+	if u := rec.last(EventUpdated); u.Fid != "F-001" || u.Dir != "F-001-sqli-login" || !slices.Equal(u.Changed, []string{"Impact"}) {
+		t.Fatalf("updated %+v", u)
+	}
+}
+
 // A push (commits that land outside the store) emits the events the same
 // changes made through YARS would: created for a new finding, updated with
 // what changed for an edited one, attributed to the pusher.
