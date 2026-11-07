@@ -70,9 +70,30 @@ func Init(dir string) (*Repo, error) {
 }
 
 // Commit stages paths (relative to the repo root) and commits them as a.
+// A file (or nested repository) named here is added even when a .gitignore
+// matches it (a director may push any); a plain directory is added as git
+// does, without the files it ignores.
 func (r *Repo) Commit(paths []string, msg string, a Author) error {
-	if _, err := r.run(nil, append([]string{"add", "-A", "--"}, paths...)...); err != nil {
-		return err
+	var named, dirs []string
+	for _, p := range paths {
+		full := filepath.Join(r.Dir, p)
+		if fi, err := os.Stat(full); err == nil && fi.IsDir() {
+			if _, err := os.Stat(filepath.Join(full, ".git")); err != nil {
+				dirs = append(dirs, p)
+				continue
+			}
+		}
+		named = append(named, p)
+	}
+	if len(named) > 0 {
+		if _, err := r.run(nil, append([]string{"add", "-A", "-f", "--"}, named...)...); err != nil {
+			return err
+		}
+	}
+	if len(dirs) > 0 {
+		if _, err := r.run(nil, append([]string{"add", "-A", "--"}, dirs...)...); err != nil {
+			return err
+		}
 	}
 	env := []string{
 		"GIT_AUTHOR_NAME=" + a.Name, "GIT_AUTHOR_EMAIL=" + a.Email,

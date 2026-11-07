@@ -76,6 +76,25 @@ func TestReceivePushRestoresEngagementTree(t *testing.T) {
 	}
 }
 
+// A director may push any .gitignore: YARS commits the paths it names even
+// when the pattern ignores them (a new template, a new finding).
+func TestCommitIgnoredPaths(t *testing.T) {
+	s, dir := withEngagement(t)
+	os.WriteFile(filepath.Join(dir, ".gitignore"), []byte(".yars/\n*.md\nengagements/*\n"), 0o644)
+	git(t, dir, "add", "-f", ".gitignore")
+	git(t, dir, "-c", "user.name=dora", "-c", "user.email=d@x", "commit", "-qm", "ignore all")
+	if err := s.SaveTemplate("sqli", alice, func(*finding.Finding) (*finding.Finding, error) { return s.NewTemplate("SQLi"), nil }); err != nil {
+		t.Fatalf("template save under an ignoring .gitignore: %v", err)
+	}
+	ed := filepath.Join(dir, "engagements", eng)
+	os.WriteFile(filepath.Join(ed, ".gitignore"), []byte("*.md\n"), 0o644)
+	git(t, ed, "add", "-f", ".gitignore")
+	git(t, ed, "-c", "user.name=dora", "-c", "user.email=d@x", "commit", "-qm", "ignore md")
+	if _, err := s.CreateFinding(eng, "SQL injection", alice); err != nil {
+		t.Fatalf("new finding under an ignoring .gitignore: %v", err)
+	}
+}
+
 // Renaming a finding's folder is not a new finding: no finding.created; a
 // rename that also edits it is finding.updated.
 func TestReceivePushRename(t *testing.T) {
