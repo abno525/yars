@@ -457,6 +457,10 @@ func (c *Checker) file(u config.User, old, new string, ch gitrepo.Change) []stri
 			}
 			return []string{"chat lives in YARS now (web UI or /mcp), not in git"}
 		case len(seg) >= 6 && seg[4] == "attachments":
+			// locked with the finding's text
+			if p := c.attachmentLock(u, old, seg[1], seg[3]); p != "" {
+				return []string{p}
+			}
 			if ch.Status == 'D' {
 				return nil
 			}
@@ -494,6 +498,61 @@ func (c *Checker) status(eng, fid string, raw []byte) string {
 		return "verification"
 	}
 	return st.Status
+}
+
+// lockProblem is why u may not change finding o by push (its status from
+// the database), "" when u may: complete, reported and withdrawn findings
+// are a director's to change; one in verification its assigned reviewers'
+// and directors'.
+func (c *Checker) lockProblem(u config.User, eng string, o finding.Meta) string {
+	switch o.Status {
+	case "complete", "reported", workflow.Withdrawn:
+		if !manager(u) {
+			return o.ID + " is " + o.Status + "; only a director can change it"
+		}
+	case "verification":
+		if manager(u) {
+			return ""
+		}
+		var revs []string
+		if c.DB != nil {
+			st, err := c.DB.State(eng, o.ID)
+			if err != nil {
+				return o.ID + " is in verification; only directors can change it (its reviewers could not be read)"
+			}
+			for _, r := range st.Reviewers {
+				revs = append(revs, r.Name)
+			}
+		}
+		if slices.Contains(revs, u.Username) {
+			return ""
+		}
+		if len(revs) == 0 {
+			return o.ID + " is in verification; only its reviewers and directors can change it (it has no reviewers)"
+		}
+		return o.ID + " is in verification; only its reviewers (" + strings.Join(revs, ", ") + ") and directors can change it"
+	}
+	return ""
+}
+
+// attachmentLock is why u may not change the attachments of finding
+// folder dir of eng as they were at old ("" when u may, or when the finding
+// is new).
+func (c *Checker) attachmentLock(u config.User, old, eng, dir string) string {
+	ob, ok := c.show(old, "engagements/"+eng+"/findings/"+dir+"/finding.md")
+	if !ok {
+		return ""
+	}
+	of, err := finding.Parse(ob)
+	if err != nil {
+		if manager(u) {
+			return ""
+		}
+		return "the finding cannot be parsed; only a director can change it"
+	}
+	o := of.Meta
+	o.Status = c.status(eng, o.ID, ob)
+	return c.lockProblem(u, eng, o)
 }
 
 // reusesDeletedID reports whether a new finding takes the id of a finding
@@ -566,8 +625,8 @@ func (c *Checker) findingFile(u config.User, old, new string, ch gitrepo.Change,
 	}
 	o := of.Meta
 	o.Status = c.status(eng, o.ID, ob)
-	if !workflow.CanEdit(u, o) {
-		return append(ps, "the finding is "+o.Status+"; only a director can change it")
+	if p := c.lockProblem(u, eng, o); p != "" {
+		return append(ps, p)
 	}
 	if n.ID != o.ID {
 		ps = append(ps, "id cannot change")

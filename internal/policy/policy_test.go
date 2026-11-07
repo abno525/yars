@@ -475,8 +475,10 @@ func TestPolicyWithdrawnLocked(t *testing.T) {
 	}
 }
 
-// A content edit during review is accepted; the reviewer's clearance simply
-// stops counting (it was given for the old content).
+// A finding in verification is locked against pushes except by its
+// assigned reviewers and directors: the author is refused (naming who may
+// change it), its attachments too; a reviewer's edit is accepted and the
+// clearance simply stops counting (it was given for the old content).
 func TestPolicyEditDuringReview(t *testing.T) {
 	f := newFx(t)
 	st := f.st
@@ -484,11 +486,43 @@ func TestPolicyEditDuringReview(t *testing.T) {
 	st.UpdateSeverity("acme", "F-001-sqli", "high", "", user("alice").GitAuthor())
 	st.Transition("acme", "F-001-sqli", workflow.Submit, "", user("alice"))
 	st.Transition("acme", "F-001-sqli", workflow.Clear, "", user("bob"))
+	edit := func(d string) { editMeta(d, func(fd *finding.Finding) { fd.SetSection("Impact", "changed") }) }
 	f.reclone()
-	if ps := f.push("alice", func(d string) {
-		editMeta(d, func(fd *finding.Finding) { fd.SetSection("Impact", "changed") })
-	}); len(ps) != 0 {
-		t.Fatalf("edit during review rejected: %v", ps)
+	if ps := f.push("alice", edit); !hasLine(ps, "commit "+short(t, f.clone, "HEAD")+" "+fdir+"/finding.md: ", "F-001 is in verification; only its reviewers (bob) and directors can change it") {
+		t.Fatalf("author's edit in verification: %v", ps)
+	}
+	f.reclone()
+	if ps := f.push("pen2", func(d string) { write(d, fdir+"/attachments/new.txt", "x") }); !has(ps, "F-001 is in verification") {
+		t.Fatalf("attachment added to a finding in verification: %v", ps)
+	}
+	for _, who := range []string{"bob", "dora"} {
+		f.reclone()
+		if ps := f.push(who, edit); len(ps) != 0 {
+			t.Fatalf("%s's edit in verification rejected: %v", who, ps)
+		}
+	}
+}
+
+// The attachments of an approved finding are locked like its text.
+func TestPolicyLockedAttachments(t *testing.T) {
+	f := newFx(t)
+	write(f.repo().Dir, fdir+"/attachments/shot.png", "png")
+	git(t, f.repo().Dir, "add", "-A")
+	git(t, f.repo().Dir, "commit", "-qm", "shot")
+	f.st.DB().Tx(func(tx *db.Tx) error { return tx.PutState("acme", "F-001", db.State{Status: "reported"}) })
+	for name, edit := range map[string]func(string){
+		"replace": func(d string) { write(d, fdir+"/attachments/shot.png", "other") },
+		"delete":  func(d string) { os.Remove(filepath.Join(d, fdir, "attachments", "shot.png")) },
+		"add":     func(d string) { write(d, fdir+"/attachments/more.png", "x") },
+	} {
+		f.reclone()
+		if ps := f.push("alice", edit); !has(ps, "F-001 is reported; only a director can change it") {
+			t.Errorf("%s: %v", name, ps)
+		}
+	}
+	f.reclone()
+	if ps := f.push("dora", func(d string) { write(d, fdir+"/attachments/shot.png", "other") }); len(ps) != 0 {
+		t.Fatalf("director refused: %v", ps)
 	}
 }
 

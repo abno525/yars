@@ -49,7 +49,8 @@ Only `refs/heads/main` can be pushed, and every commit in the push is checked on
 | `engagements/demo: engagement pointers are managed by the server` | Submodule pointer in the main repo | push inside `engagements/demo` · top: `git pull` |
 | `…/finding.md: findings live in the engagement's own repository` | Finding pushed to the main repo | commit inside `engagements/<id>` |
 | `notes.txt: not allowed here` | Path outside a finding | `git rm --cached notes.txt` |
-| `…/finding.md: the finding is verification; only a director can change it` | Submitted or approved | a reviewer returns it |
+| `…: F-005 is in verification; only its reviewers (bob) and directors can change it` | Submitted: locked for its author too, text and attachments (stricter than the website, where the author may still edit) | a reviewer returns it, or a reviewer pushes the change |
+| `…: F-005 is complete; only a director can change it` | Approved, reported or withdrawn, text and attachments | ask a director |
 | `…/finding.md: workflow state is managed in YARS, not in the file` | Workflow keys in the file | delete the keys |
 | `…/finding.md: id F-005 does not match the directory …` | id ≠ folder | rename the folder or the id |
 | `…/finding.md: duplicate id …` | Two folders, one id | use the next free number |
