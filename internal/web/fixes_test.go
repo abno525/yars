@@ -74,6 +74,13 @@ func TestExportPickHeadFirst(t *testing.T) {
 	if strings.Contains(css, "order: -1") && strings.Contains(between(css, ".pickpanel > .panelhead", "}"), "order") {
 		t.Fatal("the head is still moved by CSS order")
 	}
+	// boxes restored by the browser (reload, back/forward) are recounted
+	js := e.do(t, "dora", "GET", staticPrefix()+"/app.js", nil, nil).Body.String()
+	for _, want := range []string{"addEventListener('DOMContentLoaded', yarsPickCountAll)", "addEventListener('pageshow', yarsPickCountAll)", "addEventListener('htmx:afterSettle', yarsPickCountAll)"} {
+		if !strings.Contains(js, want) {
+			t.Errorf("app.js lacks %s", want)
+		}
+	}
 }
 
 // A failed login keeps the username (never the password) and focuses the

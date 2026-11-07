@@ -77,6 +77,13 @@ function yarsPickCount(panel) {
 document.addEventListener('change', function (evt) {
   if (evt.target.name === 'finding') yarsPickCount(evt.target.closest('.pickpanel'));
 });
+// boxes the browser restores itself (reload, back/forward) fire no change
+function yarsPickCountAll() {
+  document.querySelectorAll('.pickpanel').forEach(yarsPickCount);
+}
+document.addEventListener('DOMContentLoaded', yarsPickCountAll);
+window.addEventListener('pageshow', yarsPickCountAll);
+document.addEventListener('htmx:afterSettle', yarsPickCountAll);
 
 document.addEventListener('click', function (evt) {
   var el = evt.target.closest && evt.target.closest('[data-theme-toggle], [data-copy], [data-check-all]');
