@@ -125,12 +125,12 @@ func TestLockoutSurvivesSpray(t *testing.T) {
 	if ok, _, _ := d.LoginAttempt("admin"); ok {
 		t.Fatal("admin got a guess")
 	}
-	// fill the table with lockouts: a new name is refused, no lock dropped
+	// a table full of lockouts drops none and still lets a new name in
 	for i := 0; i < loginRows; i++ {
 		lock("l" + time.Duration(i).String())
 	}
-	if ok, _, _ := d.LoginAttempt("fresh"); ok {
-		t.Fatal("a new name got a guess while the table is full of lockouts")
+	if ok, _, _ := d.LoginAttempt("fresh"); !ok {
+		t.Fatal("a legitimate new name refused because others are locked")
 	}
 	if _, locked, _ := d.LockedUntil("admin"); !locked {
 		t.Fatal("lockout dropped when full")

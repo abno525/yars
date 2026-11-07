@@ -101,9 +101,24 @@ document.addEventListener('keydown', function (e) {
     e.preventDefault();
     s.removeAttribute('data-keyed');
     yarsChoose(s);
-  } else if (e.key !== 'Tab' && e.key !== 'Shift') {
+  } else if (e.altKey || e.key === ' ' || e.key === 'F4' || e.key === 'Tab' || e.key === 'Shift') {
+    // keys that open the list (an option picked there is a choice) or
+    // leave the select
+    s.removeAttribute('data-keyed');
+  } else {
     s.setAttribute('data-keyed', '');
   }
+});
+// a value moved through with the keys and never chosen does not stay: on
+// leaving the select it shows what the page holds again
+document.addEventListener('focusout', function (e) {
+  var s = e.target;
+  if (!s.matches || !s.matches('select[data-choose]') || !s.hasAttribute('data-keyed')) return;
+  s.removeAttribute('data-keyed');
+  for (var i = 0; i < s.options.length; i++) {
+    if (s.options[i].defaultSelected) { s.selectedIndex = i; return; }
+  }
+  s.selectedIndex = 0;
 });
 document.addEventListener('pointerdown', function (e) {
   var s = e.target.closest && e.target.closest('select[data-choose]');
@@ -112,7 +127,7 @@ document.addEventListener('pointerdown', function (e) {
 document.addEventListener('change', function (e) {
   var s = e.target;
   if (!s.matches || !s.matches('select[data-choose]')) return;
-  if (s.hasAttribute('data-keyed')) { s.removeAttribute('data-keyed'); return; }
+  if (s.hasAttribute('data-keyed')) return; // moved with the keys: not chosen yet
   yarsChoose(s);
 });
 

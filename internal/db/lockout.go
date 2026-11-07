@@ -43,10 +43,6 @@ func (d *DB) LoginAttempt(username string) (bool, time.Time, error) {
 		if t, perr := time.Parse(time.RFC3339, last); perr == nil && now.Sub(t) > LoginLockout {
 			count = 0
 		}
-		if full, err := loginFull(tx, username, now); err != nil || full {
-			until = now.Add(LoginLockout).Truncate(time.Second)
-			return err
-		}
 		count++
 		lockedS = ""
 		if count > LoginTries {
@@ -67,7 +63,9 @@ func (d *DB) LoginAttempt(username string) (bool, time.Time, error) {
 
 // pruneLogins drops rows that no longer count, then, over loginRows, the
 // oldest rows that are not locked out: a lockout is never dropped early,
-// however many other names are sprayed.
+// however many other names are sprayed. Locked rows are not capped: each
+// took LoginTries password checks to make and ends after LoginLockout, so
+// the hashing rate bounds them (and a full table never refuses new names).
 func pruneLogins(tx *Tx, now time.Time) error {
 	old, ns := now.Add(-LoginLockout).Format(time.RFC3339), now.Format(time.RFC3339)
 	if _, err := tx.Exec("DELETE FROM login_attempts WHERE last < ? AND locked_until < ?", old, ns); err != nil {
@@ -76,15 +74,6 @@ func pruneLogins(tx *Tx, now time.Time) error {
 	_, err := tx.Exec(`DELETE FROM login_attempts WHERE username IN (SELECT username FROM login_attempts WHERE locked_until < ?
 		ORDER BY last DESC LIMIT -1 OFFSET ?)`, ns, loginRows)
 	return err
-}
-
-// loginFull reports whether the table is full of lockouts, so that a name
-// with no row yet is refused (fails closed) rather than any lockout dropped.
-func loginFull(tx *Tx, username string, now time.Time) (bool, error) {
-	var n int
-	err := tx.QueryRow(`SELECT (SELECT count(*) FROM login_attempts WHERE locked_until >= ?) >= ?
-		AND NOT EXISTS (SELECT 1 FROM login_attempts WHERE username = ?)`, now.Format(time.RFC3339), loginRows, username).Scan(&n)
-	return n == 1, err
 }
 
 // LoginDone ends an attempt LoginAttempt allowed: a success clears the

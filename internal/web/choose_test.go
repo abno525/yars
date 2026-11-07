@@ -31,8 +31,19 @@ func TestSelectsActOnChoiceOnly(t *testing.T) {
 	if tbsev := regexp.MustCompile(`<form class="tbsev"[^>]*>`).FindString(string(tb)); !strings.Contains(tbsev, `hx-trigger="yars:choose"`) {
 		t.Fatalf("lead severity: %s", tbsev)
 	}
+	// no select anywhere acts on change by itself (the rules bench's
+	// engagement select only loads its finding list)
+	ents, _ := os.ReadDir("templates")
+	for _, en := range ents {
+		b, _ := os.ReadFile("templates/" + en.Name())
+		for _, sel := range regexp.MustCompile(`<select[^>]*>`).FindAllString(string(b), -1) {
+			if strings.Contains(sel, "onchange") || (strings.Contains(sel, `hx-trigger="change"`) && !strings.Contains(sel, "/admin/rules/bench/findings")) {
+				t.Errorf("%s: %s", en.Name(), sel)
+			}
+		}
+	}
 	js := e.do(t, "alice", "GET", "/static/app.js", nil, nil).Body.String()
-	for _, want := range []string{"select[data-choose]", "e.key === 'Enter'", "data-keyed", "yars:choose"} {
+	for _, want := range []string{"select[data-choose]", "e.key === 'Enter'", "data-keyed", "yars:choose", "e.altKey", "defaultSelected"} {
 		if !strings.Contains(js, want) {
 			t.Errorf("app.js lacks %q", want)
 		}

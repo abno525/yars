@@ -331,8 +331,8 @@
 
 {{define "admin_activity"}}
 <form class="filterbar" method="get" action="/admin/activity">
-  <label>Person<select name="actor" class="w160" onchange="this.form.submit()"><option value="">All</option>{{range .Actors}}<option value="{{.Value}}"{{if .On}} selected{{end}}>{{.Label}}</option>{{end}}</select></label>
-  <label>Action<select name="action" class="w160" onchange="this.form.submit()"><option value="">All</option>{{range .Actions}}<option value="{{.Value}}"{{if .On}} selected{{end}}>{{.Label}}</option>{{end}}</select></label>
+  <label>Person<select name="actor" class="w160" data-choose><option value="">All</option>{{range .Actors}}<option value="{{.Value}}"{{if .On}} selected{{end}}>{{.Label}}</option>{{end}}</select></label>
+  <label>Action<select name="action" class="w160" data-choose><option value="">All</option>{{range .Actions}}<option value="{{.Value}}"{{if .On}} selected{{end}}>{{.Label}}</option>{{end}}</select></label>
   <noscript><button class="btn secondary w96">Show</button></noscript>
   <span class="grow"></span>
   <span class="mono rangeslot">{{.Range}}</span>
