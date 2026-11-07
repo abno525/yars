@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -69,6 +70,21 @@ func TestGzipSkips(t *testing.T) {
 			w.Header().Set("Content-Type", "text/html")
 			w.WriteHeader(http.StatusNoContent)
 		},
+		// gzip would make these bigger (36 B -> 61 B)
+		"small": func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			io.WriteString(w, `{"jsonrpc":"2.0","id":1,"result":{}}`)
+		},
+		"small-status": func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			io.WriteString(w, `{"jsonrpc":"2.0","id":1,"result":{}}`)
+		},
+		"small-length": func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/html")
+			w.Header().Set("Content-Length", "12")
+			io.WriteString(w, "<p>small</p>")
+		},
 	}
 	for name, h := range cases {
 		req := httptest.NewRequest("GET", "/", nil)
@@ -79,17 +95,35 @@ func TestGzipSkips(t *testing.T) {
 			t.Errorf("%s: compressed", name)
 		}
 	}
-	// JSON is compressed
+	// JSON of a useful size is compressed, with or without a length, and
+	// the status stays
+	big := `{"a":"` + strings.Repeat("x", 2000) + `"}`
+	for _, withLen := range []bool{true, false} {
+		req := httptest.NewRequest("GET", "/", nil)
+		req.Header.Set("Accept-Encoding", "gzip")
+		rec := httptest.NewRecorder()
+		gzipHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			if withLen {
+				w.Header().Set("Content-Length", strconv.Itoa(len(big)))
+			}
+			w.WriteHeader(http.StatusCreated)
+			io.WriteString(w, big)
+		})).ServeHTTP(rec, req)
+		if rec.Code != http.StatusCreated || rec.Header().Get("Content-Encoding") != "gzip" || rec.Header().Get("Content-Length") != "" {
+			t.Fatalf("json (length %v): %d %v", withLen, rec.Code, rec.Header())
+		}
+	}
+	// a status without a body still goes out
 	req := httptest.NewRequest("GET", "/", nil)
 	req.Header.Set("Accept-Encoding", "gzip")
 	rec := httptest.NewRecorder()
 	gzipHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Content-Length", "7")
-		io.WriteString(w, `{"a":1}`)
+		w.Header().Set("Content-Type", "text/html")
+		w.WriteHeader(http.StatusSeeOther)
 	})).ServeHTTP(rec, req)
-	if rec.Header().Get("Content-Encoding") != "gzip" || rec.Header().Get("Content-Length") != "" {
-		t.Fatalf("json: %v", rec.Header())
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("bodiless status %d", rec.Code)
 	}
 }
 

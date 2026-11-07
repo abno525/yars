@@ -121,18 +121,32 @@ func acceptsGzip(ae string) bool {
 	return false
 }
 
+// gzipMin is the smallest body worth compressing: below it gzip's own
+// header and trailer make the response bigger.
+const gzipMin = 1024
+
 type gzipWriter struct {
 	http.ResponseWriter
 	gz      *gzip.Writer
 	decided bool
+	code    int // the status given but not yet sent (waiting for the body size)
 }
 
-func (g *gzipWriter) decide(code int) {
+// decide picks compression for a response of status code whose first write
+// is n bytes (-1: unknown, a flush before any write).
+func (g *gzipWriter) decide(code, n int) {
 	g.decided = true
 	h := g.Header()
 	if code < 200 || code == http.StatusNoContent || code == http.StatusNotModified ||
 		h.Get("Content-Encoding") != "" || h.Get("Content-Disposition") != "" || !compressible(h.Get("Content-Type")) {
 		return
+	}
+	if cl, err := strconv.Atoi(h.Get("Content-Length")); err == nil {
+		if cl < gzipMin {
+			return
+		}
+	} else if n >= 0 && n < gzipMin {
+		return // a small body in one write (an MCP answer, a fragment)
 	}
 	h.Del("Content-Length")
 	h.Set("Content-Encoding", "gzip")
@@ -140,20 +154,30 @@ func (g *gzipWriter) decide(code int) {
 	g.gz.Reset(g.ResponseWriter)
 }
 
-func (g *gzipWriter) WriteHeader(code int) {
-	if !g.decided {
-		if code >= 100 && code < 200 {
-			g.ResponseWriter.WriteHeader(code) // informational: decide later
-			return
-		}
-		g.decide(code)
+// send decides and writes the held status once the first write's size n is
+// known.
+func (g *gzipWriter) send(n int) {
+	if g.code == 0 {
+		g.code = http.StatusOK
 	}
-	g.ResponseWriter.WriteHeader(code)
+	g.decide(g.code, n)
+	g.ResponseWriter.WriteHeader(g.code)
+}
+
+func (g *gzipWriter) WriteHeader(code int) {
+	switch {
+	case g.decided:
+		g.ResponseWriter.WriteHeader(code)
+	case code >= 100 && code < 200:
+		g.ResponseWriter.WriteHeader(code) // informational: decide later
+	case g.code == 0:
+		g.code = code // sent with the first write, when its size is known
+	}
 }
 
 func (g *gzipWriter) Write(b []byte) (int, error) {
 	if !g.decided {
-		g.WriteHeader(http.StatusOK)
+		g.send(len(b))
 	}
 	if g.gz != nil {
 		return g.gz.Write(b)
@@ -163,6 +187,9 @@ func (g *gzipWriter) Write(b []byte) (int, error) {
 
 // Flush sends what is buffered (event streams flush after each event).
 func (g *gzipWriter) Flush() {
+	if !g.decided && g.code != 0 {
+		g.send(-1)
+	}
 	if g.gz != nil {
 		g.gz.Flush()
 	}
@@ -173,6 +200,9 @@ func (g *gzipWriter) Flush() {
 func (g *gzipWriter) Unwrap() http.ResponseWriter { return g.ResponseWriter }
 
 func (g *gzipWriter) close() {
+	if !g.decided && g.code != 0 {
+		g.send(0) // a status without a body
+	}
 	if g.gz != nil {
 		g.gz.Close()
 		g.gz.Reset(nil)
