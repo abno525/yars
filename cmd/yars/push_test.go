@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/rand"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -64,6 +65,28 @@ func TestPushLosesRaceToWebCommit(t *testing.T) {
 	}
 	if out, err := p.git("push", "-q", "origin", "HEAD"); err != nil {
 		t.Fatalf("push after pull: %v\n%s", err, out)
+	}
+}
+
+// A push bigger than git's http.postBuffer goes up with a chunked body,
+// which the CGI host refuses on its own; it must still reach the hook.
+func TestPushChunkedBody(t *testing.T) {
+	p := newPushEnv(t)
+	blob := make([]byte, 256<<10)
+	rand.Read(blob)
+	os.MkdirAll(filepath.Join(p.clone, "engagements", "acme", "findings", "F-001-sqli", "attachments"), 0o755)
+	os.WriteFile(filepath.Join(p.clone, "engagements", "acme", "findings", "F-001-sqli", "attachments", "big.bin"), blob, 0o644)
+	if out, err := p.git("add", "-A"); err != nil {
+		t.Fatalf("%v %s", err, out)
+	}
+	if out, err := p.git("commit", "-qm", "big attachment"); err != nil {
+		t.Fatalf("%v %s", err, out)
+	}
+	if out, err := p.git("-c", "http.postBuffer=4096", "push", "origin", "HEAD"); err != nil {
+		t.Fatalf("chunked push failed: %v\n%s", err, out)
+	}
+	if _, err := os.Stat(filepath.Join(p.repo.Dir, "findings", "F-001-sqli", "attachments", "big.bin")); err != nil {
+		t.Fatal("pushed attachment not on the server")
 	}
 }
 

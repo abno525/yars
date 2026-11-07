@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/cgi"
 	"os"
@@ -308,6 +309,22 @@ func (s *Server) Handler() http.Handler {
 		// the environment of git and the hook (HTTP_AUTHORIZATION)
 		r2 := r.Clone(r.Context())
 		r2.Header.Del("Authorization")
+		if r2.Method == http.MethodPost && r2.ContentLength < 0 {
+			// git sends a pack bigger than its http.postBuffer chunked, and
+			// net/http/cgi refuses chunked bodies: spool it so it has a length
+			f, err := spool(r2.Body)
+			if err != nil {
+				http.Error(w, "could not read the request body", http.StatusBadRequest)
+				return
+			}
+			defer func() { f.Close(); os.Remove(f.Name()) }()
+			st, err := f.Stat()
+			if err != nil {
+				http.Error(w, "could not read the request body", http.StatusInternalServerError)
+				return
+			}
+			r2.Body, r2.ContentLength, r2.TransferEncoding = f, st.Size(), nil
+		}
 		receive := r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/git-receive-pack")
 		if receive && s.Receive != nil {
 			s.Receive(eng, u, func() { h.ServeHTTP(w, r2) })
@@ -319,6 +336,24 @@ func (s *Server) Handler() http.Handler {
 			s.Invalidate(eng)
 		}
 	})
+}
+
+// spool copies a request body of unknown length to a temporary file and
+// returns it rewound.
+func spool(body io.Reader) (*os.File, error) {
+	f, err := os.CreateTemp("", "yars-git-body-*")
+	if err != nil {
+		return nil, err
+	}
+	if _, err = io.Copy(f, body); err == nil {
+		_, err = f.Seek(0, io.SeekStart)
+	}
+	if err != nil {
+		f.Close()
+		os.Remove(f.Name())
+		return nil, err
+	}
+	return f, nil
 }
 
 // isPush reports whether r is part of a push (receive-pack).
