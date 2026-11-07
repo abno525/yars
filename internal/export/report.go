@@ -18,8 +18,8 @@ import (
 	"yars/internal/finding"
 )
 
-// kvHead heads every two-column label/value table: every table has a
-// header row.
+// kvHead heads the two-column label/value tables in the web preview
+// (Input.Preview): every web table has a header row.
 const kvHead = `<thead><tr><th>Field</th><th>Value</th></tr></thead>`
 
 // SevStyle is a severity's colours in reports (hex, no #).
@@ -155,7 +155,11 @@ func Report(in Input) string {
 			fmt.Fprintf(&b, "<h2>%s</h2>\n%s\n", esc(rt.Name), out)
 		}
 	}
-	b.WriteString(`<table class="rp-kv">` + kvHead + `<tbody>` + "\n")
+	head := ""
+	if in.Preview {
+		head = kvHead
+	}
+	b.WriteString(`<table class="rp-kv">` + head + `<tbody>` + "\n")
 	kv := [][2]string{{"Engagement", in.Engagement.Name}, {"Client", in.Engagement.Client}, {"Type", in.Engagement.Type}, {"Testing", in.period()}, {"Findings", fmt.Sprint(total)}}
 	for _, r := range kv {
 		if strings.TrimSpace(r[1]) != "" {
@@ -195,7 +199,7 @@ func Report(in Input) string {
 		fmt.Fprintf(&b, `<div class="rp-fhead sevbar-%s" id="rp-%s" data-bg="%s" data-fg="%s" data-sev="%s">`+"\n", attr(sev), attr(m.ID), st.BG, st.FG, attr(sev))
 		fmt.Fprintf(&b, `<p><span class="rp-fid">%s</span> <span class="rp-ftitle">%s</span> %s <span class="rp-vec">%s</span> <span class="rp-score">%s</span></p>`+"\n</div>\n",
 			esc(m.ID), esc(m.Title), sevTag(sev), esc(vec), esc(scoreOf(f)))
-		b.WriteString(`<table class="rp-details">` + kvHead + `<tbody>` + "\n")
+		b.WriteString(`<table class="rp-details">` + head + `<tbody>` + "\n")
 		for _, r := range summary(f, in.Cfg)[1:] { // severity is in the head
 			if r.Label == "CVSS" {
 				continue

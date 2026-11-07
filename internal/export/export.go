@@ -224,6 +224,10 @@ type Input struct {
 	// Report is the engagement's report-level sections (Report tab), in
 	// config order.
 	Report []ReportText
+	// Preview is the report as the web shows it: its label/value tables get
+	// a Field | Value header row like every web table (the PDF, Word and
+	// Confluence documents keep the report design, without one).
+	Preview bool
 	// Attachment reads "attachments/<file>" of a finding (nil: images are
 	// dropped). Only these files are ever embedded into a report.
 	Attachment func(f *finding.Finding, rel string) ([]byte, bool)

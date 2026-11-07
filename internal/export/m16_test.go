@@ -220,6 +220,19 @@ func TestReportHTML(t *testing.T) {
 	}
 }
 
+// The documents keep the report design (no Field | Value row); the web
+// preview, like every web table, has one.
+func TestReportKVHeaderOnlyInPreview(t *testing.T) {
+	in := input(t)
+	if x := Report(in); strings.Contains(x, "<th>Field</th>") {
+		t.Fatal("document body has a Field | Value row")
+	}
+	in.Preview = true
+	if x := Report(in); strings.Count(x, kvHead) < 2 {
+		t.Fatalf("preview lacks the header:\n%s", x)
+	}
+}
+
 func TestHTMLZip(t *testing.T) {
 	in := imageInput(t, "http://169.254.169.254/x.png")
 	res, err := HTMLZip(in)

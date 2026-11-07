@@ -774,6 +774,7 @@ func (s *Server) exportPreview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in := s.exportInput(p.Eng, refs)
+	in.Preview = true                                   // the web's own tables: a header row on each
 	p.ExportV.Report = template.HTML(export.Report(in)) // every value escaped, Markdown without raw HTML
 	for _, ref := range refs {
 		p.ExportV.Picked = append(p.ExportV.Picked, ref.Dir)
