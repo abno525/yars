@@ -31,6 +31,21 @@ type Runner struct {
 
 	cacheOnce sync.Once
 	cache     *lru.Cache[string, aiResult] // AI replies by provider, model, rule and text
+	aiMu      sync.RWMutex                 // guards AIConf once SetAIConf replaces it
+}
+
+// SetAIConf replaces config.yaml's AI settings (a saved or pushed
+// config.yaml).
+func (rn *Runner) SetAIConf(c config.AIConfig) {
+	rn.aiMu.Lock()
+	rn.AIConf = c
+	rn.aiMu.Unlock()
+}
+
+func (rn *Runner) aiConf() config.AIConfig {
+	rn.aiMu.RLock()
+	defer rn.aiMu.RUnlock()
+	return rn.AIConf
 }
 
 // AICacheSize bounds the number of cached AI replies.

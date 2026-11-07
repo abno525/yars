@@ -4,7 +4,6 @@ import (
 	"errors"
 	"io/fs"
 	"net/http"
-	"regexp"
 	"slices"
 	"strings"
 
@@ -41,9 +40,17 @@ var destTypes = []option{{Value: "pandoc", Label: "pandoc"}, {Value: "confluence
 
 var pandocFormats = []string{"pdf", "docx", "odt", "html", "markdown"}
 
-var destID = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,39}$`)
+var destID = export.IDRe
 
 const exportersRel = ".yars/exporters/"
+
+// prevOf is the saved destination being replaced (nil: a new one).
+func prevOf(cur export.Exporter, found bool) *export.Exporter {
+	if !found {
+		return nil
+	}
+	return &cur
+}
 
 func (s *Server) routesExportSetup(mux *http.ServeMux) {
 	mux.HandleFunc("GET /e/{eng}/export/setup", s.destPage)
@@ -188,7 +195,7 @@ func (s *Server) destSave(w http.ResponseWriter, r *http.Request) {
 		msg = "name is required"
 	case !f.New && !found:
 		msg = "destination " + f.ID + " not found"
-	case ex.Service() && (!found || cur.Endpoint() != ex.Endpoint()) && !p.CanAdmin:
+	case export.NeedsAdmin(prevOf(cur, found), ex) && !p.CanAdmin:
 		// the address gets the server's and the authors' keys
 		msg = "address and key variables: admin only"
 	}

@@ -143,43 +143,7 @@ func Load(dir string) ([]Exporter, []error) {
 			errs = append(errs, fmt.Errorf("%s: %v", file, err))
 			continue
 		}
-		var e Exporter
-		dec := yaml.NewDecoder(bytes.NewReader(b))
-		dec.KnownFields(true)
-		if err := dec.Decode(&e); err != nil {
-			errs = append(errs, fmt.Errorf("%s: %v", file, err))
-			continue
-		}
-		e.ID = strings.TrimSuffix(file, ".yaml")
-		if e.Name == "" {
-			e.Name = e.ID
-		}
-		// withdrawn findings are never exported
-		e.Statuses = slices.DeleteFunc(e.Statuses, func(s string) bool { return !workflow.Active(s) })
-		if len(e.Statuses) == 0 {
-			e.Statuses = []string{"complete"}
-		}
-		switch {
-		case e.Type == "pandoc" && !safeWord.MatchString(e.Format):
-			err = errors.New("pandoc exporter needs a format like docx, pdf or html")
-		case e.Type == "script" && (e.Script == "" || !safeWord.MatchString(e.Extension)):
-			err = errors.New("script exporter needs script and a plain extension (letters/digits)")
-		case e.Type == "jira":
-			err = validJira(e.Jira)
-		case e.Type != "pandoc" && e.Type != "script" && e.Type != "confluence":
-			err = fmt.Errorf("unknown type %q (pandoc, confluence, jira or script)", e.Type)
-		default:
-			err = validateArgs(e.Args)
-		}
-		if err == nil && e.Confluence != nil && e.Confluence.BaseURL != "" {
-			c := e.Confluence
-			switch {
-			case c.Space == "" || c.UserEnv == "" || c.TokenEnv == "":
-				err = errors.New("confluence push needs space, user_env and token_env")
-			case !strings.HasPrefix(c.UserEnv, "CONFLUENCE_") || !strings.HasPrefix(c.TokenEnv, "CONFLUENCE_"):
-				err = errors.New("confluence user_env/token_env must start with CONFLUENCE_ (other server secrets are off limits)")
-			}
-		}
+		e, err := Parse(file, b)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("%s: %v", file, err))
 			continue
@@ -187,6 +151,60 @@ func Load(dir string) ([]Exporter, []error) {
 		out = append(out, e)
 	}
 	return out, errs
+}
+
+// IDRe is the form of an exporter's id (its file name without .yaml).
+var IDRe = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,39}$`)
+
+// Parse reads one exporter file (<id>.yaml) as Load does, with the same
+// checks; a git push of an exporter is held to them too.
+func Parse(file string, b []byte) (Exporter, error) {
+	var e Exporter
+	dec := yaml.NewDecoder(bytes.NewReader(b))
+	dec.KnownFields(true)
+	if err := dec.Decode(&e); err != nil {
+		return e, err
+	}
+	e.ID = strings.TrimSuffix(file, ".yaml")
+	if e.Name == "" {
+		e.Name = e.ID
+	}
+	// withdrawn findings are never exported
+	e.Statuses = slices.DeleteFunc(e.Statuses, func(s string) bool { return !workflow.Active(s) })
+	if len(e.Statuses) == 0 {
+		e.Statuses = []string{"complete"}
+	}
+	var err error
+	switch {
+	case e.Type == "pandoc" && !safeWord.MatchString(e.Format):
+		err = errors.New("pandoc exporter needs a format like docx, pdf or html")
+	case e.Type == "script" && (e.Script == "" || !safeWord.MatchString(e.Extension)):
+		err = errors.New("script exporter needs script and a plain extension (letters/digits)")
+	case e.Type == "jira":
+		err = validJira(e.Jira)
+	case e.Type != "pandoc" && e.Type != "script" && e.Type != "confluence":
+		err = fmt.Errorf("unknown type %q (pandoc, confluence, jira or script)", e.Type)
+	default:
+		err = validateArgs(e.Args)
+	}
+	if err == nil && e.Confluence != nil && e.Confluence.BaseURL != "" {
+		c := e.Confluence
+		switch {
+		case c.Space == "" || c.UserEnv == "" || c.TokenEnv == "":
+			err = errors.New("confluence push needs space, user_env and token_env")
+		case !strings.HasPrefix(c.UserEnv, "CONFLUENCE_") || !strings.HasPrefix(c.TokenEnv, "CONFLUENCE_"):
+			err = errors.New("confluence user_env/token_env must start with CONFLUENCE_ (other server secrets are off limits)")
+		}
+	}
+	return e, err
+}
+
+// NeedsAdmin reports whether saving ex over prev (nil: a new exporter)
+// takes an admin: a destination that publishes to a service gets the
+// server's and the authors' keys, so its address and key variables are
+// an admin's to set.
+func NeedsAdmin(prev *Exporter, ex Exporter) bool {
+	return ex.Service() && (prev == nil || prev.Endpoint() != ex.Endpoint())
 }
 
 var safeWord = regexp.MustCompile(`^[a-z0-9_]+$`)

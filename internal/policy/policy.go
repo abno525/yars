@@ -14,6 +14,7 @@ import (
 
 	"yars/internal/config"
 	"yars/internal/db"
+	"yars/internal/export"
 	"yars/internal/finding"
 	"yars/internal/gitrepo"
 	"yars/internal/rules"
@@ -183,7 +184,7 @@ func (c *Checker) Check(username string, ups []Update) []string {
 		}
 	}
 	if c.ConfigErr != nil && !repairs {
-		ps = append(ps, "the server's .yars/config.yaml cannot be loaded ("+c.ConfigErr.Error()+"); only a director's push to the main repository that repairs it is accepted")
+		ps = append(ps, "the server's .yars/config.yaml cannot be loaded ("+c.ConfigErr.Error()+"); only an admin's push to the main repository that repairs it is accepted")
 	}
 	return capped(ps)
 }
@@ -455,12 +456,35 @@ func (c *Checker) file(u config.User, old, new string, ch gitrepo.Change) []stri
 		if strings.HasPrefix(p, ".yars/config.yaml/") {
 			return []string{".yars/config.yaml must be a file"}
 		}
-		if p == ".yars/config.yaml" && ch.Status != 'D' {
-			// the server loads it on every push and on start
-			b, _ := c.show(new, p)
-			if _, err := config.Parse(b); err != nil {
-				return []string{"cannot load: " + err.Error()}
+		if p == ".yars/config.yaml" || (len(seg) == 3 && seg[1] == "rules") {
+			// on the website: Admin › Structure, AI, Rules
+			if !u.IsAdmin {
+				return []string{"only an admin can change .yars/config.yaml and .yars/rules (on the website: Admin › Structure, AI and Rules)"}
 			}
+		}
+		if p == ".yars/config.yaml" {
+			if ch.Status == 'D' {
+				return []string{"cannot be deleted (every setting would fall back to its default); push the settings you want instead"}
+			}
+			// the server applies it as soon as the push lands
+			b, _ := c.show(new, p)
+			if _, err := store.CheckConfig(b); err != nil {
+				return []string{err.Error()}
+			}
+		}
+		if len(seg) == 3 && seg[1] == "rules" && (strings.HasSuffix(p, ".yaml") || strings.HasSuffix(p, ".yml")) {
+			// as Admin › Rules: no load problem the folder did not have
+			ps := rules.NewProblems(c.ruleSet(old), c.ruleSet(new))
+			var out []string
+			for _, pr := range ps {
+				if strings.Contains(pr.Message, "("+seg[2]+")") {
+					out = append(out, pr.Message)
+				}
+			}
+			return out
+		}
+		if len(seg) == 3 && seg[1] == "exporters" && strings.HasSuffix(p, ".yaml") && ch.Status != 'D' {
+			return c.exporterProblems(u, old, new, p, seg[2])
 		}
 		if len(seg) == 3 && seg[1] == "templates" && strings.HasSuffix(p, ".md") && ch.Status != 'D' {
 			// findings made from a template take its content as it is
@@ -558,6 +582,44 @@ func (c *Checker) file(u config.User, old, new string, ch gitrepo.Change) []stri
 		}
 	}
 	return []string{c.outside()}
+}
+
+// ruleSet loads the main repo's rule files as rev has them (none for "").
+func (c *Checker) ruleSet(rev string) *rules.Set {
+	files := map[string][]byte{}
+	if rev != "" {
+		names, _ := c.Repo.ListTree(rev, ".yars/rules")
+		for _, n := range names {
+			if b, err := c.Repo.Show(rev, ".yars/rules/"+n); err == nil {
+				files[n] = b
+			}
+		}
+	}
+	return rules.LoadFiles(".yars/rules", files)
+}
+
+// exporterProblems checks a pushed exporter file as the export setup
+// saves one: its id, its settings, and an admin for a service address.
+func (c *Checker) exporterProblems(u config.User, old, new, p, file string) []string {
+	if !export.IDRe.MatchString(strings.TrimSuffix(file, ".yaml")) {
+		return []string{"exporter ids are lowercase letters, digits, - and _ (the file is <id>.yaml)"}
+	}
+	b, _ := c.show(new, p)
+	ex, err := export.Parse(file, b)
+	if err != nil {
+		return []string{err.Error()}
+	}
+	var prev *export.Exporter
+	if ob, ok := c.show(old, p); ok {
+		if pe, err := export.Parse(file, ob); err == nil {
+			prev = &pe
+		}
+	}
+	if export.NeedsAdmin(prev, ex) && !u.IsAdmin {
+		// the address gets the server's and the authors' keys
+		return []string{"address and key variables: admin only"}
+	}
+	return nil
 }
 
 // plain is a shared rule's error without its "invalid value" prefix.

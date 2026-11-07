@@ -39,7 +39,8 @@ const ProviderOff = "off"
 // while the provider and address are config.yaml's, so the operator's key
 // never goes to an address or provider set on the web page.
 func (rn *Runner) Effective() (c config.AIConfig, key string, fromEnv bool) {
-	c = rn.AIConf
+	conf := rn.aiConf()
+	c = conf
 	stored := ""
 	if rn.Stored != nil {
 		s, k := rn.Stored()
@@ -58,7 +59,7 @@ func (rn *Runner) Effective() (c config.AIConfig, key string, fromEnv bool) {
 		}
 		stored = k
 	}
-	if EnvKeyApplies(rn.AIConf, c) && rn.Getenv != nil {
+	if EnvKeyApplies(conf, c) && rn.Getenv != nil {
 		if k := rn.Getenv(c.APIKeyEnv); k != "" {
 			return c, k, true
 		}

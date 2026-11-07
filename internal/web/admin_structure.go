@@ -2,7 +2,6 @@ package web
 
 import (
 	"errors"
-	"fmt"
 	"io/fs"
 	"log"
 	"net/http"
@@ -221,42 +220,9 @@ func renamesOf(was, now []string) map[string]string {
 	return out
 }
 
-// checkStructure rejects names that can't be used.
-func checkStructure(c config.Config) error {
-	files := map[string]string{} // report section file → name
-	for _, x := range c.ReportSections {
-		f := store.ReportFile(x)
-		if o, ok := files[f]; ok && !strings.EqualFold(o, x) {
-			return fmt.Errorf("Report sections: %q and %q share a file name", o, x)
-		}
-		files[f] = x
-	}
-	for _, l := range structLists {
-		seen := map[string]bool{}
-		v := listOf(c, l.key)
-		if len(v) == 0 && l.key != "detail" {
-			return fmt.Errorf("%s: at least one", l.title)
-		}
-		for _, x := range v {
-			k := strings.ToLower(x)
-			switch {
-			case seen[k]:
-				return fmt.Errorf("%s: %q twice", l.title, x)
-			case strings.ContainsAny(x, "\r\n") || strings.HasPrefix(x, "#") || len([]rune(x)) > 80:
-				return fmt.Errorf("%s: %q is not a valid name", l.title, x)
-			case l.key == "severity" && (x != strings.ToLower(x) || strings.ContainsAny(x, " /")):
-				return fmt.Errorf("%s: %q must be one lowercase word", l.title, x)
-			}
-			seen[k] = true
-		}
-	}
-	for k, v := range c.CVSS.Standard {
-		if !cvss.Valid(k, v) {
-			return fmt.Errorf("CVSS %s: invalid value %q", k, v)
-		}
-	}
-	return nil
-}
+// checkStructure rejects names that can't be used (the rules a git push
+// of config.yaml is held to as well).
+func checkStructure(c config.Config) error { return store.CheckStructure(c) }
 
 // diskStructure is the structure as config.yaml has it now (a push
 // included) and a hash of the file's bytes: the base a save must match.

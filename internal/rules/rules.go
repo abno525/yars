@@ -154,6 +154,42 @@ func Load(dir string) *Set {
 	return s
 }
 
+// LoadFiles reads the rule files of a rules folder given by name and
+// content (a git tree, say) as Load reads the folder; files other than
+// *.yaml and *.yml are skipped.
+func LoadFiles(dir string, files map[string][]byte) *Set {
+	s := &Set{Dir: dir}
+	var names []string
+	for n := range files {
+		if strings.HasSuffix(n, ".yaml") || strings.HasSuffix(n, ".yml") {
+			names = append(names, n)
+		}
+	}
+	sort.Strings(names)
+	seen := map[string]bool{}
+	for _, n := range names {
+		s.add(n, files[n], seen)
+	}
+	return s
+}
+
+// NewProblems lists the load problems of after that before did not have
+// (by message): what a change of the rule files broke. Admin › Rules and
+// a git push refuse a change that has any.
+func NewProblems(before, after *Set) []Violation {
+	had := map[string]bool{}
+	for _, p := range before.Problems {
+		had[p.Message] = true
+	}
+	var out []Violation
+	for _, p := range after.Problems {
+		if !had[p.Message] {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 // Parse reads one rule file's content as Load would, without the
 // directory: its rules and its problems.
 func Parse(file string, b []byte) ([]Rule, []Violation) {

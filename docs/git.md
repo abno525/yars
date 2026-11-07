@@ -58,10 +58,17 @@ Only `refs/heads/main` can be pushed, and every commit in the push is checked on
 | `…/finding.md: author cannot change` | Edited author | restore the author |
 | `…/finding.md: unknown severity …` | Not in `severities` | one of the configured severities |
 | `.yars/…: only a director can change .yars` | Settings, not a director | ask a director |
+| `.yars/config.yaml: only an admin can change .yars/config.yaml and .yars/rules` | Not an admin (the website keeps Structure, AI and Rules to admins) | ask an admin |
+| `.yars/config.yaml: Sections: "impact" twice` · `Severities: "Urgent" must be one lowercase word` · `cannot load: …` | A value Admin › Structure refuses, or a file that does not load | correct the value |
+| `.yars/config.yaml: cannot be deleted` | Every setting would fall back to its default | push the settings you want |
+| `.yars/rules/x.yaml: rule invalid (x.yaml): …` | A rule Admin › Rules refuses (regex, unknown field, duplicate id); problems the folder already had don't block | correct the rule |
+| `.yars/exporters/x.yaml: …` · `address and key variables: admin only` | An exporter the export setup refuses; a service address set by a non-admin | correct it · ask an admin |
 | `.yars/users.yaml: accounts, tokens and the database stay on the server` | Server-only file | `git rm --cached .yars/users.yaml` |
 | `…: only regular files are allowed (no symlinks or submodules)` | Symlink | copy the file |
 | `…/finding.md: only a director can delete a finding` | Deleted finding | `git checkout HEAD~1 -- <path>` |
 | `the engagement is archived (read only)` | Archived engagement | a director reopens it |
+
+Settings pushed to the main repository take effect on the website as soon as the push is accepted, as a save on the Admin pages does: `config.yaml` is read again; rules, exporters and templates are read from disk each time they are used. A section, details row or severity renamed in `config.yaml` is not renamed in the findings (Admin › Structure does that).
 
 ## Check rules on push
 

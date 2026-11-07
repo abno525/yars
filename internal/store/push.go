@@ -94,16 +94,21 @@ func filesEvent(actor string, ref FindingRef, fp string, prev, files map[string]
 // emits nothing.
 //
 // eng "" is the main repo: the push runs under the main repo's lock and
-// emits nothing.
+// emits nothing; the settings it brings apply at once (config.yaml is read
+// again; rules, exporters and templates are read from disk on each use).
 func (s *Store) ReceivePush(eng string, u config.User, serve func()) {
 	if eng == "" {
 		s.mainMu.Lock()
-		defer s.mainMu.Unlock()
 		before, _ := s.freshHead("")
 		serve()
 		s.Invalidate("")
-		if after, err := s.freshHead(""); err == nil && after == before {
+		after, err := s.freshHead("")
+		if err == nil && after == before {
 			restoreTree("the main repo", s.repo)
+		}
+		s.mainMu.Unlock()
+		if err == nil && after != before {
+			s.reloadConfig()
 		}
 		return
 	}

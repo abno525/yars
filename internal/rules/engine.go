@@ -47,6 +47,9 @@ func (e *Engine) SetConfig(c config.Config) {
 	e.cfgMu.Lock()
 	e.Cfg = c
 	e.cfgMu.Unlock()
+	if rn, ok := e.Runner.(*Runner); ok {
+		rn.SetAIConf(c.AI) // config.yaml's ai: too
+	}
 	e.mu.Lock()
 	e.set = nil
 	e.mu.Unlock()

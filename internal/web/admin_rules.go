@@ -357,30 +357,19 @@ func (s *Server) ruleFromForm(r *http.Request) (ruleForm, rules.Rule, string, []
 
 const rulesRel = ".yars/rules/"
 
-// problemSet is the load problems of the rules folder, by message.
-func problemSet(set *rules.Set) map[string]bool {
-	out := map[string]bool{}
-	for _, p := range set.Problems {
-		out[p.Message] = true
-	}
-	return out
-}
-
 // editRules changes rule files with one commit: fn gets the rules as they
 // are on disk and the reader of current files. The change is refused when
-// loading the folder afterwards shows a problem it did not have before.
+// loading the folder afterwards shows a problem it did not have before
+// (rules.NewProblems, as a git push is).
 func (s *Server) editRules(msg string, u config.User, fn func(cur *rules.Set, read func(string) ([]byte, error)) ([]store.SettingsFile, error)) error {
 	dir := rules.DirFor(s.Store.Repo().Dir)
-	var before map[string]bool
+	var before *rules.Set
 	return s.Store.EditSettings(msg, author(u), func(read func(string) ([]byte, error)) ([]store.SettingsFile, error) {
-		cur := rules.Load(dir)
-		before = problemSet(cur)
-		return fn(cur, read)
+		before = rules.Load(dir)
+		return fn(before, read)
 	}, func() error {
-		for _, p := range rules.Load(dir).Problems {
-			if !before[p.Message] {
-				return &ruleErr{"form", p.Message}
-			}
+		if ps := rules.NewProblems(before, rules.Load(dir)); len(ps) > 0 {
+			return &ruleErr{"form", ps[0].Message}
 		}
 		return nil
 	})

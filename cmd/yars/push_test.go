@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -205,7 +206,7 @@ func newPushEnvWith(t *testing.T, tune func(gs *gitserve.Server)) *pushEnv {
 	}
 	r, _ := gitrepo.Open(dir)
 	hash := testHash(t, "pw")
-	users := []config.User{{Username: "alice", Role: "pentester", PasswordHash: hash}, {Username: "dora", Role: "director", PasswordHash: hash}}
+	users := []config.User{{Username: "alice", Role: "pentester", PasswordHash: hash}, {Username: "dora", Role: "director", PasswordHash: hash, IsAdmin: true}}
 	d := openDB(t, dir)
 	for _, u := range users {
 		d.AddUser(u) // the database stays on the server
@@ -546,6 +547,44 @@ func TestPushRunsCheckRules(t *testing.T) {
 	p.editFinding(func(f *finding.Finding) { f.SetMeta("title", "SQLi") })
 	if out, err := p.git("push", "-q", "origin", "HEAD"); err != nil {
 		t.Fatalf("fixed: %v\n%s", err, out)
+	}
+}
+
+// Through the real hook: settings pushed to the main repo apply at once,
+// without a restart; a pushed config.yaml the website would refuse is
+// refused, and the running config stays.
+func TestPushedConfigApplies(t *testing.T) {
+	p := newPushEnv(t)
+	main := filepath.Dir(filepath.Dir(p.repo.Dir))
+	in := func(args ...string) (string, error) {
+		cmd := exec.Command("git", append([]string{"-C", p.clone, "-c", "user.name=dora", "-c", "user.email=dora@yars.local", "-c", "commit.gpgsign=false"}, args...)...)
+		cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+		out, err := cmd.CombinedOutput()
+		return string(out), err
+	}
+	dora := strings.Replace(p.url, "http://", "http://dora:pw@", 1) + "/git/yars"
+	push := func(body string) (string, error) {
+		os.WriteFile(filepath.Join(p.clone, ".yars", "config.yaml"), []byte(body), 0o644)
+		if out, err := in("commit", "-qm", "config", "--", ".yars/config.yaml"); err != nil {
+			t.Fatalf("%v %s", err, out)
+		}
+		return in("push", dora, "HEAD:main")
+	}
+	if out, err := push("sections: [Description, Impact, Proof]\n"); err != nil {
+		t.Fatalf("config push: %v\n%s", err, out)
+	}
+	if got := p.st.Config().Sections; !slices.Equal(got, []string{"Description", "Impact", "Proof"}) {
+		t.Fatalf("sections after the push: %v", got)
+	}
+	out, err := push("sections: [Description, Impact, impact]\n")
+	if err == nil || !strings.Contains(out, `.yars/config.yaml: Sections: "impact" twice`) {
+		t.Fatalf("bad config: %v\n%s", err, out)
+	}
+	if got := p.st.Config().Sections; len(got) != 3 || got[2] != "Proof" {
+		t.Fatalf("running config changed by a refused push: %v", got)
+	}
+	if b, _ := os.ReadFile(filepath.Join(main, ".yars", "config.yaml")); !strings.Contains(string(b), "Proof") {
+		t.Fatalf("server config.yaml: %s", b)
 	}
 }
 

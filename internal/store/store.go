@@ -77,8 +77,9 @@ type Store struct {
 	root    *os.Root
 	rootErr error
 
-	cfgMu sync.RWMutex
-	cfg   config.Config // read through Config()
+	cfgMu   sync.RWMutex
+	cfg     config.Config // read through Config()
+	cfgSubs []func(config.Config)
 
 	// Git work is serialized per repository: one lock per engagement repo
 	// (created on first use) and one for the main repo. Lock order: an
@@ -490,11 +491,36 @@ func (s *Store) Config() config.Config {
 	return s.cfg
 }
 
-// SetConfig replaces the configuration (after config.yaml was saved).
+// SetConfig replaces the configuration (after config.yaml was saved, on
+// the website or by a push) and tells the OnConfig subscribers.
 func (s *Store) SetConfig(c config.Config) {
 	s.cfgMu.Lock()
 	s.cfg = c
+	subs := s.cfgSubs
 	s.cfgMu.Unlock()
+	for _, fn := range subs {
+		fn(c)
+	}
+}
+
+// OnConfig registers fn to be told each configuration SetConfig applies
+// (the pages and the check rules keep their own copy).
+func (s *Store) OnConfig(fn func(config.Config)) {
+	s.cfgMu.Lock()
+	s.cfgSubs = append(s.cfgSubs, fn)
+	s.cfgMu.Unlock()
+}
+
+// reloadConfig applies config.yaml as the main repo has it now (after a
+// push). One that does not load keeps the running configuration: the push
+// checks refuse those, so it is only logged.
+func (s *Store) reloadConfig() {
+	c, err := config.Load(s.repo.Dir)
+	if err != nil {
+		log.Printf("push to the main repo: config.yaml not applied: %v", err)
+		return
+	}
+	s.SetConfig(c)
 }
 func (s *Store) Repo() *gitrepo.Repo { return s.repo }
 

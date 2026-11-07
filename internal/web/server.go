@@ -232,6 +232,7 @@ func (s *Server) init() {
 		s.stop = make(chan struct{})
 		if s.Store != nil {
 			s.Store.OnChange(s.publishChange)
+			s.Store.OnConfig(s.applyConfig)
 			s.wireNotifications()
 		}
 	})
@@ -370,10 +371,16 @@ func (s *Server) conf() config.Config {
 // setConfig applies a saved configuration to the pages, the store (which
 // the MCP server reads) and the style rules.
 func (s *Server) setConfig(c config.Config) {
+	s.applyConfig(c)
+	s.Store.SetConfig(c) // tells applyConfig again: the same values
+}
+
+// applyConfig is a configuration the store took (Admin › Structure, or a
+// git push to the main repo) on the pages and the style rules.
+func (s *Server) applyConfig(c config.Config) {
 	s.cfgMu.Lock()
 	s.Cfg = c
 	s.cfgMu.Unlock()
-	s.Store.SetConfig(c)
 	if s.Rules != nil {
 		s.Rules.SetConfig(c)
 	}

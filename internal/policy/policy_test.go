@@ -24,7 +24,8 @@ var users = []config.User{
 	{Username: "alice", Role: "pentester"},
 	{Username: "pen2", Role: "pentester"},
 	{Username: "bob", Role: "reviewer"},
-	{Username: "dora", Role: "director"},
+	{Username: "dora", Role: "director", IsAdmin: true},
+	{Username: "dan", Role: "director"}, // not an admin
 }
 
 func user(n string) config.User {
@@ -233,6 +234,72 @@ func TestPolicyConfigMustLoad(t *testing.T) {
 		write(d, ".yars/config.yaml/x", "x\n")
 	}); !has(ps, "must be a file") {
 		t.Fatalf("config.yaml as a directory accepted: %v", ps)
+	}
+}
+
+// Settings pushed to the main repo are held to the website's rules for
+// them: config.yaml's values as Admin › Structure saves them, rule files
+// as Admin › Rules does (no new load problem), exporters as the export
+// setup does; each refusal names the commit, file and value.
+func TestPolicySettingsValues(t *testing.T) {
+	f := newFx(t).on("")
+	cases := []struct{ path, body, want string }{
+		{".yars/config.yaml", "sections: [Description, Impact, impact]\n", `Sections: "impact" twice`},
+		{".yars/config.yaml", "severities: [critical, high, medium, low, info, Urgent]\n", `Severities: "Urgent" must be one lowercase word`},
+		{".yars/config.yaml", "cvss:\n  standard: {AV: Q}\n", "cannot load: config: cvss.standard AV"},
+		{".yars/config.yaml", "report_sections: [\"#Scope\"]\n", `Report sections: "#Scope" is not a valid name`},
+		{".yars/rules/x.yaml", "- id: bad\n  regex_forbid: '['\n", "rule invalid (x.yaml): bad:"},
+		{".yars/rules/x.yaml", "- id: typo\n  regex_forbid: x\n  levle: warning\n", "unknown field(s) levle"},
+		{".yars/exporters/word.yaml", "type: banana\n", `unknown type "banana"`},
+		{".yars/exporters/Word Doc.yaml", "type: pandoc\nformat: docx\n", "exporter ids are"},
+	}
+	for _, c := range cases {
+		f.reclone()
+		ps := f.push("dora", func(d string) { write(d, c.path, c.body) })
+		if !hasLine(ps, "commit "+short(t, f.clone, "HEAD")+" "+c.path+": ", c.want) {
+			t.Errorf("%s %q: %v", c.path, c.body, ps)
+		}
+	}
+	write(f.srv.Dir, ".yars/config.yaml", "sections: [Description]\n")
+	git(t, f.srv.Dir, "add", "-A")
+	git(t, f.srv.Dir, "commit", "-qm", "config")
+	f.reclone()
+	if ps := f.push("dora", func(d string) { os.Remove(filepath.Join(d, ".yars", "config.yaml")) }); !has(ps, ".yars/config.yaml: cannot be deleted") {
+		t.Fatalf("config.yaml deleted: %v", ps)
+	}
+	// a rule file that was broken before may stay broken in an unrelated push
+	write(f.srv.Dir, ".yars/rules/old.yaml", "- id: old\n  regex_forbid: '['\n")
+	git(t, f.srv.Dir, "add", "-A")
+	git(t, f.srv.Dir, "commit", "-qm", "broken before")
+	f.reclone()
+	if ps := f.push("dora", func(d string) { write(d, ".yars/rules/new.yaml", "- id: fine\n  regex_forbid: x\n") }); len(ps) != 0 {
+		t.Fatalf("old problem blocks: %v", ps)
+	}
+}
+
+// What the website keeps to admins a director without the admin flag can't
+// push either: config.yaml (Admin › Structure, AI), rule files (Admin ›
+// Rules), and an exporter's service address and key variables.
+func TestPolicySettingsAdminOnly(t *testing.T) {
+	f := newFx(t).on("")
+	for _, p := range []string{".yars/config.yaml", ".yars/rules/x.yaml"} {
+		f.reclone()
+		if ps := f.push("dan", func(d string) { write(d, p, "sections: [Description]\n") }); !has(ps, p+": only an admin can change") {
+			t.Errorf("%s by a non-admin director: %v", p, ps)
+		}
+	}
+	jira := "type: jira\njira:\n  base_url: https://attacker.example\n  project: X\n  issue_type: Bug\n  user_env: JIRA_USER\n  token_env: JIRA_TOKEN\n"
+	f.reclone()
+	if ps := f.push("dan", func(d string) { write(d, ".yars/exporters/jira.yaml", jira) }); !has(ps, "address and key variables: admin only") {
+		t.Fatalf("service exporter by a non-admin director: %v", ps)
+	}
+	f.reclone()
+	if ps := f.push("dan", func(d string) { write(d, ".yars/exporters/word.yaml", "type: pandoc\nformat: docx\n") }); len(ps) != 0 {
+		t.Fatalf("file exporter by a director: %v", ps)
+	}
+	f.reclone()
+	if ps := f.push("dora", func(d string) { write(d, ".yars/exporters/jira.yaml", jira) }); len(ps) != 0 {
+		t.Fatalf("service exporter by an admin: %v", ps)
 	}
 }
 

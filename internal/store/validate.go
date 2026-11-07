@@ -184,6 +184,64 @@ func orNone(s string) string {
 	return s
 }
 
+// CheckStructure accepts the report structure of a configuration as
+// Admin › Structure saves it: every list but the details rows has an
+// entry, names are distinct (in any letter case), one line, not starting
+// with #, at most 80 characters, severities one lowercase word, report
+// sections in distinct files, CVSS standard values valid.
+func CheckStructure(c config.Config) error {
+	files := map[string]string{} // report section file → name
+	for _, x := range c.ReportSections {
+		f := ReportFile(x)
+		if o, ok := files[f]; ok && !strings.EqualFold(o, x) {
+			return fmt.Errorf("Report sections: %q and %q share a file name", o, x)
+		}
+		files[f] = x
+	}
+	for _, l := range []struct {
+		title string
+		v     []string
+	}{{"Sections", c.Sections}, {"Details rows", c.DetailsRows}, {"Severities", c.Severities}, {"Report sections", c.ReportSections}} {
+		seen := map[string]bool{}
+		if len(l.v) == 0 && l.title != "Details rows" {
+			return fmt.Errorf("%s: at least one", l.title)
+		}
+		for _, x := range l.v {
+			k := strings.ToLower(x)
+			switch {
+			case seen[k]:
+				return fmt.Errorf("%s: %q twice", l.title, x)
+			case strings.TrimSpace(x) != x || x == "":
+				return fmt.Errorf("%s: %q has spaces at either end", l.title, x)
+			case strings.ContainsAny(x, "\r\n") || strings.HasPrefix(x, "#") || len([]rune(x)) > 80:
+				return fmt.Errorf("%s: %q is not a valid name", l.title, x)
+			case l.title == "Severities" && (x != strings.ToLower(x) || strings.ContainsAny(x, " /")):
+				return fmt.Errorf("%s: %q must be one lowercase word", l.title, x)
+			}
+			seen[k] = true
+		}
+	}
+	for k, v := range c.CVSS.Standard {
+		if !cvss.Valid(k, v) {
+			return fmt.Errorf("CVSS %s: invalid value %q", k, v)
+		}
+	}
+	return nil
+}
+
+// CheckConfig accepts a .yars/config.yaml as the server loads it and as
+// Admin › Structure saves it (config.Parse, then CheckStructure).
+func CheckConfig(b []byte) (config.Config, error) {
+	c, err := config.Parse(b)
+	if err != nil {
+		return c, fmt.Errorf("cannot load: %w", err)
+	}
+	if err := CheckStructure(c); err != nil {
+		return c, err
+	}
+	return c, nil
+}
+
 // CheckAttachment accepts a file in a finding's attachments/ folder: a
 // plain name directly in the folder, at most MaxAttachment bytes, an image
 // or text (as the website accepts uploads), and not executable.
