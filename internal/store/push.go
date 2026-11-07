@@ -10,6 +10,7 @@ import (
 	"yars/internal/config"
 	"yars/internal/db"
 	"yars/internal/finding"
+	"yars/internal/gitrepo"
 )
 
 // partAttachments names a change to a finding's files other than
@@ -91,7 +92,21 @@ func filesEvent(actor string, ref FindingRef, fp string, prev, files map[string]
 // made them through YARS: finding.created for each new finding and
 // finding.updated for each changed one. A rejected push moves nothing and
 // emits nothing.
+//
+// eng "" is the main repo: the push runs under the main repo's lock and
+// emits nothing.
 func (s *Store) ReceivePush(eng string, u config.User, serve func()) {
+	if eng == "" {
+		s.mainMu.Lock()
+		defer s.mainMu.Unlock()
+		before, _ := s.freshHead("")
+		serve()
+		s.Invalidate("")
+		if after, err := s.freshHead(""); err == nil && after == before {
+			restoreTree("the main repo", s.repo)
+		}
+		return
+	}
 	if !ValidID(eng) {
 		serve()
 		return
@@ -103,14 +118,8 @@ func (s *Store) ReceivePush(eng string, u config.User, serve func()) {
 	s.Invalidate(eng)
 	after, err := s.freshHead(eng)
 	if err == nil && after == before {
-		// a push whose ref update failed after git checked its tree out
-		// must not leave that tree behind
 		if r, rerr := s.EngRepo(eng); rerr == nil {
-			if reset, rerr := r.RestoreHead(); rerr != nil {
-				log.Printf("push to %s: restore work tree: %v", eng, rerr)
-			} else if reset {
-				log.Printf("push to %s: work tree put back to HEAD after a failed push", eng)
-			}
+			restoreTree(eng, r)
 		}
 	}
 	l.Unlock()
@@ -124,6 +133,17 @@ func (s *Store) ReceivePush(eng string, u config.User, serve func()) {
 	for _, ev := range evs {
 		s.notify(Change{Eng: eng, Fid: ev.Fid, Kind: ChangeContent})
 		s.Emit(ev)
+	}
+}
+
+// restoreTree puts r's work tree back to HEAD after a push that did not
+// move the branch: git checks a pushed tree out before it updates the ref,
+// so a failed ref update must not leave that tree behind.
+func restoreTree(name string, r *gitrepo.Repo) {
+	if reset, err := r.RestoreHead(); err != nil {
+		log.Printf("push to %s: restore work tree: %v", name, err)
+	} else if reset {
+		log.Printf("push to %s: work tree put back to HEAD after a failed push", name)
 	}
 }
 

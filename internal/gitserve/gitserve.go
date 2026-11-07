@@ -42,7 +42,7 @@ type Server struct {
 	// Invalidate, when set, is told after every push which repo it went to
 	// (an engagement id, "" for the main repo), so cached HEADs are dropped.
 	Invalidate func(eng string)
-	// Receive, when set, wraps each push into an engagement repo: it must
+	// Receive, when set, wraps each push (eng "" = the main repo): it must
 	// call serve (git receiving the push as u) once, and can hold off
 	// other writes meanwhile and tell what the push changed.
 	Receive func(eng string, u config.User, serve func())
@@ -69,6 +69,9 @@ type cached struct {
 // set up on their first request.
 func (s *Server) Setup() error {
 	if err := s.setupRepo(s.Repo); err != nil {
+		return err
+	}
+	if _, err := s.Repo.RestoreHead(); err != nil {
 		return err
 	}
 	ents, _ := os.ReadDir(filepath.Join(s.Repo.Dir, "engagements"))
@@ -290,7 +293,7 @@ func (s *Server) Handler() http.Handler {
 		r2 := r.Clone(r.Context())
 		r2.Header.Del("Authorization")
 		receive := r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/git-receive-pack")
-		if receive && eng != "" && s.Receive != nil {
+		if receive && s.Receive != nil {
 			s.Receive(eng, u, func() { h.ServeHTTP(w, r2) })
 		} else {
 			h.ServeHTTP(w, r2)

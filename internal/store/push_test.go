@@ -2,6 +2,7 @@ package store
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"testing"
@@ -40,6 +41,24 @@ func TestUpdatedEvent(t *testing.T) {
 	}
 	if e := rec.last(EventUpdated); !slices.Contains(e.Changed, "Attachments") {
 		t.Fatalf("attachment %+v", e)
+	}
+}
+
+// A push into the main repo runs under the main repo's lock (no settings
+// commit can land between the hook's check and git's checkout), and a push
+// that checked its tree out without moving the branch leaves HEAD's tree.
+func TestReceivePushMainRepo(t *testing.T) {
+	s, dir := withEngagement(t)
+	s.ReceivePush("", uBob, func() {
+		if s.mainMu.TryLock() {
+			s.mainMu.Unlock()
+			t.Error("main repo push served without the main repo lock")
+		}
+		os.WriteFile(filepath.Join(dir, "README.md"), []byte("rejected push"), 0o644)
+		exec.Command("git", "-C", dir, "add", "README.md").Run()
+	})
+	if st, _ := exec.Command("git", "-C", dir, "status", "--porcelain", "--untracked-files=no", "--ignore-submodules=all").Output(); len(st) != 0 {
+		t.Fatalf("main tree dirty after a push that did not land:\n%s", st)
 	}
 }
 
