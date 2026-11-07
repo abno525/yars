@@ -32,6 +32,7 @@
     </div>
   </section>
   <section class="panel compact pickpanel">
+    <div class="panelhead"><h2>Findings</h2><span class="mono selof" data-of="{{.Pickable}}">{{.Ticked}} of {{.Pickable}}</span></div>
     <table class="table stable picktable flush">
       <thead><tr><th class="c-pick"><span class="sr">Pick</span></th><th class="c-fid">ID</th><th>Title</th><th class="c-state">Status</th><th class="c-sent">Sent as</th></tr></thead>
       <tbody>
@@ -48,7 +49,6 @@
         {{end}}
       </tbody>
     </table>
-    <div class="panelhead"><h2>Findings</h2><span class="mono selof" data-of="{{.Pickable}}"></span></div>
   </section>
   <section class="panel compact">
     <div class="panelhead"><h2>History</h2>{{if .History}}<span class="badge">{{len .History}}</span>{{else}}<span class="badge0">0</span>{{end}}</div>

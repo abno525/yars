@@ -57,6 +57,25 @@ func TestRootScrollbarGutter(t *testing.T) {
 	}
 }
 
+// The export Findings panel has its head before its table (reading and
+// keyboard order), with the ticked count rendered by the server.
+func TestExportPickHeadFirst(t *testing.T) {
+	e := setup(t)
+	b := e.do(t, "dora", "GET", "/e/acme/export", nil, nil).Body.String()
+	panel := between(b, `<section class="panel compact pickpanel">`, "</section>")
+	head, table := strings.Index(panel, `class="panelhead"`), strings.Index(panel, "<table")
+	if head < 0 || table < 0 || head > table {
+		t.Fatalf("pick panel order:\n%s", panel)
+	}
+	if !regexp.MustCompile(`class="mono selof" data-of="\d+">\d+ of \d+</span>`).MatchString(panel) {
+		t.Fatalf("no count in the head:\n%s", panel)
+	}
+	css := e.do(t, "dora", "GET", staticPrefix()+"/style.css", nil, nil).Body.String()
+	if strings.Contains(css, "order: -1") && strings.Contains(between(css, ".pickpanel > .panelhead", "}"), "order") {
+		t.Fatal("the head is still moved by CSS order")
+	}
+}
+
 // A failed login keeps the username (never the password) and focuses the
 // password field.
 func TestLoginKeepsUsername(t *testing.T) {

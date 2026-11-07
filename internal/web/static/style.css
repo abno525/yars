@@ -1140,10 +1140,7 @@ code.block { display: block; padding: 8px 10px; background: var(--code-bg); font
 .destcard:disabled .dsub { color: var(--off-fg); }
 
 /* the picker: the head comes after the table in the page, so its count of ticked findings is final */
-.pickpanel { display: flex; flex-direction: column; counter-reset: sel; }
-.pickpanel > .panelhead { order: -1; }
-.pickpanel input[name=finding]:checked { counter-increment: sel; }
-.selof::before { content: counter(sel) " of " attr(data-of); }
+.pickpanel { display: flex; flex-direction: column; }
 .picktable input[type=checkbox] { width: 20px; height: 20px; }
 .picktable td { height: 56px; }
 .table th.c-pick { width: 56px; }

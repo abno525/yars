@@ -66,6 +66,18 @@ document.addEventListener('htmx:responseError', function (evt) {
 });
 document.addEventListener('htmx:sendError', function () { yarsToast('Connection lost', true); });
 
+// The export picker's head counts the ticked findings ("2 of 5"); the head
+// comes before the table, so it is counted here rather than in CSS.
+function yarsPickCount(panel) {
+  var out = panel && panel.querySelector('.selof');
+  if (!out) return;
+  var n = panel.querySelectorAll('input[name="finding"]:checked').length;
+  out.textContent = n + ' of ' + out.getAttribute('data-of');
+}
+document.addEventListener('change', function (evt) {
+  if (evt.target.name === 'finding') yarsPickCount(evt.target.closest('.pickpanel'));
+});
+
 document.addEventListener('click', function (evt) {
   var el = evt.target.closest && evt.target.closest('[data-theme-toggle], [data-copy], [data-check-all]');
   if (!el) return;

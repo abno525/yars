@@ -92,6 +92,7 @@ type exportView struct {
 	LoadErrors []string
 	Picks      []pickRow
 	Pickable   int
+	Ticked     int // of those, ticked (the head's "N of M"; app.js keeps it current)
 	Result     *sendResult
 	History    []historyRow
 	Report     template.HTML // preview: the report
@@ -281,6 +282,9 @@ func (s *Server) exportPage(r *http.Request, form url.Values) (*page, error) {
 		}
 		if !pr.Off {
 			v.Pickable++
+		}
+		if pr.On {
+			v.Ticked++
 		}
 		svcs, ok := keys[row.Author]
 		if !ok && d != nil && row.Author != "" {
