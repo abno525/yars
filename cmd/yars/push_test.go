@@ -27,7 +27,6 @@ type pushEnv struct {
 	st    *store.Store
 	clone string // recursive clone of the main repo
 	url   string
-	gs    *gitserve.Server
 	// beforeReceive, when set, runs once as a push's POST arrives, before
 	// the engagement lock is taken (after the client read the refs).
 	beforeReceive atomic.Pointer[func()]
@@ -69,16 +68,23 @@ func TestPushLosesRaceToWebCommit(t *testing.T) {
 }
 
 // A work tree left dirty by a push that never moved the branch (a crash
-// between checkout and the ref update) is put back to HEAD by Setup.
+// between checkout and the ref update) is put back to HEAD on start, the
+// main repo's too.
 func TestSetupRestoresDirtyEngagementTree(t *testing.T) {
 	p := newPushEnv(t)
 	os.WriteFile(filepath.Join(p.repo.Dir, "findings", "F-001-sqli", "finding.md"), []byte("half a push"), 0o644)
 	exec.Command("git", "-C", p.repo.Dir, "add", "-A").Run()
-	if err := p.gs.Setup(); err != nil {
+	main := filepath.Dir(filepath.Dir(p.repo.Dir))
+	os.WriteFile(filepath.Join(main, ".yars", "config.yaml"), []byte("severities: [x\n"), 0o644)
+	exec.Command("git", "-C", main, "add", ".yars/config.yaml").Run()
+	mr, _ := gitrepo.Open(main)
+	if err := gitserve.RestoreTrees(mr); err != nil {
 		t.Fatal(err)
 	}
-	if st, _ := exec.Command("git", "-C", p.repo.Dir, "status", "--porcelain", "--untracked-files=no").Output(); len(st) != 0 {
-		t.Fatalf("dirty tree kept on start:\n%s", st)
+	for _, dir := range []string{p.repo.Dir, main} {
+		if st, _ := exec.Command("git", "-C", dir, "status", "--porcelain", "--untracked-files=no", "--ignore-submodules=all").Output(); len(st) != 0 {
+			t.Fatalf("dirty tree kept on start in %s:\n%s", dir, st)
+		}
 	}
 }
 
@@ -130,7 +136,6 @@ func newPushEnv(t *testing.T) *pushEnv {
 	}
 	gs := &gitserve.Server{Repo: r, Auth: auth.New(d), HookCmd: hookCmd(bin, dir), Sync: st.SyncPointers, Invalidate: st.Invalidate,
 		Receive: receive, Tokens: auth.NewTokens(d), CanSee: st.CanSee}
-	p.gs = gs
 	if err := gs.Setup(); err != nil {
 		t.Fatal(err)
 	}

@@ -412,9 +412,10 @@ func cmdHook(args []string, in io.Reader, errOut io.Writer) int {
 	if err != nil {
 		return fail(err.Error())
 	}
-	cfg, err := config.Load(r.Dir)
-	if err != nil {
-		return fail(err.Error())
+	// a config that does not load leaves only its repair open (ConfigErr)
+	cfg, cfgErr := config.Load(r.Dir)
+	if cfgErr != nil {
+		cfg = config.Default()
 	}
 	d, err := dataDB(r.Dir)
 	if err != nil {
@@ -433,7 +434,7 @@ func cmdHook(args []string, in io.Reader, errOut io.Writer) int {
 		}
 	}
 	// which repository is being pushed to: the main repo or engagements/<id>
-	c := &policy.Checker{Repo: r, Cfg: cfg, Users: users, DB: d}
+	c := &policy.Checker{Repo: r, Cfg: cfg, Users: users, DB: d, ConfigErr: cfgErr}
 	c.Token = policy.TokenFromEnv(os.LookupEnv(policy.TokenScopesEnv))
 	eng := *engFlag
 	if eng == "" {
@@ -870,6 +871,10 @@ func cmdServe(args []string) error {
 	r, err := gitrepo.Open(*data)
 	if err != nil {
 		return err
+	}
+	// a push cut off mid-way must not leave its tree (or config) behind
+	if err := gitserve.RestoreTrees(r); err != nil {
+		return fmt.Errorf("restore work trees: %w", err)
 	}
 	cfg, err := config.Load(r.Dir)
 	if err != nil {

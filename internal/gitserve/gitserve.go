@@ -71,21 +71,37 @@ func (s *Server) Setup() error {
 	if err := s.setupRepo(s.Repo); err != nil {
 		return err
 	}
-	if _, err := s.Repo.RestoreHead(); err != nil {
-		return err
-	}
 	ents, _ := os.ReadDir(filepath.Join(s.Repo.Dir, "engagements"))
 	for _, e := range ents {
 		if r, ok := s.engRepo(e.Name()); ok {
 			if err := s.setupRepo(r); err != nil {
 				return err
 			}
-			// a push interrupted between checking its tree out and moving
-			// the branch leaves a tree that is not HEAD; YARS commits
-			// everything it writes, so nothing else can be lost here
-			if _, err := r.RestoreHead(); err != nil {
-				return err
-			}
+		}
+	}
+	return nil
+}
+
+// RestoreTrees puts the main repo's and every engagement repo's work tree
+// back to HEAD. A push interrupted between git checking its tree out and
+// moving the branch leaves a tree that is not HEAD; YARS commits everything
+// it writes, so nothing else can be lost. Run it on start, before the config
+// is loaded or anything is committed.
+func RestoreTrees(main *gitrepo.Repo) error {
+	if _, err := main.RestoreHead(); err != nil {
+		return err
+	}
+	ents, _ := os.ReadDir(filepath.Join(main.Dir, "engagements"))
+	for _, e := range ents {
+		if !engIDRe.MatchString(e.Name()) || strings.Contains(e.Name(), "..") {
+			continue
+		}
+		r, err := gitrepo.Open(filepath.Join(main.Dir, "engagements", e.Name()))
+		if err != nil {
+			continue // not a repository of its own
+		}
+		if _, err := r.RestoreHead(); err != nil {
+			return err
 		}
 	}
 	return nil

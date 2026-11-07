@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -217,6 +218,35 @@ func TestPolicyConfigMustLoad(t *testing.T) {
 		write(d, ".yars/config.yaml", "severities: [critical, high, medium, low, info, extreme]\n")
 	}); len(ps) != 0 {
 		t.Fatalf("valid config refused: %v", ps)
+	}
+	f.reclone()
+	if ps := f.push("dora", func(d string) {
+		os.RemoveAll(filepath.Join(d, ".yars", "config.yaml"))
+		write(d, ".yars/config.yaml/x", "x\n")
+	}); !has(ps, "must be a file") {
+		t.Fatalf("config.yaml as a directory accepted: %v", ps)
+	}
+}
+
+// When the server's own config does not load, only a director's push that
+// changes it to one that loads is accepted.
+func TestPolicyBrokenConfigRepair(t *testing.T) {
+	f := newFx(t).on("")
+	f.c.ConfigErr = errors.New("yaml: line 1: did not find expected ',' or ']'")
+	if ps := f.push("dora", func(d string) { write(d, ".yars/rules/x.yaml", "[]\n") }); !has(ps, "cannot be loaded") {
+		t.Fatalf("unrelated push accepted while the config is broken: %v", ps)
+	}
+	f.reclone()
+	if ps := f.push("dora", func(d string) { write(d, ".yars/config.yaml", "severities: [x\n") }); !has(ps, "cannot load") {
+		t.Fatalf("broken repair accepted: %v", ps)
+	}
+	f.reclone()
+	if ps := f.push("dora", func(d string) { write(d, ".yars/config.yaml", "sections: [Description]\n") }); len(ps) != 0 {
+		t.Fatalf("repair refused: %v", ps)
+	}
+	f.on("acme")
+	if ps := f.push("alice", func(d string) { write(d, fdir+"/attachments/a.txt", "x") }); !has(ps, "cannot be loaded") {
+		t.Fatalf("engagement push accepted while the config is broken: %v", ps)
 	}
 }
 

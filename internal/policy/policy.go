@@ -36,6 +36,11 @@ type Checker struct {
 	// change "edit".
 	Token *db.TokenInfo
 
+	// ConfigErr, when set, is why the server's own .yars/config.yaml did not
+	// load (Cfg is then the defaults): only a push that changes that file
+	// is accepted, so a director can repair it over git.
+	ConfigErr error
+
 	// Carry lists approved findings a director changed in the checked push;
 	// once the push is accepted the hook moves their approval to the new
 	// content (store.CarryApproval).
@@ -118,6 +123,7 @@ func (c *Checker) Check(username string, ups []Update) []string {
 		return []string{"server: " + err.Error()}
 	}
 	var ps []string
+	repairs := false // the push changes .yars/config.yaml (see ConfigErr)
 	for _, up := range ups {
 		if up.Ref != branch {
 			ps = append(ps, up.Ref+": only "+branch+" can be pushed")
@@ -155,6 +161,9 @@ func (c *Checker) Check(username string, ups []Update) []string {
 			continue
 		}
 		for _, ch := range changes {
+			if c.Eng == "" && ch.Path == ".yars/config.yaml" {
+				repairs = true
+			}
 			if c.Token != nil {
 				if need := c.scopeFor(old, ch); !c.Token.Allows(need) {
 					ps = append(ps, ch.Path+": this token cannot "+need+" findings")
@@ -174,6 +183,9 @@ func (c *Checker) Check(username string, ups []Update) []string {
 				ps = append(ps, ch.Path+": "+p)
 			}
 		}
+	}
+	if c.ConfigErr != nil && !repairs {
+		ps = append(ps, "the server's .yars/config.yaml cannot be loaded ("+c.ConfigErr.Error()+"); only a director's push to the main repository that repairs it is accepted")
 	}
 	return ps
 }
@@ -235,6 +247,9 @@ func (c *Checker) file(u config.User, old, new string, ch gitrepo.Change) []stri
 	case seg[0] == ".yars":
 		if !manager(u) {
 			return []string{"only a director can change .yars (config, rules)"}
+		}
+		if strings.HasPrefix(p, ".yars/config.yaml/") {
+			return []string{".yars/config.yaml must be a file"}
 		}
 		if p == ".yars/config.yaml" && ch.Status != 'D' {
 			// the server loads it on every push and on start
