@@ -228,8 +228,10 @@ func (s *Server) cvssSave(w http.ResponseWriter, r *http.Request) {
 		if b, ok := bases[store.CVSSRow]; !ok || store.RowHash(vector) != b {
 			ch.Vector, ch.Bases[store.CVSSRow] = &vector, b
 		}
+		sel, _ := cvss.ParsePartial(vector)
 		for k, val := range reasons {
-			if b, ok := bases[k]; !ok || store.RowHash(strings.TrimSpace(val)) != b {
+			// the user's change: the reason, or the value it explains
+			if b, ok := bases[k]; !ok || store.ReasonHash(sel[k], val) != b {
 				ch.Reasons[k], ch.Bases[k] = val, b
 			}
 		}

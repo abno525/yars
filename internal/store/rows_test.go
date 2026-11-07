@@ -56,7 +56,7 @@ func TestCVSSRowsCheckedPerRow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got["AC"] != RowHash(ac) {
+	if got["AC"] != ReasonHash("L", ac) {
 		t.Fatalf("new bases %v", got)
 	}
 	// someone moves the vector on; a PR reason with the base read before both
@@ -112,6 +112,25 @@ func TestRowChecksCoverWrittenRows(t *testing.T) {
 	// the same for Details
 	if _, err := s.UpdateDetailsRows(eng, fd, map[string]string{"Cause": "x"}, map[string]string{"Location": RowHash("")}, alice); !errors.Is(err, ErrConflict) {
 		t.Fatalf("written row without a base: %v", err)
+	}
+}
+
+// A reason explains its metric's value: a reason edit read at AC:H is
+// refused once the vector moved to AC:L, though the reason text is
+// unchanged.
+func TestReasonBaseCoversItsMetric(t *testing.T) {
+	s, _, fd := newFinding(t)
+	h := "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H"
+	s.UpdateCVSS(eng, fd, h, nil, "", alice)
+	read := CVSSRowHashes(load(t, s, fd).F.Meta)
+	l := "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
+	s.UpdateCVSS(eng, fd, l, nil, "", alice)
+	if _, err := s.UpdateCVSSRows(eng, fd, CVSSChange{Reasons: map[string]string{"AC": "needs a race"}, Bases: map[string]string{"AC": read["AC"]}}, alice); !errors.Is(err, ErrConflict) {
+		t.Fatalf("reason for a metric that changed: %v", err)
+	}
+	// another metric's reason is not affected
+	if _, err := s.UpdateCVSSRows(eng, fd, CVSSChange{Reasons: map[string]string{"PR": "x"}, Bases: map[string]string{"PR": read["PR"]}}, alice); err != nil {
+		t.Fatal(err)
 	}
 }
 

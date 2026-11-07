@@ -1751,12 +1751,30 @@ type CVSSChange struct {
 }
 
 // CVSSRowHashes are the bases of the vector (CVSSRow) and of each reason.
+// A reason's base covers its metric's value too: the reason explains that
+// value, so an edit of it is refused once the metric changed.
 func CVSSRowHashes(m finding.Meta) map[string]string {
 	out := map[string]string{CVSSRow: RowHash(m.CVSS)}
 	for _, mt := range cvss.Metrics {
-		out[mt.Key] = RowHash(m.CVSSReasons[mt.Key])
+		out[mt.Key] = RowHash(reasonRow(m, mt.Key))
 	}
 	return out
+}
+
+// reasonRow is what a reason's base is of: its metric's value and the
+// reason.
+func reasonRow(m finding.Meta, key string) string {
+	val := ""
+	if v, err := cvss.ParsePartial(m.CVSS); err == nil {
+		val = v[key]
+	}
+	return val + "\x00" + m.CVSSReasons[key]
+}
+
+// ReasonHash is the base of a reason with its metric at value (as
+// CVSSRowHashes gives it).
+func ReasonHash(value, reason string) string {
+	return RowHash(value + "\x00" + strings.TrimSpace(reason))
 }
 
 // UpdateCVSSRows applies ch (see UpdateCVSS) and returns the new bases of
@@ -1788,7 +1806,7 @@ func (s *Store) UpdateCVSSRows(engID, dir string, ch CVSSChange, a Actor) (map[s
 				return "", ErrConflict
 			}
 			for k := range reasons {
-				if stale(k, m.CVSSReasons[k]) {
+				if stale(k, reasonRow(m, k)) {
 					return "", ErrConflict
 				}
 			}
