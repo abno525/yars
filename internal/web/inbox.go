@@ -294,6 +294,37 @@ func (s *Server) draftChecks(rows []inboxRow) ([]inboxRow, error) {
 	return out, nil
 }
 
+// withoutOpenChecks drops from Ready to approve the findings whose check
+// run on their current content has open (undismissed) errors or warnings:
+// a director gets clean findings only (read now: runs and dismissals do not
+// wait for the index). v is shared: a changed view gets its own lists map.
+func (s *Server) withoutOpenChecks(v inboxView) (inboxView, error) {
+	rows := v.Lists[workflow.InboxApprove]
+	d := s.Store.DB()
+	if len(rows) == 0 || d == nil {
+		return v, nil
+	}
+	keys := make([][2]string, len(rows))
+	for i, r := range rows {
+		keys[i] = [2]string{r.EngID, r.ID}
+	}
+	runs, err := d.LatestRuns(keys)
+	if err != nil {
+		return v, err
+	}
+	open := func(r inboxRow) bool {
+		run, ok := runs[r.EngID+"/"+r.ID]
+		return ok && run.ContentHash == r.row.Hash && run.Errors+run.Warnings > 0
+	}
+	if !slices.ContainsFunc(rows, open) {
+		return v, nil
+	}
+	lists := maps.Clone(v.Lists)
+	lists[workflow.InboxApprove] = slices.DeleteFunc(slices.Clone(rows), open)
+	v.Lists = lists
+	return v, nil
+}
+
 // inboxList is one page of a queue; "Load more" appends the next.
 type inboxList struct {
 	Name     workflow.Inbox

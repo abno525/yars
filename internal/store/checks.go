@@ -77,6 +77,25 @@ func checkKey(eng, fid string) string { return eng + "/" + fid }
 // but never posted as a comment.
 func notice(v rules.Violation) bool { return v.Target == "rules" || v.Target == "ai" }
 
+// SignsOff reports whether an action hands a finding on towards a director
+// (Sign off, Approve): it needs the finding clean, warnings dismissed too.
+func SignsOff(act workflow.Action) bool { return act == workflow.Clear || act == workflow.Approve }
+
+// Blocking lists the undismissed violations vs that block act: errors for
+// Submit, errors and warnings (notices about the rules left out) for Sign
+// off and Approve.
+func Blocking(act workflow.Action, vs []rules.Violation) []string {
+	out := rules.Errors(vs)
+	if SignsOff(act) {
+		for _, v := range vs {
+			if v.Level == "warning" && !notice(v) {
+				out = append(out, v.Message+" (warning)")
+			}
+		}
+	}
+	return out
+}
+
 // Dismissals returns the dismissed violations of finding fid.
 func (s *Store) Dismissals(engID, fid string) (map[string]db.Dismissal, error) {
 	if s.db == nil {

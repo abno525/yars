@@ -180,7 +180,7 @@ func (s *Server) bulk(w http.ResponseWriter, r *http.Request) {
 				// the bulk menu's own limits, then the store's checks; both
 				// again on the finding as it is inside the change
 				if err = workflow.BulkCheck(u, ref.F.Meta, act); err == nil {
-					if workflow.Gated(act) {
+					if workflow.Gated(act) || store.SignsOff(act) {
 						s.lintDeadline(w) // each row may run every rule
 					}
 					err = s.Store.TransitionChecked(e, ref.Dir, act, reason, u, func(m finding.Meta) error {

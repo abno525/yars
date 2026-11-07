@@ -37,6 +37,7 @@ type wfView struct {
 	Steps        []string // workflow.ShownSteps
 	Actions      []wfAction
 	Gate         []string
+	OpenWarnings int // open check warnings keeping Sign off or Approve disabled
 	Reviewers    []wfReviewer
 	Candidates   []wfCandidate
 	CanAssign    bool
@@ -195,6 +196,8 @@ func (v *wfView) arrange(u config.User, m finding.Meta) {
 	switch n := len(v.Gate); {
 	case n > 0 && v.HasGated:
 		v.State, v.StateError = plural(n, "error")+" to fix", true
+	case v.OpenWarnings > 0:
+		v.State = plural(v.OpenWarnings, "warning") + " open"
 	case needsSignOff:
 		v.State = "Needs 1 sign-off"
 	case m.Status == "verification" && u.Username == m.Author:
@@ -259,6 +262,16 @@ func (s *Server) wfFor(ref store.FindingRef, r *http.Request) wfView {
 func (s *Server) wfGated(r *http.Request, ref store.FindingRef) (wfView, checksView) {
 	checks := s.checksFor(r, ref)
 	wf := s.wfFor(ref, r)
+	// a director gets clean findings only: any open check (warnings too)
+	// keeps Sign off and Approve disabled until it is fixed or dismissed
+	if checks.Errors+checks.Warnings > 0 {
+		for i, a := range wf.Actions {
+			if act, _ := workflow.ParseAction(a.Name); store.SignsOff(act) {
+				wf.Actions[i].Disabled = true
+				wf.OpenWarnings = checks.Warnings
+			}
+		}
+	}
 	if errs := checks.Gate; len(errs) > 0 {
 		for i, a := range wf.Actions {
 			if a.Gated {

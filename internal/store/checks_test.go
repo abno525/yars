@@ -419,7 +419,11 @@ func TestDismissPermissions(t *testing.T) {
 	if th := checkThreads(t, s, fd); !th[""].Resolved || th[""].ResolvedBy != "bob" {
 		t.Fatalf("title thread %+v", th[""])
 	}
-	// no edit rights (complete): no warning dismissals either
+	// no edit rights (complete): no warning dismissals either (an open
+	// warning would block the sign-off: dismissed again first)
+	if err := s.Dismiss(eng, fd, "no-foo", "foo", uAlice); err != nil {
+		t.Fatal(err)
+	}
 	s.Transition(eng, fd, workflow.Submit, "", uAlice)
 	s.Transition(eng, fd, workflow.Clear, "", uBob)
 	if err := s.Transition(eng, fd, workflow.Approve, "", uDora); err != nil {
