@@ -385,6 +385,11 @@ var tools = []tool{
 			var err error
 			if slug := a.str("template"); slug != "" {
 				ref, err = s.Store.CreateFindingFrom(a.str("engagement"), a.str("title"), slug, u.GitAuthor())
+				if errors.Is(err, store.ErrNotFound) {
+					if _, eerr := s.Store.Engagement(a.str("engagement")); eerr == nil {
+						return "", fmt.Errorf("unknown template %q; see list_templates", slug)
+					}
+				}
 			} else {
 				ref, err = s.Store.CreateFinding(a.str("engagement"), a.str("title"), u.GitAuthor())
 			}

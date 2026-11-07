@@ -67,6 +67,21 @@ func TestMCPTitleBidiStripped(t *testing.T) {
 	}
 }
 
+// An unknown template is named as such, not a bare "not found" that reads
+// like an unknown engagement.
+func TestMCPUnknownTemplate(t *testing.T) {
+	f := newFx(t)
+	for _, slug := range []string{"nope", "../../etc"} {
+		out, isErr := f.call(alice, "create_finding", map[string]any{"engagement": "acme", "title": "x", "template": slug})
+		if want := `unknown template "` + slug + `"; see list_templates`; !isErr || out != want {
+			t.Errorf("%s: %v %q, want %q", slug, isErr, out, want)
+		}
+	}
+	if out, _ := f.call(alice, "create_finding", map[string]any{"engagement": "nope", "title": "x", "template": "nope"}); out != "not found" {
+		t.Errorf("unknown engagement: %q", out)
+	}
+}
+
 // create_finding refuses the titles set_field title refuses.
 func TestMCPCreateFindingTitle(t *testing.T) {
 	f := newFx(t)

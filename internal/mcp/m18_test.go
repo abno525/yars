@@ -50,7 +50,7 @@ func TestMCPTemplates(t *testing.T) {
 	if body, _ := ref.F.Section("Impact"); !strings.Contains(body, "Attackers read every row.") || ref.F.Meta.Author != "alice" {
 		t.Fatalf("not from the template: %q", body)
 	}
-	if out, isErr := f.call(alice, "create_finding", map[string]any{"engagement": "acme", "title": "x", "template": "nope"}); !isErr || out != "not found" {
+	if out, isErr := f.call(alice, "create_finding", map[string]any{"engagement": "acme", "title": "x", "template": "nope"}); !isErr || !strings.HasPrefix(out, `unknown template "nope"`) {
 		t.Fatalf("unknown template: %s", out)
 	}
 	if n := f.ok(alice, "list_templates", nil); !strings.Contains(n, `"uses": 1`) {
