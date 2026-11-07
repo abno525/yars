@@ -242,6 +242,20 @@ func TestPolicyDuplicateSection(t *testing.T) {
 	}
 }
 
+// The same holds for a template: every finding made from it would take
+// the duplicated section.
+func TestPolicyDuplicateSectionTemplate(t *testing.T) {
+	f := newFx(t).on("")
+	tpl := "---\ntitle: SQLi\n---\n\n## Impact\n\nfirst\n\n## Impact\n\nsecond\n"
+	if ps := f.push("dora", func(d string) { write(d, ".yars/templates/sqli.md", tpl) }); !has(ps, "section Impact appears twice") {
+		t.Fatalf("template with a duplicate section accepted: %v", ps)
+	}
+	f.reclone()
+	if ps := f.push("dora", func(d string) { write(d, ".yars/templates/sqli.md", "---\ntitle: SQLi\n---\n\n## Impact\n\nfirst\n") }); len(ps) != 0 {
+		t.Fatalf("valid template refused: %v", ps)
+	}
+}
+
 // A path outside the layout is explained in the pushed repository's own
 // terms, not the server's data-dir paths.
 func TestPolicyOutsideMessagePerRepo(t *testing.T) {

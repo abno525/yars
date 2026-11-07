@@ -265,6 +265,15 @@ func (c *Checker) file(u config.User, old, new string, ch gitrepo.Change) []stri
 				return []string{"cannot load: " + err.Error()}
 			}
 		}
+		if len(seg) == 3 && seg[1] == "templates" && strings.HasSuffix(p, ".md") && ch.Status != 'D' {
+			// findings made from a template take its sections as they are
+			b, _ := c.show(new, p)
+			f, err := finding.Parse(b)
+			if err != nil {
+				return []string{"cannot parse: " + err.Error()}
+			}
+			return sectionProblems(f)
+		}
 		return nil
 	case p == ".gitattributes":
 		if !manager(u) {
@@ -327,11 +336,10 @@ func (c *Checker) file(u config.User, old, new string, ch gitrepo.Change) []stri
 	return []string{c.outside()}
 }
 
-func parse(b []byte) (*finding.Finding, []string) {
-	f, err := finding.Parse(b)
-	if err != nil {
-		return nil, []string{"cannot parse: " + err.Error()}
-	}
+// sectionProblems checks a finding's (or template's) section bodies, and
+// that no section name is used twice: only the first one can be shown or
+// edited, yet both would ship in exports.
+func sectionProblems(f *finding.Finding) []string {
 	var ps []string
 	seen := map[string]bool{}
 	for _, s := range f.Sections {
@@ -339,11 +347,19 @@ func parse(b []byte) (*finding.Finding, []string) {
 			ps = append(ps, "section "+s.Name+": "+err.Error())
 		}
 		if seen[s.Name] {
-			// only the first one can be shown or edited
 			ps = append(ps, "section "+s.Name+" appears twice; merge them into one")
 		}
 		seen[s.Name] = true
 	}
+	return ps
+}
+
+func parse(b []byte) (*finding.Finding, []string) {
+	f, err := finding.Parse(b)
+	if err != nil {
+		return nil, []string{"cannot parse: " + err.Error()}
+	}
+	ps := sectionProblems(f)
 	if l, ok := f.Legacy(); ok {
 		ps = append(ps, "workflow state is managed in YARS, not in the file; remove "+strings.Join(l.Keys, ", ")+" from the front matter")
 	}
