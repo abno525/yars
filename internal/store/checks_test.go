@@ -524,6 +524,34 @@ func TestCheckEventSkipsDismissed(t *testing.T) {
 	}
 }
 
+// Two starts at the same moment (two quick start_check calls) give one run.
+func TestStartCheckConcurrentSameRun(t *testing.T) {
+	s, dir, fd := ready(t)
+	rd := filepath.Join(dir, ".yars", "rules")
+	withRules(t, s, dir, "- id: slow\n  script: slow.sh\n")
+	os.WriteFile(filepath.Join(rd, "slow.sh"), []byte("#!/bin/sh\ncat >/dev/null\nsleep 0.5\necho '[]'\n"), 0o755)
+	ids := make([]int64, 8)
+	var wg sync.WaitGroup
+	for i := range ids {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			run, err := s.StartCheck(eng, fd, uAlice)
+			if err != nil {
+				t.Error(err)
+			}
+			ids[i] = run.ID
+		}(i)
+	}
+	wg.Wait()
+	s.WaitChecks()
+	for _, id := range ids {
+		if id != ids[0] {
+			t.Fatalf("concurrent starts made several runs: %v", ids)
+		}
+	}
+}
+
 func TestStartCheckWhileRunningReturnsSameRun(t *testing.T) {
 	s, dir, fd := ready(t)
 	rd := filepath.Join(dir, ".yars", "rules")
