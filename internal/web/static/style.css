@@ -943,7 +943,7 @@ a.atab:hover { color: var(--ink); background: var(--panel); }
 .soon { font-size: 12px; font-weight: 700; color: var(--accent-text); }
 .chk { min-height: 40px; display: flex; align-items: center; gap: 10px; font-size: 14px; font-weight: 600; cursor: pointer; min-width: 0; }
 .chk.muted { color: var(--muted); cursor: default; }
-.monoin { font: 500 14px var(--mono); }
+.monoin, input.monoin:not([type="checkbox"]):not([type="radio"]) { font: 500 14px var(--mono); }
 input.grow, select.grow { flex: 1; min-width: 0; }
 .seg.n2 > label > span, .seg.n3 > label > span { --seg-w: 160px; }
 .seg.n4 > label > span { --seg-w: 120px; }
