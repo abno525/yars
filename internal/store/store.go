@@ -1780,6 +1780,22 @@ func (s *Store) UpdateCVSS(engID, dir, vector string, reasons map[string]string,
 		if err := f.SetMeta("cvss_reasons", rv); err != nil {
 			return "", err
 		}
+		if m.CVSS == v.String() {
+			// the vector stays: name the reasons that changed
+			var changed []string
+			for _, mt := range cvss.Metrics {
+				if merged[mt.Key] != m.CVSSReasons[mt.Key] {
+					changed = append(changed, mt.Key)
+				}
+			}
+			switch len(changed) {
+			case 0:
+			case 1:
+				return "edit CVSS reason " + changed[0], nil
+			default:
+				return "edit CVSS reasons " + strings.Join(changed, ", "), nil
+			}
+		}
 		return "set CVSS " + cvss.FormatScore(score), nil
 	})
 }

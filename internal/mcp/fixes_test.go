@@ -67,6 +67,23 @@ func TestMCPTitleBidiStripped(t *testing.T) {
 	}
 }
 
+// A CVSS reason edit says so in its commit, not "set CVSS <score>" as if
+// the vector had changed.
+func TestMCPCVSSReasonCommit(t *testing.T) {
+	f := newFx(t)
+	set := func(field, value string) {
+		f.ok(alice, "set_field", map[string]any{"engagement": "acme", "finding": "F-001", "field": field, "value": value})
+	}
+	set("cvss", "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:N/A:N")
+	if got := f.lastCommit(); got != "alice|F-001: set CVSS 5.9" {
+		t.Fatalf("vector commit %q", got)
+	}
+	set("cvss_reason.AC", "needs a race")
+	if got := f.lastCommit(); got != "alice|F-001: edit CVSS reason AC" {
+		t.Fatalf("reason commit %q", got)
+	}
+}
+
 // An unknown template is named as such, not a bare "not found" that reads
 // like an unknown engagement.
 func TestMCPUnknownTemplate(t *testing.T) {
