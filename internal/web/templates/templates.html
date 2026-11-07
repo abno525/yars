@@ -30,7 +30,7 @@
         <td><a class="btn ghost sm w96" href="/templates/{{.Slug}}">{{if $.Tpl.CanEdit}}Edit{{else}}Open{{end}}</a></td>
       </tr>
     {{else}}
-      <tr><td colspan="7" class="muted">—</td></tr>
+      {{template "empty_row" 7}}
     {{end}}
     </tbody>
   </table>

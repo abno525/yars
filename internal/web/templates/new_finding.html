@@ -52,7 +52,7 @@
           <td class="num">{{if .Used}}<span class="badge">{{.Used}}</span>{{else}}<span class="badge0">0</span>{{end}}</td>
         </tr>
       {{else}}
-        <tr><td colspan="5" class="muted">—</td></tr>
+        {{template "empty_row" 5}}
       {{end}}
       </tbody>
     </table>

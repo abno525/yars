@@ -29,7 +29,7 @@
           <td class="lact">{{.Activity}}</td>
         </tr>
       {{else}}
-        <tr><td colspan="6" class="muted empty">—</td></tr>
+        {{template "empty_row" 6}}
       {{end}}
       {{if .More}}<tr class="more"><td colspan="6" class="muted">{{len .Rows}} newest</td></tr>{{end}}
       </tbody>

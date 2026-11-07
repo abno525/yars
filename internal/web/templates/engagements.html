@@ -29,7 +29,7 @@
         <td>{{if $.CanManage}}<form method="post" action="/e/{{.ID}}/{{if .Archived}}reopen{{else}}archive{{end}}"><input type="hidden" name="show" value="{{$.EngShow}}">{{if .Archived}}<button class="btn secondary sm w112">Reopen</button>{{else}}<button class="btn secondary sm w112" onclick="return confirm({{printf "Archive %s?" .Name}})">Archive</button>{{end}}</form>{{else}}<span class="slot w112"></span>{{end}}</td>
       </tr>
     {{else}}
-      <tr><td colspan="7" class="muted empty">—</td></tr>
+      {{template "empty_row" 7}}
     {{end}}
     </tbody>
   </table>

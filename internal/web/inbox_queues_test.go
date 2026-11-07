@@ -91,10 +91,10 @@ func TestInboxEmptyQueues(t *testing.T) {
 		if u == "dora" {
 			picks = 2
 		}
-		if n := strings.Count(b, `<td colspan="7" class="muted empty">—</td>`); n != picks {
+		if n := strings.Count(b, `<tr class="emptyrow"><td colspan="7">—</td></tr>`); n != picks {
 			t.Errorf("%s: %d empty rows over 7 columns", u, n)
 		}
-		if n := strings.Count(b, `<td colspan="6" class="muted empty">—</td>`); n != want-picks {
+		if n := strings.Count(b, `<tr class="emptyrow"><td colspan="6">—</td></tr>`); n != want-picks {
 			t.Errorf("%s: %d empty rows over 6 columns", u, n)
 		}
 		if strings.Contains(b, `Inbox <span class="badge">`) {

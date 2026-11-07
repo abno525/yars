@@ -113,7 +113,7 @@
         <td><button type="button" class="btn save sm w96" data-copy="git-e{{$i}}">Copy</button></td>
       </tr>
       {{else}}
-      <tr><td colspan="3" class="muted">—</td></tr>
+      {{template "empty_row" 3}}
       {{end}}
     </tbody>
   </table>

@@ -108,7 +108,7 @@ func TestTeamBoardNoDB(t *testing.T) {
 func TestTeamBoardEmpty(t *testing.T) {
 	e := setup(t)
 	b := e.do(t, "alice", "GET", "/e/acme/board", nil, nil).Body.String()
-	if !strings.Contains(b, `<thead>`) || !strings.Contains(b, `class="muted empty"`) || !strings.Contains(b, `class="tbthread empty"`) {
+	if !strings.Contains(b, `<thead>`) || !strings.Contains(b, `<tr class="emptyrow"><td colspan="6">—</td></tr>`) || !strings.Contains(b, `class="tbthread empty"`) {
 		t.Fatalf("empty board:\n%s", b)
 	}
 	if !strings.Contains(tabsOf(t, b), `Team board <span class="badge0">0</span>`) {

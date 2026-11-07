@@ -34,7 +34,7 @@
       <td class="c-go"><a class="btn {{if .Primary}}primary{{else}}secondary{{end}} sm w104" href="{{.ActURL}}">{{.Act}}</a></td>
     </tr>
   {{else}}
-    {{if not .Offset}}<tr><td colspan="{{.Cols}}" class="muted empty">—</td></tr>{{end}}
+    {{if not .Offset}}{{template "empty_row" .Cols}}{{end}}
   {{end}}
   {{if .MoreURL}}
     <tr class="more" id="inbox-more-{{.Name}}"><td colspan="{{.Cols}}"><button type="button" class="btn secondary w152" hx-get="{{.MoreURL}}" hx-target="#inbox-more-{{.Name}}" hx-swap="outerHTML">Load {{.PageSize}} more</button></td></tr>

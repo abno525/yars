@@ -15,7 +15,7 @@
     {{range .Rows}}
       <tr><td class="clip mono" title="{{.Host}}">{{if .Host}}{{.Host}}{{else}}—{{end}}</td><td class="clip mono" title="{{.URL}}">{{if .URL}}{{.URL}}{{else}}—{{end}}</td><td class="mono">{{if .Port}}{{.Port}}{{else}}—{{end}}</td><td class="clip" title="{{.Note}}">{{.Note}}</td></tr>
     {{else}}
-      <tr><td class="muted" colspan="4">—</td></tr>
+      {{template "empty_row" 4}}
     {{end}}
     </tbody>
   </table>
@@ -72,6 +72,7 @@
           <td class="num">{{.Pct}}%</td>
           <td>{{if .MergeURL}}<a class="btn secondary sm w96" href="{{.MergeURL}}">Merge</a>{{else}}<span class="slot w96"></span>{{end}}</td>
         </tr>
+      {{else}}{{template "empty_row" 6}}
       {{end}}
       </tbody>
     </table>

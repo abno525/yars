@@ -57,6 +57,11 @@
   </div>
 {{end}}
 
+{{/* empty_row is the one empty state of every table: under its header
+row, one row of normal height with a left-aligned dash; the argument is
+the table's column count. */}}
+{{define "empty_row"}}<tr class="emptyrow"><td colspan="{{.}}">—</td></tr>{{end}}
+
 {{define "finding_rows"}}
     {{range .Rows}}
       <tr data-fid="{{.Dir}}"{{if $.Bulk.On}} data-acts="{{index $.Bulk.Acts .Dir}}"{{end}}{{with index $.Bulk.Skipped .Dir}} class="skip" title="{{.}}"{{else}}{{if index $.Bulk.Picked .Dir}} class="sel"{{end}}{{end}}>
@@ -72,7 +77,7 @@
         <td class="revs">{{$r := .}}{{range .Reviewers}}<span class="rv{{if cleared $r .}} cleared{{end}}">{{.}}{{if cleared $r .}}<span class="sr"> (signed off)</span>{{end}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
       </tr>
     {{else}}
-      {{if not $.Offset}}<tr><td colspan="{{colspan $}}" class="muted empty">No findings match.</td></tr>{{end}}
+      {{if not $.Offset}}{{template "empty_row" (colspan $)}}{{end}}
     {{end}}
     {{if .MoreURL}}
       <tr class="more" id="findings-more"><td colspan="{{colspan $}}"><button type="button" class="btn secondary w152" hx-get="{{.MoreURL}}" hx-target="#findings-more" hx-swap="outerHTML">Load {{.PageSize}} more</button></td></tr>

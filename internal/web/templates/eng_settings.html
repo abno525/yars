@@ -38,7 +38,7 @@
         <tr><td class="strong clip">{{.Value}}</td><td class="muted">{{.Label}}</td>
           <td>{{if $v.CanTeam}}<form method="post" action="/e/{{$eng}}/settings/team/remove"><input type="hidden" name="user" value="{{.Value}}"><button class="btn danger sm w96" aria-label="Remove {{.Value}}">Remove</button></form>{{else}}<span class="slot w96"></span>{{end}}</td></tr>
       {{else}}
-        <tr><td colspan="3" class="muted">—</td></tr>
+        {{template "empty_row" 3}}
       {{end}}
       </tbody>
     </table>

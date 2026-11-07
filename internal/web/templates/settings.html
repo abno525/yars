@@ -56,7 +56,7 @@
             <td><form method="post" action="/settings/tokens/{{.ID}}/revoke"><button class="btn danger sm w96">Revoke</button></form></td>
           </tr>
           {{else}}
-          <tr><td colspan="6" class="muted">—</td></tr>
+          {{template "empty_row" 6}}
           {{end}}
         </tbody>
       </table>
@@ -84,6 +84,7 @@
             </td>
             {{end}}
           </tr>
+          {{else}}{{template "empty_row" 4}}
           {{end}}
         </tbody>
       </table>

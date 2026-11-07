@@ -21,7 +21,7 @@
           <td>{{if .Editing}}<span class="btn save sm w96" aria-current="true">Editing</span>{{else}}<a class="btn ghost sm w96" href="/e/{{$.Eng.ID}}/export/setup?edit={{.ID}}">Edit</a>{{end}}</td>
         </tr>
         {{else}}
-        <tr><td colspan="5" class="muted">—</td></tr>
+        {{template "empty_row" 5}}
         {{end}}
       </tbody>
     </table>

@@ -45,7 +45,7 @@
           <td class="stack">{{if .Off}}<span>—</span>{{else}}<span>{{.Author}}</span><span class="mono{{if .OwnKey}} ownkey{{end}}" title="{{.Keys}}">{{.Keys}}</span>{{end}}</td>
         </tr>
         {{else}}
-        <tr><td colspan="5" class="muted">—</td></tr>
+        {{template "empty_row" 5}}
         {{end}}
       </tbody>
     </table>
@@ -66,7 +66,7 @@
           <td>{{if .RetryURL}}<button class="btn secondary sm w112" formaction="{{.RetryURL}}">Retry</button>{{else if .URL}}<a class="btn ghost sm w112" href="{{.URL}}" target="_blank" rel="noopener">Open</a>{{else}}<span class="slot w112"></span>{{end}}</td>
         </tr>
         {{else}}
-        <tr><td colspan="7" class="muted">—</td></tr>
+        {{template "empty_row" 7}}
         {{end}}
       </tbody>
     </table>

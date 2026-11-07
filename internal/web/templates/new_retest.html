@@ -37,7 +37,7 @@
           <td><span class="tag status-{{.Shown}}">{{statusLabel .Shown}}</span></td>
         </tr>
       {{else}}
-        <tr><td colspan="5" class="muted">—</td></tr>
+        {{template "empty_row" 5}}
       {{end}}
       </tbody>
     </table>
