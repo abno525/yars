@@ -1,5 +1,5 @@
 {{define "findings"}}
-<div id="findings">
+<div id="findings"{{if .LiveURL}} data-sse-url="{{.LiveURL}}" hx-get="{{.ListURL}}" hx-trigger="sse:content[yarsListIdle()], sse:workflow[yarsListIdle()], sse:chat[yarsListIdle()], sse:resync[yarsListIdle()], sse:poll[yarsListIdle()]" hx-swap="outerHTML" data-rows="{{len .Rows}}" data-sse{{end}}>
   <div class="filters">
     <nav class="seg nocap" aria-label="Status">
     {{range .StatusFilters}}

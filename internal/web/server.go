@@ -136,6 +136,8 @@ type page struct {
 	Offset        int    // first row shown (board pages after the first)
 	PageSize      int    // rows per board page
 	MoreURL       string // the next board page ("" = no more)
+	ListURL       string // the board as filtered and sorted now (live refresh)
+	LiveURL       string // the board's event stream ("" = no live refresh)
 	StatusFilters []link
 	Bulk          bulkBar           // the board: bulk state change
 	Summary       index.Summary     // the board: counts by status and severity, progress
@@ -471,6 +473,12 @@ func (s *Server) engagement(w http.ResponseWriter, r *http.Request) {
 			s.exec(w, "engagement.html", "finding_rows", p)
 			return
 		}
+		if r.Header.Get("HX-Trigger") == "findings" {
+			// the list refreshing itself (live): the progress panel too
+			p.BarsOOB = true
+			s.exec(w, "engagement.html", "findings_ran", p)
+			return
+		}
 		s.exec(w, "engagement.html", "findings", p)
 		return
 	}
@@ -535,6 +543,8 @@ func (s *Server) engPage(r *http.Request, eng string, keep map[string]bool) (*pa
 		}
 	}
 	p.Rows, p.Offset, p.PageSize = rows[off:end], off, s.pageSize
+	p.ListURL = mk(func(url.Values) {})
+	p.LiveURL = "/events?" + url.Values{"eng": {eng}}.Encode()
 	if end < len(rows) {
 		p.MoreURL = mk(func(v url.Values) {
 			v.Set("offset", strconv.Itoa(end))

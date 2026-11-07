@@ -27,6 +27,16 @@ function yarsTheme() {
   }
 }
 
+// yarsListIdle tells whether the findings board may refresh itself: not
+// while rows are picked or more rows were loaded (both would be lost).
+function yarsListIdle() {
+  var list = document.getElementById('findings');
+  if (!list) return false;
+  if (list.querySelector('input[name="id"]:checked')) return false;
+  var shown = list.querySelectorAll('tbody tr[data-fid]').length;
+  return shown <= Number(list.getAttribute('data-rows') || 0);
+}
+
 // yarsToast shows a short message in #toasts; click or wait to dismiss.
 function yarsToast(text, err) {
   var box = document.getElementById('toasts');
