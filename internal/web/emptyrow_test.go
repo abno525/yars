@@ -1,6 +1,8 @@
 package web
 
 import (
+	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -40,6 +42,34 @@ func checkEmptyRows(t *testing.T, page, b string) int {
 	return n
 }
 
+// Every literal empty_row column count in the templates matches its
+// table's header (tables whose empty state no test page shows included).
+func TestEmptyRowColspansInTemplates(t *testing.T) {
+	ents, err := os.ReadDir("templates")
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := 0
+	for _, en := range ents {
+		b, _ := os.ReadFile(filepath.Join("templates", en.Name()))
+		for _, m := range regexp.MustCompile(`(?s)<table[^>]*>(.*?)</table>`).FindAllStringSubmatch(string(b), -1) {
+			e := regexp.MustCompile(`\{\{template "empty_row" (\d+)\}\}`).FindStringSubmatch(m[1])
+			if e == nil {
+				continue
+			}
+			seen++
+			head := between(m[1], "<thead>", "</thead>")
+			cols := len(regexp.MustCompile(`<th[ >]`).FindAllString(head, -1))
+			if got, _ := strconv.Atoi(e[1]); got != cols || strings.Contains(head, "{{range") {
+				t.Errorf("%s: empty_row %d under %d header columns", en.Name(), got, cols)
+			}
+		}
+	}
+	if seen < 20 {
+		t.Fatalf("only %d literal empty rows found", seen)
+	}
+}
+
 // D17: one empty-table style everywhere.
 func TestOneEmptyTableStyle(t *testing.T) {
 	e := setup(t)
@@ -49,10 +79,13 @@ func TestOneEmptyTableStyle(t *testing.T) {
 		"/admin/tokens": "dora", "/admin/activity": "dora", "/admin/webhooks": "dora", "/admin/rules": "dora", "/settings": "alice",
 		"/e/acme/settings": "dora", "/e/acme/overview": "dora", "/e/acme/report": "dora", "/engagements": "dora", "/docs": "alice",
 		fpath + "/history": "alice", "/e/acme/export/setup": "dora", "/admin/system": "dora", "/admin/users": "dora",
+		fpath + "/merge": "alice", "/e/acme/retest/new": "dora", "/admin/structure": "dora", "/admin/ai": "dora",
 	}
 	total := 0
 	for p, u := range pages {
-		total += checkEmptyRows(t, p, e.do(t, u, "GET", p, nil, nil).Body.String())
+		n := checkEmptyRows(t, p, e.do(t, u, "GET", p, nil, nil).Body.String())
+		t.Logf("%s: %d empty tables", p, n)
+		total += n
 	}
 	if total < 6 {
 		t.Fatalf("only %d empty tables seen", total)
