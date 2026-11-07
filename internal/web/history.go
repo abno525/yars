@@ -313,6 +313,7 @@ func (s *Server) renderHistory(w http.ResponseWriter, r *http.Request, status in
 		return
 	}
 	p.History.Error = errMsg
+	p.TabTitle = p.Finding.F.Meta.ID + " history"
 	s.renderStatus(w, status, "history.html", p)
 }
 

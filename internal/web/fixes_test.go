@@ -55,6 +55,30 @@ func TestRootScrollbarGutter(t *testing.T) {
 	}
 }
 
+// A finding's tab and its history's tab name the finding; the site has a
+// favicon (no 404 on every first load).
+func TestTabTitlesAndFavicon(t *testing.T) {
+	e := setup(t)
+	for p, want := range map[string]string{
+		"/e/acme/f/001":         "<title>F-001 SQL injection · YARS</title>",
+		"/e/acme/f/001/history": "<title>F-001 history · YARS</title>",
+	} {
+		if b := e.do(t, "alice", "GET", p, nil, nil).Body.String(); !strings.Contains(b, want) {
+			t.Errorf("%s: no %s", p, want)
+		}
+	}
+	b := e.do(t, "alice", "GET", "/e/acme/f/001", nil, nil).Body.String()
+	if !strings.Contains(b, `<link rel="icon" type="image/svg+xml" href="`+staticPrefix()+`/favicon.svg">`) {
+		t.Error("no icon link")
+	}
+	if rec := e.do(t, "alice", "GET", staticPrefix()+"/favicon.svg", nil, nil); rec.Code != 200 || !strings.Contains(rec.Body.String(), "<svg") {
+		t.Errorf("favicon.svg %d", rec.Code)
+	}
+	if rec := e.do(t, "", "GET", "/favicon.ico", nil, nil); rec.Code != http.StatusMovedPermanently || rec.Header().Get("Location") != staticPrefix()+"/favicon.svg" {
+		t.Errorf("favicon.ico %d %q", rec.Code, rec.Header().Get("Location"))
+	}
+}
+
 // History names the front matter part a version changed: a title edit is
 // "edited the title", not "edited details".
 func TestHistoryNamesFrontMatterPart(t *testing.T) {

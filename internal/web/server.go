@@ -136,6 +136,7 @@ type page struct {
 	Offset        int    // first row shown (board pages after the first)
 	PageSize      int    // rows per board page
 	MoreURL       string // the next board page ("" = no more)
+	TabTitle      string // the browser tab's title before " · YARS" ("" = the engagement's name)
 	ListURL       string // the board as filtered and sorted now (live refresh)
 	LiveURL       string // the board's event stream ("" = no live refresh)
 	StatusFilters []link
@@ -281,6 +282,9 @@ func (s *Server) Handler() http.Handler {
 	root.HandleFunc("GET /setup", s.setupPage)
 	root.HandleFunc("POST /setup", s.setup)
 	root.Handle("GET /static/", staticHandler())
+	root.HandleFunc("GET /favicon.ico", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, staticPrefix()+"/favicon.svg", http.StatusMovedPermanently)
+	})
 	root.Handle("/", s.Auth.Require(s.teamGate(private)))
 	if s.Git != nil {
 		root.Handle("/git/", longLived(s.Git)) // HTTP Basic auth, no cookies; big pushes and clones take time
@@ -687,5 +691,6 @@ func (s *Server) renderFinding(w http.ResponseWriter, r *http.Request, status in
 	p.Retest = s.retestFor(r, p.Finding)
 	// fast rule errors also block submit/approve; show them in the bar
 	p.WF, p.Checks = s.wfGated(r, p.Finding)
+	p.TabTitle = p.Finding.F.Meta.ID + " " + p.Finding.F.Meta.Title
 	s.renderStatus(w, status, "finding.html", p)
 }
