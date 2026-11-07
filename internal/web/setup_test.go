@@ -106,7 +106,9 @@ func TestLoginPage(t *testing.T) {
 	if wrong.Code != http.StatusUnauthorized || disabled.Code != http.StatusUnauthorized {
 		t.Fatalf("codes %d %d", wrong.Code, disabled.Code)
 	}
-	if !strings.Contains(disabled.Body.String(), "Wrong username or password") || wrong.Body.String() != disabled.Body.String() {
+	// the same page but for the username kept in the form
+	same := strings.Replace(wrong.Body.String(), `value="alice"`, `value="bob"`, 1)
+	if !strings.Contains(disabled.Body.String(), "Wrong username or password") || same != disabled.Body.String() {
 		t.Fatal("a disabled account is told apart from a wrong password")
 	}
 	if rec := e.do(t, "", "GET", "/setup", nil, nil); rec.Code != http.StatusNotFound {

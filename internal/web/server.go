@@ -412,7 +412,9 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	// a disabled account gets the same answer as a wrong password
 	tok, ok := s.Auth.Login(r.FormValue("username"), r.FormValue("password"))
 	if !ok {
-		s.renderStatus(w, http.StatusUnauthorized, "login.html", &page{Bare: true, Error: "Wrong username or password"})
+		// the username stays filled in (never the password)
+		form := url.Values{"username": {r.FormValue("username")}}
+		s.renderStatus(w, http.StatusUnauthorized, "login.html", &page{Bare: true, Error: "Wrong username or password", Form: form})
 		return
 	}
 	auth.SetCookie(w, tok)

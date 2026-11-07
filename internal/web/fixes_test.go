@@ -57,6 +57,23 @@ func TestRootScrollbarGutter(t *testing.T) {
 	}
 }
 
+// A failed login keeps the username (never the password) and focuses the
+// password field.
+func TestLoginKeepsUsername(t *testing.T) {
+	e := setup(t)
+	rec := e.do(t, "", "POST", "/login", url.Values{"username": {"alice"}, "password": {"wrong-secret"}}, nil)
+	b := rec.Body.String()
+	if rec.Code != http.StatusUnauthorized || !strings.Contains(b, `name="username" value="alice"`) || strings.Contains(b, "wrong-secret") {
+		t.Fatalf("%d:\n%s", rec.Code, b)
+	}
+	if !regexp.MustCompile(`name="password"[^>]*autofocus`).MatchString(b) || regexp.MustCompile(`name="username"[^>]*autofocus`).MatchString(b) {
+		t.Fatalf("focus:\n%s", b)
+	}
+	if b := e.do(t, "", "GET", "/login", nil, nil).Body.String(); !regexp.MustCompile(`name="username" value=""[^>]*autofocus`).MatchString(b) {
+		t.Fatalf("empty login form:\n%s", b)
+	}
+}
+
 // Every inbox column has a header, the action column too.
 func TestInboxActionHeader(t *testing.T) {
 	e := setup(t)
