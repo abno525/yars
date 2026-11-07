@@ -22,6 +22,7 @@ import (
 	"yars/internal/config"
 	"yars/internal/events"
 	"yars/internal/export"
+	"yars/internal/finding"
 	"yars/internal/gitrepo"
 	"yars/internal/history"
 	"yars/internal/index"
@@ -110,6 +111,7 @@ type link struct {
 
 type panel struct {
 	Name, Anchor, EditURL, SaveURL, PreviewURL, Raw string
+	ViewURL                                         string // the read panel alone (live refresh; "" = none)
 	Base, Error                                     string
 	Open                                            int // open chat threads anchored here
 	HTML, Current                                   template.HTML
@@ -152,6 +154,7 @@ type page struct {
 	Finding       store.FindingRef
 	Panels        []panel
 	CVSS          cvssView
+	Head          headView // the finding's title, status and severity
 	Details       detailsView
 	WF            wfView
 	Inbox         inboxView
@@ -184,6 +187,9 @@ type page struct {
 var funcs = template.FuncMap{"join": strings.Join, "checkedIn": checkedIn, "retestLabel": workflow.RetestLabel, "fpath": findingURL,
 	"static": staticPrefix, "score0": score0, "cleared": cleared, "age": age, "day": day, "when": when, "ending": ending,
 	"actionTag": actionTag, "actionName": actionName, "statusLabel": workflow.StatusLabel, "statusTitle": workflow.StatusTitle, "shown": workflow.Shown, "dateRange": dateRange, "colspan": colspan,
+	// a read panel refetches itself when the finding changed (MCP, a push,
+	// another tab); an open editor has no trigger, so it is never replaced
+	"liveTrigger": func() string { return "sse:content, sse:resync, sse:poll" },
 	"stepArgs": func(s stepRow, retryURL string) any {
 		return struct {
 			Step     stepRow
@@ -254,6 +260,7 @@ func (s *Server) Handler() http.Handler {
 	private.HandleFunc("POST /logout", s.logout)
 	private.HandleFunc("GET /e/{eng}", s.engagement)
 	private.HandleFunc("GET /e/{eng}/f/{fid}", s.finding)
+	private.HandleFunc("GET /e/{eng}/f/{fid}/head", s.findingHead)
 	s.routesEdit(private)
 	s.routesCVSS(private)
 	s.routesDetails(private)
@@ -641,9 +648,35 @@ func (s *Server) panelFor(ref store.FindingRef, name string) panel {
 	}
 	p.Presence = presView{URL: presURL(ref, name)}
 	base := findingURL(ref.EngID, ref.Dir) + "/s/" + url.PathEscape(name)
-	p.EditURL, p.SaveURL = base+"/edit", base
+	p.EditURL, p.SaveURL, p.ViewURL = base+"/edit", base, base
 	p.PreviewURL = "/e/" + ref.EngID + "/preview?" + url.Values{"f": {ref.Dir}, "s": {name}}.Encode()
 	return p
+}
+
+// headView is the finding page's title column: it refreshes itself when the
+// finding changes (a new title or severity by MCP or a push, a status).
+type headView struct {
+	EngID, EngName, URL string
+	Meta                finding.Meta
+	CVSS                cvssView // the severity pill
+}
+
+func (s *Server) headFor(ref store.FindingRef, engName string) headView {
+	return headView{EngID: ref.EngID, EngName: engName, URL: findingURL(ref.EngID, ref.Dir) + "/head", Meta: ref.F.Meta, CVSS: s.cvssPanel(ref)}
+}
+
+// findingHead answers the title column alone (live refresh).
+func (s *Server) findingHead(w http.ResponseWriter, r *http.Request) {
+	ref, ok := s.cvssRef(w, r)
+	if !ok {
+		return
+	}
+	e, err := s.Store.Engagement(ref.EngID)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	s.exec(w, "finding.html", "finding_head", s.headFor(ref, e.Name))
 }
 
 func (s *Server) finding(w http.ResponseWriter, r *http.Request) {
@@ -685,6 +718,7 @@ func (s *Server) renderFinding(w http.ResponseWriter, r *http.Request, status in
 	}
 	p.CVSS = s.cvssPanel(p.Finding)
 	p.CVSS.Locked = locked
+	p.Head = s.headFor(p.Finding, p.Eng.Name)
 	p.Details = s.detailsFor(p.Finding, nil)
 	p.Details.Locked = locked
 	p.Assets = s.assetsFor(p.Finding, nil)

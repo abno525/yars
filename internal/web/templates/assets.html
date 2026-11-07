@@ -1,7 +1,7 @@
 {{define "assets_count"}}{{if .}}<span class="badge">{{len .}}</span>{{else}}<span class="badge0">0</span>{{end}}{{end}}
 
 {{define "assets_panel"}}
-<section class="panel" id="assets">
+<section class="panel" id="assets" hx-get="{{.ViewURL}}" hx-trigger="{{liveTrigger}}" hx-swap="outerHTML" data-sse>
   <div class="panelhead">
     <div class="panelname"><h2 id="s-assets">Affected assets</h2>{{template "assets_count" .Rows}}</div>
     <div class="panel-tools">

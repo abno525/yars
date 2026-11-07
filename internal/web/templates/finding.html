@@ -1,16 +1,20 @@
+{{define "finding_head"}}
+<div class="titlecol" id="fhead" hx-get="{{.URL}}" hx-trigger="{{liveTrigger}}, sse:workflow" hx-swap="outerHTML" data-sse>
+  <nav class="crumbs"><a href="/e/{{.EngID}}">{{.EngName}}</a><span class="sep" aria-hidden="true">/</span><span class="idchip">{{.Meta.ID}}</span></nav>
+  <h1 title="{{.Meta.Title}}"{{if eq .Meta.Status "withdrawn"}} class="withdrawn-title"{{end}}>{{.Meta.Title}}</h1>
+  <div class="meta">
+    {{$st := shown .Meta}}<span class="tag status-{{$st}}">{{statusLabel $st}}</span>
+    {{template "sevpill" .CVSS}}
+    <span class="muted by" title="{{.Meta.Author}}">by {{.Meta.Author}}</span>
+  </div>
+</div>
+{{end}}
+
 {{define "content"}}
 {{$f := .Finding.F}}
 {{$wd := eq $f.Meta.Status "withdrawn"}}
 <div class="titlerow">
-  <div class="titlecol">
-    <nav class="crumbs"><a href="/e/{{.Eng.ID}}">{{.Eng.Name}}</a><span class="sep" aria-hidden="true">/</span><span class="idchip">{{$f.Meta.ID}}</span></nav>
-    <h1 title="{{$f.Meta.Title}}"{{if $wd}} class="withdrawn-title"{{end}}>{{$f.Meta.Title}}</h1>
-    <div class="meta">
-      {{$st := shown $f.Meta}}<span class="tag status-{{$st}}">{{statusLabel $st}}</span>
-      {{template "sevpill" .CVSS}}
-      <span class="muted by" title="{{$f.Meta.Author}}">by {{$f.Meta.Author}}</span>
-    </div>
-  </div>
+  {{template "finding_head" .Head}}
   <div class="actions fhead">
     {{$fu := fpath .Eng.ID .Finding.Dir}}
     {{if .CanMerge}}<a class="btn secondary w136" href="{{$fu}}/merge">Merge into</a>{{else}}<span class="slot w136"></span>{{end}}

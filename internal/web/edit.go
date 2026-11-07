@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"yars/internal/auth"
+	"yars/internal/chat"
 	"yars/internal/config"
 	"yars/internal/finding"
 	"yars/internal/history"
@@ -311,9 +312,17 @@ func (s *Server) sectionRef(w http.ResponseWriter, r *http.Request) (store.Findi
 
 func (s *Server) sectionView(w http.ResponseWriter, r *http.Request) {
 	if ref, name, ok := s.sectionRef(w, r); ok {
-		// Cancel comes here: the editor is closed
-		s.presence.leave(presKey{ref.EngID, ref.F.Meta.ID, name}, auth.UserFrom(r.Context()).Username)
+		// Cancel comes here: the editor is closed (a live refresh is not
+		// Cancel: the user may be editing it in another tab)
+		if r.URL.Query().Get("live") == "" {
+			s.presence.leave(presKey{ref.EngID, ref.F.Meta.ID, name}, auth.UserFrom(r.Context()).Username)
+		}
 		p := s.panelFor(ref, name)
+		p.ReadOnly = s.Store.Archived(ref.EngID)
+		if msgs, err := s.Store.Chat(ref.EngID, ref.Dir); err == nil {
+			_, by := chat.OpenCount(msgs)
+			p.Open = by[name]
+		}
 		p.Presence = s.presenceFor(r, ref, name)
 		if s.locked(r, ref) {
 			p.EditURL = ""
