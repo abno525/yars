@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -187,6 +188,11 @@ func has(ps []string, sub string) bool {
 	return strings.Contains(strings.Join(ps, "\n"), sub)
 }
 
+// hasLine reports whether one problem starts with prefix and contains sub.
+func hasLine(ps []string, prefix, sub string) bool {
+	return slices.ContainsFunc(ps, func(p string) bool { return strings.HasPrefix(p, prefix) && strings.Contains(p, sub) })
+}
+
 func newFinding(dir, meta string) func(string) {
 	return func(d string) {
 		write(d, "findings/"+dir+"/finding.md", "---\n"+meta+"---\n\n## Description\n\nx\n")
@@ -296,8 +302,31 @@ func TestPolicyEngagementYAML(t *testing.T) {
 		t.Fatalf("engagement.yaml deletion accepted: %v", ps)
 	}
 	f.reclone()
-	if ps := f.push("dora", func(d string) { write(d, "engagement.yaml", "name: ACME Corp\n") }); len(ps) != 0 {
+	if ps := f.push("dora", func(d string) { write(d, "engagement.yaml", "name: ACME Corp\ntype: pentest\n") }); len(ps) != 0 {
 		t.Fatalf("valid engagement.yaml refused: %v", ps)
+	}
+}
+
+// engagement.yaml is held to the engagement Settings tab's rules, and its
+// type and source stay as created (a pentest can't become a retest of
+// another engagement, whose findings its team would then read).
+func TestPolicyEngagementValues(t *testing.T) {
+	f := newFx(t)
+	cases := map[string]string{
+		"name: \"\"\ntype: pentest\n":                                     "name is required",
+		"name: ACME\ntype: pentest\nstart: 2026-13-01\n":                  "YYYY-MM-DD",
+		"name: ACME\ntype: pentest\nstart: 2026-11-07\nend: 2026-11-01\n": "end is before the start",
+		"name: ACME\nclient: \"a\\nb\"\ntype: pentest\n":                  "client must be one line",
+		"name: ACME\ntype: retest\nsource: secret\n":                      "keep type: pentest",
+		"name: ACME\ntype: pentest\nsource: secret\n":                     "keep source: \"\"",
+		"name: ACME\n": "keep type: pentest",
+	}
+	for body, want := range cases {
+		f.reclone()
+		ps := f.push("dora", func(d string) { write(d, "engagement.yaml", body) })
+		if !hasLine(ps, "commit "+short(t, f.clone, "HEAD")+" engagement.yaml: ", want) {
+			t.Errorf("%q: %v", body, ps)
+		}
 	}
 }
 
@@ -505,6 +534,158 @@ func TestPolicyDirectorEditCarriesApproval(t *testing.T) {
 }
 
 func chatMsg(text string) chat.Message { return chat.Message{Text: text} }
+
+// short is the 7-hex name of rev in dir.
+func short(t *testing.T, dir, rev string) string {
+	return git(t, dir, "rev-parse", "--short=7", rev)
+}
+
+const crit = "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H" // 9.8 critical
+
+// A pushed finding is held to the website's rules for what it changes:
+// CVSS vector and version, severity agreeing with the vector, assets and
+// title; each refusal names the commit, the file and the rule.
+func TestPolicyFindingContent(t *testing.T) {
+	f := newFx(t)
+	cases := []struct {
+		edit func(*finding.Finding)
+		want string
+	}{
+		{set("cvss", "garbage"), "CVSS vector garbage: "},
+		{func(fd *finding.Finding) {
+			fd.SetMeta("cvss", "CVSS:3.0/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H")
+			fd.SetMeta("severity", "critical")
+		}, "write " + crit},
+		{func(fd *finding.Finding) { fd.SetMeta("cvss", crit); fd.SetMeta("severity", "low") }, "severity low does not match the CVSS vector (score 9.8 is critical)"},
+		{set("cvss", crit), "severity (none) does not match"},
+		{set("assets", []finding.Asset{{Host: "h", Port: "70000"}}), "asset 1: port must be 1–65535"},
+		{set("assets", []finding.Asset{{URL: "example.com/x"}}), "asset 1: URL needs a scheme and host"},
+		{set("assets", []finding.Asset{{Host: "h", Note: "a\nb"}}), "asset 1: one line"},
+		{set("title", ""), "the title must be one line"},
+		{set("title", "two\nlines"), "the title must be one line"},
+		{set("title", "Upload ‮gnp.exe"), "hidden text-direction characters"},
+	}
+	for _, c := range cases {
+		f.reclone()
+		ps := f.push("alice", func(d string) { editMeta(d, c.edit) })
+		if !hasLine(ps, "commit "+short(t, f.clone, "HEAD")+" "+fdir+"/finding.md: ", c.want) {
+			t.Errorf("want %q in %v", c.want, ps)
+		}
+	}
+	f.reclone()
+	if ps := f.push("alice", func(d string) {
+		editMeta(d, func(fd *finding.Finding) { fd.SetMeta("cvss", crit); fd.SetMeta("severity", "critical") })
+	}); len(ps) != 0 {
+		t.Fatalf("valid CVSS refused: %v", ps)
+	}
+}
+
+// A problem the server copy already has does not block an edit of another
+// part (the website lets that edit through too); changing the bad part
+// itself is checked.
+func TestPolicyGrandfathered(t *testing.T) {
+	f := newFx(t)
+	editMeta(f.repo().Dir, set("cvss", "CVSS:3.1/AV:N"))
+	git(t, f.repo().Dir, "commit", "-qam", "old push without checks")
+	f.reclone()
+	if ps := f.push("alice", func(d string) {
+		editMeta(d, func(fd *finding.Finding) { fd.SetSection("Description", "better words") })
+	}); len(ps) != 0 {
+		t.Fatalf("edit of another part refused: %v", ps)
+	}
+	f.reclone()
+	if ps := f.push("alice", func(d string) { editMeta(d, set("cvss", "CVSS:3.1/AV:L")) }); !has(ps, "CVSS vector") {
+		t.Fatalf("changed bad vector accepted: %v", ps)
+	}
+}
+
+// Every pushed commit is checked, not only the last: a broken middle
+// commit is named even when a later one repairs it.
+func TestPolicyEveryCommit(t *testing.T) {
+	f := newFx(t)
+	commit := func(edit func(string)) string {
+		edit(f.clone)
+		git(t, f.clone, "add", "-A")
+		git(t, f.clone, "-c", "user.name=alice", "-c", "user.email=alice@yars.local", "commit", "-qm", "step")
+		return short(t, f.clone, "HEAD")
+	}
+	c1 := commit(func(d string) { editMeta(d, func(fd *finding.Finding) { fd.SetSection("Impact", "one") }) })
+	c2 := commit(func(d string) { editMeta(d, set("cvss", "garbage")) })
+	c3 := commit(func(d string) { editMeta(d, set("cvss", nil)) })
+	ps := f.check("alice", git(t, f.clone, "rev-parse", "HEAD"))
+	if !has(ps, "commit "+c2+" "+fdir+"/finding.md: CVSS vector garbage") || has(ps, c1) || has(ps, c3) {
+		t.Fatalf("middle commit: %v", ps)
+	}
+}
+
+// A merge brings a side branch's commits along: those are checked one by
+// one, and the merge itself only for what it changes beyond both sides.
+func TestPolicyMergeSideBranch(t *testing.T) {
+	f := newFx(t)
+	as := []string{"-c", "user.name=alice", "-c", "user.email=alice@yars.local"}
+	run := func(args ...string) { git(t, f.clone, append(slices.Clone(as), args...)...) }
+	run("switch", "-qc", "side")
+	write(f.clone, fdir+"/attachments/tool.txt", "\x7fELF\x02\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00")
+	run("add", "-A")
+	run("commit", "-qm", "side: binary")
+	bad := short(t, f.clone, "HEAD")
+	run("rm", "-q", fdir+"/attachments/tool.txt")
+	run("commit", "-qm", "side: drop it")
+	run("switch", "-q", "-")
+	editMeta(f.clone, func(fd *finding.Finding) { fd.SetSection("Impact", "main work") })
+	run("commit", "-qam", "main work")
+	run("merge", "-q", "--no-edit", "side")
+	ps := f.check("alice", git(t, f.clone, "rev-parse", "HEAD"))
+	if !has(ps, "commit "+bad+" "+fdir+"/attachments/tool.txt: only images and text files can be attached") || len(ps) != 1 {
+		t.Fatalf("side branch: %v", ps)
+	}
+}
+
+// Attachments are held to the website's upload rules: images or text, not
+// executable, plain names directly in attachments/, at most 10 MB; a big
+// file a later commit deletes is still refused (history keeps it).
+func TestPolicyAttachmentRules(t *testing.T) {
+	f := newFx(t)
+	cases := map[string]func(string){
+		"only images and text files can be attached": func(d string) {
+			write(d, fdir+"/attachments/poc.png", "\x7fELF\x02\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00")
+		},
+		"cannot be executable": func(d string) {
+			write(d, fdir+"/attachments/run.txt", "echo hi\n")
+			os.Chmod(filepath.Join(d, fdir, "attachments", "run.txt"), 0o755)
+		},
+		"attachment names are":  func(d string) { write(d, fdir+"/attachments/sub/x.txt", "x") },
+		"attachment names are ": func(d string) { write(d, fdir+"/attachments/a b.txt", "x") },
+	}
+	for want, edit := range cases {
+		f.reclone()
+		if ps := f.push("alice", edit); !has(ps, "commit "+short(t, f.clone, "HEAD")+" "+fdir+"/attachments/") || !has(ps, want) {
+			t.Errorf("%s: %v", want, ps)
+		}
+	}
+	f.reclone()
+	write(f.clone, fdir+"/attachments/big.txt", strings.Repeat("a", 11<<20))
+	git(t, f.clone, "add", "-A")
+	git(t, f.clone, "-c", "user.name=alice", "-c", "user.email=alice@yars.local", "commit", "-qm", "big")
+	big := short(t, f.clone, "HEAD")
+	ps := f.push("alice", func(d string) { os.Remove(filepath.Join(d, fdir, "attachments", "big.txt")) })
+	if !has(ps, "commit "+big+" "+fdir+"/attachments/big.txt: 11.0 MB; files over 10 MB are not accepted") {
+		t.Fatalf("big file in history: %v", ps)
+	}
+}
+
+// A long refusal lists the first problems and sums up the rest.
+func TestPolicyProblemsCapped(t *testing.T) {
+	f := newFx(t)
+	ps := f.push("alice", func(d string) {
+		for i := range 60 {
+			write(d, "stray"+strconv.Itoa(i)+".txt", "x")
+		}
+	})
+	if len(ps) != maxProblems+1 || !strings.HasPrefix(ps[maxProblems], "… and 10 more problems") {
+		t.Fatalf("%d problems, last %q", len(ps), ps[len(ps)-1])
+	}
+}
 
 // Findings live in engagement repos; the main repo holds settings only, and
 // its engagement pointers are the server's.

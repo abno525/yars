@@ -26,11 +26,24 @@ Workflow state (status, reviewers, sign-offs), chat, check runs and notification
 
 ## Push rules
 
-Only `refs/heads/main` can be pushed, and every commit is checked as if it were made on the website:
+Only `refs/heads/main` can be pushed, and every commit in the push is checked on its own, as if it were made on the website: a commit the website could not have made is refused even when a later commit repairs it, since history keeps both. Each refusal reads `commit <hash> <file>: <rule>`; the hash is the commit to fix, with `git commit --amend` for the last one or `git rebase -i <hash>~1` (mark it `edit`) for an earlier one. Only the parts a commit changes are checked, so a finding that already broke a rule on the server can still have its other parts edited. Up to 50 problems are listed, then their count.
 
 | Message | Reason | Fix |
 |---|---|---|
 | `commit 1a2b3c4: authored by … <…>, but the account … has the email …` | The author email is not your account's email (the name may differ; directors too) | `git config user.email <account email>` · `git commit --amend --reset-author` |
+| `the email … of account … is also the email of account …` | Two accounts share an email (from before emails had to be unique) | one of them changes it in Settings › Account |
+| `…/finding.md: CVSS vector … is not written as this server's CVSS 3.1 vector; write …` | Another version (3.0) or metric order | the vector the message gives |
+| `…/finding.md: CVSS vector …: missing metric …` | Incomplete or invalid vector | a complete `CVSS:3.1/…` base vector, or none |
+| `…/finding.md: severity … does not match the CVSS vector (score … is …)` | The website derives the severity from the vector | `severity: <the rating named>` |
+| `…/finding.md: asset 2: port must be 1–65535` | An asset row the website refuses (also: host or URL, URL with scheme and host, one line) | correct the row |
+| `…/finding.md: the title must be one line of 1–200 characters` | Empty, multi-line or long title | one line |
+| `…/finding.md: the title has … hidden text-direction characters` | Bidi controls (they can disguise `gnp.exe` as `exe.png`) | retype the title |
+| `…/attachments/x: only images and text files can be attached` | Program, archive, PDF … | attach a screenshot or text |
+| `…/attachments/x: attachments cannot be executable` | Mode 755 | `git update-index --chmod=-x <file>` |
+| `…/attachments/x: attachment names are letters, digits, . _ -` | Spaces, sub-folders | rename the file |
+| `…: 11.0 MB; files over 10 MB are not accepted` | Any file over 10 MB, even one a later commit deletes | rebase it out of the commit |
+| `engagement.yaml: name is required` · `dates are YYYY-MM-DD` · `the end is before the start` | The engagement's Settings tab rules | correct the value |
+| `engagement.yaml: type is fixed when the engagement is created; keep type: …` | Type or source changed | restore `type` / `source` |
 | `refs/heads/wip: only refs/heads/main can be pushed` | Other branch | `git push origin wip:main` |
 | `refs/heads/main: deleting the branch is not allowed` | Branch delete | — |
 | `engagements/demo: engagement pointers are managed by the server` | Submodule pointer in the main repo | push inside `engagements/demo` · top: `git pull` |

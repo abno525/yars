@@ -151,53 +151,152 @@ func (c *Checker) Check(username string, ups []Update) []string {
 			ps = append(ps, up.Ref+": the server has newer commits; pull, then push again")
 			continue
 		}
-		// every pushed commit must be authored as the pusher (audit trail):
-		// by the account's email, which does not change the way names do
-		authors, err := c.Repo.Authors(old, up.New)
+		// every commit is checked on its own, as if it were made on the
+		// website: history keeps each one, not only the last
+		commits, err := c.Repo.Commits(old, up.New)
 		if err != nil {
 			ps = append(ps, "server: "+err.Error())
 			continue
 		}
-		want := u.GitAuthor()
-		for _, a := range authors {
-			if !config.SameEmail(a.Email, want.Email) {
-				ps = append(ps, fmt.Sprintf("commit %.7s: authored by %s <%s>, but the account %s has the email %s; run git config user.email %s, then git commit --amend --reset-author (or rebase older commits)",
-					a.Hash, a.Name, a.Email, u.Username, want.Email, want.Email))
-			}
+		for _, cm := range commits {
+			cps, rep := c.checkCommit(u, cm)
+			ps = append(ps, cps...)
+			repairs = repairs || rep
 		}
-		changes, err := c.Repo.ChangedFiles(old, up.New)
-		if err != nil {
-			ps = append(ps, "server: "+err.Error())
-			continue
-		}
-		for _, ch := range changes {
-			if c.Eng == "" && ch.Path == ".yars/config.yaml" {
-				repairs = true
-			}
-			if c.Token != nil {
-				if need := c.scopeFor(old, ch); !c.Token.Allows(need) {
-					ps = append(ps, ch.Path+": this token cannot "+need+" findings")
-					continue
-				}
-			}
-			var probs []string
-			if c.Eng == "" {
-				probs = c.mainFile(u, old, up.New, ch)
-			} else {
-				// rules are written against data-dir paths
-				logical := ch
-				logical.Path = "engagements/" + c.Eng + "/" + ch.Path
-				probs = c.file(u, old, up.New, logical)
-			}
-			for _, p := range probs {
-				ps = append(ps, ch.Path+": "+p)
-			}
+		if len(ps) == 0 {
+			c.carry(u, old, up.New)
 		}
 	}
 	if c.ConfigErr != nil && !repairs {
 		ps = append(ps, "the server's .yars/config.yaml cannot be loaded ("+c.ConfigErr.Error()+"); only a director's push to the main repository that repairs it is accepted")
 	}
-	return ps
+	return capped(ps)
+}
+
+// maxProblems is how many problems a refusal lists before it sums up the rest.
+const maxProblems = 50
+
+func capped(ps []string) []string {
+	if len(ps) <= maxProblems {
+		return ps
+	}
+	return append(ps[:maxProblems:maxProblems], fmt.Sprintf("… and %d more problems", len(ps)-maxProblems))
+}
+
+// commitChanges lists what commit cm itself changed: against its parent
+// (the empty tree for a root commit); for a merge, only the files that
+// differ from every parent (what each side brought was checked in its own
+// commits, or is already on the server).
+func (c *Checker) commitChanges(cm gitrepo.PushedCommit) (string, []gitrepo.Change, error) {
+	if len(cm.Parents) == 0 {
+		cs, err := c.Repo.ChangedFiles("", cm.Hash)
+		return "", cs, err
+	}
+	cs, err := c.Repo.ChangedFiles(cm.Parents[0], cm.Hash)
+	if err != nil || len(cm.Parents) == 1 {
+		return cm.Parents[0], cs, err
+	}
+	for _, p := range cm.Parents[1:] {
+		other, err := c.Repo.ChangedFiles(p, cm.Hash)
+		if err != nil {
+			return "", nil, err
+		}
+		in := map[string]bool{}
+		for _, ch := range other {
+			in[ch.Path] = true
+		}
+		cs = slices.DeleteFunc(cs, func(ch gitrepo.Change) bool { return !in[ch.Path] })
+	}
+	return cm.Parents[0], cs, nil
+}
+
+// checkCommit checks one pushed commit as u: its author and each file it
+// changed, against its parent. It reports whether it changes the main
+// repo's config.yaml (see ConfigErr).
+func (c *Checker) checkCommit(u config.User, cm gitrepo.PushedCommit) ([]string, bool) {
+	short := cm.Hash
+	if len(short) > 7 {
+		short = short[:7]
+	}
+	var ps []string
+	// authored as the pusher (audit trail): by the account's email, which
+	// does not change the way names do
+	if want := u.GitAuthor(); !config.SameEmail(cm.Author.Email, want.Email) {
+		ps = append(ps, fmt.Sprintf("commit %s: authored by %s <%s>, but the account %s has the email %s; run git config user.email %s, then git commit --amend --reset-author (or rebase older commits)",
+			short, cm.Author.Name, cm.Author.Email, u.Username, want.Email, want.Email))
+	}
+	parent, changes, err := c.commitChanges(cm)
+	if err != nil {
+		return append(ps, "server: "+err.Error()), false
+	}
+	// sizes first: nothing over the limit is read into memory
+	var specs []string
+	for _, ch := range changes {
+		if ch.Status != 'D' {
+			specs = append(specs, cm.Hash+":"+ch.Path)
+		}
+	}
+	sizes, err := c.Repo.Sizes(specs)
+	if err != nil {
+		return append(ps, "server: "+err.Error()), false
+	}
+	big := map[string]int64{}
+	for i, sp := range specs {
+		if sizes[i] > store.MaxAttachment {
+			big[strings.TrimPrefix(sp, cm.Hash+":")] = sizes[i]
+		}
+	}
+	repairs := false
+	for _, ch := range changes {
+		if c.Eng == "" && ch.Path == ".yars/config.yaml" {
+			repairs = true
+		}
+		var probs []string
+		switch n, tooBig := big[ch.Path]; {
+		case tooBig:
+			probs = []string{fmt.Sprintf("%.1f MB; files over 10 MB are not accepted (remove it from the commit: git rm --cached)", float64(n)/(1<<20))}
+		case c.Token != nil && !c.Token.Allows(c.scopeFor(parent, ch)):
+			probs = []string{"this token cannot " + c.scopeFor(parent, ch) + " findings"}
+		case c.Eng == "":
+			probs = c.mainFile(u, parent, cm.Hash, ch)
+		default:
+			// rules are written against data-dir paths
+			logical := ch
+			logical.Path = "engagements/" + c.Eng + "/" + ch.Path
+			probs = c.file(u, parent, cm.Hash, logical)
+		}
+		for _, p := range probs {
+			ps = append(ps, "commit "+short+" "+ch.Path+": "+p)
+		}
+	}
+	return ps, repairs
+}
+
+// carry records the approved findings a director's accepted push changes
+// (old..new as a whole), so their approval moves to the new content.
+func (c *Checker) carry(u config.User, old, new string) {
+	if c.Eng == "" || !manager(u) || old == "" {
+		return
+	}
+	changes, err := c.Repo.ChangedFiles(old, new)
+	if err != nil {
+		return
+	}
+	for _, ch := range changes {
+		seg := strings.Split(ch.Path, "/")
+		if ch.Status == 'D' || len(seg) != 3 || seg[0] != "findings" || seg[2] != "finding.md" {
+			continue
+		}
+		ob, err1 := c.Repo.Show(old, ch.Path)
+		nb, err2 := c.Repo.Show(new, ch.Path)
+		of, err3 := finding.Parse(ob)
+		if err1 != nil || err2 != nil || err3 != nil {
+			continue
+		}
+		if st := c.status(c.Eng, of.Meta.ID, ob); st == "complete" || st == "reported" {
+			c.Carry = append(c.Carry, Carry{c.Eng, of.Meta.ID, store.ContentHash(ob), store.ContentHash(nb)})
+		}
+	}
 }
 
 // mainFile checks a change in the main repo: settings only; engagement
@@ -277,13 +376,17 @@ func (c *Checker) file(u config.User, old, new string, ch gitrepo.Change) []stri
 			}
 		}
 		if len(seg) == 3 && seg[1] == "templates" && strings.HasSuffix(p, ".md") && ch.Status != 'D' {
-			// findings made from a template take its sections as they are
+			// findings made from a template take its content as it is
 			b, _ := c.show(new, p)
 			f, err := finding.Parse(b)
 			if err != nil {
 				return []string{"cannot parse: " + err.Error()}
 			}
-			return sectionProblems(f)
+			var of *finding.Finding
+			if ob, ok := c.show(old, p); ok {
+				of, _ = finding.Parse(ob)
+			}
+			return store.FindingProblems(c.Cfg, f, of)
 		}
 		return nil
 	case p == ".gitattributes":
@@ -306,8 +409,19 @@ func (c *Checker) file(u config.User, old, new string, ch gitrepo.Change) []stri
 			return []string{"engagement.yaml cannot be deleted (a director archives an engagement in YARS)"}
 		}
 		b, _ := c.show(new, p)
-		if _, err := store.ParseEngagement(b); err != nil {
+		e, err := store.ParseEngagement(b)
+		if err != nil {
 			return []string{"cannot parse: " + err.Error()}
+		}
+		// as the engagement's Settings tab saves it; type and source stay
+		var prev *store.Engagement
+		if ob, ok := c.show(old, p); ok {
+			if pe, err := store.ParseEngagement(ob); err == nil {
+				prev = &pe
+			}
+		}
+		if err := store.CheckEngagement(prev, e); err != nil {
+			return []string{plain(err)}
 		}
 		return nil
 	}
@@ -338,8 +452,16 @@ func (c *Checker) file(u config.User, old, new string, ch gitrepo.Change) []stri
 			}
 			return []string{"chat lives in YARS now (web UI or /mcp), not in git"}
 		case len(seg) >= 6 && seg[4] == "attachments":
-			if _, ok := c.show(new, fp); !ok && ch.Status != 'D' {
+			if ch.Status == 'D' {
+				return nil
+			}
+			if _, ok := c.show(new, fp); !ok {
 				return []string{"attachment for a finding that does not exist"}
+			}
+			// as the website accepts uploads
+			b, _ := c.show(new, p)
+			if err := store.CheckAttachment(strings.Join(seg[5:], "/"), b, ch.Mode == "100755"); err != nil {
+				return []string{plain(err)}
 			}
 			return nil
 		}
@@ -347,41 +469,9 @@ func (c *Checker) file(u config.User, old, new string, ch gitrepo.Change) []stri
 	return []string{c.outside()}
 }
 
-// sectionProblems checks a finding's (or template's) section bodies, and
-// that no section name is used twice: only the first one can be shown or
-// edited, yet both would ship in exports.
-func sectionProblems(f *finding.Finding) []string {
-	var ps []string
-	seen := map[string]bool{}
-	for _, s := range f.Sections {
-		if err := finding.ValidateBody(s.Body); err != nil {
-			ps = append(ps, "section "+s.Name+": "+err.Error())
-		}
-		if seen[s.Name] {
-			ps = append(ps, "section "+s.Name+" appears twice; merge them into one")
-		}
-		seen[s.Name] = true
-	}
-	return ps
-}
-
-func parse(b []byte) (*finding.Finding, []string) {
-	f, err := finding.Parse(b)
-	if err != nil {
-		return nil, []string{"cannot parse: " + err.Error()}
-	}
-	ps := sectionProblems(f)
-	if l, ok := f.Legacy(); ok {
-		ps = append(ps, "workflow state is managed in YARS, not in the file; remove "+strings.Join(l.Keys, ", ")+" from the front matter")
-	}
-	return f, ps
-}
-
-func (c *Checker) severityOK(n finding.Meta) []string {
-	if n.Severity != "" && !slices.Contains(c.Cfg.Severities, n.Severity) {
-		return []string{"unknown severity " + n.Severity}
-	}
-	return nil
+// plain is a shared rule's error without its "invalid value" prefix.
+func plain(err error) string {
+	return strings.TrimPrefix(err.Error(), store.ErrInvalidValue.Error()+": ")
 }
 
 // status is the finding's workflow status for content raw, from the
@@ -427,13 +517,18 @@ func (c *Checker) findingFile(u config.User, old, new string, ch gitrepo.Change,
 		return nil
 	}
 	nb, _ := c.show(new, ch.Path)
-	nf, ps := parse(nb)
-	if nf == nil {
-		return ps
+	nf, err := finding.Parse(nb)
+	if err != nil {
+		return []string{"cannot parse: " + err.Error()}
 	}
 	n := nf.Meta
-	ps = append(ps, c.severityOK(n)...)
 	ob, existed := c.show(old, ch.Path)
+	var of *finding.Finding
+	if existed {
+		of, _ = finding.Parse(ob)
+	}
+	// the website's rules, for the parts this commit changes
+	ps := store.FindingProblems(c.Cfg, nf, of)
 	if !existed {
 		if n.Author != u.Username {
 			if _, ok := c.user(n.Author); !manager(u) || !ok {
@@ -455,10 +550,9 @@ func (c *Checker) findingFile(u config.User, old, new string, ch gitrepo.Change,
 		}
 		return ps
 	}
-	of, _ := finding.Parse(ob)
 	if of == nil {
 		if !manager(u) {
-			return append(ps, "the server copy cannot be parsed; only a director can repair it")
+			return append(ps, "the previous version cannot be parsed; only a director can repair it")
 		}
 		return ps
 	}
@@ -475,9 +569,6 @@ func (c *Checker) findingFile(u config.User, old, new string, ch gitrepo.Change,
 	}
 	if n.Author != o.Author {
 		ps = append(ps, "author cannot change")
-	}
-	if o.Status == "complete" || o.Status == "reported" {
-		c.Carry = append(c.Carry, Carry{eng, o.ID, store.ContentHash(ob), store.ContentHash(nb)})
 	}
 	return ps
 }

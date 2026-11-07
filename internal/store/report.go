@@ -170,18 +170,12 @@ func (s *Store) UpdateEngagement(e Engagement, u config.User) error {
 		return &workflow.Denied{Reason: "only a director can change the engagement"}
 	}
 	e.Name, e.Client = strings.TrimSpace(e.Name), strings.TrimSpace(e.Client)
-	switch {
-	case e.Name == "" || strings.ContainsAny(e.Name, "\r\n"):
-		return fmt.Errorf("%w: name is required", ErrInvalidValue)
-	case strings.ContainsAny(e.Client, "\r\n"):
-		return fmt.Errorf("%w: client must be one line", ErrInvalidValue)
-	case !validDate(e.Start) || !validDate(e.End):
-		return fmt.Errorf("%w: dates are YYYY-MM-DD", ErrInvalidValue)
-	case e.Start != "" && e.End != "" && e.End < e.Start:
-		return fmt.Errorf("%w: the end is before the start", ErrInvalidValue)
-	}
 	cur, err := s.Engagement(e.ID)
 	if err != nil {
+		return err
+	}
+	e.Type, e.Source = cur.Type, cur.Source // fixed at creation
+	if err := CheckEngagement(&cur, e); err != nil {
 		return err
 	}
 	l := s.engLock(e.ID)

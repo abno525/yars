@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"crypto/rand"
+	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -75,7 +76,8 @@ func TestPushChunkedBody(t *testing.T) {
 	blob := make([]byte, 256<<10)
 	rand.Read(blob)
 	os.MkdirAll(filepath.Join(p.clone, "engagements", "acme", "findings", "F-001-sqli", "attachments"), 0o755)
-	os.WriteFile(filepath.Join(p.clone, "engagements", "acme", "findings", "F-001-sqli", "attachments", "big.bin"), blob, 0o644)
+	// a text attachment (as the website accepts) that does not compress
+	os.WriteFile(filepath.Join(p.clone, "engagements", "acme", "findings", "F-001-sqli", "attachments", "big.txt"), []byte(hex.EncodeToString(blob)), 0o644)
 	if out, err := p.git("add", "-A"); err != nil {
 		t.Fatalf("%v %s", err, out)
 	}
@@ -85,7 +87,7 @@ func TestPushChunkedBody(t *testing.T) {
 	if out, err := p.git("-c", "http.postBuffer=4096", "push", "origin", "HEAD"); err != nil {
 		t.Fatalf("chunked push failed: %v\n%s", err, out)
 	}
-	if _, err := os.Stat(filepath.Join(p.repo.Dir, "findings", "F-001-sqli", "attachments", "big.bin")); err != nil {
+	if _, err := os.Stat(filepath.Join(p.repo.Dir, "findings", "F-001-sqli", "attachments", "big.txt")); err != nil {
 		t.Fatal("pushed attachment not on the server")
 	}
 }
@@ -473,6 +475,48 @@ func TestPushAuthorEmail(t *testing.T) {
 	p.git("-c", "user.name=Alice L", "commit", "-q", "--amend", "--no-edit", "--reset-author")
 	if out, err := p.git("push", "-q", "origin", "HEAD"); err != nil {
 		t.Fatalf("account email refused: %v\n%s", err, out)
+	}
+}
+
+// Through the real hook: a push is refused for what the website refuses,
+// in any of its commits, each refusal naming the commit, the file and the
+// rule; nothing lands.
+func TestPushRefusesWhatWebRefuses(t *testing.T) {
+	p := newPushEnv(t)
+	head := func() string { s, _ := p.git("rev-parse", "--short=7", "HEAD"); return strings.TrimSpace(s) }
+	refused := func(what, want string) {
+		t.Helper()
+		before, _ := p.repo.Head()
+		out, err := p.git("push", "origin", "HEAD")
+		if err == nil || !strings.Contains(out, want) {
+			t.Errorf("%s: %v\n%s", what, err, out)
+		}
+		if after, _ := p.repo.Head(); after != before {
+			t.Errorf("%s: server HEAD moved", what)
+		}
+		p.git("reset", "-q", "--hard", "origin/main")
+	}
+	// a broken middle commit, repaired by the last one
+	p.editFinding(func(f *finding.Finding) { f.SetSection("Impact", "one") })
+	p.editFinding(func(f *finding.Finding) { f.SetMeta("cvss", "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H") })
+	mid := head()
+	p.editFinding(func(f *finding.Finding) { f.SetMeta("severity", "critical") })
+	refused("middle commit", "remote: yars: commit "+mid+" findings/F-001-sqli/finding.md: severity (none) does not match the CVSS vector (score 9.8 is critical)")
+
+	att := filepath.Join(p.clone, "engagements", "acme", "findings", "F-001-sqli", "attachments")
+	os.MkdirAll(att, 0o755)
+	os.WriteFile(filepath.Join(att, "poc.png"), []byte("\x7fELF\x02\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00"), 0o755)
+	p.git("add", "-A")
+	p.git("commit", "-qm", "program")
+	refused("program attachment", "remote: yars: commit "+head()+" findings/F-001-sqli/attachments/poc.png: attachments cannot be executable")
+
+	os.WriteFile(filepath.Join(p.clone, "engagements", "acme", "engagement.yaml"), []byte("name: ACME\ntype: retest\nsource: other\n"), 0o644)
+	p.git("commit", "-qam", "retest now")
+	refused("type change", "remote: yars: commit "+head()+" engagement.yaml: only a director can create or change engagements")
+
+	p.editFinding(func(f *finding.Finding) { f.SetSection("Impact", "fine") })
+	if out, err := p.git("push", "-q", "origin", "HEAD"); err != nil {
+		t.Fatalf("valid push after the refusals: %v\n%s", err, out)
 	}
 }
 

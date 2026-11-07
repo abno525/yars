@@ -189,6 +189,64 @@ func (r *Repo) Authors(old, new string) ([]CommitAuthor, error) {
 	return as, nil
 }
 
+// PushedCommit is one commit of a push: its hash, parents and author.
+type PushedCommit struct {
+	Hash    string
+	Parents []string
+	Author  CommitAuthor
+}
+
+// Commits lists the commits in old..new (all of new when old is ""),
+// parents before children.
+func (r *Repo) Commits(old, new string) ([]PushedCommit, error) {
+	rng := new
+	if old != "" {
+		rng = old + ".." + new
+	}
+	out, err := r.run(nil, "log", "--reverse", "--topo-order", "--format=%H%x00%P%x00%an%x00%ae", rng)
+	if err != nil {
+		return nil, err
+	}
+	var cs []PushedCommit
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		p := strings.Split(line, "\x00")
+		if len(p) != 4 {
+			continue
+		}
+		cs = append(cs, PushedCommit{Hash: p[0], Parents: strings.Fields(p[1]), Author: CommitAuthor{p[0], p[2], p[3]}})
+	}
+	return cs, nil
+}
+
+// Sizes returns the size in bytes of files at revisions ("<rev>:<path>"
+// each) without reading them, in one git process; a missing one is -1.
+func (r *Repo) Sizes(specs []string) ([]int64, error) {
+	if len(specs) == 0 {
+		return nil, nil
+	}
+	cmd := exec.Command("git", "-C", r.Dir, "cat-file", "--batch-check=%(objectsize)")
+	cmd.Stdin = strings.NewReader(strings.Join(specs, "\n") + "\n")
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	spawned.Add(1)
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("git cat-file: %w: %s", err, strings.TrimSpace(stderr.String()))
+	}
+	lines := strings.Split(strings.TrimSuffix(stdout.String(), "\n"), "\n")
+	if len(lines) != len(specs) {
+		return nil, fmt.Errorf("git cat-file: %d sizes for %d files", len(lines), len(specs))
+	}
+	out := make([]int64, len(specs))
+	for i, l := range lines {
+		n, err := strconv.ParseInt(strings.TrimSpace(l), 10, 64)
+		if err != nil {
+			n = -1 // "<spec> missing"
+		}
+		out[i] = n
+	}
+	return out, nil
+}
+
 // Tracked reports whether path is in the index.
 func (r *Repo) Tracked(path string) bool {
 	out, err := r.run(nil, "ls-files", "--", path)

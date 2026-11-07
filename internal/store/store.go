@@ -846,7 +846,7 @@ func CleanTitle(title string) string {
 // UpdateTitle changes a finding's title (single line, 1–200 characters).
 func (s *Store) UpdateTitle(engID, dir, title string, a Actor) error {
 	title = CleanTitle(title)
-	if err := CheckTitle(title); err != nil {
+	if err := ValidTitle(title); err != nil {
 		return err
 	}
 	return s.mutateContent(engID, dir, a, func(f *finding.Finding) (string, error) {
@@ -1793,6 +1793,10 @@ func (s *Store) UpdateCVSSRows(engID, dir string, ch CVSSChange, a Actor) (map[s
 		if v, err = cvss.Parse(*ch.Vector); err != nil {
 			return nil, fmt.Errorf("%w: %v", ErrInvalidValue, err)
 		}
+		// stored canonical, in the configured version (as a push must be)
+		if _, err := CheckCVSS(s.Config(), v.String()); err != nil {
+			return err
+		}
 	}
 	reasons := ch.Reasons
 	var out map[string]string
@@ -1916,8 +1920,11 @@ func SeverityHash(m finding.Meta) string { return BodyHash(m.Severity) }
 // UpdateSeverity sets a manual severity; refused when a valid vector exists.
 // A non-empty base must match SeverityHash of the current meta.
 func (s *Store) UpdateSeverity(engID, dir, sev, base string, a Actor) error {
-	if !slices.Contains(s.Config().Severities, sev) {
-		return fmt.Errorf("%w: unknown severity %q", ErrInvalidValue, sev)
+	if sev == "" {
+		return fmt.Errorf("%w: choose a severity", ErrInvalidValue)
+	}
+	if err := CheckSeverity(s.Config(), sev, ""); err != nil {
+		return err
 	}
 	return s.mutateContent(engID, dir, a, func(f *finding.Finding) (string, error) {
 		if base != "" && SeverityHash(f.Meta) != base {
