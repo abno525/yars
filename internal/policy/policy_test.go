@@ -556,6 +556,40 @@ func TestPolicyAuthorship(t *testing.T) {
 	}
 }
 
+// pushWith commits as git author name <email> and checks the push as u.
+func (f *fx) pushWith(u, name, email string, edit func(dir string)) []string {
+	f.t.Helper()
+	edit(f.clone)
+	git(f.t, f.clone, "add", "-A")
+	git(f.t, f.clone, "-c", "user.name="+name, "-c", "user.email="+email, "commit", "-qm", "change", "--allow-empty")
+	return f.check(u, git(f.t, f.clone, "rev-parse", "HEAD"))
+}
+
+// A commit counts as the pusher's by its author email alone: the account's
+// email, whatever the name. The pusher's own username with another email is
+// refused, directors included, with the commit and both emails named.
+func TestPolicyAuthorEmail(t *testing.T) {
+	f := newFx(t)
+	edit := func(d string) { write(d, fdir+"/attachments/a.txt", "x") }
+	ps := f.pushWith("alice", "alice", "a@a", edit)
+	short := git(t, f.clone, "rev-parse", "--short=7", "HEAD")
+	if !has(ps, "commit "+short+": ") || !has(ps, "a@a") || !has(ps, "alice@yars.local") {
+		t.Fatalf("own name, other email: %v", ps)
+	}
+	f.reclone()
+	if ps := f.pushWith("alice", "Alice Liddell", "alice@yars.local", edit); len(ps) != 0 {
+		t.Fatalf("own email, other name refused: %v", ps)
+	}
+	f.reclone()
+	if ps := f.pushWith("alice", "alice", "ALICE@yars.local", edit); len(ps) != 0 {
+		t.Fatalf("email case refused: %v", ps)
+	}
+	f.reclone()
+	if ps := f.pushWith("dora", "dora", "dora@elsewhere.example", edit); !has(ps, "dora@elsewhere.example") {
+		t.Fatalf("director with another email accepted: %v", ps)
+	}
+}
+
 func TestPolicyGitattributes(t *testing.T) {
 	f := newFx(t).on("")
 	if ps := f.push("alice", func(d string) { write(d, ".gitattributes", "*.md -diff\n") }); !has(ps, ".gitattributes") {

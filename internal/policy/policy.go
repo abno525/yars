@@ -143,7 +143,8 @@ func (c *Checker) Check(username string, ups []Update) []string {
 			ps = append(ps, up.Ref+": the server has newer commits; pull, then push again")
 			continue
 		}
-		// every pushed commit must be authored as the pusher (audit trail)
+		// every pushed commit must be authored as the pusher (audit trail):
+		// by the account's email, which does not change the way names do
 		authors, err := c.Repo.Authors(old, up.New)
 		if err != nil {
 			ps = append(ps, "server: "+err.Error())
@@ -151,8 +152,9 @@ func (c *Checker) Check(username string, ups []Update) []string {
 		}
 		want := u.GitAuthor()
 		for _, a := range authors {
-			if a.Email != want.Email && a.Name != u.Username {
-				ps = append(ps, fmt.Sprintf("commit %.8s is authored by %s <%s>; commit as yourself (git config user.email %s)", a.Hash, a.Name, a.Email, want.Email))
+			if !strings.EqualFold(a.Email, want.Email) {
+				ps = append(ps, fmt.Sprintf("commit %.7s: authored by %s <%s>, but the account %s has the email %s; run git config user.email %s, then git commit --amend --reset-author (or rebase older commits)",
+					a.Hash, a.Name, a.Email, u.Username, want.Email, want.Email))
 			}
 		}
 		changes, err := c.Repo.ChangedFiles(old, up.New)

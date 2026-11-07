@@ -252,7 +252,7 @@ func newPushEnvWith(t *testing.T, tune func(gs *gitserve.Server)) *pushEnv {
 
 // git runs in the acme engagement inside the recursive clone.
 func (p *pushEnv) git(args ...string) (string, error) {
-	cmd := exec.Command("git", append([]string{"-C", filepath.Join(p.clone, "engagements", "acme"), "-c", "user.name=alice", "-c", "user.email=a@a", "-c", "commit.gpgsign=false"}, args...)...)
+	cmd := exec.Command("git", append([]string{"-C", filepath.Join(p.clone, "engagements", "acme"), "-c", "user.name=alice", "-c", "user.email=alice@yars.local", "-c", "commit.gpgsign=false"}, args...)...)
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 	out, err := cmd.CombinedOutput()
 	return string(out), err
@@ -455,6 +455,24 @@ func TestTokensUntracked(t *testing.T) {
 	st, _ := exec.Command("git", "-C", dir, "status", "--porcelain").Output()
 	if len(st) != 0 {
 		t.Fatalf("tokens file not ignored: %s", st)
+	}
+}
+
+// Through the real hook: a commit carrying the pusher's name but another
+// email is refused, naming the commit and the account's email; amended to
+// the account's email (any name), the same change goes in.
+func TestPushAuthorEmail(t *testing.T) {
+	p := newPushEnv(t)
+	p.editFinding(func(f *finding.Finding) { f.SetSection("Impact", "one") })
+	p.git("-c", "user.email=a@a", "commit", "-q", "--amend", "--no-edit", "--reset-author")
+	short, _ := p.git("rev-parse", "--short=7", "HEAD")
+	out, err := p.git("push", "origin", "HEAD")
+	if err == nil || !strings.Contains(out, "commit "+strings.TrimSpace(short)+": ") || !strings.Contains(out, "a@a") || !strings.Contains(out, "alice@yars.local") {
+		t.Fatalf("other email: %v\n%s", err, out)
+	}
+	p.git("-c", "user.name=Alice L", "commit", "-q", "--amend", "--no-edit", "--reset-author")
+	if out, err := p.git("push", "-q", "origin", "HEAD"); err != nil {
+		t.Fatalf("account email refused: %v\n%s", err, out)
 	}
 }
 

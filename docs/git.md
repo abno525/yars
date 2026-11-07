@@ -30,7 +30,7 @@ Only `refs/heads/main` can be pushed, and every commit is checked as if it were 
 
 | Message | Reason | Fix |
 |---|---|---|
-| `commit … is authored by …; commit as yourself` | Author is not the pusher | `git config user.email <you>@…` · `git commit --amend --reset-author` |
+| `commit 1a2b3c4: authored by … <…>, but the account … has the email …` | The author email is not your account's email (the name may differ; directors too) | `git config user.email <account email>` · `git commit --amend --reset-author` |
 | `refs/heads/wip: only refs/heads/main can be pushed` | Other branch | `git push origin wip:main` |
 | `refs/heads/main: deleting the branch is not allowed` | Branch delete | — |
 | `engagements/demo: engagement pointers are managed by the server` | Submodule pointer in the main repo | push inside `engagements/demo` · top: `git pull` |
