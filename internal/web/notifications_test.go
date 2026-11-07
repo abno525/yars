@@ -117,7 +117,8 @@ func TestNotificationsFlow(t *testing.T) {
 func TestNotificationsHideUnseenEngagements(t *testing.T) {
 	e := setup(t)
 	d := e.srv.Store.DB()
-	d.AddNotification(db.Notification{User: "alice", Event: "mentioned", Eng: "acme", Fid: "F-001", Title: "visible one", Actor: "bob"})
+	// F-099 is not listed, so its stored title shows (F-001 would show its current one)
+	d.AddNotification(db.Notification{User: "alice", Event: "mentioned", Eng: "acme", Fid: "F-099", Title: "visible one", Actor: "bob"})
 	d.AddNotification(db.Notification{User: "alice", Event: "mentioned", Eng: "hidden", Fid: "F-007", Title: "secret title", Actor: "bob"})
 	b := e.do(t, "alice", "GET", "/notifications", nil, nil).Body.String()
 	if !strings.Contains(b, "visible one") || strings.Contains(b, "secret title") {
