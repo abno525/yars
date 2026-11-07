@@ -1,6 +1,7 @@
 package web
 
 import (
+	"net/url"
 	"regexp"
 	"strings"
 	"testing"
@@ -53,6 +54,38 @@ func TestOpenWarningDisablesSignOffAndApprove(t *testing.T) {
 	}
 	if b := e.do(t, "dora", "GET", fpath, nil, nil).Body.String(); !strings.Contains(slotButton(t, b, "approve"), " disabled") {
 		t.Fatal("approve enabled with an open warning")
+	}
+}
+
+// D25: bulk Approve skips a finding with an open warning, with the
+// warning as the reason, and approves the clean one.
+func TestBulkApproveSkipsOpenChecks(t *testing.T) {
+	e := setup(t)
+	e.rules(t, softRule, nil)
+	st := e.srv.Store
+	// alice's two findings: "SQL injection" warns until dismissed, "CSRF"
+	// is clean
+	e.toVerification(t)
+	if err := st.Dismiss("acme", fdir, "soft", "SQL", wBob); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Transition("acme", fdir, workflow.Clear, "", wBob); err != nil {
+		t.Fatal(err)
+	}
+	clean := e.toSignedOff(t, "acme", "CSRF")
+	if err := st.Undismiss("acme", fdir, "soft", "", "SQL", wBob); err != nil {
+		t.Fatal(err)
+	}
+	form := url.Values{"action": {"approve"}, "id": {"acme/" + fdir, "acme/" + clean}}
+	b := e.do(t, "dora", "POST", "/inbox/bulk", form, nil).Body.String()
+	if r := row(b, "acme/F-001"); !strings.Contains(r, `class="denied"`) || !strings.Contains(r, "say what SQL means") {
+		t.Fatalf("warned row:\n%s", b)
+	}
+	if r := row(b, "acme/F-002"); !strings.Contains(r, `class="ok"`) {
+		t.Fatalf("clean row:\n%s", b)
+	}
+	if e.status(t) != "verification" || e.statusOf(t, "acme", clean) != "complete" {
+		t.Fatal("wrong statuses")
 	}
 }
 
