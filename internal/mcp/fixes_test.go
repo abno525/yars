@@ -46,6 +46,27 @@ func TestMCPArgumentTypes(t *testing.T) {
 	}
 }
 
+// Bidi controls are dropped from a title on save: "Upload <RLO>gnp.exe"
+// would read "Upload exe.png".
+func TestMCPTitleBidiStripped(t *testing.T) {
+	f := newFx(t)
+	title := func(id string) string {
+		var rd struct {
+			Markdown string `json:"finding_md"`
+		}
+		json.Unmarshal([]byte(f.ok(alice, "read_finding", map[string]any{"engagement": "acme", "finding": id})), &rd)
+		return rd.Markdown
+	}
+	f.ok(alice, "create_finding", map[string]any{"engagement": "acme", "title": "Upload ‮gnp.exe"})
+	if md := title("F-002"); !strings.Contains(md, "title: Upload gnp.exe\n") {
+		t.Fatalf("created:\n%s", md)
+	}
+	f.ok(alice, "set_field", map[string]any{"engagement": "acme", "finding": "F-001", "field": "title", "value": "⁧SQL⁩ injection‏"})
+	if md := title("F-001"); !strings.Contains(md, "title: SQL injection\n") {
+		t.Fatalf("edited:\n%s", md)
+	}
+}
+
 // create_finding refuses the titles set_field title refuses.
 func TestMCPCreateFindingTitle(t *testing.T) {
 	f := newFx(t)

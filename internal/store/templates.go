@@ -210,6 +210,7 @@ func (s *Store) DeleteTemplate(slug string, a gitrepo.Author) error {
 // severity, CVSS and details, with the new id, title and author, and the
 // template's name in the front matter.
 func (s *Store) CreateFindingFrom(engID, title, slug string, a gitrepo.Author) (FindingRef, error) {
+	title = CleanTitle(title)
 	t, err := s.Template(slug)
 	if err != nil {
 		return FindingRef{}, err

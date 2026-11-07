@@ -830,9 +830,22 @@ func CheckTitle(title string) error {
 	return nil
 }
 
+// CleanTitle is a title as stored: trimmed, without bidi control characters
+// (an override would show "exe.png" for "gnp.exe").
+func CleanTitle(title string) string {
+	title = strings.Map(func(r rune) rune {
+		switch {
+		case r >= '‪' && r <= '‮', r >= '⁦' && r <= '⁩', r == '‎', r == '‏', r == '؜':
+			return -1
+		}
+		return r
+	}, title)
+	return strings.TrimSpace(title)
+}
+
 // UpdateTitle changes a finding's title (single line, 1–200 characters).
 func (s *Store) UpdateTitle(engID, dir, title string, a Actor) error {
-	title = strings.TrimSpace(title)
+	title = CleanTitle(title)
 	if err := CheckTitle(title); err != nil {
 		return err
 	}
@@ -1052,6 +1065,7 @@ func Slug(title string) string {
 }
 
 func (s *Store) CreateFinding(engID, title string, a gitrepo.Author) (FindingRef, error) {
+	title = CleanTitle(title)
 	sections := s.Config().Sections
 	return s.createFinding(engID, title, a, func(id string) (*finding.Finding, error) {
 		return finding.New(id, strings.TrimSpace(title), a.Name, sections), nil
