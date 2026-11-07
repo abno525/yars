@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"yars/internal/config"
+	"yars/internal/workflow"
 )
 
 // The findings board refreshes itself on the engagement's events (a push,
@@ -64,6 +65,13 @@ func TestNotificationsCurrentTitle(t *testing.T) {
 	b := e.do(t, "alice", "GET", "/notifications", nil, nil).Body.String()
 	if !strings.Contains(b, "Blind SQL injection in login") {
 		t.Fatalf("notifications keep the old title:\n%s", between(b, "<tbody", "</tbody>"))
+	}
+	// a withdrawn finding is left off the board but keeps its current title here
+	if err := e.srv.Store.Transition("acme", "F-001-sql-injection", workflow.Withdraw, "dup", config.User{Username: "alice", Role: "pentester"}); err != nil {
+		t.Fatal(err)
+	}
+	if b := e.do(t, "alice", "GET", "/notifications", nil, nil).Body.String(); !strings.Contains(b, "Blind SQL injection in login") {
+		t.Fatalf("withdrawn finding shows the old title:\n%s", between(b, "<tbody", "</tbody>"))
 	}
 }
 

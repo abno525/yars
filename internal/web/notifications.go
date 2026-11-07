@@ -91,21 +91,7 @@ func (s *Server) notificationsPage(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// the findings' titles as they are now, not as they were then
-		titles := map[string]map[string]string{}
-		current := func(eng, fid, then string) string {
-			if _, ok := titles[eng]; !ok && store.ValidID(eng) {
-				titles[eng] = map[string]string{}
-				if rows, err := s.Index.Rows(index.Query{EngID: eng}); err == nil {
-					for _, r := range rows {
-						titles[eng][r.ID] = r.Title
-					}
-				}
-			}
-			if t, ok := titles[eng][fid]; ok {
-				return t
-			}
-			return then
-		}
+		current := s.Index.CurrentTitles()
 		for _, n := range l {
 			p.Notes.Rows = append(p.Notes.Rows, noteRow{ID: n.ID, Event: n.Event, Label: notify.Label(n.Event), Eng: n.Eng, Fid: n.Fid,
 				Title: current(n.Eng, n.Fid, n.Title), By: n.Actor, At: when(n.TS), Text: n.Text, Read: n.Read})

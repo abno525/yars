@@ -576,6 +576,41 @@ func (ix *Index) Engagement(id string) (store.Engagement, bool) {
 	return store.Engagement{}, false
 }
 
+// Titles maps every finding ID of an engagement (any status, withdrawn
+// too) to its current title.
+func (ix *Index) Titles(eng string) (map[string]string, error) {
+	if err := ix.refresh(); err != nil {
+		return nil, err
+	}
+	ix.mu.RLock()
+	defer ix.mu.RUnlock()
+	out := map[string]string{}
+	if e := ix.engs[eng]; e != nil {
+		for _, r := range e.rows {
+			out[r.ID] = r.Title
+		}
+	}
+	return out, nil
+}
+
+// CurrentTitles returns a lookup of findings' current titles for lists of
+// past events (notifications): the title now, or then when the finding is
+// gone. It reads each engagement once.
+func (ix *Index) CurrentTitles() func(eng, fid, then string) string {
+	byEng := map[string]map[string]string{}
+	return func(eng, fid, then string) string {
+		ts, ok := byEng[eng]
+		if !ok {
+			ts, _ = ix.Titles(eng)
+			byEng[eng] = ts
+		}
+		if t, ok := ts[fid]; ok {
+			return t
+		}
+		return then
+	}
+}
+
 func (ix *Index) Rows(q Query) ([]Row, error) {
 	if err := ix.refresh(); err != nil {
 		return nil, err

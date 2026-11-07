@@ -591,11 +591,15 @@ var tools = []tool{
 				Read       bool   `json:"read"`
 			}
 			out := []note{}
+			title := func(eng, fid, then string) string { return then }
+			if s.Index != nil {
+				title = s.Index.CurrentTitles() // the title now, as the web shows it
+			}
 			for _, n := range l {
 				if hasTok && !tk.AllowsEng(n.Eng) {
 					continue
 				}
-				out = append(out, note{n.ID, n.Event, n.Eng, n.Fid, n.Dir, n.Title, n.Actor, n.Text, n.TS, n.Read})
+				out = append(out, note{n.ID, n.Event, n.Eng, n.Fid, n.Dir, title(n.Eng, n.Fid, n.Title), n.Actor, n.Text, n.TS, n.Read})
 			}
 			return asJSON(out)
 		}},

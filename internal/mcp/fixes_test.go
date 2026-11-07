@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"yars/internal/db"
 )
 
 // An argument of the wrong JSON type is refused by name and nothing
@@ -81,6 +83,17 @@ func TestMCPCVSSReasonCommit(t *testing.T) {
 	set("cvss_reason.AC", "needs a race")
 	if got := f.lastCommit(); got != "alice|F-001: edit CVSS reason AC" {
 		t.Fatalf("reason commit %q", got)
+	}
+}
+
+// list_notifications gives the finding's current title, as the web does.
+func TestMCPNotificationsCurrentTitle(t *testing.T) {
+	f := newFx(t)
+	f.s.Store.DB().AddUser(alice)
+	f.s.Store.DB().AddNotification(db.Notification{User: "alice", Event: "mentioned", Eng: "acme", Fid: "F-001", Title: "old name", Actor: "bob"})
+	out := f.ok(alice, "list_notifications", map[string]any{})
+	if !strings.Contains(out, `"title": "SQL injection"`) || strings.Contains(out, "old name") {
+		t.Fatalf("notifications:\n%s", out)
 	}
 }
 
