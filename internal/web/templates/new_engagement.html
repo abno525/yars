@@ -14,9 +14,10 @@
   </div>
   <label class="nefield flush">Client<input name="client" value="{{.Form.Get "client"}}"></label>
   <div class="nefields two">
-    <label class="nefield">Start<input name="start" type="date" value="{{.Form.Get "start"}}"{{if $startErr}} aria-invalid="true"{{end}} aria-describedby="start-err"><span class="ferr" id="start-err">{{$startErr}}</span></label>
-    <label class="nefield">End<input name="end" type="date" value="{{.Form.Get "end"}}"{{if $endErr}} aria-invalid="true"{{end}} aria-describedby="end-err"><span class="ferr" id="end-err">{{$endErr}}</span></label>
+    <label class="nefield">Start<input name="start" type="date" value="{{.Form.Get "start"}}"{{if $startErr}} aria-invalid="true" aria-describedby="dates-err"{{end}}></label>
+    <label class="nefield">End<input name="end" type="date" value="{{.Form.Get "end"}}"{{if $endErr}} aria-invalid="true" aria-describedby="dates-err"{{end}}></label>
   </div>
+  {{if or $startErr $endErr}}<span class="ferr" id="dates-err">{{if $startErr}}Start: {{$startErr}}{{else}}End: {{$endErr}}{{end}}</span>{{end}}
   <fieldset class="neteam">
     <div class="neteamhead"><legend>Team</legend><button type="button" class="btn secondary w128" data-check-all="member">Add everyone</button></div>
     <div class="neteamlist">

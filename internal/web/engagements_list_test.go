@@ -153,10 +153,10 @@ func TestNewEngagementPage(t *testing.T) {
 	}
 	// the end can't be before the start; dates are YYYY-MM-DD
 	rec = e.do(t, "dora", "POST", "/engagements/new", url.Values{"id": {"late"}, "name": {"Late"}, "start": {"2026-11-07"}, "end": {"2026-11-04"}}, nil)
-	if b := rec.Body.String(); rec.Code != http.StatusBadRequest || !strings.Contains(b, `<span class="ferr" id="end-err">Before the start</span>`) || !strings.Contains(b, `name="end" type="date" value="2026-11-04" aria-invalid="true"`) {
+	if b := rec.Body.String(); rec.Code != http.StatusBadRequest || !strings.Contains(b, `<span class="ferr" id="dates-err">End: Before the start</span>`) || !strings.Contains(b, `name="end" type="date" value="2026-11-04" aria-invalid="true"`) {
 		t.Fatalf("end before start %d:\n%s", rec.Code, b)
 	}
-	if b := e.do(t, "dora", "POST", "/engagements/new", url.Values{"id": {"late"}, "name": {"Late"}, "start": {"7 Nov"}}, nil).Body.String(); !strings.Contains(b, `<span class="ferr" id="start-err">YYYY-MM-DD</span>`) {
+	if b := e.do(t, "dora", "POST", "/engagements/new", url.Values{"id": {"late"}, "name": {"Late"}, "start": {"7 Nov"}}, nil).Body.String(); !strings.Contains(b, `<span class="ferr" id="dates-err">Start: YYYY-MM-DD</span>`) {
 		t.Fatalf("bad start:\n%s", b)
 	}
 	if _, err := e.srv.Store.Engagement("late"); err == nil {
