@@ -519,6 +519,11 @@ func TestPolicyMainRepo(t *testing.T) {
 	if ps := f.check("dora", rev); !has(ps, "server") {
 		t.Fatalf("pointer moved by push: %v", ps)
 	}
+	// removing one, as a pentester with porcelain commands
+	f.reclone()
+	if ps := f.pushAs("alice", "alice", func(d string) { git(t, d, "rm", "-q", "--cached", "engagements/acme") }); !has(ps, "engagements/acme: engagement pointers are managed by the server") {
+		t.Fatalf("pointer removed by push: %v", ps)
+	}
 }
 
 func TestPolicyAttachmentNeedsFinding(t *testing.T) {

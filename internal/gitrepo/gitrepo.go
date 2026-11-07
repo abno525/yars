@@ -128,7 +128,9 @@ func (r *Repo) ChangedFiles(old, new string) ([]Change, error) {
 	if old == "" {
 		old = "4b825dc642cb6eb9a060e54bf8d69288fbee4904" // empty tree
 	}
-	out, err := r.run(nil, "diff", "--no-renames", "--raw", "-z", old, new)
+	// --ignore-submodules=none: .gitmodules says ignore = all for every
+	// engagement, which would hide a moved or removed pointer
+	out, err := r.run(nil, "diff", "--no-renames", "--ignore-submodules=none", "--raw", "-z", old, new)
 	if err != nil {
 		return nil, err
 	}

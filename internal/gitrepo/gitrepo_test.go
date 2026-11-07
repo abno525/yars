@@ -62,6 +62,43 @@ func TestCommitNestedRepoIsGitlink(t *testing.T) {
 	}
 }
 
+// A moved or removed submodule pointer is a change even when .gitmodules
+// says ignore = all (as every engagement's entry does).
+func TestChangedFilesSeesIgnoredSubmodules(t *testing.T) {
+	main, _ := Init(t.TempDir())
+	sub, _ := Init(filepath.Join(main.Dir, "engagements", "acme"))
+	a := Author{"a", "a@a"}
+	os.WriteFile(filepath.Join(sub.Dir, "engagement.yaml"), []byte("name: A\n"), 0o644)
+	sub.Commit([]string{"engagement.yaml"}, "1", a)
+	os.WriteFile(filepath.Join(main.Dir, ".gitmodules"), []byte("[submodule \"engagements/acme\"]\n\tpath = engagements/acme\n\turl = ../e/acme\n\tignore = all\n"), 0o644)
+	if err := main.Commit([]string{".gitmodules", "engagements/acme"}, "add", a); err != nil {
+		t.Fatal(err)
+	}
+	c1, _ := main.Head()
+	os.WriteFile(filepath.Join(sub.Dir, "engagement.yaml"), []byte("name: B\n"), 0o644)
+	sub.Commit([]string{"engagement.yaml"}, "2", a)
+	h2, _ := sub.Head()
+	git := func(args ...string) string {
+		out, err := exec.Command("git", append([]string{"-C", main.Dir, "-c", "user.name=a", "-c", "user.email=a@a", "-c", "commit.gpgsign=false"}, args...)...).CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	git("update-index", "--cacheinfo", "160000,"+h2+",engagements/acme")
+	git("commit", "-q", "-m", "move")
+	c2, _ := main.Head()
+	git("rm", "-q", "--cached", "engagements/acme")
+	git("commit", "-q", "-m", "drop")
+	c3, _ := main.Head()
+	for _, c := range [][2]string{{c1, c2}, {c2, c3}} {
+		cs, err := main.ChangedFiles(c[0], c[1])
+		if err != nil || len(cs) != 1 || cs[0].Path != "engagements/acme" {
+			t.Errorf("%.8s..%.8s: %+v %v", c[0], c[1], cs, err)
+		}
+	}
+}
+
 func TestHeadChanges(t *testing.T) {
 	dir := t.TempDir()
 	r, err := Init(dir)

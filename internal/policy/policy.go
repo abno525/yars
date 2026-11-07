@@ -193,7 +193,8 @@ func (c *Checker) Check(username string, ups []Update) []string {
 // mainFile checks a change in the main repo: settings only; engagement
 // pointers and .gitmodules belong to the server.
 func (c *Checker) mainFile(u config.User, old, new string, ch gitrepo.Change) []string {
-	if ch.Mode == "160000" || ch.Path == ".gitmodules" {
+	// a removed pointer has no mode left: its path tells
+	if seg := strings.Split(ch.Path, "/"); ch.Mode == "160000" || ch.Path == ".gitmodules" || (len(seg) == 2 && seg[0] == "engagements" && seg[1] != ".gitkeep") {
 		return []string{"engagement pointers are managed by the server; push to the engagement's own repository (/git/e/<id>)"}
 	}
 	if strings.HasPrefix(ch.Path, "engagements/") && ch.Path != "engagements/.gitkeep" {
