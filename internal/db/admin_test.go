@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"yars/internal/config"
@@ -78,7 +79,7 @@ func TestEmailUnique(t *testing.T) {
 			t.Errorf("mallory took %s: %v", e, err)
 		}
 	}
-	if err := d.AddUser(config.User{Username: "eve", Role: "pentester", Email: "bob@CORP.example"}); !errors.Is(err, ErrEmailTaken) {
+	if err := d.AddUser(config.User{Username: "eve", Role: "pentester", Email: "bob@CORP.example"}); !errors.Is(err, ErrEmailTaken) || !strings.Contains(err.Error(), "bob") {
 		t.Errorf("new account with bob's email: %v", err)
 	}
 	// a new account without an email commits as <name>@yars.local

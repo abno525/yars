@@ -133,7 +133,7 @@ func cmdMigrate(args []string, out io.Writer) error {
 		} else if !ok {
 			u.IsAdmin = u.IsAdmin || u.Role == "director"
 			if err := d.AddUser(u); err != nil {
-				return err
+				return fmt.Errorf("account %s: %w", u.Username, err)
 			}
 			for _, eng := range engs {
 				if err := d.AddMembers(eng, u.Username); err != nil {

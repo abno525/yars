@@ -98,14 +98,15 @@ const commitEmail = "lower(CASE WHEN email = '' THEN username || '@yars.local' E
 // as the email that name would commit as with email.
 func emailFree(tx *Tx, name, email string) error {
 	own := config.User{Username: name, Email: email}.GitAuthor().Email
-	var n int
-	if err := tx.QueryRow("SELECT count(*) FROM users WHERE username != ? AND "+commitEmail+" = lower(?)", name, own).Scan(&n); err != nil {
+	var other string
+	err := tx.QueryRow("SELECT username FROM users WHERE username != ? AND "+commitEmail+" = lower(?) ORDER BY username LIMIT 1", name, own).Scan(&other)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
 		return err
 	}
-	if n > 0 {
-		return ErrEmailTaken
-	}
-	return nil
+	return fmt.Errorf("%w: %s is the email of account %s", ErrEmailTaken, own, other)
 }
 
 // SetEmail changes the account's email (used for its git commits); one

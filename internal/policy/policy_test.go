@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -595,6 +596,17 @@ func TestPolicyAuthorEmail(t *testing.T) {
 	f.st.DB().AddMembers("acme", "mallory")
 	if ps := f.pushWith("mallory", "Kim", "kim@corp.example", edit); !has(ps, "kim@corp.example") {
 		t.Fatalf("Kelvin-sign email matched kim's: %v", ps)
+	}
+}
+
+// Accounts that shared an email before emails had to be unique can't tell
+// whose a commit is: neither may push until an admin changes one.
+func TestPolicySharedEmail(t *testing.T) {
+	f := newFx(t)
+	f.c.Users = append(slices.Clone(users), config.User{Username: "bob2", Role: "pentester", Email: "Alice@yars.local"})
+	ps := f.push("alice", func(d string) { write(d, fdir+"/attachments/a.txt", "x") })
+	if !has(ps, "bob2") || !has(ps, "alice@yars.local") {
+		t.Fatalf("shared email accepted: %v", ps)
 	}
 }
 

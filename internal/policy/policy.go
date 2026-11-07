@@ -107,6 +107,14 @@ func (c *Checker) Check(username string, ups []Update) []string {
 	if u.Disabled {
 		return []string{"account " + username + " is disabled"}
 	}
+	// commits are told apart by their author email only: an email two
+	// accounts share (set before emails had to be unique) proves nothing
+	for _, x := range c.Users {
+		if x.Username != u.Username && config.SameEmail(x.GitAuthor().Email, u.GitAuthor().Email) {
+			return []string{fmt.Sprintf("the email %s of account %s is also the email of account %s; an admin must give one of them another email before either can push",
+				u.GitAuthor().Email, u.Username, x.Username)}
+		}
+	}
 	if c.Eng != "" && c.DB != nil {
 		// fail closed: a database error refuses the push
 		if m, err := c.DB.EngMeta(c.Eng); err != nil || m.Archived {
