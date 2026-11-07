@@ -641,6 +641,67 @@ func TestPolicyMergeSideBranch(t *testing.T) {
 	}
 }
 
+// mergeOf makes a merge commit in the clone with parents HEAD and other,
+// whose tree is HEAD's with rel taken from other, authored as as.
+func (f *fx) mergeOf(as, other, rel string) string {
+	cr, err := gitrepo.Open(f.clone)
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	b, err := cr.Show(other, rel) // byte for byte
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	write(f.clone, rel, string(b))
+	git(f.t, f.clone, "add", "-A")
+	tree := git(f.t, f.clone, "write-tree")
+	rev := git(f.t, f.clone, "-c", "user.name="+as, "-c", "user.email="+as+"@yars.local", "commit-tree", tree, "-p", "HEAD", "-p", other, "-m", "merge")
+	git(f.t, f.clone, "reset", "-q", "--soft", rev)
+	return rev
+}
+
+// A merge is checked against the server's line for every file it leaves
+// different from the server: taking an old server version of an approved
+// finding as the "other side" does not bypass its lock.
+func TestPolicyMergeOldVersionLocked(t *testing.T) {
+	f := newFx(t)
+	st := f.st
+	v1 := git(t, f.repo().Dir, "rev-parse", "HEAD")
+	st.UpdateSection("acme", "F-001-sqli", "Impact", "v2 impact", "", user("alice").GitAuthor())
+	st.SetReviewers("acme", "F-001-sqli", []string{"bob"}, user("alice"))
+	st.UpdateSeverity("acme", "F-001-sqli", "high", "", user("alice").GitAuthor())
+	st.Transition("acme", "F-001-sqli", workflow.Submit, "", user("alice"))
+	st.Transition("acme", "F-001-sqli", workflow.Clear, "", user("bob"))
+	if err := st.Transition("acme", "F-001-sqli", workflow.Approve, "", user("dora")); err != nil {
+		t.Fatal(err)
+	}
+	f.reclone()
+	rev := f.mergeOf("alice", v1, fdir+"/finding.md")
+	if ps := f.check("alice", rev); !has(ps, "complete") {
+		t.Fatalf("approved finding rewritten through a merge: %v", ps)
+	}
+}
+
+// A side branch that adds the finding afresh (from before it existed) and
+// a merge that takes that version: the author change is still caught.
+func TestPolicyMergeAuthorChange(t *testing.T) {
+	f := newFx(t)
+	root := git(t, f.repo().Dir, "rev-list", "--max-parents=0", "HEAD")
+	f.reclone()
+	as := []string{"-c", "user.name=pen2", "-c", "user.email=pen2@yars.local"}
+	run := func(args ...string) string { return git(t, f.clone, append(slices.Clone(as), args...)...) }
+	run("switch", "-qc", "side", root)
+	newFinding("F-001-sqli", "id: F-001\ntitle: SQLi\nauthor: pen2\n")(f.clone)
+	run("add", "-A")
+	run("commit", "-qm", "side: my F-001")
+	side := run("rev-parse", "HEAD")
+	run("switch", "-q", "main")
+	rev := f.mergeOf("pen2", side, fdir+"/finding.md")
+	if ps := f.check("pen2", rev); !has(ps, "author cannot change") {
+		t.Fatalf("author changed through a merge: %v", ps)
+	}
+}
+
 // Attachments are held to the website's upload rules: images or text, not
 // executable, plain names directly in attachments/, at most 10 MB; a big
 // file a later commit deletes is still refused (history keeps it).

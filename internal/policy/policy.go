@@ -160,7 +160,7 @@ func (c *Checker) Check(username string, ups []Update) []string {
 			continue
 		}
 		for _, cm := range commits {
-			cps, rep := c.checkCommit(u, cm)
+			cps, rep := c.checkCommit(u, cm, old)
 			ps = append(ps, cps...)
 			repairs = repairs || rep
 		}
@@ -184,37 +184,37 @@ func capped(ps []string) []string {
 	return append(ps[:maxProblems:maxProblems], fmt.Sprintf("… and %d more problems", len(ps)-maxProblems))
 }
 
-// commitChanges lists what commit cm itself changed: against its parent
-// (the empty tree for a root commit); for a merge, only the files that
-// differ from every parent (what each side brought was checked in its own
-// commits, or is already on the server).
-func (c *Checker) commitChanges(cm gitrepo.PushedCommit) (string, []gitrepo.Change, error) {
+// commitChanges lists what commit cm changed against its first parent
+// (the empty tree for a root commit). For a merge that is also what the
+// other side brought in: it is checked against the first parent's line,
+// whatever the other parent is, except the files the merge leaves as the
+// server has them now (base, the branch tip before the push; a pull's
+// merge of the website's commits).
+func (c *Checker) commitChanges(cm gitrepo.PushedCommit, base string) (string, []gitrepo.Change, error) {
 	if len(cm.Parents) == 0 {
 		cs, err := c.Repo.ChangedFiles("", cm.Hash)
 		return "", cs, err
 	}
 	cs, err := c.Repo.ChangedFiles(cm.Parents[0], cm.Hash)
-	if err != nil || len(cm.Parents) == 1 {
+	if err != nil || len(cm.Parents) == 1 || base == "" {
 		return cm.Parents[0], cs, err
 	}
-	for _, p := range cm.Parents[1:] {
-		other, err := c.Repo.ChangedFiles(p, cm.Hash)
-		if err != nil {
-			return "", nil, err
-		}
-		in := map[string]bool{}
-		for _, ch := range other {
-			in[ch.Path] = true
-		}
-		cs = slices.DeleteFunc(cs, func(ch gitrepo.Change) bool { return !in[ch.Path] })
+	fromServer, err := c.Repo.ChangedFiles(base, cm.Hash)
+	if err != nil {
+		return "", nil, err
 	}
+	differs := map[string]bool{}
+	for _, ch := range fromServer {
+		differs[ch.Path] = true
+	}
+	cs = slices.DeleteFunc(cs, func(ch gitrepo.Change) bool { return !differs[ch.Path] })
 	return cm.Parents[0], cs, nil
 }
 
 // checkCommit checks one pushed commit as u: its author and each file it
-// changed, against its parent. It reports whether it changes the main
-// repo's config.yaml (see ConfigErr).
-func (c *Checker) checkCommit(u config.User, cm gitrepo.PushedCommit) ([]string, bool) {
+// changed, against its parent (base: the branch tip before the push). It
+// reports whether it changes the main repo's config.yaml (see ConfigErr).
+func (c *Checker) checkCommit(u config.User, cm gitrepo.PushedCommit, base string) ([]string, bool) {
 	short := cm.Hash
 	if len(short) > 7 {
 		short = short[:7]
@@ -226,7 +226,7 @@ func (c *Checker) checkCommit(u config.User, cm gitrepo.PushedCommit) ([]string,
 		ps = append(ps, fmt.Sprintf("commit %s: authored by %s <%s>, but the account %s has the email %s; run git config user.email %s, then git commit --amend --reset-author (or rebase older commits)",
 			short, cm.Author.Name, cm.Author.Email, u.Username, want.Email, want.Email))
 	}
-	parent, changes, err := c.commitChanges(cm)
+	parent, changes, err := c.commitChanges(cm, base)
 	if err != nil {
 		return append(ps, "server: "+err.Error()), false
 	}
