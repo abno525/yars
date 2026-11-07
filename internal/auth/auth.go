@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"net/http"
+	"sync"
 
 	"golang.org/x/crypto/bcrypt"
 
@@ -25,10 +26,22 @@ type Auth struct {
 	dummy []byte
 }
 
+// defaultCost is the bcrypt cost of every stored password and of the dummy
+// hash. Nothing outside this package can change cost: no flag, env var,
+// config or exported setter. Only this package's own tests lower it.
+const defaultCost = 12
+
+var cost = defaultCost
+
+// The dummy hash is the same for every Auth, so it is made once per process.
+var (
+	dummyOnce sync.Once
+	dummyHash []byte
+)
+
 func New(d *db.DB) *Auth {
-	a := &Auth{db: d}
-	a.dummy, _ = bcrypt.GenerateFromPassword([]byte("dummy"), 12)
-	return a
+	dummyOnce.Do(func() { dummyHash, _ = bcrypt.GenerateFromPassword([]byte("dummy"), cost) })
+	return &Auth{db: d, dummy: dummyHash}
 }
 
 // Users returns all accounts sorted by username.
@@ -47,7 +60,7 @@ func (a *Auth) Lookup(name string) (config.User, bool) {
 }
 
 func HashPassword(pw string) (string, error) {
-	h, err := bcrypt.GenerateFromPassword([]byte(pw), 12)
+	h, err := bcrypt.GenerateFromPassword([]byte(pw), cost)
 	return string(h), err
 }
 

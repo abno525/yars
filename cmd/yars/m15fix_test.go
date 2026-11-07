@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"testing"
 
-	"yars/internal/auth"
 	"yars/internal/config"
 )
 
@@ -13,7 +12,7 @@ import (
 // exist.
 func TestMigrateAccountDefaults(t *testing.T) {
 	dir := legacyRepo(t)
-	hash, _ := auth.HashPassword("pw")
+	hash := testHash(t, "pw")
 	users := []config.User{{Username: "alice", Role: "pentester", PasswordHash: hash}, {Username: "bob", Role: "reviewer", PasswordHash: hash}, {Username: "dora", Role: "director", PasswordHash: hash}}
 	if err := config.SaveUsers(dir, users); err != nil {
 		t.Fatal(err)

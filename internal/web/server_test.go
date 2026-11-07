@@ -11,6 +11,8 @@ import (
 	"sync"
 	"testing"
 
+	"golang.org/x/crypto/bcrypt"
+
 	"yars/internal/auth"
 	"yars/internal/config"
 	"yars/internal/db"
@@ -33,7 +35,12 @@ type env struct {
 
 func setup(t *testing.T) *env {
 	t.Helper()
-	hashOnce.Do(func() { pwHash, _ = auth.HashPassword("pw") })
+	// minimum cost: a login check reads the cost from the stored hash, so the
+	// four logins below are fast; production hashes stay at 12
+	hashOnce.Do(func() {
+		h, _ := bcrypt.GenerateFromPassword([]byte("pw"), bcrypt.MinCost)
+		pwHash = string(h)
+	})
 	dir := t.TempDir()
 	r, err := gitrepo.Init(dir)
 	if err != nil {

@@ -45,7 +45,7 @@ func setupWith(t *testing.T, seen func(eng string)) (*httptest.Server, *gitrepo.
 	if err := st.CreateEngagement(store.Engagement{ID: "acme", Name: "ACME"}, gitrepo.Author{Name: "a", Email: "a@a"}); err != nil {
 		t.Fatal(err)
 	}
-	hash, _ := auth.HashPassword("pw")
+	hash := testHash(t, "pw")
 	d.AddUser(config.User{Username: "alice", Role: "pentester", PasswordHash: hash})
 	d.AddUser(config.User{Username: "pen2", Role: "pentester", PasswordHash: hash})
 	d.AddMembers("acme", "alice") // pen2 is on no team
@@ -82,7 +82,7 @@ func TestCacheFollowsAccountChanges(t *testing.T) {
 	if c := get("pw"); c != 200 {
 		t.Fatalf("login %d", c)
 	}
-	h, _ := auth.HashPassword("new")
+	h := testHash(t, "new")
 	d.SetPassword("alice", h)
 	if c := get("pw"); c != 401 {
 		t.Fatalf("old password still works from the cache: %d", c)

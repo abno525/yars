@@ -49,16 +49,13 @@ func TestEngagementCloneHistory(t *testing.T) {
 
 func newPushEnv(t *testing.T) *pushEnv {
 	t.Helper()
-	bin := filepath.Join(t.TempDir(), "yars")
-	if out, err := exec.Command("go", "build", "-o", bin, ".").CombinedOutput(); err != nil {
-		t.Fatalf("build: %v %s", err, out)
-	}
+	bin := hookBinary(t)
 	dir := filepath.Join(t.TempDir(), "data")
 	if err := cmdInit([]string{dir}); err != nil {
 		t.Fatal(err)
 	}
 	r, _ := gitrepo.Open(dir)
-	hash, _ := auth.HashPassword("pw")
+	hash := testHash(t, "pw")
 	users := []config.User{{Username: "alice", Role: "pentester", PasswordHash: hash}, {Username: "dora", Role: "director", PasswordHash: hash}}
 	d := openDB(t, dir)
 	for _, u := range users {

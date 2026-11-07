@@ -9,7 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"yars/internal/auth"
 	"yars/internal/config"
 	"yars/internal/gitrepo"
 	"yars/internal/store"
@@ -24,7 +23,7 @@ func legacyRepo(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hash, _ := auth.HashPassword("pw")
+	hash := testHash(t, "pw")
 	files := map[string]string{
 		".yars/config.yaml":                "severities: [critical, high, medium, low, info]\n",
 		".gitignore":                       ".yars/users.yaml\n.yars/tokens.yaml\n",
