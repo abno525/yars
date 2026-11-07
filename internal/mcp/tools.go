@@ -301,6 +301,9 @@ var tools = []tool{
 			}{Engagement: ref.EngID, Dir: ref.Dir, State: st, Markdown: string(ref.F.Bytes()), CVSSBase: store.CVSSHash(ref.F.Meta),
 				DetailsBase: store.DetailsHash(ref.F.Meta), Assets: append([]finding.Asset{}, ref.F.Meta.Assets...), AssetsBase: store.AssetsHash(ref.F.Meta),
 				CanEdit: workflow.CanEdit(u, ref.F.Meta), Threads: []thread{}, Violations: []rules.Violation{}}
+			if e, err := s.Store.Engagement(ref.EngID); err != nil || e.Archived {
+				out.CanEdit = false // every write is refused while archived
+			}
 			for _, sct := range ref.F.Sections {
 				out.Sections = append(out.Sections, sec{sct.Name, store.BodyHash(sct.Body)})
 			}
