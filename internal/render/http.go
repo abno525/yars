@@ -92,6 +92,47 @@ type codeRenderer struct{}
 
 func (codeRenderer) RegisterFuncs(reg renderer.NodeRendererFuncRegisterer) {
 	reg.Register(ast.KindFencedCodeBlock, renderFenced)
+	reg.Register(ast.KindHTMLBlock, renderHTMLBlock)
+	reg.Register(ast.KindRawHTML, renderRawHTML)
+}
+
+// renderHTMLBlock shows a block of raw HTML as the text it is (escaped, line
+// by line) instead of dropping it: it is never passed through.
+func renderHTMLBlock(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+	if !entering {
+		return ast.WalkContinue, nil
+	}
+	n := node.(*ast.HTMLBlock)
+	var lines [][]byte
+	for i := 0; i < n.Lines().Len(); i++ {
+		seg := n.Lines().At(i)
+		lines = append(lines, seg.Value(source))
+	}
+	if n.HasClosure() {
+		lines = append(lines, n.ClosureLine.Value(source))
+	}
+	w.WriteString("<p>")
+	for i, l := range lines {
+		if i > 0 {
+			w.WriteString("<br>\n")
+		}
+		w.Write(util.EscapeHTML([]byte(strings.TrimRight(string(l), "\r\n"))))
+	}
+	w.WriteString("</p>\n")
+	return ast.WalkContinue, nil
+}
+
+// renderRawHTML shows inline raw HTML as escaped text.
+func renderRawHTML(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+	if !entering {
+		return ast.WalkSkipChildren, nil
+	}
+	n := node.(*ast.RawHTML)
+	for i := 0; i < n.Segments.Len(); i++ {
+		seg := n.Segments.At(i)
+		w.Write(util.EscapeHTML(seg.Value(source)))
+	}
+	return ast.WalkSkipChildren, nil
 }
 
 func renderFenced(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
