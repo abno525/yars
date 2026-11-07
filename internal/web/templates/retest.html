@@ -11,7 +11,7 @@
     <table class="kv flush"><tbody>
       {{if .SourceSev}}<tr><th scope="row">Severity</th><td><span class="tag sev-{{.SourceSev}}">{{.SourceSev}}</span></td></tr>{{end}}
       {{range .Details}}<tr><th scope="row">{{.Name}}</th><td class="text">{{.Value}}</td></tr>{{end}}
-      {{if .Vector}}<tr><th scope="row">CVSS</th><td class="mono">{{.Vector}} · {{.Score}}</td></tr>{{end}}
+      {{if .Vector}}<tr><th scope="row">CVSS</th><td class="mono">{{.Vector}} · {{score .Score}}</td></tr>{{end}}
     </tbody></table>
     {{end}}
     {{range .Sections}}<div class="osec flush"><h3>{{.Name}}</h3><div class="md">{{.HTML}}</div></div>{{end}}

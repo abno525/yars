@@ -56,7 +56,7 @@
       <h2>CVSS 3.1</h2>
       <div class="scorehead">
         <code class="vector" title="{{.Vector}}">{{.Vector}}</code>
-        <span class="scorebox">{{if .Score}}{{.Score}}{{else}}–{{end}}</span>
+        <span class="scorebox">{{score .Score}}</span>
         {{if .Rating}}<span class="tag sev-{{.Rating}}">{{.Rating}}</span>{{else}}<span class="tag none"></span>{{end}}
       </div>
     </div>

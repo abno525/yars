@@ -1,6 +1,7 @@
 package web
 
 import (
+	"net/url"
 	"regexp"
 	"strings"
 	"testing"
@@ -38,6 +39,16 @@ func TestNoScoreIsADash(t *testing.T) {
 	list := e.do(t, "alice", "GET", "/templates", nil, nil).Body.String()
 	if r := between(list, "Bad vector", "</tr>"); !strings.Contains(r, `class="num">—<`) {
 		t.Fatalf("templates list:\n%s", r)
+	}
+	// the new-finding template picker
+	nf := e.do(t, "alice", "GET", "/e/acme/findings/new", nil, nil).Body.String()
+	if r := between(nf, "Bad vector", "</tr>"); !strings.Contains(r, `class="num">—<`) {
+		t.Fatalf("new-finding picker:\n%s", r)
+	}
+	// the CVSS calculator with metrics missing: the same dash
+	calc := e.do(t, "alice", "POST", fpath+"/cvss/calc", url.Values{"AV": {"N"}}, nil).Body.String()
+	if !strings.Contains(calc, `<span class="scorebox">—</span>`) {
+		t.Fatalf("calculator:\n%s", calc)
 	}
 	page := e.do(t, "alice", "GET", "/templates/bad-vector", nil, nil).Body.String()
 	if !regexp.MustCompile(`<span class="tag score">—</span>`).MatchString(page) || strings.Contains(page, `<span class="tag score">0.0</span>`) {
