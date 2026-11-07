@@ -195,6 +195,10 @@ func findingRow(k workflow.Inbox, u config.User, r index.Row, engName string) in
 		ir.Act, ir.Primary, ir.What = "Mark reported", true, "approved"
 		if ev, ok := lastEvent(r, string(workflow.Approve), anyone); ok {
 			ir.Who, ir.At = ev.User, ev.TS
+		} else {
+			// approved without an event (a migration, a seed): the
+			// approver is not recorded anywhere else
+			ir.What = "—"
 		}
 	case workflow.InboxDraft:
 		// the last edit or chat line, whichever came last
