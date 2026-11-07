@@ -987,7 +987,8 @@ input.grow, select.grow { flex: 1; min-width: 0; }
 .usertable th.c-num { width: 80px; }
 /* Unlock and Reset pass share the action cell: narrower flag columns
    keep the user column wide enough */
-.usertable th.c-flag { width: 80px; }.stack > .idline { display: flex; gap: 8px; }
+.usertable th.c-flag { width: 80px; }
+.stack > .idline { display: flex; gap: 8px; }
 .idline > span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .idline > .mono { flex: none; max-width: 60%; }
 
