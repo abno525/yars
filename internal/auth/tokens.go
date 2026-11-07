@@ -51,7 +51,8 @@ func (t *Tokens) Add(user string) (string, error) {
 
 // Verify returns the active account behind token and what the token may
 // do. It fails for a token of another kind, an expired one, or one of a
-// disabled or deleted account. The lookup is by hash, so the stored value
+// disabled or deleted account, or of one that must set a new password
+// first (after an admin's reset: nothing else until then). The lookup is by hash, so the stored value
 // never meets the presented one in a timing-sensitive comparison. The last
 // use is recorded (at most once a minute).
 func (t *Tokens) Verify(token, kind string) (config.User, db.TokenInfo, bool) {
@@ -60,7 +61,7 @@ func (t *Tokens) Verify(token, kind string) (config.User, db.TokenInfo, bool) {
 		return config.User{}, db.TokenInfo{}, false
 	}
 	u, ok, err := t.db.User(info.User)
-	if err != nil || !ok || u.Disabled {
+	if err != nil || !ok || u.Disabled || u.MustChange {
 		return config.User{}, db.TokenInfo{}, false
 	}
 	t.db.TokenUsed(info.ID)
