@@ -57,6 +57,11 @@ func (s *Server) activityPage(w http.ResponseWriter, r *http.Request) {
 		}
 		for i := range v.Rows {
 			v.Rows[i].TS = when(v.Rows[i].TS)
+			if a := v.Rows[i].Action; a == "user.disable" || a == "user.enable" {
+				// rows stored before 4f1a92d carry the disabled flag ("on" for
+				// user.disable), which reads backwards: the action says it
+				v.Rows[i].Detail = ""
+			}
 		}
 		actors, err := d.AuditActors()
 		if err != nil {

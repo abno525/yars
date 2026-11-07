@@ -74,6 +74,12 @@ func TestAuditDisableEnableDetail(t *testing.T) {
 	if !seen["user.disable"] || !seen["user.enable"] {
 		t.Fatalf("audit %+v", l)
 	}
+	// a row stored the old way reads right on the page too
+	e.srv.Store.DB().Audit("dora", "user.disable", "bob", "on")
+	b := e.do(t, "dora", "GET", "/admin/activity", nil, nil).Body.String()
+	if row := between(b, ">user.disable<", "</tr>"); strings.Contains(row, ">on<") || strings.Contains(row, ">off<") {
+		t.Fatalf("activity row: %s", row)
+	}
 }
 
 // A finding's tab and its history's tab name the finding; the site has a
