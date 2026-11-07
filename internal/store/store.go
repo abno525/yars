@@ -1031,6 +1031,8 @@ func (s *Store) read(engID, dir string, states map[string]db.State) (FindingRef,
 	if err != nil {
 		return FindingRef{}, nil, fmt.Errorf("%s/%s: %w", engID, dir, err)
 	}
+	// a title pushed over git can still hold bidi controls: never show them
+	f.Meta.Title = CleanTitle(f.Meta.Title)
 	st := db.State{Status: "draft"}
 	if s.db != nil {
 		if states != nil {

@@ -220,7 +220,7 @@ func (s *Server) newFinding(w http.ResponseWriter, r *http.Request) {
 	}
 	r.ParseForm()
 	p.Form = r.PostForm
-	title := strings.TrimSpace(r.FormValue("title"))
+	title := store.CleanTitle(r.FormValue("title"))
 	mode, tpl := r.FormValue("mode"), r.FormValue("template")
 	bad := func(msg string) {
 		p.Error = msg

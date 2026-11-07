@@ -85,6 +85,7 @@ func (s *Store) Template(slug string) (Template, error) {
 	if err != nil {
 		return Template{}, fmt.Errorf("template %s: %w", slug, err)
 	}
+	f.Meta.Title = CleanTitle(f.Meta.Title) // as for findings: no bidi controls shown
 	return Template{Slug: slug, F: f}, nil
 }
 

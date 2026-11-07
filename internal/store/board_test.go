@@ -2,6 +2,8 @@ package store
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -199,6 +201,27 @@ func TestMakeFindingFallbackSectionAndHost(t *testing.T) {
 	}
 	if a := ref.F.Meta.Assets; len(a) != 1 || a[0].Host != "app.acme.test/search" {
 		t.Fatalf("assets %+v", a)
+	}
+}
+
+// A note title with bidi controls makes a finding title without them, and
+// a title already stored with one (pushed over git) is shown without it.
+func TestFindingTitleBidi(t *testing.T) {
+	s, dir := withEngagement(t)
+	boardNote(t, s, "Upload \u202egnp.exe", "h", "info")
+	ref, err := s.MakeFinding(eng, 1, bPen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(filepath.Join(dir, "engagements", eng, "findings", ref.Dir, "finding.md"))
+	if ref.F.Meta.Title != "Upload gnp.exe" || strings.Contains(string(b), "\u202e") || strings.Contains(string(b), `\u202E`) {
+		t.Fatalf("made %q:\n%s", ref.F.Meta.Title, b)
+	}
+	p := filepath.Join(dir, "engagements", eng, "findings", ref.Dir, "finding.md")
+	os.WriteFile(p, []byte(strings.Replace(string(b), "title: Upload gnp.exe", "title: \"Upload \u202egnp.exe\"", 1)), 0o644)
+	got, err := s.Finding(eng, ref.Dir)
+	if err != nil || got.F.Meta.Title != "Upload gnp.exe" {
+		t.Fatalf("stored override shown: %q %v", got.F.Meta.Title, err)
 	}
 }
 

@@ -1,9 +1,21 @@
 package web
 
 import (
+	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 )
+
+// A title made only of bidi controls is empty once cleaned: the form says
+// so (400 with the form), not a bare error from the store.
+func TestNewFindingBidiOnlyTitle(t *testing.T) {
+	e := setup(t)
+	rec := e.do(t, "alice", "POST", "/e/acme/findings/new", url.Values{"title": {"\u202e\u2066"}}, nil)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "Title is required.") {
+		t.Fatalf("%d:\n%s", rec.Code, rec.Body)
+	}
+}
 
 // A finding ID (F-001, as MCP, chat and reports name it) opens the finding
 // like its number or folder does.

@@ -367,8 +367,9 @@ func (s *Store) findingOfNote(n Note, u config.User) (FindingRef, error) {
 		}
 	}
 	a := AuthorOf(u)
-	return s.createFinding(n.Eng, n.Title, a, func(id string) (*finding.Finding, error) {
-		f := finding.New(id, n.Title, a.Name, sections)
+	title := CleanTitle(n.Title)
+	return s.createFinding(n.Eng, title, a, func(id string) (*finding.Finding, error) {
+		f := finding.New(id, title, a.Name, sections)
 		if len(sections) > 0 {
 			f.SetSection(sec, text+"\n")
 		}
