@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"yars/internal/db"
+	"yars/internal/rules"
 	"yars/internal/workflow"
 )
 
@@ -74,6 +75,17 @@ func TestSameQuoteTwiceOneRow(t *testing.T) {
 	}
 	if open, err := s.OpenChecks(eng, fd); err != nil || len(open) != 1 {
 		t.Fatalf("open checks %+v %v", open, err)
+	}
+}
+
+// A rule's step counts its result rows: a quote found twice in one place
+// is one hit, as the checks table lists it.
+func TestStepCountsRows(t *testing.T) {
+	v := rules.Violation{Rule: "tick", Level: "error", Target: "details:Location", Quote: "`"}
+	w := v
+	w.Quote = "x"
+	if x := stepOutcome(1, rules.Rule{ID: "tick"}, []rules.Violation{v, v, w}); x.Hits != 2 {
+		t.Fatalf("hits %d", x.Hits)
 	}
 }
 

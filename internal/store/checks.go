@@ -402,6 +402,7 @@ func (c *carried) violations() []rules.Violation {
 // stepOutcome is how a rule ended, from what it reported.
 func stepOutcome(run int64, r rules.Rule, vs []rules.Violation) db.CheckStep {
 	x := db.CheckStep{RunID: run, Rule: r.ID, State: db.StepPass, Finished: db.StepStamp(time.Now())}
+	rows := map[string]bool{} // one hit per result row (finishCheck)
 	for _, v := range vs {
 		switch {
 		case v.Fail != "":
@@ -411,7 +412,10 @@ func stepOutcome(run int64, r rules.Rule, vs []rules.Violation) db.CheckStep {
 				x.State, x.Message = db.StepFailed, v.Message
 			}
 		default:
-			x.Hits++
+			if k := v.Level + "\x00" + ViolationHash(v.Target, v.Quote); !rows[k] {
+				rows[k] = true
+				x.Hits++
+			}
 		}
 	}
 	if x.State == db.StepPass && x.Hits > 0 {
