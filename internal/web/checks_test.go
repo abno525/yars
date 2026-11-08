@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"yars/internal/db"
 	"yars/internal/gitrepo"
 	"yars/internal/rules"
 )
@@ -173,6 +174,37 @@ func TestChecksCountsMatchRows(t *testing.T) {
 	p := e.do(t, "alice", "GET", fpath+"/checks", nil, nil).Body.String()
 	if n := strings.Count(p, `<span class="tag lvl-error">`); n != 1 || !strings.Contains(p, `Errors <span class="badge">1</span>`) {
 		t.Fatalf("%d rows for one place:\n%s", n, p)
+	}
+}
+
+// A notice about the rules (the AI skipped) is neither a row nor counted
+// (the gate does not count it either): its rule's step says it.
+func TestChecksNoticeNotCounted(t *testing.T) {
+	e := setupSerial(t)
+	e.rules(t, "- id: letter-i\n  target: title\n  regex_forbid: 'i'\n  message: no letter i\n", nil)
+	ref, err := e.srv.Store.Finding("acme", "F-001-sql-injection")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := e.srv.Store.DB()
+	skipped := "AI rules skipped: no AI provider configured"
+	id, _ := d.StartRun("acme", ref.F.Meta.ID, ref.Hash, "bob")
+	d.AddSteps([]db.CheckStep{{RunID: id, Pos: 0, Rule: "letter-i", Kind: "pattern", State: db.StepHits, Hits: 1}, {RunID: id, Pos: 1, Rule: "ai-x", Kind: "ai", State: db.StepFailed, Message: skipped}})
+	d.TxFor("acme", func(tx *db.Tx) error {
+		return tx.FinishRun(id, db.RunDone, "", []db.CheckResult{
+			{Rule: "ai-x", Level: "warning", Message: skipped, Target: "ai", QuoteHash: "n"},
+			{Rule: "letter-i", Level: "error", Message: "no letter i", Target: "title", Quote: "i", QuoteHash: db.ViolationHash("title", "i")},
+		})
+	})
+	p := e.do(t, "bob", "GET", fpath+"/checks", nil, nil).Body.String()
+	if strings.Contains(p, `lvl-warning`) || !strings.Contains(p, `Warnings <span class="badge0">0</span>`) || !strings.Contains(p, "AI checks failed") {
+		t.Fatalf("notice counted or listed:\n%s", p)
+	}
+	if strings.Count(p, "data-dismiss-toggle") != 1 || strings.Contains(p, `<span class="slot w96"></span>`) {
+		t.Fatalf("rows without Dismiss:\n%s", p)
+	}
+	if wf := e.do(t, "bob", "GET", fpath+"/workflow", nil, nil).Body.String(); strings.Contains(wf, "warning") {
+		t.Fatalf("bar counts the notice:\n%s", wf)
 	}
 }
 

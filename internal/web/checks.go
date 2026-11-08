@@ -204,15 +204,22 @@ func (s *Server) checksFor(r *http.Request, ref store.FindingRef) checksView {
 			v.AIHead = s.aiHead()
 		}
 	}
+	stepped := map[string]bool{}
+	for _, x := range st.Steps {
+		stepped[x.Rule] = true
+	}
 	seen := map[string]bool{} // rule, place and quote: one row each (D18)
 	for n, it := range items {
+		notice := it.Target == "rules" || it.Target == "ai"
+		if notice && stepped[it.Rule] {
+			continue // its rule's step says it (AI checks failed)
+		}
 		k := it.Rule + "\x00" + it.Level + "\x00" + db.ViolationHash(it.Target, it.Quote)
 		if seen[k] {
 			continue
 		}
 		seen[k] = true
 		row := checkRow{N: n, Rule: it.Rule, Level: it.Level, Message: it.Message, Quote: it.Quote, Where: where(it.Target), Target: it.Target}
-		notice := it.Target == "rules" || it.Target == "ai"
 		if d, ok := dismissed(it); ok && !notice {
 			row.By, row.At, row.Reason = d.By, stamp(d.At), d.Reason
 			row.CanDismiss = !v.ReadOnly && store.CanDismiss(u, ref.F.Meta, d.Level)
@@ -220,9 +227,11 @@ func (s *Server) checksFor(r *http.Request, ref store.FindingRef) checksView {
 			continue
 		}
 		row.CanDismiss = !v.ReadOnly && !notice && store.CanDismiss(u, ref.F.Meta, it.Level)
-		if it.Level == "error" {
+		switch {
+		case notice: // listed, not counted: the gate does not count it
+		case it.Level == "error":
 			v.Errors++
-		} else {
+		default:
 			v.Warnings++
 		}
 		v.Rows = append(v.Rows, row)
