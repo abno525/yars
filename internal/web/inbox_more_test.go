@@ -30,10 +30,24 @@ func (e *env) toSignedOff(t *testing.T, eng, title string) string {
 	if err := st.Transition(eng, ref.Dir, workflow.Submit, "", wAlice); err != nil {
 		t.Fatal(err)
 	}
+	e.checked(t, eng, ref.Dir)
 	if err := st.Transition(eng, ref.Dir, workflow.Clear, "", wBob); err != nil {
 		t.Fatal(err)
 	}
 	return ref.Dir
+}
+
+// checked presses Check on the finding as bob and waits for the run, when
+// rules are set (Require Check, on by default, wants a run to sign off).
+func (e *env) checked(t *testing.T, eng, dir string) {
+	t.Helper()
+	if e.srv.Store.Linter == nil {
+		return
+	}
+	if _, err := e.srv.Store.StartCheck(eng, dir, wBob); err != nil {
+		t.Fatal(err)
+	}
+	e.srv.Store.WaitChecks()
 }
 
 // Two engagements both have F-001: the director's bar keys rows by

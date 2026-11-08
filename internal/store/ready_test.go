@@ -27,6 +27,7 @@ func TestOpenWarningBlocksSignOffAndApprove(t *testing.T) {
 	if err := s.Dismiss(eng, fd, "soft", "SQL", uBob); err != nil {
 		t.Fatal(err)
 	}
+	checkNow(t, s, fd) // Require Check (on by default)
 	if err := s.Transition(eng, fd, workflow.Clear, "", uBob); err != nil {
 		t.Fatalf("sign off after the dismissal: %v", err)
 	}

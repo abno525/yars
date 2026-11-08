@@ -80,10 +80,23 @@ func SignsOff(act workflow.Action) bool { return act == workflow.Clear || act ==
 // Approve run every rule now (scripts and AI too: no check run may have
 // covered the content) and are blocked by its undismissed errors; Sign off
 // and Approve are blocked by every open check, warnings too (OpenChecks,
-// the source the page and Ready to approve show).
+// the source the page and Ready to approve show). With Require Check on,
+// Sign off and Approve first need a finished run on this content
+// (checkGate), and Approve runs nothing inline: the run is the source.
 func (s *Store) blocking(act workflow.Action, ref FindingRef, hash string) ([]string, error) {
 	var out []string
-	if act == workflow.Submit || act == workflow.Approve {
+	gate := SignsOff(act) && s.gating()
+	if gate {
+		// Require Check: the stored run is the source, nothing runs inline
+		g, err := s.checkGate(ref.EngID, ref.F.Meta.ID, hash)
+		if err != nil {
+			return nil, err
+		}
+		if g != "" {
+			out = append(out, g)
+		}
+	}
+	if act == workflow.Submit || (act == workflow.Approve && !gate) {
 		vs, err := s.undismissed(ref.EngID, ref.F.Meta.ID, s.Linter.Lint(context.Background(), ref.F, rules.All))
 		if err != nil {
 			return nil, err

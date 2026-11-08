@@ -39,6 +39,7 @@ func TestOpenWarningDisablesSignOffAndApprove(t *testing.T) {
 	if err := st.Dismiss("acme", fdir, "soft", "SQL", wBob); err != nil {
 		t.Fatal(err)
 	}
+	e.checked(t, "acme", fdir)
 	b = e.do(t, "bob", "GET", fpath, nil, nil).Body.String()
 	if btn := slotButton(t, b, "clear"); strings.Contains(btn, " disabled") {
 		t.Fatalf("sign off disabled once dismissed: %s", btn)
@@ -69,6 +70,7 @@ func TestBulkApproveSkipsOpenChecks(t *testing.T) {
 	if err := st.Dismiss("acme", fdir, "soft", "SQL", wBob); err != nil {
 		t.Fatal(err)
 	}
+	e.checked(t, "acme", fdir)
 	if err := st.Transition("acme", fdir, workflow.Clear, "", wBob); err != nil {
 		t.Fatal(err)
 	}
@@ -98,6 +100,7 @@ func TestReadyToApproveCached(t *testing.T) {
 	e.toVerification(t)
 	st := e.srv.Store
 	st.Dismiss("acme", fdir, "soft", "SQL", wBob)
+	e.checked(t, "acme", fdir)
 	if err := st.Transition("acme", fdir, workflow.Clear, "", wBob); err != nil {
 		t.Fatal(err)
 	}
@@ -129,6 +132,7 @@ func TestReadyToApproveSkipsOpenChecks(t *testing.T) {
 	e.rules(t, "- id: none\n  target: title\n  regex_forbid: 'zzz'\n", nil)
 	e.toVerification(t)
 	st := e.srv.Store
+	e.checked(t, "acme", fdir)
 	if err := st.Transition("acme", fdir, workflow.Clear, "", wBob); err != nil {
 		t.Fatal(err)
 	}

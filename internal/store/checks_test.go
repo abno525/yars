@@ -446,10 +446,14 @@ func (slowOnly) Lint(_ context.Context, f *finding.Finding, kinds rules.Kind) []
 	return []rules.Violation{{Rule: "secrets", Level: "error", Message: "A secret is quoted", Target: "section:Impact", Quote: "SECRET"}}
 }
 
-// Approve runs every rule, scripts too, though nobody pressed Check on the
-// content: an error a script finds refuses it until it is dismissed.
+// With Require Check off, Approve runs every rule, scripts too, though
+// nobody pressed Check on the content: an error a script finds refuses it
+// until it is dismissed.
 func TestApproveRunsSlowRules(t *testing.T) {
 	s, _, fd := ready(t)
+	if err := s.SetRequireCheck(false, "dora"); err != nil {
+		t.Fatal(err)
+	}
 	s.Linter = slowOnly{}
 	if err := s.Transition(eng, fd, workflow.Submit, "", uAlice); err != nil {
 		t.Fatal(err)

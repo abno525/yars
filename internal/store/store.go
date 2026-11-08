@@ -1549,6 +1549,14 @@ func (s *Store) TransitionChecked(engID, dir string, act workflow.Action, reason
 		if linted != "" && hash != linted {
 			return nil, &workflow.Denied{Reason: "the finding changed while its checks ran; try again"}
 		}
+		if linted != "" && SignsOff(act) {
+			// a run started since the read above: the content it covers now
+			if g, err := s.checkGate(engID, ref.F.Meta.ID, hash); err != nil {
+				return nil, err
+			} else if g != "" {
+				return nil, &workflow.Denied{Reason: "cannot " + strings.ToLower(workflow.Label(act)) + ": " + g}
+			}
+		}
 		if err := workflow.CheckWithGate(u, ref.F.Meta, act, s.Config()); err != nil {
 			return nil, err
 		}

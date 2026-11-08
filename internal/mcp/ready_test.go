@@ -32,8 +32,28 @@ func TestMCPSignOffRefusedWithOpenWarning(t *testing.T) {
 	if err := f.s.Store.Dismiss("acme", "001", "soft", "SQL", bob); err != nil {
 		t.Fatal(err)
 	}
+	// R1: Require Check (on by default) wants a check run on this content
+	if text, isErr := tr(bob, "sign_off"); !isErr || !strings.Contains(text, "run check first: no check run yet") {
+		t.Fatalf("sign off without a check run: %v %s", isErr, text)
+	}
+	if _, err := f.s.Store.StartCheck("acme", "001", bob); err != nil {
+		t.Fatal(err)
+	}
+	f.s.Store.WaitChecks()
 	if text, isErr := tr(bob, "sign_off"); isErr {
-		t.Fatalf("sign off once dismissed: %s", text)
+		t.Fatalf("sign off once dismissed and checked: %s", text)
+	}
+	// an edit since the run: the same refusal names it
+	if err := f.s.Store.UpdateSection("acme", "001", "Impact", "More.", "", alice); err != nil {
+		t.Fatal(err)
+	}
+	if text, isErr := tr(bob, "sign_off"); !isErr || !strings.Contains(text, "run check first: the content changed since the last check") {
+		t.Fatalf("sign off after an edit: %v %s", isErr, text)
+	}
+	f.s.Store.StartCheck("acme", "001", bob)
+	f.s.Store.WaitChecks()
+	if text, isErr := tr(bob, "sign_off"); isErr {
+		t.Fatalf("sign off once checked again: %s", text)
 	}
 	if err := f.s.Store.Undismiss("acme", "001", "soft", "", "SQL", bob); err != nil {
 		t.Fatal(err)
