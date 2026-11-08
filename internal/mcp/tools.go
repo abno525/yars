@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"regexp"
 	"slices"
 	"strings"
@@ -432,7 +433,7 @@ var tools = []tool{
 		}},
 	{name: "set_field", action: "edit", desc: "Set a field: title, severity (no CVSS vector), cvss (vector or empty to clear), cvss_reason.<METRIC> (explanation for a non-standard value, e.g. cvss_reason.AC), details.<Row> (details table, e.g. details.Location), reviewers (comma-separated usernames; replaces the whole list, so a reviewer who is not the author or a director must include the current names and cannot add themselves), retest_result (fixed | not_fixed | partially_fixed), assets (the whole affected-asset list as JSON: [{\"host\":\"app.example\",\"url\":\"https://app.example/x\",\"port\":\"443\",\"note\":\"…\"}], [] to clear). Use transition for status.",
 		required: []param{pEng, pFinding, {"field", "field name"}, {"value", "new value"}},
-		optional: []param{{"base", "the field's entry in field_bases from read_finding (details.*, cvss, cvss_reason.*: refused only if that one row changed since; each set_field answer gives the row's new base), or cvss_base, details_base or assets_base (assets); refuses the edit if it changed since you read it"}},
+		optional: []param{{"base", "the field's entry in field_bases from read_finding (details.*, cvss, cvss_reason.*: refused only if that one row changed since; each set_field answer gives the row's new base; after cvss, one base for the vector and every reason), or cvss_base, details_base or assets_base (assets); refuses the edit if it changed since you read it"}},
 		run:      setField},
 	{name: "transition", action: "status", serverOnly: true, desc: "Move a finding through the workflow: submit (draft→verification), return (verification→draft, needs reason), clear or sign_off (reviewer sign-off), approve (director: verification→complete), reopen (complete→verification), report (director: complete→reported), withdraw (author while draft or verification, director also when complete or reported; needs reason; takes it out of the report), revise (author or director: withdrawn→draft), take_back (author or director: verification→draft, no reason; sign-offs start over).",
 		required: []param{pEng, pFinding, {"action", "submit | return | clear | sign_off | approve | reopen | report | withdraw | revise | take_back"}},
@@ -630,7 +631,14 @@ func (s *Server) fieldBases(m finding.Meta) map[string]string {
 	for row, v := range m.Details {
 		out["details."+row] = store.RowHash(v)
 	}
-	for k, b := range store.CVSSRowHashes(m) {
+	maps.Copy(out, cvssBases(store.CVSSRowHashes(m)))
+	return out
+}
+
+// cvssBases names the CVSS row bases (store.CVSSRowHashes) by field.
+func cvssBases(rows map[string]string) map[string]string {
+	out := map[string]string{}
+	for k, b := range rows {
 		if k == store.CVSSRow {
 			out["cvss"] = b
 		} else {
@@ -711,7 +719,9 @@ func setField(s *Server, ctx context.Context, u config.User, a args) (string, er
 		var nb map[string]string
 		nb, err = st.UpdateCVSSRows(eng, dir, cvssChange(base, field, store.CVSSRow, &value, nil), u)
 		if err == nil {
-			return "set cvss; new base " + nb[store.CVSSRow], nil
+			// a reason's base covers its metric's value: the vector's edit
+			// changes them, so the answer carries every CVSS row's base
+			return "set cvss; new base " + rowsToken(cvssBases(nb), "cvss"), nil
 		}
 	case strings.HasPrefix(field, "cvss_reason."):
 		key := strings.ToUpper(strings.TrimPrefix(field, "cvss_reason."))
