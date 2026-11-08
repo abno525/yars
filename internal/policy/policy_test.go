@@ -376,6 +376,59 @@ func TestPolicyDuplicateSectionTemplate(t *testing.T) {
 	}
 }
 
+// A template is checked against config.yaml as its commit has it: a push
+// that adds a severity and uses it in a template is accepted, in one
+// commit or two; a template before the commit that adds it is refused.
+func TestPolicyTemplateUsesPushedConfig(t *testing.T) {
+	f := newFx(t).on("")
+	cfg := func(d string) { write(d, ".yars/config.yaml", "severities: [critical, high, medium, low, info, extreme]\n") }
+	tpl := func(d string) { write(d, ".yars/templates/x.md", "---\ntitle: X\nseverity: extreme\n---\n\n## Impact\n\nfirst\n") }
+	if ps := f.push("dora", func(d string) { cfg(d); tpl(d) }); len(ps) != 0 {
+		t.Fatalf("one commit: %v", ps)
+	}
+	f.reclone()
+	f.push("dora", cfg)
+	if ps := f.push("dora", tpl); len(ps) != 0 {
+		t.Fatalf("config, then template: %v", ps)
+	}
+	f.reclone()
+	first := ""
+	f.push("dora", tpl)
+	first = short(t, f.clone, "HEAD")
+	ps := f.push("dora", cfg)
+	if !hasLine(ps, "commit "+first+" .yars/templates/x.md: ", "unknown severity extreme") || len(ps) != 1 {
+		t.Fatalf("template, then config: %v", ps)
+	}
+	// a config.yaml that does not load: the template falls back to the
+	// server's, and the file is reported once
+	f.reclone()
+	ps = f.push("dora", func(d string) { write(d, ".yars/config.yaml", "severities: [x\n"); tpl(d) })
+	if !has(ps, "cannot load") || !has(ps, "unknown severity extreme") || len(ps) != 2 {
+		t.Fatalf("broken config: %v", ps)
+	}
+}
+
+// A config.yaml that drops a name a template still uses is refused too:
+// findings made from it would carry the unknown name. Dropping it with the
+// template's fix in the same commit is accepted.
+func TestPolicyConfigDropsTemplateName(t *testing.T) {
+	f := newFx(t).on("")
+	write(f.srv.Dir, ".yars/config.yaml", "severities: [critical, high, medium, low, info, extreme]\n")
+	write(f.srv.Dir, ".yars/templates/x.md", "---\ntitle: X\nseverity: extreme\n---\n\n## Impact\n\nfirst\n")
+	git(t, f.srv.Dir, "add", "-A")
+	git(t, f.srv.Dir, "commit", "-qm", "template")
+	f.reclone()
+	drop := func(d string) { write(d, ".yars/config.yaml", "severities: [critical, high, medium, low, info]\n") }
+	ps := f.push("dora", drop)
+	if !has(ps, `severity "extreme" is still used by: template x.md.`) {
+		t.Fatalf("dropped a template's severity: %v", ps)
+	}
+	f.reclone()
+	if ps := f.push("dora", func(d string) { drop(d); os.Remove(filepath.Join(d, ".yars", "templates", "x.md")) }); len(ps) != 0 {
+		t.Fatalf("dropped with the template removed: %v", ps)
+	}
+}
+
 // A path outside the layout is explained in the pushed repository's own
 // terms, not the server's data-dir paths.
 func TestPolicyOutsideMessagePerRepo(t *testing.T) {

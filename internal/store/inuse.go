@@ -19,8 +19,14 @@ type NameUse struct {
 // severities and details rows that a finding of any engagement (archived
 // and withdrawn ones too) still uses: a section with text, its severity, a
 // details row with a value. A name that only moved, or no finding uses, is
-// not listed.
-func (s *Store) DroppedInUse(old, now config.Config) ([]NameUse, error) {
+// not listed. extra are further users by label (templates: "template
+// x.md"), listed after the findings in label order.
+func (s *Store) DroppedInUse(old, now config.Config, extra map[string]*finding.Finding) ([]NameUse, error) {
+	labels := make([]string, 0, len(extra))
+	for l := range extra {
+		labels = append(labels, l)
+	}
+	slices.Sort(labels)
 	type list struct {
 		name     string
 		was, now []string
@@ -61,6 +67,11 @@ func (s *Store) DroppedInUse(old, now config.Config) ([]NameUse, error) {
 			for _, r := range refs {
 				if l.uses(r.F, n) {
 					u.Findings = append(u.Findings, r.EngID+"/"+r.F.Meta.ID)
+				}
+			}
+			for _, lb := range labels {
+				if l.uses(extra[lb], n) {
+					u.Findings = append(u.Findings, lb)
 				}
 			}
 			if len(u.Findings) > 0 {

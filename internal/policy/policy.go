@@ -522,7 +522,7 @@ func (c *Checker) file(u config.User, old, new string, ch gitrepo.Change) []stri
 			if err != nil {
 				return []string{err.Error()}
 			}
-			return c.droppedInUse(old, now)
+			return c.droppedInUse(old, new, now)
 		}
 		if len(seg) == 3 && seg[1] == "rules" && (strings.HasSuffix(p, ".yaml") || strings.HasSuffix(p, ".yml")) {
 			// as Admin › Rules: no load problem the folder did not have
@@ -549,7 +549,8 @@ func (c *Checker) file(u config.User, old, new string, ch gitrepo.Change) []stri
 			if ob, ok := c.show(old, p); ok {
 				of, _ = finding.Parse(ob)
 			}
-			return store.FindingProblems(c.Cfg, f, of)
+			// against the names its own commit configures
+			return store.FindingProblems(c.cfgAt(new), f, of)
 		}
 		return nil
 	case p == ".gitattributes":
@@ -638,18 +639,45 @@ func (c *Checker) file(u config.User, old, new string, ch gitrepo.Change) []stri
 // maxNameUses is how many findings a refusal names per dropped name.
 const maxNameUses = 10
 
+// cfgAt is the server's config with the structure (sections, details
+// rows, severities, report sections, CVSS) as rev's config.yaml has it;
+// the server's own when rev has none or it does not load (that file's
+// problem is reported on its own).
+func (c *Checker) cfgAt(rev string) config.Config {
+	out := c.Cfg
+	if b, ok := c.show(rev, ".yars/config.yaml"); ok {
+		if l, err := store.CheckConfig(b); err == nil {
+			out.Sections, out.DetailsRows, out.Severities, out.ReportSections, out.CVSS = l.Sections, l.DetailsRows, l.Severities, l.ReportSections, l.CVSS
+		}
+	}
+	return out
+}
+
 // droppedInUse refuses a config.yaml (as now) that drops a section,
-// severity or details row name that findings of any engagement still use,
-// against the file as old has it (the server's config without one). Only
-// ids are named: titles are the findings' own text.
-func (c *Checker) droppedInUse(old string, now config.Config) []string {
+// severity or details row name that findings of any engagement, or the
+// templates as new has them, still use, against the file as old has it
+// (the server's config without one). Only ids and template files are
+// named: titles are the findings' own text.
+func (c *Checker) droppedInUse(old, new string, now config.Config) []string {
 	was := c.Cfg
 	if ob, ok := c.show(old, ".yars/config.yaml"); ok {
 		if oc, err := config.Parse(ob); err == nil {
 			was = oc
 		}
 	}
-	uses, err := store.New(c.Repo, c.Cfg, c.DB).DroppedInUse(was, now)
+	tpls := map[string]*finding.Finding{}
+	names, _ := c.Repo.ListTree(new, ".yars/templates")
+	for _, n := range names {
+		if !strings.HasSuffix(n, ".md") {
+			continue
+		}
+		if b, ok := c.show(new, ".yars/templates/"+n); ok {
+			if f, err := finding.Parse(b); err == nil {
+				tpls["template "+n] = f
+			}
+		}
+	}
+	uses, err := store.New(c.Repo, c.Cfg, c.DB).DroppedInUse(was, now, tpls)
 	if err != nil {
 		return []string{"server: " + err.Error()}
 	}

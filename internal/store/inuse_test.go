@@ -43,7 +43,7 @@ func TestDroppedInUse(t *testing.T) {
 	now := config.Default()
 	now.Sections = slices.DeleteFunc(slices.Clone(now.Sections), func(x string) bool { return x == "Impact" || x == "References" })
 	now.DetailsRows = slices.DeleteFunc(slices.Clone(now.DetailsRows), func(x string) bool { return x == "Cause" || x == "Result" })
-	uses, err := s.DroppedInUse(cfg, now)
+	uses, err := s.DroppedInUse(cfg, now, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestDroppedInUse(t *testing.T) {
 	re := cfg
 	re.Sections = slices.Clone(cfg.Sections)
 	slices.Reverse(re.Sections)
-	if uses, _ := s.DroppedInUse(cfg, re); len(uses) != 0 {
+	if uses, _ := s.DroppedInUse(cfg, re, nil); len(uses) != 0 {
 		t.Errorf("reorder: %+v", uses)
 	}
 }
