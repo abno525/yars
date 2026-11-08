@@ -88,7 +88,11 @@ func (s *Store) blocking(act workflow.Action, ref FindingRef, hash string) ([]st
 		if err != nil {
 			return nil, err
 		}
-		out = rules.Errors(vs)
+		for _, msg := range rules.Errors(vs) {
+			if !slices.Contains(out, msg) { // a rule may find a quote twice
+				out = append(out, msg)
+			}
+		}
 	}
 	if SignsOff(act) {
 		open, err := s.openChecks(ref, hash)

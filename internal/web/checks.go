@@ -152,8 +152,11 @@ func (s *Server) checksFor(r *http.Request, ref store.FindingRef) checksView {
 	dismissed := func(it rules.Violation) (db.Dismissal, bool) {
 		return db.Lookup(ds, it.Rule, it.Target, it.Quote)
 	}
+	gated := map[string]bool{} // one line per result row, as the panel lists them
 	for _, it := range items {
-		if _, ok := dismissed(it); !ok && it.Level == "error" {
+		k := it.Rule + "\x00" + db.ViolationHash(it.Target, it.Quote)
+		if _, ok := dismissed(it); !ok && it.Level == "error" && !gated[k] {
+			gated[k] = true
 			v.Gate = append(v.Gate, it.Message)
 		}
 	}

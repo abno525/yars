@@ -11,6 +11,7 @@ import (
 	"yars/internal/db"
 	"yars/internal/gitrepo"
 	"yars/internal/rules"
+	"yars/internal/workflow"
 )
 
 func (e *env) rules(t *testing.T, yaml string, scripts map[string]string) {
@@ -174,6 +175,16 @@ func TestChecksCountsMatchRows(t *testing.T) {
 	p := e.do(t, "alice", "GET", fpath+"/checks", nil, nil).Body.String()
 	if n := strings.Count(p, `<span class="tag lvl-error">`); n != 1 || !strings.Contains(p, `Errors <span class="badge">1</span>`) {
 		t.Fatalf("%d rows for one place:\n%s", n, p)
+	}
+	// the workflow bar's gate names it once too
+	if wf := wfBar(t, e.do(t, "alice", "GET", fpath, nil, nil).Body.String()); strings.Count(wf, "no letter i") != 1 {
+		t.Fatalf("gate lists it %d times:\n%s", strings.Count(wf, "no letter i"), wf)
+	}
+	st := e.srv.Store
+	st.SetReviewers("acme", "F-001-sql-injection", []string{"bob"}, wAlice)
+	st.UpdateSeverity("acme", "F-001-sql-injection", "high", "", e.authorOf(wAlice))
+	if err := st.Transition("acme", "F-001-sql-injection", workflow.Submit, "", wAlice); err == nil || strings.Count(err.Error(), "no letter i") != 1 {
+		t.Fatalf("submit refusal: %v", err)
 	}
 }
 
