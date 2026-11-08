@@ -358,6 +358,16 @@ func TestPolicyOutsideMessagePerRepo(t *testing.T) {
 	}
 }
 
+// A file put next to finding.md is inside the finding already: the refusal
+// points to its attachments folder, not to findings/<finding>/.
+func TestPolicyFileBesideFindingNamesAttachments(t *testing.T) {
+	f := newFx(t)
+	ps := f.push("alice", func(d string) { write(d, fdir+"/poc.txt", "x\n") })
+	if !has(ps, fdir+"/poc.txt: not allowed here; a finding's files go in findings/<finding>/attachments/") || has(ps, "findings must live under") {
+		t.Fatalf("file beside finding.md: %v", ps)
+	}
+}
+
 // engagement.yaml must parse and cannot be deleted: either makes the
 // engagement fail (500) or vanish from YARS.
 func TestPolicyEngagementYAML(t *testing.T) {

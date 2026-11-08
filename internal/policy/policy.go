@@ -630,6 +630,8 @@ func (c *Checker) file(u config.User, old, new string, ch gitrepo.Change) []stri
 			}
 			return nil
 		}
+		// already inside a finding: only its attachments folder is open
+		return []string{"not allowed here; a finding's files go in findings/<finding>/attachments/"}
 	}
 	return []string{c.outside()}
 }
