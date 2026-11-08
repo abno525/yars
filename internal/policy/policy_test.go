@@ -381,8 +381,12 @@ func TestPolicyDuplicateSectionTemplate(t *testing.T) {
 // commit or two; a template before the commit that adds it is refused.
 func TestPolicyTemplateUsesPushedConfig(t *testing.T) {
 	f := newFx(t).on("")
-	cfg := func(d string) { write(d, ".yars/config.yaml", "severities: [critical, high, medium, low, info, extreme]\n") }
-	tpl := func(d string) { write(d, ".yars/templates/x.md", "---\ntitle: X\nseverity: extreme\n---\n\n## Impact\n\nfirst\n") }
+	cfg := func(d string) {
+		write(d, ".yars/config.yaml", "severities: [critical, high, medium, low, info, extreme]\n")
+	}
+	tpl := func(d string) {
+		write(d, ".yars/templates/x.md", "---\ntitle: X\nseverity: extreme\n---\n\n## Impact\n\nfirst\n")
+	}
 	if ps := f.push("dora", func(d string) { cfg(d); tpl(d) }); len(ps) != 0 {
 		t.Fatalf("one commit: %v", ps)
 	}
