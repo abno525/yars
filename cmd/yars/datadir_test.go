@@ -178,6 +178,14 @@ func TestUseCommand(t *testing.T) {
 	if out.String() != want {
 		t.Fatalf("set under YARS_DATA: %q", out.String())
 	}
+	// YARS_DATA names the same folder (relative here): nothing overrides
+	wd, _ = os.Getwd()
+	rel, _ = filepath.Rel(wd, dir)
+	t.Setenv("YARS_DATA", rel)
+	out.Reset()
+	if err := cmdUse([]string{dir}, &out); err != nil || out.String() != "default data folder: "+dir+" (in "+file+")\n" {
+		t.Fatalf("set under the same YARS_DATA: %q %v", out.String(), err)
+	}
 }
 
 // R4: commands use the default data folder; seed never does (it would
