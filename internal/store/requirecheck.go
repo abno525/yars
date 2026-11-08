@@ -65,8 +65,18 @@ func (s *Store) checkGate(engID, fid, hash string) (string, error) {
 	if err != nil || !ok {
 		return GateNoRun, err
 	}
+	if s.beforeGateMap != nil {
+		s.beforeGateMap()
+	}
 	// called inside Sign off's transaction: runningMu only, never checksMu
 	running := run.State == db.RunRunning && s.inProgress(checkKey(engID, fid), run.ID)
+	if run.State == db.RunRunning && !running {
+		// read again: it may have finished meanwhile (judged as it ended);
+		// still running, an earlier server left it
+		if run, err = s.db.Run(run.ID); err != nil {
+			return "", err
+		}
+	}
 	return gateOf(run.State, run.ContentHash, hash, running), nil
 }
 
@@ -118,8 +128,9 @@ func (s *Store) CheckGates(keys []GateKey) (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	s.runningMu.Lock()
-	defer s.runningMu.Unlock()
+	if s.beforeGateMap != nil {
+		s.beforeGateMap()
+	}
 	for _, k := range keys {
 		name := k.Eng + "/" + k.Fid
 		r, ok := runs[name]
@@ -127,7 +138,16 @@ func (s *Store) CheckGates(keys []GateKey) (map[string]string, error) {
 			out[name] = GateNoRun
 			continue
 		}
-		if g := gateOf(r.State, r.ContentHash, k.Hash, s.inProgressLocked(checkKey(k.Eng, k.Fid), r.ID)); g != "" {
+		state, runHash := r.State, r.ContentHash
+		running := state == db.RunRunning && s.inProgress(checkKey(k.Eng, k.Fid), r.ID)
+		if state == db.RunRunning && !running {
+			now, err := s.db.Run(r.ID) // finished meanwhile, or left by an earlier server
+			if err != nil {
+				return nil, err
+			}
+			state, runHash = now.State, now.ContentHash
+		}
+		if g := gateOf(state, runHash, k.Hash, running); g != "" {
 			out[name] = g
 		}
 	}

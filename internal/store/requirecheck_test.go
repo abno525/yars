@@ -182,6 +182,35 @@ func TestCheckGateNotOnChecksMu(t *testing.T) {
 	}
 }
 
+// A run that finishes between the gate reading it and reading the running
+// map finished: it is judged as it is now, never "interrupted".
+func TestCheckGateRunFinishedMeanwhile(t *testing.T) {
+	s, dir, fd := ready(t)
+	withRules(t, s, dir, "- id: none\n  target: title\n  regex_forbid: 'zzz'\n")
+	ref := load(t, s, fd)
+	key := checkKey(eng, ref.F.Meta.ID)
+	start := func() {
+		id, err := s.DB().StartRun(eng, ref.F.Meta.ID, ref.Hash, "bob")
+		if err != nil {
+			t.Fatal(err)
+		}
+		s.setRunning(key, id, false)
+		s.beforeGateMap = func() {
+			s.beforeGateMap = nil
+			s.DB().TxFor(eng, func(tx *db.Tx) error { return tx.FinishRun(id, db.RunDone, "", nil) })
+			s.setRunning(key, 0, true)
+		}
+	}
+	start()
+	if g, err := s.checkGate(eng, ref.F.Meta.ID, ref.Hash); err != nil || g != "" {
+		t.Fatalf("checkGate: %q %v", g, err)
+	}
+	start()
+	if gs, err := s.CheckGates([]GateKey{{eng, ref.F.Meta.ID, ref.Hash}}); err != nil || len(gs) != 0 {
+		t.Fatalf("CheckGates: %v %v", gs, err)
+	}
+}
+
 // raceLinter starts a check run (as a Check pressed meanwhile) the first
 // time Sign off's pre-check runs the fast rules.
 type raceLinter struct {

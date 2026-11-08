@@ -461,10 +461,6 @@ const pendingRun = 0
 func (s *Store) inProgress(key string, id int64) bool {
 	s.runningMu.Lock()
 	defer s.runningMu.Unlock()
-	return s.inProgressLocked(key, id)
-}
-
-func (s *Store) inProgressLocked(key string, id int64) bool {
 	v, ok := s.running[key]
 	return ok && (v == id || v == pendingRun)
 }

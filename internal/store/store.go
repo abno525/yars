@@ -133,7 +133,8 @@ type Store struct {
 	running   map[string]int64
 	checkWG  sync.WaitGroup
 
-	beforeWrite func() // test hook: runs between reading and writing
+	beforeWrite   func() // test hook: runs between reading and writing
+	beforeGateMap func() // test hook: the check gate, between reading the latest run and the running map
 	beforeClaim func() // test hook: Make finding, between reading the note and claiming it
 }
 
