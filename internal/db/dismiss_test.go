@@ -56,6 +56,36 @@ func TestPerRowDismissalsMigration(t *testing.T) {
 	}
 }
 
+// v18: a run v13 marked stored though it was cut off without results (it
+// failed before its first rule, or after its last but before storing) is
+// not a finished run: it does not hide the finished run before it.
+func TestCutOffRunsNotStored(t *testing.T) {
+	d := openTest(t)
+	done, _ := d.StartRun("e", "F-001", "h", "bob")
+	d.TxFor("e", func(tx *Tx) error {
+		return tx.FinishRun(done, RunDone, "", []CheckResult{{Rule: "ai", Level: "error", Target: "section:Impact", Quote: "q", QuoteHash: "x"}})
+	})
+	clean, _ := d.StartRun("e", "F-001", "h", "bob")
+	d.TxFor("e", func(tx *Tx) error { return tx.FinishRun(clean, RunDone, "", nil) })
+	for _, total := range []int{0, 3} {
+		id, _ := d.StartRun("e", "F-001", "h", "bob")
+		// as v13 left them: failed by FailRun, marked stored
+		if _, err := d.Exec("UPDATE check_runs SET state = ?, error = 'interrupted', finished = 'x', total = ?, done_count = ?, stored = 1 WHERE id = ?", RunFailed, total, total, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := d.Exec("PRAGMA user_version = 17"); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.migrate(); err != nil {
+		t.Fatal(err)
+	}
+	runs, err := d.FinishedRuns("e", "F-001", "h", 10)
+	if err != nil || len(runs) != 2 || runs[0].ID != clean || runs[1].ID != done {
+		t.Fatalf("finished runs %+v %v", runs, err)
+	}
+}
+
 // v17: an old quote-only dismissal that has its copies for the places runs
 // stored ends (D18: the same wording in a new place counts); one no run
 // ever stored a result for stays (nothing tells its place yet).

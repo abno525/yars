@@ -18,7 +18,7 @@ import (
 // Path is where the database lives inside a data directory (git-ignored).
 func Path(dataDir string) string { return filepath.Join(dataDir, ".yars", "yars.db") }
 
-const schemaVersion = 17
+const schemaVersion = 18
 
 // SchemaVersion is the database schema this build writes.
 const SchemaVersion = schemaVersion
@@ -340,6 +340,12 @@ var migrations = []string{
 	// v17: old quote-only dismissals end where they have per-row copies
 	// (endCopiedLegacy, in Go)
 	`SELECT 1;`,
+	// v18: v13 marked stored the runs FailRun cut off (before their first
+	// rule, or after their last but before storing): such a run is failed
+	// and has no results, where every failed run FinishRun stored has the
+	// result of the rule that failed
+	`UPDATE check_runs SET stored = 0 WHERE stored = 1 AND state != 'done'
+		AND NOT EXISTS (SELECT 1 FROM check_results r WHERE r.run_id = check_runs.id);`,
 }
 
 // goMigrations are the steps written in Go, by the index of their entry in
