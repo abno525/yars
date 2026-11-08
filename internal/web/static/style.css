@@ -1008,6 +1008,7 @@ body.bare { background: var(--head-bg); min-height: 100vh; }
 .barecard { width: 400px; display: flex; flex-direction: column; background: var(--surface); color: var(--text); }
 .barefields { padding: 28px; display: flex; flex-direction: column; gap: 16px; }
 .barefields label { display: flex; flex-direction: column; gap: 6px; }
+.barecard input:disabled { background: var(--panel); border-color: var(--line); color: var(--off-fg); }
 .barehead { display: flex; align-items: center; gap: 8px; }
 .barehead h1 { flex: 1; font-size: 20px; white-space: nowrap; }
 .barehead .tag { width: 96px; }
