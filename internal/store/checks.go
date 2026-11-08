@@ -588,15 +588,22 @@ func finishCheck(tx *db.Tx, id int64, eng, fid string, vs []rules.Violation) err
 	if err != nil {
 		return err
 	}
-	// a dismissal made before they were per row covers this run's rows of
-	// its quote: each gets its own copy, so stored counts see them
+	// a dismissal made before they were per row covers the rows of its
+	// quote this run finds: each gets its own copy, and the old one ends,
+	// so the same wording put in another place later counts (D18)
+	ended := map[string]db.Dismissal{}
 	for _, v := range vs {
 		if notice(v) || v.Quote == "" {
 			continue
 		}
+		lk := db.DismissKey(v.Rule, db.LegacyHash(v.Quote))
+		old, ok := dismissed[lk]
+		if !ok {
+			continue
+		}
+		ended[lk] = old
 		own := db.DismissKey(v.Rule, ViolationHash(v.Target, v.Quote))
-		old, ok := dismissed[db.DismissKey(v.Rule, db.LegacyHash(v.Quote))]
-		if _, has := dismissed[own]; has || !ok {
+		if _, has := dismissed[own]; has {
 			continue
 		}
 		old.QuoteHash = ViolationHash(v.Target, v.Quote)
@@ -604,6 +611,12 @@ func finishCheck(tx *db.Tx, id int64, eng, fid string, vs []rules.Violation) err
 			return err
 		}
 		dismissed[own] = old
+	}
+	for lk, old := range ended {
+		if err := tx.Undismiss(eng, fid, old.Rule, old.QuoteHash); err != nil {
+			return err
+		}
+		delete(dismissed, lk)
 	}
 	now := time.Now().UTC().Truncate(time.Second)
 	add := func(m chat.Message) error {

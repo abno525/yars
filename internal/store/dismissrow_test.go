@@ -71,3 +71,33 @@ func TestLegacyDismissalStillCounts(t *testing.T) {
 		t.Fatalf("stored counts %+v", runs)
 	}
 }
+
+// D18: the first run after the upgrade turns an old quote-only dismissal
+// into a dismissal of each place the quote is in then, and the old one
+// ends: the same wording added to another section later counts.
+func TestLegacyDismissalEndsAtFirstRun(t *testing.T) {
+	s, dir, fd := ready(t)
+	withRules(t, s, dir, todoRule)
+	s.UpdateSection(eng, fd, "Description", "a TODO here", "", alice)
+	ref := load(t, s, fd)
+	s.DB().TxFor(eng, func(tx *db.Tx) error {
+		return tx.Dismiss(db.Dismissal{Eng: eng, Fid: ref.F.Meta.ID, Rule: "todo", QuoteHash: db.LegacyHash("TODO"), Level: "error", By: "bob"})
+	})
+	checked(t, s, fd)
+	ds, _ := s.Dismissals(eng, ref.F.Meta.ID)
+	if _, ok := ds[db.DismissKey("todo", db.LegacyHash("TODO"))]; ok {
+		t.Fatalf("old dismissal kept: %+v", ds)
+	}
+	if _, ok := ds[db.DismissKey("todo", ViolationHash("section:Description", "TODO"))]; !ok {
+		t.Fatalf("no dismissal of the place: %+v", ds)
+	}
+	s.UpdateSection(eng, fd, "Remediation", "a TODO there", "", alice)
+	checked(t, s, fd)
+	open, err := s.OpenChecks(eng, fd)
+	if err != nil || len(open) != 1 || open[0].Target != "section:Remediation" {
+		t.Fatalf("open checks %+v %v", open, err)
+	}
+	if th := checkThreads(t, s, fd); th["Remediation"] == nil || th["Remediation"].Resolved {
+		t.Fatalf("no open comment on the new place: %+v", th)
+	}
+}

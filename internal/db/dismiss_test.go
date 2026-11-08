@@ -55,3 +55,53 @@ func TestPerRowDismissalsMigration(t *testing.T) {
 		t.Fatal("old dismissal lost")
 	}
 }
+
+// v17: an old quote-only dismissal that has its copies for the places runs
+// stored ends (D18: the same wording in a new place counts); one no run
+// ever stored a result for stays (nothing tells its place yet).
+func TestLegacyDismissalsEnd(t *testing.T) {
+	d := openTest(t)
+	id, err := d.StartRun("e", "F-001", "h", "bob")
+	if err != nil {
+		t.Fatal(err)
+	}
+	place := ViolationHash("section:Impact", "TODO")
+	d.TxFor("e", func(tx *Tx) error {
+		if err := tx.FinishRun(id, RunDone, "", []CheckResult{{Rule: "todo", Level: "error", Target: "section:Impact", Quote: "TODO", QuoteHash: place}}); err != nil {
+			return err
+		}
+		for _, x := range []Dismissal{
+			{Eng: "e", Fid: "F-001", Rule: "todo", QuoteHash: LegacyHash("TODO"), Level: "error", By: "bob"},
+			{Eng: "e", Fid: "F-001", Rule: "todo", QuoteHash: place, Level: "error", By: "bob"},
+			{Eng: "e", Fid: "F-001", Rule: "fast", QuoteHash: LegacyHash("x"), Level: "error", By: "bob"},
+		} {
+			if err := tx.Dismiss(x); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	tx, err := d.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := endCopiedLegacy(tx); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	ds, _ := d.Dismissals("e", "F-001")
+	if _, ok := ds[DismissKey("todo", LegacyHash("TODO"))]; ok {
+		t.Fatalf("copied old dismissal kept: %+v", ds)
+	}
+	if _, ok := ds[DismissKey("todo", place)]; !ok {
+		t.Fatalf("copy dropped: %+v", ds)
+	}
+	if _, ok := Lookup(ds, "todo", "section:Remediation", "TODO"); ok {
+		t.Fatal("old dismissal still covers a new place")
+	}
+	if _, ok := ds[DismissKey("fast", LegacyHash("x"))]; !ok {
+		t.Fatalf("old dismissal without stored results dropped: %+v", ds)
+	}
+}

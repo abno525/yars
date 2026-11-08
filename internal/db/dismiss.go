@@ -41,6 +41,50 @@ func Lookup(ds map[string]Dismissal, rule, target, quote string) (Dismissal, boo
 	return Dismissal{}, false
 }
 
+// endCopiedLegacy (schema v17) ends each old quote-only dismissal of a
+// quote a stored result has: perRowDismissals gave it a copy for every
+// place a run stored (made sure here), so it covers those and no new place
+// (D18). One no run ever stored a result for stays until a run finds its
+// quote (finishCheck turns it into copies then).
+func endCopiedLegacy(tx *sql.Tx) error {
+	type res struct{ eng, fid, rule, target, qt string }
+	rows, err := tx.Query(`SELECT c.eng, c.fid, r.rule, r.target, r.quote FROM check_results r
+		JOIN check_runs c ON c.id = r.run_id WHERE r.quote != ''`)
+	if err != nil {
+		return err
+	}
+	var all []res
+	for rows.Next() {
+		var x res
+		if err := rows.Scan(&x.eng, &x.fid, &x.rule, &x.target, &x.qt); err != nil {
+			rows.Close()
+			return err
+		}
+		all = append(all, x)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	type key struct{ eng, fid, rule, qh string }
+	ended := map[key]bool{}
+	for _, x := range all {
+		old := key{x.eng, x.fid, x.rule, LegacyHash(x.qt)}
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO dismissals(eng, fid, rule, quote_hash, level, by_user, at, reason)
+			SELECT eng, fid, rule, ?, level, by_user, at, reason FROM dismissals WHERE eng = ? AND fid = ? AND rule = ? AND quote_hash = ?`,
+			ViolationHash(x.target, x.qt), old.eng, old.fid, old.rule, old.qh); err != nil {
+			return err
+		}
+		ended[old] = true
+	}
+	for k := range ended {
+		if _, err := tx.Exec("DELETE FROM dismissals WHERE eng = ? AND fid = ? AND rule = ? AND quote_hash = ?", k.eng, k.fid, k.rule, k.qh); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // perRowDismissals (schema v14) keys the stored check results by target and
 // quote (ViolationHash) instead of by quote alone, and gives each dismissal
 // made before a copy for every place a run found its quote, so the old

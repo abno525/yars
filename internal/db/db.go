@@ -18,7 +18,7 @@ import (
 // Path is where the database lives inside a data directory (git-ignored).
 func Path(dataDir string) string { return filepath.Join(dataDir, ".yars", "yars.db") }
 
-const schemaVersion = 16
+const schemaVersion = 17
 
 // SchemaVersion is the database schema this build writes.
 const SchemaVersion = schemaVersion
@@ -337,11 +337,14 @@ var migrations = []string{
 		last         TEXT NOT NULL,
 		locked_until TEXT NOT NULL DEFAULT ''
 	) WITHOUT ROWID;`,
+	// v17: old quote-only dismissals end where they have per-row copies
+	// (endCopiedLegacy, in Go)
+	`SELECT 1;`,
 }
 
 // goMigrations are the steps written in Go, by the index of their entry in
 // migrations; each runs after that entry's SQL, in its transaction.
-var goMigrations = map[int]func(*sql.Tx) error{13: perRowDismissals}
+var goMigrations = map[int]func(*sql.Tx) error{13: perRowDismissals, 16: endCopiedLegacy}
 
 // teamBackfillKey marks the one-time team backfill as still to do.
 const teamBackfillKey = "migrate.team_backfill"
