@@ -14,3 +14,14 @@ echo 'change-me' | ./yars useradd --data data --role director --admin alice
 ```
 
 Open <http://localhost:8080>. Further documentation is in [docs](docs).
+
+## Default data folder
+
+`./yars use data` makes `data` the default, so `--data` can be left out:
+`./yars serve`, `./yars unlock alice`. `./yars use` shows the default and
+where it comes from. `--data` wins over `YARS_DATA`, which wins over the
+folder set with `yars use` (`data:` in `~/.config/yars/config.yaml`).
+`yars seed` always needs `--data`.
+
+`./yars unlock <user>` ends a user's login lockout (after 5 wrong
+passwords), for when no admin can log in.

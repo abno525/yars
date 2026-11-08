@@ -2,13 +2,20 @@
 // in git; accounts, workflow state and chat in .yars/yars.db (server only).
 //
 //	yars init <dir>
+//	yars use [<dir>]   (set or show the default data folder)
 //	yars useradd --data <dir> --role <role> [--email e] <username>   (password read from stdin)
-//	yars passwd|userdel --data <dir> <username>; yars role --data <dir> <username> <role>
+//	yars passwd|userdel|unlock --data <dir> <username>; yars role --data <dir> <username> <role>
 //	yars admin --data <dir> <username> on|off
 //	yars serve --data <dir> [--addr :8080]
 //	yars migrate --data <dir>   (move state and chat from files into the database)
 //	yars lint --data <dir> [--all] [<engagement>[/<finding-dir>]]
 //	yars seed --data <new dir> --engagements N --findings M --messages K   (development data)
+//
+// Flags come before the other arguments. Without --data, a command works
+// on $YARS_DATA, else the folder set with yars use (data: in
+// $XDG_CONFIG_HOME/yars/config.yaml, or ~/.config/yars/config.yaml), else
+// the current folder. seed always needs --data; mcp's --data is a local
+// clone (default: the current folder).
 package main
 
 import (
@@ -64,7 +71,7 @@ func exportRunner(dataDir string) *export.Runner {
 //	yars export --data <dir> --exporter <id> [--out file] [--mark --as <user>] <eng> [<finding-dir>…]
 func cmdExport(args []string, out io.Writer) (int, error) {
 	fs := flag.NewFlagSet("export", flag.ContinueOnError)
-	data := fs.String("data", ".", "data repo")
+	data := dataFlag(fs)
 	exID := fs.String("exporter", "", "exporter id (file name in .yars/exporters without .yaml)")
 	outPath := fs.String("out", "", "output file (default: <engagement>.<ext> in the current directory)")
 	mark := fs.Bool("mark", false, "mark exported complete findings reported")
@@ -76,7 +83,7 @@ func cmdExport(args []string, out io.Writer) (int, error) {
 	if fs.NArg() < 1 {
 		return 2, fmt.Errorf("usage: yars export --exporter <id> <engagement> [<finding-dir>…]")
 	}
-	r, err := gitrepo.Open(*data)
+	r, err := openData(fs, *data)
 	if err != nil {
 		return 2, err
 	}
@@ -231,7 +238,7 @@ func cmdToken(args []string, out io.Writer) (int, error) {
 		return 2, fmt.Errorf("usage: yars token add|list|revoke --data <dir> [<user>]")
 	}
 	fs := flag.NewFlagSet("token", flag.ContinueOnError)
-	data := fs.String("data", ".", "data repo")
+	data := dataFlag(fs)
 	kind := fs.String("kind", db.TokenMCP, "add: mcp (the /mcp endpoint) or git (git over HTTP, as the password)")
 	scopes := fs.String("scopes", db.ScopeAll, "add: all, read, or actions ("+strings.Join(db.TokenActions, ",")+")")
 	name := fs.String("name", "", "add: a name for the token")
@@ -242,7 +249,7 @@ func cmdToken(args []string, out io.Writer) (int, error) {
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2, err
 	}
-	r, err := gitrepo.Open(*data)
+	r, err := openData(fs, *data)
 	if err != nil {
 		return 2, err
 	}
@@ -488,13 +495,13 @@ func (p pushRunner) AI(_ context.Context, r rules.Rule, _, _ string) []rules.Vio
 // error-level violation is found.
 func cmdLint(args []string, out io.Writer) (int, error) {
 	fs := flag.NewFlagSet("lint", flag.ContinueOnError)
-	data := fs.String("data", ".", "data repo")
+	data := dataFlag(fs)
 	fs.Bool("fast", true, "only regex and built-in rules (the default)")
 	all := fs.Bool("all", false, "also run script and AI rules (runs code from the repo and sends text to the AI provider)")
 	if err := fs.Parse(args); err != nil {
 		return 2, err
 	}
-	r, err := gitrepo.Open(*data)
+	r, err := openData(fs, *data)
 	if err != nil {
 		return 2, err
 	}
@@ -551,14 +558,16 @@ func cmdLint(args []string, out io.Writer) (int, error) {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, `usage:
+	fmt.Fprintln(os.Stderr, `usage (flags first; --data defaults to $YARS_DATA, then yars use, then .):
   yars init <dir>
+  yars use [<dir>]   (set the default data folder, or show it)
   yars serve --data <dir> [--addr :8080]
   yars useradd --data <dir> --role pentester|reviewer|director [--email e] [--admin] <user>   (password from stdin)
   yars admin --data <dir> <user> on|off
   yars passwd --data <dir> <user>   (password from stdin)
   yars role --data <dir> <user> pentester|reviewer|director
   yars userdel --data <dir> <user>
+  yars unlock --data <dir> <user>   (end a login lockout)
   yars token add --data <dir> [--kind mcp|git] [--scopes all|read|a,b] [--engagements e1,e2] [--days N] [--name n] <user>
   yars token list --data <dir>
   yars token revoke --data <dir> [--id N] <user>
@@ -588,6 +597,10 @@ func main() {
 		err = cmdUserdel(os.Args[2:], os.Stderr)
 	case "admin":
 		err = cmdAdmin(os.Args[2:], os.Stderr)
+	case "unlock":
+		err = cmdUnlock(os.Args[2:], os.Stdout)
+	case "use":
+		err = cmdUse(os.Args[2:], os.Stdout)
 	case "migrate":
 		err = cmdMigrate(os.Args[2:], os.Stdout)
 	case "serve":
@@ -724,7 +737,7 @@ func initData(dir string) error {
 // opens the data directory's database.
 func accountCmd(name string, args []string, want int, setup func(*flag.FlagSet)) (*flag.FlagSet, *db.DB, error) {
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
-	data := fs.String("data", ".", "data repo")
+	data := dataFlag(fs)
 	if setup != nil {
 		setup(fs)
 	}
@@ -734,7 +747,7 @@ func accountCmd(name string, args []string, want int, setup func(*flag.FlagSet))
 	if fs.NArg() != want {
 		return nil, nil, fmt.Errorf("wrong arguments; see yars help")
 	}
-	r, err := gitrepo.Open(*data)
+	r, err := openData(fs, *data)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -881,10 +894,10 @@ func backfillTeams(st *store.Store, d *db.DB) error {
 
 func cmdServe(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
-	data := fs.String("data", ".", "data repo")
+	data := dataFlag(fs)
 	addr := fs.String("addr", ":8080", "listen address")
 	fs.Parse(args)
-	r, err := gitrepo.Open(*data)
+	r, err := openData(fs, *data)
 	if err != nil {
 		return err
 	}
@@ -897,14 +910,14 @@ func cmdServe(args []string) error {
 		return err
 	}
 	if items := legacyItems(r.Dir); len(items) > 0 {
-		return fmt.Errorf("this data directory still keeps accounts, workflow state or chat in files (%s); run: yars migrate --data %s", strings.Join(items, ", "), *data)
+		return fmt.Errorf("this data directory still keeps accounts, workflow state or chat in files (%s); run: yars migrate --data %s", strings.Join(items, ", "), r.Dir)
 	}
 	d, err := dataDB(r.Dir)
 	if err != nil {
 		return err
 	}
 	if users, _ := d.Users(); len(users) == 0 {
-		log.Println("no accounts yet: open the web page to set up the first admin (/setup), or run: yars useradd --data", *data, "--role director --admin <name>")
+		log.Println("no accounts yet: open the web page to set up the first admin (/setup), or run: yars useradd --data", r.Dir, "--role director --admin <name>")
 	}
 	st := store.New(r, cfg, d)
 	if err := backfillTeams(st, d); err != nil {

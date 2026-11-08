@@ -48,7 +48,15 @@ func hookBinary(t *testing.T) string {
 }
 
 func TestMain(m *testing.M) {
+	// never the developer's own default data folder (yars use, YARS_DATA)
+	cfg, err := os.MkdirTemp("", "yars-xdg-")
+	if err != nil {
+		panic(err)
+	}
+	os.Setenv("XDG_CONFIG_HOME", cfg)
+	os.Unsetenv("YARS_DATA")
 	code := m.Run()
+	os.RemoveAll(cfg)
 	if binDir != "" {
 		os.RemoveAll(binDir)
 	}

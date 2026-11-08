@@ -97,11 +97,11 @@ type legacyToken struct {
 // changes nothing.
 func cmdMigrate(args []string, out io.Writer) error {
 	flags := flag.NewFlagSet("migrate", flag.ContinueOnError)
-	data := flags.String("data", ".", "data repo")
+	data := dataFlag(flags)
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	r, err := gitrepo.Open(*data)
+	r, err := openData(flags, *data)
 	if err != nil {
 		return err
 	}
