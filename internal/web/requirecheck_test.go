@@ -47,6 +47,30 @@ func TestRequireCheckBar(t *testing.T) {
 	}
 }
 
+// P10: a reviewer who already signed off is not told to run Check when a
+// later run failed: their Sign off is disabled for that reason, not the
+// check.
+func TestRequireCheckStateOnlyWhenItBlocks(t *testing.T) {
+	e := setup(t)
+	e.rules(t, noneRule, nil)
+	e.toVerification(t)
+	st := e.srv.Store
+	e.checked(t, "acme", fdir)
+	if err := st.Transition("acme", fdir, workflow.Clear, "", wBob); err != nil {
+		t.Fatal(err)
+	}
+	ref, _ := st.Finding("acme", fdir)
+	id, _ := st.DB().StartRun("acme", "F-001", ref.Hash, "bob")
+	st.DB().TxFor("acme", func(tx *db.Tx) error { return tx.FinishRun(id, db.RunFailed, "script crashed", nil) })
+	if bar := wfBar(t, e.do(t, "bob", "GET", fpath, nil, nil).Body.String()); strings.Contains(bar, "Run Check first") {
+		t.Fatalf("signed-off reviewer told to run Check:\n%s", bar)
+	}
+	// the director, whose Approve it blocks, is
+	if bar := wfBar(t, e.do(t, "dora", "GET", fpath, nil, nil).Body.String()); !strings.Contains(bar, ">Run Check first<") {
+		t.Fatalf("director:\n%s", bar)
+	}
+}
+
 // R1: Ready to approve (list, count, nav badge, bulk Approve) leaves out a
 // signed-off finding whose latest run is not a finished one on its content;
 // with the setting off it is listed again.
