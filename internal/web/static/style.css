@@ -1018,6 +1018,8 @@ body.bare { background: var(--head-bg); min-height: 100vh; }
   background: var(--bad-bg); border: 1px solid var(--bad-line); color: var(--red); font-size: 14px; font-weight: 600;
 }
 .btn.barebtn { width: 100%; }
+/* a button inside the card's fields (Set password), right-aligned */
+.barefoot { display: flex; justify-content: flex-end; padding-top: 8px; }
 /* the login error box hangs 16px under the form without moving it */
 .barestack { position: relative; }
 .barealert {

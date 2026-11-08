@@ -58,6 +58,12 @@ func TestTemporaryPasswordMustBeChanged(t *testing.T) {
 	if strings.Contains(page, `class="topbar"`) {
 		t.Fatal("the set-password page has the top bar")
 	}
+	// board 1.3 First-Run frame 2: a 152px button, right in the card's
+	// fields, not the login page's full-width bar
+	if !strings.Contains(page, `<div class="barefoot"><button class="btn primary w152">Set password</button></div>`) ||
+		strings.Contains(page, "barebtn") || strings.Index(page, `class="barefoot"`) > strings.Index(page, "</form>") {
+		t.Fatalf("set-password button:\n%s", page)
+	}
 	for _, bad := range []url.Values{{"new": {temp}, "repeat": {temp}}, {"new": {"short"}, "repeat": {"short"}}, {"new": {"a-new-password-1"}, "repeat": {"a-new-password-2"}}} {
 		if rec := e.do(t, "pen2", "POST", "/password", bad, nil); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), `class="barealert"`) {
 			t.Errorf("bad new password %v: %d", bad, rec.Code)
