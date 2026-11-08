@@ -15,6 +15,7 @@ func TestLatestRuns(t *testing.T) {
 	err := d.TxFor("e", func(tx *Tx) error {
 		if err := tx.FinishRun(id, RunDone, "", []CheckResult{
 			{Rule: "r1", Level: "error", QuoteHash: "a"},
+			{Rule: "r1", Level: "error", QuoteHash: "a"}, // stored twice before runs kept one row
 			{Rule: "r2", Level: "error", QuoteHash: "b"},
 			{Rule: "r3", Level: "warning", QuoteHash: "c"},
 			{Rule: "ai", Level: "warning", Target: "ai", QuoteHash: "d"},

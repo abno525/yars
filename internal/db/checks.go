@@ -211,7 +211,9 @@ type RunCount struct {
 // per 200 findings, by "eng/fid"; a finding never checked is left out.
 func (d *DB) LatestRuns(keys [][2]string) (map[string]RunCount, error) {
 	out := map[string]RunCount{}
-	const count = `(SELECT count(*) FROM check_results r WHERE r.run_id = c.id AND r.level = ? AND r.target NOT IN ('rules', 'ai')
+	// one per result row (rule and place): runs before that stored a quote
+	// found twice in one place twice
+	const count = `(SELECT count(DISTINCT r.rule || char(0) || r.quote_hash) FROM check_results r WHERE r.run_id = c.id AND r.level = ? AND r.target NOT IN ('rules', 'ai')
 		AND NOT EXISTS (SELECT 1 FROM dismissals x WHERE x.eng = c.eng AND x.fid = c.fid AND x.rule = r.rule AND x.quote_hash = r.quote_hash))`
 	for len(keys) > 0 {
 		part := keys[:min(len(keys), 200)]
