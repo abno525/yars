@@ -660,7 +660,7 @@ func (c *Checker) droppedInUse(old string, now config.Config) []string {
 		if len(list) > maxNameUses {
 			list, more = list[:maxNameUses], fmt.Sprintf(" (+%d more)", len(u.Findings)-maxNameUses)
 		}
-		ps = append(ps, fmt.Sprintf("%s %q is still used by: %s%s. Change those findings first, then remove the name.",
+		ps = append(ps, fmt.Sprintf("%s %q is still used by: %s%s. Change those findings first, then remove the name; renames are done in Admin › Structure.",
 			u.List, u.Name, strings.Join(list, ", "), more))
 	}
 	return ps
