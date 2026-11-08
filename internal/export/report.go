@@ -200,11 +200,17 @@ func Report(in Input) string {
 		fmt.Fprintf(&b, `<p><span class="rp-fid">%s</span> <span class="rp-ftitle">%s</span> %s <span class="rp-vec">%s</span> <span class="rp-score">%s</span></p>`+"\n</div>\n",
 			esc(m.ID), esc(m.Title), sevTag(sev), esc(vec), esc(scoreOf(f)))
 		b.WriteString(`<table class="rp-details">` + head + `<tbody>` + "\n")
+		rows := 0
 		for _, r := range summary(f, in.Cfg)[1:] { // severity is in the head
 			if r.Label == "CVSS" {
 				continue
 			}
 			fmt.Fprintf(&b, "<tr><th>%s</th><td>%s</td></tr>\n", esc(r.Label), esc(r.Value))
+			rows++
+		}
+		if rows == 0 && in.Preview {
+			// as every empty web table (D17)
+			b.WriteString(`<tr class="emptyrow"><td colspan="2">—</td></tr>` + "\n")
 		}
 		b.WriteString("</tbody></table>\n")
 		if rs := reasons(f, in.Cfg); len(rs) > 0 {

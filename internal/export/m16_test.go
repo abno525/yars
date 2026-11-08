@@ -233,6 +233,22 @@ func TestReportKVHeaderOnlyInPreview(t *testing.T) {
 	}
 }
 
+// D17: in the preview, a finding whose details are all empty shows its
+// details table as every empty web table: the header and one "—" row.
+func TestReportPreviewEmptyDetails(t *testing.T) {
+	in := input(t)
+	in.Preview = true
+	for _, f := range in.Findings {
+		f.SetMeta("details", map[string]string{})
+		f.SetMeta("cvss", "")
+	}
+	x := Report(in)
+	want := `<table class="rp-details">` + kvHead + `<tbody>` + "\n" + `<tr class="emptyrow"><td colspan="2">—</td></tr>`
+	if strings.Count(x, want) != len(in.Findings) {
+		t.Fatalf("empty details tables:\n%s", x)
+	}
+}
+
 func TestHTMLZip(t *testing.T) {
 	in := imageInput(t, "http://169.254.169.254/x.png")
 	res, err := HTMLZip(in)
