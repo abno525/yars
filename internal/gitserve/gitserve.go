@@ -172,7 +172,7 @@ func (s *Server) engRepo(id string) (*gitrepo.Repo, bool) {
 // several requests per operation don't each pay for bcrypt. A cached login
 // still needs the account to exist with the same password hash, and uses the
 // account's current role.
-func (s *Server) check(user, pw string) (config.User, bool) {
+func (s *Server) check(user, pw string) (config.User, error) {
 	h := sha256.Sum256([]byte(user + ":" + pw))
 	key := hex.EncodeToString(h[:])
 	s.mu.Lock()
@@ -183,19 +183,19 @@ func (s *Server) check(user, pw string) (config.User, bool) {
 	s.mu.Unlock()
 	if ok && time.Now().Before(c.exp) {
 		if cur, found := s.Auth.Lookup(user); found && cur.PasswordHash == c.user.PasswordHash {
-			return cur, true
+			return cur, nil
 		}
 		s.mu.Lock()
 		delete(s.cache, key)
 		s.mu.Unlock()
 	}
-	u, ok := s.Auth.Check(user, pw)
-	if ok {
+	u, err := s.Auth.CheckErr(user, pw)
+	if err == nil {
 		s.mu.Lock()
 		s.cache[key] = cached{u, time.Now().Add(10 * time.Minute)}
 		s.mu.Unlock()
 	}
-	return u, ok
+	return u, err
 }
 
 // mainServicePath accepts only git's own request paths under the main
@@ -238,18 +238,25 @@ func (s *Server) Handler() http.Handler {
 		name, pw, ok := r.BasicAuth()
 		var u config.User
 		var tok *db.TokenInfo
-		valid := false
+		err := auth.ErrRefused
 		switch {
 		case !ok: // no bcrypt for requests without credentials
 		case s.Tokens != nil && strings.HasPrefix(pw, "yars_"):
 			var info db.TokenInfo
-			u, info, valid = s.Tokens.Verify(pw, db.TokenGit)
-			valid = valid && u.Username == name // the token's own account only
-			tok = &info
+			var owner config.User
+			owner, info, err = s.Tokens.Lookup(pw, db.TokenGit)
+			if err != auth.ErrRefused && info.User != name {
+				err = auth.ErrRefused // the token's own account only
+			}
+			u, tok = owner, &info
 		default:
-			u, valid = s.check(name, pw)
+			u, err = s.check(name, pw)
 		}
-		if !valid {
+		if err == auth.ErrMustChange {
+			http.Error(w, err.Error(), http.StatusForbidden)
+			return
+		}
+		if err != nil {
 			w.Header().Set("WWW-Authenticate", `Basic realm="yars", charset="UTF-8"`)
 			http.Error(w, "authentication required", http.StatusUnauthorized)
 			return

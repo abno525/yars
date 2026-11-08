@@ -56,16 +56,29 @@ func (t *Tokens) Add(user string) (string, error) {
 // never meets the presented one in a timing-sensitive comparison. The last
 // use is recorded (at most once a minute).
 func (t *Tokens) Verify(token, kind string) (config.User, db.TokenInfo, bool) {
+	u, info, err := t.Lookup(token, kind)
+	return u, info, err == nil
+}
+
+// Lookup is Verify with the reason of a refusal: ErrMustChange for a good
+// token of an account that must set a new password first (it is told so;
+// the token's info comes back, its account does not), ErrRefused for
+// everything else.
+func (t *Tokens) Lookup(token, kind string) (config.User, db.TokenInfo, error) {
 	info, ok, err := t.db.TokenByHash(hashSecret(token))
 	if err != nil || !ok || info.Kind != kind || !info.Valid(t.now()) {
-		return config.User{}, db.TokenInfo{}, false
+		return config.User{}, db.TokenInfo{}, ErrRefused
 	}
 	u, ok, err := t.db.User(info.User)
-	if err != nil || !ok || u.Disabled || u.MustChange {
-		return config.User{}, db.TokenInfo{}, false
+	if err != nil || !ok || u.Disabled {
+		return config.User{}, db.TokenInfo{}, ErrRefused
+	}
+	if u.MustChange {
+		// the token is told apart (git checks it is the named account's)
+		return config.User{}, info, ErrMustChange
 	}
 	t.db.TokenUsed(info.ID)
-	return u, info, true
+	return u, info, nil
 }
 
 // Revoke removes every token of user.

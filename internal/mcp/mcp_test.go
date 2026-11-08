@@ -519,6 +519,24 @@ func TestMCPHTTPAuth(t *testing.T) {
 	}
 }
 
+// R5: a token of an account with an unchanged temporary password is
+// refused with what to do about it.
+func TestMCPHTTPMustChange(t *testing.T) {
+	f := newFx(t)
+	srv, _, tok := f.httpServer(t)
+	temp, _ := auth.HashPassword("temporary-pw-1")
+	if err := f.s.Store.DB().ResetPassword("bob", temp); err != nil {
+		t.Fatal(err)
+	}
+	c, body := post(t, srv.URL, tok, `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
+	if c != 403 || !strings.Contains(body, "set a new password first (log in on the website)") {
+		t.Fatalf("%d %q", c, body)
+	}
+	if c, body := post(t, srv.URL, "yars_nope", `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`); c != 401 || strings.Contains(body, "new password") {
+		t.Fatalf("bad token: %d %q", c, body)
+	}
+}
+
 func TestMCPHTTPCall(t *testing.T) {
 	f := newFx(t)
 	srv, _, tok := f.httpServer(t)

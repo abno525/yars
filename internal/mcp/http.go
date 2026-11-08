@@ -40,10 +40,15 @@ func (s *Server) HTTPHandler(tokens *auth.Tokens) http.Handler {
 		tok, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 		var user config.User
 		var info db.TokenInfo
+		err := auth.ErrRefused
 		if ok {
-			user, info, ok = tokens.Verify(strings.TrimSpace(tok), db.TokenMCP)
+			user, info, err = tokens.Lookup(strings.TrimSpace(tok), db.TokenMCP)
 		}
-		if !ok {
+		if errors.Is(err, auth.ErrMustChange) {
+			http.Error(w, err.Error(), http.StatusForbidden)
+			return
+		}
+		if err != nil {
 			w.Header().Set("WWW-Authenticate", `Bearer realm="yars"`)
 			http.Error(w, "a valid YARS MCP token is required", http.StatusUnauthorized)
 			return

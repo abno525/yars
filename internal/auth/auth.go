@@ -8,6 +8,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"net/http"
 	"sync"
 	"time"
@@ -76,11 +77,28 @@ func hashSecret(tok string) string {
 // temporary password (MustChange) is good for logging in to set a new one
 // only, so Check refuses it.
 func (a *Auth) Check(username, pw string) (config.User, bool) {
+	u, err := a.CheckErr(username, pw)
+	return u, err == nil
+}
+
+// ErrMustChange refuses a good password or token of an account whose
+// temporary password is not replaced yet: it says what to do.
+var ErrMustChange = errors.New("set a new password first (log in on the website)")
+
+// ErrRefused is every other refusal of credentials.
+var ErrRefused = errors.New("authentication required")
+
+// CheckErr is Check with the reason of a refusal (ErrMustChange or
+// ErrRefused).
+func (a *Auth) CheckErr(username, pw string) (config.User, error) {
 	u, ok := a.verify(username, pw)
-	if !ok || u.MustChange {
-		return config.User{}, false
+	if !ok {
+		return config.User{}, ErrRefused
 	}
-	return u, true
+	if u.MustChange {
+		return config.User{}, ErrMustChange
+	}
+	return u, nil
 }
 
 // Verify reports whether pw is the account's password now (a temporary one
