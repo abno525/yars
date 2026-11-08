@@ -1025,6 +1025,7 @@ body.bare { background: var(--head-bg); min-height: 100vh; }
   padding: 0 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; white-space: nowrap; overflow: hidden;
   background: var(--bad-bg); border-left: 4px solid var(--red); color: var(--red); font-size: 14px; font-weight: 600;
 }
+.barealert[hidden] { display: none; }
 .barealert .clip { overflow: hidden; text-overflow: ellipsis; }
 .barealert .mono { flex: none; font-size: 14px; color: var(--red); }
 
