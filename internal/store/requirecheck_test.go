@@ -57,6 +57,8 @@ func TestRequireCheckGate(t *testing.T) {
 	s.checksMu.Lock()
 	delete(s.running, checkKey(eng, ref.F.Meta.ID))
 	s.checksMu.Unlock()
+	// left running by an earlier server: cut off by the restart
+	refused(workflow.Clear, "bob", GateInterrupted)
 	// failed (cut off)
 	s.DB().FailRun(id, "crashed")
 	refused(workflow.Clear, "bob", GateFailed)
@@ -64,6 +66,13 @@ func TestRequireCheckGate(t *testing.T) {
 	if err := s.Transition(eng, fd, workflow.Clear, "", uBob); err != nil {
 		t.Fatalf("sign off after a run on this content: %v", err)
 	}
+	// a run after the sign-off that stored its results but failed (a script
+	// rule could not run): the director's Approve waits
+	ref = load(t, s, fd)
+	id, _ = s.DB().StartRun(eng, ref.F.Meta.ID, ref.Hash, "bob")
+	s.DB().TxFor(eng, func(tx *db.Tx) error { return tx.FinishRun(id, db.RunFailed, "script crashed", nil) })
+	refused(workflow.Approve, "dora", GateFailed)
+	checkNow(t, s, fd)
 	if err := s.Transition(eng, fd, workflow.Approve, "", uDora); err != nil {
 		t.Fatalf("approve after a run on this content: %v", err)
 	}

@@ -17,6 +17,8 @@ const (
 	GateStale   = "run check first: the content changed since the last check"
 	GateRunning = "run check first: a check is still running"
 	GateFailed  = "run check first: the last check failed"
+	// a run left running by an earlier server: a restart cut it off
+	GateInterrupted = "run check first: the last check was interrupted"
 )
 
 // GateLabel is how the finding page shows any of them on the disabled
@@ -79,6 +81,8 @@ func gateOf(state, runHash, hash string, running bool) string {
 	switch {
 	case state == db.RunRunning && running:
 		return GateRunning
+	case state == db.RunRunning:
+		return GateInterrupted
 	case runHash != hash:
 		return GateStale
 	case state != db.RunDone:
