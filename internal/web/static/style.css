@@ -851,6 +851,9 @@ a.atab:hover { color: var(--ink); background: var(--panel); }
 .ruletable tr.off .tag { background: transparent; color: var(--off-fg); border-color: var(--line); }
 .ruletable tr.editing td { background: var(--panel); }
 .ruletable tr.editing td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+/* the server settings under the rules (Require Check) */
+.settingtable { margin-top: 12px; border-top: 1px solid var(--line); }
+.settingtable td.setname { font-size: 14px; font-weight: 600; }
 .tag.kind-pattern, .tag.kind-builtin { background: transparent; color: var(--text); border-color: var(--field-line); }
 .tag.kind-script { background: var(--panel); color: var(--text); border-color: var(--line); }
 .tag.kind-ai { background: var(--navy); color: #FFFFFF; border-color: var(--navy); }

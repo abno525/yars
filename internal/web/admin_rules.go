@@ -74,6 +74,8 @@ type rulesAdmin struct {
 	Edit     string
 	Form     ruleForm
 	Bench    benchView
+	// RequireCheck: Sign off and Approve wait for a check run (a setting)
+	RequireCheck bool
 }
 
 var kindLabels = map[string]string{"pattern": "Pattern", "builtin": "Built-in", "script": "Script", "ai": "AI"}
@@ -92,6 +94,7 @@ func (s *Server) routesAdminRules(mux *http.ServeMux) {
 	mux.HandleFunc("POST /admin/rules/save", h(s.ruleSave))
 	mux.HandleFunc("POST /admin/rules/toggle", h(s.ruleToggle))
 	mux.HandleFunc("POST /admin/rules/delete", h(s.ruleDelete))
+	mux.HandleFunc("POST /admin/rules/require-check", h(s.requireCheckToggle))
 	mux.HandleFunc("GET /admin/rules/bench", h(s.ruleBench))
 	mux.HandleFunc("GET /admin/rules/bench/findings", h(s.benchFindings))
 }
@@ -204,6 +207,7 @@ func (s *Server) rulesView(r *http.Request, p *page, f ruleForm) error {
 		}
 		v.Filters = append(v.Filters, link{Label: l.label, URL: u, Active: l.key == level, Count: n})
 	}
+	v.RequireCheck = s.Store.RequireCheck()
 	s.fill(&f)
 	v.Form = f
 	if !f.New {
@@ -486,6 +490,16 @@ func (s *Server) ruleToggle(w http.ResponseWriter, r *http.Request) {
 		return []store.SettingsFile{{Path: rulesRel + x.File, Data: nb}}, nil
 	})
 	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	http.Redirect(w, r, back(r), http.StatusSeeOther)
+}
+
+// requireCheckToggle turns Require Check (before Sign off and Approve) on
+// or off; audited by the store.
+func (s *Server) requireCheckToggle(w http.ResponseWriter, r *http.Request) {
+	if err := s.Store.SetRequireCheck(r.FormValue("on") == "1", auth.UserFrom(r.Context()).Username); err != nil {
 		s.fail(w, err)
 		return
 	}

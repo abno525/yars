@@ -354,7 +354,8 @@ func (c *openCache) put(k openKey, finding string, open bool) {
 
 // withoutOpenChecks drops from Ready to approve the findings with open
 // (undismissed) check errors or warnings (Store.OpenChecks, the gate's own
-// source): a director gets clean findings only. Read now, since runs,
+// source), and with Require Check on those without a finished check run on
+// their content (Store.CheckGates): a director gets clean findings only. Read now, since runs,
 // dismissals and rule changes do not wait for the index. v is shared: a
 // changed view gets its own lists map.
 func (s *Server) withoutOpenChecks(v inboxView) (inboxView, error) {
@@ -367,7 +368,22 @@ func (s *Server) withoutOpenChecks(v inboxView) (inboxView, error) {
 		return v, err
 	}
 	drop := map[string]bool{}
+	// Require Check: the latest run must have finished on the content (read
+	// now in one query, never cached: runs start and fail without moving a
+	// change counter, and the setting can change)
+	keys := make([]store.GateKey, 0, len(rows))
 	for _, r := range rows {
+		keys = append(keys, store.GateKey{Eng: r.EngID, Fid: r.row.ID, Hash: r.row.Hash})
+	}
+	gates, err := s.Store.CheckGates(keys)
+	if err != nil {
+		return v, err
+	}
+	for _, r := range rows {
+		if gates[r.EngID+"/"+r.row.ID] != "" {
+			drop[r.Key] = true
+			continue
+		}
 		open, ok := known[r.Key]
 		if !ok {
 			vs, err := s.Store.OpenChecks(r.EngID, r.row.Dir)

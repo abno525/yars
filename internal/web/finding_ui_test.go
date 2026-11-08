@@ -96,7 +96,7 @@ func TestWorkflowSlotsFixed(t *testing.T) {
 		t.Fatalf("bob after sign-off:\n%s", bob)
 	}
 	// the state slot is still rendered, empty, so the buttons keep their place
-	if !strings.HasPrefix(bob, `class="wfstate" title=""></span>`) || strings.Count(bob, "data-slot=") != 2 {
+	if !strings.HasPrefix(bob, `class="wfstate" id="wf-state" title=""></span>`) || strings.Count(bob, "data-slot=") != 2 {
 		t.Fatalf("bob's state slot after sign-off:\n%s", bob)
 	}
 	if a := actionsOf(t, e.do(t, "dora", "GET", fpath, nil, nil).Body.String()); strings.Contains(a, `data-action="approve" disabled`) {

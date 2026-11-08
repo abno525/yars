@@ -40,16 +40,18 @@ type wfView struct {
 	Gate    []string
 	// open check errors and warnings keeping Sign off or Approve disabled
 	OpenErrors, OpenWarnings int
-	Reviewers                []wfReviewer
-	Candidates               []wfCandidate
-	CanAssign                bool
-	HasGated                 bool
-	ReviewersURL             string
-	URL                      string // the bar alone (live refresh)
-	Returned                 *finding.Returned
-	Withdrawn                *finding.Returned // who withdrew the finding and why
-	IsWithdrawn              bool              // no step is current or done
-	ReadOnly                 bool              // the engagement is archived: no actions
+	// Require Check: Sign off and Approve wait for a check run on this content
+	NeedsCheck   bool
+	Reviewers    []wfReviewer
+	Candidates   []wfCandidate
+	CanAssign    bool
+	HasGated     bool
+	ReviewersURL string
+	URL          string // the bar alone (live refresh)
+	Returned     *finding.Returned
+	Withdrawn    *finding.Returned // who withdrew the finding and why
+	IsWithdrawn  bool              // no step is current or done
+	ReadOnly     bool              // the engagement is archived: no actions
 
 	// The bar as drawn: the first chips, how many more, the fixed button
 	// slots of the status, the reason forms they open and the state text.
@@ -108,6 +110,7 @@ type wfSlot struct {
 	wfAction
 	Slot, Width, Class string
 	Present            bool
+	DescribedBy        string // the id of the state text saying why it is disabled
 	PanelID, PanelHead string // a reason form under the bar (Return, Withdraw)
 }
 
@@ -202,10 +205,18 @@ func (v *wfView) arrange(u config.User, m finding.Meta) {
 		v.State, v.StateError = plural(v.OpenErrors, "error")+" open", true
 	case v.OpenWarnings > 0:
 		v.State = plural(v.OpenWarnings, "warning") + " open"
+	case v.NeedsCheck:
+		v.State = store.GateLabel
 	case needsSignOff:
 		v.State = "Needs 1 sign-off"
 	case m.Status == "verification" && u.Username == m.Author:
 		v.State = "Own finding"
+	}
+	// a disabled Sign off or Approve is described by the state: why it waits
+	for i, sl := range v.Slots {
+		if act, _ := workflow.ParseAction(sl.Name); sl.Present && sl.Disabled && store.SignsOff(act) && v.State != "" {
+			v.Slots[i].DescribedBy = "wf-state"
+		}
 	}
 }
 
@@ -285,8 +296,15 @@ func (s *Server) wfGated(r *http.Request, ref store.FindingRef) (wfView, checksV
 				wf.OpenErrors++
 			}
 		}
+		// Require Check: a finished run on this content first (the store's
+		// own gate)
+		gate, gerr := s.Store.CheckGate(ref.EngID, ref.Dir)
+		if gerr != nil {
+			log.Printf("check gate of %s/%s: %v", ref.EngID, ref.Dir, gerr)
+		}
+		wf.NeedsCheck = gate != "" || gerr != nil
 		for i, a := range wf.Actions {
-			if act, _ := workflow.ParseAction(a.Name); store.SignsOff(act) && (len(open) > 0 || err != nil) {
+			if act, _ := workflow.ParseAction(a.Name); store.SignsOff(act) && (len(open) > 0 || err != nil || wf.NeedsCheck) {
 				wf.Actions[i].Disabled = true
 			}
 		}

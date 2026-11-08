@@ -33,7 +33,7 @@
       </details>
       {{end}}
     </div>
-    <span class="wfstate{{if .StateError}} error{{end}}" title="{{.State}}">{{.State}}</span>
+    <span class="wfstate{{if .StateError}} error{{end}}" id="wf-state" title="{{.State}}">{{.State}}</span>
     {{with .Check}}{{if .On}}
     <div class="wfcheck">
       <span class="checkslot">{{if .Flag}}{{if .FlagTag}}<span class="tag check-stale">{{.Flag}}</span>{{else}}<span class="checkflag {{.FlagClass}}">{{.Flag}}{{if .FlagN}} <span class="mono">{{.FlagN}}</span>{{end}}</span>{{end}}{{end}}</span>
@@ -47,7 +47,7 @@
       {{range .Slots}}
       {{if not .Present}}<span class="slot {{.Width}}" data-slot="{{.Slot}}"></span>
       {{else if .PanelID}}<button type="button" class="btn {{.Width}} {{.Class}}" data-slot="{{.Slot}}" data-action="{{.Name}}"{{if .Disabled}} disabled{{end}} title="{{.Title}}" aria-controls="{{.PanelID}}" aria-expanded="false" data-reason-toggle>{{.Label}}</button>
-      {{else}}<form method="post" action="{{.URL}}" class="wf-action" data-slot="{{.Slot}}"><button class="btn {{.Width}} {{.Class}}" data-action="{{.Name}}"{{if .Disabled}} disabled{{end}} title="{{.Title}}">{{.Label}}</button></form>
+      {{else}}<form method="post" action="{{.URL}}" class="wf-action" data-slot="{{.Slot}}"><button class="btn {{.Width}} {{.Class}}" data-action="{{.Name}}"{{if .Disabled}} disabled{{end}} title="{{.Title}}"{{with .DescribedBy}} aria-describedby="{{.}}"{{end}}>{{.Label}}</button></form>
       {{end}}
       {{end}}
     </div>

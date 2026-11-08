@@ -421,6 +421,21 @@
       {{end}}
     </tbody>
   </table>
+  <table class="table ruletable settingtable">
+    <thead><tr><th>Setting</th><th class="c-on">On</th><th class="c-act">Action</th></tr></thead>
+    <tbody>
+      <tr>
+        <td class="setname">Require Check before Sign off and Approve</td>
+        <td>
+          <form class="toggle" method="post" action="/admin/rules/require-check">
+            <input type="hidden" name="on" value="{{if .RequireCheck}}0{{else}}1{{end}}">
+            <button class="cbx{{if .RequireCheck}} on{{end}}" aria-label="Require Check before Sign off and Approve" aria-pressed="{{if .RequireCheck}}true{{else}}false{{end}}">{{if .RequireCheck}}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>{{end}}</button>
+          </form>
+        </td>
+        <td><span class="slot w96"></span></td>
+      </tr>
+    </tbody>
+  </table>
 </section>
 <div class="rulesgrid">
   {{template "rule_form" .Form}}
