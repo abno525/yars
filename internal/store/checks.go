@@ -311,8 +311,14 @@ func (s *Store) startCheck(engID, dir, only string, u config.User) (db.CheckRun,
 	if only != "" && !slices.ContainsFunc(ruleList, func(r rules.Rule) bool { return r.ID == only }) {
 		return db.CheckRun{}, fmt.Errorf("%w: no rule %s to run", ErrInvalidValue, only)
 	}
+	// one start at a time; checksMu is held across the writes below, so
+	// nothing inside a transaction may take it (the gate reads running
+	// under runningMu only)
 	s.checksMu.Lock()
-	if id, ok := s.running[key]; ok {
+	s.runningMu.Lock()
+	id, ok := s.running[key]
+	s.runningMu.Unlock()
+	if ok {
 		s.checksMu.Unlock()
 		return s.db.Run(id)
 	}
@@ -330,11 +336,16 @@ func (s *Store) startCheck(engID, dir, only string, u config.User) (db.CheckRun,
 			only = "" // nothing to keep: run everything
 		}
 	}
-	id, err := s.db.StartRun(engID, fid, hash, u.Username)
+	// marked before the run exists: a gate that sees the new run as the
+	// latest counts it as running, not as cut off
+	s.setRunning(key, pendingRun, false)
+	id, err = s.db.StartRun(engID, fid, hash, u.Username)
 	if err != nil {
+		s.setRunning(key, 0, true)
 		s.checksMu.Unlock()
 		return db.CheckRun{}, err
 	}
+	s.setRunning(key, id, false)
 	if stepped {
 		var steps []db.CheckStep
 		for i, r := range ruleList {
@@ -353,10 +364,6 @@ func (s *Store) startCheck(engID, dir, only string, u config.User) (db.CheckRun,
 		}
 	}
 	s.db.RunProgress(id, 0, total) // "0/6" from the start
-	if s.running == nil {
-		s.running = map[string]int64{}
-	}
-	s.running[key] = id
 	s.checkWG.Add(1)
 	s.checksMu.Unlock()
 	s.notify(Change{Eng: engID, Fid: fid, Kind: ChangeCheck})
@@ -440,10 +447,40 @@ func stepOutcome(run int64, r rules.Rule, vs []rules.Violation) db.CheckStep {
 // CheckRunning reports whether this server is running a check of the
 // finding now (a run a stopped server left "running" is not).
 func (s *Store) CheckRunning(engID, fid string) bool {
-	s.checksMu.Lock()
-	defer s.checksMu.Unlock()
+	s.runningMu.Lock()
+	defer s.runningMu.Unlock()
 	_, ok := s.running[checkKey(engID, fid)]
 	return ok
+}
+
+// pendingRun marks a check as starting in running before its run exists.
+const pendingRun = 0
+
+// inProgress reports whether run id of key is in progress in this server
+// (or a start of key is under way, which makes it the latest run).
+func (s *Store) inProgress(key string, id int64) bool {
+	s.runningMu.Lock()
+	defer s.runningMu.Unlock()
+	return s.inProgressLocked(key, id)
+}
+
+func (s *Store) inProgressLocked(key string, id int64) bool {
+	v, ok := s.running[key]
+	return ok && (v == id || v == pendingRun)
+}
+
+// setRunning records (or, with forget, removes) key's run in running.
+func (s *Store) setRunning(key string, id int64, forget bool) {
+	s.runningMu.Lock()
+	defer s.runningMu.Unlock()
+	if forget {
+		delete(s.running, key)
+		return
+	}
+	if s.running == nil {
+		s.running = map[string]int64{}
+	}
+	s.running[key] = id
 }
 
 // WaitChecks waits until no check run is in progress.
@@ -456,9 +493,7 @@ func (s *Store) runCheck(id int64, ref FindingRef, only string, keep *carried) {
 		if p := recover(); p != nil {
 			s.db.FailRun(id, fmt.Sprint("crashed: ", p))
 		}
-		s.checksMu.Lock()
-		delete(s.running, checkKey(eng, fid))
-		s.checksMu.Unlock()
+		s.setRunning(checkKey(eng, fid), 0, true)
 		s.notify(Change{Eng: eng, Fid: fid, Kind: ChangeCheck})
 		s.emitCheck(id, ref)
 	}()
@@ -716,7 +751,7 @@ func (s *Store) CheckStatus(engID, dir string) (CheckStatus, error) {
 	s.checksMu.Lock()
 	st.Run, st.HasRun, err = s.db.LatestRun(engID, fid)
 	if err == nil && st.HasRun && st.Run.State == db.RunRunning {
-		if s.running[checkKey(engID, fid)] == st.Run.ID {
+		if s.inProgress(checkKey(engID, fid), st.Run.ID) {
 			st.Running = true
 		} else if err = s.db.FailRun(st.Run.ID, "interrupted"); err == nil {
 			st.Run, err = s.db.Run(st.Run.ID)

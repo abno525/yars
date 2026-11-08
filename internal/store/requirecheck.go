@@ -65,12 +65,8 @@ func (s *Store) checkGate(engID, fid, hash string) (string, error) {
 	if err != nil || !ok {
 		return GateNoRun, err
 	}
-	running := false
-	if run.State == db.RunRunning {
-		s.checksMu.Lock()
-		running = s.running[checkKey(engID, fid)] == run.ID
-		s.checksMu.Unlock()
-	}
+	// called inside Sign off's transaction: runningMu only, never checksMu
+	running := run.State == db.RunRunning && s.inProgress(checkKey(engID, fid), run.ID)
 	return gateOf(run.State, run.ContentHash, hash, running), nil
 }
 
@@ -122,8 +118,8 @@ func (s *Store) CheckGates(keys []GateKey) (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	s.checksMu.Lock()
-	defer s.checksMu.Unlock()
+	s.runningMu.Lock()
+	defer s.runningMu.Unlock()
 	for _, k := range keys {
 		name := k.Eng + "/" + k.Fid
 		r, ok := runs[name]
@@ -131,7 +127,7 @@ func (s *Store) CheckGates(keys []GateKey) (map[string]string, error) {
 			out[name] = GateNoRun
 			continue
 		}
-		if g := gateOf(r.State, r.ContentHash, k.Hash, s.running[checkKey(k.Eng, k.Fid)] == r.ID); g != "" {
+		if g := gateOf(r.State, r.ContentHash, k.Hash, s.inProgressLocked(checkKey(k.Eng, k.Fid), r.ID)); g != "" {
 			out[name] = g
 		}
 	}

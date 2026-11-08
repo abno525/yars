@@ -124,9 +124,13 @@ type Store struct {
 	// submit and approve (unless dismissed).
 	Linter Linter
 
-	// check runs in progress, by "<eng>/<fid>" (guarded by checksMu)
+	// checksMu makes starting a check one at a time (held across its
+	// database writes, so never taken inside a transaction)
 	checksMu sync.Mutex
-	running  map[string]int64
+	// check runs in progress, by "<eng>/<fid>"; runningMu is held only to
+	// read or change the map, never across a database call
+	runningMu sync.Mutex
+	running   map[string]int64
 	checkWG  sync.WaitGroup
 
 	beforeWrite func() // test hook: runs between reading and writing

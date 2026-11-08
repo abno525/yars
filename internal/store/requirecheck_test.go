@@ -3,6 +3,7 @@ package store
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"yars/internal/config"
 	"yars/internal/db"
@@ -50,13 +51,13 @@ func TestRequireCheckGate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s.checksMu.Lock()
+	s.runningMu.Lock()
 	s.running[checkKey(eng, ref.F.Meta.ID)] = id
-	s.checksMu.Unlock()
+	s.runningMu.Unlock()
 	refused(workflow.Clear, "bob", GateRunning)
-	s.checksMu.Lock()
+	s.runningMu.Lock()
 	delete(s.running, checkKey(eng, ref.F.Meta.ID))
-	s.checksMu.Unlock()
+	s.runningMu.Unlock()
 	// left running by an earlier server: cut off by the restart
 	refused(workflow.Clear, "bob", GateInterrupted)
 	// failed (cut off)
@@ -134,6 +135,47 @@ func TestRequireCheckOff(t *testing.T) {
 	}
 	if err := s2.Transition(eng, fd2, workflow.Clear, "", uBob); err != nil {
 		t.Fatalf("sign off without rules: %v", err)
+	}
+}
+
+// The gate runs inside Sign off's write transaction, so it must not wait
+// on checksMu: startCheck holds that across its own database writes, which
+// wait on the transaction (each would stall until the busy timeout).
+func TestCheckGateNotOnChecksMu(t *testing.T) {
+	s, dir, fd := ready(t)
+	withRules(t, s, dir, "- id: none\n  target: title\n  regex_forbid: 'zzz'\n")
+	ref := load(t, s, fd)
+	id, err := s.DB().StartRun(eng, ref.F.Meta.ID, ref.Hash, "bob")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.runningMu.Lock()
+	s.running = map[string]int64{checkKey(eng, ref.F.Meta.ID): id}
+	s.runningMu.Unlock()
+	// a start in the middle of its writes
+	s.checksMu.Lock()
+	defer s.checksMu.Unlock()
+	got := make(chan string, 2)
+	go func() {
+		g, _ := s.checkGate(eng, ref.F.Meta.ID, ref.Hash)
+		got <- g
+		gs, _ := s.CheckGates([]GateKey{{eng, ref.F.Meta.ID, ref.Hash}})
+		got <- gs[eng+"/"+ref.F.Meta.ID]
+	}()
+	for range 2 {
+		select {
+		case g := <-got:
+			if g != GateRunning {
+				t.Fatalf("gate %q, want %q", g, GateRunning)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("the gate waits on checksMu")
+		}
+	}
+	// a start between its StartRun and recording the id: still running
+	s.setRunning(checkKey(eng, ref.F.Meta.ID), pendingRun, false)
+	if g, _ := s.checkGate(eng, ref.F.Meta.ID, ref.Hash); g != GateRunning {
+		t.Fatalf("starting: %q", g)
 	}
 }
 
