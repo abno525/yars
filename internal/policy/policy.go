@@ -170,9 +170,19 @@ func (c *Checker) Check(username string, ups []Update) []string {
 			ps = append(ps, "server: "+err.Error())
 			continue
 		}
+		merges := false
 		for _, cm := range commits {
 			cps, rep := c.checkCommit(u, cm, old)
 			ps = append(ps, cps...)
+			repairs = repairs || rep
+			merges = merges || len(cm.Parents) > 1
+		}
+		if merges {
+			// a merge is checked against a parent the pusher picks: what the
+			// push as a whole changes is checked against the server's copy
+			// too, so no choice of parent hides a deletion or a lock
+			wps, rep := c.checkWhole(u, old, up.New, ps)
+			ps = append(ps, wps...)
 			repairs = repairs || rep
 		}
 		if len(ps) == 0 {
@@ -245,6 +255,41 @@ func (c *Checker) checkCommit(u config.User, cm gitrepo.PushedCommit, base strin
 	if err != nil {
 		return append(ps, "server: "+err.Error()), false
 	}
+	cps, repairs := c.checkChanges(u, short, parent, cm.Hash, changes)
+	return append(ps, cps...), repairs
+}
+
+// checkWhole checks what old..new changes as a whole against old (the
+// server's copy), as one commit named after new, leaving out the problems
+// already reported (seen) for the same file.
+func (c *Checker) checkWhole(u config.User, old, new string, seen []string) ([]string, bool) {
+	short := new
+	if len(short) > 7 {
+		short = short[:7]
+	}
+	changes, err := c.Repo.ChangedFiles(old, new)
+	if err != nil {
+		return []string{"server: " + err.Error()}, false
+	}
+	known := map[string]bool{}
+	for _, p := range seen {
+		if rest, ok := strings.CutPrefix(p, "commit "); ok {
+			if _, rest, ok = strings.Cut(rest, " "); ok {
+				known[rest] = true
+			}
+		}
+	}
+	ps, repairs := c.checkChanges(u, short, old, new, changes)
+	ps = slices.DeleteFunc(ps, func(p string) bool {
+		return known[strings.TrimPrefix(p, "commit "+short+" ")]
+	})
+	return ps, repairs
+}
+
+// checkChanges checks the files changes lists (parent..rev), naming commit
+// short in each problem.
+func (c *Checker) checkChanges(u config.User, short, parent, rev string, changes []gitrepo.Change) ([]string, bool) {
+	var ps []string
 	// sizes first: nothing over the limit is read into memory
 	var ids, paths []string
 	for _, ch := range changes {
@@ -278,12 +323,12 @@ func (c *Checker) checkCommit(u config.User, cm gitrepo.PushedCommit, base strin
 		case c.Token != nil && !c.Token.Allows(c.scopeFor(parent, ch)):
 			probs = []string{"this token cannot " + c.scopeFor(parent, ch) + " findings"}
 		case c.Eng == "":
-			probs = c.mainFile(u, parent, cm.Hash, ch)
+			probs = c.mainFile(u, parent, rev, ch)
 		default:
 			// rules are written against data-dir paths
 			logical := ch
 			logical.Path = "engagements/" + c.Eng + "/" + ch.Path
-			probs = c.file(u, parent, cm.Hash, logical)
+			probs = c.file(u, parent, rev, logical)
 		}
 		for _, p := range probs {
 			ps = append(ps, "commit "+short+" "+ch.Path+": "+p)

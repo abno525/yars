@@ -804,6 +804,77 @@ func TestPolicyMergeAuthorChange(t *testing.T) {
 	}
 }
 
+// mergeServer makes, as as, a merge in the clone whose first parent is
+// first (a revision, or "" for a new empty root) and whose second is the
+// server's tip, then lets edit change its tree (amended into the merge).
+func (f *fx) mergeServer(as, first string, edit func(string)) string {
+	f.t.Helper()
+	run := func(args ...string) string {
+		return git(f.t, f.clone, append([]string{"-c", "user.name=" + as, "-c", "user.email=" + as + "@yars.local"}, args...)...)
+	}
+	if first == "" {
+		run("switch", "-q", "--orphan", "first")
+		run("commit", "-q", "--allow-empty", "-m", "root")
+	} else {
+		run("switch", "-qc", "first", first)
+	}
+	run("merge", "-q", "--no-ff", "--no-edit", "--allow-unrelated-histories", "-X", "theirs", "main")
+	edit(f.clone)
+	run("add", "-A")
+	run("commit", "-q", "--amend", "--no-edit", "--allow-empty")
+	return run("rev-parse", "HEAD")
+}
+
+// A merge whose first parent is from before a finding existed does not
+// hide the finding's deletion: the server's version is what is checked.
+func TestPolicyMergeHidesDeletion(t *testing.T) {
+	f := newFx(t)
+	root := git(t, f.repo().Dir, "rev-list", "--max-parents=0", "HEAD")
+	f.reclone()
+	rev := f.mergeServer("alice", root, func(d string) { os.RemoveAll(filepath.Join(d, fdir)) })
+	if ps := f.check("alice", rev); !has(ps, fdir+"/finding.md: only a director can delete a finding") {
+		t.Fatalf("finding deleted through a merge: %v", ps)
+	}
+}
+
+// A merge with an orphan first parent does not unlock the attachments of
+// a reported finding.
+func TestPolicyMergeOrphanAttachment(t *testing.T) {
+	f := newFx(t)
+	write(f.repo().Dir, fdir+"/attachments/shot.png", "png")
+	git(t, f.repo().Dir, "add", "-A")
+	git(t, f.repo().Dir, "commit", "-qm", "shot")
+	f.st.DB().Tx(func(tx *db.Tx) error { return tx.PutState("acme", "F-001", db.State{Status: "reported"}) })
+	f.reclone()
+	rev := f.mergeServer("alice", "", func(d string) { write(d, fdir+"/attachments/shot.png", "other") })
+	if ps := f.check("alice", rev); !has(ps, fdir+"/attachments/shot.png: F-001 is reported; only a director can change it") {
+		t.Fatalf("reported attachment replaced through a merge: %v", ps)
+	}
+}
+
+// A merge whose first parent has an older text of an approved finding
+// does not make it count as in verification: its reviewer is refused.
+func TestPolicyMergeReviewerEditsComplete(t *testing.T) {
+	f := newFx(t)
+	st := f.st
+	v1 := git(t, f.repo().Dir, "rev-parse", "HEAD")
+	st.UpdateSection("acme", "F-001-sqli", "Impact", "v2 impact", "", user("alice").GitAuthor())
+	st.SetReviewers("acme", "F-001-sqli", []string{"bob"}, user("alice"))
+	st.UpdateSeverity("acme", "F-001-sqli", "high", "", user("alice").GitAuthor())
+	st.Transition("acme", "F-001-sqli", workflow.Submit, "", user("alice"))
+	st.Transition("acme", "F-001-sqli", workflow.Clear, "", user("bob"))
+	if err := st.Transition("acme", "F-001-sqli", workflow.Approve, "", user("dora")); err != nil {
+		t.Fatal(err)
+	}
+	f.reclone()
+	rev := f.mergeServer("bob", v1, func(d string) {
+		editMeta(d, func(fd *finding.Finding) { fd.SetSection("Impact", "reviewer's late change") })
+	})
+	if ps := f.check("bob", rev); !has(ps, "F-001 is complete; only a director can change it") {
+		t.Fatalf("complete finding edited by its reviewer through a merge: %v", ps)
+	}
+}
+
 // Attachments are held to the website's upload rules: images or text, not
 // executable, plain names directly in attachments/, at most 10 MB; a big
 // file a later commit deletes is still refused (history keeps it).
