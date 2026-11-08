@@ -420,7 +420,8 @@ func TestPolicyConfigDropsTemplateName(t *testing.T) {
 	f.reclone()
 	drop := func(d string) { write(d, ".yars/config.yaml", "severities: [critical, high, medium, low, info]\n") }
 	ps := f.push("dora", drop)
-	if !has(ps, `severity "extreme" is still used by: template x.md.`) {
+	want := `severity "extreme" is still used by: template x.md. Change those templates first, then remove the name; renames are done in Admin › Structure.`
+	if !slices.Contains(ps, "commit "+short(t, f.clone, "HEAD")+" .yars/config.yaml: "+want) {
 		t.Fatalf("dropped a template's severity: %v", ps)
 	}
 	f.reclone()
