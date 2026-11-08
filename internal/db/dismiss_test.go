@@ -81,14 +81,11 @@ func TestLegacyDismissalsEnd(t *testing.T) {
 		}
 		return nil
 	})
-	tx, err := d.Begin()
-	if err != nil {
+	// a database at v16 (already past v14) gets it too
+	if _, err := d.Exec("PRAGMA user_version = 16"); err != nil {
 		t.Fatal(err)
 	}
-	if err := endCopiedLegacy(tx); err != nil {
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
+	if err := d.migrate(); err != nil {
 		t.Fatal(err)
 	}
 	ds, _ := d.Dismissals("e", "F-001")
