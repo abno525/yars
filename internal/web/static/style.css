@@ -1289,7 +1289,7 @@ a.etab:hover { color: var(--ink); background: var(--panel); }
 .tplhist th.c-hash { width: 112px; }
 .tplhist td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .fgrid.tplmeta { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 2fr) minmax(0, 1fr); }
-.tpltable th.c-pick { width: 48px; }
+.tpltable th.c-pick { width: 56px; }
 .tpltable th.c-num { width: 88px; }
 .tpltable td.title label { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .tpltable tr.picked td { background: var(--pick-bg); }
