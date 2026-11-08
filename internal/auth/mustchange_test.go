@@ -47,6 +47,13 @@ func TestMustChangeRefusesTokensAndCheck(t *testing.T) {
 	if _, _, ok := tk.Verify(mcp, db.TokenMCP); !ok {
 		t.Fatal("the MCP token after the new password")
 	}
+	// R6 (Q2): a reset does not revoke tokens: the git token works again too
+	if _, _, ok := tk.Verify(git, db.TokenGit); !ok {
+		t.Fatal("the git token after the new password")
+	}
+	if l := tk.ListFor("pen2"); len(l) != 2 {
+		t.Fatalf("tokens after the reset: %d", len(l))
+	}
 	if _, ok := a.Check("pen2", "new-password-1"); !ok {
 		t.Fatal("git auth after the new password")
 	}

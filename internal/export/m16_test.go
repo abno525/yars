@@ -227,6 +227,12 @@ func TestReportKVHeaderOnlyInPreview(t *testing.T) {
 	if x := Report(in); strings.Contains(x, "<th>Field</th>") {
 		t.Fatal("document body has a Field | Value row")
 	}
+	// R6 (Q9): Confluence pages neither
+	for _, macros := range []bool{true, false} {
+		if x := XHTML(in, macros); strings.Contains(x, "<th>Field</th>") {
+			t.Fatalf("Confluence page (macros %v) has a Field | Value row", macros)
+		}
+	}
 	in.Preview = true
 	if x := Report(in); strings.Count(x, kvHead) < 2 {
 		t.Fatalf("preview lacks the header:\n%s", x)
