@@ -25,6 +25,21 @@ func TestNoSeverityIsADash(t *testing.T) {
 	}
 }
 
+// R5 (P3): the inbox queues' Severity column shows the same "—".
+func TestInboxNoSeverityIsADash(t *testing.T) {
+	e := setup(t)
+	b := e.do(t, "alice", "GET", "/inbox", nil, nil).Body.String()
+	cells := regexp.MustCompile(`<td class="c-tag">(.*?)</td>\s*<td class="c-eng mono"[^>]*><span class="engid">acme</span> · <span class="fid">F-001</span>`).FindAllStringSubmatch(b, -1)
+	if len(cells) == 0 {
+		t.Fatalf("no F-001 inbox row:\n%s", b)
+	}
+	for _, c := range cells {
+		if c[1] != `<span class="muted">—</span>` {
+			t.Errorf("severity cell %q", c[1])
+		}
+	}
+}
+
 // D20: no or an invalid CVSS vector shows "—", never "0.0", on the board,
 // the templates list and the template page; a valid vector scoring 0.0
 // still shows 0.0.
