@@ -1359,7 +1359,9 @@ input.bigin { height: 48px; font: 600 18px var(--sans); border: 2px solid var(--
 /* retest: the original beside the result */
 .newretest { display: flex; flex-direction: column; gap: 16px; }
 .retestgrid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; align-items: start; scroll-margin-top: 80px; }
-.orig .panelname .mono { font-size: 13px; }
+/* the label and status never shrink: the reference takes what is left */
+.orig .panelname h2, .orig .panelname .tag { flex: none; }
+.orig .panelname .mono { flex: 0 1 auto; min-width: 0; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .orig .kv th { width: 140px; }
 .orig .kv td { overflow-wrap: anywhere; }
 .osec { padding: 12px 20px; border-top: 1px solid var(--line-soft); }
