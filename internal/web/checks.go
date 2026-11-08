@@ -204,7 +204,13 @@ func (s *Server) checksFor(r *http.Request, ref store.FindingRef) checksView {
 			v.AIHead = s.aiHead()
 		}
 	}
+	seen := map[string]bool{} // rule, place and quote: one row each (D18)
 	for n, it := range items {
+		k := it.Rule + "\x00" + it.Level + "\x00" + db.ViolationHash(it.Target, it.Quote)
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
 		row := checkRow{N: n, Rule: it.Rule, Level: it.Level, Message: it.Message, Quote: it.Quote, Where: where(it.Target), Target: it.Target}
 		notice := it.Target == "rules" || it.Target == "ai"
 		if d, ok := dismissed(it); ok && !notice {

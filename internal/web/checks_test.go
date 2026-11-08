@@ -165,6 +165,17 @@ func TestChecksPanelLayout(t *testing.T) {
 	}
 }
 
+// The same wording found twice in one place is one row: one Dismiss covers
+// it and the count says so (D18).
+func TestChecksCountsMatchRows(t *testing.T) {
+	e := setupSerial(t)
+	e.rules(t, "- id: letter-i\n  target: title\n  regex_forbid: 'i'\n  message: no letter i\n", nil)
+	p := e.do(t, "alice", "GET", fpath+"/checks", nil, nil).Body.String()
+	if n := strings.Count(p, `<span class="tag lvl-error">`); n != 1 || !strings.Contains(p, `Errors <span class="badge">1</span>`) {
+		t.Fatalf("%d rows for one place:\n%s", n, p)
+	}
+}
+
 func TestChecksDismiss(t *testing.T) {
 	e := setupSerial(t)
 	e.rules(t, styleRules, map[string]string{"check.sh": "cat >/dev/null; echo '[]'\n"})

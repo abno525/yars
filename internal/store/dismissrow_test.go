@@ -52,6 +52,31 @@ func TestDismissOneRowOnly(t *testing.T) {
 	}
 }
 
+// The same wording found twice in one place is one result row: counts,
+// open checks and a dismissal agree (D18).
+func TestSameQuoteTwiceOneRow(t *testing.T) {
+	s, dir, fd := ready(t)
+	withRules(t, s, dir, "- id: tick\n  target: sections\n  regex_forbid: '`'\n  message: no backticks\n")
+	s.UpdateSection(eng, fd, "Description", "see `/api/items` here", "", alice)
+	ref := load(t, s, fd)
+	st := checked(t, s, fd)
+	n := 0
+	for _, r := range st.Results {
+		if r.Rule == "tick" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("results %+v", st.Results)
+	}
+	if runs, _ := s.DB().LatestRuns([][2]string{{eng, ref.F.Meta.ID}}); runs[eng+"/"+ref.F.Meta.ID].Errors != 1 {
+		t.Fatalf("stored counts %+v", runs)
+	}
+	if open, err := s.OpenChecks(eng, fd); err != nil || len(open) != 1 {
+		t.Fatalf("open checks %+v %v", open, err)
+	}
+}
+
 // A dismissal stored before D18 (keyed by rule and quote only) still
 // dismisses the violation everywhere, as it did when it was made.
 func TestLegacyDismissalStillCounts(t *testing.T) {

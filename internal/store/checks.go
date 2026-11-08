@@ -625,8 +625,14 @@ func finishCheck(tx *db.Tx, id int64, eng, fid string, vs []rules.Violation) err
 	}
 	found := map[string]string{} // threadKey -> thread given in this run
 	results := make([]db.CheckResult, 0, len(vs))
+	stored := map[string]bool{} // rule, place and quote: one row each (D18)
 	for _, v := range vs {
 		r := db.CheckResult{Rule: v.Rule, Level: v.Level, Message: v.Message, Target: v.Target, Quote: v.Quote, QuoteHash: ViolationHash(v.Target, v.Quote)}
+		row := db.DismissKey(r.Rule, r.QuoteHash) + "\x00" + r.Level
+		if !notice(v) && stored[row] {
+			continue
+		}
+		stored[row] = true
 		k := threadKey(r.Rule, r.QuoteHash, sectionOf(v.Target))
 		switch th, seen := found[k]; {
 		case notice(v):
