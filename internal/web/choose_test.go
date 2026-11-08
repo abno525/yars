@@ -21,9 +21,9 @@ func TestRetestRadiosActOnChoiceOnly(t *testing.T) {
 	}
 	e := setup(t)
 	js := e.do(t, "alice", "GET", "/static/app.js", nil, nil).Body.String()
-	// P5: a keyboard save puts the focus back on the saved radio after the
-	// panel is swapped
-	for _, want := range []string{"input[type=radio][data-choose]", "e.key === ' '", "defaultChecked", "ArrowDown", "yarsRadioFocus", "htmx:afterSettle"} {
+	// P5: a keyboard save puts the focus back on the saved radio on the
+	// page the save reloads (HX-Refresh)
+	for _, want := range []string{"input[type=radio][data-choose]", "e.key === ' '", "defaultChecked", "ArrowDown", "yarsRadioFocus", "sessionStorage.setItem(yarsRadioFocus", "DOMContentLoaded"} {
 		if !strings.Contains(js, want) {
 			t.Errorf("app.js lacks %q", want)
 		}
