@@ -68,7 +68,7 @@ the table's column count. */}}
         {{if $.Bulk.On}}<td class="c-pick">{{if index $.Bulk.Pick .Dir}}<input type="checkbox" name="id" value="{{.Dir}}" aria-label="Select {{.ID}}"{{if index $.Bulk.Picked .Dir}} checked{{end}}>{{end}}</td>{{end}}
         <td class="fid"><a href="{{fpath .EngID .Dir}}">{{.ID}}</a></td>
         <td class="title"><a href="{{fpath .EngID .Dir}}" title="{{.Title}}">{{.Title}}</a></td>
-        <td>{{if .Severity}}<span class="tag sev-{{.Severity}}">{{.Severity}}</span>{{end}}</td>
+        <td>{{if .Severity}}<span class="tag sev-{{.Severity}}">{{.Severity}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
         <td class="num">{{score .Score}}</td>
         <td><span class="tag status-{{.Shown}}">{{statusLabel .Shown}}</span></td>
         {{if $.IsRetest}}<td>{{if .RetestResult}}<span class="tag result-{{.RetestResult}}">{{retestLabel .RetestResult}}</span>{{else if .IsRetest}}<span class="muted">—</span>{{else}}<span class="muted small">new</span>{{end}}</td>{{end}}

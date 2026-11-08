@@ -9,6 +9,22 @@ import (
 	"yars/internal/finding"
 )
 
+// R5: a finding without a severity shows "—" in the board's Severity
+// cell, not an empty cell.
+func TestNoSeverityIsADash(t *testing.T) {
+	e := setup(t)
+	e.srv.Store.UpdateSeverity("acme", fdir, "low", "", e.authorOf(wAlice))
+	e.second(t, "alice")
+	tbl := between(e.do(t, "alice", "GET", "/e/acme", nil, nil).Body.String(), `id="findings"`, "</table>")
+	sev := regexp.MustCompile(`</a></td>\s*<td>(.*?)</td>\s*<td class="num">`)
+	if m := sev.FindStringSubmatch(between(tbl, "F-002", "</tr>")); m == nil || m[1] != `<span class="muted">—</span>` {
+		t.Fatalf("no severity: %q", m)
+	}
+	if m := sev.FindStringSubmatch(between(tbl, "F-001", "</tr>")); m == nil || !strings.Contains(m[1], "sev-low") {
+		t.Fatalf("a severity: %q", m)
+	}
+}
+
 // D20: no or an invalid CVSS vector shows "—", never "0.0", on the board,
 // the templates list and the template page; a valid vector scoring 0.0
 // still shows 0.0.
