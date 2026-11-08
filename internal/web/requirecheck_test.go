@@ -92,6 +92,10 @@ func TestRequireCheckAdmin(t *testing.T) {
 	e.rules(t, noneRule, nil)
 	page := e.do(t, "dora", "GET", "/admin/rules", nil, nil).Body.String()
 	tbl := between(page, `<table class="table ruletable settingtable">`, "</table>")
+	// P9: the empty action column's header is for screen readers only
+	if !strings.Contains(tbl, `<th class="c-act"><span class="sr">Action</span></th>`) {
+		t.Fatalf("action header:\n%s", tbl)
+	}
 	if !strings.Contains(tbl, "<th>Setting</th>") || !strings.Contains(tbl, ">Require Check before Sign off and Approve<") ||
 		!strings.Contains(tbl, `action="/admin/rules/require-check"`) || !strings.Contains(tbl, `class="cbx on"`) || !strings.Contains(tbl, `aria-pressed="true"`) {
 		t.Fatalf("settings table:\n%s", tbl)
