@@ -1,12 +1,15 @@
 package store
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
 
 	"yars/internal/config"
 	"yars/internal/db"
+	"yars/internal/finding"
+	"yars/internal/rules"
 	"yars/internal/workflow"
 )
 
@@ -176,6 +179,41 @@ func TestCheckGateNotOnChecksMu(t *testing.T) {
 	s.setRunning(checkKey(eng, ref.F.Meta.ID), pendingRun, false)
 	if g, _ := s.checkGate(eng, ref.F.Meta.ID, ref.Hash); g != GateRunning {
 		t.Fatalf("starting: %q", g)
+	}
+}
+
+// raceLinter starts a check run (as a Check pressed meanwhile) the first
+// time Sign off's pre-check runs the fast rules.
+type raceLinter struct {
+	s    *Store
+	fd   string
+	done bool
+}
+
+func (l *raceLinter) Lint(_ context.Context, f *finding.Finding, _ rules.Kind) []rules.Violation {
+	if !l.done {
+		l.done = true
+		ref, _, _ := l.s.read(eng, l.fd, nil)
+		if id, err := l.s.DB().StartRun(eng, f.Meta.ID, ref.Hash, "carol"); err == nil {
+			l.s.setRunning(checkKey(eng, f.Meta.ID), id, false)
+		}
+	}
+	return nil
+}
+
+// A Check started between Sign off's pre-check and its change is the
+// latest run inside the change: Sign off waits for it.
+func TestRequireCheckRunStartedMeanwhile(t *testing.T) {
+	s, dir, fd := ready(t)
+	withRules(t, s, dir, "- id: none\n  target: title\n  regex_forbid: 'zzz'\n")
+	if err := s.Transition(eng, fd, workflow.Submit, "", uAlice); err != nil {
+		t.Fatal(err)
+	}
+	checkNow(t, s, fd)
+	s.Linter = &raceLinter{s: s, fd: fd}
+	err := s.Transition(eng, fd, workflow.Clear, "", uBob)
+	if !denied(err) || !strings.Contains(err.Error(), GateRunning) {
+		t.Fatalf("sign off during a new run: %v", err)
 	}
 }
 
