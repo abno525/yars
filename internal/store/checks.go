@@ -76,13 +76,14 @@ func notice(v rules.Violation) bool { return v.Target == "rules" || v.Target == 
 // (Sign off, Approve): it needs the finding clean, warnings dismissed too.
 func SignsOff(act workflow.Action) bool { return act == workflow.Clear || act == workflow.Approve }
 
-// blocking lists what blocks act on the finding (content hash): Submit runs
-// every rule now and is blocked by its undismissed errors; Sign off and
-// Approve are blocked by every open check, warnings too (OpenChecks, the
-// source the page and Ready to approve show, so what they offer passes).
+// blocking lists what blocks act on the finding (content hash): Submit and
+// Approve run every rule now (scripts and AI too: no check run may have
+// covered the content) and are blocked by its undismissed errors; Sign off
+// and Approve are blocked by every open check, warnings too (OpenChecks,
+// the source the page and Ready to approve show).
 func (s *Store) blocking(act workflow.Action, ref FindingRef, hash string) ([]string, error) {
 	var out []string
-	if act == workflow.Submit {
+	if act == workflow.Submit || act == workflow.Approve {
 		vs, err := s.undismissed(ref.EngID, ref.F.Meta.ID, s.Linter.Lint(context.Background(), ref.F, rules.All))
 		if err != nil {
 			return nil, err

@@ -99,12 +99,10 @@ func TestSignOffUsesStoredRun(t *testing.T) {
 	if slow != 0 {
 		t.Fatalf("sign off ran the slow rules %d times", slow)
 	}
-	// Approve uses the same source as Ready to approve: no inline AI run
+	// Approve runs every rule once more (TestApproveRunsSlowRules); its
+	// warning is the dismissed one
 	if err := s.Transition(eng, fd, workflow.Approve, "", uDora); err != nil {
 		t.Fatalf("approve: %v", err)
-	}
-	if slow != 0 {
-		t.Fatalf("approve ran the slow rules %d times", slow)
 	}
 }
 

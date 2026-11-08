@@ -10,6 +10,7 @@ import (
 
 	"yars/internal/chat"
 	"yars/internal/db"
+	"yars/internal/finding"
 	"yars/internal/rules"
 	"yars/internal/workflow"
 )
@@ -431,6 +432,43 @@ func TestDismissPermissions(t *testing.T) {
 	}
 	if err := s.Dismiss(eng, fd, "no-foo", "foo", uAlice); !denied(err) {
 		t.Fatalf("warning on complete finding: %v", err)
+	}
+}
+
+// slowOnly is a Linter whose one rule is a script: it finds "SECRET" in
+// Impact, and only when slow rules run.
+type slowOnly struct{}
+
+func (slowOnly) Lint(_ context.Context, f *finding.Finding, kinds rules.Kind) []rules.Violation {
+	if body, _ := f.Section("Impact"); kinds&rules.Slow == 0 || !strings.Contains(body, "SECRET") {
+		return nil
+	}
+	return []rules.Violation{{Rule: "secrets", Level: "error", Message: "A secret is quoted", Target: "section:Impact", Quote: "SECRET"}}
+}
+
+// Approve runs every rule, scripts too, though nobody pressed Check on the
+// content: an error a script finds refuses it until it is dismissed.
+func TestApproveRunsSlowRules(t *testing.T) {
+	s, _, fd := ready(t)
+	s.Linter = slowOnly{}
+	if err := s.Transition(eng, fd, workflow.Submit, "", uAlice); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpdateSection(eng, fd, "Impact", "the SECRET key", "", uBob.GitAuthor()); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Transition(eng, fd, workflow.Clear, "", uBob); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Transition(eng, fd, workflow.Approve, "", uDora); !denied(err) || !strings.Contains(err.Error(), "A secret is quoted") {
+		t.Fatalf("approved with a script error open: %v", err)
+	}
+	checked(t, s, fd)
+	if err := s.DismissWhy(eng, fd, "secrets", "section:Impact", "SECRET", "a test key", uBob); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Transition(eng, fd, workflow.Approve, "", uDora); err != nil {
+		t.Fatalf("dismissed script error still blocks: %v", err)
 	}
 }
 
