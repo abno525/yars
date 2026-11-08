@@ -298,7 +298,7 @@ func TestPolicyConfigDropsUsedName(t *testing.T) {
 	ps := f.push("dora", func(d string) {
 		write(d, ".yars/config.yaml", "sections: [Description, Steps to Reproduce, Remediation, References]\n")
 	})
-	want := `section "Impact" is still used by: acme/F-001, acme/F-002, acme/F-003, acme/F-004, acme/F-005, acme/F-006, acme/F-007, acme/F-008, acme/F-009, acme/F-010 (+2 more). Change those findings first, then remove the name; renames are done in Admin › Structure.`
+	want := `section "Impact" is still used by: acme/F-001, acme/F-002, acme/F-003, acme/F-004, acme/F-005, acme/F-006, acme/F-007, acme/F-008, acme/F-009, acme/F-010 (+2 more). Change those findings first, then remove the name.`
 	if !slices.Contains(ps, "commit "+short(t, f.clone, "HEAD")+" .yars/config.yaml: "+want) {
 		t.Fatalf("dropped a used section: %v", ps)
 	}
@@ -424,7 +424,7 @@ func TestPolicyConfigDropsTemplateName(t *testing.T) {
 	f.reclone()
 	drop := func(d string) { write(d, ".yars/config.yaml", "severities: [critical, high, medium, low, info]\n") }
 	ps := f.push("dora", drop)
-	want := `severity "extreme" is still used by: template x.md. Change those templates first, then remove the name; renames are done in Admin › Structure.`
+	want := `severity "extreme" is still used by: template x.md. Change those templates first, then remove the name.`
 	if !slices.Contains(ps, "commit "+short(t, f.clone, "HEAD")+" .yars/config.yaml: "+want) {
 		t.Fatalf("dropped a template's severity: %v", ps)
 	}
