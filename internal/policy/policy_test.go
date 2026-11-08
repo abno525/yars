@@ -2,6 +2,7 @@ package policy
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -274,6 +275,38 @@ func TestPolicySettingsValues(t *testing.T) {
 	f.reclone()
 	if ps := f.push("dora", func(d string) { write(d, ".yars/rules/new.yaml", "- id: fine\n  regex_forbid: x\n") }); len(ps) != 0 {
 		t.Fatalf("old problem blocks: %v", ps)
+	}
+}
+
+// R3: a pushed config.yaml that drops a name findings still use is
+// refused, naming the commit, file, name and up to 10 findings (+N more);
+// one that drops an unused name, or only adds one, is accepted.
+func TestPolicyConfigDropsUsedName(t *testing.T) {
+	f := newFx(t).on("")
+	a := user("alice").GitAuthor()
+	if err := f.st.UpdateSection("acme", "F-001-sqli", "Impact", "Full read.", "", user("alice")); err != nil {
+		t.Fatal(err)
+	}
+	for i := range 11 {
+		ref, err := f.st.CreateFinding("acme", fmt.Sprintf("Finding %d", i), a)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.st.UpdateSection("acme", ref.Dir, "Impact", "Full read.", "", user("alice"))
+	}
+	f.reclone()
+	ps := f.push("dora", func(d string) {
+		write(d, ".yars/config.yaml", "sections: [Description, Steps to Reproduce, Remediation, References]\n")
+	})
+	want := `section "Impact" is still used by: acme/F-001, acme/F-002, acme/F-003, acme/F-004, acme/F-005, acme/F-006, acme/F-007, acme/F-008, acme/F-009, acme/F-010 (+2 more). Change those findings first, then remove the name.`
+	if !slices.Contains(ps, "commit "+short(t, f.clone, "HEAD")+" .yars/config.yaml: "+want) {
+		t.Fatalf("dropped a used section: %v", ps)
+	}
+	f.reclone()
+	if ps := f.push("dora", func(d string) {
+		write(d, ".yars/config.yaml", "sections: [Description, Impact, Steps to Reproduce, Remediation]\ndetails_rows: [Location, Cause, Result, Attack condition, Business impact, Owner]\n")
+	}); len(ps) != 0 {
+		t.Fatalf("dropped an unused section, added a row: %v", ps)
 	}
 }
 

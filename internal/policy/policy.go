@@ -518,9 +518,11 @@ func (c *Checker) file(u config.User, old, new string, ch gitrepo.Change) []stri
 			}
 			// the server applies it as soon as the push lands
 			b, _ := c.show(new, p)
-			if _, err := store.CheckConfig(b); err != nil {
+			now, err := store.CheckConfig(b)
+			if err != nil {
 				return []string{err.Error()}
 			}
+			return c.droppedInUse(old, now)
 		}
 		if len(seg) == 3 && seg[1] == "rules" && (strings.HasSuffix(p, ".yaml") || strings.HasSuffix(p, ".yml")) {
 			// as Admin › Rules: no load problem the folder did not have
@@ -631,6 +633,37 @@ func (c *Checker) file(u config.User, old, new string, ch gitrepo.Change) []stri
 		return []string{"not allowed here; a finding's files go in findings/<finding>/attachments/"}
 	}
 	return []string{c.outside()}
+}
+
+// maxNameUses is how many findings a refusal names per dropped name.
+const maxNameUses = 10
+
+// droppedInUse refuses a config.yaml (as now) that drops a section,
+// severity or details row name that findings of any engagement still use,
+// against the file as old has it (the server's config without one). Only
+// ids are named: titles are the findings' own text.
+func (c *Checker) droppedInUse(old string, now config.Config) []string {
+	was := c.Cfg
+	if ob, ok := c.show(old, ".yars/config.yaml"); ok {
+		if oc, err := config.Parse(ob); err == nil {
+			was = oc
+		}
+	}
+	uses, err := store.New(c.Repo, c.Cfg, c.DB).DroppedInUse(was, now)
+	if err != nil {
+		return []string{"server: " + err.Error()}
+	}
+	var ps []string
+	for _, u := range uses {
+		list := u.Findings
+		more := ""
+		if len(list) > maxNameUses {
+			list, more = list[:maxNameUses], fmt.Sprintf(" (+%d more)", len(u.Findings)-maxNameUses)
+		}
+		ps = append(ps, fmt.Sprintf("%s %q is still used by: %s%s. Change those findings first, then remove the name.",
+			u.List, u.Name, strings.Join(list, ", "), more))
+	}
+	return ps
 }
 
 // ruleSet loads the main repo's rule files as rev has them (none for "").
