@@ -613,14 +613,16 @@ progress::-moz-progress-bar { background: var(--accent); }
   font: 500 13px var(--mono); color: var(--red); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .checktable { table-layout: fixed; border: 0; font-size: 14px; }
-.checktable th.c-level { width: 152px; }
-.checktable th.c-quote { width: 240px; }
-.checktable th.c-where { width: 160px; }
-.checktable th.c-act { width: 128px; }
+/* fixed columns 504px of the 696px panel: Message takes the rest; over the
+   shared .table widths (c-level, c-act) */
+.table.checktable th.c-level { width: 112px; }
+.table.checktable th.c-quote { width: 144px; }
+.table.checktable th.c-where { width: 120px; }
+.table.checktable th.c-act { width: 128px; }
 .checktable td { height: 48px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .checktable td code { font: 500 13px var(--mono); }
 .checktable td form { margin: 0; display: flex; }
-.checktable th.c-reason { width: 200px; }
+.table.checktable th.c-reason { width: 144px; }
 /* each rule of the run: id 200 | kind 64 | state | time or Retry 80 */
 .checks .runinfo { width: 136px; text-align: right; font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .steplist { border-bottom: 1px solid var(--line); }
