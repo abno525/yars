@@ -48,6 +48,9 @@ type checksView struct {
 	// submit and approve like the store's gate.
 	Gate []string
 	OOB  bool // sent along with the workflow bar (out of band)
+	// Empty: no result rows, open or dismissed; the panel is as high as
+	// what it shows, like every other empty panel.
+	Empty bool
 }
 
 // kindTag is a rule kind's short tag on a step row.
@@ -239,6 +242,7 @@ func (s *Server) checksFor(r *http.Request, ref store.FindingRef) checksView {
 		}
 		v.Rows = append(v.Rows, row)
 	}
+	v.Empty = len(v.Rows) == 0 && len(v.Dismissed) == 0
 	return v
 }
 

@@ -2,7 +2,7 @@
 
 {{define "checks_panel"}}
 {{if .Enabled}}
-<section class="panel checks" id="checks" hx-get="{{.URL}}" hx-trigger="sse:check, sse:content, sse:resync, sse:poll{{if .OOB}}, load{{end}}" hx-swap="outerHTML" data-sse{{if .OOB}} hx-swap-oob="true"{{end}}>
+<section class="panel checks{{if .Empty}} empty{{end}}" id="checks" hx-get="{{.URL}}" hx-trigger="sse:check, sse:content, sse:resync, sse:poll{{if .OOB}}, load{{end}}" hx-swap="outerHTML" data-sse{{if .OOB}} hx-swap-oob="true"{{end}}>
   <div class="panelhead">
     <div class="panelname">
       <h2>Checks</h2>

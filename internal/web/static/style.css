@@ -604,6 +604,8 @@ progress::-moz-progress-bar { background: var(--accent); }
 .hint-where { grid-column: 2; font-size: 12px; }
 /* the checks panel never changes size: the list scrolls inside it */
 .panel.checks { height: 360px; display: flex; flex-direction: column; }
+/* without result rows it is as high as what it shows, like other empty panels */
+.panel.checks.empty { height: auto; max-height: 360px; }
 .panel.checks > .panelhead { flex: none; }
 .checks .panelname { gap: 16px; }
 .checks .cnt { display: inline-flex; align-items: center; gap: 6px; flex: none; font: 600 13px var(--sans); color: var(--muted); }

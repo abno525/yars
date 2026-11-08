@@ -167,6 +167,25 @@ func TestChecksPanelLayout(t *testing.T) {
 	}
 }
 
+// R5: a checks panel without result rows is as high as what it shows (no
+// empty space under its dash row); one with rows keeps its fixed height.
+func TestChecksEmptyPanelHasNoSpaceBelow(t *testing.T) {
+	e := setupSerial(t)
+	e.rules(t, "- id: no-zebra\n  target: title\n  regex_forbid: 'zebra'\n", nil)
+	p := checksPanel(t, e.do(t, "alice", "GET", fpath+"/checks", nil, nil).Body.String())
+	if !strings.Contains(p, `<section class="panel checks empty" id="checks"`) {
+		t.Fatalf("empty panel:\n%s", p)
+	}
+	css := e.do(t, "dora", "GET", "/static/style.css", nil, nil).Body.String()
+	if !regexp.MustCompile(`(?m)^\.panel\.checks\.empty \{ height: auto; max-height: 360px; \}`).MatchString(css) {
+		t.Fatal("no auto height for the empty checks panel")
+	}
+	e.rules(t, styleRules, nil)
+	if p := checksPanel(t, e.do(t, "alice", "GET", fpath+"/checks", nil, nil).Body.String()); !strings.Contains(p, `<section class="panel checks" id="checks"`) {
+		t.Fatalf("panel with rows:\n%s", p)
+	}
+}
+
 // The same wording found twice in one place is one row: one Dismiss covers
 // it and the count says so (D18).
 func TestChecksCountsMatchRows(t *testing.T) {
