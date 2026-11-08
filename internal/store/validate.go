@@ -146,35 +146,46 @@ func sectionProblemNew(p string, old *finding.Finding) bool {
 // (the engagement as it was), type and source must stay: they are fixed
 // when the engagement is created.
 func CheckEngagement(prev *Engagement, e Engagement) error {
+	if ps := EngagementProblems(prev, e); len(ps) > 0 {
+		return fmt.Errorf("%w: %s", ErrInvalidValue, ps[0])
+	}
+	return nil
+}
+
+// EngagementProblems is every problem CheckEngagement finds (a pushed
+// engagement.yaml lists them all), in the order of the file's fields.
+func EngagementProblems(prev *Engagement, e Engagement) []string {
+	var ps []string
 	name, client := strings.TrimSpace(e.Name), strings.TrimSpace(e.Client)
-	switch {
-	case name == "" || strings.ContainsAny(name, "\r\n"):
-		return fmt.Errorf("%w: name is required (one line)", ErrInvalidValue)
-	case strings.ContainsAny(client, "\r\n"):
-		return fmt.Errorf("%w: client must be one line", ErrInvalidValue)
-	case !validDate(e.Start) || !validDate(e.End):
-		return fmt.Errorf("%w: dates are YYYY-MM-DD", ErrInvalidValue)
-	case e.Start != "" && e.End != "" && e.End < e.Start:
-		return fmt.Errorf("%w: the end is before the start", ErrInvalidValue)
+	if name == "" || strings.ContainsAny(name, "\r\n") {
+		ps = append(ps, "name is required (one line)")
+	}
+	if strings.ContainsAny(client, "\r\n") {
+		ps = append(ps, "client must be one line")
+	}
+	if !validDate(e.Start) || !validDate(e.End) {
+		ps = append(ps, "dates are YYYY-MM-DD")
+	} else if e.Start != "" && e.End != "" && e.End < e.Start {
+		ps = append(ps, "the end is before the start")
 	}
 	if prev != nil {
 		if e.Type != prev.Type {
-			return fmt.Errorf("%w: type is fixed when the engagement is created; keep type: %s", ErrInvalidValue, orNone(prev.Type))
+			ps = append(ps, "type is fixed when the engagement is created; keep type: "+orNone(prev.Type))
 		}
 		if e.Source != prev.Source {
-			return fmt.Errorf("%w: source is fixed when the engagement is created; keep source: %s", ErrInvalidValue, orNone(prev.Source))
+			ps = append(ps, "source is fixed when the engagement is created; keep source: "+orNone(prev.Source))
 		}
-		return nil
+		return ps
 	}
 	switch {
 	case e.Type != "pentest" && e.Type != "retest":
-		return fmt.Errorf("%w: type must be pentest or retest", ErrInvalidValue)
+		ps = append(ps, "type must be pentest or retest")
 	case e.Type == "retest" && !ValidID(e.Source):
-		return fmt.Errorf("%w: a retest names its source engagement", ErrInvalidValue)
+		ps = append(ps, "a retest names its source engagement")
 	case e.Type == "pentest" && e.Source != "":
-		return fmt.Errorf("%w: only a retest has a source", ErrInvalidValue)
+		ps = append(ps, "only a retest has a source")
 	}
-	return nil
+	return ps
 }
 
 func orNone(s string) string {

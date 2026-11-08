@@ -581,10 +581,7 @@ func (c *Checker) file(u config.User, old, new string, ch gitrepo.Change) []stri
 				prev = &pe
 			}
 		}
-		if err := store.CheckEngagement(prev, e); err != nil {
-			return []string{plain(err)}
-		}
-		return nil
+		return store.EngagementProblems(prev, e)
 	}
 	// everything else lives inside an existing engagement and finding
 	if _, ok := c.show(new, "engagements/"+seg[1]+"/engagement.yaml"); !ok && ch.Status != 'D' {

@@ -45,6 +45,12 @@ func TestSharedRules(t *testing.T) {
 	bad("type change", CheckEngagement(&pt, Engagement{Name: "A", Type: "retest", Source: "x"}), "keep type: pentest")
 	bad("new retest without source", CheckEngagement(nil, Engagement{Name: "A", Type: "retest"}), "names its source")
 	bad("dates", CheckEngagement(&pt, Engagement{Name: "A", Type: "pentest", Start: "2026-02-30"}), "YYYY-MM-DD")
+	if ps := EngagementProblems(&pt, Engagement{Name: " ", Type: "retest", Source: "x", Start: "2026-02-30", End: "x"}); len(ps) != 4 {
+		t.Errorf("every problem: %q", ps)
+	}
+	if ps := EngagementProblems(nil, Engagement{Name: "A", Start: "2026-02-03", End: "2026-02-01"}); len(ps) != 2 {
+		t.Errorf("new engagement: %q", ps)
+	}
 	bad("binary", CheckAttachment("a.png", []byte("\x7fELF\x02\x01\x01\x00\x00\x00\x00\x00\x00\x00"), false), "only images and text")
 	bad("exec", CheckAttachment("a.txt", []byte("x"), true), "executable")
 	bad("folder", CheckAttachment("a/b.txt", []byte("x"), false), "no folders")

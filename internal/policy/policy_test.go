@@ -408,6 +408,21 @@ func TestPolicyEngagementValues(t *testing.T) {
 	}
 }
 
+// R5: a pushed engagement.yaml lists every problem it has, each on its own
+// line, as finding.md does.
+func TestPolicyEngagementEveryProblem(t *testing.T) {
+	f := newFx(t)
+	ps := f.push("dora", func(d string) {
+		write(d, "engagement.yaml", "name: \"\"\nclient: \"a\\nb\"\ntype: retest\nsource: secret\nstart: 2026-13-01\n")
+	})
+	pre := "commit " + short(t, f.clone, "HEAD") + " engagement.yaml: "
+	for _, want := range []string{"name is required", "client must be one line", "YYYY-MM-DD", "keep type: pentest", "keep source: \"\""} {
+		if !hasLine(ps, pre, want) {
+			t.Errorf("missing %q: %v", want, ps)
+		}
+	}
+}
+
 // When the server's own config does not load, only a director's push that
 // changes it to one that loads is accepted.
 func TestPolicyBrokenConfigRepair(t *testing.T) {
