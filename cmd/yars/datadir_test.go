@@ -66,6 +66,16 @@ func TestUnlockCommand(t *testing.T) {
 	}
 }
 
+// P4: a database error is not blamed on the name.
+func TestUnlockDatabaseError(t *testing.T) {
+	isolate(t)
+	d := openDB(t, initDir(t))
+	d.Close()
+	if err := knownUser(d, "ann"); err == nil || strings.Contains(err.Error(), "no user") {
+		t.Fatalf("closed database: %v", err)
+	}
+}
+
 // R4: the data folder comes from --data, then YARS_DATA, then data: in
 // the config file, else ".".
 func TestDataFolderOrder(t *testing.T) {

@@ -12,6 +12,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"yars/internal/config"
+	"yars/internal/db"
 	"yars/internal/gitrepo"
 )
 
@@ -132,6 +133,19 @@ func cmdUse(args []string, out io.Writer) error {
 	return nil
 }
 
+// knownUser fails for a name with no account, or with the database's own
+// error (not blamed on the name).
+func knownUser(d *db.DB, name string) error {
+	_, ok, err := d.User(name)
+	switch {
+	case err != nil:
+		return err
+	case !ok:
+		return fmt.Errorf("no user %s", name)
+	}
+	return nil
+}
+
 // cmdUnlock ends a user's login lockout: yars unlock --data <dir> <user>.
 func cmdUnlock(args []string, out io.Writer) error {
 	f, d, err := accountCmd("unlock", args, 1, nil)
@@ -140,8 +154,8 @@ func cmdUnlock(args []string, out io.Writer) error {
 	}
 	defer d.Close()
 	name := f.Arg(0)
-	if _, ok, _ := d.User(name); !ok {
-		return fmt.Errorf("no user %s", name)
+	if err := knownUser(d, name); err != nil {
+		return err
 	}
 	if err := d.ClearLockout(name); err != nil {
 		return err
