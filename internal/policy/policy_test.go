@@ -875,6 +875,42 @@ func TestPolicyMergeReviewerEditsComplete(t *testing.T) {
 	}
 }
 
+// The other files a merge can hide behind its first parent: engagement.yaml
+// keeps its type against the server's copy, and a director who is not an
+// admin can't delete a rule file of the main repo.
+func TestPolicyMergeSettings(t *testing.T) {
+	f := newFx(t)
+	rev := f.mergeServer("dora", "", func(d string) { write(d, "engagement.yaml", "name: ACME\ntype: retest\n") })
+	if ps := f.check("dora", rev); !has(ps, "engagement.yaml: ") || !has(ps, "keep type: pentest") {
+		t.Fatalf("engagement type changed through a merge: %v", ps)
+	}
+	f.on("")
+	write(f.srv.Dir, ".yars/rules/x.yaml", "[]\n")
+	git(t, f.srv.Dir, "add", "-A")
+	git(t, f.srv.Dir, "commit", "-qm", "rule")
+	f.reclone()
+	rev = f.mergeServer("dan", "", func(d string) { os.Remove(filepath.Join(d, ".yars/rules/x.yaml")) })
+	if ps := f.check("dan", rev); !has(ps, ".yars/rules/x.yaml: only an admin can change") {
+		t.Fatalf("rule file deleted through a merge: %v", ps)
+	}
+}
+
+// A pull that merges the website's commits stays accepted: what the
+// website changed is not checked as the pusher's work.
+func TestPolicyPullMergeAccepted(t *testing.T) {
+	f := newFx(t)
+	write(f.clone, fdir+"/attachments/a.txt", "x")
+	git(t, f.clone, "add", "-A")
+	git(t, f.clone, "-c", "user.name=alice", "-c", "user.email=alice@yars.local", "commit", "-qm", "mine")
+	write(f.repo().Dir, ".gitattributes", "*.md -diff\n")
+	git(t, f.repo().Dir, "add", "-A")
+	git(t, f.repo().Dir, "-c", "user.name=dora", "-c", "user.email=dora@yars.local", "commit", "-qm", "director's")
+	git(t, f.clone, "-c", "user.name=alice", "-c", "user.email=alice@yars.local", "pull", "-q", "--no-rebase", "--no-edit")
+	if ps := f.check("alice", git(t, f.clone, "rev-parse", "HEAD")); len(ps) != 0 {
+		t.Fatalf("pull merge refused: %v", ps)
+	}
+}
+
 // Attachments are held to the website's upload rules: images or text, not
 // executable, plain names directly in attachments/, at most 10 MB; a big
 // file a later commit deletes is still refused (history keeps it).
