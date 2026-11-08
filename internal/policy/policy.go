@@ -170,18 +170,21 @@ func (c *Checker) Check(username string, ups []Update) []string {
 			ps = append(ps, "server: "+err.Error())
 			continue
 		}
-		merges := false
+		lastMerge := ""
 		for _, cm := range commits {
 			cps, rep := c.checkCommit(u, cm, old)
 			ps = append(ps, cps...)
 			repairs = repairs || rep
-			merges = merges || len(cm.Parents) > 1
+			if len(cm.Parents) > 1 {
+				lastMerge = cm.Hash
+			}
 		}
-		if merges {
+		if lastMerge != "" {
 			// a merge is checked against a parent the pusher picks: what the
-			// push as a whole changes is checked against the server's copy
-			// too, so no choice of parent hides a deletion or a lock
-			wps, rep := c.checkWhole(u, old, up.New, ps)
+			// push changes up to its last merge is checked against the
+			// server's copy too, so no choice of parent hides a deletion or a
+			// lock (the commits after it are a line, each checked on its own)
+			wps, rep := c.checkWhole(u, old, lastMerge, ps)
 			ps = append(ps, wps...)
 			repairs = repairs || rep
 		}
@@ -260,8 +263,8 @@ func (c *Checker) checkCommit(u config.User, cm gitrepo.PushedCommit, base strin
 }
 
 // checkWhole checks what old..new changes as a whole against old (the
-// server's copy), as one commit named after new, leaving out the problems
-// already reported (seen) for the same file.
+// server's copy), as one commit named after new (a merge), leaving out the
+// problems already reported (seen) for the same file.
 func (c *Checker) checkWhole(u config.User, old, new string, seen []string) ([]string, bool) {
 	short := new
 	if len(short) > 7 {

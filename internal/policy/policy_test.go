@@ -832,8 +832,19 @@ func TestPolicyMergeHidesDeletion(t *testing.T) {
 	root := git(t, f.repo().Dir, "rev-list", "--max-parents=0", "HEAD")
 	f.reclone()
 	rev := f.mergeServer("alice", root, func(d string) { os.RemoveAll(filepath.Join(d, fdir)) })
-	if ps := f.check("alice", rev); !has(ps, fdir+"/finding.md: only a director can delete a finding") {
+	merge := short(t, f.clone, rev)
+	// a later commit on top: the refusal still names the merge
+	newFinding("F-002-xss", "id: F-002\ntitle: XSS\nauthor: alice\n")(f.clone)
+	git(t, f.clone, "add", "-A")
+	git(t, f.clone, "-c", "user.name=alice", "-c", "user.email=alice@yars.local", "commit", "-qm", "later")
+	if ps := f.check("alice", git(t, f.clone, "rev-parse", "HEAD")); !has(ps, "commit "+merge+" "+fdir+"/finding.md: only a director can delete a finding") {
 		t.Fatalf("finding deleted through a merge: %v", ps)
+	}
+	// a director may delete it that way
+	f.reclone()
+	rev = f.mergeServer("dora", root, func(d string) { os.RemoveAll(filepath.Join(d, fdir)) })
+	if ps := f.check("dora", rev); len(ps) != 0 {
+		t.Fatalf("director's deletion through a merge refused: %v", ps)
 	}
 }
 
