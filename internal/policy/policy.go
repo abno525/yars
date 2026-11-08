@@ -384,7 +384,9 @@ func (c *Checker) checkRules(old, new string) []string {
 		}
 		blocks := status == "verification" || status == "complete" || status == "reported"
 		for _, v := range c.Linter.Lint(context.Background(), f, rules.All) {
-			if _, ok := dismissed[db.DismissKey(v.Rule, store.ViolationHash(v.Target, v.Quote))]; ok {
+			// as the website: its own dismissal, or one made before they
+			// were per row
+			if _, ok := db.Lookup(dismissed, v.Rule, v.Target, v.Quote); ok {
 				continue
 			}
 			level := v.Level

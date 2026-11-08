@@ -1022,6 +1022,29 @@ func TestPolicyRulesOnPush(t *testing.T) {
 	}
 }
 
+// A dismissal made before they were per row (rule and quote only), which
+// the website still honours, is honoured by a push too (D9).
+func TestPolicyRulesLegacyDismissal(t *testing.T) {
+	f := newFx(t)
+	f.c.Linter = ruleEngine(t)
+	st := f.st
+	st.UpdateSection("acme", "F-001-sqli", "Impact", "TODO kept on purpose", "", user("alice").GitAuthor())
+	st.SetReviewers("acme", "F-001-sqli", []string{"bob"}, user("alice"))
+	st.UpdateSeverity("acme", "F-001-sqli", "high", "", user("alice").GitAuthor())
+	st.DB().TxFor("acme", func(tx *db.Tx) error {
+		return tx.Dismiss(db.Dismissal{Eng: "acme", Fid: "F-001", Rule: "no-todo", QuoteHash: db.LegacyHash("TODO"), Level: "error", By: "bob"})
+	})
+	if err := st.Transition("acme", "F-001-sqli", workflow.Submit, "", user("alice")); err != nil {
+		t.Fatal(err)
+	}
+	f.reclone()
+	if ps := f.push("bob", func(d string) {
+		editMeta(d, func(fd *finding.Finding) { fd.SetSection("Remediation", "Patch it.") })
+	}); len(ps) != 0 {
+		t.Fatalf("old dismissal not honoured: %v", ps)
+	}
+}
+
 // A long refusal lists the first problems and sums up the rest.
 func TestPolicyProblemsCapped(t *testing.T) {
 	f := newFx(t)
