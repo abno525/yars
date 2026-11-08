@@ -8,6 +8,31 @@ import (
 	"testing"
 )
 
+// R2: the retest result radios save on a click, Space or Enter only, not
+// when the arrow keys move the selection (as K10's selects).
+func TestRetestRadiosActOnChoiceOnly(t *testing.T) {
+	b, _ := os.ReadFile("templates/retest.html")
+	form := regexp.MustCompile(`<form class="seg result-seg"[^>]*>`).FindString(string(b))
+	if form == "" || strings.Contains(form, `hx-trigger="change"`) || !strings.Contains(form, `hx-trigger="yars:choose"`) {
+		t.Fatalf("result form: %s", form)
+	}
+	if !strings.Contains(string(b), `<input type="radio" data-choose name="result" value="{{.Code}}"`) {
+		t.Fatal("result radios not marked data-choose")
+	}
+	e := setup(t)
+	js := e.do(t, "alice", "GET", "/static/app.js", nil, nil).Body.String()
+	for _, want := range []string{"input[type=radio][data-choose]", "e.key === ' '", "defaultChecked", "ArrowDown"} {
+		if !strings.Contains(js, want) {
+			t.Errorf("app.js lacks %q", want)
+		}
+	}
+	// the CVSS calculator buttons keep acting at once
+	cv, _ := os.ReadFile("templates/cvss.html")
+	if strings.Contains(string(cv), `type="radio" data-choose`) {
+		t.Fatal("CVSS calculator radios changed")
+	}
+}
+
 // K10: the engagement picker and the severity selects (CVSS panel, lead
 // severity, admin role) do not act when the value changes: moving through
 // the options with the keyboard would fire them. They act on an explicit

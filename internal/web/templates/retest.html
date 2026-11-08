@@ -23,8 +23,8 @@
     {{if .Locked}}
     <p>{{range .Options}}{{if .Checked}}<span class="tag result-{{.Code}}">{{.Label}}</span>{{end}}{{end}}</p>
     {{else}}
-    <form class="seg result-seg" role="radiogroup" aria-label="Retest result" hx-post="{{.URL}}" hx-trigger="change" hx-target="#retest" hx-swap="outerHTML">
-      {{range .Options}}<label><input type="radio" name="result" value="{{.Code}}"{{if .Checked}} checked{{end}}><span>{{.Label}}</span></label>{{end}}
+    <form class="seg result-seg" role="radiogroup" aria-label="Retest result" hx-post="{{.URL}}" hx-trigger="yars:choose" hx-target="#retest" hx-swap="outerHTML">
+      {{range .Options}}<label><input type="radio" data-choose name="result" value="{{.Code}}"{{if .Checked}} checked{{end}}><span>{{.Label}}</span></label>{{end}}
     </form>
     {{end}}
   </section>

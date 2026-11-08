@@ -131,6 +131,52 @@ document.addEventListener('change', function (e) {
   yarsChoose(s);
 });
 
+// Radios marked data-choose (the retest result) act the same way: a click,
+// Space or Enter chooses; the arrow keys move the selection without
+// acting, and on leaving the group unchosen it shows the saved one again.
+// The keyed flag sits on the radios' form (one per group); their change
+// events never act.
+var yarsArrows = ['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight'];
+function yarsRadio(t) {
+  return t && t.matches && t.matches('input[type=radio][data-choose]') ? t : null;
+}
+document.addEventListener('keydown', function (e) {
+  var r = yarsRadio(e.target);
+  if (!r || !r.form) return;
+  if (e.key === ' ' || e.key === 'Enter') {
+    // Space on the radio already checked by the arrows fires no change:
+    // choose here, and keep the browser from choosing a second time
+    e.preventDefault();
+    r.checked = true;
+    r.form.removeAttribute('data-keyed');
+    yarsChoose(r);
+  } else if (yarsArrows.indexOf(e.key) >= 0) {
+    r.form.removeAttribute('data-pointer');
+    r.form.setAttribute('data-keyed', '');
+  }
+});
+// a click chooses, the one already checked included (after the arrows);
+// the click browsers send for an arrow key has no pointer before it
+document.addEventListener('pointerdown', function (e) {
+  var l = e.target.closest && e.target.closest('label');
+  var r = yarsRadio(e.target) || (l && yarsRadio(l.querySelector('input')));
+  if (r && r.form) r.form.setAttribute('data-pointer', '');
+});
+document.addEventListener('click', function (e) {
+  var r = yarsRadio(e.target);
+  if (!r || !r.form || !r.form.hasAttribute('data-pointer')) return;
+  r.form.removeAttribute('data-pointer');
+  r.form.removeAttribute('data-keyed');
+  yarsChoose(r);
+});
+document.addEventListener('focusout', function (e) {
+  var r = yarsRadio(e.target);
+  if (!r || !r.form || !r.form.hasAttribute('data-keyed')) return;
+  if (e.relatedTarget && r.form.contains(e.relatedTarget)) return; // still in the group
+  r.form.removeAttribute('data-keyed');
+  r.form.querySelectorAll('input[type=radio][data-choose]').forEach(function (x) { x.checked = x.defaultChecked; });
+});
+
 // Login lockout: the alert counts down (m:ss) from the seconds the server
 // gave (not the browser's clock); at 0 it goes and the form works again,
 // without a reload. Another username is not locked: the form works for it.
