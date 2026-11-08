@@ -380,7 +380,13 @@ func (s *Server) structurePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	was := disk.ReportSections
-	s.setConfig(loaded)
+	// read again as it is on disk now, in order with a push's: never a
+	// stale copy applied after a newer one
+	if now, err := s.Store.ReloadConfig(); err == nil {
+		loaded = now
+	} else {
+		s.setConfig(loaded)
+	}
 	head, _ := gitrepo.ReadHead(dir)
 	// renamed report sections keep their text in every engagement
 	if rn := renamesOf(was, loaded.ReportSections); len(rn) > 0 {

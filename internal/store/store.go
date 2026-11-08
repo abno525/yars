@@ -80,6 +80,9 @@ type Store struct {
 	cfgMu   sync.RWMutex
 	cfg     config.Config // read through Config()
 	cfgSubs []func(config.Config)
+	// applyMu orders configurations: each is set and handed to every
+	// subscriber before the next (taken before mainMu, never under it)
+	applyMu sync.Mutex
 
 	// Git work is serialized per repository: one lock per engagement repo
 	// (created on first use) and one for the main repo. Lock order: an
@@ -494,6 +497,13 @@ func (s *Store) Config() config.Config {
 // SetConfig replaces the configuration (after config.yaml was saved, on
 // the website or by a push) and tells the OnConfig subscribers.
 func (s *Store) SetConfig(c config.Config) {
+	s.applyMu.Lock()
+	defer s.applyMu.Unlock()
+	s.applyConfig(c)
+}
+
+// applyConfig sets c and tells the subscribers, under applyMu.
+func (s *Store) applyConfig(c config.Config) {
 	s.cfgMu.Lock()
 	s.cfg = c
 	subs := s.cfgSubs
@@ -501,6 +511,22 @@ func (s *Store) SetConfig(c config.Config) {
 	for _, fn := range subs {
 		fn(c)
 	}
+}
+
+// ReloadConfig applies config.yaml as the main repo has it now and returns
+// it: read and applied in one step, so of two saves (a push, Admin ›
+// Structure) the one applied last is the one on disk last.
+func (s *Store) ReloadConfig() (config.Config, error) {
+	s.applyMu.Lock()
+	defer s.applyMu.Unlock()
+	s.mainMu.Lock()
+	c, err := config.Load(s.repo.Dir)
+	s.mainMu.Unlock()
+	if err != nil {
+		return config.Config{}, err
+	}
+	s.applyConfig(c)
+	return c, nil
 }
 
 // OnConfig registers fn to be told each configuration SetConfig applies
@@ -515,12 +541,9 @@ func (s *Store) OnConfig(fn func(config.Config)) {
 // push). One that does not load keeps the running configuration: the push
 // checks refuse those, so it is only logged.
 func (s *Store) reloadConfig() {
-	c, err := config.Load(s.repo.Dir)
-	if err != nil {
+	if _, err := s.ReloadConfig(); err != nil {
 		log.Printf("push to the main repo: config.yaml not applied: %v", err)
-		return
 	}
-	s.SetConfig(c)
 }
 func (s *Store) Repo() *gitrepo.Repo { return s.repo }
 

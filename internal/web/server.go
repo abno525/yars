@@ -368,11 +368,11 @@ func (s *Server) conf() config.Config {
 	return s.Cfg
 }
 
-// setConfig applies a saved configuration to the pages, the store (which
-// the MCP server reads) and the style rules.
+// setConfig applies a configuration to the store (which the MCP server
+// reads), which hands it to the pages and the style rules (applyConfig) in
+// order with every other one.
 func (s *Server) setConfig(c config.Config) {
-	s.applyConfig(c)
-	s.Store.SetConfig(c) // tells applyConfig again: the same values
+	s.Store.SetConfig(c)
 }
 
 // applyConfig is a configuration the store took (Admin › Structure, or a

@@ -5,7 +5,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"yars/internal/config"
 	"yars/internal/finding"
@@ -231,6 +233,42 @@ func TestUpdateEngagementSettings(t *testing.T) {
 	bad.Start = "4 Nov"
 	if err := s.UpdateEngagement(bad, m17Dir); !errors.Is(err, ErrInvalidValue) {
 		t.Fatalf("bad date: %v", err)
+	}
+}
+
+// Configurations apply one at a time, subscribers included: one applied
+// while another is still being handed to the subscribers waits, so the
+// store and every subscriber end with the last one (D12).
+func TestSetConfigInOrder(t *testing.T) {
+	s, _ := withEngagement(t)
+	var mu sync.Mutex
+	last := ""
+	gate, entered := make(chan struct{}), make(chan struct{}, 4)
+	s.OnConfig(func(c config.Config) {
+		entered <- struct{}{}
+		if c.Sections[0] == "X" {
+			<-gate
+		}
+		mu.Lock()
+		last = c.Sections[0]
+		mu.Unlock()
+	})
+	x, y := s.Config(), s.Config()
+	x.Sections, y.Sections = []string{"X"}, []string{"Y"}
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() { defer wg.Done(); s.SetConfig(x) }()
+	<-entered
+	done := make(chan struct{})
+	go func() { defer wg.Done(); s.SetConfig(y); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(200 * time.Millisecond):
+	}
+	close(gate)
+	wg.Wait()
+	if last != "Y" || s.Config().Sections[0] != "Y" {
+		t.Fatalf("subscriber has %s, store %v", last, s.Config().Sections)
 	}
 }
 
