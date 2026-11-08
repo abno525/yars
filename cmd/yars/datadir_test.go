@@ -146,6 +146,9 @@ func TestUseCommand(t *testing.T) {
 		t.Fatal(err)
 	}
 	file := filepath.Join(cfgHome, "yars", "config.yaml")
+	if got := out.String(); got != "default data folder: "+dir+" (in "+file+")\n" {
+		t.Fatalf("set: %q", got)
+	}
 	b, err := os.ReadFile(file)
 	if err != nil || strings.TrimSpace(string(b)) != "data: "+dir {
 		t.Fatalf("config %q %v", b, err)
@@ -164,6 +167,16 @@ func TestUseCommand(t *testing.T) {
 	out.Reset()
 	if err := cmdUse(nil, &out); err != nil || strings.TrimSpace(out.String()) != "/srv/env (from YARS_DATA)" {
 		t.Fatalf("show env: %q %v", out.String(), err)
+	}
+	// set while YARS_DATA wins: the file is written, and the output says
+	// which folder the next command uses
+	out.Reset()
+	if err := cmdUse([]string{dir}, &out); err != nil {
+		t.Fatal(err)
+	}
+	want := "default data folder: " + dir + " (in " + file + ")\nYARS_DATA=/srv/env overrides it: commands use /srv/env\n"
+	if out.String() != want {
+		t.Fatalf("set under YARS_DATA: %q", out.String())
 	}
 }
 

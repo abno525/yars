@@ -130,6 +130,11 @@ func cmdUse(args []string, out io.Writer) error {
 		return err
 	}
 	fmt.Fprintf(out, "default data folder: %s (in %s)\n", dir, p)
+	// the folder the next command uses, as it resolves it
+	now, src, err := resolveData(flag.NewFlagSet("use", flag.ContinueOnError), "")
+	if err == nil && src == dataEnv {
+		fmt.Fprintf(out, "%s=%s overrides it: commands use %s\n", dataEnv, now, now)
+	}
 	return nil
 }
 
