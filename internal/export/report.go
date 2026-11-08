@@ -179,7 +179,7 @@ func Report(in Input) string {
 	fs := in.ordered()
 	for _, f := range fs {
 		m := f.Meta
-		fmt.Fprintf(&b, `<tr><td class="fid">%s</td><td>%s</td><td>%s</td><td class="num">%s</td>`, esc(m.ID), esc(m.Title), sevTag(sevOf(f)), esc(scoreOf(f)))
+		fmt.Fprintf(&b, `<tr><td class="fid">%s</td><td>%s</td><td>%s</td><td class="num">%s</td>`, esc(m.ID), esc(m.Title), sevTag(sevOf(f)), esc(scoreOf(f, in.Preview)))
 		if loc != "" {
 			b.WriteString("<td>" + esc(m.Details[loc]) + "</td>")
 		}
@@ -198,7 +198,7 @@ func Report(in Input) string {
 		}
 		fmt.Fprintf(&b, `<div class="rp-fhead sevbar-%s" id="rp-%s" data-bg="%s" data-fg="%s" data-sev="%s">`+"\n", attr(sev), attr(m.ID), st.BG, st.FG, attr(sev))
 		fmt.Fprintf(&b, `<p><span class="rp-fid">%s</span> <span class="rp-ftitle">%s</span> %s <span class="rp-vec">%s</span> <span class="rp-score">%s</span></p>`+"\n</div>\n",
-			esc(m.ID), esc(m.Title), sevTag(sev), esc(vec), esc(scoreOf(f)))
+			esc(m.ID), esc(m.Title), sevTag(sev), esc(vec), esc(scoreOf(f, in.Preview)))
 		b.WriteString(`<table class="rp-details">` + head + `<tbody>` + "\n")
 		rows := 0
 		for _, r := range summary(f, in.Cfg)[1:] { // severity is in the head
@@ -225,10 +225,14 @@ func Report(in Input) string {
 	return b.String()
 }
 
-// scoreOf is the CVSS base score ("–" without a vector).
-func scoreOf(f *finding.Finding) string {
+// scoreOf is the CVSS base score; without a vector "–" in the documents,
+// "—" in the web preview as everywhere on the web (D20).
+func scoreOf(f *finding.Finding, preview bool) string {
 	v, err := cvss.Parse(f.Meta.CVSS)
 	if err != nil {
+		if preview {
+			return "—"
+		}
 		return "–"
 	}
 	sc, _ := cvss.Score(v)

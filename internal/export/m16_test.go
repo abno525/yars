@@ -247,6 +247,10 @@ func TestReportPreviewEmptyDetails(t *testing.T) {
 	if strings.Count(x, want) != len(in.Findings) {
 		t.Fatalf("empty details tables:\n%s", x)
 	}
+	// D20: no vector shows "—" in the preview, as on the board
+	if strings.Count(x, `<td class="num">—</td>`) != len(in.Findings) || strings.Count(x, `<span class="rp-score">—</span>`) != len(in.Findings) {
+		t.Fatalf("score without a vector:\n%s", x)
+	}
 }
 
 func TestHTMLZip(t *testing.T) {
