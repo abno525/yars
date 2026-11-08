@@ -137,6 +137,17 @@ document.addEventListener('change', function (e) {
 // The keyed flag sits on the radios' form (one per group); their change
 // events never act.
 var yarsArrows = ['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight'];
+var yarsRadioFocus = null; // a keyboard save waiting for its swap
+document.addEventListener('htmx:afterSettle', function (e) {
+  var f = yarsRadioFocus;
+  if (!f || !f.target) return;
+  var el = e.target;
+  if (!el || !el.matches || !(el.matches(f.target) || (el.querySelector && el.querySelector(f.target)))) return; // another swap
+  var r = document.querySelector(f.target + ' input[type=radio][data-choose][name="' + f.name + '"]:checked');
+  if (!r) return; // not swapped yet (another request settled first)
+  yarsRadioFocus = null;
+  r.focus();
+});
 function yarsRadio(t) {
   return t && t.matches && t.matches('input[type=radio][data-choose]') ? t : null;
 }
@@ -149,6 +160,8 @@ document.addEventListener('keydown', function (e) {
     e.preventDefault();
     r.checked = true;
     r.form.removeAttribute('data-keyed');
+    // the answer swaps the panel: the focus comes back to the saved radio
+    yarsRadioFocus = {target: r.form.getAttribute('hx-target'), name: r.name};
     yarsChoose(r);
   } else if (yarsArrows.indexOf(e.key) >= 0) {
     r.form.removeAttribute('data-pointer');
