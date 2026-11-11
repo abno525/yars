@@ -23,16 +23,7 @@ import (
 // it. It returns the findings it changed ("eng/F-001") and, on a failure,
 // the error with what was done so far.
 func (s *Store) RenameNames(list string, renames map[string]string, a gitrepo.Author) (changed []string, err error) {
-	if len(renames) == 0 {
-		return nil, nil
-	}
-	olds := make([]string, 0, len(renames))
-	for o, n := range renames {
-		if o != n {
-			olds = append(olds, o)
-		}
-	}
-	sort.Strings(olds)
+	olds := renamedOlds(renames)
 	if len(olds) == 0 {
 		return nil, nil
 	}
@@ -96,6 +87,72 @@ func (s *Store) RenameNames(list string, renames map[string]string, a gitrepo.Au
 	return changed, nil
 }
 
+// renamedOlds are the names renames changes, sorted.
+func renamedOlds(renames map[string]string) []string {
+	var olds []string
+	for o, n := range renames {
+		if o != n {
+			olds = append(olds, o)
+		}
+	}
+	sort.Strings(olds)
+	return olds
+}
+
+// RenameConflict is RenameNames tried on copies: the first finding (archived
+// engagements too) or template it would stop at, nil when it would go
+// through. Nothing is written, so a structure save can be refused before the
+// configuration changes.
+func (s *Store) RenameConflict(list string, renames map[string]string) error {
+	olds := renamedOlds(renames)
+	if len(olds) == 0 {
+		return nil
+	}
+	apply, err := renamer(list, olds, renames, s.Config().DetailsRows)
+	if err != nil {
+		return err
+	}
+	try := func(f *finding.Finding) error {
+		if f == nil {
+			return nil
+		}
+		cp, err := finding.Parse(f.Bytes())
+		if err != nil {
+			return nil // unreadable: RenameNames leaves it as it is too
+		}
+		return apply(cp)
+	}
+	ids, err := s.EngagementIDs()
+	if err != nil {
+		return err
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
+		if _, err := s.Engagement(id); err != nil {
+			continue // not an engagement repository (as RenameNames)
+		}
+		refs, err := s.ListFindings(id)
+		if err != nil {
+			return fmt.Errorf("engagements/%s: %w", id, err)
+		}
+		for _, r := range refs {
+			if err := try(r.F); err != nil {
+				return fmt.Errorf("engagements/%s %s: %w", id, r.F.Meta.ID, err)
+			}
+		}
+	}
+	tpls, err := s.Templates()
+	if err != nil {
+		return fmt.Errorf("templates: %w", err)
+	}
+	for _, t := range tpls {
+		if err := try(t.F); err != nil {
+			return fmt.Errorf("templates: template %s: %w", t.Slug, err)
+		}
+	}
+	return nil
+}
+
 // renamer is the edit RenameNames makes to one finding or template.
 func renamer(list string, olds []string, renames map[string]string, detailsOrder []string) (func(*finding.Finding) error, error) {
 	switch list {
@@ -108,7 +165,7 @@ func renamer(list string, olds []string, renames map[string]string, detailsOrder
 				}
 				for _, x := range f.Sections {
 					if x.Name == n && strings.TrimSpace(x.Body) != "" {
-						return fmt.Errorf("%w: %s has text under both %s and %s", ErrInvalidValue, f.Meta.ID, o, n)
+						return fmt.Errorf("%w: text under both %s and %s", ErrInvalidValue, o, n)
 					}
 				}
 				f.Sections = slices.DeleteFunc(f.Sections, func(x finding.Section) bool { return x.Name == n })
@@ -135,7 +192,7 @@ func renamer(list string, olds []string, renames map[string]string, detailsOrder
 				}
 				n := renames[o]
 				if strings.TrimSpace(merged[n]) != "" && strings.TrimSpace(v) != "" {
-					return fmt.Errorf("%w: %s has values under both %s and %s", ErrInvalidValue, f.Meta.ID, o, n)
+					return fmt.Errorf("%w: values under both %s and %s", ErrInvalidValue, o, n)
 				}
 				delete(merged, o)
 				if strings.TrimSpace(merged[n]) == "" {

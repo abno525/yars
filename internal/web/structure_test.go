@@ -170,6 +170,34 @@ func TestStructureRenameRewritesFindings(t *testing.T) {
 	}
 }
 
+// Q10: a rename that would stop at a finding (text under both names, as a
+// push can write) is refused before the save: nothing is saved or renamed,
+// so no finding is left under a name the page no longer shows.
+func TestStructureRenameConflictRefused(t *testing.T) {
+	e := setup(t)
+	st := e.srv.Store
+	if err := st.UpdateSection("acme", fdir, "Impact", "Data loss.", "", wAlice); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.UpdateSection("acme", fdir, "Business impact", "Fines.", "", wAlice); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.ReadFile(filepath.Join(e.dir, "engagements", "acme", "findings", fdir, "finding.md"))
+	v := e.structForm()
+	v["section"] = replaced(v["section"], "Impact", "Business impact")
+	v.Set("op", "save")
+	rec := e.do(t, "dora", "POST", "/admin/structure", v, nil)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "F-001") || !strings.Contains(rec.Body.String(), "text under both Impact and Business impact") {
+		t.Fatalf("rename conflict %d:\n%s", rec.Code, rec.Body.String())
+	}
+	if _, err := os.Stat(filepath.Join(e.dir, ".yars", "config.yaml")); !os.IsNotExist(err) {
+		t.Fatal("config.yaml written")
+	}
+	if after, _ := os.ReadFile(filepath.Join(e.dir, "engagements", "acme", "findings", fdir, "finding.md")); string(after) != string(before) {
+		t.Fatalf("finding changed:\n%s", after)
+	}
+}
+
 // Q10: a name findings still use cannot be removed: the page says which,
 // as a push does, and nothing is saved.
 func TestStructureRemoveInUseRefused(t *testing.T) {

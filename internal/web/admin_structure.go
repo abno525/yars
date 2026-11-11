@@ -357,6 +357,14 @@ func (s *Server) structurePost(w http.ResponseWriter, r *http.Request) {
 		s.structureRender(w, r, http.StatusBadRequest, c, disk, base, msg, "")
 		return
 	}
+	// Q10: nor a rename that would stop at a finding or template (text under
+	// both names): tried before the save, so none is left behind
+	for _, l := range renameLists(disk, c) {
+		if err := s.Store.RenameConflict(l.list, l.renames); err != nil {
+			s.structureRender(w, r, http.StatusBadRequest, c, disk, base, err.Error(), "")
+			return
+		}
+	}
 	u := auth.UserFrom(r.Context())
 	dir := s.Store.Repo().Dir
 	var loaded config.Config

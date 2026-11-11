@@ -2,9 +2,12 @@ package web
 
 import (
 	"net/url"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"yars/internal/chat"
 	"yars/internal/db"
@@ -230,6 +233,33 @@ func TestInboxDraftChecks(t *testing.T) {
 	}
 	if strings.Contains(draft(), "<form") {
 		t.Fatal("a row action posts")
+	}
+}
+
+// Q13: after a rule change a draft's last check is out of date, as on its
+// page: no "Checks pass", no Submit.
+func TestInboxDraftAfterRuleChange(t *testing.T) {
+	e := setup(t)
+	e.rules(t, "- id: none\n  target: title\n  regex_forbid: 'zzz'\n", nil)
+	st := e.srv.Store
+	st.SetReviewers("acme", fdir, []string{"bob"}, wAlice)
+	st.UpdateSeverity("acme", fdir, "high", "", e.authorOf(wAlice))
+	ref, _ := st.Finding("acme", fdir)
+	id, err := st.DB().StartRun("acme", "F-001", ref.Hash, "alice", e.srv.Rules.Version())
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.DB().TxFor("acme", func(tx *db.Tx) error { return tx.FinishRun(id, db.RunDone, "", nil) })
+	draft := func() string { return queue(e.do(t, "alice", "GET", "/inbox", nil, nil).Body.String(), "drafts") }
+	if q := draft(); !strings.Contains(q, "Checks pass") || !strings.Contains(q, ">Submit</a>") {
+		t.Fatalf("before the rule change:\n%s", q)
+	}
+	p := filepath.Join(e.dir, ".yars", "rules", "style.yaml")
+	os.WriteFile(p, []byte("- id: none\n  target: title\n  regex_forbid: 'qqqq'\n"), 0o644)
+	later := time.Now().Add(time.Minute)
+	os.Chtimes(p, later, later)
+	if q := draft(); !strings.Contains(q, "Rules changed since the check") || strings.Contains(q, "Checks pass") || strings.Contains(q, ">Submit</a>") || !strings.Contains(q, ">Continue</a>") {
+		t.Fatalf("after the rule change:\n%s", q)
 	}
 }
 

@@ -265,6 +265,7 @@ func (s *Server) draftChecks(rows []inboxRow) ([]inboxRow, error) {
 		}
 	}
 	cfg := s.Store.Config()
+	nowRules := s.Store.RulesVersion()
 	for i := range out {
 		r := &out[i]
 		run, ok := runs[r.EngID+"/"+r.ID]
@@ -278,6 +279,8 @@ func (s *Server) draftChecks(rows []inboxRow) ([]inboxRow, error) {
 			r.What, r.WhatClass = "Check failed", "bad"
 		case run.ContentHash != r.row.Hash:
 			r.What = "Edited since the check"
+		case store.RulesChanged(run.Rules, nowRules): // Q13, as the page's Stale
+			r.What = "Rules changed since the check"
 		case run.State == db.RunFailed:
 			r.What, r.WhatClass = "Check failed", "bad"
 		case run.Errors > 0:

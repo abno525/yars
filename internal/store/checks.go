@@ -326,7 +326,7 @@ func (s *Store) startCheck(engID, dir, only string, u config.User) (db.CheckRun,
 	if only != "" {
 		prev, ok, err := s.db.LatestRun(engID, fid)
 		// kept only from a run on this content with these rules (Q13)
-		if err == nil && ok && prev.State != db.RunRunning && prev.ContentHash == hash && !rulesChanged(prev.Rules, s.rulesVersion()) {
+		if err == nil && ok && prev.State != db.RunRunning && prev.ContentHash == hash && !RulesChanged(prev.Rules, s.RulesVersion()) {
 			keep, err = s.carry(prev.ID, only)
 		}
 		if err != nil {
@@ -340,7 +340,7 @@ func (s *Store) startCheck(engID, dir, only string, u config.User) (db.CheckRun,
 	// marked before the run exists: a gate that sees the new run as the
 	// latest counts it as running, not as cut off
 	s.setRunning(key, pendingRun, false)
-	id, err = s.db.StartRun(engID, fid, hash, u.Username, s.rulesVersion())
+	id, err = s.db.StartRun(engID, fid, hash, u.Username, s.RulesVersion())
 	if err != nil {
 		s.setRunning(key, 0, true)
 		s.checksMu.Unlock()
@@ -760,7 +760,7 @@ func (s *Store) CheckStatus(engID, dir string) (CheckStatus, error) {
 	}
 	if st.HasRun {
 		// stale: the finding, or the rules (Q13), changed since the run
-		st.Stale = st.Run.ContentHash != contentHash(raw) || rulesChanged(st.Run.Rules, s.rulesVersion())
+		st.Stale = st.Run.ContentHash != contentHash(raw) || RulesChanged(st.Run.Rules, s.RulesVersion())
 		if st.Steps, err = s.db.RunSteps(st.Run.ID); err != nil {
 			return st, err
 		}

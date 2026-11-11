@@ -85,21 +85,21 @@ func (s *Store) checkGate(engID, fid, hash string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return gateOf(run.State, run.ContentHash, hash, running, aiFailed[run.ID], run.Rules, s.rulesVersion()), nil
+	return gateOf(run.State, run.ContentHash, hash, running, aiFailed[run.ID], run.Rules, s.RulesVersion()), nil
 }
 
-// rulesVersion is the version of the rules in use ("" when the linter has
+// RulesVersion is the version of the rules in use ("" when the linter has
 // none to tell).
-func (s *Store) rulesVersion() string {
+func (s *Store) RulesVersion() string {
 	if l, ok := s.Linter.(interface{ Version() string }); ok {
 		return l.Version()
 	}
 	return ""
 }
 
-// rulesChanged reports whether a run with the rules at version runRules is
+// RulesChanged reports whether a run with the rules at version runRules is
 // out of date against the rules at nowRules (both known and different).
-func rulesChanged(runRules, nowRules string) bool {
+func RulesChanged(runRules, nowRules string) bool {
 	return runRules != "" && nowRules != "" && runRules != nowRules
 }
 
@@ -126,7 +126,7 @@ func gateOf(state, runHash, hash string, running, aiFailed bool, runRules, nowRu
 		return GateInterrupted
 	case runHash != hash:
 		return GateStale
-	case rulesChanged(runRules, nowRules):
+	case RulesChanged(runRules, nowRules):
 		return GateRules
 	case aiFailed:
 		return GateAIFailed
@@ -200,7 +200,7 @@ func (s *Store) CheckGates(keys []GateKey) (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	nowRules := s.rulesVersion()
+	nowRules := s.RulesVersion()
 	for _, k := range keys {
 		name := k.Eng + "/" + k.Fid
 		r, ok := runs[name]

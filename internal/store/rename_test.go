@@ -35,6 +35,40 @@ func subjects(t *testing.T, repo string, n string) []string {
 	return strings.Split(strings.TrimSpace(string(out)), "\n")
 }
 
+// RenameConflict tries the rename on copies: it names the finding or the
+// template it would stop at and writes nothing.
+func TestRenameConflictFoundBeforehand(t *testing.T) {
+	s, dir, fd := ready(t)
+	if err := s.UpdateSection(eng, fd, "Impact", "Data loss.", "", alice); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RenameConflict("section", toBusiness); err != nil {
+		t.Fatalf("no conflict yet: %v", err)
+	}
+	if err := s.UpdateSection(eng, fd, "Business impact", "Fines.", "", alice); err != nil {
+		t.Fatal(err)
+	}
+	before := raw(t, dir, eng, fd)
+	err := s.RenameConflict("section", toBusiness)
+	if err == nil || !strings.Contains(err.Error(), "engagements/"+eng+" F-001") || !strings.Contains(err.Error(), "text under both Impact and Business impact") {
+		t.Fatalf("conflict: %v", err)
+	}
+	if raw(t, dir, eng, fd) != before {
+		t.Fatal("the dry run wrote the finding")
+	}
+	// a template with text under both stops it too
+	s2, _ := withEngagement(t)
+	tpl := finding.New("", "SQL injection", "", []string{"Impact", "Business impact"})
+	tpl.SetSection("Impact", "Data loss.")
+	tpl.SetSection("Business impact", "Fines.")
+	if err := s2.SaveTemplate("sqli", alice, func(*finding.Finding) (*finding.Finding, error) { return tpl, nil }); err != nil {
+		t.Fatal(err)
+	}
+	if err := s2.RenameConflict("section", toBusiness); err == nil || !strings.Contains(err.Error(), "template sqli") {
+		t.Fatalf("template conflict: %v", err)
+	}
+}
+
 // a heading a push wrote twice is renamed in both places, text kept
 func TestRenameSectionEveryHeading(t *testing.T) {
 	f := finding.New("", "SQL injection", "", []string{"Impact"})

@@ -41,5 +41,6 @@ M23 task 6  done     b600394
 M23 task 7  done     6a8f1db
 M23 task 6  review   fix 48bbb32
 M23 task 5  review   fix 220c4bd (running run, repeated heading)
-M23 task 7  review   fix (retry after a rule change, empty rules folder)
+M23 task 7  review   fix cda90e2 (retry after a rule change, empty rules folder)
+M23 branch  reviewed fixes (rename conflict before the save, inbox drafts, decisions table)
 ```

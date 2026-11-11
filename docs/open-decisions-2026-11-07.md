@@ -1046,7 +1046,7 @@ One row per decision. "Built" names the test that pins it; "Not built → M<n>" 
 | D20 | No CVSS vector shows "—" | Built | `web` `TestNoScoreIsADash` |
 | D21 | Status panel folded into the chat | Not built → M24 | |
 | D22 | Workflow bar keeps two rows | Built | `web` `TestD22TwoRowBar` |
-| D23 | Findings search; Withdrawn kept | Not built → M23 | |
+| D23 | Findings search; Withdrawn kept | Built | `web` `TestBoardSearchFilters`, `TestBoardSearchKeepsFilterAndSort` |
 | D24 | Admin › System panels | Not built → M25 | |
 | D25 | Directors get clean findings only | Built | `store` `TestOpenWarningBlocksSignOffAndApprove`; `web` `TestReadyToApproveSkipsOpenChecks` |
 | D26 | Set a new password after a temporary one | Built | `web` `TestTemporaryPasswordMustBeChanged` |
@@ -1063,7 +1063,7 @@ One row per decision. "Built" names the test that pins it; "Not built → M<n>" 
 | K9 | Shortcuts on/off | Not built → M29 | |
 | K10 | Selects act on a choice only | Built | `web` `TestSelectsActOnChoiceOnly` |
 | K11 | Range select in the inbox | Replaced by R3 | |
-| R1 | Engagement pages: 1 overview legends and tables; 2 clone box; 3 theme panel | 1 Not built → M23; 2 Built (kept); 3 Built (none) | 2 `web` `TestCloneHint`; 3 `web` `TestR1NoThemeOnEngagementSettings` |
+| R1 | Engagement pages: 1 overview legends and tables; 2 clone box; 3 theme panel | 1 Built; 2 Built (kept); 3 Built (none) | 1 `web` `TestOverviewHasNoLegendOrTables`; 2 `web` `TestCloneHint`; 3 `web` `TestR1NoThemeOnEngagementSettings` |
 | R2 | Strictness of the AI connection | Not built → M32 | |
 | R3 | Shift+click range select | Not built → M29 | |
 | R4 | Revert to the previous state | Not built → M27 | |
@@ -1072,7 +1072,7 @@ One row per decision. "Built" names the test that pins it; "Not built → M<n>" 
 | R7 | AI fixes check comments | Not built → M31 | |
 | R8 | Pre-commit hook that warns | Not built → M30 | |
 | R9 | Dark toggle kept | Built | `web` `TestShellHeader` |
-| R10 | Unscored drafts in totals | Not built → M23 | |
+| R10 | Unscored drafts in totals | Built | `web` `TestOverviewUnscoredSegment`; `index` `TestSummaryUnscored` |
 | Q1 | Require Check, with an admin toggle | Built | `store` `TestRequireCheckGate`, `TestRequireCheckOff` |
 | Q2 | A reset keeps the user's tokens | Built | `auth` `TestMustChangeRefusesTokensAndCheck` |
 | Q3 | `yars unlock`; a default data folder | Built | `cmd/yars` `TestUnlockCommand`, `TestUseCommand` |
@@ -1082,9 +1082,9 @@ One row per decision. "Built" names the test that pins it; "Not built → M<n>" 
 | Q7 | A draft with a rule error is pushed | Built | `cmd/yars` `TestPushRunsCheckRules` |
 | Q8 | A pushed config dropping a used name is refused | Built | `policy` `TestPolicyConfigDropsUsedName` |
 | Q9 | Field / Value header not in documents | Built | `export` `TestReportKVHeaderOnlyInPreview` |
-| Q10 | Structure renames inside findings | Not built → M23 | |
-| Q11 | A failed AI check blocks while AI is set up | Not built → M23 | |
-| Q12 | Board bulk Approve only where it works | Not built → M23 | |
-| Q13 | A rule change makes the last check out of date | Not built → M23 | |
+| Q10 | Structure renames inside findings | Built | `store` `TestRenameSectionRewritesFindings`; `web` `TestStructureRemoveInUseRefused`, `TestStructureRenameConflictRefused` |
+| Q11 | A failed AI check blocks while AI is set up | Built | `store` `TestGateAIFailedBlocksOnlyWithProvider` |
+| Q12 | Board bulk Approve only where it works | Built | `web` `TestBoardBulkApproveHidesGated` |
+| Q13 | A rule change makes the last check out of date | Built | `store` `TestGateStaleAfterRuleChange`, `TestRetryAfterRuleChangeRunsEveryRule`; `web` `TestInboxDraftAfterRuleChange` |
 
 Rows with no test: none.
