@@ -17,8 +17,7 @@
   {{template "finding_head" .Head}}
   <div class="actions fhead">
     {{$fu := fpath .Eng.ID .Finding.Dir}}
-    {{if .CanMerge}}<a class="btn secondary w136" href="{{$fu}}/merge">Merge into</a>{{else}}<span class="slot w136"></span>{{end}}
-    {{if .Tpl.CanEdit}}<a class="btn secondary w152" href="{{$fu}}/template">Save as template</a>{{else}}<span class="slot w152"></span>{{end}}
+    {{if or .CanMerge .Tpl.CanEdit}}<details class="pop more"><summary class="btn secondary w136">More</summary><div class="poplist">{{if .CanMerge}}<a href="{{$fu}}/merge">Merge into</a>{{end}}{{if .Tpl.CanEdit}}<a href="{{$fu}}/template">Save as template</a>{{end}}</div></details>{{else}}<span class="slot w136"></span>{{end}}
     <a class="btn secondary w136" href="{{$fu}}/history">History</a>
     {{if $wd}}<span class="slot w136"></span>{{else}}<a class="btn secondary w136" href="/e/{{.Eng.ID}}/export">Export</a>{{end}}
   </div>
@@ -29,7 +28,6 @@
 {{template "retest_panel" .Retest}}
 <div class="finding-grid" data-sse-url="/events?eng={{.Eng.ID}}&amp;f={{$f.Meta.ID}}">
   <div class="finding-main">
-    {{if .Dups.Rows}}{{template "dups_panel" .Dups}}{{end}}
     {{template "details_panel" .Details}}
     {{template "assets_panel" .Assets}}
     {{template "cvss_panel" .CVSS}}
@@ -37,6 +35,7 @@
     {{if not $wd}}{{template "checks_panel" .Checks}}{{end}}
   </div>
   <div class="side">
+    {{if .Dups.Rows}}{{template "dups_panel" .Dups}}{{end}}
     {{template "activity" .Chat}}
     {{template "chat_panel" .Chat}}
   </div>

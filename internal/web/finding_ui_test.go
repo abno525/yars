@@ -120,12 +120,8 @@ func TestWorkflowSlotsFixed(t *testing.T) {
 func TestFindingHeadAlignsWithBar(t *testing.T) {
 	e := setup(t)
 	b := e.do(t, "dora", "GET", fpath, nil, nil).Body.String()
-	i := strings.Index(b, `<div class="actions fhead">`)
-	if i < 0 {
-		t.Fatalf("no fhead actions:\n%s", b)
-	}
-	head := b[i : strings.Index(b[i:], "</div>")+i]
-	for _, want := range []string{`class="btn secondary w136" href="/e/acme/f/001/history"`, `class="btn secondary w136" href="/e/acme/export"`} {
+	head := titleActions(t, b)
+	for _, want := range []string{`<summary class="btn secondary w136">More</summary>`, `class="btn secondary w136" href="/e/acme/f/001/history"`, `class="btn secondary w136" href="/e/acme/export"`} {
 		if !strings.Contains(head, want) {
 			t.Fatalf("head lacks %s:\n%s", want, head)
 		}
@@ -335,15 +331,70 @@ func TestCVSSBuilderLayout(t *testing.T) {
 	}
 }
 
+// titleActions is the finding page's title-row buttons.
+func titleActions(t *testing.T, b string) string {
+	t.Helper()
+	if !strings.Contains(b, `class="actions fhead"`) || !strings.Contains(b, `id="workflow"`) {
+		t.Fatalf("no title row:\n%s", b)
+	}
+	return between(b, `class="actions fhead"`, `id="workflow"`)
+}
+
+// D4: the title row is More, History and Export, 136 px each; More holds
+// Merge into and Save as template.
+func TestMoreMenuHoldsMergeAndTemplate(t *testing.T) {
+	e := setup(t)
+	row := titleActions(t, e.do(t, "dora", "GET", fpath, nil, nil).Body.String())
+	if !strings.Contains(row, `<details class="pop more"><summary class="btn secondary w136">More</summary><div class="poplist">`) {
+		t.Fatalf("no More menu:\n%s", row)
+	}
+	menu := between(row, `<details class="pop more">`, "</details>")
+	if !strings.Contains(menu, `href="/e/acme/f/001/merge">Merge into</a>`) || !strings.Contains(menu, `href="/e/acme/f/001/template">Save as template</a>`) {
+		t.Fatalf("More menu:\n%s", menu)
+	}
+	more, hist, exp := strings.Index(row, ">More<"), strings.Index(row, `href="/e/acme/f/001/history"`), strings.Index(row, `href="/e/acme/export"`)
+	if strings.Contains(row, "w152") || !(more < hist && hist < exp) || !strings.Contains(row, `class="btn secondary w136" href="/e/acme/f/001/history"`) {
+		t.Fatalf("title row:\n%s", row)
+	}
+	// a reviewer may save a template only: the menu holds that one link
+	menu = between(titleActions(t, e.do(t, "bob", "GET", fpath, nil, nil).Body.String()), `<details class="pop more">`, "</details>")
+	if strings.Contains(menu, "/merge") || !strings.Contains(menu, ">Save as template</a>") {
+		t.Fatalf("bob's More menu:\n%s", menu)
+	}
+}
+
+// D4: with neither right the More slot is empty, the same width.
+func TestMoreSlotEmptyWithoutRights(t *testing.T) {
+	e := setup(t)
+	row := titleActions(t, e.do(t, "alice", "GET", fpath, nil, nil).Body.String())
+	if strings.Contains(row, "pop more") || !strings.Contains(row, `<span class="slot w136"></span>`) || strings.Index(row, `<span class="slot w136"></span>`) > strings.Index(row, "/history") ||
+		strings.Count(row, "w136") != 3 || strings.Contains(row, "w152") {
+		t.Fatalf("alice's title row:\n%s", row)
+	}
+}
+
+// D4: Possible duplicates sit in the side column, above the chat.
+func TestDuplicatesInSideColumn(t *testing.T) {
+	e := setup(t)
+	if _, err := e.srv.Store.CreateFinding("acme", "SQL injection", e.authorOf(wAlice)); err != nil {
+		t.Fatal(err)
+	}
+	b := e.do(t, "alice", "GET", fpath, nil, nil).Body.String()
+	side, dups, chat := strings.Index(b, `class="side"`), strings.Index(b, `id="dups"`), strings.Index(b, `id="chat"`)
+	if side < 0 || dups < side || chat < dups || !strings.Contains(b, `<section class="panel compact dups" id="dups">`) {
+		t.Fatalf("side %d, dups %d, chat %d", side, dups, chat)
+	}
+}
+
 // The finding page in every state renders without inline styles, with the
 // title row's fixed slots.
 func TestFindingPageNoInlineStyles(t *testing.T) {
 	e := setup(t)
 	b := e.do(t, "alice", "GET", fpath, nil, nil).Body.String()
 	noInline(t, "draft", b)
-	// a pentester gets an empty slot where Save as template is; History fills
-	// the slot it used to keep
-	if !strings.Contains(b, `class="slot w152"`) || !strings.Contains(b, `class="btn secondary w136" href="/e/acme/f/001/history"`) || !strings.Contains(b, `class="btn secondary w136" href="/e/acme/export"`) {
+	// a pentester gets an empty slot where More is (D4); History and Export
+	// keep theirs
+	if !strings.Contains(titleActions(t, b), `class="slot w136"`) || !strings.Contains(b, `class="btn secondary w136" href="/e/acme/f/001/history"`) || !strings.Contains(b, `class="btn secondary w136" href="/e/acme/export"`) {
 		t.Fatalf("title row slots:\n%s", b)
 	}
 	e.toVerification(t)

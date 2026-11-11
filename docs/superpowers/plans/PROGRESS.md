@@ -46,5 +46,6 @@ M23 branch  reviewed fixes 6961084 (rename conflict before the save, inbox draft
 M23 PR      opened   #17
 M24 task 1  done     ab55673 (browser check passed: stays closed and stays open across a second session's edit; opens while Check runs and closes after; a typed Dismiss reason survives a refresh)
 M24 task 2  done     1eb3b22
-M24 task 1  review   fix (open strip scrolls; strip choice kept on out-of-band swaps and dismissals)
+M24 task 1  review   fix 5a1a821 (open strip scrolls; strip choice kept on out-of-band swaps and dismissals)
+M24 task 3  done
 ```

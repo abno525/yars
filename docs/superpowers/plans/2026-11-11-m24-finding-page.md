@@ -117,8 +117,8 @@ Rules:
 1. The title-row buttons become three fixed slots: **More** (w136), **History** (w136), **Export** (w136). More is `<details class="pop more"><summary class="btn secondary w136">More</summary><div class="poplist">…</div></details>` holding the links "Merge into" and "Save as template", each only when the viewer may use it (`.CanMerge`, `.Tpl.CanEdit`). With neither, an empty `<span class="slot w136"></span>`. The old w152 slot goes.
 2. `{{if .Dups.Rows}}{{template "dups_panel" .Dups}}{{end}}` moves from `.finding-main` to the top of `.side`, above the chat. The panel gets the class `compact`; its columns are those of board 3.4.
 
-- [ ] **Step 1: write the failing tests.** `TestMoreMenuHoldsMergeAndTemplate` (as `dora`: both links are inside `class="pop more"`; no `w152` in the title row); `TestMoreSlotEmptyWithoutRights` (a viewer with neither right gets the empty slot); `TestDuplicatesInSideColumn` (the index of the duplicates panel is after the index of `class="side"`).
-- [ ] **Step 2–4:** fail, implement, pass. **Step 5:** commit: `feat(finding): More menu; Possible duplicates in the side column (D4)`.
+- [x] **Step 1: write the failing tests.** `TestMoreMenuHoldsMergeAndTemplate` (as `dora`: both links are inside `class="pop more"`; no `w152` in the title row); `TestMoreSlotEmptyWithoutRights` (a viewer with neither right gets the empty slot); `TestDuplicatesInSideColumn` (the index of the duplicates panel is after the index of `class="side"`).
+- [x] **Step 2–4:** fail, implement, pass. **Step 5:** commit: `feat(finding): More menu; Possible duplicates in the side column (D4)`.
 
 ### Task 4: status changes in the chat (D21)
 
