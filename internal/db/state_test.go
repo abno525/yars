@@ -43,6 +43,50 @@ func TestStateRoundTrip(t *testing.T) {
 	}
 }
 
+// Q10: a rename moves the approval, the sign-offs and the check runs of a
+// finding to its renamed content, and the comments on a renamed section.
+func TestMoveHashAndRenameChatSection(t *testing.T) {
+	d, _ := open(t)
+	st := State{Status: "complete", ApprovedHash: "old", Reviewers: []Reviewer{{Name: "bob", ClearedHash: "old"}, {Name: "carol", ClearedHash: "other"}}}
+	if err := d.Tx(func(tx *Tx) error {
+		if err := tx.PutState("acme", "F-001", st); err != nil {
+			return err
+		}
+		if err := tx.PutState("acme", "F-002", State{Status: "complete", ApprovedHash: "old"}); err != nil {
+			return err
+		}
+		if err := tx.AddMessage("acme", "F-001", chat.Message{ID: "m1", User: "bob", Text: "x", Section: "Impact"}); err != nil {
+			return err
+		}
+		return tx.AddMessage("acme", "F-001", chat.Message{ID: "m2", User: "bob", Text: "y", Section: "Description"})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	run, _ := d.StartRun("acme", "F-001", "old", "bob")
+	if err := d.TxFor("acme", func(tx *Tx) error {
+		if err := tx.MoveHash("acme", "F-001", "old", "new"); err != nil {
+			return err
+		}
+		return tx.RenameChatSection("acme", "F-001", "Impact", "Business impact")
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := d.State("acme", "F-001")
+	if got.ApprovedHash != "new" || got.Reviewers[0].ClearedHash != "new" || got.Reviewers[1].ClearedHash != "other" {
+		t.Fatalf("state %+v", got)
+	}
+	if other, _ := d.State("acme", "F-002"); other.ApprovedHash != "old" {
+		t.Fatal("another finding moved")
+	}
+	if r, _ := d.Run(run); r.ContentHash != "new" {
+		t.Fatalf("run hash %q", r.ContentHash)
+	}
+	ms, _ := d.Messages("acme", "F-001")
+	if len(ms) != 2 || ms[0].Section != "Business impact" || ms[1].Section != "Description" {
+		t.Fatalf("messages %+v", ms)
+	}
+}
+
 func TestWithdrawnStateRoundTrip(t *testing.T) {
 	d, _ := open(t)
 	want := State{Status: "withdrawn", WithdrawnBy: "dora", WithdrawnReason: "duplicate of F-002"}

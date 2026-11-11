@@ -142,6 +142,53 @@ func TestStructureSave(t *testing.T) {
 	}
 }
 
+// replaced is list with old swapped for new, in place.
+func replaced(list []string, old, new string) []string {
+	out := slices.Clone(list)
+	if i := slices.Index(out, old); i >= 0 {
+		out[i] = new
+	}
+	return out
+}
+
+// Q10: a section renamed in Admin › Structure is renamed inside every
+// finding, which keeps showing its text.
+func TestStructureRenameRewritesFindings(t *testing.T) {
+	e := setup(t)
+	if err := e.srv.Store.UpdateSection("acme", fdir, "Impact", "Data loss.", "", wAlice); err != nil {
+		t.Fatal(err)
+	}
+	v := e.structForm()
+	v["section"] = replaced(v["section"], "Impact", "Business impact")
+	v.Set("op", "save")
+	if rec := e.do(t, "dora", "POST", "/admin/structure", v, nil); rec.Code != http.StatusSeeOther {
+		t.Fatalf("save %d:\n%s", rec.Code, rec.Body.String())
+	}
+	b := e.do(t, "alice", "GET", fpath, nil, nil).Body.String()
+	if !strings.Contains(b, "<h2>Business impact</h2>") || strings.Contains(b, "<h2>Impact</h2>") || !strings.Contains(b, "Data loss.") {
+		t.Fatalf("finding after the rename:\n%s", between(b, "<main>", "</main>"))
+	}
+}
+
+// Q10: a name findings still use cannot be removed: the page says which,
+// as a push does, and nothing is saved.
+func TestStructureRemoveInUseRefused(t *testing.T) {
+	e := setup(t)
+	if err := e.srv.Store.UpdateSection("acme", fdir, "Impact", "Data loss.", "", wAlice); err != nil {
+		t.Fatal(err)
+	}
+	v := e.structForm()
+	v["section"] = slices.DeleteFunc(slices.Clone(v["section"]), func(x string) bool { return x == "Impact" })
+	v.Set("op", "save")
+	rec := e.do(t, "dora", "POST", "/admin/structure", v, nil)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "Impact") || !strings.Contains(rec.Body.String(), "is still used by: acme/F-001") {
+		t.Fatalf("remove in use %d:\n%s", rec.Code, rec.Body.String())
+	}
+	if _, err := os.Stat(filepath.Join(e.dir, ".yars", "config.yaml")); !os.IsNotExist(err) {
+		t.Fatal("config.yaml written")
+	}
+}
+
 func TestStructureSaveInvalid(t *testing.T) {
 	e := setup(t)
 	v := e.structForm()

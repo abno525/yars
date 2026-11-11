@@ -1,6 +1,7 @@
 package store
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 
@@ -13,6 +14,34 @@ import (
 type NameUse struct {
 	List, Name string // List: "section", "severity" or "details row"
 	Findings   []string
+}
+
+// maxNameUses is how many users a refusal names per dropped name.
+const maxNameUses = 10
+
+// String is the refusal for a dropped name still in use, for the website
+// (Admin › Structure) and a push alike.
+func (u NameUse) String() string {
+	list, more := u.Findings, ""
+	if len(list) > maxNameUses {
+		list, more = list[:maxNameUses], fmt.Sprintf(" (+%d more)", len(u.Findings)-maxNameUses)
+	}
+	return fmt.Sprintf("%s %q is still used by: %s%s. Change those %s first, then remove the name.",
+		u.List, u.Name, strings.Join(list, ", "), more, usersOf(u.Findings))
+}
+
+// usersOf names what a name's users are to change: findings, templates
+// ("template x.md") or both.
+func usersOf(list []string) string {
+	tpl := slices.ContainsFunc(list, func(x string) bool { return strings.HasPrefix(x, "template ") })
+	fnd := slices.ContainsFunc(list, func(x string) bool { return !strings.HasPrefix(x, "template ") })
+	switch {
+	case tpl && fnd:
+		return "findings and templates"
+	case tpl:
+		return "templates"
+	}
+	return "findings"
 }
 
 // DroppedInUse lists the names old has and now lacks in its sections,

@@ -252,6 +252,31 @@ func (d *DB) ChatHidden(user, eng, fid string) (map[string]bool, error) {
 	return out, rows.Err()
 }
 
+// MoveHash points the approval, the sign-offs and the check runs of a
+// finding at new where they pointed at old (a rename that changed nothing
+// a reviewer read).
+func (tx *Tx) MoveHash(eng, fid, old, new string) error {
+	tx.touch(eng)
+	for _, q := range []string{
+		"UPDATE finding_state SET approved_hash = ? WHERE eng = ? AND fid = ? AND approved_hash = ?",
+		"UPDATE reviewers SET cleared_hash = ? WHERE eng = ? AND fid = ? AND cleared_hash = ?",
+		"UPDATE check_runs SET content_hash = ? WHERE eng = ? AND fid = ? AND content_hash = ?",
+	} {
+		if _, err := tx.Exec(q, new, eng, fid, old); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// RenameChatSection moves the comments of a finding's section to its new
+// name.
+func (tx *Tx) RenameChatSection(eng, fid, old, new string) error {
+	tx.touch(eng)
+	_, err := tx.Exec("UPDATE chat SET section = ? WHERE eng = ? AND fid = ? AND section = ?", new, eng, fid, old)
+	return err
+}
+
 // AddMessage appends a chat message (or workflow event) to a finding.
 func (tx *Tx) AddMessage(eng, fid string, m chat.Message) error {
 	tx.touch(eng)

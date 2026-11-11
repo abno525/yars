@@ -14,6 +14,7 @@ import (
 	"yars/internal/auth"
 	"yars/internal/config"
 	"yars/internal/cvss"
+	"yars/internal/finding"
 	"yars/internal/gitrepo"
 	"yars/internal/index"
 	"yars/internal/store"
@@ -347,6 +348,15 @@ func (s *Server) structurePost(w http.ResponseWriter, r *http.Request) {
 		s.structureRender(w, r, http.StatusBadRequest, c, disk, base, err.Error(), "")
 		return
 	}
+	// Q10: a name findings or templates still use cannot be removed (a
+	// rename is not a removal: the rename reaches them below)
+	if msg, err := s.removedInUse(disk, c); err != nil || msg != "" {
+		if err != nil {
+			msg = err.Error()
+		}
+		s.structureRender(w, r, http.StatusBadRequest, c, disk, base, msg, "")
+		return
+	}
 	u := auth.UserFrom(r.Context())
 	dir := s.Store.Repo().Dir
 	var loaded config.Config
@@ -394,8 +404,78 @@ func (s *Server) structurePost(w http.ResponseWriter, r *http.Request) {
 			log.Printf("rename report sections: %v", err)
 		}
 	}
+	// Q10: renamed sections, details rows and severities are renamed inside
+	// every finding and template
+	done := 0
+	for _, l := range renameLists(disk, loaded) {
+		changed, err := s.Store.RenameNames(l.list, l.renames, author(u))
+		done += len(changed)
+		if err != nil {
+			now, nowBase := s.diskStructure()
+			s.structureRender(w, r, http.StatusInternalServerError, now, now, nowBase,
+				"Renamed in "+plural(done, "finding")+"; then: "+err.Error(), "")
+			return
+		}
+	}
 	if len(head) > 7 {
 		head = head[:7]
 	}
 	http.Redirect(w, r, "/admin/structure?saved="+head, http.StatusSeeOther)
+}
+
+// nameRenames is one list's renames (old → new) for Store.RenameNames.
+type nameRenames struct {
+	list    string // "section", "details row", "severity"
+	renames map[string]string
+}
+
+// renameLists pairs the renamed names of the finding sections, details rows
+// and severities between two structures (renamesOf).
+func renameLists(was, now config.Config) []nameRenames {
+	var out []nameRenames
+	for _, l := range []nameRenames{
+		{"section", renamesOf(was.Sections, now.Sections)},
+		{"details row", renamesOf(was.DetailsRows, now.DetailsRows)},
+		{"severity", renamesOf(was.Severities, now.Severities)},
+	} {
+		if len(l.renames) > 0 {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+// removedInUse is the refusal for a structure that removes a name findings
+// or templates still use (NameUse.String of the first, as a push gives it),
+// "" when none does. Renamed names do not count: they are renamed in place.
+func (s *Server) removedInUse(was, now config.Config) (string, error) {
+	chk := now
+	chk.Sections = slices.Clone(now.Sections)
+	chk.DetailsRows = slices.Clone(now.DetailsRows)
+	chk.Severities = slices.Clone(now.Severities)
+	for _, l := range renameLists(was, now) {
+		for old := range l.renames {
+			switch l.list {
+			case "section":
+				chk.Sections = append(chk.Sections, old)
+			case "details row":
+				chk.DetailsRows = append(chk.DetailsRows, old)
+			case "severity":
+				chk.Severities = append(chk.Severities, old)
+			}
+		}
+	}
+	tpls, err := s.Store.Templates()
+	if err != nil {
+		return "", err
+	}
+	extra := map[string]*finding.Finding{}
+	for _, t := range tpls {
+		extra["template "+t.Slug+".md"] = t.F
+	}
+	uses, err := s.Store.DroppedInUse(was, chk, extra)
+	if err != nil || len(uses) == 0 {
+		return "", err
+	}
+	return uses[0].String(), nil
 }

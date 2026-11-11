@@ -636,9 +636,6 @@ func (c *Checker) file(u config.User, old, new string, ch gitrepo.Change) []stri
 	return []string{c.outside()}
 }
 
-// maxNameUses is how many findings a refusal names per dropped name.
-const maxNameUses = 10
-
 // cfgAt is the server's config with the structure (sections, details
 // rows, severities, report sections, CVSS) as rev's config.yaml has it;
 // the server's own when rev has none or it does not load (that file's
@@ -683,29 +680,9 @@ func (c *Checker) droppedInUse(old, new string, now config.Config) []string {
 	}
 	var ps []string
 	for _, u := range uses {
-		list := u.Findings
-		more := ""
-		if len(list) > maxNameUses {
-			list, more = list[:maxNameUses], fmt.Sprintf(" (+%d more)", len(u.Findings)-maxNameUses)
-		}
-		ps = append(ps, fmt.Sprintf("%s %q is still used by: %s%s. Change those %s first, then remove the name.",
-			u.List, u.Name, strings.Join(list, ", "), more, usersOf(u.Findings)))
+		ps = append(ps, u.String())
 	}
 	return ps
-}
-
-// usersOf names what a name's users are to change: findings, templates
-// ("template x.md") or both.
-func usersOf(list []string) string {
-	tpl := slices.ContainsFunc(list, func(x string) bool { return strings.HasPrefix(x, "template ") })
-	fnd := slices.ContainsFunc(list, func(x string) bool { return !strings.HasPrefix(x, "template ") })
-	switch {
-	case tpl && fnd:
-		return "findings and templates"
-	case tpl:
-		return "templates"
-	}
-	return "findings"
 }
 
 // ruleSet loads the main repo's rule files as rev has them (none for "").

@@ -33,5 +33,8 @@ M22 PR      opened   #16
 M23 task 1  done     61c7947, review fix 29d76e3
 M23 task 2  done     2f1d108 (browser check passed: caret and focus kept, q= in the URL, Back restores)
 M23 task 3  done     4861cb3 (browser check passed: two tile panels and two bars only)
-M23 task 4  done
+M23 task 4  done     a1f5f09, review fix 41086fd
+M23 task 2  review   fix cafc51c
+M23 task 3  review   fix 4643d30
+M23 task 5  done
 ```

@@ -66,4 +66,12 @@ func TestDroppedInUse(t *testing.T) {
 	if uses, _ := s.DroppedInUse(cfg, re, nil); len(uses) != 0 {
 		t.Errorf("reorder: %+v", uses)
 	}
+	// the refusal the website and a push give: ten names, then a count
+	want := `section "Impact" is still used by: acme/F-001, acme/F-002, acme/F-003, acme/F-004, acme/F-005, acme/F-006, acme/F-007, acme/F-008, acme/F-009, acme/F-010 (+2 more). Change those findings first, then remove the name.`
+	if got := uses[0].String(); got != want {
+		t.Errorf("String:\n%s\nwant\n%s", got, want)
+	}
+	if got := (NameUse{List: "severity", Name: "x", Findings: []string{"template a.md", "acme/F-001"}}).String(); got != `severity "x" is still used by: template a.md, acme/F-001. Change those findings and templates first, then remove the name.` {
+		t.Errorf("String with a template: %s", got)
+	}
 }

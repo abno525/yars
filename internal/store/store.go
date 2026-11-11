@@ -1248,13 +1248,19 @@ func (s *Store) mutateThen(engID, dir string, a gitrepo.Author, fn func(f *findi
 // mutateLocked does mutateThen's work under the lock and returns the
 // finding.updated event once a commit was made.
 func (s *Store) mutateLocked(engID, dir string, a gitrepo.Author, fn func(f *finding.Finding) (string, error), then func(ref FindingRef, oldHash, newHash string) error) (Event, error) {
+	return s.mutateLockedIn(engID, dir, a, fn, then, false)
+}
+
+// mutateLockedIn is mutateLocked; with archived set it writes into an
+// archived engagement too (a structure rename keeps every finding readable).
+func (s *Store) mutateLockedIn(engID, dir string, a gitrepo.Author, fn func(f *finding.Finding) (string, error), then func(ref FindingRef, oldHash, newHash string) error, archived bool) (Event, error) {
 	if !ValidID(engID) {
 		return Event{}, ErrNotFound
 	}
 	l := s.engLock(engID)
 	l.Lock()
 	defer l.Unlock()
-	if err := s.writable(engID); err != nil { // under the lock, as Archive
+	if err := s.writable(engID); err != nil && !(archived && errors.Is(err, ErrArchived)) { // under the lock, as Archive
 		return Event{}, err
 	}
 	head0, _ := s.freshHead(engID)
