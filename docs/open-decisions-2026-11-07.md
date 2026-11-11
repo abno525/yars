@@ -1034,7 +1034,7 @@ One row per decision. "Built" names the test that pins it; "Not built → M<n>" 
 | D8 | Strictness of the AI connection | Replaced by R2 | |
 | D9 | A push refused for what the website refuses | Built | `cmd/yars` `TestPushRefusesWhatWebRefuses` |
 | D10 | Commit author matched by email | Built | `cmd/yars` `TestPushAuthorEmail` |
-| D11 | Rules on push; verification locked over git | Built | `cmd/yars` `TestPushRunsCheckRules`, `TestPushLockedByDatabaseState` |
+| D11 | Rules on push; verification locked over git | Built | `cmd/yars` `TestPushRunsCheckRules`; `policy` `TestPolicyEditDuringReview` |
 | D12 | Pushed settings apply at once | Built | `cmd/yars` `TestPushedConfigApplies`; `store` `TestSetConfigInOrder` |
 | D13 | yarstui stays outside the repo | Dropped (nothing to build) | |
 | D14 | AI edits of several Details rows | Built | `store` `TestDetailsRowsCheckedPerRow`; `mcp` `TestMCPRowEditsOneAfterAnother` |
@@ -1053,10 +1053,10 @@ One row per decision. "Built" names the test that pins it; "Not built → M<n>" 
 | D27 | Login lockout | Built | `db` and `web` `TestLoginLockout` |
 | D28 | Redaction mark and purge | Not built → M26 | |
 | K1 | Workflow shortcuts fire at once; undo | Shortcuts → M29; undo replaced by R4 | |
-| K2 | Panel selection model | Not built → M29 | |
+| K2 | Panel selection model | `e` on a section's Edit Built; the selection model Not built → M29 | `web` `TestEditShortcutOnEditButtons` |
 | K3 | E with nothing selected | Not built → M29 (as K2) | |
 | K4 | Ctrl+S during a conflict | Not built → M29 | |
-| K5 | Ctrl+S on every form | Not built → M29 | |
+| K5 | Ctrl+S on every form | Ctrl+S on section editors Built; every other form Not built → M29 | `web` `TestSaveShortcutOnSaveButtons` |
 | K6 | Shortcuts only in the `?` list | Not built → M29 | |
 | K7 | Ctrl+S and Ctrl+Z in Redact | Not built → M29 | |
 | K8 | Key names, no sequences | Not built → M29 | |
@@ -1078,7 +1078,7 @@ One row per decision. "Built" names the test that pins it; "Not built → M<n>" 
 | Q3 | `yars unlock`; a default data folder | Built | `cmd/yars` `TestUnlockCommand`, `TestUseCommand` |
 | Q4 | Retest results save on a choice only | Built | `web` `TestRetestRadiosActOnChoiceOnly` |
 | Q5 | AI rules off on push | Built | `cmd/yars` `TestPushRunsCheckRules` |
-| Q6 | Author edits in Verification on the website | Built | `web` `TestAuthorEditsInVerificationOnWebsite` |
+| Q6 | Author edits in Verification on the website; git stays locked | Built | `web` `TestAuthorEditsInVerificationOnWebsite`; `policy` `TestPolicyEditDuringReview` |
 | Q7 | A draft with a rule error is pushed | Built | `cmd/yars` `TestPushRunsCheckRules` |
 | Q8 | A pushed config dropping a used name is refused | Built | `policy` `TestPolicyConfigDropsUsedName` |
 | Q9 | Field / Value header not in documents | Built | `export` `TestReportKVHeaderOnlyInPreview` |

@@ -61,10 +61,6 @@ func TestCommentOnDetailsAndCVSS(t *testing.T) {
 	}
 }
 
-// Every viewer of a status sees the same fixed slots up to the viewer's last
-// button; an action before it the viewer may not take keeps its place as an
-// empty slot of the same width, and the ones after it are left out, so the
-// last button ends at the bar's right edge (board 3.5).
 // D22 (a): the workflow bar keeps two rows: the steps, then reviewers and
 // actions.
 func TestD22TwoRowBar(t *testing.T) {
@@ -76,6 +72,10 @@ func TestD22TwoRowBar(t *testing.T) {
 	}
 }
 
+// Every viewer of a status sees the same fixed slots up to the viewer's last
+// button; an action before it the viewer may not take keeps its place as an
+// empty slot of the same width, and the ones after it are left out, so the
+// last button ends at the bar's right edge (board 3.5).
 func TestWorkflowSlotsFixed(t *testing.T) {
 	e := setup(t)
 	e.toVerification(t)
