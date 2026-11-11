@@ -91,6 +91,16 @@ func TestReportTab(t *testing.T) {
 	}
 }
 
+// R1 item 3: the engagement's Settings tab has no theme choice (the top-bar
+// toggle and the account's Preferences set it).
+func TestR1NoThemeOnEngagementSettings(t *testing.T) {
+	e := setup(t)
+	b := e.do(t, "dora", "GET", "/e/acme/settings", nil, nil).Body.String()
+	if main := between(b, "<main>", "</main>"); !strings.Contains(main, "ACME Web") || strings.Contains(main, `name="theme"`) || strings.Contains(main, "Preferences") {
+		t.Fatalf("engagement settings show a theme choice:\n%s", main)
+	}
+}
+
 func TestSettingsTab(t *testing.T) {
 	e := setup(t)
 	b := e.do(t, "alice", "GET", "/e/acme/settings", nil, nil).Body.String()

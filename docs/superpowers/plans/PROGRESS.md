@@ -28,5 +28,7 @@ M22 task 4  done     83c4dad (manual: SIGINT with an open page stops in under a 
 M22 task 5  done     105e29b, review fix fafb8c8 (fsck limit)
 M22 task 4  review   6bf15fb (second signal)
 M22 task 6  done     f67ec57 (cache), d957c1b (hook env), 93959c3 (script group), d51c4aa (cookie refresh)
-M22 branch  reviewed notes in the commit after d51c4aa
+M22 branch  reviewed notes b558ccc
+M22 PR      opened   #16
+M23 task 1  done
 ```

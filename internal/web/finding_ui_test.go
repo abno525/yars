@@ -65,6 +65,17 @@ func TestCommentOnDetailsAndCVSS(t *testing.T) {
 // button; an action before it the viewer may not take keeps its place as an
 // empty slot of the same width, and the ones after it are left out, so the
 // last button ends at the bar's right edge (board 3.5).
+// D22 (a): the workflow bar keeps two rows: the steps, then reviewers and
+// actions.
+func TestD22TwoRowBar(t *testing.T) {
+	e := setup(t)
+	bar := between(e.do(t, "alice", "GET", fpath, nil, nil).Body.String(), `id="workflow"`, "</section>")
+	steps, row := strings.Index(bar, `<ol class="steps">`), strings.Index(bar, `<div class="wfrow">`)
+	if steps < 0 || row < steps || !strings.Contains(bar[row:], `class="wfrevs"`) {
+		t.Fatalf("workflow bar is not steps, then a row with reviewers:\n%s", bar)
+	}
+}
+
 func TestWorkflowSlotsFixed(t *testing.T) {
 	e := setup(t)
 	e.toVerification(t)

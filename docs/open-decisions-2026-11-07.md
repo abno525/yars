@@ -1016,3 +1016,75 @@ Today a Check counts as current while the finding's text is unchanged. If an adm
 - **Keyboard shortcuts:** the selection model from K2, plus K4–K9, R3, R5 and R6. Design on the canvas first.
 - **Revert to the previous state (R4).**
 - **Admin › System Restore:** the screen now; the backend as its own task if it is too large.
+
+---
+
+# Status (checked 2026-11-11)
+
+One row per decision. "Built" names the test that pins it; "Not built → M<n>" names the milestone of the roadmap to v1.0 (`docs/superpowers/plans/2026-11-11-yars-roadmap-to-v1.md`).
+
+| Id | Subject | Status | Pinned by |
+|---|---|---|---|
+| D2 | Checks panel as a closed strip | Not built → M24 | |
+| D3 | No error list under the workflow bar | Not built → M24 | |
+| D4 | Side column and title row tidied | Not built → M24 | |
+| D5 | Repeated numbers on engagement pages | Replaced by R1 | |
+| D6 | Dark "0" badges | Replaced by R9; colour tokens → M33, new dark colours after v1.0 | |
+| D7 | Missing AI-assistant features | Not built → M32 | |
+| D8 | Strictness of the AI connection | Replaced by R2 | |
+| D9 | A push refused for what the website refuses | Built | `cmd/yars` `TestPushRefusesWhatWebRefuses` |
+| D10 | Commit author matched by email | Built | `cmd/yars` `TestPushAuthorEmail` |
+| D11 | Rules on push; verification locked over git | Built | `cmd/yars` `TestPushRunsCheckRules`, `TestPushLockedByDatabaseState` |
+| D12 | Pushed settings apply at once | Built | `cmd/yars` `TestPushedConfigApplies`; `store` `TestSetConfigInOrder` |
+| D13 | yarstui stays outside the repo | Dropped (nothing to build) | |
+| D14 | AI edits of several Details rows | Built | `store` `TestDetailsRowsCheckedPerRow`; `mcp` `TestMCPRowEditsOneAfterAnother` |
+| D15 | Open pages update by themselves | Built | `web` `TestFindingPanelsRefreshLive` |
+| D16 | Field / Value header row | Built | `web` `TestLabelValueTablesHaveHeader` |
+| D17 | One empty-table style | Built | `web` `TestOneEmptyTableStyle` |
+| D18 | Dismiss one row only | Built | `store` `TestDismissOneRowOnly` |
+| D19 | No severity in the totals | Replaced by R10 | |
+| D20 | No CVSS vector shows "—" | Built | `web` `TestNoScoreIsADash` |
+| D21 | Status panel folded into the chat | Not built → M24 | |
+| D22 | Workflow bar keeps two rows | Built | `web` `TestD22TwoRowBar` |
+| D23 | Findings search; Withdrawn kept | Not built → M23 | |
+| D24 | Admin › System panels | Not built → M25 | |
+| D25 | Directors get clean findings only | Built | `store` `TestOpenWarningBlocksSignOffAndApprove`; `web` `TestReadyToApproveSkipsOpenChecks` |
+| D26 | Set a new password after a temporary one | Built | `web` `TestTemporaryPasswordMustBeChanged` |
+| D27 | Login lockout | Built | `db` and `web` `TestLoginLockout` |
+| D28 | Redaction mark and purge | Not built → M26 | |
+| K1 | Workflow shortcuts fire at once; undo | Shortcuts → M29; undo replaced by R4 | |
+| K2 | Panel selection model | Not built → M29 | |
+| K3 | E with nothing selected | Not built → M29 (as K2) | |
+| K4 | Ctrl+S during a conflict | Not built → M29 | |
+| K5 | Ctrl+S on every form | Not built → M29 | |
+| K6 | Shortcuts only in the `?` list | Not built → M29 | |
+| K7 | Ctrl+S and Ctrl+Z in Redact | Not built → M29 | |
+| K8 | Key names, no sequences | Not built → M29 | |
+| K9 | Shortcuts on/off | Not built → M29 | |
+| K10 | Selects act on a choice only | Built | `web` `TestSelectsActOnChoiceOnly` |
+| K11 | Range select in the inbox | Replaced by R3 | |
+| R1 | Engagement pages: 1 overview legends and tables; 2 clone box; 3 theme panel | 1 Not built → M23; 2 Built (kept); 3 Built (none) | 2 `web` `TestCloneHint`; 3 `web` `TestR1NoThemeOnEngagementSettings` |
+| R2 | Strictness of the AI connection | Not built → M32 | |
+| R3 | Shift+click range select | Not built → M29 | |
+| R4 | Revert to the previous state | Not built → M27 | |
+| R5 | Enter on a panel with several buttons | Not built → M29 | |
+| R6 | Shift+H for History; single keys | Not built → M29 | |
+| R7 | AI fixes check comments | Not built → M31 | |
+| R8 | Pre-commit hook that warns | Not built → M30 | |
+| R9 | Dark toggle kept | Built | `web` `TestShellHeader` |
+| R10 | Unscored drafts in totals | Not built → M23 | |
+| Q1 | Require Check, with an admin toggle | Built | `store` `TestRequireCheckGate`, `TestRequireCheckOff` |
+| Q2 | A reset keeps the user's tokens | Built | `auth` `TestMustChangeRefusesTokensAndCheck` |
+| Q3 | `yars unlock`; a default data folder | Built | `cmd/yars` `TestUnlockCommand`, `TestUseCommand` |
+| Q4 | Retest results save on a choice only | Built | `web` `TestRetestRadiosActOnChoiceOnly` |
+| Q5 | AI rules off on push | Built | `cmd/yars` `TestPushRunsCheckRules` |
+| Q6 | Author edits in Verification on the website | Built | `web` `TestAuthorEditsInVerificationOnWebsite` |
+| Q7 | A draft with a rule error is pushed | Built | `cmd/yars` `TestPushRunsCheckRules` |
+| Q8 | A pushed config dropping a used name is refused | Built | `policy` `TestPolicyConfigDropsUsedName` |
+| Q9 | Field / Value header not in documents | Built | `export` `TestReportKVHeaderOnlyInPreview` |
+| Q10 | Structure renames inside findings | Not built → M23 | |
+| Q11 | A failed AI check blocks while AI is set up | Not built → M23 | |
+| Q12 | Board bulk Approve only where it works | Not built → M23 | |
+| Q13 | A rule change makes the last check out of date | Not built → M23 | |
+
+Rows with no test: none.
