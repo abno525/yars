@@ -33,8 +33,15 @@ var Timeout = 2 * time.Minute
 // started (a hook) may hold the pipes open after git is killed.
 const waitDelay = time.Second
 
+// FsckTimeout bounds Fsck, which reads every object of the repository.
+var FsckTimeout = time.Hour
+
 func (r *Repo) run(env []string, args ...string) (string, error) {
-	timeout := Timeout
+	return r.runWithin(Timeout, env, args...)
+}
+
+// runWithin is run with its own time limit.
+func (r *Repo) runWithin(timeout time.Duration, env []string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", r.Dir, "-c", "commit.gpgsign=false", "-c", "advice.addEmbeddedRepo=false"}, args...)...)
@@ -134,9 +141,10 @@ func (r *Repo) Gitlink(rev, p string) (string, error) {
 	return "", nil
 }
 
-// Fsck checks the repository's objects and refs (git fsck --no-dangling).
+// Fsck checks the repository's objects and refs (git fsck --no-dangling),
+// within FsckTimeout.
 func (r *Repo) Fsck() error {
-	_, err := r.run(nil, "fsck", "--no-dangling")
+	_, err := r.runWithin(FsckTimeout, nil, "fsck", "--no-dangling")
 	return err
 }
 

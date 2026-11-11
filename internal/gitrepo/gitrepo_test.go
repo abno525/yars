@@ -153,6 +153,22 @@ func TestRunTimesOut(t *testing.T) {
 	}
 }
 
+// Fsck reads every object, which takes long on a big repository: it is
+// bounded by FsckTimeout, not by Timeout.
+func TestFsckOutlivesTimeout(t *testing.T) {
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "git"), []byte("#!/bin/sh\nsleep 0.6\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	old := Timeout
+	Timeout = 200 * time.Millisecond
+	t.Cleanup(func() { Timeout = old })
+	if err := (&Repo{Dir: t.TempDir()}).Fsck(); err != nil {
+		t.Fatalf("fsck cut by the command timeout: %v", err)
+	}
+}
+
 // Fsck passes a sound repository and fails one that lost an object.
 func TestFsck(t *testing.T) {
 	dir := t.TempDir()
