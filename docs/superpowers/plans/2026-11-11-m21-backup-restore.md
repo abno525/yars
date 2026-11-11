@@ -68,16 +68,16 @@ Rules `Write` follows:
 4. `Skip` is true for `.yars/yars.db`, any path starting `.yars/yars.db-` or `.yars/yars.db.before-`, and `.yars/secret.key` unless `withKey`.
 5. Entries that are not regular files (symlinks, devices) are left out. File modes are kept (`zip.FileInfoHeader`), so hooks and rule scripts stay executable.
 
-- [ ] **Step 1: write the failing tests** in `internal/backup/backup_test.go`. Build the data folder with `gitrepo.Init`, `db.Open`, `store.New` and `CreateEngagement` + `CreateFinding`, as `internal/web/server_test.go` `newEnv` does.
+- [x] **Step 1: write the failing tests** in `internal/backup/backup_test.go`. Build the data folder with `gitrepo.Init`, `db.Open`, `store.New` and `CreateEngagement` + `CreateFinding`, as `internal/web/server_test.go` `newEnv` does.
   - `TestWriteHasSnapshotNotLiveDB`: the ZIP has `.yars/yars.db`; it has no entry ending `-wal` or `-shm`.
   - `TestWriteKeyOnlyWhenAsked`: with `WithKey: false` there is no `.yars/secret.key`; with `true` there is.
   - `TestWriteSkipsSymlinksAndSnapshots`: a symlink in the data folder and a file `.yars/yars.db.before-v18` are not in the ZIP.
   - `TestWriteKeepsExecBit`: a file with mode `0755` under `.yars/rules/` has `0o111` bits set in its ZIP header.
   - `TestWriteHoldsLocks`: a fake `Locker` that appends to a slice records `main`, then one entry per engagement, each released (the unlock func ran) before the next is taken.
-- [ ] **Step 2:** run `go test ./internal/backup`. Expected: FAIL, package does not compile.
-- [ ] **Step 3:** implement `store.LockMain` and `LockEngagement` (wrappers over `mainMu` and `engLock`), then `backup.Write` and `Skip`. Move the walking and ZIP code out of `web.Server.backup` (`internal/web/admin_system.go:229`); `backupSkip` there is deleted.
-- [ ] **Step 4:** run `go test ./internal/backup ./internal/store`. Expected: PASS.
-- [ ] **Step 5:** commit: `feat(backup): one ZIP writer for the website and the command line`.
+- [x] **Step 2:** run `go test ./internal/backup`. Expected: FAIL, package does not compile.
+- [x] **Step 3:** implement `store.LockMain` and `LockEngagement` (wrappers over `mainMu` and `engLock`), then `backup.Write` and `Skip`. Move the walking and ZIP code out of `web.Server.backup` (`internal/web/admin_system.go:229`); `backupSkip` there is deleted.
+- [x] **Step 4:** run `go test ./internal/backup ./internal/store`. Expected: PASS.
+- [x] **Step 5:** commit: `feat(backup): one ZIP writer for the website and the command line`.
 
 ### Task 2: the website uses it
 
