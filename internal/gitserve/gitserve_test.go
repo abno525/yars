@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"yars/internal/auth"
 	"yars/internal/config"
@@ -93,6 +94,29 @@ func TestCacheFollowsAccountChanges(t *testing.T) {
 	d.DeleteUser("alice")
 	if c := get("new"); c != 401 {
 		t.Fatalf("deleted account still works from the cache: %d", c)
+	}
+}
+
+// Expired logins leave the credential cache on the next miss: it does not
+// grow with every password ever used.
+func TestCredCachePurged(t *testing.T) {
+	d, err := db.Open(filepath.Join(t.TempDir(), "yars.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { d.Close() })
+	d.AddUser(config.User{Username: "alice", Role: "pentester", PasswordHash: testHash(t, "pw")})
+	s := &Server{Auth: auth.New(d)}
+	s.cache = map[string]cached{
+		"old":   {config.User{Username: "x"}, time.Now().Add(-time.Minute)},
+		"fresh": {config.User{Username: "y"}, time.Now().Add(time.Minute)},
+	}
+	s.check("alice", "wrong")
+	if _, ok := s.cache["old"]; ok {
+		t.Fatal("an expired login is still cached")
+	}
+	if _, ok := s.cache["fresh"]; !ok {
+		t.Fatal("a valid login was purged")
 	}
 }
 

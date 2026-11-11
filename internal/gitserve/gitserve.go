@@ -189,6 +189,15 @@ func (s *Server) check(user, pw string) (config.User, error) {
 		delete(s.cache, key)
 		s.mu.Unlock()
 	}
+	// a miss: expired logins leave the cache
+	now := time.Now()
+	s.mu.Lock()
+	for k, c := range s.cache {
+		if !now.Before(c.exp) {
+			delete(s.cache, k)
+		}
+	}
+	s.mu.Unlock()
 	u, err := s.Auth.CheckErr(user, pw)
 	if err == nil {
 		s.mu.Lock()
