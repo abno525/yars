@@ -1137,6 +1137,8 @@ code.block { display: block; padding: 8px 10px; background: var(--code-bg); font
 /* System: one font scale (18 titles, 15 values, 13 detail, 12 labels); actions in the panel head */
 .panel.sys .panelhead h2 { gap: 16px; }
 .panel.sys .panelhead form { margin: 0; display: flex; }
+/* D24: the Restore panel's file input keeps its place beside the button */
+.panel.sys .restorefile { width: 280px; flex: none; font-size: 13px; }
 .panel.sys .checked { width: 112px; text-align: right; white-space: nowrap; font-size: 13px; color: var(--muted); }
 .panel.sys .checked .mono { font-size: 13px; color: var(--text); }
 .pbody { padding: 24px; display: flex; flex-direction: column; gap: 24px; }

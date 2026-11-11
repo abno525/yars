@@ -156,10 +156,10 @@ Rules:
 4. On failure: the panel's state slot shows the error (`backup from a newer YARS …`, `… not a plain file inside the data folder`, `not a ZIP file`); nothing is left on disk.
 5. Panel **Restore**: a file input and the button `Restore` (`w128`) in the panel head; below, the stats of the last restore (`—` when none).
 
-- [ ] **Step 1: write the failing tests.**
+- [x] **Step 1: write the failing tests.**
   - `TestRestoreUploadMakesSiblingFolder`: take a backup with `backup.Write`, upload it; a folder `<e.dir>.restored-…` exists and `gitrepo.Open` works on it; the System page shows `yars serve --data` with that path; `e.dir` is unchanged (same HEAD).
   - `TestRestoreUploadRefusesNewerSchema`: no sibling folder exists afterwards; the page shows `newer YARS`.
   - `TestRestoreUploadRefusesNonZip`: uploading text answers with the page and the error; no folder.
   - `TestRestoreUploadAdminOnly`: `alice` gets 403.
-- [ ] **Step 2–4:** fail, implement, pass. **Step 5:** commit: `feat(admin): restore an uploaded backup into a new folder (D24)`.
+- [x] **Step 2–4:** fail, implement, pass. **Step 5:** commit: `feat(admin): restore an uploaded backup into a new folder (D24)`.
 - [ ] **Step 6:** browser check against board 6.8. Push the branch and open PR #19 (title `Admin › System: integrity, retention, AI usage, restore`).

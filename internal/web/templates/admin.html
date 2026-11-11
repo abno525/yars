@@ -325,6 +325,28 @@
   </div>
 </section>
 {{end}}
+<form class="panel sys" id="restore" method="post" action="/admin/system/restore" enctype="multipart/form-data">
+  <div class="panelhead">
+    <h2>Restore</h2>
+    <div class="actions"><span class="pstate error" title="{{.RestoreError}}">{{.RestoreError}}</span><input class="restorefile" type="file" name="backup" accept=".zip,application/zip" required aria-label="Backup"><button class="btn primary sm w128">Restore</button></div>
+  </div>
+  <div class="pbody flush">
+    {{with .Restored}}
+    <div class="stats">
+      <div class="st"><span class="sl">Schema</span><span class="sv">v{{.Schema}}</span></div>
+      <div class="st"><span class="sl">Engagements</span><span class="sv">{{.Engagements}}</span></div>
+      <div class="st"><span class="sl">Findings</span><span class="sv">{{.Find}}</span></div>
+      <div class="st"><span class="sl">Keys</span><span class="sv">{{if .HasKey}}with key{{else}}without key{{end}}</span></div>
+    </div>
+    <div class="copyrow flush"><code id="restore-cmd">yars serve --data {{.Target}}</code><button type="button" class="btn save sm w96" data-copy="restore-cmd">Copy</button></div>
+    {{end}}
+    <div class="stats">
+      <div class="st"><span class="sl">Last restore</span><span class="sv" title="{{.LastRestore}}">{{.LastRestore}}</span></div>
+      <div class="st"><span class="sl">By</span><span class="sv">{{.RestoreBy}}</span></div>
+      <div class="st wide"><span class="sl">Folder</span><span class="sv" title="{{.RestoreDir}}">{{.RestoreDir}}</span></div>
+    </div>
+  </div>
+</form>
 <section class="panel sys">
   <div class="panelhead">
     <h2>Operations</h2>

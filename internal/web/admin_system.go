@@ -37,6 +37,11 @@ type systemAdmin struct {
 	Retention                 db.Retention
 	LastPrune, RetentionError string
 	AIUsage                   aiUsageView // D24
+	// Restore (D24): a refused upload's reason, a restore just made (shown
+	// once) and the last one ("—" when none)
+	RestoreError                       string
+	Restored                           *restoreResult
+	LastRestore, RestoreBy, RestoreDir string
 }
 
 // healthAdmin is the System page's Health panel: one row per check.
@@ -72,6 +77,7 @@ func (s *Server) routesAdminSystem(mux *http.ServeMux) {
 		http.Redirect(w, r, "/admin/system", http.StatusSeeOther)
 	}))
 	mux.HandleFunc("POST /admin/system/retention", s.adminOnly(s.retentionSave))
+	mux.HandleFunc("POST /admin/system/restore", s.adminOnly(s.restoreUpload))
 	mux.HandleFunc("POST /admin/system/sync", s.adminOnly(s.systemOp("sync")))
 	mux.HandleFunc("POST /admin/system/reindex", s.adminOnly(s.systemOp("reindex")))
 	mux.HandleFunc("POST /admin/system/migrate", s.adminOnly(s.systemOp("migrate")))
@@ -172,6 +178,7 @@ func (s *Server) systemPageStatus(w http.ResponseWriter, r *http.Request, status
 		if v.AIUsage, err = s.aiUsageFor(d); err != nil {
 			return err
 		}
+		s.restoreView(r, &v)
 		if js := s.flash.take(r, "sysop"); js != "" {
 			var op sysOp
 			if json.Unmarshal([]byte(js), &op) == nil {
