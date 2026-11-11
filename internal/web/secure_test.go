@@ -51,15 +51,22 @@ func TestAttachmentKeepsOwnPolicy(t *testing.T) {
 // The git and MCP endpoints sit behind the same headers.
 func TestGitAndMCPCarryNosniff(t *testing.T) {
 	e := setup(t)
+	// not http.Error: it sets nosniff itself, and the test would pass
+	// without the middleware
 	deny := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w, "no token", http.StatusUnauthorized)
+		w.WriteHeader(http.StatusUnauthorized)
 	})
 	e.srv.MCP, e.srv.Git = deny, deny
 	e.h = e.srv.Handler()
 	for _, c := range []struct{ method, path string }{{"POST", "/mcp"}, {"GET", "/git/acme.git/info/refs"}} {
 		rec := e.do(t, "", c.method, c.path, nil, nil)
-		if rec.Code != http.StatusUnauthorized || rec.Header().Get("X-Content-Type-Options") != "nosniff" {
-			t.Errorf("%s %s: %d %v", c.method, c.path, rec.Code, rec.Header())
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("%s %s: %d", c.method, c.path, rec.Code)
+		}
+		for h, want := range wantHeaders {
+			if got := rec.Header().Get(h); got != want {
+				t.Errorf("%s %s: %s = %q, want %q", c.method, c.path, h, got, want)
+			}
 		}
 	}
 }
