@@ -24,6 +24,7 @@ type CheckRun struct {
 	Started, Finished     string // RFC 3339; Finished "" while running
 	State, By, Error      string
 	Total, Done           int
+	Rules                 string // the rules' version it checked with ("" = before v19, or unknown)
 }
 
 // CheckResult is one violation a run found. Thread is the chat thread that
@@ -140,21 +141,22 @@ func (d *DB) FailedAIRuns(ids []int64) (map[int64]bool, error) {
 // DismissKey identifies a violation of a finding across runs and edits.
 func DismissKey(rule, quoteHash string) string { return rule + "\x00" + quoteHash }
 
-const runCols = "id, eng, fid, content_hash, started, finished, state, by_user, total, done_count, error"
+const runCols = "id, eng, fid, content_hash, started, finished, state, by_user, total, done_count, error, rules_version"
 
 func scanRun(sc interface{ Scan(...any) error }) (CheckRun, error) {
 	var r CheckRun
-	err := sc.Scan(&r.ID, &r.Eng, &r.Fid, &r.ContentHash, &r.Started, &r.Finished, &r.State, &r.By, &r.Total, &r.Done, &r.Error)
+	err := sc.Scan(&r.ID, &r.Eng, &r.Fid, &r.ContentHash, &r.Started, &r.Finished, &r.State, &r.By, &r.Total, &r.Done, &r.Error, &r.Rules)
 	return r, err
 }
 
-// StartRun records a new running check of eng/fid by user. It moves no
-// change counter: progress is announced through the event hub. An archived
-// engagement gets none (ErrArchived), checked in the same statement.
-func (d *DB) StartRun(eng, fid, contentHash, user string) (int64, error) {
-	res, err := d.Exec(`INSERT INTO check_runs(eng, fid, content_hash, started, state, by_user)
-		SELECT ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM engagement_meta WHERE eng = ? AND archived_at != '')`,
-		eng, fid, contentHash, d.stamp(), RunRunning, user, eng)
+// StartRun records a new running check of eng/fid by user with the rules at
+// version rules. It moves no change counter: progress is announced through
+// the event hub. An archived engagement gets none (ErrArchived), checked in
+// the same statement.
+func (d *DB) StartRun(eng, fid, contentHash, user, rules string) (int64, error) {
+	res, err := d.Exec(`INSERT INTO check_runs(eng, fid, content_hash, started, state, by_user, rules_version)
+		SELECT ?, ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM engagement_meta WHERE eng = ? AND archived_at != '')`,
+		eng, fid, contentHash, d.stamp(), RunRunning, user, rules, eng)
 	if err != nil {
 		return 0, err
 	}
@@ -231,6 +233,7 @@ type RunCount struct {
 	ID                 int64
 	State, ContentHash string
 	Errors, Warnings   int
+	Rules              string // the rules' version it checked with
 }
 
 // LatestRuns reads the newest run of each finding (eng, fid) in one query
@@ -250,7 +253,7 @@ func (d *DB) LatestRuns(keys [][2]string) (map[string]RunCount, error) {
 			vals[i] = "(?, ?)"
 			args = append(args, k[0], k[1])
 		}
-		rows, err := d.Query(`SELECT c.eng, c.fid, c.id, c.state, c.content_hash, `+count+`, `+count+`
+		rows, err := d.Query(`SELECT c.eng, c.fid, c.id, c.state, c.content_hash, `+count+`, `+count+`, c.rules_version
 			FROM check_runs c WHERE c.id IN (SELECT MAX(id) FROM check_runs WHERE (eng, fid) IN (VALUES `+strings.Join(vals, ", ")+`) GROUP BY eng, fid)`, args...)
 		if err != nil {
 			return nil, err
@@ -258,7 +261,7 @@ func (d *DB) LatestRuns(keys [][2]string) (map[string]RunCount, error) {
 		for rows.Next() {
 			var eng, fid string
 			var r RunCount
-			if err := rows.Scan(&eng, &fid, &r.ID, &r.State, &r.ContentHash, &r.Errors, &r.Warnings); err != nil {
+			if err := rows.Scan(&eng, &fid, &r.ID, &r.State, &r.ContentHash, &r.Errors, &r.Warnings, &r.Rules); err != nil {
 				rows.Close()
 				return nil, err
 			}

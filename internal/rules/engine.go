@@ -2,7 +2,10 @@ package rules
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -27,6 +30,7 @@ type Engine struct {
 	mu    sync.Mutex
 	set   *Set
 	stamp string
+	ver   string // Version of set
 	cfgMu sync.RWMutex
 }
 
@@ -86,28 +90,76 @@ func (e *Engine) checkNames(s *Set) {
 	}
 }
 
+// signature is every file under the rules folder (sub-folders too: a script
+// may live in one) with its size and time: it changes when any of them does.
 func (e *Engine) signature() string {
-	ents, _ := os.ReadDir(e.Dir)
 	var parts []string
-	for _, en := range ents {
-		if info, err := en.Info(); err == nil {
-			parts = append(parts, fmt.Sprintf("%s:%d:%d", en.Name(), info.Size(), info.ModTime().UnixNano()))
+	filepath.WalkDir(e.Dir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
 		}
-	}
+		if info, err := d.Info(); err == nil {
+			rel, _ := filepath.Rel(e.Dir, p)
+			parts = append(parts, fmt.Sprintf("%s:%d:%d", filepath.ToSlash(rel), info.Size(), info.ModTime().UnixNano()))
+		}
+		return nil
+	})
 	sort.Strings(parts)
 	return strings.Join(parts, "|")
+}
+
+// version is a SHA-256 over every file under the rules folder (path and
+// contents, in path order), 16 hex characters; "" when there is none.
+func (e *Engine) version() string {
+	var paths []string
+	filepath.WalkDir(e.Dir, func(p string, d fs.DirEntry, err error) error {
+		if err == nil && d.Type().IsRegular() {
+			paths = append(paths, p)
+		}
+		return nil
+	})
+	if len(paths) == 0 {
+		return ""
+	}
+	sort.Strings(paths)
+	h := sha256.New()
+	for _, p := range paths {
+		b, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+		rel, _ := filepath.Rel(e.Dir, p)
+		fmt.Fprintf(h, "%s\x00%d\x00", filepath.ToSlash(rel), len(b))
+		h.Write(b)
+	}
+	return hex.EncodeToString(h.Sum(nil))[:16]
 }
 
 // Rules returns the current rule set, reloading it if files changed.
 func (e *Engine) Rules() *Set {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	e.reload()
+	return e.set
+}
+
+// reload loads the rules again when the files changed (e.mu held).
+func (e *Engine) reload() {
 	if sig := e.signature(); e.set == nil || sig != e.stamp {
 		s := Load(e.Dir)
 		e.checkNames(s)
-		e.set, e.stamp = s, sig
+		e.set, e.stamp, e.ver = s, sig, e.version()
 	}
-	return e.set
+}
+
+// Version identifies the rules as loaded: a SHA-256 over every file under
+// the rules folder (names and contents, in path order), 16 hex characters
+// (Q13: a check run with other rules is out of date).
+func (e *Engine) Version() string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.reload()
+	return e.ver
 }
 
 // Lint checks a finding with the given rule kinds.

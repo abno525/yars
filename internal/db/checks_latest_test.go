@@ -7,11 +7,11 @@ import "testing"
 // rules themselves do not count).
 func TestLatestRuns(t *testing.T) {
 	d, _ := open(t)
-	old, _ := d.StartRun("e", "F-001", "h0", "alice")
+	old, _ := d.StartRun("e", "F-001", "h0", "alice", "")
 	d.TxFor("e", func(tx *Tx) error {
 		return tx.FinishRun(old, RunDone, "", []CheckResult{{Rule: "r", Level: "error", QuoteHash: "q0"}})
 	})
-	id, _ := d.StartRun("e", "F-001", "h1", "alice")
+	id, _ := d.StartRun("e", "F-001", "h1", "alice", "")
 	err := d.TxFor("e", func(tx *Tx) error {
 		if err := tx.FinishRun(id, RunDone, "", []CheckResult{
 			{Rule: "r1", Level: "error", QuoteHash: "a"},
@@ -27,7 +27,7 @@ func TestLatestRuns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	run2, _ := d.StartRun("x", "F-002", "h2", "alice") // still running
+	run2, _ := d.StartRun("x", "F-002", "h2", "alice", "") // still running
 	got, err := d.LatestRuns([][2]string{{"e", "F-001"}, {"x", "F-002"}, {"e", "F-009"}})
 	if err != nil {
 		t.Fatal(err)

@@ -41,7 +41,7 @@ type CheckStatus struct {
 	Run       db.CheckRun
 	HasRun    bool
 	Running   bool // in progress in this server
-	Stale     bool // the finding changed since the run started
+	Stale     bool // the finding or the rules changed since the run started
 	Results   []db.CheckResult
 	Steps     []db.CheckStep          // each rule of the run, in order
 	Dismissed map[string]db.Dismissal // by db.DismissKey
@@ -339,7 +339,7 @@ func (s *Store) startCheck(engID, dir, only string, u config.User) (db.CheckRun,
 	// marked before the run exists: a gate that sees the new run as the
 	// latest counts it as running, not as cut off
 	s.setRunning(key, pendingRun, false)
-	id, err = s.db.StartRun(engID, fid, hash, u.Username)
+	id, err = s.db.StartRun(engID, fid, hash, u.Username, s.rulesVersion())
 	if err != nil {
 		s.setRunning(key, 0, true)
 		s.checksMu.Unlock()
@@ -758,7 +758,8 @@ func (s *Store) CheckStatus(engID, dir string) (CheckStatus, error) {
 		return st, err
 	}
 	if st.HasRun {
-		st.Stale = st.Run.ContentHash != contentHash(raw)
+		// stale: the finding, or the rules (Q13), changed since the run
+		st.Stale = st.Run.ContentHash != contentHash(raw) || rulesChanged(st.Run.Rules, s.rulesVersion())
 		if st.Steps, err = s.db.RunSteps(st.Run.ID); err != nil {
 			return st, err
 		}

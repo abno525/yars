@@ -20,7 +20,7 @@ import (
 // Path is where the database lives inside a data directory (git-ignored).
 func Path(dataDir string) string { return filepath.Join(dataDir, ".yars", "yars.db") }
 
-const schemaVersion = 18
+const schemaVersion = 19
 
 // SchemaVersion is the database schema this build writes.
 const SchemaVersion = schemaVersion
@@ -348,11 +348,28 @@ var migrations = []string{
 	// result of the rule that failed
 	`UPDATE check_runs SET stored = 0 WHERE stored = 1 AND state != 'done'
 		AND NOT EXISTS (SELECT 1 FROM check_results r WHERE r.run_id = check_runs.id);`,
+	// v19: the version of the rules a run checked with (Q13: a rule change
+	// makes the run out of date); older runs have none (addRulesVersion, in
+	// Go: the column is added once, even when the step runs again)
+	`SELECT 1;`,
 }
 
 // goMigrations are the steps written in Go, by the index of their entry in
 // migrations; each runs after that entry's SQL, in its transaction.
-var goMigrations = map[int]func(*sql.Tx) error{13: perRowDismissals, 16: endCopiedLegacy}
+var goMigrations = map[int]func(*sql.Tx) error{13: perRowDismissals, 16: endCopiedLegacy, 18: addRulesVersion}
+
+// addRulesVersion adds check_runs.rules_version unless it is there.
+func addRulesVersion(tx *sql.Tx) error {
+	var n int
+	if err := tx.QueryRow("SELECT count(*) FROM pragma_table_info('check_runs') WHERE name = 'rules_version'").Scan(&n); err != nil {
+		return err
+	}
+	if n > 0 {
+		return nil
+	}
+	_, err := tx.Exec("ALTER TABLE check_runs ADD COLUMN rules_version TEXT NOT NULL DEFAULT ''")
+	return err
+}
 
 // teamBackfillKey marks the one-time team backfill as still to do.
 const teamBackfillKey = "migrate.team_backfill"

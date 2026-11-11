@@ -183,7 +183,7 @@ func TestCheckNoticeKeepsThreadsOpen(t *testing.T) {
 	fid := load(t, s, fd).F.Meta.ID
 	finish := func(vs []rules.Violation) {
 		t.Helper()
-		id, err := s.DB().StartRun(eng, fid, "x", "alice")
+		id, err := s.DB().StartRun(eng, fid, "x", "alice", "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -212,7 +212,7 @@ func finisher(t *testing.T, s *Store, fd string) func(vs ...rules.Violation) []c
 		if err != nil {
 			t.Fatal(err)
 		}
-		id, err := s.DB().StartRun(eng, fid, "x", "alice")
+		id, err := s.DB().StartRun(eng, fid, "x", "alice", "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -377,7 +377,7 @@ func checkThreadList(t *testing.T, s *Store, fd string) []*chat.Thread {
 func TestCheckInterruptedRunFails(t *testing.T) {
 	s, _, fd := ready(t)
 	ref := load(t, s, fd)
-	if _, err := s.DB().StartRun(eng, ref.F.Meta.ID, "x", "alice"); err != nil {
+	if _, err := s.DB().StartRun(eng, ref.F.Meta.ID, "x", "alice", ""); err != nil {
 		t.Fatal(err)
 	}
 	st, err := s.CheckStatus(eng, fd)

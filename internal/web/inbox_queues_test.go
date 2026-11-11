@@ -202,7 +202,7 @@ func TestInboxDraftChecks(t *testing.T) {
 	st := e.srv.Store
 	ref, _ := st.Finding("acme", fdir)
 	run := func(hash string, res ...db.CheckResult) {
-		id, err := st.DB().StartRun("acme", "F-001", hash, "alice")
+		id, err := st.DB().StartRun("acme", "F-001", hash, "alice", "")
 		if err != nil {
 			t.Fatal(err)
 		}

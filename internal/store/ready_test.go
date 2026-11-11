@@ -74,7 +74,7 @@ func TestSignOffUsesStoredRun(t *testing.T) {
 	s.Linter = slowLinter{&slow}
 	ref := load(t, s, fd)
 	run := func(hash string) {
-		id, err := s.DB().StartRun(eng, ref.F.Meta.ID, hash, "bob")
+		id, err := s.DB().StartRun(eng, ref.F.Meta.ID, hash, "bob", "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -117,14 +117,14 @@ func TestRunningCheckKeepsFinishedResults(t *testing.T) {
 	var slow int
 	s.Linter = slowLinter{&slow}
 	ref := load(t, s, fd)
-	id, err := s.DB().StartRun(eng, ref.F.Meta.ID, ref.Hash, "bob")
+	id, err := s.DB().StartRun(eng, ref.F.Meta.ID, ref.Hash, "bob", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	s.DB().TxFor(eng, func(tx *db.Tx) error {
 		return tx.FinishRun(id, db.RunDone, "", []db.CheckResult{{Rule: "ai-x", Level: "warning", Message: "AI says vague", Target: "section:Impact", Quote: "q", QuoteHash: "qh"}})
 	})
-	second, err := s.DB().StartRun(eng, ref.F.Meta.ID, ref.Hash, "bob")
+	second, err := s.DB().StartRun(eng, ref.F.Meta.ID, ref.Hash, "bob", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +143,7 @@ func TestRunningCheckKeepsFinishedResults(t *testing.T) {
 	}
 	// a run where the AI rule failed (provider down) says nothing about its
 	// earlier warning; another rule's result of that run counts
-	third, _ := s.DB().StartRun(eng, ref.F.Meta.ID, ref.Hash, "bob")
+	third, _ := s.DB().StartRun(eng, ref.F.Meta.ID, ref.Hash, "bob", "")
 	s.DB().AddSteps([]db.CheckStep{{RunID: third, Pos: 0, Rule: "ai-x", Kind: "ai", State: db.StepFailed}, {RunID: third, Pos: 1, Rule: "re", Kind: "pattern", State: db.StepHits}})
 	s.DB().TxFor(eng, func(tx *db.Tx) error {
 		return tx.FinishRun(third, db.RunFailed, "AI down", []db.CheckResult{

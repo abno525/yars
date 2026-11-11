@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -50,7 +52,7 @@ func TestRequireCheckGate(t *testing.T) {
 	refused(workflow.Clear, "bob", GateStale)
 	// a run in progress in this server
 	ref := load(t, s, fd)
-	id, err := s.DB().StartRun(eng, ref.F.Meta.ID, ref.Hash, "bob")
+	id, err := s.DB().StartRun(eng, ref.F.Meta.ID, ref.Hash, "bob", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,12 +75,57 @@ func TestRequireCheckGate(t *testing.T) {
 	// a run after the sign-off that stored its results but failed (a script
 	// rule could not run): the director's Approve waits
 	ref = load(t, s, fd)
-	id, _ = s.DB().StartRun(eng, ref.F.Meta.ID, ref.Hash, "bob")
+	id, _ = s.DB().StartRun(eng, ref.F.Meta.ID, ref.Hash, "bob", "")
 	s.DB().TxFor(eng, func(tx *db.Tx) error { return tx.FinishRun(id, db.RunFailed, "script crashed", nil) })
 	refused(workflow.Approve, "dora", GateFailed)
 	checkNow(t, s, fd)
 	if err := s.Transition(eng, fd, workflow.Approve, "", uDora); err != nil {
 		t.Fatalf("approve after a run on this content: %v", err)
+	}
+}
+
+// Q13: a check run before a rule file changed is out of date; a new run
+// makes it current again.
+func TestGateStaleAfterRuleChange(t *testing.T) {
+	s, dir, fd := ready(t)
+	withRules(t, s, dir, "- id: none\n  target: title\n  regex_forbid: 'zzz'\n")
+	checkNow(t, s, fd)
+	if g, _ := s.CheckGate(eng, fd); g != "" {
+		t.Fatalf("after the run: %q", g)
+	}
+	p := filepath.Join(dir, ".yars", "rules", "style.yaml")
+	if err := os.WriteFile(p, []byte("- id: none\n  target: title\n  regex_forbid: 'qqqq'\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	later := time.Now().Add(time.Minute)
+	os.Chtimes(p, later, later)
+	if g, err := s.CheckGate(eng, fd); err != nil || g != GateRules {
+		t.Fatalf("after a rule change: %q %v", g, err)
+	}
+	if st, err := s.CheckStatus(eng, fd); err != nil || !st.Stale {
+		t.Fatalf("status after a rule change: %+v %v", st, err)
+	}
+	checkNow(t, s, fd)
+	if g, _ := s.CheckGate(eng, fd); g != "" {
+		t.Fatalf("after a new run: %q", g)
+	}
+}
+
+// Q13: with the same rules the last run stays current.
+func TestGateSameRulesStillCurrent(t *testing.T) {
+	s, dir, fd := ready(t)
+	withRules(t, s, dir, "- id: none\n  target: title\n  regex_forbid: 'zzz'\n")
+	checkNow(t, s, fd)
+	s.Linter.(*rules.Engine).Rules() // a reload with nothing changed
+	if g, err := s.CheckGate(eng, fd); err != nil || g != "" {
+		t.Fatalf("same rules: %q %v", g, err)
+	}
+	// a run from before rule versions (v19) never counts as out of date
+	ref := load(t, s, fd)
+	id, _ := s.DB().StartRun(eng, ref.F.Meta.ID, ref.Hash, "bob", "")
+	s.DB().TxFor(eng, func(tx *db.Tx) error { return tx.FinishRun(id, db.RunDone, "", nil) })
+	if g, err := s.CheckGate(eng, fd); err != nil || g != "" {
+		t.Fatalf("a run without a rules version: %q %v", g, err)
 	}
 }
 
@@ -94,7 +141,7 @@ func (l aiLinter) AIConfigured() bool                                           
 func TestGateAIFailedBlocksOnlyWithProvider(t *testing.T) {
 	s, _, fd := ready(t)
 	ref := load(t, s, fd)
-	id, err := s.DB().StartRun(eng, ref.F.Meta.ID, ref.Hash, "bob")
+	id, err := s.DB().StartRun(eng, ref.F.Meta.ID, ref.Hash, "bob", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +178,7 @@ func TestRequireCheckApproveUsesStoredRun(t *testing.T) {
 	var slow int
 	s.Linter = slowLinter{&slow}
 	ref := load(t, s, fd)
-	id, _ := s.DB().StartRun(eng, ref.F.Meta.ID, ref.Hash, "bob")
+	id, _ := s.DB().StartRun(eng, ref.F.Meta.ID, ref.Hash, "bob", "")
 	s.DB().TxFor(eng, func(tx *db.Tx) error { return tx.FinishRun(id, db.RunDone, "", nil) })
 	if err := s.Transition(eng, fd, workflow.Clear, "", uBob); err != nil {
 		t.Fatal(err)
@@ -187,7 +234,7 @@ func TestCheckGateNotOnChecksMu(t *testing.T) {
 	s, dir, fd := ready(t)
 	withRules(t, s, dir, "- id: none\n  target: title\n  regex_forbid: 'zzz'\n")
 	ref := load(t, s, fd)
-	id, err := s.DB().StartRun(eng, ref.F.Meta.ID, ref.Hash, "bob")
+	id, err := s.DB().StartRun(eng, ref.F.Meta.ID, ref.Hash, "bob", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -229,7 +276,7 @@ func TestCheckGateRunFinishedMeanwhile(t *testing.T) {
 	ref := load(t, s, fd)
 	key := checkKey(eng, ref.F.Meta.ID)
 	start := func() {
-		id, err := s.DB().StartRun(eng, ref.F.Meta.ID, ref.Hash, "bob")
+		id, err := s.DB().StartRun(eng, ref.F.Meta.ID, ref.Hash, "bob", "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -262,7 +309,7 @@ func (l *raceLinter) Lint(_ context.Context, f *finding.Finding, _ rules.Kind) [
 	if !l.done {
 		l.done = true
 		ref, _, _ := l.s.read(eng, l.fd, nil)
-		if id, err := l.s.DB().StartRun(eng, f.Meta.ID, ref.Hash, "carol"); err == nil {
+		if id, err := l.s.DB().StartRun(eng, f.Meta.ID, ref.Hash, "carol", ""); err == nil {
 			l.s.setRunning(checkKey(eng, f.Meta.ID), id, false)
 		}
 	}

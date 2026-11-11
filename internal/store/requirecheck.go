@@ -19,6 +19,8 @@ const (
 	GateFailed  = "run check first: the last check failed"
 	// Q11: an AI rule could not run although a provider is set up
 	GateAIFailed = "run check first: an AI check failed; retry it"
+	// Q13: the rules changed after the run
+	GateRules = "run check first: the rules changed since the last check"
 	// a run left running by an earlier server: a restart cut it off
 	GateInterrupted = "run check first: the last check was interrupted"
 )
@@ -83,7 +85,22 @@ func (s *Store) checkGate(engID, fid, hash string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return gateOf(run.State, run.ContentHash, hash, running, aiFailed[run.ID]), nil
+	return gateOf(run.State, run.ContentHash, hash, running, aiFailed[run.ID], run.Rules, s.rulesVersion()), nil
+}
+
+// rulesVersion is the version of the rules in use ("" when the linter has
+// none to tell).
+func (s *Store) rulesVersion() string {
+	if l, ok := s.Linter.(interface{ Version() string }); ok {
+		return l.Version()
+	}
+	return ""
+}
+
+// rulesChanged reports whether a run with the rules at version runRules is
+// out of date against the rules at nowRules (both known and different).
+func rulesChanged(runRules, nowRules string) bool {
+	return runRules != "" && nowRules != "" && runRules != nowRules
 }
 
 // aiFailed reports which of the runs had an AI rule that could not run, while
@@ -100,8 +117,8 @@ func (s *Store) aiFailed(ids []int64) (map[int64]bool, error) {
 // gateOf decides from the latest run's state and content (running: in
 // progress in this server; a run left running by an earlier server was
 // cut off, so it failed; aiFailed: an AI rule of it could not run while AI is
-// set up).
-func gateOf(state, runHash, hash string, running, aiFailed bool) string {
+// set up; runRules and nowRules: the rules' versions then and now).
+func gateOf(state, runHash, hash string, running, aiFailed bool, runRules, nowRules string) string {
 	switch {
 	case state == db.RunRunning && running:
 		return GateRunning
@@ -109,6 +126,8 @@ func gateOf(state, runHash, hash string, running, aiFailed bool) string {
 		return GateInterrupted
 	case runHash != hash:
 		return GateStale
+	case rulesChanged(runRules, nowRules):
+		return GateRules
 	case aiFailed:
 		return GateAIFailed
 	case state != db.RunDone:
@@ -159,6 +178,7 @@ func (s *Store) CheckGates(keys []GateKey) (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	nowRules := s.rulesVersion()
 	for _, k := range keys {
 		name := k.Eng + "/" + k.Fid
 		r, ok := runs[name]
@@ -175,7 +195,7 @@ func (s *Store) CheckGates(keys []GateKey) (map[string]string, error) {
 			}
 			state, runHash = now.State, now.ContentHash
 		}
-		if g := gateOf(state, runHash, k.Hash, running, aiFailed[r.ID]); g != "" {
+		if g := gateOf(state, runHash, k.Hash, running, aiFailed[r.ID], r.Rules, nowRules); g != "" {
 			out[name] = g
 		}
 	}

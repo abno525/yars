@@ -60,7 +60,7 @@ func TestRequireCheckStateOnlyWhenItBlocks(t *testing.T) {
 		t.Fatal(err)
 	}
 	ref, _ := st.Finding("acme", fdir)
-	id, _ := st.DB().StartRun("acme", "F-001", ref.Hash, "bob")
+	id, _ := st.DB().StartRun("acme", "F-001", ref.Hash, "bob", "")
 	st.DB().TxFor("acme", func(tx *db.Tx) error { return tx.FinishRun(id, db.RunFailed, "script crashed", nil) })
 	if bar := wfBar(t, e.do(t, "bob", "GET", fpath, nil, nil).Body.String()); strings.Contains(bar, "Run Check first") {
 		t.Fatalf("signed-off reviewer told to run Check:\n%s", bar)
@@ -89,7 +89,7 @@ func TestRequireCheckReadyToApprove(t *testing.T) {
 	}
 	// a run after the sign-off that failed
 	ref, _ := st.Finding("acme", fdir)
-	id, _ := st.DB().StartRun("acme", "F-001", ref.Hash, "bob")
+	id, _ := st.DB().StartRun("acme", "F-001", ref.Hash, "bob", "")
 	st.DB().TxFor("acme", func(tx *db.Tx) error { return tx.FinishRun(id, db.RunFailed, "script crashed", nil) })
 	if q := approve(); strings.Contains(q, "SQL injection") {
 		t.Fatalf("listed after a failed run:\n%s", q)

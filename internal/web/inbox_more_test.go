@@ -178,7 +178,7 @@ func TestInboxBoardTotal(t *testing.T) {
 func TestInboxDraftStaleRunning(t *testing.T) {
 	e := setup(t)
 	ref, _ := e.srv.Store.Finding("acme", fdir)
-	if _, err := e.srv.Store.DB().StartRun("acme", "F-001", ref.Hash, "alice"); err != nil {
+	if _, err := e.srv.Store.DB().StartRun("acme", "F-001", ref.Hash, "alice", ""); err != nil {
 		t.Fatal(err)
 	}
 	q := queue(e.do(t, "alice", "GET", "/inbox", nil, nil).Body.String(), "drafts")

@@ -218,7 +218,7 @@ func TestChecksNoticeNotCounted(t *testing.T) {
 	}
 	d := e.srv.Store.DB()
 	skipped := "AI rules skipped: no AI provider configured"
-	id, _ := d.StartRun("acme", ref.F.Meta.ID, ref.Hash, "bob")
+	id, _ := d.StartRun("acme", ref.F.Meta.ID, ref.Hash, "bob", "")
 	d.AddSteps([]db.CheckStep{{RunID: id, Pos: 0, Rule: "letter-i", Kind: "pattern", State: db.StepHits, Hits: 1}, {RunID: id, Pos: 1, Rule: "ai-x", Kind: "ai", State: db.StepFailed, Message: skipped}})
 	d.TxFor("acme", func(tx *db.Tx) error {
 		return tx.FinishRun(id, db.RunDone, "", []db.CheckResult{

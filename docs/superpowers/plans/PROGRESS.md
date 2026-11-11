@@ -37,5 +37,6 @@ M23 task 4  done     a1f5f09, review fix 41086fd
 M23 task 2  review   fix cafc51c
 M23 task 3  review   fix 4643d30
 M23 task 5  done     6903760
-M23 task 6  done
+M23 task 6  done     b600394
+M23 task 7  done
 ```

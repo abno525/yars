@@ -10,7 +10,7 @@ import (
 // skipping it); the old row stays for places no run stored.
 func TestPerRowDismissalsMigration(t *testing.T) {
 	d := openTest(t)
-	id, err := d.StartRun("e", "F-001", "h", "bob")
+	id, err := d.StartRun("e", "F-001", "h", "bob", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,14 +64,14 @@ func TestPerRowDismissalsMigration(t *testing.T) {
 // not a finished run: it does not hide the finished run before it.
 func TestCutOffRunsNotStored(t *testing.T) {
 	d := openTest(t)
-	done, _ := d.StartRun("e", "F-001", "h", "bob")
+	done, _ := d.StartRun("e", "F-001", "h", "bob", "")
 	d.TxFor("e", func(tx *Tx) error {
 		return tx.FinishRun(done, RunDone, "", []CheckResult{{Rule: "ai", Level: "error", Target: "section:Impact", Quote: "q", QuoteHash: "x"}})
 	})
-	clean, _ := d.StartRun("e", "F-001", "h", "bob")
+	clean, _ := d.StartRun("e", "F-001", "h", "bob", "")
 	d.TxFor("e", func(tx *Tx) error { return tx.FinishRun(clean, RunDone, "", nil) })
 	for _, total := range []int{0, 3} {
-		id, _ := d.StartRun("e", "F-001", "h", "bob")
+		id, _ := d.StartRun("e", "F-001", "h", "bob", "")
 		// as v13 left them: failed by FailRun, marked stored
 		if _, err := d.Exec("UPDATE check_runs SET state = ?, error = 'interrupted', finished = 'x', total = ?, done_count = ?, stored = 1 WHERE id = ?", RunFailed, total, total, id); err != nil {
 			t.Fatal(err)
@@ -94,7 +94,7 @@ func TestCutOffRunsNotStored(t *testing.T) {
 // ever stored a result for stays (nothing tells its place yet).
 func TestLegacyDismissalsEnd(t *testing.T) {
 	d := openTest(t)
-	id, err := d.StartRun("e", "F-001", "h", "bob")
+	id, err := d.StartRun("e", "F-001", "h", "bob", "")
 	if err != nil {
 		t.Fatal(err)
 	}

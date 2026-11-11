@@ -62,7 +62,7 @@ func TestMoveHashAndRenameChatSection(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	run, _ := d.StartRun("acme", "F-001", "old", "bob")
+	run, _ := d.StartRun("acme", "F-001", "old", "bob", "")
 	if err := d.TxFor("acme", func(tx *Tx) error {
 		if err := tx.MoveHash("acme", "F-001", "old", "new"); err != nil {
 			return err

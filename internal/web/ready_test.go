@@ -154,7 +154,7 @@ func TestReadyToApproveSkipsOpenChecks(t *testing.T) {
 	}
 	e.rules(t, "- id: none\n  target: title\n  regex_forbid: 'zzz'\n", nil)
 	ref, _ := st.Finding("acme", fdir)
-	id, err := st.DB().StartRun("acme", "F-001", ref.Hash, "bob")
+	id, err := st.DB().StartRun("acme", "F-001", ref.Hash, "bob", "")
 	if err != nil {
 		t.Fatal(err)
 	}
