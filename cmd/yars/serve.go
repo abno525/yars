@@ -142,6 +142,9 @@ func cmdServe(args []string) error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	// after the first signal a second one ends the process at once (a stop
+	// can take up to twice stopGrace)
+	context.AfterFunc(ctx, stop)
 	log.Printf("yars serving %s on %s", r.Dir, *addr)
 	return serve(ctx, ln, hs, srv, st, d)
 }
