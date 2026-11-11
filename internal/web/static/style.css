@@ -620,6 +620,9 @@ summary.panelhead::-webkit-details-marker { display: none; }
 .panel.checks.strip > .panelhead { height: 46px; }
 .panel.checks.strip:not([open]) { height: 48px; }
 .panel.checks.strip:not([open]) > .panelhead { border-bottom: 0; }
+/* a <details> wraps its body in a box of its own, out of the flex column:
+   the list is held to the strip's 360 px (less border and head) and scrolls */
+.panel.checks.strip > .checkbody { max-height: 312px; }
 .checks .panelname { gap: 16px; }
 .checks .cnt { display: inline-flex; align-items: center; gap: 6px; flex: none; font: 600 13px var(--sans); color: var(--muted); }
 .checks .checkbody { flex: 1; min-height: 0; overflow-y: auto; scrollbar-gutter: stable; margin: 0; }

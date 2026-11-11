@@ -347,9 +347,18 @@ document.addEventListener('click', function (evt) {
   try { sessionStorage.setItem(yarsChecksKey(), 'open'); } catch (e) { /* not kept */ }
   d.scrollIntoView({block: 'nearest'});
 });
+// a Dismiss or Restore sent from the open strip keeps it open: its answer
+// may have no errors left, which the server would show closed
+document.addEventListener('submit', function (evt) {
+  var d = evt.target.closest && evt.target.closest('#checks');
+  if (!d || !d.open) return;
+  try { sessionStorage.setItem(yarsChecksKey(), 'open'); } catch (e) { /* not kept */ }
+});
 document.addEventListener('DOMContentLoaded', yarsChecksApply);
 document.addEventListener('htmx:afterSwap', function (evt) {
-  if (evt.detail.target && evt.detail.target.id === 'checks') yarsChecksApply();
+  // the strip's own swap, or the copy sent out of band with the bar (Check,
+  // Retry), whose event carries the bar's request
+  if ((evt.detail.target && evt.detail.target.id === 'checks') || (evt.target && evt.target.id === 'checks')) yarsChecksApply();
 });
 
 // Team board: a live refresh (sse:…) waits while something is being typed

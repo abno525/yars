@@ -91,6 +91,11 @@ func TestChecksStripClosedByDefault(t *testing.T) {
 	if !strings.Contains(css, "summary.panelhead { cursor: pointer; list-style: none; }") || !strings.Contains(css, ".panel.checks.strip:not([open]) { height: 48px; }") {
 		t.Fatal("no strip styles")
 	}
+	// open, the list scrolls inside the 360 px strip: a <details> wraps its
+	// body in a box of its own, so the panel's flex column does not reach it
+	if !strings.Contains(css, ".panel.checks.strip > .checkbody { max-height: 312px; }") {
+		t.Fatal("the open strip's list does not scroll inside it")
+	}
 }
 
 // D2: the author of a draft with errors finds the strip open.
