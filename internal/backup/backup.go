@@ -47,6 +47,11 @@ func Skip(rel string, withKey bool) bool {
 // files and folders go in; links could point out of the data folder. File
 // modes are kept, so hooks and rule scripts stay executable.
 func Write(w io.Writer, dataDir string, d *db.DB, l Locker, o Options) (int64, error) {
+	// a data folder reached through a link is walked where it is
+	dataDir, err := filepath.EvalSymlinks(dataDir)
+	if err != nil {
+		return 0, err
+	}
 	tmp, err := os.MkdirTemp("", "yars-backup-")
 	if err != nil {
 		return 0, err
@@ -66,9 +71,12 @@ func Write(w io.Writer, dataDir string, d *db.DB, l Locker, o Options) (int64, e
 	if err != nil {
 		return cw.n, err
 	}
-	engs, err := os.ReadDir(filepath.Join(dataDir, "engagements"))
-	if err != nil && !os.IsNotExist(err) {
-		return cw.n, err
+	var engs []os.DirEntry
+	// a linked engagements folder is not followed, as the main walk does not
+	if fi, err := os.Lstat(filepath.Join(dataDir, "engagements")); err == nil && fi.IsDir() {
+		if engs, err = os.ReadDir(filepath.Join(dataDir, "engagements")); err != nil {
+			return cw.n, err
+		}
 	}
 	for _, e := range engs {
 		if !e.IsDir() {
