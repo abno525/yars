@@ -31,6 +31,10 @@ type systemAdmin struct {
 	LastBackup, BackupBy, BackupKey, BackupSize      string   // the last backup download ("—" when none)
 	GitClone                                         string   // the main repo's clone path ("—" without the git server)
 	Health                                           healthAdmin
+	// Retention (D24): the settings, the last prune ("—" when none) and a
+	// refused save's reason
+	Retention                 db.Retention
+	LastPrune, RetentionError string
 }
 
 // healthAdmin is the System page's Health panel: one row per check.
@@ -63,6 +67,7 @@ func (s *Server) routesAdminSystem(mux *http.ServeMux) {
 		s.runHealth(r.Context(), true)
 		http.Redirect(w, r, "/admin/system", http.StatusSeeOther)
 	})))
+	mux.HandleFunc("POST /admin/system/retention", s.adminOnly(s.retentionSave))
 	mux.HandleFunc("POST /admin/system/sync", s.adminOnly(s.systemOp("sync")))
 	mux.HandleFunc("POST /admin/system/reindex", s.adminOnly(s.systemOp("reindex")))
 	mux.HandleFunc("POST /admin/system/migrate", s.adminOnly(s.systemOp("migrate")))
@@ -104,7 +109,13 @@ func size(n int64) string {
 }
 
 func (s *Server) systemPage(w http.ResponseWriter, r *http.Request, v systemAdmin) {
-	s.adminPage(w, r, "system", http.StatusOK, func(p *page) error {
+	s.systemPageStatus(w, r, http.StatusOK, v)
+}
+
+// systemPageStatus renders the System page with status (400 for a refused
+// form, whose reason v carries).
+func (s *Server) systemPageStatus(w http.ResponseWriter, r *http.Request, status int, v systemAdmin) {
+	s.adminPage(w, r, "system", status, func(p *page) error {
 		d := s.Store.DB()
 		var err error
 		if v.Users, err = d.UserCount(); err != nil {
@@ -151,6 +162,9 @@ func (s *Server) systemPage(w http.ResponseWriter, r *http.Request, v systemAdmi
 			v.GitClone = "/git/yars"
 		}
 		v.Health = s.lastHealthOr(r.Context())
+		if err := s.retentionView(&v); err != nil {
+			return err
+		}
 		if js := s.flash.take(r, "sysop"); js != "" {
 			var op sysOp
 			if json.Unmarshal([]byte(js), &op) == nil {

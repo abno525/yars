@@ -69,14 +69,14 @@ Rules for `Prune`:
 
 Worker: `func (s *Server) startRetention()` runs `Prune` once at start and then every 24 hours until `s.stop` closes; a run that deleted anything writes the audit entry `retention.prune` by `yars` with the detail `audit <N> · check runs <N> · sessions <N>`. Panel "Retention": three number inputs (`audit_days`, `check_run_days`, `session_days`, each `w96`, `min=0 max=3650`), a Save button (`POST /admin/system/retention`), and the stats `Last prune` (time and detail of the newest `retention.prune` audit entry, `—` when none).
 
-- [ ] **Step 1: write the failing tests.**
+- [x] **Step 1: write the failing tests.**
   - `TestPruneKeepsLatestRun`: three finished runs of one finding, all older than the cutoff: two are deleted, the newest stays with its results.
   - `TestPruneZeroKeepsAll`: `Retention{}` deletes nothing.
   - `TestPruneAuditAndSessions`: rows older than the cutoff go, newer stay.
   - `TestRetentionDefaults`: an empty database returns `{0, 90, 14}`.
   - `TestRetentionFormSaves` (`web`): the POST stores the values and writes the audit entry `setting.retention`; a value of `-1` or `4000` answers 400 and stores nothing.
   - `TestSessionIdleFollowsRetention` (`db`): with `SessionDays: 1`, a session idle for two days is refused.
-- [ ] **Step 2–4:** fail, implement, pass (`go test ./internal/db ./internal/web`). **Step 5:** commit: `feat(admin): retention for the audit log, check runs and sessions (D24)`.
+- [x] **Step 2–4:** fail, implement, pass (`go test ./internal/db ./internal/web`). **Step 5:** commit: `feat(admin): retention for the audit log, check runs and sessions (D24)`.
 
 ### Task 3: AI usage
 

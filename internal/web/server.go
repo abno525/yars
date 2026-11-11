@@ -75,6 +75,7 @@ type Server struct {
 	stop      chan struct{} // closes the background workers (Close)
 	stopOnce  sync.Once
 	hooksOnce sync.Once // the webhook worker is started
+	pruneOnce sync.Once // the retention worker is started (D24)
 	pages     map[string]*template.Template
 	cfgMu     sync.RWMutex // guards Cfg once Admin › Structure saves it
 	history   *history.Cache

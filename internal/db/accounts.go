@@ -12,7 +12,8 @@ import (
 	"yars/internal/config"
 )
 
-// SessionIdle is how long a session lives without being used.
+// SessionIdle is how long a session lives without being used when the
+// retention setting is 0 (Retention.SessionDays sets it otherwise).
 const SessionIdle = 14 * 24 * time.Hour
 
 // Themes a user can choose ("" follows the system).
@@ -520,7 +521,8 @@ func (d *DB) CreateSession(hash, user string) error {
 }
 
 // SessionUser returns the session's user and refreshes its last use; a
-// session idle for longer than SessionIdle is deleted and rejected.
+// session idle for longer than the retention's session days (SessionIdle
+// when that is 0) is deleted and rejected.
 func (d *DB) SessionUser(hash string) (string, bool, error) {
 	var user, seen string
 	err := d.QueryRow("SELECT username, last_seen FROM sessions WHERE hash = ?", hash).Scan(&user, &seen)
@@ -531,7 +533,7 @@ func (d *DB) SessionUser(hash string) (string, bool, error) {
 		return "", false, err
 	}
 	t, err := time.Parse(time.RFC3339, seen)
-	if err != nil || d.now().Sub(t) > SessionIdle {
+	if err != nil || d.now().Sub(t) > d.sessionIdle() {
 		d.DeleteSession(hash)
 		return "", false, nil
 	}

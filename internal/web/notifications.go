@@ -38,6 +38,7 @@ func (s *Server) wireNotifications() {
 	if hs, err := d.Webhooks(); err == nil && len(hs) > 0 {
 		s.startHooks()
 	}
+	s.startRetention()
 }
 
 // startHooks starts the webhook worker (once; it stops on Close).

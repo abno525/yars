@@ -56,5 +56,6 @@ M24 task 5  done     1eae352 (browser check of the whole page passed: strip clos
 M24 task 5  review   passed; nits a60012f (liveTrigger, access pin, Original test bound)
 M24 branch  reviewed fixes f1cace6 (closed strip keeps refreshing; Original state kept; withdrawn strip place)
 M24 PR      opened   #18
-M25 task 1  done
+M25 task 1  done     8e8429c
+M25 task 2  done
 ```

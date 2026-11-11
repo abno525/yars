@@ -284,6 +284,22 @@
     </div>
   </div>
 </form>
+<form class="panel sys" id="retention" method="post" action="/admin/system/retention">
+  <div class="panelhead">
+    <h2>Retention</h2>
+    <div class="actions"><span class="pstate error" title="{{.RetentionError}}">{{.RetentionError}}</span><button class="btn save sm w96">Save</button></div>
+  </div>
+  <div class="pbody flush">
+    <div class="stats">
+      <div class="st wide"><span class="sl">Last prune</span><span class="sv" title="{{.LastPrune}}">{{.LastPrune}}</span></div>
+    </div>
+    <div class="sfields">
+      <label class="sfield"><span class="sl">Audit log</span><span class="sfc"><input class="w96" type="number" name="audit_days" min="0" max="3650" value="{{.Retention.AuditDays}}"><span class="muted">days</span></span></label>
+      <label class="sfield"><span class="sl">Check runs</span><span class="sfc"><input class="w96" type="number" name="check_run_days" min="0" max="3650" value="{{.Retention.CheckRunDays}}"><span class="muted">days</span></span></label>
+      <label class="sfield"><span class="sl">Sessions</span><span class="sfc"><input class="w96" type="number" name="session_days" min="0" max="3650" value="{{.Retention.SessionDays}}"><span class="muted">days</span></span></label>
+    </div>
+  </div>
+</form>
 <section class="panel sys">
   <div class="panelhead">
     <h2>Operations</h2>
