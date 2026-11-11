@@ -130,3 +130,32 @@ func TestOpenNonRepo(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+// Fsck passes a sound repository and fails one that lost an object.
+func TestFsck(t *testing.T) {
+	dir := t.TempDir()
+	r, err := Init(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("a"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Commit([]string{"a.txt"}, "msg", Author{"alice", "alice@yars.local"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Fsck(); err != nil {
+		t.Fatalf("a sound repository: %v", err)
+	}
+	out, err := exec.Command("git", "-C", dir, "rev-parse", "HEAD:a.txt").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	blob := strings.TrimSpace(string(out))
+	if err := os.Remove(filepath.Join(dir, ".git", "objects", blob[:2], blob[2:])); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Fsck(); err == nil {
+		t.Fatal("a repository without a blob passes fsck")
+	}
+}

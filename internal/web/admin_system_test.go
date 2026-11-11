@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"yars/internal/auth"
+	"yars/internal/backup"
 	"yars/internal/config"
 	"yars/internal/db"
 	"yars/internal/secret"
@@ -102,10 +103,16 @@ func TestBackupDownloadUsesStoreLocks(t *testing.T) {
 	case <-time.After(300 * time.Millisecond):
 	}
 	unlock()
-	body := <-done
-	files := zipNames(t, body)
-	if _, ok := files[".yars/yars.db"]; !ok {
-		t.Fatal("the backup has no database")
+	p := filepath.Join(t.TempDir(), "backup.zip")
+	if err := os.WriteFile(p, <-done, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rep, err := backup.Verify(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Engagements != 1 || rep.Findings != 1 {
+		t.Fatalf("report %+v", rep)
 	}
 }
 

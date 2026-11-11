@@ -21,6 +21,25 @@ func open(t *testing.T) (*DB, string) {
 	return d, p
 }
 
+// SchemaOf reads a database file's version without changing it; a missing
+// file is an error, not a new database.
+func TestSchemaOf(t *testing.T) {
+	d, p := open(t)
+	if _, err := d.Exec("PRAGMA user_version = 7"); err != nil {
+		t.Fatal(err)
+	}
+	if v, err := SchemaOf(p); err != nil || v != 7 {
+		t.Fatalf("SchemaOf %d %v", v, err)
+	}
+	missing := filepath.Join(t.TempDir(), "none.db")
+	if _, err := SchemaOf(missing); err == nil {
+		t.Fatal("SchemaOf of a missing file")
+	}
+	if _, err := os.Stat(missing); !os.IsNotExist(err) {
+		t.Fatal("SchemaOf created the file")
+	}
+}
+
 func TestOpenCreatesPrivateFileAndSchema(t *testing.T) {
 	d, p := open(t)
 	info, err := os.Stat(p)

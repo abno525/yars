@@ -125,17 +125,17 @@ Rules:
 6. On any failure after unpacking, `destDir` is removed again (it did not exist or was empty before).
 7. `Verify` is `Restore` into `os.MkdirTemp` followed by `os.RemoveAll`.
 
-- [ ] **Step 1: write the failing tests.**
+- [x] **Step 1: write the failing tests.**
   - `TestRestoreRoundTrip`: seed a folder (two engagements, three findings, one chat message), `Write` it, `Restore` it; `store.New` on the result lists the same finding ids and titles; the chat count is equal; `Report` is `{Schema: db.SchemaVersion, Engagements: 2, Findings: 3, HasKey: false}`.
   - `TestRestoreRefusesNonEmpty`: `destDir` holds one file; the error contains `not empty`; the file is still the only entry.
   - `TestRestoreRefusesZipSlip`: three hand-made ZIPs (entry `../x`, entry `/abs`, a symlink entry); each is refused and `destDir` does not exist afterwards.
   - `TestRestoreRefusesNewerSchema`: a ZIP whose `.yars/yars.db` has `PRAGMA user_version` set to `db.SchemaVersion + 1`; `errors.Is(err, ErrNewer)`; `destDir` does not exist.
   - `TestRestoreRemovesBrokenResult`: a ZIP whose engagement repo lacks an object (delete one file under `.git/objects` before `Write`); the error names the engagement; `destDir` does not exist.
   - `TestFsck` in `internal/gitrepo`: a fresh repo passes; after deleting a loose object it fails.
-- [ ] **Step 2:** run `go test ./internal/backup ./internal/gitrepo ./internal/db`. Expected: FAIL.
-- [ ] **Step 3:** implement `Fsck` (`r.run(nil, "fsck", "--no-dangling")`), `SchemaOf` (open `file:<path>?mode=ro` with the sqlite driver, `PRAGMA user_version`), `Restore`, `Verify`.
-- [ ] **Step 4:** run the three packages. Expected: PASS. Switch `TestBackupDownloadUsesStoreLocks` (task 2) to `backup.Verify`.
-- [ ] **Step 5:** commit: `feat(backup): restore into a new folder, verified`.
+- [x] **Step 2:** run `go test ./internal/backup ./internal/gitrepo ./internal/db`. Expected: FAIL.
+- [x] **Step 3:** implement `Fsck` (`r.run(nil, "fsck", "--no-dangling")`), `SchemaOf` (open `file:<path>?mode=ro` with the sqlite driver, `PRAGMA user_version`), `Restore`, `Verify`.
+- [x] **Step 4:** run the three packages. Expected: PASS. Switch `TestBackupDownloadUsesStoreLocks` (task 2) to `backup.Verify`.
+- [x] **Step 5:** commit: `feat(backup): restore into a new folder, verified`.
 
 ### Task 4: `yars backup` and `yars restore`
 

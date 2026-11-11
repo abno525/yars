@@ -391,6 +391,24 @@ func Open(path string) (*DB, error) {
 	return d, nil
 }
 
+// SchemaOf reads the schema version of the database file at path without
+// migrating it (or creating it: a missing file is an error).
+func SchemaOf(path string) (int, error) {
+	if _, err := os.Stat(path); err != nil {
+		return 0, err
+	}
+	sdb, err := sql.Open("sqlite", "file:"+path+"?mode=ro")
+	if err != nil {
+		return 0, err
+	}
+	defer sdb.Close()
+	var v int
+	if err := sdb.QueryRow("PRAGMA user_version").Scan(&v); err != nil {
+		return 0, fmt.Errorf("%s: %w", path, err)
+	}
+	return v, nil
+}
+
 func (d *DB) migrate() error {
 	var v int
 	if err := d.QueryRow("PRAGMA user_version").Scan(&v); err != nil {

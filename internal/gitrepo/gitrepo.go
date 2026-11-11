@@ -118,6 +118,12 @@ func (r *Repo) Gitlink(rev, p string) (string, error) {
 	return "", nil
 }
 
+// Fsck checks the repository's objects and refs (git fsck --no-dangling).
+func (r *Repo) Fsck() error {
+	_, err := r.run(nil, "fsck", "--no-dangling")
+	return err
+}
+
 // SetConfig sets a repository-local git config value.
 func (r *Repo) SetConfig(key, value string) error {
 	_, err := r.run(nil, "config", key, value)
