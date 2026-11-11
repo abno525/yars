@@ -181,14 +181,18 @@ func (s *Server) checksFor(r *http.Request, ref store.FindingRef) checksView {
 		default:
 			v.State = st.Run.State
 		}
-		// a finished run on this content with these rules lists its results;
-		// while one runs or is out of date the fast rules say how it is now
-		// (as Submit and the store's open checks see it)
-		if !st.Running && !st.Stale {
-			items = nil
-			for _, x := range st.Results {
-				items = append(items, rules.Violation{Rule: x.Rule, Level: x.Level, Message: x.Message, Target: x.Target, Quote: x.Quote})
-			}
+	}
+	// D3: the rows are what the store's open checks read, so the strip, the
+	// bar and the gate count alike: the fast rules now and the results stored
+	// for this content (a run in progress, out of date or cut off adds
+	// nothing of its own)
+	if s.Store.Linter != nil {
+		listed, err := s.Store.CheckItems(ref.EngID, ref.Dir)
+		switch {
+		case err == nil:
+			items = listed
+		case !errors.Is(err, store.ErrNoDB):
+			v.State, v.Error = "failed", err.Error()
 		}
 	}
 	v.StateLabel = checkStateLabel[v.State]
@@ -243,8 +247,8 @@ func (s *Server) checksFor(r *http.Request, ref store.FindingRef) checksView {
 		}
 		row.CanDismiss = !v.ReadOnly && !notice && store.CanDismiss(u, ref.F.Meta, it.Level)
 		switch {
-		case notice: // listed, not counted: the gate does not count it
-		case it.Level == "error":
+		case notice && it.Level != "error": // listed, not counted: the gate does not count it
+		case it.Level == "error": // a broken rule file's too: Submit refuses it
 			v.Errors++
 		default:
 			v.Warnings++

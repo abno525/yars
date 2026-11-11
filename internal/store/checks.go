@@ -185,6 +185,38 @@ func (s *Store) openChecks(ref FindingRef, hash string) ([]rules.Violation, erro
 	return out, nil
 }
 
+// CheckItems lists what the finding page's Checks strip shows for the
+// finding as it is now, from the source OpenChecks reads: the fast rules run
+// now and the results stored for the current content (storedChecks), with
+// notices and dismissed ones kept (the strip lists them apart). A run in
+// progress, out of date or cut off adds nothing of its own.
+func (s *Store) CheckItems(engID, dir string) ([]rules.Violation, error) {
+	if s.Linter == nil {
+		return nil, nil
+	}
+	ref, raw, err := s.read(engID, dir, nil)
+	if err != nil {
+		return nil, err
+	}
+	var out []rules.Violation
+	seen := map[string]bool{}
+	add := func(v rules.Violation, qh string) {
+		if k := db.DismissKey(v.Rule, qh) + "\x00" + v.Target; !seen[k] {
+			seen[k] = true
+			out = append(out, v)
+		}
+	}
+	for _, v := range s.Linter.Lint(context.Background(), ref.F, rules.Fast) {
+		add(v, ViolationHash(v.Target, v.Quote))
+	}
+	if s.db != nil {
+		if err := s.storedChecks(engID, ref.F.Meta.ID, contentHash(raw), add); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
 // storedChecks hands add the results stored for the finding's content: the
 // latest finished run's, and for each rule that failed in it (a step that
 // failed, or a notice about the rules: the AI was down, say) the results of
