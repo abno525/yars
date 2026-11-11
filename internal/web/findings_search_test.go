@@ -49,6 +49,10 @@ func TestBoardSearchNoMatch(t *testing.T) {
 	if !strings.Contains(between(b, `aria-label="Status"`, "</nav>"), "Draft · 1") {
 		t.Fatalf("status counts:\n%s", between(b, `aria-label="Status"`, "</nav>"))
 	}
+	// and the table is the one empty row
+	if rows := between(b, "<tbody>", "</tbody>"); strings.Count(rows, "<tr") != 1 || !strings.Contains(rows, `class="emptyrow"`) {
+		t.Fatalf("rows:\n%s", rows)
+	}
 }
 
 // The box keeps one id across swaps, so htmx gives it its focus back.

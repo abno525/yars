@@ -261,21 +261,33 @@ document.addEventListener('htmx:beforeRequest', function (evt) {
   if (el && el.id === 'findings' && ev && String(ev.type).indexOf('sse:') === 0 && !yarsListIdle()) evt.preventDefault();
 });
 // The findings search box (#fq) keeps what is typed in it when the list it
-// sits in is swapped: the answer echoes the search as it was sent, and a
-// letter typed since must not be lost. htmx gives the box its focus back.
-var yarsFq = null;
+// sits in is swapped: the answer echoes the search as it was sent (or a live
+// refresh echoes the last one), and a letter typed since must not be lost.
+// Restored at once after the swap (not after the settle delay, when the next
+// key may already be in the new box); a text that differs from the answer's
+// is searched again (the old box's pending search went with it).
+var yarsFq = null, yarsFqAgain = false;
 document.addEventListener('htmx:beforeSwap', function (evt) {
   var fq = document.getElementById('fq');
   yarsFq = (evt.detail.target && evt.detail.target.id === 'findings' && fq && fq === document.activeElement) ?
     {value: fq.value, start: fq.selectionStart, end: fq.selectionEnd} : null;
 });
+document.addEventListener('htmx:afterSwap', function () {
+  var fq = document.getElementById('fq');
+  var was = yarsFq;
+  yarsFq = null;
+  if (!was || !fq) return;
+  if (fq.value !== was.value) { fq.value = was.value; yarsFqAgain = true; }
+  if (document.activeElement !== fq) fq.focus();
+  try { fq.setSelectionRange(was.start, was.end); } catch (e) {}
+});
+// the new box's trigger is wired once the swap settled: search the kept text
+// (its "search" trigger; "input changed" took the kept text as unchanged)
 document.addEventListener('htmx:afterSettle', function () {
   var fq = document.getElementById('fq');
-  if (!yarsFq || !fq) return;
-  if (fq.value !== yarsFq.value) fq.value = yarsFq.value;
-  if (document.activeElement !== fq) fq.focus();
-  try { fq.setSelectionRange(yarsFq.start, yarsFq.end); } catch (e) {}
-  yarsFq = null;
+  if (!yarsFqAgain || !fq) return;
+  yarsFqAgain = false;
+  fq.dispatchEvent(new Event('search', {bubbles: true}));
 });
 // Enter in a [data-enter] box sends it (yars:enter) instead of submitting
 // the form; a click on a [data-rowclick] row opens it (yars:rowclick),
