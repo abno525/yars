@@ -1457,8 +1457,13 @@ input.bigin { height: 48px; font: 600 18px var(--sans); border: 2px solid var(--
 .dtable th.c-go { width: 120px; }
 .dtable td { height: 48px; }
 /* D4: in the 560 px side column the table's fixed columns (600 px) do not
-   fit: the similarity column goes */
+   fit: the similarity column goes, and the status (the list holds active
+   findings only), so the title keeps room; three rows show, the rest
+   scroll, and the chat below keeps its height */
 .side .dups .num, .side .dups th.c-pct { display: none; }
+.side .dups th:nth-child(3), .side .dups td:nth-child(3) { display: none; }
+.side .dups { flex: none; }
+.side .dups .dscroll { max-height: 188px; overflow-y: auto; }
 
 /* merge */
 .mscroll { max-height: 520px; overflow-y: auto; scrollbar-gutter: stable; }

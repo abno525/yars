@@ -384,6 +384,14 @@ func TestDuplicatesInSideColumn(t *testing.T) {
 	if side < 0 || dups < side || chat < dups || !strings.Contains(b, `<section class="panel compact dups" id="dups">`) {
 		t.Fatalf("side %d, dups %d, chat %d", side, dups, chat)
 	}
+	// in the 560 px column the title keeps room (similarity and status go)
+	// and the panel stays three rows high, so the chat below keeps its own
+	css := e.do(t, "alice", "GET", "/static/style.css", nil, nil).Body.String()
+	for _, want := range []string{".side .dups th:nth-child(3), .side .dups td:nth-child(3) { display: none; }", ".side .dups .dscroll { max-height: 188px; overflow-y: auto; }"} {
+		if !strings.Contains(css, want) {
+			t.Errorf("style.css lacks %s", want)
+		}
+	}
 }
 
 // The finding page in every state renders without inline styles, with the
