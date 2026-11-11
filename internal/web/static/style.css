@@ -534,6 +534,9 @@ progress::-moz-progress-bar { background: var(--accent); }
 .pickfoot { height: 56px; padding: 0 16px; display: flex; align-items: center; justify-content: space-between; background: var(--panel); }
 .wfstate { width: 128px; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; font-weight: 600; color: var(--muted); }
 .wfstate.error { color: var(--red); }
+/* D3: with problems the state opens the Checks strip: the same box as a button */
+button.wfstate { height: auto; padding: 0; border: 0; background: none; font-family: inherit; cursor: pointer; }
+button.wfstate:hover { text-decoration: underline; }
 /* as wide as the widest status (136 + 3 × 112 + gaps), packed right:
    Withdraw / Restore sit at the right edge and the state text stays put
    when the status changes */
@@ -555,7 +558,6 @@ progress::-moz-progress-bar { background: var(--accent); }
 .wfbanner.withdrawn { box-shadow: inset 4px 0 0 var(--muted); }
 .wfbanner.withdrawn strong { color: var(--text); }
 .wfbanner .text { font-size: 15px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
-.gate { margin: 0; padding: 12px 16px 12px 36px; border-top: 1px solid var(--line); color: var(--accent-text); font-size: 14px; }
 
 /* cvss */
 .scoreline { display: flex; align-items: center; gap: 12px; min-width: 0; }

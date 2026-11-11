@@ -336,6 +336,17 @@ document.addEventListener('click', function (evt) {
   // the click toggles after this handler: the state it leads to
   try { sessionStorage.setItem(yarsChecksKey(), s.parentNode.open ? 'closed' : 'open'); } catch (e) { /* not kept */ }
 });
+// D3: the bar's state ("2 errors to fix") opens the strip where they are
+// listed, and that is kept as the user's choice
+document.addEventListener('click', function (evt) {
+  var b = evt.target.closest && evt.target.closest('[data-open-checks]');
+  if (!b) return;
+  var d = document.getElementById('checks');
+  if (!d) return;
+  d.open = true;
+  try { sessionStorage.setItem(yarsChecksKey(), 'open'); } catch (e) { /* not kept */ }
+  d.scrollIntoView({block: 'nearest'});
+});
 document.addEventListener('DOMContentLoaded', yarsChecksApply);
 document.addEventListener('htmx:afterSwap', function (evt) {
   if (evt.detail.target && evt.detail.target.id === 'checks') yarsChecksApply();

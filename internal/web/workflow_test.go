@@ -64,8 +64,56 @@ func (e *env) toComplete(t *testing.T) {
 	}
 }
 
+// D3: the problems are listed in the Checks strip only, not under the bar.
+func TestNoGateListUnderBar(t *testing.T) {
+	e := setup(t)
+	e.rules(t, styleRules, nil)
+	if b := e.do(t, "alice", "GET", fpath, nil, nil).Body.String(); strings.Contains(b, `class="gate"`) {
+		t.Fatalf("a gate list:\n%s", wfBar(t, b))
+	}
+}
+
+// D3: the bar's count is the strip's Errors count.
+func TestOneErrorCount(t *testing.T) {
+	e := setup(t)
+	e.rules(t, "- id: title-word\n  target: title\n  regex_forbid: 'injection'\n  message: Avoid the word injection\n", nil)
+	e.srv.Store.UpdateSeverity("acme", fdir, "high", "", e.authorOf(wAlice))
+	b := e.do(t, "alice", "GET", fpath, nil, nil).Body.String()
+	if wf := wfBar(t, b); !strings.Contains(wf, ">2 errors to fix<") {
+		t.Fatalf("bar:\n%s", wf)
+	}
+	if p := checksPanel(t, b); !strings.Contains(p, `Errors <span class="badge">2</span>`) {
+		t.Fatalf("strip:\n%s", p)
+	}
+	// a viewer who cannot submit is not told to fix anything
+	if wf := wfBar(t, e.do(t, "bob", "GET", fpath, nil, nil).Body.String()); strings.Contains(wf, "to fix") {
+		t.Fatalf("bob's bar:\n%s", wf)
+	}
+}
+
+// D3: the state text opens the strip, so it is a button only when there is
+// something to show there.
+func TestStateIsButtonOnlyWithProblems(t *testing.T) {
+	e := setup(t)
+	e.rules(t, "- id: no-zebra\n  target: title\n  regex_forbid: 'zebra'\n", nil)
+	wf := wfBar(t, e.do(t, "alice", "GET", fpath, nil, nil).Body.String())
+	if !strings.Contains(wf, `<button type="button" class="wfstate error" id="wf-state" data-open-checks`) {
+		t.Fatalf("no state button with errors:\n%s", wf)
+	}
+	st := e.srv.Store
+	st.SetReviewers("acme", fdir, []string{"bob"}, wAlice)
+	st.UpdateSeverity("acme", fdir, "high", "", e.authorOf(wAlice))
+	if wf := wfBar(t, e.do(t, "alice", "GET", fpath, nil, nil).Body.String()); strings.Contains(wf, "data-open-checks") || !strings.Contains(wf, `<span class="wfstate" id="wf-state"`) {
+		t.Fatalf("state on a clean draft:\n%s", wf)
+	}
+	if js := e.do(t, "alice", "GET", "/static/app.js", nil, nil).Body.String(); !strings.Contains(js, "[data-open-checks]") {
+		t.Fatal("app.js does not open the strip")
+	}
+}
+
 func TestWorkflowButtonsByRole(t *testing.T) {
 	e := setup(t)
+	e.rules(t, "- id: no-zebra\n  target: title\n  regex_forbid: 'zebra'\n", nil) // the gate's problems are listed in the Checks strip
 	b := e.do(t, "alice", "GET", fpath, nil, nil).Body.String()
 	i := strings.Index(b, "Submit for verification")
 	if i < 0 || !strings.Contains(b[max(0, i-200):i], "disabled") || !strings.Contains(b, "assign at least one reviewer") {

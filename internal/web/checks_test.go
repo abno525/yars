@@ -30,6 +30,19 @@ func (e *env) rules(t *testing.T, yaml string, scripts map[string]string) {
 	e.srv.Store.Linter = eng
 }
 
+// gateClean gives the finding a reviewer and a severity, so the workflow
+// gate adds no rows to the Checks strip (D3) and only rule rows are left.
+func (e *env) gateClean(t *testing.T) {
+	t.Helper()
+	st := e.srv.Store
+	if err := st.SetReviewers("acme", fdir, []string{"bob"}, wAlice); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.UpdateSeverity("acme", fdir, "high", "", e.authorOf(wAlice)); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // checksPanel is the Checks strip (#checks, a <details> that holds the
 // Dismissed <details>) of a page or fragment.
 func checksPanel(t *testing.T, b string) string {
@@ -83,6 +96,7 @@ func TestChecksStripClosedByDefault(t *testing.T) {
 // D2: the author of a draft with errors finds the strip open.
 func TestChecksStripOpenForAuthorWithErrors(t *testing.T) {
 	e := setup(t)
+	e.gateClean(t)
 	e.rules(t, "- id: title-word\n  target: title\n  regex_forbid: 'injection'\n  message: Avoid the word injection\n", nil)
 	if tag := stripTag(t, e.do(t, "alice", "GET", fpath, nil, nil).Body.String()); !strings.Contains(tag, " open") {
 		t.Fatalf("strip for alice: %s", tag)
@@ -145,6 +159,64 @@ func TestChecksStripHiddenWhenWithdrawnOrNoRules(t *testing.T) {
 	}
 }
 
+// rowWith is the checks table row (<tr>…</tr>) holding text.
+func rowWith(t *testing.T, panel, text string) string {
+	t.Helper()
+	i := strings.Index(panel, text)
+	if i < 0 {
+		t.Fatalf("no row with %q:\n%s", text, panel)
+	}
+	start := strings.LastIndex(panel[:i], "<tr")
+	end := strings.Index(panel[i:], "</tr>")
+	return panel[start : i+end]
+}
+
+// D3: what the workflow gate asks for is a row of the strip: level error,
+// place Workflow, no Dismiss.
+func TestGateProblemsAreCheckRows(t *testing.T) {
+	e := setup(t)
+	e.rules(t, "- id: title-word\n  target: title\n  regex_forbid: 'injection'\n  message: Avoid the word injection\n", nil)
+	p := checksPanel(t, e.do(t, "dora", "GET", fpath, nil, nil).Body.String())
+	row := rowWith(t, p, "assign at least one reviewer")
+	if !strings.Contains(row, `<span class="tag lvl-error">error</span>`) || !strings.Contains(row, ">Workflow<") || strings.Contains(row, "data-dismiss-toggle") || !strings.Contains(row, `<span class="slot w96"></span>`) {
+		t.Fatalf("gate row:\n%s", row)
+	}
+	// before the rule rows
+	if strings.Index(p, "assign at least one reviewer") > strings.Index(p, "Avoid the word injection") {
+		t.Fatalf("the gate row is after a rule row:\n%s", p)
+	}
+	// none once the finding is past the gate's statuses
+	done := setup(t)
+	done.toComplete(t)
+	done.rules(t, "- id: no-zebra\n  target: title\n  regex_forbid: 'zebra'\n", nil)
+	if p := checksPanel(t, done.do(t, "dora", "GET", fpath, nil, nil).Body.String()); strings.Contains(p, ">Workflow<") {
+		t.Fatalf("gate rows on a complete finding:\n%s", p)
+	}
+}
+
+// D3: with the cvss-explained rule on, an unexplained CVSS value is one row
+// (the rule's), not two.
+func TestCVSSProblemListedOnce(t *testing.T) {
+	e := setup(t)
+	form := vecForm(nil)
+	form.Set("reason_C", "because C")
+	form.Set("reason_I", "because I")
+	if rec := e.do(t, "alice", "POST", fpath+"/cvss", form, nil); rec.Code >= 400 {
+		t.Fatalf("cvss %d: %s", rec.Code, rec.Body.String())
+	}
+	e.rules(t, "- id: cv\n  check: cvss-explained\n", nil)
+	p := checksPanel(t, e.do(t, "alice", "GET", fpath, nil, nil).Body.String())
+	if n := strings.Count(p, "Attack Complexity"); n != 1 {
+		t.Fatalf("%d rows about Attack Complexity:\n%s", n, p)
+	}
+	// without the rule the gate's own row says it
+	e.rules(t, "- id: no-zebra\n  target: title\n  regex_forbid: 'zebra'\n", nil)
+	p = checksPanel(t, e.do(t, "alice", "GET", fpath, nil, nil).Body.String())
+	if n := strings.Count(p, "explain the non-standard CVSS value for Attack Complexity"); n != 1 {
+		t.Fatalf("%d gate rows about Attack Complexity:\n%s", n, p)
+	}
+}
+
 // D2: the browser keeps the user's choice per finding, never against a run.
 func TestAppJSRemembersChecksStrip(t *testing.T) {
 	e := setup(t)
@@ -172,8 +244,9 @@ func TestChecksPanel(t *testing.T) {
 	if !strings.Contains(p, "Avoid the word injection") || strings.Contains(p, "script says hi") {
 		t.Fatalf("checks panel (fast only):\n%s", p)
 	}
-	if !strings.Contains(b[strings.Index(b, `id="workflow"`):], "Avoid the word injection") {
-		t.Fatal("workflow bar doesn't list rule errors")
+	// the bar counts the rule's error with the gate's two (D3) and lists none
+	if wf := wfBar(t, b); !strings.Contains(wf, ">3 errors to fix<") || strings.Contains(wf, "Avoid the word injection") {
+		t.Fatalf("workflow bar and rule errors:\n%s", wf)
 	}
 	// the panel refetches itself on check events
 	if !strings.Contains(p, `hx-get="/e/acme/f/001/checks"`) || !strings.Contains(p, "sse:check") || !strings.Contains(p, "data-sse") {
@@ -283,6 +356,7 @@ func TestChecksPanelLayout(t *testing.T) {
 // empty space under its dash row); one with rows keeps its fixed height.
 func TestChecksEmptyPanelHasNoSpaceBelow(t *testing.T) {
 	e := setupSerial(t)
+	e.gateClean(t)
 	e.rules(t, "- id: no-zebra\n  target: title\n  regex_forbid: 'zebra'\n", nil)
 	p := checksPanel(t, e.do(t, "alice", "GET", fpath+"/checks", nil, nil).Body.String())
 	if !strings.Contains(p, `<details class="panel checks strip empty" id="checks"`) {
@@ -302,14 +376,15 @@ func TestChecksEmptyPanelHasNoSpaceBelow(t *testing.T) {
 // it and the count says so (D18).
 func TestChecksCountsMatchRows(t *testing.T) {
 	e := setupSerial(t)
+	e.gateClean(t)
 	e.rules(t, "- id: letter-i\n  target: title\n  regex_forbid: 'i'\n  message: no letter i\n", nil)
 	p := e.do(t, "alice", "GET", fpath+"/checks", nil, nil).Body.String()
 	if n := strings.Count(p, `<span class="tag lvl-error">`); n != 1 || !strings.Contains(p, `Errors <span class="badge">1</span>`) {
 		t.Fatalf("%d rows for one place:\n%s", n, p)
 	}
-	// the workflow bar's gate names it once too
-	if wf := wfBar(t, e.do(t, "alice", "GET", fpath, nil, nil).Body.String()); strings.Count(wf, "no letter i") != 1 {
-		t.Fatalf("gate lists it %d times:\n%s", strings.Count(wf, "no letter i"), wf)
+	// the workflow bar counts it once too (D3: it lists nothing itself)
+	if wf := wfBar(t, e.do(t, "alice", "GET", fpath, nil, nil).Body.String()); !strings.Contains(wf, ">1 error to fix<") {
+		t.Fatalf("bar count:\n%s", wf)
 	}
 	st := e.srv.Store
 	st.SetReviewers("acme", "F-001-sql-injection", []string{"bob"}, wAlice)
@@ -323,6 +398,7 @@ func TestChecksCountsMatchRows(t *testing.T) {
 // (the gate does not count it either): its rule's step says it.
 func TestChecksNoticeNotCounted(t *testing.T) {
 	e := setupSerial(t)
+	e.gateClean(t)
 	e.rules(t, "- id: letter-i\n  target: title\n  regex_forbid: 'i'\n  message: no letter i\n", nil)
 	ref, err := e.srv.Store.Finding("acme", "F-001-sql-injection")
 	if err != nil {

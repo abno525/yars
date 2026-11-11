@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"yars/internal/db"
 	"yars/internal/rules"
 	"yars/internal/store"
+	"yars/internal/workflow"
 )
 
 // checkRow is one violation in the checks panel.
@@ -141,7 +143,8 @@ func (s *Server) checksFor(r *http.Request, ref store.FindingRef) checksView {
 		return v
 	}
 	v.Enabled = true
-	for _, pr := range s.Rules.Rules().Problems {
+	set := s.Rules.Rules()
+	for _, pr := range set.Problems {
 		if pr.Level == "error" {
 			v.ConfigErrors++
 		}
@@ -214,6 +217,19 @@ func (s *Server) checksFor(r *http.Request, ref store.FindingRef) checksView {
 	stepped := map[string]bool{}
 	for _, x := range st.Steps {
 		stepped[x.Rule] = true
+	}
+	// D3: what the workflow gate asks for is listed and counted here, first,
+	// for a draft or a finding in verification (the cvss-explained rule, when
+	// on, says the CVSS one itself)
+	if m := ref.F.Meta; m.Status == "draft" || m.Status == "verification" {
+		cvssRule := slices.ContainsFunc(set.Rules, func(r rules.Rule) bool { return r.On() && r.Check == "cvss-explained" })
+		for _, p := range workflow.Gate(m, s.conf()) {
+			if cvssRule && strings.HasPrefix(p, "explain the non-standard CVSS value for ") {
+				continue
+			}
+			v.Rows = append(v.Rows, checkRow{Level: "error", Rule: "workflow", Message: p, Where: "Workflow"})
+			v.Errors++
+		}
 	}
 	seen := map[string]bool{} // rule, place and quote: one row each (D18)
 	for n, it := range items {

@@ -100,14 +100,14 @@ Rules:
 5. `app.js`: a click on `[data-open-checks]` sets `#checks` open, stores `open` under `yarsChecksKey()` and calls `scrollIntoView({block: 'nearest'})`.
 6. Check results keep opening one chat thread per new violation (`store.finishCheck` is not changed).
 
-- [ ] **Step 1: write the failing tests.**
+- [x] **Step 1: write the failing tests.**
   - `TestGateProblemsAreCheckRows`: a draft without reviewers: the strip has a row with `Workflow` and `assign at least one reviewer`, with no Dismiss button.
   - `TestNoGateListUnderBar`: the finding page has no `class="gate"`.
   - `TestOneErrorCount`: a draft without reviewers and with one rule error: the bar says `2 errors to fix` and the strip's Errors badge says `2`.
   - `TestCVSSProblemListedOnce`: with the example rule `check: cvss-explained` enabled and a non-standard CVSS value without a reason, the strip has exactly one row about it.
   - `TestStateIsButtonOnlyWithProblems`: `data-open-checks` is present with errors, absent on a clean draft.
-- [ ] **Step 2–4:** fail, implement, pass (`go test ./internal/web`; update tests that assert the gate list).
-- [ ] **Step 5:** commit: `feat(finding): problems are listed once, in Checks (D3)`.
+- [x] **Step 2–4:** fail, implement, pass (`go test ./internal/web`; update tests that assert the gate list).
+- [x] **Step 5:** commit: `feat(finding): problems are listed once, in Checks (D3)`.
 
 ### Task 3: title row and side column (D4 items 1 and 3)
 

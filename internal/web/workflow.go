@@ -40,6 +40,9 @@ type wfView struct {
 	Gate    []string
 	// open check errors and warnings keeping Sign off or Approve disabled
 	OpenErrors, OpenWarnings int
+	// Problems: the Checks strip's Errors count, shown as "N errors to fix"
+	// to a viewer who may submit or approve (D3: one count)
+	Problems int
 	// Require Check: Sign off and Approve wait for a check run on this content
 	NeedsCheck   bool
 	Reviewers    []wfReviewer
@@ -198,9 +201,9 @@ func (v *wfView) arrange(u config.User, m finding.Meta) {
 	for len(v.Slots) > 0 && !v.Slots[len(v.Slots)-1].Present {
 		v.Slots = v.Slots[:len(v.Slots)-1]
 	}
-	switch n := len(v.Gate); {
-	case n > 0 && v.HasGated:
-		v.State, v.StateError = plural(n, "error")+" to fix", true
+	switch {
+	case v.Problems > 0 && v.HasGated:
+		v.State, v.StateError = plural(v.Problems, "error")+" to fix", true
 	case v.OpenErrors > 0:
 		v.State, v.StateError = plural(v.OpenErrors, "error")+" open", true
 	case v.OpenWarnings > 0:
@@ -317,6 +320,12 @@ func (s *Server) wfGated(r *http.Request, ref store.FindingRef) (wfView, checksV
 		}
 		if wf.HasGated {
 			wf.Gate = append(wf.Gate, errs...)
+		}
+	}
+	if wf.HasGated {
+		wf.Problems = checks.Errors
+		if !checks.Enabled { // no rules, no strip: the gate's own count
+			wf.Problems = len(wf.Gate)
 		}
 	}
 	wf.arrange(auth.UserFrom(r.Context()), ref.F.Meta)

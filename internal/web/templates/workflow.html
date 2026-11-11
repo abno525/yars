@@ -33,7 +33,8 @@
       </details>
       {{end}}
     </div>
-    <span class="wfstate{{if .StateError}} error{{end}}" id="wf-state" title="{{.State}}">{{.State}}</span>
+    {{if and .Check.On (or .StateError .OpenWarnings)}}<button type="button" class="wfstate{{if .StateError}} error{{end}}" id="wf-state" data-open-checks title="{{.State}}">{{.State}}</button>
+    {{else}}<span class="wfstate{{if .StateError}} error{{end}}" id="wf-state" title="{{.State}}">{{.State}}</span>{{end}}
     {{with .Check}}{{if .On}}
     <div class="wfcheck">
       <span class="checkslot">{{if .Flag}}{{if .FlagTag}}<span class="tag check-stale">{{.Flag}}</span>{{else}}<span class="checkflag {{.FlagClass}}">{{.Flag}}{{if .FlagN}} <span class="mono">{{.FlagN}}</span>{{end}}</span>{{end}}{{end}}</span>
@@ -66,6 +67,5 @@
   {{end}}
   {{with .Withdrawn}}<div class="wfbanner withdrawn" role="status"><strong>Withdrawn by {{.By}}</strong><p class="text">{{.Reason}}</p></div>{{end}}
   {{with .Returned}}<div class="wfbanner returned" role="status"><strong>Returned by {{.By}}</strong><p class="text">{{.Reason}}</p></div>{{end}}
-  {{if .Gate}}<ul class="gate">{{range .Gate}}<li>{{.}}</li>{{end}}</ul>{{end}}
 </section>
 {{end}}
