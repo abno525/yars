@@ -430,11 +430,16 @@ func (d *DB) migrate(path string) error {
 	if err := os.Remove(snap); err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	if err := d.Snapshot(snap); err != nil {
-		return fmt.Errorf("snapshot before migrating: %w", err)
-	}
-	if err := os.Chmod(snap, 0o600); err != nil {
+	// created private and empty first: VACUUM INTO fills an empty file and
+	// would create a missing one readable by everyone while it writes
+	f, err := os.OpenFile(snap, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
 		return err
+	}
+	f.Close()
+	if err := d.Snapshot(snap); err != nil {
+		os.Remove(snap)
+		return fmt.Errorf("snapshot before migrating: %w", err)
 	}
 	if err := d.migrateFrom(v); err != nil {
 		return err

@@ -87,7 +87,7 @@ func (d *DB) DeleteSessionID(id int64) error {
 }
 
 // Snapshot writes a consistent copy of the database to path (VACUUM INTO);
-// path must not exist yet.
+// path must not exist yet, or be an empty file.
 func (d *DB) Snapshot(path string) error {
 	_, err := d.Exec("VACUUM INTO ?", path)
 	return err
