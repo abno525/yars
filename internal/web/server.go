@@ -84,7 +84,7 @@ type Server struct {
 	hasUsers  atomic.Bool                  // an account exists (first run is over)
 	exports   exportCache
 	inboxes   inboxCache
-	openCache openCache // Ready to approve: which findings have open checks
+	openCache openCache // Ready to approve and the bulk bar: which findings have open checks
 	md        *render.Markdown
 	presence  *presence // who has which section open in an editor
 	hookOnce  sync.Once

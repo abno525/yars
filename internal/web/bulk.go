@@ -271,7 +271,10 @@ func (s *Server) bulkBarFor(u config.User, eng, query string, rows []index.Row) 
 	for _, o := range opts {
 		b.Options = append(b.Options, bulkMenuItem{BulkOption: o, Reason: workflow.NeedsReason(o.Action)})
 	}
-	blocked := s.gatedRows(rows)
+	var blocked map[string]bool
+	if workflow.BulkAllowed(u, workflow.Clear) || workflow.BulkAllowed(u, workflow.Approve) {
+		blocked = s.gatedRows(rows)
+	}
 	for _, row := range rows {
 		b.addRow(u, row, opts, blocked[row.EngID+"/"+row.Dir])
 	}
@@ -333,7 +336,8 @@ func (s *Server) gatedRows(rows []index.Row) map[string]bool {
 		return nil
 	}
 	gated := map[string]bool{}
-	all := func() map[string]bool {
+	all := func(err error) map[string]bool {
+		log.Printf("bulk bar: Sign off and Approve left out of %d rows: %v", len(cand), err)
 		for _, r := range cand {
 			gated[r.EngID+"/"+r.Dir] = true
 		}
@@ -345,11 +349,11 @@ func (s *Server) gatedRows(rows []index.Row) map[string]bool {
 	}
 	gates, err := s.Store.CheckGates(keys)
 	if err != nil {
-		return all()
+		return all(err)
 	}
 	known, key, err := s.openCache.valid(s)
 	if err != nil {
-		return all()
+		return all(err)
 	}
 	for _, r := range cand {
 		k := r.EngID + "/" + r.Dir
@@ -364,7 +368,7 @@ func (s *Server) gatedRows(rows []index.Row) map[string]bool {
 				continue
 			}
 			if err != nil {
-				return all()
+				return all(err)
 			}
 			open = len(vs) > 0
 			s.openCache.put(key, k, open)

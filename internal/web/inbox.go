@@ -300,7 +300,8 @@ func (s *Server) draftChecks(rows []inboxRow) ([]inboxRow, error) {
 // openCache remembers which findings have open checks (Store.OpenChecks),
 // by "eng/dir", for as long as nothing they depend on changed: the index
 // (content), the database (runs, dismissals) and the rule set. Every page a
-// director loads filters Ready to approve for the nav badge.
+// director loads filters Ready to approve for the nav badge; the findings
+// list's bulk bar reads it too (gatedRows).
 type openCache struct {
 	mu   sync.Mutex
 	key  openKey

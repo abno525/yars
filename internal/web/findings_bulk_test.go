@@ -96,9 +96,6 @@ func TestFindingsBulkBar(t *testing.T) {
 	}
 }
 
-// Running a bulk change re-renders the list: the summary says how many
-// moved and how many were skipped, moved rows show their new status and
-// skipped rows are tinted.
 // Q12: the board offers bulk Approve only where it would work, as Ready to
 // approve does: not for a finding without a finished check on its content
 // while Require Check is on.
@@ -135,6 +132,9 @@ func TestBoardBulkApproveHidesGated(t *testing.T) {
 	}
 }
 
+// Running a bulk change re-renders the list: the summary says how many
+// moved and how many were skipped, moved rows show their new status and
+// skipped rows are tinted.
 func TestFindingsBulkRun(t *testing.T) {
 	e := setup(t)
 	d2 := e.second(t, "bob")
