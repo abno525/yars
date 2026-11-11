@@ -184,7 +184,7 @@ Behaviour: in `migrate`, when the stored version is above 0 and below `schemaVer
 
 **Files:** modify `README.md`, `docs/superpowers/specs/2026-11-03-yars-design.md`
 
-- [ ] **Step 1:** README, new section after "Default data folder":
+- [x] **Step 1:** README, new section after "Default data folder":
 
 ```markdown
 ## Backup and restore
@@ -203,5 +203,5 @@ Run it from cron; it works while the server runs.
 A restore always goes into a new folder and checks it before it reports success.
 ```
 
-- [ ] **Step 2:** in the spec, replace the goal phrase "Markdown-in-git as the single source of truth" with "finding content as Markdown in git; accounts, workflow state and chat in the server's database (since M10)", and add under "Anti-goals" the sentence: "A git clone is not a backup; `yars backup` is."
+- [x] **Step 2:** in the spec, replace the goal phrase "Markdown-in-git as the single source of truth" with "finding content as Markdown in git; accounts, workflow state and chat in the server's database (since M10)", and add under "Anti-goals" the sentence: "A git clone is not a backup; `yars backup` is."
 - [ ] **Step 3:** commit: `docs: backup and restore; what the database holds`. Push the branch and open PR #15 (title `Backup and restore`).

@@ -15,5 +15,6 @@ M21 task 2  done     809558c
 M21 task 3  done     cb749f9
 M21 task 4  done     6b8e814
 M21 task 5  done     2f603f0
-M21 review  fixed    db2fd5e (task 2), the two commits after it (tasks 1, 3, 4, 5)
+M21 review  fixed    db2fd5e (task 2), 3214bb9 (tasks 1, 3, 4), 3c017bf (task 5)
+M21 task 6  done
 ```

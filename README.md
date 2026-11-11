@@ -25,3 +25,18 @@ folder set with `yars use` (`data:` in `~/.config/yars/config.yaml`).
 
 `./yars unlock <user>` ends a user's login lockout (after 5 wrong
 passwords), for when no admin can log in.
+
+## Backup and restore
+
+A git clone holds the findings only. Accounts, workflow state, reviewers,
+chat and check results are in the server's database, so back up with:
+
+    ./yars backup --out /backups/yars-$(date +%F).zip
+
+Add `--key` to include the key that decrypts stored AI and personal keys.
+Run it from cron; it works while the server runs.
+
+    ./yars restore --from /backups/yars-2026-11-11.zip --data /srv/yars-restored
+    ./yars serve --data /srv/yars-restored
+
+A restore always goes into a new folder and checks it before it reports success.
