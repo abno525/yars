@@ -231,6 +231,27 @@ func (s *sseStream) waitFor(t *testing.T, prefix string) string {
 	}
 }
 
+// A server that stops ends its open event streams (the pages reconnect to
+// the next one); http.Server.Shutdown does not wait for them.
+func TestSSEEndsOnClose(t *testing.T) {
+	e := setup(t)
+	ts := e.liveServer(t)
+	s := e.openSSE(t, ts, "eng=acme", nil)
+	s.waitFor(t, "id: ")
+	e.srv.Close()
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case _, ok := <-s.lines:
+			if !ok {
+				return
+			}
+		case <-deadline:
+			t.Fatal("the stream is still open after Close")
+		}
+	}
+}
+
 func TestSSEChatEvent(t *testing.T) {
 	e := setup(t)
 	ts := e.liveServer(t)

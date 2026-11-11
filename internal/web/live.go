@@ -86,6 +86,8 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-r.Context().Done():
 			return
+		case <-s.stop: // the server is stopping: the page reconnects to the next one
+			return
 		case <-tick.C:
 			ok = send(": ping\n\n")
 		case <-sub.Lost():
