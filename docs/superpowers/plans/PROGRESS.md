@@ -7,5 +7,6 @@ M19         done     PRs #8–#13 opened
 M20 task 1  done     aa655ef
 M20 task 2  done     183ee6e
 M20 task 3  done     31e76aa
-M20 task 4  done
+M20 task 4  done     c414864
+M20 task 5  done     worktree pruned; old worktree and feat/push-checks kept (see review-after.md)
 ```
