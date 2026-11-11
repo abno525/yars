@@ -105,9 +105,47 @@ func TestGateStaleAfterRuleChange(t *testing.T) {
 	if st, err := s.CheckStatus(eng, fd); err != nil || !st.Stale {
 		t.Fatalf("status after a rule change: %+v %v", st, err)
 	}
+	// Ready to approve reads the same gate
+	ref := load(t, s, fd)
+	name := eng + "/" + ref.F.Meta.ID
+	if gs, err := s.CheckGates([]GateKey{{Eng: eng, Fid: ref.F.Meta.ID, Hash: ref.Hash}}); err != nil || gs[name] != GateRules {
+		t.Fatalf("gates after a rule change: %v %v", gs, err)
+	}
 	checkNow(t, s, fd)
 	if g, _ := s.CheckGate(eng, fd); g != "" {
 		t.Fatalf("after a new run: %q", g)
+	}
+	if gs, err := s.CheckGates([]GateKey{{Eng: eng, Fid: ref.F.Meta.ID, Hash: ref.Hash}}); err != nil || len(gs) != 0 {
+		t.Fatalf("gates after a new run: %v %v", gs, err)
+	}
+}
+
+// Q13: a Retry of one rule after the rules changed runs every rule (a page
+// loaded before the change still offers Retry): the other rules' results
+// came from the old rules, and a new rule never ran.
+func TestRetryAfterRuleChangeRunsEveryRule(t *testing.T) {
+	s, dir, fd := ready(t)
+	withRules(t, s, dir, "- id: a\n  target: title\n  regex_forbid: 'zzz'\n")
+	checkNow(t, s, fd)
+	p := filepath.Join(dir, ".yars", "rules", "style.yaml")
+	if err := os.WriteFile(p, []byte("- id: a\n  target: title\n  regex_forbid: 'zzz'\n- id: b\n  target: title\n  regex_forbid: 'qqqq'\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	later := time.Now().Add(time.Minute)
+	os.Chtimes(p, later, later)
+	if _, err := s.RetryCheck(eng, fd, "a", uAlice); err != nil {
+		t.Fatal(err)
+	}
+	s.WaitChecks()
+	st, err := s.CheckStatus(eng, fd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if x := stepOf(t, st, "b"); x.State != db.StepPass {
+		t.Fatalf("the new rule after a retry: %+v", x)
+	}
+	if g, err := s.CheckGate(eng, fd); err != nil || g != "" {
+		t.Fatalf("after the retry: %q %v", g, err)
 	}
 }
 

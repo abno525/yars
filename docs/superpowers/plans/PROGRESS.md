@@ -40,5 +40,6 @@ M23 task 5  done     6903760
 M23 task 6  done     b600394
 M23 task 7  done     6a8f1db
 M23 task 6  review   fix 48bbb32
-M23 task 5  review   fix (running run, repeated heading)
+M23 task 5  review   fix 220c4bd (running run, repeated heading)
+M23 task 7  review   fix (retry after a rule change, empty rules folder)
 ```

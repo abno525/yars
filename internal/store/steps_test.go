@@ -27,7 +27,10 @@ func TestCheckSteps(t *testing.T) {
 	s, dir, fd := ready(t)
 	rd := filepath.Join(dir, ".yars", "rules")
 	withRules(t, s, dir, checkRules+"- id: scr\n  script: x.sh\n")
-	os.WriteFile(filepath.Join(rd, "x.sh"), []byte("#!/bin/sh\ncat >/dev/null\necho boom >&2\nexit 3\n"), 0o755)
+	// fails until a file outside the rules folder exists, as a passing
+	// failure does (editing a rule file makes the whole run out of date)
+	ok := filepath.Join(dir, "scr-ok")
+	os.WriteFile(filepath.Join(rd, "x.sh"), []byte("#!/bin/sh\ncat >/dev/null\nif [ -e "+ok+" ]; then echo '[]'; exit 0; fi\necho boom >&2\nexit 3\n"), 0o755)
 	st := checked(t, s, fd)
 	if len(st.Steps) != 3 || st.Steps[0].Rule != "no-sql" || st.Steps[2].Rule != "scr" {
 		t.Fatalf("steps %+v", st.Steps)
@@ -44,7 +47,7 @@ func TestCheckSteps(t *testing.T) {
 	threads := checkThreads(t, s, fd)
 
 	// Retry runs only the failed rule; the others keep their results
-	os.WriteFile(filepath.Join(rd, "x.sh"), []byte("#!/bin/sh\ncat >/dev/null\necho '[]'\n"), 0o755)
+	os.WriteFile(ok, nil, 0o644)
 	if _, err := s.RetryCheck(eng, fd, "scr", uAlice); err != nil {
 		t.Fatal(err)
 	}

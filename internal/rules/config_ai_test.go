@@ -58,6 +58,24 @@ func TestEngineVersionChangesWithRuleFile(t *testing.T) {
 	}
 }
 
+// An empty rules folder has a version too: a run with no rules is out of
+// date once rules are added ("" is left for a linter that cannot tell).
+func TestEngineVersionOfNoRules(t *testing.T) {
+	dir := t.TempDir()
+	e := NewEngine(dir, config.Default())
+	v0 := e.Version()
+	if len(v0) != 16 {
+		t.Fatalf("version of no rules %q", v0)
+	}
+	p := filepath.Join(dir, "style.yaml")
+	if err := os.WriteFile(p, []byte("- id: a\n  target: title\n  regex_forbid: 'x'\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if v := e.Version(); v == v0 || len(v) != 16 {
+		t.Fatalf("after a rule was added: %q (before %q)", v, v0)
+	}
+}
+
 // Q11: AI rules can run only with a provider and a key.
 func TestAIConfigured(t *testing.T) {
 	e := NewEngine(t.TempDir(), config.Default())

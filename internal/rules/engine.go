@@ -109,7 +109,8 @@ func (e *Engine) signature() string {
 }
 
 // version is a SHA-256 over every file under the rules folder (path and
-// contents, in path order), 16 hex characters; "" when there is none.
+// contents, in path order), 16 hex characters; a folder without files has
+// one too, so a run with no rules is out of date once rules are added.
 func (e *Engine) version() string {
 	var paths []string
 	filepath.WalkDir(e.Dir, func(p string, d fs.DirEntry, err error) error {
@@ -118,9 +119,6 @@ func (e *Engine) version() string {
 		}
 		return nil
 	})
-	if len(paths) == 0 {
-		return ""
-	}
 	sort.Strings(paths)
 	h := sha256.New()
 	for _, p := range paths {

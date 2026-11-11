@@ -325,7 +325,8 @@ func (s *Store) startCheck(engID, dir, only string, u config.User) (db.CheckRun,
 	var keep *carried
 	if only != "" {
 		prev, ok, err := s.db.LatestRun(engID, fid)
-		if err == nil && ok && prev.State != db.RunRunning && prev.ContentHash == hash {
+		// kept only from a run on this content with these rules (Q13)
+		if err == nil && ok && prev.State != db.RunRunning && prev.ContentHash == hash && !rulesChanged(prev.Rules, s.rulesVersion()) {
 			keep, err = s.carry(prev.ID, only)
 		}
 		if err != nil {
