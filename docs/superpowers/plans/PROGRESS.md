@@ -24,5 +24,6 @@ M22 task 1  done     aa387bd
 M22 task 2  done     321ce25 (browser check passed: no policy refusals; list holds off while ticked)
 M22 task 2  review   test fixed 071b67b
 M22 task 3  done     3fd25ee
-M22 task 4  done     (manual: SIGINT with an open page stops in under a second, exit 0)
+M22 task 4  done     83c4dad (manual: SIGINT with an open page stops in under a second, exit 0)
+M22 task 5  done
 ```

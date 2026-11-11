@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func lastCommit(t *testing.T, dir string) string {
@@ -128,6 +129,27 @@ func TestHeadChanges(t *testing.T) {
 func TestOpenNonRepo(t *testing.T) {
 	if _, err := Open(t.TempDir()); err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+// A git command that hangs is stopped after Timeout, even when the process
+// it started (a hook, here a sleep) still holds its output open.
+func TestRunTimesOut(t *testing.T) {
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "git"), []byte("#!/bin/sh\nsleep 5\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	old := Timeout
+	Timeout = 200 * time.Millisecond
+	t.Cleanup(func() { Timeout = old })
+	start := time.Now()
+	err := (&Repo{Dir: t.TempDir()}).SetConfig("a.b", "c")
+	if took := time.Since(start); took > 2*time.Second {
+		t.Fatalf("returned after %s", took)
+	}
+	if err == nil || !strings.Contains(err.Error(), "timed out after 200ms") {
+		t.Fatalf("err %v", err)
 	}
 }
 

@@ -3,6 +3,7 @@ package gitrepo
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -24,13 +25,28 @@ type Repo struct {
 	Dir string
 }
 
+// Timeout bounds every git command run through Repo.run (not the long-lived
+// cat-file --batch processes, not git http-backend).
+var Timeout = 2 * time.Minute
+
+// waitDelay is how long a timed-out git's output is still read: a process it
+// started (a hook) may hold the pipes open after git is killed.
+const waitDelay = time.Second
+
 func (r *Repo) run(env []string, args ...string) (string, error) {
-	cmd := exec.Command("git", append([]string{"-C", r.Dir, "-c", "commit.gpgsign=false", "-c", "advice.addEmbeddedRepo=false"}, args...)...)
+	timeout := Timeout
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", r.Dir, "-c", "commit.gpgsign=false", "-c", "advice.addEmbeddedRepo=false"}, args...)...)
+	cmd.WaitDelay = waitDelay
 	cmd.Env = append(os.Environ(), env...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	spawned.Add(1)
 	if err := cmd.Run(); err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return "", fmt.Errorf("git %s: timed out after %s", strings.Join(args, " "), timeout)
+		}
 		return "", fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
 	}
 	return stdout.String(), nil
