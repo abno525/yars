@@ -163,4 +163,4 @@ Rules:
 
 - [x] **Step 1: write the failing tests.** `TestRetestOriginalCollapsed` (the retest page has `<details class="panel compact orig"` without ` open`); `TestAttachmentsPanelListsFiles` (after an upload the panel has the file's name, `PNG` and an Open link); `TestAttachmentsPanelEmptyRow`.
 - [x] **Step 2–4:** fail, implement, pass. **Step 5:** commit: `feat(finding): Original starts collapsed; attachments are listed on the page (D4)`.
-- [ ] **Step 6: browser check** of the whole page against boards 3.1–3.7 at 1440 × 900, light theme. Push the branch and open PR #18 (title `Finding page: Checks strip, one error count, status in chat`).
+- [x] **Step 6: browser check** of the whole page against boards 3.1–3.7 at 1440 × 900, light theme. Push the branch and open PR #18 (title `Finding page: Checks strip, one error count, status in chat`).

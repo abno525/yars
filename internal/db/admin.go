@@ -107,6 +107,14 @@ func (d *DB) Check() (string, error) {
 	return res, err
 }
 
+// Integrity runs SQLite's full integrity check ("ok" when sound): slower
+// than Check, it reads every page and index (Admin › System, Run integrity).
+func (d *DB) Integrity() (string, error) {
+	var res string
+	err := d.QueryRow("PRAGMA integrity_check").Scan(&res)
+	return res, err
+}
+
 // ChatCount is the number of chat messages (events included).
 func (d *DB) ChatCount() (int, error) {
 	var n int

@@ -246,7 +246,7 @@
 <section class="panel sys">
   <div class="panelhead">
     <h2>Health{{if .Errors}}<span class="tag bad">{{.Errors}} error{{if ne .Errors 1}}s{{end}}</span>{{end}}{{if .Warnings}}<span class="tag warn">{{.Warnings}} warning{{if ne .Warnings 1}}s{{end}}</span>{{end}}</h2>
-    <div class="actions"><span class="checked">Checked <span class="mono">{{.Checked}}</span></span><form method="post" action="/admin/system/check"><button class="btn save sm w128">Check again</button></form></div>
+    <div class="actions"><span class="checked">Checked <span class="mono">{{.Checked}}</span></span><form method="post" action="/admin/system/check"><button class="btn save sm w128">Run integrity</button></form></div>
   </div>
   <div class="pbody flush">
     <table class="table stable healthtable">

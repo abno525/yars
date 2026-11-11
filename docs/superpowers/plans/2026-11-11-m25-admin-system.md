@@ -36,8 +36,8 @@ func (d *DB) Integrity() (string, error)
 
 Rules: the button's label becomes `Run integrity` (same route `POST /admin/system/check`, same slot `w128`). A run adds two rows to the Health table after "Database integrity": the existing row now reports `integrity_check` instead of `quick_check` when run from the button; a new row **Git repositories** runs `gitrepo.Repo.Fsck()` (M21) on the main repo and every engagement repo: `OK · <N> repos` or `Error · <first failing repo>` with the git message as detail. On the plain page load (no button) the git row shows `Not run` (state `off`), as the AI row does.
 
-- [ ] **Step 1: write the failing tests.** `TestRunIntegrityButton` (the System page has a button `Run integrity` and no `Check again`); `TestRunIntegrityRunsFsck` (after the POST the Health table has `Git repositories` with `OK · 2 repos`); `TestRunIntegrityReportsBrokenRepo` (delete a loose object of the engagement repo; the row is `Error` and names `acme`); `TestIntegrity` (`db`): returns `ok`.
-- [ ] **Step 2–4:** fail, implement, pass. **Step 5:** commit: `feat(admin): Run integrity checks the database and every repository (D24)`.
+- [x] **Step 1: write the failing tests.** `TestRunIntegrityButton` (the System page has a button `Run integrity` and no `Check again`); `TestRunIntegrityRunsFsck` (after the POST the Health table has `Git repositories` with `OK · 2 repos`); `TestRunIntegrityReportsBrokenRepo` (delete a loose object of the engagement repo; the row is `Error` and names `acme`); `TestIntegrity` (`db`): returns `ok`.
+- [x] **Step 2–4:** fail, implement, pass. **Step 5:** commit: `feat(admin): Run integrity checks the database and every repository (D24)`.
 
 ### Task 2: Retention
 

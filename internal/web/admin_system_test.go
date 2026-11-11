@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -144,7 +145,7 @@ func TestAdminSystem(t *testing.T) {
 	}
 	// every panel's actions sit in its header, next to the title
 	heads := map[string][]string{
-		"Health":     {"Checked", ">Check again<"},
+		"Health":     {"Checked", ">Run integrity<"},
 		"Backup":     {">Download backup<"},
 		"Operations": {">Sync pointers<", ">Rebuild index<", ">Migrate status<"},
 	}
@@ -203,9 +204,9 @@ func TestAdminSystem(t *testing.T) {
 	}
 }
 
-// The health checks run on Check again, not on every page load or after
+// The health checks run on Run integrity, not on every page load or after
 // an operation; the page shows the last run. The AI provider is only
-// pinged on Check again.
+// pinged on Run integrity.
 func TestSystemHealthCached(t *testing.T) {
 	e := setupSerial(t) // t.Setenv
 	// a provider with a key, at an address that refuses at once
@@ -230,14 +231,14 @@ func TestSystemHealthCached(t *testing.T) {
 	}
 	rec := e.do(t, "dora", "POST", "/admin/system/check", url.Values{}, nil)
 	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/admin/system" || e.srv.healthRuns.Load() != 2 {
-		t.Fatalf("check again %d runs %d", rec.Code, e.srv.healthRuns.Load())
+		t.Fatalf("run integrity %d runs %d", rec.Code, e.srv.healthRuns.Load())
 	}
 	b = e.do(t, "dora", "GET", "/admin/system", nil, nil).Body.String()
 	if strings.Contains(between(b, ">AI provider<", "</tr>"), ">Not run<") {
-		t.Fatalf("AI not checked by Check again:\n%s", b)
+		t.Fatalf("AI not checked by Run integrity:\n%s", b)
 	}
 	if !strings.Contains(b, `action="/admin/system/check"`) {
-		t.Fatal("no Check again form")
+		t.Fatal("no Run integrity form")
 	}
 }
 
@@ -300,6 +301,71 @@ func TestAdminAI(t *testing.T) {
 	e.do(t, "dora", "POST", "/admin/ai", url.Values{"provider": {"off"}}, nil)
 	if v, _ := d.Setting("ai.provider"); v != "off" {
 		t.Fatalf("provider %q", v)
+	}
+}
+
+// healthRow is the Health table's row for a check.
+func healthRowOf(t *testing.T, b, name string) string {
+	t.Helper()
+	i := strings.Index(b, ">"+name+"<")
+	if i < 0 {
+		t.Fatalf("no %s row:\n%s", name, b)
+	}
+	return b[i : i+strings.Index(b[i:], "</tr>")]
+}
+
+// D24: one button checks everything; it replaces Check again.
+func TestRunIntegrityButton(t *testing.T) {
+	e := setup(t)
+	b := e.do(t, "dora", "GET", "/admin/system", nil, nil).Body.String()
+	head := between(b, "<h2>Health", `<div class="pbody`)
+	if !strings.Contains(head, `<form method="post" action="/admin/system/check"><button class="btn save sm w128">Run integrity</button></form>`) || strings.Contains(b, "Check again") {
+		t.Fatalf("Health head:\n%s", head)
+	}
+	// a page load runs no fsck: the row says so
+	if row := healthRowOf(t, b, "Git repositories"); !strings.Contains(row, `<span class="tag off">Not run</span>`) {
+		t.Fatalf("git row on a page load:\n%s", row)
+	}
+	if row := healthRowOf(t, b, "Database integrity"); !strings.Contains(row, "quick_check ok") {
+		t.Fatalf("database row on a page load:\n%s", row)
+	}
+}
+
+// D24: Run integrity checks every repository and the whole database.
+func TestRunIntegrityRunsFsck(t *testing.T) {
+	e := setup(t)
+	if rec := e.do(t, "dora", "POST", "/admin/system/check", url.Values{}, nil); rec.Code != http.StatusSeeOther {
+		t.Fatalf("run %d", rec.Code)
+	}
+	b := e.do(t, "dora", "GET", "/admin/system", nil, nil).Body.String()
+	row := healthRowOf(t, b, "Git repositories")
+	if !strings.Contains(row, `<span class="tag good">OK</span>`) || !strings.Contains(row, `title="2 repos">2 repos<`) {
+		t.Fatalf("git row:\n%s", row)
+	}
+	if dbRow := healthRowOf(t, b, "Database integrity"); !strings.Contains(dbRow, "integrity_check ok") {
+		t.Fatalf("database row:\n%s", dbRow)
+	}
+	if i, j := strings.Index(b, ">Database integrity<"), strings.Index(b, ">Git repositories<"); i > j {
+		t.Fatal("Git repositories is not after Database integrity")
+	}
+}
+
+// D24: a repository that lost an object is named.
+func TestRunIntegrityReportsBrokenRepo(t *testing.T) {
+	e := setup(t)
+	repo := filepath.Join(e.dir, "engagements", "acme")
+	out, err := exec.Command("git", "-C", repo, "rev-parse", "HEAD:findings/"+fdir+"/finding.md").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	blob := strings.TrimSpace(string(out))
+	if err := os.Remove(filepath.Join(repo, ".git", "objects", blob[:2], blob[2:])); err != nil {
+		t.Fatal(err)
+	}
+	e.do(t, "dora", "POST", "/admin/system/check", url.Values{}, nil)
+	row := healthRowOf(t, e.do(t, "dora", "GET", "/admin/system", nil, nil).Body.String(), "Git repositories")
+	if !strings.Contains(row, `<span class="tag bad">Error</span>`) || !strings.Contains(row, `title="acme">acme<`) {
+		t.Fatalf("git row with a broken repository:\n%s", row)
 	}
 }
 

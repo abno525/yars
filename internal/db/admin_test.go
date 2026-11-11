@@ -161,6 +161,14 @@ func TestSnapshot(t *testing.T) {
 	}
 }
 
+// D24: Run integrity runs SQLite's full check, not the quick one.
+func TestIntegrity(t *testing.T) {
+	d, _ := open(t)
+	if res, err := d.Integrity(); err != nil || res != "ok" {
+		t.Fatalf("integrity %q %v", res, err)
+	}
+}
+
 func TestAuditFilter(t *testing.T) {
 	d, _ := open(t)
 	d.Audit("ann", "login", "", "")

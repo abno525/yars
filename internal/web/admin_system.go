@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os/exec"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -56,10 +57,12 @@ func (s *Server) routesAdminSystem(mux *http.ServeMux) {
 	// a POST, so the cross-origin check covers it: a link elsewhere can't
 	// make an admin's browser save a backup (with the key)
 	mux.HandleFunc("POST /admin/system/backup", s.adminOnly(s.backup))
-	mux.HandleFunc("POST /admin/system/check", s.adminOnly(func(w http.ResponseWriter, r *http.Request) {
+	// Run integrity: fsck reads every object of every repository, which can
+	// outlast the server's write deadline
+	mux.Handle("POST /admin/system/check", longLived(s.adminOnly(func(w http.ResponseWriter, r *http.Request) {
 		s.runHealth(r.Context(), true)
 		http.Redirect(w, r, "/admin/system", http.StatusSeeOther)
-	}))
+	})))
 	mux.HandleFunc("POST /admin/system/sync", s.adminOnly(s.systemOp("sync")))
 	mux.HandleFunc("POST /admin/system/reindex", s.adminOnly(s.systemOp("reindex")))
 	mux.HandleFunc("POST /admin/system/migrate", s.adminOnly(s.systemOp("migrate")))
@@ -250,10 +253,11 @@ func (s *Server) lastHealthOr(ctx context.Context) healthAdmin {
 	return s.runHealth(ctx, false)
 }
 
-// runHealth runs the checks and keeps the result; ping also asks the AI
-// provider for a reply (a paid call, so only on Check again).
-func (s *Server) runHealth(ctx context.Context, ping bool) healthAdmin {
-	v := s.health(ctx, ping)
+// runHealth runs the checks and keeps the result; full is Run integrity:
+// it also asks the AI provider for a reply (a paid call), runs SQLite's
+// full integrity check and fsck on every repository (slow, so only then).
+func (s *Server) runHealth(ctx context.Context, full bool) healthAdmin {
+	v := s.health(ctx, full)
 	s.lastHealth.Store(&v)
 	return v
 }
@@ -266,8 +270,9 @@ func checkedAt(t time.Time) string {
 	return t.Format("02 Jan")
 }
 
-// health runs every check of the System page's Health panel.
-func (s *Server) health(ctx context.Context, ping bool) healthAdmin {
+// health runs every check of the System page's Health panel (full: Run
+// integrity, see runHealth).
+func (s *Server) health(ctx context.Context, full bool) healthAdmin {
 	s.healthRuns.Add(1)
 	now := time.Now()
 	v := healthAdmin{at: now, Checked: checkedAt(now)}
@@ -288,10 +293,38 @@ func (s *Server) health(ctx context.Context, ping bool) healthAdmin {
 	check("Destinations", "", s.healthDests)
 	check("pandoc + PDF engine", "", s.healthPandoc)
 	check("Git server repos", "", s.healthGit)
-	check("AI provider", "/admin/ai", func() healthResult { return s.healthAI(ctx, ping) })
+	check("AI provider", "/admin/ai", func() healthResult { return s.healthAI(ctx, full) })
 	check("Disk free", "", s.healthDisk)
-	check("Database integrity", "", s.healthDB)
+	check("Database integrity", "", func() healthResult { return s.healthDB(full) })
+	check("Git repositories", "", func() healthResult { return s.healthFsck(full) })
 	return v
+}
+
+// healthFsck runs git fsck on the main repository and every engagement's
+// (Run integrity only: it reads every object): the first one that fails is
+// named, with git's message.
+func (s *Server) healthFsck(full bool) healthResult {
+	if !full {
+		return healthResult{State: "off", Label: "Not run", Result: "Not run"}
+	}
+	if err := s.Store.Repo().Fsck(); err != nil {
+		return hBad("main", err.Error())
+	}
+	ids, err := s.Store.EngagementIDs()
+	if err != nil {
+		return hBad("unreadable", err.Error())
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
+		r, err := s.Store.EngRepo(id)
+		if err == nil {
+			err = r.Fsck()
+		}
+		if err != nil {
+			return hBad(id, err.Error())
+		}
+	}
+	return hGood(plural(len(ids)+1, "repo"), "fsck")
 }
 
 func hBad(result, detail string) healthResult {
@@ -325,15 +358,21 @@ func (s *Server) healthGit() healthResult {
 	return hGood(res, ver)
 }
 
-func (s *Server) healthDB() healthResult {
+// healthDB checks the database: quick_check on a page load, the full
+// integrity_check on Run integrity.
+func (s *Server) healthDB(full bool) healthResult {
 	d := s.Store.DB()
-	res, err := d.Check()
+	check, name := d.Check, "quick_check"
+	if full {
+		check, name = d.Integrity, "integrity_check"
+	}
+	res, err := check()
 	if err != nil {
 		return hBad("check failed", err.Error())
 	}
 	n, _ := d.Size()
 	ver, _ := d.Version()
-	detail := "quick_check " + res + " · schema v" + strconv.Itoa(ver)
+	detail := name + " " + res + " · schema v" + strconv.Itoa(ver)
 	if res != "ok" || ver != db.SchemaVersion {
 		return hBad(size(n), detail)
 	}

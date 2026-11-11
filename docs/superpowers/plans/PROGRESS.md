@@ -55,4 +55,6 @@ M24 task 2  review   fix 2 0172169 (the strip reads the store's open-check sourc
 M24 task 5  done     1eae352 (browser check of the whole page passed: strip closed 48 px under the text and Attachments; bar two rows, no list; Return event red in the chat; side column duplicates then chat; retest Original closed 50 px; no sideways scroll)
 M24 task 5  review   passed; nits a60012f (liveTrigger, access pin, Original test bound)
 M24 branch  reviewed fixes f1cace6 (closed strip keeps refreshing; Original state kept; withdrawn strip place)
+M24 PR      opened   #18
+M25 task 1  done
 ```
