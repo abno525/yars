@@ -144,7 +144,7 @@ func (s *Server) engOverview(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	v := overviewView{Bars: barsOf(sum)}
+	v := overviewView{Bars: overviewBars(sum)}
 	for _, row := range rows {
 		v.OpenTotal += row.OpenThreads
 	}
@@ -200,8 +200,11 @@ func (s *Server) engReport(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	// the total adds up the rows: findings with a severity (R10)
-	p.Report.Severity, p.Report.Total = chartOf(sum.Severities), sum.Total-sum.Unscored
+	// the total is the sum of the rows: findings with a configured severity (R10)
+	p.Report.Severity = chartOf(sum.Severities)
+	for _, c := range sum.Severities {
+		p.Report.Total += c.N
+	}
 	s.render(w, "eng_report.html", p)
 }
 

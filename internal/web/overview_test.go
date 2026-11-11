@@ -30,6 +30,15 @@ func TestOverviewUnscoredSegment(t *testing.T) {
 	}
 }
 
+// The findings list's own bars are not changed: no unscored segment there.
+func TestBoardBarsWithoutUnscored(t *testing.T) {
+	e := setup(t) // F-001 is a new draft without severity
+	b := e.do(t, "alice", "GET", "/e/acme", nil, nil).Body.String()
+	if strings.Contains(b, `class="seg-none"`) {
+		t.Fatalf("the findings list's bar shows unscored drafts:\n%s", between(b, `class="bars"`, "</section>"))
+	}
+}
+
 // The numbers the legends and tables repeated live in a By severity panel
 // of tiles: one per configured severity, and "—" for unscored drafts when
 // there are any.

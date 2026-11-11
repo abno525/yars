@@ -59,11 +59,16 @@ func barsOf(s index.Summary) boardBars {
 			st = append(st, c)
 		}
 	}
-	// unscored drafts are the severity bar's last segment, "none" (R10); the
-	// legend keeps the configured severities only, so it never shifts
-	sev := barOf(append(slices.Clone(s.Severities), index.Count{Key: "none", N: s.Unscored}))
-	sev.Legend = sev.Legend[:len(sev.Legend)-1]
-	return boardBars{Progress: barOf(st), Severity: sev, Reported: s.ByStatus["reported"], Total: s.Total}
+	return boardBars{Progress: barOf(st), Severity: barOf(s.Severities), Reported: s.ByStatus["reported"], Total: s.Total}
+}
+
+// overviewBars are barsOf with unscored drafts as the severity bar's last
+// segment, "none" (R10: the Overview shows them; the findings list's bars
+// stay as they are).
+func overviewBars(s index.Summary) boardBars {
+	b := barsOf(s)
+	b.Severity = barOf(append(slices.Clone(s.Severities), index.Count{Key: "none", N: s.Unscored}))
+	return b
 }
 
 // engRow is one engagement on the home table.
