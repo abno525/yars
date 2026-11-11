@@ -129,12 +129,12 @@ Rules:
 2. `chat_list` draws an event as: `<div class="chatev ev-{{.Kind}}"><span class="what"><strong>{{.User}}</strong> {{.What}}{{if .Text}}: <span class="text">{{.Text}}</span>{{end}}</span><span class="time">{{.Time}}</span></div>`.
 3. The tail rule stays "the newest 50 messages, whole threads": events do not count towards the 50; an event is shown when it is newer than the oldest shown thread, and older events are behind "Show older (N)", where N still counts messages.
 
-- [ ] **Step 1: write the failing tests.**
+- [x] **Step 1: write the failing tests.**
   - `TestStatusEventsInChat`: after Submit, the chat list has `class="chatev ev-submit"` with `submitted it for verification`; the page has no `id="activity"`.
   - `TestChatOrderMixesEventsAndThreads`: comment, submit, comment: the three appear in that order in `#chat-list`.
   - `TestChatTailCountsMessagesOnly`: 60 messages and 30 events: `Show older (10)`.
   - `TestReturnReasonShownInChat`: after Return with a reason, the event row holds the reason.
-- [ ] **Step 2–4:** fail, implement, pass (update tests that read the Status panel). **Step 5:** commit: `feat(finding): status changes are read in the chat (D21)`.
+- [x] **Step 2–4:** fail, implement, pass (update tests that read the Status panel). **Step 5:** commit: `feat(finding): status changes are read in the chat (D21)`.
 
 ### Task 5: retest Original collapsed; Attachments panel (D4 items 4 and 5)
 

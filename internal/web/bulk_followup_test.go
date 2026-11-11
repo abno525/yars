@@ -153,7 +153,7 @@ func TestBulkTimeLimit(t *testing.T) {
 func TestTakeBackEventColour(t *testing.T) {
 	e := setup(t)
 	css := e.do(t, "dora", "GET", "/static/style.css", nil, nil).Body.String()
-	for _, rule := range []string{".event.ev-take_back::before { background: var(--bar-draft); }", ".dot.ev-take_back { background: var(--bar-draft); }"} {
+	for _, rule := range []string{".chatev.ev-take_back::before { background: var(--bar-draft); }", ".dot.ev-take_back { background: var(--bar-draft); }"} {
 		if !strings.Contains(css, rule) {
 			t.Errorf("no rule %q", rule)
 		}

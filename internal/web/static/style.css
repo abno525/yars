@@ -373,19 +373,17 @@ table.kv { width: 100%; border-collapse: collapse; }
 .lock svg { width: 16px; height: 16px; }
 .slot.lockslot { min-height: 32px; justify-content: flex-end; }
 
-/* status box: marker colour per event */
-.activity { flex: none; max-height: 30vh; overflow-y: auto; }
-.events { list-style: none; padding: 0; display: flex; flex-direction: column; gap: 10px; }
-.event { font-size: 14px; display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; gap: 10px; align-items: baseline; }
-.event::before { content: ""; width: 10px; height: 10px; background: var(--verification); }
-.event.ev-return::before, .event.ev-withdraw::before { background: var(--red); }
-.event.ev-clear::before, .event.ev-approve::before { background: var(--green); }
-.event.ev-report::before { background: var(--ink); }
-.event.ev-reopen::before, .event.ev-revise::before { background: var(--accent); }
-.event.ev-take_back::before { background: var(--bar-draft); }
-.event .what { min-width: 0; overflow-wrap: anywhere; }
-.event .text { white-space: pre-wrap; }
-.event .time { font: 500 12px var(--mono); color: var(--muted); white-space: nowrap; }
+/* status changes in the chat (D21): marker colour per event */
+.chatev { padding: 12px 20px; border-bottom: 1px solid var(--line-soft); font-size: 14px; display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; gap: 10px; align-items: baseline; }
+.chatev::before { content: ""; width: 10px; height: 10px; background: var(--verification); }
+.chatev.ev-return::before, .chatev.ev-withdraw::before { background: var(--red); }
+.chatev.ev-clear::before, .chatev.ev-approve::before { background: var(--green); }
+.chatev.ev-report::before { background: var(--ink); }
+.chatev.ev-reopen::before, .chatev.ev-revise::before { background: var(--accent); }
+.chatev.ev-take_back::before { background: var(--bar-draft); }
+.chatev .what { min-width: 0; overflow-wrap: anywhere; }
+.chatev .text { white-space: pre-wrap; }
+.chatev .time { font: 500 12px var(--mono); color: var(--muted); white-space: nowrap; }
 
 /* chat: list scrolls, composer stays at the bottom */
 .chat { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }

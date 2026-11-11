@@ -410,7 +410,7 @@ func TestChatPollShortCircuit(t *testing.T) {
 	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "second") {
 		t.Fatalf("changed poll code %d", rec.Code)
 	}
-	// a workflow event changes the stamp too (it shows in the status box)
+	// a workflow event changes the stamp too (it shows in the chat)
 	m = regexp.MustCompile(`id="chat-list" hx-get="([^"]+)"`).FindStringSubmatch(rec.Body.String())
 	list = strings.ReplaceAll(m[1], "&amp;", "&")
 	e.toVerification(t)

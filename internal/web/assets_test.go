@@ -163,7 +163,7 @@ func TestMergePage(t *testing.T) {
 		t.Fatalf("source %s", st)
 	}
 	p := e.do(t, "dora", "GET", fpath, nil, nil).Body.String()
-	if !strings.Contains(p, "Merged from F-002") || !strings.Contains(p, "x.example") || !strings.Contains(p, `class="event ev-merge"`) {
+	if !strings.Contains(p, "Merged from F-002") || !strings.Contains(p, "x.example") || !strings.Contains(p, `class="chatev ev-merge"`) {
 		t.Fatalf("target after merge:\n%s", p)
 	}
 }

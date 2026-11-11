@@ -88,9 +88,9 @@ type chatEvent struct {
 }
 
 type chatView struct {
+	// Items is the timeline in order: status changes (Event) and threads
+	// (D21: status changes are read in the chat)
 	Items                []chatItem
-	Events               []chatEvent // status changes, shown in their own box above the chat
-	OOB                  bool        // partial response: also refresh the status box out of band
 	Open                 int
 	BySection            map[string]int
 	Hash                 string
@@ -179,35 +179,43 @@ func (s *Server) chatFor(ref store.FindingRef, msgs []chat.Message, stamp string
 		v.ListURL += "?" + e
 	}
 	v.Open, v.BySection = chat.OpenCount(msgs)
-	var threads []*chat.Thread
-	for _, it := range chat.Timeline(msgs) {
-		if it.Event != nil {
-			e := it.Event
-			what := eventText[e.Event]
-			if what == "" {
-				what = e.Event
-			}
-			v.Events = append(v.Events, chatEvent{User: e.User, Time: e.TS.Local().Format("2006-01-02 15:04"), What: what, Text: e.Text, Kind: e.Event})
-			continue
+	items := chat.Timeline(msgs)
+	var threads []int // the threads' places in items
+	for i, it := range items {
+		if it.Thread != nil {
+			threads = append(threads, i)
 		}
-		threads = append(threads, it.Thread)
 	}
+	// the newest threads holding chatTail messages, whole; events do not
+	// count, and those older than the oldest thread shown wait with it
+	from := 0
 	if !all {
 		keep, shown := len(threads), 0
 		for keep > 0 {
-			n := 1 + len(threads[keep-1].Replies)
+			n := 1 + len(items[threads[keep-1]].Thread.Replies)
 			if shown > 0 && shown+n > chatTail {
 				break
 			}
 			shown += n
 			keep--
 		}
-		for _, t := range threads[:keep] {
-			v.Older += 1 + len(t.Replies)
+		for _, i := range threads[:keep] {
+			v.Older += 1 + len(items[i].Thread.Replies)
 		}
-		threads = threads[keep:]
+		if keep > 0 {
+			from = threads[keep]
+		}
 	}
-	for _, th := range threads {
+	for _, it := range items[from:] {
+		if e := it.Event; e != nil {
+			what := eventText[e.Event]
+			if what == "" {
+				what = e.Event
+			}
+			v.Items = append(v.Items, chatItem{Event: &chatEvent{User: e.User, Time: e.TS.Local().Format("2006-01-02 15:04"), What: what, Text: e.Text, Kind: e.Event}})
+			continue
+		}
+		th := it.Thread
 		t := &chatThread{Root: s.chatMsg(th.Root), Resolved: th.Resolved, ResolvedBy: th.ResolvedBy}
 		if th.Resolved {
 			t.Hidden = hidden[th.Root.ID]
@@ -239,7 +247,6 @@ func (s *Server) chatList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	v := s.chatFor(ref, msgs, stamp, q.Get("all") == "1", s.hiddenFor(r, ref))
-	v.OOB = true
 	s.exec(w, "finding.html", "chat_list", v)
 }
 
@@ -267,7 +274,7 @@ func (s *Server) chatHide(on bool) http.HandlerFunc {
 			return
 		}
 		v := s.chatFor(ref, msgs, stamp, r.FormValue("all") == "1", s.hiddenFor(r, ref))
-		v.OOB, v.ListError = true, listErr
+		v.ListError = listErr
 		s.execStatus(w, status, "finding.html", "chat_list", v)
 	}
 }
@@ -287,7 +294,6 @@ func (s *Server) chatPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	v := s.chatFor(ref, msgs, stamp, r.FormValue("all") == "1", s.hiddenFor(r, ref))
-	v.OOB = true
 	// Thread actions (reply/resolve/reopen) refresh only the list, so a draft
 	// in the main composer is never cleared by them.
 	if m.Reply != "" || m.Resolves != "" || m.Reopens != "" {
