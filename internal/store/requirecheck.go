@@ -170,8 +170,30 @@ func (s *Store) CheckGates(keys []GateKey) (map[string]string, error) {
 	if s.beforeGateMap != nil {
 		s.beforeGateMap()
 	}
+	// each run's state as it is now first (a run may finish meanwhile), then
+	// its AI steps, so both are read after the run ended
+	type judged struct {
+		state, runHash string
+		running        bool
+	}
+	now := map[string]judged{}
 	ids := make([]int64, 0, len(runs))
-	for _, r := range runs {
+	for _, k := range keys {
+		name := k.Eng + "/" + k.Fid
+		r, ok := runs[name]
+		if !ok {
+			continue
+		}
+		j := judged{state: r.State, runHash: r.ContentHash}
+		j.running = j.state == db.RunRunning && s.inProgress(checkKey(k.Eng, k.Fid), r.ID)
+		if j.state == db.RunRunning && !j.running {
+			run, err := s.db.Run(r.ID) // finished meanwhile, or left by an earlier server
+			if err != nil {
+				return nil, err
+			}
+			j.state, j.runHash = run.State, run.ContentHash
+		}
+		now[name] = j
 		ids = append(ids, r.ID)
 	}
 	aiFailed, err := s.aiFailed(ids) // one query for every run
@@ -186,16 +208,8 @@ func (s *Store) CheckGates(keys []GateKey) (map[string]string, error) {
 			out[name] = GateNoRun
 			continue
 		}
-		state, runHash := r.State, r.ContentHash
-		running := state == db.RunRunning && s.inProgress(checkKey(k.Eng, k.Fid), r.ID)
-		if state == db.RunRunning && !running {
-			now, err := s.db.Run(r.ID) // finished meanwhile, or left by an earlier server
-			if err != nil {
-				return nil, err
-			}
-			state, runHash = now.State, now.ContentHash
-		}
-		if g := gateOf(state, runHash, k.Hash, running, aiFailed[r.ID], r.Rules, nowRules); g != "" {
+		j := now[name]
+		if g := gateOf(j.state, j.runHash, k.Hash, j.running, aiFailed[r.ID], r.Rules, nowRules); g != "" {
 			out[name] = g
 		}
 	}
