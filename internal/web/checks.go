@@ -56,6 +56,9 @@ type checksView struct {
 	// what it shows, like every other empty panel.
 	Empty bool
 	Open  bool // the strip starts open: a check is running, or the author's draft has errors
+	// Withdrawn: no strip, only its hidden place, which keeps listening so
+	// a restore brings the strip back (and a withdraw takes it away) live
+	Withdrawn bool
 }
 
 // kindTag is a rule kind's short tag on a step row.
@@ -135,9 +138,10 @@ func where(target string) string {
 	return target
 }
 
-// checksFor builds the checks panel: the latest run's results (the fast
-// rules' results now while none is finished), split into open and dismissed
-// rows, with what the viewer may dismiss.
+// checksFor builds the Checks strip: what the store's open checks read (the
+// fast rules now and the results stored for this content, Store.CheckItems)
+// and the workflow gate's problems, split into open and dismissed rows, with
+// what the viewer may dismiss; the latest run's state and steps.
 func (s *Server) checksFor(r *http.Request, ref store.FindingRef) checksView {
 	base := findingURL(ref.EngID, ref.Dir) + "/checks"
 	v := checksView{URL: base, DismissURL: base + "/dismiss", UndismissURL: base + "/undismiss", RetryURL: base + "/retry"}
@@ -145,6 +149,9 @@ func (s *Server) checksFor(r *http.Request, ref store.FindingRef) checksView {
 		return v
 	}
 	v.Enabled = true
+	if v.Withdrawn = ref.F.Meta.Status == workflow.Withdrawn; v.Withdrawn {
+		return v
+	}
 	set := s.Rules.Rules()
 	for _, pr := range set.Problems {
 		if pr.Level == "error" {

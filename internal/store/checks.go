@@ -187,9 +187,10 @@ func (s *Store) openChecks(ref FindingRef, hash string) ([]rules.Violation, erro
 
 // CheckItems lists what the finding page's Checks strip shows for the
 // finding as it is now, from the source OpenChecks reads: the fast rules run
-// now and the results stored for the current content (storedChecks), with
-// notices and dismissed ones kept (the strip lists them apart). A run in
-// progress, out of date or cut off adds nothing of its own.
+// now (their notices too: a broken rule file) and the results stored for the
+// current content (storedChecks, which leaves out a rule that failed), with
+// dismissed ones kept (the strip lists them apart). A run in progress, out
+// of date or cut off adds nothing of its own.
 func (s *Store) CheckItems(engID, dir string) ([]rules.Violation, error) {
 	if s.Linter == nil {
 		return nil, nil

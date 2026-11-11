@@ -40,6 +40,11 @@ func TestRetestOriginalCollapsed(t *testing.T) {
 	if css := e.do(t, "alice", "GET", "/static/style.css", nil, nil).Body.String(); !strings.Contains(css, ".panel.orig:not([open]) > .panelhead { border-bottom: 0; }") {
 		t.Fatal("the closed Original keeps its head's line")
 	}
+	// the user's choice is kept for this finding in this tab: setting the
+	// result reloads the page and must not fold it away
+	if js := e.do(t, "alice", "GET", "/static/app.js", nil, nil).Body.String(); !strings.Contains(js, "yars-orig:") || !strings.Contains(js, "#retest details.orig") {
+		t.Fatal("app.js does not remember the Original")
+	}
 }
 
 func TestRetestSideBySide(t *testing.T) {

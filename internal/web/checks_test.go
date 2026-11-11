@@ -159,8 +159,20 @@ func TestChecksStripHiddenWhenWithdrawnOrNoRules(t *testing.T) {
 	if err := e.srv.Store.Transition("acme", fdir, workflow.Withdraw, "dup", wDora); err != nil {
 		t.Fatal(err)
 	}
-	if b := e.do(t, "alice", "GET", fpath, nil, nil).Body.String(); strings.Contains(b, `id="checks"`) {
-		t.Fatal("a strip on a withdrawn finding")
+	// withdrawn: an empty hidden place that keeps listening, so a live
+	// withdraw removes the strip and a restore brings it back
+	place := `<div id="checks" hidden hx-get="/e/acme/f/001/checks" hx-trigger="sse:check, sse:content, sse:workflow, sse:resync, sse:poll" hx-swap="outerHTML" data-sse></div>`
+	for _, p := range []string{fpath, fpath + "/checks"} {
+		b := e.do(t, "alice", "GET", p, nil, nil).Body.String()
+		if strings.Contains(b, `class="panel checks`) || !strings.Contains(b, place) {
+			t.Fatalf("%s on a withdrawn finding:\n%s", p, b)
+		}
+	}
+	if err := e.srv.Store.Transition("acme", fdir, workflow.Revise, "", wDora); err != nil {
+		t.Fatal(err)
+	}
+	if b := e.do(t, "alice", "GET", fpath+"/checks", nil, nil).Body.String(); !strings.Contains(b, `<details class="panel checks strip`) {
+		t.Fatalf("no strip after the restore:\n%s", b)
 	}
 }
 
@@ -327,6 +339,11 @@ func TestAppJSRemembersChecksStrip(t *testing.T) {
 	js := e.do(t, "alice", "GET", "/static/app.js", nil, nil).Body.String()
 	if !strings.Contains(js, "yars-checks:") || !strings.Contains(js, "data-running") {
 		t.Fatal("app.js does not remember the strip")
+	}
+	// an empty Dismiss row left in a closed strip does not hold its refreshes
+	// (a typed reason still does)
+	if !strings.Contains(js, "(t.id === 'checks' && t.open && !!t.querySelector('.dismissrow:not([hidden])'))") {
+		t.Fatal("a closed strip's refreshes wait for a hidden Dismiss row")
 	}
 }
 

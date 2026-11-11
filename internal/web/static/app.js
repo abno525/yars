@@ -313,7 +313,7 @@ document.addEventListener('htmx:beforeSwap', function (evt) {
   var busy = Array.prototype.some.call(t.querySelectorAll('input[name=text], input[name=reason], textarea'), function (i) {
     return i.value !== '' || i === document.activeElement;
   }) || (t.id === 'workflow' && !!t.querySelector('details[open], .wfpanel:not([hidden])')) ||
-    (t.id === 'checks' && !!t.querySelector('.dismissrow:not([hidden])'));
+    (t.id === 'checks' && t.open && !!t.querySelector('.dismissrow:not([hidden])'));
   if (busy) evt.detail.shouldSwap = false;
 });
 
@@ -353,6 +353,23 @@ document.addEventListener('submit', function (evt) {
   var d = evt.target.closest && evt.target.closest('#checks');
   if (!d || !d.open) return;
   try { sessionStorage.setItem(yarsChecksKey(), 'open'); } catch (e) { /* not kept */ }
+});
+// Retest: the Original starts closed; the user's choice is kept for this
+// finding in this tab (setting the result reloads the page)
+function yarsOrigKey() { return 'yars-orig:' + location.pathname; }
+function yarsOrigApply() {
+  var d = document.querySelector('#retest details.orig');
+  if (!d) return;
+  try { if (sessionStorage.getItem(yarsOrigKey()) === 'open') d.open = true; } catch (e) { /* not kept */ }
+}
+document.addEventListener('toggle', function (evt) {
+  var d = evt.target;
+  if (!d.matches || !d.matches('#retest details.orig')) return;
+  try { sessionStorage.setItem(yarsOrigKey(), d.open ? 'open' : 'closed'); } catch (e) { /* not kept */ }
+}, true); // toggle does not bubble
+document.addEventListener('DOMContentLoaded', yarsOrigApply);
+document.addEventListener('htmx:afterSwap', function (evt) {
+  if (evt.detail.target && evt.detail.target.id === 'retest') yarsOrigApply();
 });
 document.addEventListener('DOMContentLoaded', yarsChecksApply);
 document.addEventListener('htmx:afterSwap', function (evt) {

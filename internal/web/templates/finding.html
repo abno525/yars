@@ -46,7 +46,7 @@
     {{template "cvss_panel" .CVSS}}
     {{range .Panels}}{{template "panel" .}}{{end}}
     {{with .Attach}}{{template "attachments_panel" .}}{{end}}
-    {{if not $wd}}{{template "checks_panel" .Checks}}{{end}}
+    {{template "checks_panel" .Checks}}
   </div>
   <div class="side">
     {{if .Dups.Rows}}{{template "dups_panel" .Dups}}{{end}}

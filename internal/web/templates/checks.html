@@ -1,7 +1,7 @@
 {{define "check_started"}}{{template "workflow_bar" .WF}}{{template "checks_panel" .Checks}}{{end}}
 
 {{define "checks_panel"}}
-{{if .Enabled}}
+{{if .Enabled}}{{if .Withdrawn}}<div id="checks" hidden hx-get="{{.URL}}" hx-trigger="sse:check, sse:content, sse:workflow, sse:resync, sse:poll" hx-swap="outerHTML" data-sse></div>{{else}}
 <details class="panel checks strip{{if .Empty}} empty{{end}}" id="checks"{{if .Open}} open{{end}}{{if .Running}} data-running{{end}} hx-get="{{.URL}}" hx-trigger="sse:check, sse:content, sse:workflow, sse:resync, sse:poll{{if .OOB}}, load{{end}}" hx-swap="outerHTML" data-sse{{if .OOB}} hx-swap-oob="true"{{end}}>
   <summary class="panelhead">
     <div class="panelname">
@@ -72,7 +72,7 @@
     {{end}}
   </div>
 </details>
-{{end}}
+{{end}}{{end}}
 {{end}}
 
 {{define "step_row"}}{{with .Step}}
