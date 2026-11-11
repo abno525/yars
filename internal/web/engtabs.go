@@ -11,6 +11,7 @@ import (
 	"yars/internal/auth"
 	"yars/internal/index"
 	"yars/internal/store"
+	"yars/internal/workflow"
 )
 
 // engTabs is the tab bar under an engagement's title; On is the open tab.
@@ -19,11 +20,10 @@ type engTabs struct {
 	On    string
 }
 
-// overviewView is the Overview tab: counts and the severity chart.
+// overviewView is the Overview tab: tiles and bars only (R1).
 type overviewView struct {
 	Tiles     []tile
-	Severity  []chartRow
-	Statuses  []chartRow
+	SevTiles  []tile // one per configured severity with its count, then "—" for unscored drafts when there are any
 	Bars      boardBars
 	OpenTotal int
 }
@@ -144,14 +144,19 @@ func (s *Server) engOverview(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	v := overviewView{Bars: barsOf(sum), Severity: chartOf(sum.Severities)}
+	v := overviewView{Bars: barsOf(sum)}
 	for _, row := range rows {
 		v.OpenTotal += row.OpenThreads
 	}
-	v.Statuses = chartOf(sum.Statuses)
 	v.Tiles = []tile{
 		{"Findings", strconv.Itoa(sum.Total)}, {"Complete or reported", strconv.Itoa(sum.Done)},
 		{"Progress", strconv.Itoa(sum.Progress) + " %"}, {"Open threads", strconv.Itoa(v.OpenTotal)},
+	}
+	for _, c := range sum.Severities {
+		v.SevTiles = append(v.SevTiles, tile{workflow.StatusTitle(c.Key), strconv.Itoa(c.N)})
+	}
+	if sum.Unscored > 0 {
+		v.SevTiles = append(v.SevTiles, tile{"—", strconv.Itoa(sum.Unscored)})
 	}
 	p.Overview = v
 	s.render(w, "eng_overview.html", p)
@@ -195,7 +200,8 @@ func (s *Server) engReport(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	p.Report.Severity, p.Report.Total = chartOf(sum.Severities), sum.Total
+	// the total adds up the rows: findings with a severity (R10)
+	p.Report.Severity, p.Report.Total = chartOf(sum.Severities), sum.Total-sum.Unscored
 	s.render(w, "eng_report.html", p)
 }
 

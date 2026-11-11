@@ -109,7 +109,12 @@ func Report(in Input) string {
 		kicker = "Retest report"
 	}
 	counts := in.Counts()
-	total := len(in.Findings)
+	// the summary counts the findings with a severity (R10): a draft without
+	// one is in the body if selected, not in the totals
+	total := 0
+	for _, c := range counts {
+		total += c.N
+	}
 	b.WriteString(`<div class="rp-cover">` + "\n")
 	fmt.Fprintf(&b, `<p><span class="rp-brand">YARS</span> <span class="rp-kicker">%s</span> <span class="rp-title">%s</span> <span class="rp-sub">%s</span></p>`+"\n",
 		esc(kicker), esc(in.Engagement.Name), esc(in.subtitle()))

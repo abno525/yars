@@ -19,7 +19,9 @@ import (
 	"testing"
 	"time"
 
+	"yars/internal/config"
 	"yars/internal/finding"
+	"yars/internal/store"
 )
 
 // The script exporter gets the engagement with lowercase keys and each
@@ -217,6 +219,31 @@ func TestReportHTML(t *testing.T) {
 	in.Findings[1].SetMeta("details", map[string]string{"Location": `<script>x</script>`})
 	if x := Report(in); strings.Contains(x, "<script>") {
 		t.Fatal("not escaped")
+	}
+}
+
+// R10: the summary counts the exported findings that have a severity; one
+// without is left out of the counts and their total (it stays in the body).
+func TestExportSummaryCountsScoredOnly(t *testing.T) {
+	high := mk(t, "F-001", "SQL injection", "high", "complete", nil)
+	draft := mk(t, "F-002", "Open redirect", "", "draft", nil)
+	in := Input{Engagement: store.Engagement{ID: "acme", Name: "ACME Web"}, Findings: []*finding.Finding{high, draft}, Cfg: config.Default()}
+	x := Report(in)
+	sum := 0
+	for _, c := range in.Counts() {
+		sum += c.N
+	}
+	if sum != 1 {
+		t.Fatalf("counts sum to %d", sum)
+	}
+	if !strings.Contains(x, "<tr><th>Findings</th><td>1</td></tr>") {
+		t.Fatalf("summary total:\n%s", x)
+	}
+	if !strings.Contains(x, `data-w="110.0">1 high</span>`) {
+		t.Fatalf("the cover bar is not all high:\n%s", x)
+	}
+	if !strings.Contains(x, `id="rp-F-002"`) {
+		t.Fatal("the unscored finding left the report body")
 	}
 }
 

@@ -176,6 +176,7 @@ type Summary struct {
 	ByStatus   map[string]int // every stored status, withdrawn included
 	ByShown    map[string]int // every shown state (signed off apart), withdrawn included
 	BySeverity map[string]int // non-withdrawn only; "" = no severity
+	Unscored   int            // non-withdrawn findings without a severity
 	Statuses   []Count        // shown states in ShownOrder, withdrawn last (Pct of Total; 0 for withdrawn)
 	Severities []Count        // the configured severities in order
 }
@@ -203,6 +204,7 @@ func summarize(rows []Row, sevs []string) Summary {
 		}
 	}
 	s.Progress = pct(s.Done, s.Total)
+	s.Unscored = s.BySeverity[""]
 	for _, st := range ShownOrder {
 		c := Count{Key: st, N: s.ByShown[st]}
 		if workflow.Active(st) {

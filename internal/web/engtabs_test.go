@@ -46,7 +46,8 @@ func TestOverviewTab(t *testing.T) {
 	e := setup(t)
 	e.toVerification(t) // F-001 high, in verification
 	b := e.do(t, "alice", "GET", "/e/acme/overview", nil, nil).Body.String()
-	for _, want := range []string{`class="tiles"`, `class="tag sev-high"`, `class="sevchart`, "<th", `class="bar"`} {
+	// tiles and bars only (R1): the high finding is a tile and a bar segment
+	for _, want := range []string{`class="tiles"`, `<span class="tv">1</span><span class="tl">High</span>`, `<rect class="seg-high"`, `class="bar"`} {
 		if !strings.Contains(b, want) {
 			t.Fatalf("missing %q:\n%s", want, b)
 		}

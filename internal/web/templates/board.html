@@ -2,7 +2,7 @@
 
 {{define "bar"}}
 <svg class="bar" viewBox="0 0 100 16" preserveAspectRatio="none" aria-hidden="true">
-  {{range .Segs}}<rect class="seg-{{.Key}}" x="{{.X}}" y="0" width="{{.W}}" height="16"><title>{{.N}} {{statusLabel .Key}}</title></rect>{{else}}<rect class="seg-empty" x="0" y="0" width="100" height="16"></rect>{{end}}
+  {{range .Segs}}<rect class="seg-{{.Key}}" x="{{.X}}" y="0" width="{{.W}}" height="16"><title>{{if eq .Key "none"}}—{{else}}{{statusLabel .Key}}{{end}} · {{.N}}</title></rect>{{else}}<rect class="seg-empty" x="0" y="0" width="100" height="16"></rect>{{end}}
 </svg>
 {{end}}
 

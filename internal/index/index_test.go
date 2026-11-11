@@ -185,6 +185,23 @@ func TestRowsTextMatchesIDTitleAsset(t *testing.T) {
 	}
 }
 
+// R10: findings without a severity are counted on their own.
+func TestSummaryUnscored(t *testing.T) {
+	ix, s := fixture(t)
+	f, err := s.CreateFinding("other", "Y", alice)
+	if err != nil {
+		t.Fatal(err)
+	}
+	setMeta(t, s, "other", f.Dir, "draft", "low") // "Z" stays without severity
+	sum, err := ix.Summary("other")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sum.Unscored != 1 || sum.Total != 2 {
+		t.Fatalf("unscored %d of %d", sum.Unscored, sum.Total)
+	}
+}
+
 func TestFilterByEngagementAndStatus(t *testing.T) {
 	ix, _ := fixture(t)
 	rows, err := ix.Rows(Query{EngID: "acme"})

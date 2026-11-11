@@ -740,6 +740,7 @@ progress::-moz-progress-bar { background: var(--accent); }
 .seg-low { fill: var(--sev-low); background: var(--sev-low); }
 .seg-info { fill: var(--bar-info); background: var(--bar-info); }
 .sw.seg-info { outline: 1px solid var(--bar-draft); outline-offset: -1px; }
+.seg-none { fill: var(--tag-draft); background: var(--tag-draft); } /* unscored drafts (R10) */
 
 /* findings table: fixed columns, the title takes the rest */
 .table.findings { table-layout: fixed; }
