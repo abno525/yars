@@ -63,6 +63,11 @@ func TestMoveHashAndRenameChatSection(t *testing.T) {
 		t.Fatal(err)
 	}
 	run, _ := d.StartRun("acme", "F-001", "old", "bob", "")
+	if err := d.TxFor("acme", func(tx *Tx) error { return tx.FinishRun(run, RunDone, "", nil) }); err != nil {
+		t.Fatal(err)
+	}
+	// a run still going checks the old content: it finishes out of date
+	going, _ := d.StartRun("acme", "F-001", "old", "bob", "")
 	if err := d.TxFor("acme", func(tx *Tx) error {
 		if err := tx.MoveHash("acme", "F-001", "old", "new"); err != nil {
 			return err
@@ -80,6 +85,9 @@ func TestMoveHashAndRenameChatSection(t *testing.T) {
 	}
 	if r, _ := d.Run(run); r.ContentHash != "new" {
 		t.Fatalf("run hash %q", r.ContentHash)
+	}
+	if r, _ := d.Run(going); r.ContentHash != "old" {
+		t.Fatalf("running run hash %q", r.ContentHash)
 	}
 	ms, _ := d.Messages("acme", "F-001")
 	if len(ms) != 2 || ms[0].Section != "Business impact" || ms[1].Section != "Description" {

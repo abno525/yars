@@ -38,5 +38,7 @@ M23 task 2  review   fix cafc51c
 M23 task 3  review   fix 4643d30
 M23 task 5  done     6903760
 M23 task 6  done     b600394
-M23 task 7  done
+M23 task 7  done     6a8f1db
+M23 task 6  review   fix 48bbb32
+M23 task 5  review   fix (running run, repeated heading)
 ```

@@ -35,6 +35,27 @@ func subjects(t *testing.T, repo string, n string) []string {
 	return strings.Split(strings.TrimSpace(string(out)), "\n")
 }
 
+// a heading a push wrote twice is renamed in both places, text kept
+func TestRenameSectionEveryHeading(t *testing.T) {
+	f := finding.New("", "SQL injection", "", []string{"Impact"})
+	f.SetSection("Impact", "Data loss.")
+	f.Sections = append(f.Sections, finding.Section{Name: "Impact", Body: "Downtime."})
+	apply, err := renamer("section", []string{"Impact"}, toBusiness, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := apply(f); err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, x := range f.Sections {
+		got = append(got, x.Name+": "+strings.TrimSpace(x.Body))
+	}
+	if !slices.Equal(got, []string{"Business impact: Data loss.", "Business impact: Downtime."}) {
+		t.Fatalf("sections %q", got)
+	}
+}
+
 // Q10: a section renamed in Admin › Structure is renamed in every finding,
 // one commit each.
 func TestRenameSectionRewritesFindings(t *testing.T) {

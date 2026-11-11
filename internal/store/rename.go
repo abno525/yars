@@ -103,20 +103,21 @@ func renamer(list string, olds []string, renames map[string]string, detailsOrder
 		return func(f *finding.Finding) error {
 			for _, o := range olds {
 				n := renames[o]
-				i := slices.IndexFunc(f.Sections, func(x finding.Section) bool { return x.Name == o })
-				if i < 0 {
+				if !slices.ContainsFunc(f.Sections, func(x finding.Section) bool { return x.Name == o }) {
 					continue
 				}
-				if j := slices.IndexFunc(f.Sections, func(x finding.Section) bool { return x.Name == n }); j >= 0 {
-					if strings.TrimSpace(f.Sections[j].Body) != "" {
+				for _, x := range f.Sections {
+					if x.Name == n && strings.TrimSpace(x.Body) != "" {
 						return fmt.Errorf("%w: %s has text under both %s and %s", ErrInvalidValue, f.Meta.ID, o, n)
 					}
-					f.Sections = slices.Delete(f.Sections, j, j+1)
-					if j < i {
-						i--
+				}
+				f.Sections = slices.DeleteFunc(f.Sections, func(x finding.Section) bool { return x.Name == n })
+				// every heading of the name (a push may have written one twice)
+				for i := range f.Sections {
+					if f.Sections[i].Name == o {
+						f.Sections[i].Name = n
 					}
 				}
-				f.Sections[i].Name = n
 			}
 			return nil
 		}, nil
