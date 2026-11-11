@@ -156,15 +156,15 @@ Behaviour of `cmdBackup`: `--out` is required and must not exist (`"<file> exist
 
 Behaviour of `cmdRestore`: both flags are required; `--data` here is never defaulted from `YARS_DATA` or `yars use`. It prints the report as four lines (`schema v18`, `2 engagements`, `3 findings`, `secret key: yes|no`), then, without a key, `stored AI and personal keys must be entered again`, then `next: yars serve --data <newdir>`.
 
-- [ ] **Step 1: write the failing tests.**
+- [x] **Step 1: write the failing tests.**
   - `TestBackupWritesVerifiedZip`: after `initData` and one finding, `cmdBackup` writes the file; `backup.Verify` accepts it; no `.part` file remains.
   - `TestBackupRefusesExistingOut`.
   - `TestBackupRetriesInconsistent`: replace the package variable `verifyBackup` (set to `backup.Verify` by default) with a fake that fails twice, then passes; the command succeeds and the fake ran three times. With a fake that always fails, the command returns the "could not take" error and no file remains.
   - `TestRestoreCommandRoundTrip`: backup, then restore into a new folder; `gitrepo.Open` and `openDB` work on it; the output has `next: yars serve --data`.
   - `TestRestoreNeedsBothFlags`.
-- [ ] **Step 2:** run `go test ./cmd/yars -run "Backup|Restore"`. Expected: FAIL.
-- [ ] **Step 3:** implement the two commands; add `case "backup"` and `case "restore"` to `main`; add both to `usage` and the package comment.
-- [ ] **Step 4:** run the tests. Expected: PASS. Commit: `feat(cli): yars backup and yars restore`.
+- [x] **Step 2:** run `go test ./cmd/yars -run "Backup|Restore"`. Expected: FAIL.
+- [x] **Step 3:** implement the two commands; add `case "backup"` and `case "restore"` to `main`; add both to `usage` and the package comment.
+- [x] **Step 4:** run the tests. Expected: PASS. Commit: `feat(cli): yars backup and yars restore`.
 
 ### Task 5: a snapshot before a migration
 

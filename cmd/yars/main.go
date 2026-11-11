@@ -8,6 +8,8 @@
 //	yars admin --data <dir> <username> on|off
 //	yars serve --data <dir> [--addr :8080]
 //	yars migrate --data <dir>   (move state and chat from files into the database)
+//	yars backup --data <dir> [--key] --out <file.zip>   (works while the server runs)
+//	yars restore --from <file.zip> --data <new dir>   (--data is required: never the default)
 //	yars lint --data <dir> [--all] [<engagement>[/<finding-dir>]]
 //	yars seed --data <new dir> --engagements N --findings M --messages K   (development data)
 //
@@ -572,6 +574,8 @@ func usage() {
   yars token list --data <dir>
   yars token revoke --data <dir> [--id N] <user>
   yars migrate --data <dir>
+  yars backup --data <dir> [--key] --out <file.zip>
+  yars restore --from <file.zip> --data <new dir>
   yars lint --data <dir> [--all] [eng[/finding]]
   yars export --data <dir> --exporter <id> <eng>
   yars mcp --data <clone> --user <name>
@@ -603,6 +607,10 @@ func main() {
 		err = cmdUse(os.Args[2:], os.Stdout)
 	case "migrate":
 		err = cmdMigrate(os.Args[2:], os.Stdout)
+	case "backup":
+		err = cmdBackup(os.Args[2:], os.Stdout)
+	case "restore":
+		err = cmdRestore(os.Args[2:], os.Stdout)
 	case "serve":
 		err = cmdServe(os.Args[2:])
 	case "export":
