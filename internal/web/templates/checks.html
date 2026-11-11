@@ -2,8 +2,8 @@
 
 {{define "checks_panel"}}
 {{if .Enabled}}
-<section class="panel checks{{if .Empty}} empty{{end}}" id="checks" hx-get="{{.URL}}" hx-trigger="sse:check, sse:content, sse:resync, sse:poll{{if .OOB}}, load{{end}}" hx-swap="outerHTML" data-sse{{if .OOB}} hx-swap-oob="true"{{end}}>
-  <div class="panelhead">
+<details class="panel checks strip{{if .Empty}} empty{{end}}" id="checks"{{if .Open}} open{{end}}{{if .Running}} data-running{{end}} hx-get="{{.URL}}" hx-trigger="sse:check, sse:content, sse:resync, sse:poll{{if .OOB}}, load{{end}}" hx-swap="outerHTML" data-sse{{if .OOB}} hx-swap-oob="true"{{end}}>
+  <summary class="panelhead">
     <div class="panelname">
       <h2>Checks</h2>
       <span class="cnt">Errors {{if .Errors}}<span class="badge">{{.Errors}}</span>{{else}}<span class="badge0">0</span>{{end}}</span>
@@ -13,7 +13,7 @@
       <span class="slot w152">{{if .State}}<span class="checkstate check-{{.State}}" title="{{.Error}}">{{.StateLabel}}</span>{{end}}</span>
       <span class="runinfo mono" title="{{.Progress}}">{{.Progress}}</span>
     </div>
-  </div>
+  </summary>
   <div class="checkbody flush">
     {{if .Error}}<p class="checkerr" title="{{.Error}}">{{.Error}}</p>{{end}}
     {{if or .Steps .AIFailed}}
@@ -71,7 +71,7 @@
     </details>
     {{end}}
   </div>
-</section>
+</details>
 {{end}}
 {{end}}
 

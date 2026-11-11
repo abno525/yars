@@ -42,5 +42,7 @@ M23 task 7  done     6a8f1db
 M23 task 6  review   fix 48bbb32
 M23 task 5  review   fix 220c4bd (running run, repeated heading)
 M23 task 7  review   fix cda90e2 (retry after a rule change, empty rules folder)
-M23 branch  reviewed fixes (rename conflict before the save, inbox drafts, decisions table)
+M23 branch  reviewed fixes 6961084 (rename conflict before the save, inbox drafts, decisions table; its review passed)
+M23 PR      opened   #17
+M24 task 1  done     (browser check passed: stays closed and stays open across a second session's edit; opens while Check runs and closes after; a typed Dismiss reason survives a refresh)
 ```

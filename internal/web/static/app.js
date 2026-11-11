@@ -317,6 +317,30 @@ document.addEventListener('htmx:beforeSwap', function (evt) {
   if (busy) evt.detail.shouldSwap = false;
 });
 
+// Checks strip: the server opens it while a check runs or the author's
+// draft has errors; a click on its head is the user's choice, kept for this
+// finding in this tab and re-applied after live refreshes (never against a
+// running check, which stays open).
+function yarsChecksKey() { return 'yars-checks:' + location.pathname; }
+function yarsChecksApply() {
+  var d = document.getElementById('checks');
+  if (!d || d.tagName !== 'DETAILS' || d.hasAttribute('data-running')) return;
+  var want = null;
+  try { want = sessionStorage.getItem(yarsChecksKey()); } catch (e) { return; }
+  if (want === 'open') d.open = true;
+  if (want === 'closed') d.open = false;
+}
+document.addEventListener('click', function (evt) {
+  var s = evt.target.closest && evt.target.closest('#checks > summary');
+  if (!s) return;
+  // the click toggles after this handler: the state it leads to
+  try { sessionStorage.setItem(yarsChecksKey(), s.parentNode.open ? 'closed' : 'open'); } catch (e) { /* not kept */ }
+});
+document.addEventListener('DOMContentLoaded', yarsChecksApply);
+document.addEventListener('htmx:afterSwap', function (evt) {
+  if (evt.detail.target && evt.detail.target.id === 'checks') yarsChecksApply();
+});
+
 // Team board: a live refresh (sse:…) waits while something is being typed
 // or a menu is open there; the user's own clicks always swap.
 document.addEventListener('htmx:beforeSwap', function (evt) {

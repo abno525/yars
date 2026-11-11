@@ -30,16 +30,128 @@ func (e *env) rules(t *testing.T, yaml string, scripts map[string]string) {
 	e.srv.Store.Linter = eng
 }
 
-// checksPanel is the checks panel (#checks) of a page or fragment.
+// checksPanel is the Checks strip (#checks, a <details> that holds the
+// Dismissed <details>) of a page or fragment.
 func checksPanel(t *testing.T, b string) string {
 	t.Helper()
 	i := strings.Index(b, `id="checks"`)
 	if i < 0 {
 		t.Fatalf("no checks panel:\n%s", b)
 	}
-	i = strings.LastIndex(b[:i], "<section")
-	j := strings.Index(b[i:], "</section>")
-	return b[i : i+j]
+	i = strings.LastIndex(b[:i], "<details")
+	if i < 0 {
+		t.Fatalf("the checks panel is not a <details>:\n%s", b)
+	}
+	depth := 0
+	for j := i; ; {
+		o, c := strings.Index(b[j:], "<details"), strings.Index(b[j:], "</details>")
+		if c < 0 {
+			t.Fatalf("checks panel not closed:\n%s", b[i:])
+		}
+		if o >= 0 && o < c {
+			depth, j = depth+1, j+o+len("<details")
+			continue
+		}
+		depth, j = depth-1, j+c+len("</details>")
+		if depth == 0 {
+			return b[i:j]
+		}
+	}
+}
+
+// stripTag is the Checks strip's opening tag.
+func stripTag(t *testing.T, b string) string {
+	t.Helper()
+	p := checksPanel(t, b)
+	return p[:strings.Index(p, ">")+1]
+}
+
+// D2: the strip starts closed for a viewer who is not the draft's author.
+func TestChecksStripClosedByDefault(t *testing.T) {
+	e := setup(t)
+	e.rules(t, "- id: title-word\n  target: title\n  regex_forbid: 'injection'\n  message: Avoid the word injection\n", nil)
+	tag := stripTag(t, e.do(t, "bob", "GET", fpath, nil, nil).Body.String())
+	if !strings.HasPrefix(tag, `<details class="panel checks strip`) || strings.Contains(tag, " open") {
+		t.Fatalf("strip for bob: %s", tag)
+	}
+	css := e.do(t, "dora", "GET", "/static/style.css", nil, nil).Body.String()
+	if !strings.Contains(css, "summary.panelhead { cursor: pointer; list-style: none; }") || !strings.Contains(css, ".panel.checks.strip:not([open]) { height: 48px; }") {
+		t.Fatal("no strip styles")
+	}
+}
+
+// D2: the author of a draft with errors finds the strip open.
+func TestChecksStripOpenForAuthorWithErrors(t *testing.T) {
+	e := setup(t)
+	e.rules(t, "- id: title-word\n  target: title\n  regex_forbid: 'injection'\n  message: Avoid the word injection\n", nil)
+	if tag := stripTag(t, e.do(t, "alice", "GET", fpath, nil, nil).Body.String()); !strings.Contains(tag, " open") {
+		t.Fatalf("strip for alice: %s", tag)
+	}
+	// without errors it stays closed for her too
+	e.rules(t, "- id: no-zebra\n  target: title\n  regex_forbid: 'zebra'\n", nil)
+	if tag := stripTag(t, e.do(t, "alice", "GET", fpath, nil, nil).Body.String()); strings.Contains(tag, " open") {
+		t.Fatalf("clean strip for alice: %s", tag)
+	}
+}
+
+// D2: while a check runs the strip is open for every viewer and says so.
+func TestChecksStripOpenWhileRunning(t *testing.T) {
+	e := setupSerial(t)
+	flag := filepath.Join(e.dir, "go-on")
+	e.rules(t, styleRules, map[string]string{"check.sh": "cat >/dev/null; while [ ! -e " + flag + " ]; do sleep 0.05; done; echo '[]'\n"})
+	t.Cleanup(func() {
+		os.WriteFile(flag, nil, 0o644)
+		e.srv.Store.WaitChecks()
+	})
+	if rec := e.do(t, "alice", "POST", fpath+"/checks", url.Values{}, nil); rec.Code != 200 {
+		t.Fatalf("start %d", rec.Code)
+	}
+	for _, u := range []string{"alice", "bob", "carol", "dora"} {
+		tag := stripTag(t, e.do(t, u, "GET", fpath, nil, nil).Body.String())
+		if !strings.Contains(tag, " open") || !strings.Contains(tag, " data-running") {
+			t.Fatalf("running strip for %s: %s", u, tag)
+		}
+	}
+	os.WriteFile(flag, nil, 0o644)
+	e.srv.Store.WaitChecks()
+	if tag := stripTag(t, e.do(t, "bob", "GET", fpath+"/checks", nil, nil).Body.String()); strings.Contains(tag, "data-running") || strings.Contains(tag, " open") {
+		t.Fatalf("finished strip for bob: %s", tag)
+	}
+}
+
+// D2: the strip sits under the finding's text.
+func TestChecksStripAfterSections(t *testing.T) {
+	e := setup(t)
+	e.rules(t, styleRules, nil)
+	b := e.do(t, "alice", "GET", fpath, nil, nil).Body.String()
+	last := strings.LastIndex(b, `<section class="panel" id="s-`)
+	if last < 0 || strings.Index(b, `id="checks"`) < last {
+		t.Fatalf("checks at %d, last section at %d", strings.Index(b, `id="checks"`), last)
+	}
+}
+
+// D2: no strip on a withdrawn finding, none without rules.
+func TestChecksStripHiddenWhenWithdrawnOrNoRules(t *testing.T) {
+	e := setup(t)
+	if b := e.do(t, "alice", "GET", fpath, nil, nil).Body.String(); strings.Contains(b, `id="checks"`) {
+		t.Fatal("a strip without rules")
+	}
+	e.rules(t, styleRules, nil)
+	if err := e.srv.Store.Transition("acme", fdir, workflow.Withdraw, "dup", wDora); err != nil {
+		t.Fatal(err)
+	}
+	if b := e.do(t, "alice", "GET", fpath, nil, nil).Body.String(); strings.Contains(b, `id="checks"`) {
+		t.Fatal("a strip on a withdrawn finding")
+	}
+}
+
+// D2: the browser keeps the user's choice per finding, never against a run.
+func TestAppJSRemembersChecksStrip(t *testing.T) {
+	e := setup(t)
+	js := e.do(t, "alice", "GET", "/static/app.js", nil, nil).Body.String()
+	if !strings.Contains(js, "yars-checks:") || !strings.Contains(js, "data-running") {
+		t.Fatal("app.js does not remember the strip")
+	}
 }
 
 const styleRules = `
@@ -173,7 +285,7 @@ func TestChecksEmptyPanelHasNoSpaceBelow(t *testing.T) {
 	e := setupSerial(t)
 	e.rules(t, "- id: no-zebra\n  target: title\n  regex_forbid: 'zebra'\n", nil)
 	p := checksPanel(t, e.do(t, "alice", "GET", fpath+"/checks", nil, nil).Body.String())
-	if !strings.Contains(p, `<section class="panel checks empty" id="checks"`) {
+	if !strings.Contains(p, `<details class="panel checks strip empty" id="checks"`) {
 		t.Fatalf("empty panel:\n%s", p)
 	}
 	css := e.do(t, "dora", "GET", "/static/style.css", nil, nil).Body.String()
@@ -181,7 +293,7 @@ func TestChecksEmptyPanelHasNoSpaceBelow(t *testing.T) {
 		t.Fatal("no auto height for the empty checks panel")
 	}
 	e.rules(t, styleRules, nil)
-	if p := checksPanel(t, e.do(t, "alice", "GET", fpath+"/checks", nil, nil).Body.String()); !strings.Contains(p, `<section class="panel checks" id="checks"`) {
+	if p := checksPanel(t, e.do(t, "alice", "GET", fpath+"/checks", nil, nil).Body.String()); !strings.Contains(p, `<details class="panel checks strip" id="checks"`) {
 		t.Fatalf("panel with rows:\n%s", p)
 	}
 }
@@ -257,7 +369,7 @@ func TestChecksDismiss(t *testing.T) {
 		t.Fatalf("reviewer dismiss %d: %s", rec.Code, rec.Body.String())
 	}
 	p := rec.Body.String()
-	if !strings.Contains(p, "Dismissed") || !strings.Contains(p, ">bob<") || !strings.Contains(p, "<details") ||
+	if !strings.Contains(p, "Dismissed") || !strings.Contains(p, ">bob<") || !strings.Contains(p, `<details class="dismissed"`) ||
 		!strings.Contains(p, "<th class=\"c-reason\">Reason</th>") || !strings.Contains(p, "Injection is the client&#39;s term") {
 		t.Fatalf("dismissed row:\n%s", p)
 	}
@@ -272,7 +384,7 @@ func TestChecksDismiss(t *testing.T) {
 		t.Fatalf("pentester restored an error: %d", rec.Code)
 	}
 	rec = e.do(t, "dora", "POST", fpath+"/checks/undismiss", form, nil)
-	if rec.Code != 200 || strings.Contains(rec.Body.String(), "<details") {
+	if rec.Code != 200 || strings.Contains(rec.Body.String(), `<details class="dismissed"`) {
 		t.Fatalf("undismiss %d:\n%s", rec.Code, rec.Body.String())
 	}
 }
@@ -293,12 +405,12 @@ func TestChecksDismissEmptyQuoteByTarget(t *testing.T) {
 		t.Fatalf("dismiss %d: %s", rec.Code, rec.Body.String())
 	}
 	p = rec.Body.String()
-	i := strings.Index(p, "<details")
+	i := strings.Index(p, `<details class="dismissed"`)
 	if i < 0 || !strings.Contains(p[:i], "Port empty") || strings.Contains(p[:i], "Host empty") || !strings.Contains(p[i:], "Host empty") {
 		t.Fatalf("one dismissal hid both:\n%s", p)
 	}
 	rec = e.do(t, "alice", "POST", fpath+"/checks/undismiss", form, nil)
-	if rec.Code != 200 || strings.Contains(rec.Body.String(), "<details") {
+	if rec.Code != 200 || strings.Contains(rec.Body.String(), `<details class="dismissed"`) {
 		t.Fatalf("undismiss %d:\n%s", rec.Code, rec.Body.String())
 	}
 }

@@ -29,12 +29,12 @@
 {{template "retest_panel" .Retest}}
 <div class="finding-grid" data-sse-url="/events?eng={{.Eng.ID}}&amp;f={{$f.Meta.ID}}">
   <div class="finding-main">
-    {{template "checks_panel" .Checks}}
     {{if .Dups.Rows}}{{template "dups_panel" .Dups}}{{end}}
     {{template "details_panel" .Details}}
     {{template "assets_panel" .Assets}}
     {{template "cvss_panel" .CVSS}}
     {{range .Panels}}{{template "panel" .}}{{end}}
+    {{if not $wd}}{{template "checks_panel" .Checks}}{{end}}
   </div>
   <div class="side">
     {{template "activity" .Chat}}

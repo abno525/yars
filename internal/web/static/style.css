@@ -611,6 +611,13 @@ progress::-moz-progress-bar { background: var(--accent); }
 /* without result rows it is as high as what it shows, like other empty panels */
 .panel.checks.empty { height: auto; max-height: 360px; }
 .panel.checks > .panelhead { flex: none; }
+/* D2: the Checks strip under the text; closed it is its head alone, 48 px
+   high, and the head keeps its height when it opens */
+summary.panelhead { cursor: pointer; list-style: none; }
+summary.panelhead::-webkit-details-marker { display: none; }
+.panel.checks.strip > .panelhead { height: 46px; }
+.panel.checks.strip:not([open]) { height: 48px; }
+.panel.checks.strip:not([open]) > .panelhead { border-bottom: 0; }
 .checks .panelname { gap: 16px; }
 .checks .cnt { display: inline-flex; align-items: center; gap: 6px; flex: none; font: 600 13px var(--sans); color: var(--muted); }
 .checks .checkbody { flex: 1; min-height: 0; overflow-y: auto; scrollbar-gutter: stable; margin: 0; }
@@ -1322,8 +1329,9 @@ input.bigin { height: 48px; font: 600 18px var(--sans); border: 2px solid var(--
 .pvsec h3 { margin-bottom: 4px; font: 700 13px var(--sans); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
 .pvsec .md { font-size: 14px; line-height: 1.55; }
 .striplist { display: flex; flex-direction: column; }
-.strip { min-height: 56px; padding: 0 24px; display: grid; grid-template-columns: 20px 200px minmax(0, 1fr); gap: 14px; align-items: center; border-bottom: 1px solid var(--line-soft); font-size: 14px; font-weight: 400; cursor: pointer; }
-.strip input { width: 18px; height: 18px; }
+/* Save as template: one row per field to strip (not the Checks strip) */
+.striplist > .strip { min-height: 56px; padding: 0 24px; display: grid; grid-template-columns: 20px 200px minmax(0, 1fr); gap: 14px; align-items: center; border-bottom: 1px solid var(--line-soft); font-size: 14px; font-weight: 400; cursor: pointer; }
+.striplist > .strip input { width: 18px; height: 18px; }
 .panel .tsub { margin: 0; }
 
 /* history: events left, the selected change right */

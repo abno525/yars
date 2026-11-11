@@ -77,16 +77,16 @@ document.addEventListener('htmx:afterSwap', function (evt) {
 });
 ```
 
-- [ ] **Step 1: write the failing tests** (`checks_test.go`; add a rule file as the existing checks tests do).
+- [x] **Step 1: write the failing tests** (`checks_test.go`; add a rule file as the existing checks tests do).
   - `TestChecksStripClosedByDefault`: as `bob` on a draft with one rule error, `id="checks"` is a `<details` without ` open`.
   - `TestChecksStripOpenForAuthorWithErrors`: as `alice` (author) the same page has `<details … open`.
   - `TestChecksStripOpenWhileRunning`: with a run in progress (a linter that blocks on a channel, as `checks_test.go` already does) the strip has `open` and `data-running` for every viewer.
   - `TestChecksStripAfterSections`: in the page, the index of `id="checks"` is after the index of the last `<section class="panel" id="s-`.
   - `TestChecksStripHiddenWhenWithdrawnOrNoRules`: no `id="checks"` on a withdrawn finding; none without rules.
   - `TestAppJSRemembersChecksStrip`: `app.js` contains `yars-checks:` and `data-running`.
-- [ ] **Step 2:** run `go test ./internal/web -run ChecksStrip`. Expected: FAIL. **Step 3:** implement. **Step 4:** run `go test ./internal/web`. Fix tests that look for `<section class="panel checks`.
-- [ ] **Step 5: browser check:** close the strip, change the finding in a second session: it stays closed; press Check: it opens and, when the run ends without errors, returns to closed; open a Dismiss reason form and trigger a refresh: the form stays.
-- [ ] **Step 6:** commit: `feat(finding): Checks is a closed strip under the text (D2)`.
+- [x] **Step 2:** run `go test ./internal/web -run ChecksStrip`. Expected: FAIL. **Step 3:** implement. **Step 4:** run `go test ./internal/web`. Fix tests that look for `<section class="panel checks`.
+- [x] **Step 5: browser check:** close the strip, change the finding in a second session: it stays closed; press Check: it opens and, when the run ends without errors, returns to closed; open a Dismiss reason form and trigger a refresh: the form stays.
+- [x] **Step 6:** commit: `feat(finding): Checks is a closed strip under the text (D2)`.
 
 ### Task 2: one list of problems, one count (D3)
 

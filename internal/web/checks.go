@@ -51,6 +51,7 @@ type checksView struct {
 	// Empty: no result rows, open or dismissed; the panel is as high as
 	// what it shows, like every other empty panel.
 	Empty bool
+	Open  bool // the strip starts open: a check is running, or the author's draft has errors
 }
 
 // kindTag is a rule kind's short tag on a step row.
@@ -243,6 +244,8 @@ func (s *Server) checksFor(r *http.Request, ref store.FindingRef) checksView {
 		v.Rows = append(v.Rows, row)
 	}
 	v.Empty = len(v.Rows) == 0 && len(v.Dismissed) == 0
+	m := ref.F.Meta
+	v.Open = v.Running || (m.Status == "draft" && u.Username == m.Author && v.Errors > 0)
 	return v
 }
 
