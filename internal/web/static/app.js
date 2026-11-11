@@ -244,6 +244,36 @@ function yarsComment(section) {
   txt.scrollIntoView({block: 'center', behavior: 'smooth'});
 }
 
+// Comment buttons and confirm buttons are wired here (no inline handlers:
+// the page's script policy allows none).
+document.addEventListener('click', function (evt) {
+  if (!evt.target.closest) return;
+  var c = evt.target.closest('[data-comment]');
+  if (c) { yarsComment(c.getAttribute('data-comment')); return; }
+  var q = evt.target.closest('[data-confirm]');
+  if (q && !window.confirm(q.getAttribute('data-confirm'))) evt.preventDefault();
+});
+// The findings list refreshes itself on a live event only while idle
+// (nothing ticked, no extra rows loaded): see yarsListIdle.
+document.addEventListener('htmx:beforeRequest', function (evt) {
+  var el = evt.detail.elt;
+  var ev = evt.detail.requestConfig && evt.detail.requestConfig.triggeringEvent;
+  if (el && el.id === 'findings' && ev && String(ev.type).indexOf('sse:') === 0 && !yarsListIdle()) evt.preventDefault();
+});
+// Enter in a [data-enter] box sends it (yars:enter) instead of submitting
+// the form; a click on a [data-rowclick] row opens it (yars:rowclick),
+// except on a link inside it. htmx evaluates no trigger filters.
+document.addEventListener('keydown', function (evt) {
+  if (evt.key !== 'Enter' || !evt.target.matches || !evt.target.matches('[data-enter]')) return;
+  evt.preventDefault();
+  if (window.htmx) htmx.trigger(evt.target, 'yars:enter');
+});
+document.addEventListener('click', function (evt) {
+  if (!evt.target.closest || evt.target.closest('a')) return;
+  var row = evt.target.closest('[data-rowclick]');
+  if (row && window.htmx) htmx.trigger(row, 'yars:rowclick');
+});
+
 // Live refreshes must never wipe a half-typed reply or reason: skip the
 // background refresh of #chat-list or #workflow while a text box inside has
 // focus or text, or the reviewer picker is open. (Posting a reply/resolve

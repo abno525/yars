@@ -213,7 +213,7 @@ func TestCVSSEditorUIGuards(t *testing.T) {
 	for _, want := range []string{
 		`id="cvss-AV-N"`,                 // radios keep focus across swaps
 		`hx-sync="closest form:replace"`, // fast clicks don't race
-		`keyup[key==`,                    // Enter in paste box applies
+		`data-enter`,                     // Enter in paste box applies (app.js)
 		`hx-confirm=`,                    // clear asks first
 	} {
 		if !strings.Contains(b, want) {

@@ -172,7 +172,7 @@ func TestSectionCommentCount(t *testing.T) {
 	b := e.do(t, "alice", "GET", fpath, nil, nil).Body.String()
 	impact := b[strings.Index(b, `id="s-impact"`):]
 	impact = impact[:strings.Index(impact, "</section>")]
-	if !strings.Contains(impact, `class="open-count">1<`) || !strings.Contains(impact, `data-section="Impact"`) {
+	if !strings.Contains(impact, `class="open-count">1<`) || !strings.Contains(impact, `data-comment="Impact"`) {
 		t.Fatalf("impact panel:\n%s", impact)
 	}
 	if b := e.do(t, "alice", "GET", "/e/acme", nil, nil).Body.String(); !strings.Contains(b[strings.Index(b, `id="findings"`):], `class="badge">1<`) {

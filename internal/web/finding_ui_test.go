@@ -45,7 +45,7 @@ func TestCommentOnDetailsAndCVSS(t *testing.T) {
 	e := setup(t)
 	b := e.do(t, "bob", "GET", fpath, nil, nil).Body.String()
 	for _, sec := range []string{"Details", "CVSS"} {
-		if !strings.Contains(b, `data-section="`+sec+`"`) {
+		if !strings.Contains(b, `data-comment="`+sec+`"`) {
 			t.Fatalf("no Comment button for %s:\n%s", sec, b)
 		}
 		if !strings.Contains(b, `<option value="`+sec+`"`) {

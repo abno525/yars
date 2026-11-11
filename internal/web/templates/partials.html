@@ -1,5 +1,5 @@
 {{define "findings"}}
-<div id="findings"{{if .LiveURL}} data-sse-url="{{.LiveURL}}" hx-get="{{.ListURL}}" hx-trigger="sse:content[yarsListIdle()], sse:workflow[yarsListIdle()], sse:chat[yarsListIdle()], sse:resync[yarsListIdle()], sse:poll[yarsListIdle()]" hx-swap="outerHTML" data-rows="{{len .Rows}}" data-sse{{end}}>
+<div id="findings"{{if .LiveURL}} data-sse-url="{{.LiveURL}}" hx-get="{{.ListURL}}" hx-trigger="sse:content, sse:workflow, sse:chat, sse:resync, sse:poll" hx-swap="outerHTML" data-rows="{{len .Rows}}" data-sse{{end}}>
   <div class="filters">
     <nav class="seg nocap" aria-label="Status">
     {{range .StatusFilters}}
@@ -204,7 +204,7 @@ the table's column count. */}}
     <div class="panelname"><h2>{{.Name}}</h2>{{if .Open}}<span class="open-count">{{.Open}}</span>{{end}}</div>
     <span class="panel-tools">
       {{if .Presence.URL}}{{template "presence" .Presence}}{{end}}
-      {{if .ReadOnly}}<span class="slot w96"></span>{{else}}<button class="btn ghost sm w96" type="button" data-section="{{.Name}}" onclick="yarsComment(this.dataset.section)">Comment</button>{{end}}
+      {{if .ReadOnly}}<span class="slot w96"></span>{{else}}<button class="btn ghost sm w96" type="button" data-comment="{{.Name}}">Comment</button>{{end}}
       {{if .EditURL}}<button class="btn ghost sm w96" aria-keyshortcuts="E" hx-get="{{.EditURL}}" hx-target="#s-{{.Anchor}}" hx-swap="outerHTML">Edit</button>{{else}}<span class="slot w96 lockslot">{{template "lock"}}</span>{{end}}
     </span>
   </div>

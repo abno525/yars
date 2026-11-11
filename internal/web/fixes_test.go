@@ -19,7 +19,7 @@ func TestFindingsBoardLive(t *testing.T) {
 	e := setup(t)
 	b := e.do(t, "alice", "GET", "/e/acme?sort=title", nil, nil).Body.String()
 	head := between(b, `<div id="findings"`, ">")
-	for _, want := range []string{`data-sse-url="/events?eng=acme"`, `hx-get="/e/acme?sort=title"`, "sse:content", "sse:workflow", "sse:resync", "yarsListIdle()", "data-sse"} {
+	for _, want := range []string{`data-sse-url="/events?eng=acme"`, `hx-get="/e/acme?sort=title"`, "sse:content", "sse:workflow", "sse:resync", "data-sse"} {
 		if !strings.Contains(head, want) {
 			t.Errorf("findings head lacks %q: %s", want, head)
 		}
@@ -31,8 +31,9 @@ func TestFindingsBoardLive(t *testing.T) {
 	if body := e.do(t, "alice", "GET", "/e/acme?sort=title", nil, map[string]string{"HX-Request": "true"}).Body.String(); strings.Contains(body, "hx-swap-oob") {
 		t.Fatal("a filter click sends the bars out of band")
 	}
-	if js := e.do(t, "alice", "GET", staticPrefix()+"/app.js", nil, nil).Body.String(); !strings.Contains(js, "yarsListIdle") {
-		t.Fatal("app.js lacks yarsListIdle")
+	// the hold-off is in app.js (htmx evaluates no trigger filter)
+	if js := e.do(t, "alice", "GET", staticPrefix()+"/app.js", nil, nil).Body.String(); !strings.Contains(js, "yarsListIdle") || !strings.Contains(js, "htmx:beforeRequest") {
+		t.Fatal("app.js lacks the list's hold-off (yarsListIdle on htmx:beforeRequest)")
 	}
 }
 

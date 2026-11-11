@@ -20,7 +20,7 @@
       </tr></thead>
       <tbody>
       {{range .Rows}}
-        <tr class="{{if .Sel}}sel{{end}}{{if .Off}} off{{end}}" hx-get="{{.URL}}" hx-trigger="click[!target.closest('a')]" hx-target="#board" hx-swap="outerHTML" hx-push-url="true">
+        <tr class="{{if .Sel}}sel{{end}}{{if .Off}} off{{end}}" data-rowclick hx-get="{{.URL}}" hx-trigger="yars:rowclick" hx-target="#board" hx-swap="outerHTML" hx-push-url="true">
           <td class="lid"><a href="{{.URL}}" hx-get="{{.URL}}" hx-target="#board" hx-swap="outerHTML" hx-push-url="true">{{.ID}}</a></td>
           <td><span class="tag lead-{{.State}}">{{.StateLabel}}</span></td>
           <td class="ltitle"><span class="lline"><span class="lname" title="{{.Title}}">{{.Title}}</span>{{if .FindingURL}}<a class="lfid" href="{{.FindingURL}}">{{.Finding}}</a>{{end}}</span><span class="lhost" title="{{.Host}}">{{.Host}}</span></td>

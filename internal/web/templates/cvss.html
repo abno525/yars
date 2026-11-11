@@ -7,7 +7,7 @@
   <div class="panelhead">
     <h2 id="s-cvss">CVSS 3.1{{if .HasStored}} <code class="vector" title="{{.Vector}}">{{.Vector}}</code>{{end}}</h2>
     <div class="panel-tools">
-      {{if .ReadOnly}}<span class="slot w96"></span>{{else}}<button class="btn ghost sm w96" type="button" data-section="CVSS" onclick="yarsComment(this.dataset.section)">Comment</button>{{end}}
+      {{if .ReadOnly}}<span class="slot w96"></span>{{else}}<button class="btn ghost sm w96" type="button" data-comment="CVSS">Comment</button>{{end}}
       {{if .Locked}}<span class="slot w96 lockslot">{{template "lock"}}</span>{{else}}<button class="btn ghost sm w96" aria-keyshortcuts="E" hx-get="{{.EditURL}}" hx-target="#cvss" hx-swap="outerHTML">{{if .HasStored}}Edit{{else}}Calculate{{end}}</button>{{end}}
     </div>
   </div>
@@ -76,9 +76,8 @@
     {{end}}
     </div>
     <div class="paste flush">
-      <input name="paste" placeholder="CVSS:3.1/AV:N/AC:L/…" aria-label="Paste vector"
-        onkeydown="if(event.key==='Enter'){event.preventDefault()}"
-        hx-post="{{.CalcURL}}" hx-trigger="keyup[key=='Enter']" hx-include="closest form" hx-target="#cvss" hx-swap="outerHTML">
+      <input name="paste" placeholder="CVSS:3.1/AV:N/AC:L/…" aria-label="Paste vector" data-enter
+        hx-post="{{.CalcURL}}" hx-trigger="yars:enter" hx-include="closest form" hx-target="#cvss" hx-swap="outerHTML">
       <button type="button" class="btn secondary w96" hx-post="{{.CalcURL}}" hx-include="closest form" hx-target="#cvss" hx-swap="outerHTML">Apply</button>
     </div>
     {{range .Metrics}}{{if and (not .NonStandard) .Reason}}<input type="hidden" name="reason_{{.Key}}" value="{{.Reason}}">{{end}}{{end}}

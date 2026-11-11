@@ -5,7 +5,7 @@
   <div class="panelhead">
     <div class="panelname"><h2 id="s-assets">Affected assets</h2>{{template "assets_count" .Rows}}</div>
     <div class="panel-tools">
-      {{if .ReadOnly}}<span class="slot w96"></span>{{else}}<button class="btn ghost sm w96" type="button" data-section="Assets" onclick="yarsComment(this.dataset.section)">Comment</button>{{end}}
+      {{if .ReadOnly}}<span class="slot w96"></span>{{else}}<button class="btn ghost sm w96" type="button" data-comment="Assets">Comment</button>{{end}}
       {{if .Locked}}<span class="slot w96 lockslot">{{template "lock"}}</span>{{else}}<button class="btn ghost sm w96" aria-keyshortcuts="E" hx-get="{{.EditURL}}" hx-target="#assets" hx-swap="outerHTML">Edit</button>{{end}}
     </div>
   </div>

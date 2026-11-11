@@ -51,9 +51,9 @@ func TestEngagementsListFilterAndArchive(t *testing.T) {
 			t.Fatalf("beta row lacks %q:\n%s", want, r)
 		}
 	}
-	// Archive asks first (the whole team loses write access); the name is
-	// a JS string, escaped
-	if !strings.Contains(r, `onclick="return confirm(&#34;Archive Beta?&#34;)"`) {
+	// Archive asks first (the whole team loses write access); app.js asks
+	// with the data-confirm text
+	if !strings.Contains(r, `data-confirm="Archive Beta?"`) {
 		t.Fatalf("archive does not confirm:\n%s", r)
 	}
 	if r := englistRow(b, "acme"); !strings.Contains(r, `<span class="tag etype-pentest">Pentest</span>`) || !strings.Contains(r, "1 of 1") && !strings.Contains(r, "0 of 1") {
