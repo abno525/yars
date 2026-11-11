@@ -19,5 +19,7 @@ M21 review  fixed    db2fd5e (task 2), 3214bb9 (tasks 1, 3, 4), 3c017bf (task 5)
 M21 task 6  done     358c07a
 M21 branch  reviewed fixes ba507ff
 M21 PR      opened   #15
-M22 task 1  done
+M21 tests   b8d4226 (from the review of ba507ff)
+M22 task 1  done     aa387bd
+M22 task 2  done     browser check passed (no policy refusals; list holds off while ticked)
 ```

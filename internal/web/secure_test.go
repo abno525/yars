@@ -2,10 +2,76 @@ package web
 
 import (
 	"io/fs"
+	"net/http"
 	"regexp"
 	"strings"
 	"testing"
 )
+
+var wantHeaders = map[string]string{
+	"X-Content-Type-Options":  "nosniff",
+	"X-Frame-Options":         "DENY",
+	"Referrer-Policy":         "same-origin",
+	"Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+}
+
+func TestSecureHeadersOnPages(t *testing.T) {
+	e := setup(t)
+	for _, c := range []struct{ user, path string }{{"", "/login"}, {"alice", "/e/acme"}} {
+		rec := e.do(t, c.user, "GET", c.path, nil, nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: %d", c.path, rec.Code)
+		}
+		for h, want := range wantHeaders {
+			if got := rec.Header().Get(h); got != want {
+				t.Errorf("%s: %s = %q, want %q", c.path, h, got, want)
+			}
+		}
+		if rec.Header().Get("Strict-Transport-Security") != "" {
+			t.Errorf("%s: HSTS without HTTPS", c.path)
+		}
+	}
+}
+
+// An attachment's own, stricter policy wins over the page policy.
+func TestAttachmentKeepsOwnPolicy(t *testing.T) {
+	e := setup(t)
+	if rec := e.sendFile(t, "alice", fpath+"/attachments", "notes.txt", []byte("hello")); rec.Code != 200 {
+		t.Fatalf("upload %d", rec.Code)
+	}
+	get := e.do(t, "bob", "GET", fpath+"/attachments/notes.txt", nil, nil)
+	if p := get.Header().Get("Content-Security-Policy"); !strings.HasPrefix(p, "sandbox;") {
+		t.Fatalf("attachment policy %q", p)
+	}
+}
+
+// The git and MCP endpoints sit behind the same headers.
+func TestGitAndMCPCarryNosniff(t *testing.T) {
+	e := setup(t)
+	deny := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "no token", http.StatusUnauthorized)
+	})
+	e.srv.MCP, e.srv.Git = deny, deny
+	e.h = e.srv.Handler()
+	for _, c := range []struct{ method, path string }{{"POST", "/mcp"}, {"GET", "/git/acme.git/info/refs"}} {
+		rec := e.do(t, "", c.method, c.path, nil, nil)
+		if rec.Code != http.StatusUnauthorized || rec.Header().Get("X-Content-Type-Options") != "nosniff" {
+			t.Errorf("%s %s: %d %v", c.method, c.path, rec.Code, rec.Header())
+		}
+	}
+}
+
+func TestHSTSOnlyWithHTTPS(t *testing.T) {
+	e := setup(t)
+	if h := e.do(t, "", "GET", "/login", nil, nil).Header().Get("Strict-Transport-Security"); h != "" {
+		t.Fatalf("HSTS by default: %q", h)
+	}
+	e.srv.HTTPS = true
+	e.h = e.srv.Handler()
+	if h := e.do(t, "", "GET", "/login", nil, nil).Header().Get("Strict-Transport-Security"); h != "max-age=31536000" {
+		t.Fatalf("HSTS with HTTPS: %q", h)
+	}
+}
 
 // templates returns every template file by name.
 func templates(t *testing.T) map[string]string {

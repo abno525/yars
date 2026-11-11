@@ -50,6 +50,9 @@ type Server struct {
 	Git    http.Handler   // optional git smart HTTP endpoint, mounted at /git/
 	Export *export.Runner // optional exporters
 	MCP    http.Handler   // optional MCP endpoint, mounted at /mcp
+	// HTTPS: the site is served over HTTPS (TLS here or at a proxy), so
+	// responses carry Strict-Transport-Security.
+	HTTPS bool
 	// Events carries live changes to open pages (GET /events); created by
 	// Handler when nil. Whoever else changes data (the git server after a
 	// push) publishes to the same hub.
@@ -307,7 +310,7 @@ func (s *Server) Handler() http.Handler {
 		root.Handle("/mcp", s.lintLived(s.MCP)) // Bearer tokens, no cookies; lint and transition run every rule
 	}
 	// Reject cross-origin state-changing requests (CSRF, incl. login CSRF).
-	return gzipHandler(http.NewCrossOriginProtection().Handler(s.firstRun(root)))
+	return gzipHandler(secureHeaders(s.HTTPS, http.NewCrossOriginProtection().Handler(s.firstRun(root))))
 }
 
 func (s *Server) render(w http.ResponseWriter, name string, p *page) {
