@@ -37,6 +37,28 @@ func TestServeTLSFlagsNeedBoth(t *testing.T) {
 	}
 }
 
+// The push hook gets no AI key: AI rules do not run on a push.
+func TestHookEnvHasNoAIKey(t *testing.T) {
+	dir := t.TempDir()
+	if err := initData(dir); err != nil {
+		t.Fatal(err)
+	}
+	r, err := gitrepo.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := openDB(t, dir)
+	cfg := config.Default()
+	cfg.AI.APIKeyEnv = "YARS_AI_KEY"
+	t.Setenv("YARS_AI_KEY", "sk-secret")
+	st := store.New(r, cfg, d)
+	au := auth.New(d)
+	gs := gitServer(r, au, auth.NewTokens(d), st, "yars", func(string) {})
+	if len(gs.InheritEnv) != 0 {
+		t.Fatalf("the hook inherits %v", gs.InheritEnv)
+	}
+}
+
 // Told to stop, the server finishes the request in flight, ends open event
 // streams, refuses new connections and closes the database.
 func TestServeStopsCleanly(t *testing.T) {
