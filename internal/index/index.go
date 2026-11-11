@@ -51,6 +51,18 @@ type Row struct {
 	score float64 // -1 when no valid vector
 	// trigrams of the title and of the assets (possible duplicates)
 	tgrams, agrams Grams
+	hay            string // lowercased "ID\ntitle\nhost url\n…" that Query.Text is matched in
+}
+
+// hayOf is what a search looks in: the ID, the title, and each asset's host
+// and URL, lowercased.
+func hayOf(m finding.Meta) string {
+	var b strings.Builder
+	b.WriteString(m.ID + "\n" + m.Title + "\n")
+	for _, a := range m.Assets {
+		b.WriteString(a.Host + " " + a.URL + "\n")
+	}
+	return strings.ToLower(b.String())
 }
 
 func scoreOf(vec string) (string, float64) {
@@ -81,7 +93,7 @@ func rowOf(engID string, ref store.FindingRef, msgs []chat.Message) Row {
 	txt, sc := scoreOf(m.CVSS)
 	r := Row{EngID: engID, Dir: ref.Dir, ID: m.ID, Title: m.Title, Status: m.Status, Shown: workflow.Shown(m),
 		Severity: cvss.Derive(m.CVSS, m.Severity), Author: m.Author, Reviewers: m.Reviewers, Hash: ref.Hash, Modified: ref.Modified,
-		Score: txt, score: sc, Meta: &m, tgrams: Trigrams(m.Title), agrams: assetGrams(m.Assets)}
+		Score: txt, score: sc, Meta: &m, tgrams: Trigrams(m.Title), agrams: assetGrams(m.Assets), hay: hayOf(m)}
 	if m.Retest != nil {
 		r.IsRetest, r.RetestResult = true, m.Retest.Result
 	}
@@ -135,6 +147,9 @@ type Query struct {
 	// Keep are finding folders that pass the status filter whatever their
 	// status (rows a bulk change just moved); the other filters still apply.
 	Keep map[string]bool
+	// Text keeps the rows whose ID, title or an asset's host or URL contains
+	// it, ignoring letter case ("" = every row).
+	Text string
 }
 
 // StatusOrder is the workflow order, withdrawn last.
@@ -616,11 +631,12 @@ func (ix *Index) Rows(q Query) ([]Row, error) {
 		return nil, err
 	}
 	// no status filter means every finding that is not withdrawn
+	text := strings.ToLower(q.Text)
 	match := func(r Row) bool {
 		status := r.Status == q.Status || (q.Status == "" && (q.Shown != "" || workflow.Active(r.Status)))
 		status = status && (q.Shown == "" || r.Shown == q.Shown)
 		return (status || q.Keep[r.Dir]) && (q.Severity == "" || r.Severity == q.Severity) &&
-			(q.Author == "" || r.Author == q.Author)
+			(q.Author == "" || r.Author == q.Author) && (text == "" || strings.Contains(r.hay, text))
 	}
 	var out []Row
 	ix.mu.RLock()

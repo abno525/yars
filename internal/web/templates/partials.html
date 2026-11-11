@@ -1,11 +1,16 @@
 {{define "findings"}}
 <div id="findings"{{if .LiveURL}} data-sse-url="{{.LiveURL}}" hx-get="{{.ListURL}}" hx-trigger="sse:content, sse:workflow, sse:chat, sse:resync, sse:poll" hx-swap="outerHTML" data-rows="{{len .Rows}}" data-sse{{end}}>
   <div class="filters">
-    <nav class="seg nocap" aria-label="Status">
+    <nav class="seg nocap fseg" aria-label="Status">
     {{range .StatusFilters}}
     <a class="{{if .Active}}on{{end}}" href="{{.URL}}" hx-get="{{.URL}}" hx-target="#findings" hx-swap="outerHTML" hx-push-url="true">{{.Label}} · {{.Count}}</a>
     {{end}}
     </nav>
+    {{if .SearchURL}}
+    <form class="fsearch" action="{{.SearchURL}}" hx-get="{{.SearchURL}}" hx-target="#findings" hx-swap="outerHTML" hx-push-url="true" hx-sync="this:replace" hx-trigger="input changed delay:200ms from:#fq, search from:#fq, submit">
+      <input type="search" id="fq" class="w360" name="q" value="{{.Q}}" placeholder="Search" aria-label="Search findings" maxlength="200" autocomplete="off" spellcheck="false">
+    </form>
+    {{end}}
   </div>
   {{if .Bulk.On}}
   <form class="fbulkform" hx-post="{{.Bulk.URL}}" hx-target="#findings" hx-swap="outerHTML" hx-disabled-elt="find button">

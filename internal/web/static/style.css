@@ -348,6 +348,10 @@ table.kv { width: 100%; border-collapse: collapse; }
 /* ---------- findings board ---------- */
 #findings { display: flex; flex-direction: column; gap: 16px; }
 .filters { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.fsearch { margin: 0; flex: none; }
+/* status segments 112 each beside the 360 search (at 1440), as the team board's; narrower windows shrink them first */
+.seg.fseg { flex: 0 1 auto; min-width: 0; }
+.seg.fseg > a { --seg-w: 112px; flex: 0 1 112px; min-width: 0; white-space: nowrap; overflow: hidden; }
 .clonebar { height: 48px; padding-left: 16px; border: 1px solid var(--line); display: flex; align-items: center; gap: 16px; }
 .clonebar .label { font-size: 13px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); flex: none; }
 .clonebar code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -145,6 +145,8 @@ type page struct {
 	TabTitle      string // the browser tab's title before " · YARS" ("" = the engagement's name)
 	ListURL       string // the board as filtered and sorted now (live refresh)
 	LiveURL       string // the board's event stream ("" = no live refresh)
+	Q             string // the board's search (D23)
+	SearchURL     string // the board as filtered and sorted now, without q (the box supplies it)
 	StatusFilters []link
 	Bulk          bulkBar           // the board: bulk state change
 	Summary       index.Summary     // the board: counts by status and severity, progress
@@ -561,9 +563,15 @@ func (s *Server) engPage(r *http.Request, eng string, keep map[string]bool) (*pa
 		}
 	}
 	q.Del("keep") // filter, sort and bar links start a fresh list
+	// the search (D23), trimmed and cut, travels in every link as it is used
+	text := strings.TrimSpace(q.Get("q"))
+	if r := []rune(text); len(r) > maxSearch {
+		text = strings.TrimSpace(string(r[:maxSearch]))
+	}
+	setOrDel(q, "q", text)
 	// the status filter is the shown state: signed off apart from verification
 	query := index.Query{EngID: eng, Shown: q.Get("status"), Severity: q.Get("severity"),
-		Author: q.Get("author"), Sort: q.Get("sort"), Desc: q.Get("desc") == "1", Keep: keep}
+		Author: q.Get("author"), Sort: q.Get("sort"), Desc: q.Get("desc") == "1", Keep: keep, Text: text}
 	rows, err := s.Index.Rows(query)
 	if err != nil {
 		return nil, err
@@ -591,6 +599,7 @@ func (s *Server) engPage(r *http.Request, eng string, keep map[string]bool) (*pa
 	}
 	p.Rows, p.Offset, p.PageSize = rows[off:end], off, s.pageSize
 	p.ListURL = mk(func(url.Values) {})
+	p.Q, p.SearchURL = text, mk(func(v url.Values) { v.Del("q") })
 	p.LiveURL = "/events?" + url.Values{"eng": {eng}}.Encode()
 	if end < len(rows) {
 		p.MoreURL = mk(func(v url.Values) {
@@ -638,6 +647,9 @@ func (s *Server) engPage(r *http.Request, eng string, keep map[string]bool) (*pa
 	}
 	return p, nil
 }
+
+// maxSearch is the longest search the findings list takes, in characters.
+const maxSearch = 200
 
 func setOrDel(v url.Values, k, val string) {
 	if val == "" {

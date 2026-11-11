@@ -30,5 +30,6 @@ M22 task 4  review   6bf15fb (second signal)
 M22 task 6  done     f67ec57 (cache), d957c1b (hook env), 93959c3 (script group), d51c4aa (cookie refresh)
 M22 branch  reviewed notes b558ccc
 M22 PR      opened   #16
-M23 task 1  done
+M23 task 1  done     61c7947, review fix 29d76e3
+M23 task 2  done     (browser check passed: caret and focus kept, q= in the URL, Back restores)
 ```

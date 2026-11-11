@@ -11,6 +11,7 @@ import (
 	"yars/internal/chat"
 	"yars/internal/config"
 	"yars/internal/db"
+	"yars/internal/finding"
 	"yars/internal/gitrepo"
 	"yars/internal/store"
 	"yars/internal/workflow"
@@ -137,6 +138,50 @@ func TestVisibleSet(t *testing.T) {
 	s.DB().Archive("acme", "dora")
 	if e, ok := ix.Engagement("acme"); !ok || !e.Archived {
 		t.Fatalf("archive not seen: %+v", e)
+	}
+}
+
+// D23: Text keeps the rows whose ID, title or an asset's host or URL holds
+// it, in any letter case.
+func TestRowsTextMatchesIDTitleAsset(t *testing.T) {
+	r, err := gitrepo.Init(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := db.Open(filepath.Join(t.TempDir(), "yars.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { d.Close() })
+	s := store.New(r, config.Default(), d)
+	if err := s.CreateEngagement(store.Engagement{ID: "acme", Name: "acme"}, alice); err != nil {
+		t.Fatal(err)
+	}
+	var dirs []string
+	for _, title := range []string{"SQL injection", "Stored XSS", "Open redirect"} {
+		f, err := s.CreateFinding("acme", title, alice)
+		if err != nil {
+			t.Fatal(err)
+		}
+		dirs = append(dirs, f.Dir)
+	}
+	if err := s.UpdateAssets("acme", dirs[2], []finding.Asset{{Host: "app.example", URL: "https://app.example/go"}}, "", alice); err != nil {
+		t.Fatal(err)
+	}
+	ix := New(s, r)
+	for text, want := range map[string]string{
+		"sql":           "SQL injection",
+		"SQL INJ":       "SQL injection",
+		"f-002":         "Stored XSS",
+		"app.example":   "Open redirect",
+		"APP.EXAMPLE/G": "Open redirect",
+		"zzz":           "",
+		"":              "SQL injection,Stored XSS,Open redirect",
+	} {
+		rows, err := ix.Rows(Query{EngID: "acme", Text: text})
+		if err != nil || titles(rows) != want {
+			t.Errorf("Text %q: %q %v, want %q", text, titles(rows), err, want)
+		}
 	}
 }
 

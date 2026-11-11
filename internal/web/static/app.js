@@ -260,6 +260,23 @@ document.addEventListener('htmx:beforeRequest', function (evt) {
   var ev = evt.detail.requestConfig && evt.detail.requestConfig.triggeringEvent;
   if (el && el.id === 'findings' && ev && String(ev.type).indexOf('sse:') === 0 && !yarsListIdle()) evt.preventDefault();
 });
+// The findings search box (#fq) keeps what is typed in it when the list it
+// sits in is swapped: the answer echoes the search as it was sent, and a
+// letter typed since must not be lost. htmx gives the box its focus back.
+var yarsFq = null;
+document.addEventListener('htmx:beforeSwap', function (evt) {
+  var fq = document.getElementById('fq');
+  yarsFq = (evt.detail.target && evt.detail.target.id === 'findings' && fq && fq === document.activeElement) ?
+    {value: fq.value, start: fq.selectionStart, end: fq.selectionEnd} : null;
+});
+document.addEventListener('htmx:afterSettle', function () {
+  var fq = document.getElementById('fq');
+  if (!yarsFq || !fq) return;
+  if (fq.value !== yarsFq.value) fq.value = yarsFq.value;
+  if (document.activeElement !== fq) fq.focus();
+  try { fq.setSelectionRange(yarsFq.start, yarsFq.end); } catch (e) {}
+  yarsFq = null;
+});
 // Enter in a [data-enter] box sends it (yars:enter) instead of submitting
 // the form; a click on a [data-rowclick] row opens it (yars:rowclick),
 // except on a link inside it. htmx evaluates no trigger filters.
