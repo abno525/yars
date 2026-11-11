@@ -271,8 +271,9 @@ func (s *Server) bulkBarFor(u config.User, eng, query string, rows []index.Row) 
 	for _, o := range opts {
 		b.Options = append(b.Options, bulkMenuItem{BulkOption: o, Reason: workflow.NeedsReason(o.Action)})
 	}
+	blocked := s.gatedRows(rows)
 	for _, row := range rows {
-		b.addRow(u, row, opts)
+		b.addRow(u, row, opts, blocked[row.EngID+"/"+row.Dir])
 	}
 	if b.Assign {
 		for _, c := range s.Auth.Users() {
@@ -296,8 +297,9 @@ func (b *bulkBar) key(eng, dir string) string {
 }
 
 // addRow makes row pickable when u may tick it, with the menu actions it
-// can take.
-func (b *bulkBar) addRow(u config.User, row index.Row, opts []workflow.BulkOption) {
+// can take; a gated row (an open check, or no current check) takes neither
+// Sign off nor Approve.
+func (b *bulkBar) addRow(u config.User, row index.Row, opts []workflow.BulkOption, gated bool) {
 	if row.Meta == nil || !workflow.BulkPick(u, *row.Meta) {
 		return
 	}
@@ -305,11 +307,73 @@ func (b *bulkBar) addRow(u config.User, row index.Row, opts []workflow.BulkOptio
 	b.Pick[k] = true
 	var acts []string
 	for _, o := range opts {
+		if gated && (o.Action == workflow.Clear || o.Action == workflow.Approve) {
+			continue
+		}
 		if workflow.BulkCheck(u, *row.Meta, o.Action) == nil {
 			acts = append(acts, string(o.Action))
 		}
 	}
 	b.Acts[k] = strings.Join(acts, " ")
+}
+
+// gatedRows are the rows in verification ("eng/dir") whose Sign off and
+// Approve the store would refuse now, read as Ready to approve reads them
+// (withoutOpenChecks): open checks, or with Require Check on no finished
+// check on the content (Q12). When they cannot be read, every row in
+// verification counts as gated.
+func (s *Server) gatedRows(rows []index.Row) map[string]bool {
+	var cand []index.Row
+	for _, r := range rows {
+		if r.Status == "verification" {
+			cand = append(cand, r)
+		}
+	}
+	if len(cand) == 0 || s.Store.Linter == nil {
+		return nil
+	}
+	gated := map[string]bool{}
+	all := func() map[string]bool {
+		for _, r := range cand {
+			gated[r.EngID+"/"+r.Dir] = true
+		}
+		return gated
+	}
+	keys := make([]store.GateKey, 0, len(cand))
+	for _, r := range cand {
+		keys = append(keys, store.GateKey{Eng: r.EngID, Fid: r.ID, Hash: r.Hash})
+	}
+	gates, err := s.Store.CheckGates(keys)
+	if err != nil {
+		return all()
+	}
+	known, key, err := s.openCache.valid(s)
+	if err != nil {
+		return all()
+	}
+	for _, r := range cand {
+		k := r.EngID + "/" + r.Dir
+		if gates[r.EngID+"/"+r.ID] != "" {
+			gated[k] = true
+			continue
+		}
+		open, ok := known[k]
+		if !ok {
+			vs, err := s.Store.OpenChecks(r.EngID, r.Dir)
+			if errors.Is(err, store.ErrNotFound) {
+				continue
+			}
+			if err != nil {
+				return all()
+			}
+			open = len(vs) > 0
+			s.openCache.put(key, k, open)
+		}
+		if open {
+			gated[k] = true
+		}
+	}
+	return gated
 }
 
 // ran marks the outcome of a run on the bar: the selection stays ticked,

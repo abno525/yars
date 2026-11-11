@@ -549,7 +549,7 @@ func (s *Server) inboxBar(u config.User, rows []index.Row) bulkBar {
 		b.Options = append(b.Options, bulkMenuItem{BulkOption: o, Reason: workflow.NeedsReason(o.Action)})
 	}
 	for _, r := range rows {
-		b.addRow(u, r, opts)
+		b.addRow(u, r, opts, false) // Ready to approve is already filtered (withoutOpenChecks)
 	}
 	if b.Assign {
 		// across engagements: anyone who may review; each row checks its own team

@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"yars/internal/workflow"
 )
 
 var hxReq = map[string]string{"HX-Request": "true"}
@@ -97,6 +99,42 @@ func TestFindingsBulkBar(t *testing.T) {
 // Running a bulk change re-renders the list: the summary says how many
 // moved and how many were skipped, moved rows show their new status and
 // skipped rows are tinted.
+// Q12: the board offers bulk Approve only where it would work, as Ready to
+// approve does: not for a finding without a finished check on its content
+// while Require Check is on.
+func TestBoardBulkApproveHidesGated(t *testing.T) {
+	e := setup(t)
+	e.rules(t, noneRule, nil)
+	e.toVerification(t)
+	st := e.srv.Store
+	// signed off while Require Check was off; on again, with no check run
+	if err := st.SetRequireCheck(false, "dora"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Transition("acme", fdir, workflow.Clear, "", wBob); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetRequireCheck(true, "dora"); err != nil {
+		t.Fatal(err)
+	}
+	acts := func() string {
+		r := frow(e.do(t, "dora", "GET", "/e/acme", nil, nil).Body.String(), fdir)
+		_, rest, ok := strings.Cut(r, `data-acts="`)
+		if !ok {
+			t.Fatalf("no row:\n%s", r)
+		}
+		acts, _, _ := strings.Cut(rest, `"`)
+		return acts
+	}
+	if a := acts(); strings.Contains(a, "approve") {
+		t.Fatalf("approve offered without a check run: %q", a)
+	}
+	e.checked(t, "acme", fdir)
+	if a := acts(); !strings.Contains(a, "approve") {
+		t.Fatalf("approve not offered after a clean check: %q", a)
+	}
+}
+
 func TestFindingsBulkRun(t *testing.T) {
 	e := setup(t)
 	d2 := e.second(t, "bob")
