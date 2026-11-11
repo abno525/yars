@@ -84,10 +84,14 @@ func (d *DB) Prune(now time.Time, r Retention) (Pruned, error) {
 		}
 	}
 	if r.CheckRunDays > 0 {
-		// the latest run of a finding stays whatever its age: the Require
-		// Check gate reads it
+		// the latest run of a finding stays whatever its age (the Require
+		// Check gate reads it), and so do the runs on its content: the open
+		// checks read them for rules that failed in it (all of them when it
+		// was cut off), and their results hold open violations' threads
 		if err := del(&p.CheckRuns, `DELETE FROM check_runs WHERE finished != '' AND finished < ?
-			AND id NOT IN (SELECT max(id) FROM check_runs GROUP BY eng, fid)`, cutoff(r.CheckRunDays)); err != nil {
+			AND id NOT IN (SELECT max(id) FROM check_runs GROUP BY eng, fid)
+			AND content_hash != (SELECT n.content_hash FROM check_runs n
+				WHERE n.eng = check_runs.eng AND n.fid = check_runs.fid ORDER BY n.id DESC LIMIT 1)`, cutoff(r.CheckRunDays)); err != nil {
 			return p, err
 		}
 	}

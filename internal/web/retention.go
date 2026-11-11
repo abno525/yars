@@ -65,20 +65,21 @@ func (s *Server) prune(d *db.DB) (db.Pruned, error) {
 	return p, err
 }
 
-// retentionFields are the Retention panel's inputs, in the order of
-// db.Retention.
-var retentionFields = []string{"audit_days", "check_run_days", "session_days"}
+// retentionFields are the Retention panel's inputs and their labels, in
+// the order of db.Retention.
+var retentionFields = [][2]string{{"audit_days", "Audit log"}, {"check_run_days", "Check runs"}, {"session_days", "Sessions"}}
 
 // retentionSave stores the Retention panel (POST /admin/system/retention):
-// each value 0–3650 days, or the page answers 400 and stores nothing.
+// each value 0–3650 days, or the page answers 400 naming the field and
+// stores nothing.
 func (s *Server) retentionSave(w http.ResponseWriter, r *http.Request) {
 	r.ParseForm()
 	var n [3]int
 	var bad error
-	for i, k := range retentionFields {
-		v, err := strconv.Atoi(strings.TrimSpace(r.PostForm.Get(k)))
-		if err != nil && bad == nil {
-			bad = fmt.Errorf("%s: a whole number of days", k)
+	for i, f := range retentionFields {
+		v, err := strconv.Atoi(strings.TrimSpace(r.PostForm.Get(f[0])))
+		if (err != nil || v < 0 || v > 3650) && bad == nil {
+			bad = fmt.Errorf("%s: 0 to 3650 days", f[1])
 		}
 		n[i] = v
 	}

@@ -73,6 +73,9 @@ func oldRuns(t *testing.T, d *DB, fid string, n int) []int64 {
 func TestPruneKeepsLatestRun(t *testing.T) {
 	d, _ := open(t)
 	ids := oldRuns(t, d, "F-001", 3)
+	// the finding was edited between the runs (runs on the newest run's
+	// content stay: TestPruneKeepsRunsOnTheLatestContent)
+	d.Exec("UPDATE check_runs SET content_hash = 'earlier' WHERE id IN (?, ?)", ids[0], ids[1])
 	other := oldRuns(t, d, "F-002", 1)
 	p, err := d.Prune(time.Now(), Retention{CheckRunDays: 90})
 	if err != nil || p != (Pruned{CheckRuns: 2}) {
@@ -105,6 +108,30 @@ func TestPruneKeepsLatestRun(t *testing.T) {
 	}
 	if _, err := d.Run(going); err != nil {
 		t.Fatal("a running run was deleted")
+	}
+}
+
+// D24: the runs on the content of a finding's newest run stay too, however
+// old: the open checks read them for rules that failed in the newest run
+// (or all of them when it was cut off), and their results hold the chat
+// threads of open violations. Runs on older content go.
+func TestPruneKeepsRunsOnTheLatestContent(t *testing.T) {
+	d, _ := open(t)
+	old := oldRuns(t, d, "F-001", 2) // content "h", a year old
+	d.Exec("UPDATE check_runs SET content_hash = 'before' WHERE id = ?", old[0])
+	cut, _ := d.StartRun("acme", "F-001", "h", "bob", "")
+	if err := d.FailRun(cut, "crashed"); err != nil { // the newest run: cut off, no results
+		t.Fatal(err)
+	}
+	p, err := d.Prune(time.Now(), Retention{CheckRunDays: 90})
+	if err != nil || p.CheckRuns != 1 {
+		t.Fatalf("pruned %+v %v", p, err)
+	}
+	if _, err := d.Run(old[0]); err == nil {
+		t.Error("a run on older content was kept")
+	}
+	if res, _ := d.RunResults(old[1]); len(res) != 1 {
+		t.Error("the run on the newest run's content lost its results")
 	}
 }
 

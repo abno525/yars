@@ -41,10 +41,14 @@ func TestRetentionFormSaves(t *testing.T) {
 	if l, _ := d.AuditLog(1); len(l) != 1 || l[0].Action != "setting.retention" || l[0].Actor != "dora" {
 		t.Fatalf("audit %+v", l)
 	}
-	for _, bad := range []url.Values{retentionForm("-1", "30", "7"), retentionForm("365", "4000", "7"), retentionForm("365", "30", "x")} {
-		rec := e.do(t, "dora", "POST", "/admin/system/retention", bad, nil)
-		if rec.Code != http.StatusBadRequest || !strings.Contains(between(rec.Body.String(), `id="retention"`, "</form>"), `class="pstate error"`) {
-			t.Fatalf("bad %v: %d", bad, rec.Code)
+	for bad, says := range map[*url.Values]string{
+		{"audit_days": {"-1"}, "check_run_days": {"30"}, "session_days": {"7"}}:    "Audit log: 0 to 3650 days",
+		{"audit_days": {"365"}, "check_run_days": {"4000"}, "session_days": {"7"}}: "Check runs: 0 to 3650 days",
+		{"audit_days": {"365"}, "check_run_days": {"30"}, "session_days": {"x"}}:   "Sessions: 0 to 3650 days",
+	} {
+		rec := e.do(t, "dora", "POST", "/admin/system/retention", *bad, nil)
+		if rec.Code != http.StatusBadRequest || !strings.Contains(between(rec.Body.String(), `id="retention"`, "</form>"), `title="`+says+`">`+says+`</span>`) {
+			t.Fatalf("bad %v: %d\n%s", *bad, rec.Code, between(rec.Body.String(), `id="retention"`, "</form>"))
 		}
 	}
 	if r, _ := d.Retention(); r != (db.Retention{AuditDays: 365, CheckRunDays: 30, SessionDays: 7}) {
