@@ -27,5 +27,6 @@ M22 task 3  done     3fd25ee
 M22 task 4  done     83c4dad (manual: SIGINT with an open page stops in under a second, exit 0)
 M22 task 5  done     105e29b, review fix fafb8c8 (fsck limit)
 M22 task 4  review   6bf15fb (second signal)
-M22 task 6  done     f67ec57 (cache), d957c1b (hook env), 93959c3 (script group), cookie refresh in the next commit
+M22 task 6  done     f67ec57 (cache), d957c1b (hook env), 93959c3 (script group), d51c4aa (cookie refresh)
+M22 branch  reviewed notes in the commit after d51c4aa
 ```
