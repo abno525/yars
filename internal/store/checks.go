@@ -401,7 +401,7 @@ func (s *Store) startCheck(engID, dir, only string, u config.User) (db.CheckRun,
 	s.checkWG.Add(1)
 	s.checksMu.Unlock()
 	s.notify(Change{Eng: engID, Fid: fid, Kind: ChangeCheck})
-	go s.runCheck(id, ref, only, keep)
+	go s.runCheck(id, ref, only, keep, u.Username)
 	return s.db.Run(id)
 }
 
@@ -516,8 +516,11 @@ func (s *Store) setRunning(key string, id int64, forget bool) {
 // WaitChecks waits until no check run is in progress.
 func (s *Store) WaitChecks() { s.checkWG.Wait() }
 
-func (s *Store) runCheck(id int64, ref FindingRef, only string, keep *carried) {
+// runCheck runs the check id started by user by (the run's By); its AI
+// calls are recorded as theirs, on this finding (D24).
+func (s *Store) runCheck(id int64, ref FindingRef, only string, keep *carried, by string) {
 	eng, fid := ref.EngID, ref.F.Meta.ID
+	ctx := rules.WithCaller(context.Background(), rules.Caller{User: by, Eng: eng, Fid: fid})
 	defer s.checkWG.Done()
 	defer func() {
 		if p := recover(); p != nil {
@@ -534,7 +537,7 @@ func (s *Store) runCheck(id int64, ref FindingRef, only string, keep *carried) {
 	}
 	var vs []rules.Violation
 	if c, ok := s.Linter.(StepChecker); ok {
-		vs = c.CheckWith(context.Background(), ref.F, rules.Hooks{
+		vs = c.CheckWith(ctx, ref.F, rules.Hooks{
 			Only:     only,
 			Progress: progress,
 			Start: func(r rules.Rule) {
@@ -546,10 +549,10 @@ func (s *Store) runCheck(id int64, ref FindingRef, only string, keep *carried) {
 		})
 		vs = append(keep.violations(), vs...)
 	} else if c, ok := s.Linter.(Checker); ok {
-		vs = c.Check(context.Background(), ref.F, progress)
+		vs = c.Check(ctx, ref.F, progress)
 	} else {
 		progress(0, 1)
-		vs = s.Linter.Lint(context.Background(), ref.F, rules.All)
+		vs = s.Linter.Lint(ctx, ref.F, rules.All)
 		progress(1, 1)
 	}
 	seq, err := s.db.TxForSeq(eng, func(tx *db.Tx) error { return finishCheck(tx, id, eng, fid, vs) })

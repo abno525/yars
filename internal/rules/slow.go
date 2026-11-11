@@ -29,6 +29,9 @@ type Runner struct {
 	// Stored returns the AI settings saved on the admin page and their key
 	// ("" values = not set there); nil = config.yaml only.
 	Stored func() (config.AIConfig, string)
+	// OnUsage, when set, is told about every provider call (never a cached
+	// reply).
+	OnUsage func(Usage)
 
 	cacheOnce sync.Once
 	cache     *lru.Cache[string, aiResult] // AI replies by provider, model, rule and text

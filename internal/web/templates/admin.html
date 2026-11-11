@@ -214,6 +214,8 @@
       </div>
       <label class="frow"><span class="flabel">Address</span><input class="monoin" name="base_url" value="{{.BaseURL}}" placeholder="https://api.openai.com/v1"></label>
       <label class="frow"><span class="flabel">Model</span><input class="monoin w360" name="model" value="{{.Model}}"></label>
+      <label class="frow"><span class="flabel">Price in</span><span class="keyrow"><input class="monoin w128" name="price_in" value="{{.PriceIn}}" inputmode="decimal" autocomplete="off"><span class="muted">per 1M tokens</span></span></label>
+      <label class="frow"><span class="flabel">Price out</span><span class="keyrow"><input class="monoin w128" name="price_out" value="{{.PriceOut}}" inputmode="decimal" autocomplete="off"><span class="muted">per 1M tokens</span></span></label>
       <label class="frow"><span class="flabel">API key</span>
         <span class="keyrow">
           <input class="monoin w360" type="password" name="key" autocomplete="off" placeholder="{{if .KeyEnding}}{{.KeyEnding}}{{end}}" aria-label="API key">
@@ -300,6 +302,29 @@
     </div>
   </div>
 </form>
+{{with .AIUsage}}
+<section class="panel sys" id="aiusage">
+  <div class="panelhead"><h2>AI usage</h2></div>
+  <div class="pbody flush">
+    {{range .Periods}}
+    <div class="stats">
+      <div class="st"><span class="sl">Period</span><span class="sv">{{.Label}}</span></div>
+      <div class="st"><span class="sl">Calls</span><span class="sv">{{.Calls}}</span></div>
+      <div class="st"><span class="sl">Tokens in</span><span class="sv">{{.In}}</span></div>
+      <div class="st"><span class="sl">Tokens out</span><span class="sv">{{.Out}}</span></div>
+      <div class="st"><span class="sl">Cost</span><span class="sv">{{.Cost}}</span></div>
+    </div>
+    {{end}}
+    <table class="table stable usagetable">
+      <thead><tr><th>User</th><th class="c-num">Calls</th><th class="c-num">Tokens in</th><th class="c-num">Tokens out</th><th class="c-num">Cost</th></tr></thead>
+      <tbody>
+        {{range .Users}}<tr><td class="clip" title="{{.User}}">{{.User}}</td><td class="num">{{.Calls}}</td><td class="num">{{.In}}</td><td class="num">{{.Out}}</td><td class="num">{{.Cost}}</td></tr>
+        {{else}}{{template "empty_row" 5}}{{end}}
+      </tbody>
+    </table>
+  </div>
+</section>
+{{end}}
 <section class="panel sys">
   <div class="panelhead">
     <h2>Operations</h2>

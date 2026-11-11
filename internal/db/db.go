@@ -20,7 +20,7 @@ import (
 // Path is where the database lives inside a data directory (git-ignored).
 func Path(dataDir string) string { return filepath.Join(dataDir, ".yars", "yars.db") }
 
-const schemaVersion = 19
+const schemaVersion = 20
 
 // SchemaVersion is the database schema this build writes.
 const SchemaVersion = schemaVersion
@@ -352,6 +352,24 @@ var migrations = []string{
 	// makes the run out of date); older runs have none (addRulesVersion, in
 	// Go: the column is added once, even when the step runs again)
 	`SELECT 1;`,
+	// v20: every call to the AI provider, for Admin › System's AI usage
+	// (D24); IF NOT EXISTS, as the step may run again on a current database
+	`CREATE TABLE IF NOT EXISTS ai_usage (
+		id         INTEGER PRIMARY KEY,
+		ts         TEXT NOT NULL,
+		username   TEXT NOT NULL DEFAULT '',
+		purpose    TEXT NOT NULL,
+		provider   TEXT NOT NULL,
+		model      TEXT NOT NULL,
+		eng        TEXT NOT NULL DEFAULT '',
+		fid        TEXT NOT NULL DEFAULT '',
+		rule       TEXT NOT NULL DEFAULT '',
+		tokens_in  INTEGER NOT NULL DEFAULT 0,
+		tokens_out INTEGER NOT NULL DEFAULT 0,
+		ms         INTEGER NOT NULL DEFAULT 0,
+		ok         INTEGER NOT NULL DEFAULT 0
+	);
+	CREATE INDEX IF NOT EXISTS ai_usage_ts ON ai_usage(ts);`,
 }
 
 // goMigrations are the steps written in Go, by the index of their entry in

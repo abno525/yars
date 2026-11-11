@@ -16,6 +16,7 @@ import (
 	"yars/internal/auth"
 	"yars/internal/backup"
 	"yars/internal/db"
+	"yars/internal/rules"
 )
 
 // systemAdmin is Admin › System: the health checks, the backup download,
@@ -35,6 +36,7 @@ type systemAdmin struct {
 	// refused save's reason
 	Retention                 db.Retention
 	LastPrune, RetentionError string
+	AIUsage                   aiUsageView // D24
 }
 
 // healthAdmin is the System page's Health panel: one row per check.
@@ -65,7 +67,8 @@ func (s *Server) routesAdminSystem(mux *http.ServeMux) {
 		// Run integrity: fsck reads every object of every repository, which
 		// can outlast the server's write deadline (lifted for admins only)
 		clearDeadlines(w)
-		s.runHealth(r.Context(), true)
+		// its AI ping is a call made by this admin (AI usage)
+		s.runHealth(rules.WithCaller(r.Context(), rules.Caller{User: auth.UserFrom(r.Context()).Username}), true)
 		http.Redirect(w, r, "/admin/system", http.StatusSeeOther)
 	}))
 	mux.HandleFunc("POST /admin/system/retention", s.adminOnly(s.retentionSave))
@@ -164,6 +167,9 @@ func (s *Server) systemPageStatus(w http.ResponseWriter, r *http.Request, status
 		}
 		v.Health = s.lastHealthOr(r.Context())
 		if err := s.retentionView(&v); err != nil {
+			return err
+		}
+		if v.AIUsage, err = s.aiUsageFor(d); err != nil {
 			return err
 		}
 		if js := s.flash.take(r, "sysop"); js != "" {

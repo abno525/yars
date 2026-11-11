@@ -126,7 +126,7 @@ Rules:
 6. Admin › System, new panel **AI usage** after Retention: stats for the last 7 and the last 30 days (Calls, Tokens in, Tokens out, Cost), and a table for the last 30 days: User | Calls | Tokens in | Tokens out | Cost, with the empty row when there are none. Cost is `in/1e6*priceIn + out/1e6*priceOut` with two decimals, `—` when no price is set.
 7. The retention worker also deletes `ai_usage` rows older than `AuditDays` when that is above 0.
 
-- [ ] **Step 1: write the failing tests.**
+- [x] **Step 1: write the failing tests.**
   - `TestUsageRecordedPerCall` (`rules`, with an `httptest` server that answers an OpenAI-style body with `usage`): one `AI` call gives one `Usage{Purpose: "rule", In: 12, Out: 3, OK: true}` with the rule id and the caller from the context.
   - `TestCachedReplyIsNotUsage`: the same text twice gives one usage.
   - `TestFailedCallIsUsage`: a 500 answer gives `OK: false`.
@@ -134,7 +134,7 @@ Rules:
   - `TestAITotals` (`db`): three rows by two users; the first total is everyone, then per user by calls.
   - `TestUsagePanelCost` (`web`): with prices `3` and `15` and one row of 1,000,000 in and 100,000 out, the panel shows `4.50`.
   - `TestUsagePanelNoPrice`: cost cells show `—`.
-- [ ] **Step 2–4:** fail, implement, pass (`go test ./internal/rules ./internal/db ./internal/store ./internal/web`). **Step 5:** commit: `feat(admin): AI calls, tokens and cost (D24)`.
+- [x] **Step 2–4:** fail, implement, pass (`go test ./internal/rules ./internal/db ./internal/store ./internal/web`). **Step 5:** commit: `feat(admin): AI calls, tokens and cost (D24)`.
 
 ### Task 4: Restore
 

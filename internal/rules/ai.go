@@ -74,12 +74,24 @@ func EnvKeyApplies(conf, eff config.AIConfig) bool {
 	return conf.APIKeyEnv != "" && eff.Provider == conf.Provider && eff.BaseURL == conf.BaseURL
 }
 
-// ask sends one prompt to the provider in c.
-func (rn *Runner) ask(ctx context.Context, c config.AIConfig, key, user string) (string, error) {
+// ask sends one prompt to the provider in c for purpose (and rule) and tells
+// OnUsage about the call, whether it worked or not.
+func (rn *Runner) ask(ctx context.Context, c config.AIConfig, key, user, purpose, rule string) (string, error) {
+	start := time.Now()
+	var content string
+	var in, out int
+	var err error
 	if c.Provider == "anthropic" {
-		return rn.anthropic(ctx, c, key, user)
+		content, in, out, err = rn.anthropic(ctx, c, key, user)
+	} else {
+		content, in, out, err = rn.openai(ctx, c, key, user)
 	}
-	return rn.openai(ctx, c, key, user)
+	if rn.OnUsage != nil {
+		who := callerOf(ctx)
+		rn.OnUsage(Usage{Purpose: purpose, Provider: c.Provider, Model: c.Model, Rule: rule, User: who.User, Eng: who.Eng, Fid: who.Fid,
+			In: in, Out: out, Took: max(time.Since(start), time.Nanosecond), OK: err == nil})
+	}
+	return content, err
 }
 
 // Ping sends a minimal request to the provider in use and returns how long
@@ -92,7 +104,7 @@ func (rn *Runner) Ping(ctx context.Context) (time.Duration, error) {
 	ctx, cancel := context.WithTimeout(ctx, min(rn.AITimeout, 20*time.Second))
 	defer cancel()
 	start := time.Now()
-	content, err := rn.ask(ctx, c, key, "Rule: none.\n\nText (title):\nping")
+	content, err := rn.ask(ctx, c, key, "Rule: none.\n\nText (title):\nping", "test", "")
 	if err != nil {
 		return 0, err
 	}
@@ -119,7 +131,7 @@ func (rn *Runner) AI(ctx context.Context, r Rule, target, text string) []Violati
 		ctx, cancel := context.WithTimeout(ctx, rn.AITimeout)
 		defer cancel()
 		user := "Rule: " + r.AI + "\n\nText (" + target + "):\n" + text
-		content, err := rn.ask(ctx, c, key, user)
+		content, err := rn.ask(ctx, c, key, user, "rule", r.ID)
 		if err == nil {
 			err = parseAI(content, &res)
 		}
@@ -173,7 +185,9 @@ func (rn *Runner) post(ctx context.Context, url string, body any, hdr map[string
 	return json.Unmarshal(data, out)
 }
 
-func (rn *Runner) openai(ctx context.Context, c config.AIConfig, key, user string) (string, error) {
+// openai asks an OpenAI-compatible provider; in and out are the tokens it
+// reported (usage.prompt_tokens, usage.completion_tokens).
+func (rn *Runner) openai(ctx context.Context, c config.AIConfig, key, user string) (content string, in, out int, err error) {
 	base := strings.TrimRight(c.BaseURL, "/")
 	if base == "" {
 		base = "https://api.openai.com/v1"
@@ -187,23 +201,30 @@ func (rn *Runner) openai(ctx context.Context, c config.AIConfig, key, user strin
 			{"role": "user", "content": user},
 		},
 	}
-	var out struct {
+	var reply struct {
 		Choices []struct {
 			Message struct {
 				Content string `json:"content"`
 			} `json:"message"`
 		} `json:"choices"`
+		Usage struct {
+			Prompt     int `json:"prompt_tokens"`
+			Completion int `json:"completion_tokens"`
+		} `json:"usage"`
 	}
-	if err := rn.post(ctx, base+"/chat/completions", body, map[string]string{"Authorization": "Bearer " + key}, &out); err != nil {
-		return "", err
+	if err := rn.post(ctx, base+"/chat/completions", body, map[string]string{"Authorization": "Bearer " + key}, &reply); err != nil {
+		return "", 0, 0, err
 	}
-	if len(out.Choices) == 0 {
-		return "", errors.New("empty reply")
+	in, out = reply.Usage.Prompt, reply.Usage.Completion
+	if len(reply.Choices) == 0 {
+		return "", in, out, errors.New("empty reply")
 	}
-	return out.Choices[0].Message.Content, nil
+	return reply.Choices[0].Message.Content, in, out, nil
 }
 
-func (rn *Runner) anthropic(ctx context.Context, c config.AIConfig, key, user string) (string, error) {
+// anthropic asks Anthropic's Messages API; in and out are the tokens it
+// reported (usage.input_tokens, usage.output_tokens).
+func (rn *Runner) anthropic(ctx context.Context, c config.AIConfig, key, user string) (content string, in, out int, err error) {
 	base := strings.TrimRight(c.BaseURL, "/")
 	if base == "" {
 		base = "https://api.anthropic.com"
@@ -214,20 +235,25 @@ func (rn *Runner) anthropic(ctx context.Context, c config.AIConfig, key, user st
 		"system":     systemPrompt,
 		"messages":   []map[string]string{{"role": "user", "content": user}},
 	}
-	var out struct {
+	var reply struct {
 		Content []struct {
 			Type string `json:"type"`
 			Text string `json:"text"`
 		} `json:"content"`
+		Usage struct {
+			Input  int `json:"input_tokens"`
+			Output int `json:"output_tokens"`
+		} `json:"usage"`
 	}
 	hdr := map[string]string{"x-api-key": key, "anthropic-version": "2023-06-01"}
-	if err := rn.post(ctx, base+"/v1/messages", body, hdr, &out); err != nil {
-		return "", err
+	if err := rn.post(ctx, base+"/v1/messages", body, hdr, &reply); err != nil {
+		return "", 0, 0, err
 	}
-	for _, c := range out.Content {
+	in, out = reply.Usage.Input, reply.Usage.Output
+	for _, c := range reply.Content {
 		if c.Type == "text" {
-			return c.Text, nil
+			return c.Text, in, out, nil
 		}
 	}
-	return "", errors.New("empty reply")
+	return "", in, out, errors.New("empty reply")
 }

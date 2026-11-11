@@ -10,6 +10,7 @@ import (
 
 	"yars/internal/auth"
 	"yars/internal/config"
+	"yars/internal/db"
 	"yars/internal/rules"
 )
 
@@ -26,6 +27,7 @@ type aiAdmin struct {
 	State, StateLabel, Error string
 	Test                     *aiTestResult
 	Rules                    []option // Value = rule id, Label = level
+	PriceIn, PriceOut        string   // per million tokens ("" = no price; D24)
 }
 
 type aiTestResult struct {
@@ -61,10 +63,18 @@ func (s *Server) runner() *rules.Runner {
 	return rn
 }
 
-// wireAI lets the AI rules use the settings saved on the admin page.
+// wireAI lets the AI rules use the settings saved on the admin page, and
+// records every call to the provider (Admin › System, AI usage).
 func (s *Server) wireAI() {
-	if rn := s.runner(); rn != nil && rn.Stored == nil && s.Store != nil && s.Store.DB() != nil {
+	rn := s.runner()
+	if rn == nil || s.Store == nil || s.Store.DB() == nil {
+		return
+	}
+	if rn.Stored == nil {
 		rn.Stored = s.aiStored
+	}
+	if rn.OnUsage == nil {
+		rn.OnUsage = recordAI(s.Store.DB())
 	}
 }
 
@@ -99,6 +109,9 @@ func (s *Server) aiPage(w http.ResponseWriter, r *http.Request, status int, errM
 			eff.Model = stored.Model
 		}
 		v := aiAdmin{BaseURL: eff.BaseURL, Model: eff.Model, EnvName: eff.APIKeyEnv, Error: errMsg, Test: s.aiTest.Load()}
+		d := s.Store.DB()
+		v.PriceIn, _ = d.Setting(db.AIPriceInKey)
+		v.PriceOut, _ = d.Setting(db.AIPriceOutKey)
 		if key != "" {
 			v.KeyEnding = ending(key)
 		}
@@ -155,7 +168,11 @@ func (s *Server) aiSave(w http.ResponseWriter, r *http.Request) {
 	base := strings.TrimSpace(r.FormValue("base_url"))
 	model := strings.TrimSpace(r.FormValue("model"))
 	key := strings.TrimSpace(r.FormValue("key"))
+	priceIn, priceOut := strings.TrimSpace(r.FormValue("price_in")), strings.TrimSpace(r.FormValue("price_out"))
 	switch {
+	case (priceIn != "" && !aiPrice.MatchString(priceIn)) || (priceOut != "" && !aiPrice.MatchString(priceOut)):
+		s.aiPage(w, r, http.StatusBadRequest, "Price: a number with up to 4 decimals, per 1M tokens")
+		return
 	case prov != "" && prov != rules.ProviderOff && prov != "openai" && prov != "anthropic":
 		s.aiPage(w, r, http.StatusBadRequest, "Provider: OpenAI-compatible, Anthropic or Off")
 		return
@@ -164,7 +181,7 @@ func (s *Server) aiSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d := s.Store.DB()
-	for k, v := range map[string]string{aiProviderKey: prov, aiBaseKey: base, aiModelKey: model} {
+	for k, v := range map[string]string{aiProviderKey: prov, aiBaseKey: base, aiModelKey: model, db.AIPriceInKey: priceIn, db.AIPriceOutKey: priceOut} {
 		if err := d.SetSetting(k, v); err != nil {
 			s.fail(w, err)
 			return
@@ -202,7 +219,7 @@ func (s *Server) aiTestRun(w http.ResponseWriter, r *http.Request) {
 	if rn := s.runner(); rn == nil {
 		res.Error = "no rules engine"
 	} else {
-		ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
+		ctx, cancel := context.WithTimeout(rules.WithCaller(r.Context(), rules.Caller{User: auth.UserFrom(r.Context()).Username}), 25*time.Second)
 		took, err := rn.Ping(ctx)
 		cancel()
 		if err != nil {

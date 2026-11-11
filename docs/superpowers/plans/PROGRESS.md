@@ -58,5 +58,6 @@ M24 branch  reviewed fixes f1cace6 (closed strip keeps refreshing; Original stat
 M24 PR      opened   #18
 M25 task 1  done     8e8429c
 M25 task 2  done     790771f
-M25 task 1  review   fix (fsck's message in the row; deadlines lifted for admins only)
+M25 task 1  review   fix 077937c (fsck's message in the row; deadlines lifted for admins only)
+M25 task 3  done     (schema v20)
 ```

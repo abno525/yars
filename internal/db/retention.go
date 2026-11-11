@@ -55,8 +55,9 @@ func (d *DB) SetRetention(r Retention) error {
 	return nil
 }
 
-// Pruned counts what a Prune deleted.
-type Pruned struct{ Audit, CheckRuns, Sessions int }
+// Pruned counts what a Prune deleted (AIUsage: calls to the AI provider,
+// which the audit days keep as long as the audit log).
+type Pruned struct{ Audit, CheckRuns, Sessions, AIUsage int }
 
 // Prune deletes what is older than r allows at now: audit entries, finished
 // check runs other than each finding's latest (their results and steps go
@@ -76,6 +77,9 @@ func (d *DB) Prune(now time.Time, r Retention) (Pruned, error) {
 	}
 	if r.AuditDays > 0 {
 		if err := del(&p.Audit, "DELETE FROM audit WHERE ts < ?", cutoff(r.AuditDays)); err != nil {
+			return p, err
+		}
+		if err := del(&p.AIUsage, "DELETE FROM ai_usage WHERE ts < ?", cutoff(r.AuditDays)); err != nil {
 			return p, err
 		}
 	}
