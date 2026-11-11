@@ -189,6 +189,13 @@ func (a *Auth) Require(next http.Handler) http.Handler {
 			http.Redirect(w, r, "/login", http.StatusSeeOther)
 			return
 		}
+		// a page load renews the cookie: an active session does not expire
+		// SessionIdle after login (htmx requests from an open page do not)
+		if r.Method == http.MethodGet && r.Header.Get("HX-Request") != "true" {
+			if c, err := r.Cookie(CookieName); err == nil {
+				a.SetCookie(w, c.Value)
+			}
+		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, u)))
 	})
 }

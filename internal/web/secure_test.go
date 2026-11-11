@@ -3,6 +3,7 @@ package web
 import (
 	"io/fs"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"regexp"
 	"strings"
@@ -96,6 +97,30 @@ func TestLoginCookieSecureWhenHTTPS(t *testing.T) {
 	}
 	if got == nil || !got.Secure || got.Value == "" {
 		t.Fatalf("login cookie %+v (status %d)", got, rec.Code)
+	}
+}
+
+// A page load renews the session cookie, so an active user is not logged
+// out 14 days after logging in; htmx requests from an open page do not.
+func TestCookieRefreshedOnPageLoad(t *testing.T) {
+	e := setup(t)
+	session := func(rec *httptest.ResponseRecorder) *http.Cookie {
+		for _, c := range rec.Result().Cookies() {
+			if c.Name == auth.CookieName {
+				return c
+			}
+		}
+		return nil
+	}
+	c := session(e.do(t, "alice", "GET", "/", nil, nil))
+	if c == nil || c.Value != e.toks["alice"] || c.MaxAge <= 0 {
+		t.Fatalf("page load cookie %+v", c)
+	}
+	if c := session(e.do(t, "alice", "GET", "/e/acme", nil, map[string]string{"HX-Request": "true"})); c != nil {
+		t.Fatalf("htmx request set %+v", c)
+	}
+	if c := session(e.do(t, "alice", "POST", fpath+"/chat", url.Values{"text": {"hi"}}, nil)); c != nil {
+		t.Fatalf("a POST set %+v", c)
 	}
 }
 
