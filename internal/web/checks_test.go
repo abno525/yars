@@ -215,10 +215,109 @@ func TestCVSSProblemListedOnce(t *testing.T) {
 		t.Fatalf("%d rows about Attack Complexity:\n%s", n, p)
 	}
 	// without the rule the gate's own row says it
+	gateRow := "explain the non-standard CVSS value for Attack Complexity"
 	e.rules(t, "- id: no-zebra\n  target: title\n  regex_forbid: 'zebra'\n", nil)
 	p = checksPanel(t, e.do(t, "alice", "GET", fpath, nil, nil).Body.String())
-	if n := strings.Count(p, "explain the non-standard CVSS value for Attack Complexity"); n != 1 {
+	if n := strings.Count(p, gateRow); n != 1 {
 		t.Fatalf("%d gate rows about Attack Complexity:\n%s", n, p)
+	}
+	// a rule that only warns does not stand for the gate's error, which
+	// still blocks Submit and is counted
+	e.rules(t, "- id: cv\n  check: cvss-explained\n  level: warning\n", nil)
+	p = checksPanel(t, e.do(t, "alice", "GET", fpath, nil, nil).Body.String())
+	if !strings.Contains(p, gateRow) {
+		t.Fatalf("a warning hid the gate's error:\n%s", p)
+	}
+	// nor does the rule's error once it is dismissed
+	e.rules(t, "- id: cv\n  check: cvss-explained\n", nil)
+	if rec := e.do(t, "bob", "POST", fpath+"/checks/dismiss", url.Values{"rule": {"cv"}, "target": {"cvss"}, "quote": {"AC:H"}, "reason": {"agreed"}}, nil); rec.Code != 200 {
+		t.Fatalf("dismiss %d: %s", rec.Code, rec.Body.String())
+	}
+	p = checksPanel(t, e.do(t, "alice", "GET", fpath, nil, nil).Body.String())
+	open := p[:strings.Index(p, `<details class="dismissed"`)]
+	if strings.Count(open, gateRow) != 1 {
+		t.Fatalf("a dismissed rule row hid the gate's error:\n%s", p)
+	}
+}
+
+// D3: while the last run is out of date, the strip lists the rules as they
+// are now, so its count, the bar's and Submit agree.
+func TestStaleRunListsRulesNow(t *testing.T) {
+	e := setupSerial(t)
+	e.gateClean(t)
+	e.rules(t, "- id: no-zebra\n  target: section:Impact\n  regex_forbid: 'zebra'\n  message: no zebra\n", nil)
+	st := e.srv.Store
+	check := func() {
+		t.Helper()
+		if rec := e.do(t, "alice", "POST", fpath+"/checks", url.Values{}, nil); rec.Code != 200 {
+			t.Fatalf("check %d", rec.Code)
+		}
+		st.WaitChecks()
+	}
+	submit := func(b string) string {
+		t.Helper()
+		wf := wfBar(t, b)
+		i := strings.Index(wf, `data-action="submit"`)
+		if i < 0 {
+			t.Fatalf("no Submit:\n%s", wf)
+		}
+		return wf[i : i+strings.Index(wf[i:], ">")]
+	}
+	check() // clean
+	// an error written after the run: listed, counted, Submit disabled
+	st.UpdateSection("acme", fdir, "Impact", "A zebra.", "", e.authorOf(wAlice))
+	b := e.do(t, "alice", "GET", fpath, nil, nil).Body.String()
+	if p := checksPanel(t, b); !strings.Contains(p, "no zebra") || !strings.Contains(p, `Errors <span class="badge">1</span>`) {
+		t.Fatalf("stale strip:\n%s", p)
+	}
+	if !strings.Contains(wfBar(t, b), ">1 error to fix<") || !strings.Contains(submit(b), "disabled") {
+		t.Fatalf("stale bar:\n%s", wfBar(t, b))
+	}
+	// a run that found it, then the fix: nothing listed, Submit enabled
+	check()
+	st.UpdateSection("acme", fdir, "Impact", "A horse.", "", e.authorOf(wAlice))
+	b = e.do(t, "alice", "GET", fpath, nil, nil).Body.String()
+	if p := checksPanel(t, b); strings.Contains(p, "no zebra") || !strings.Contains(p, `Errors <span class="badge0">0</span>`) {
+		t.Fatalf("stale strip after the fix:\n%s", p)
+	}
+	if strings.Contains(wfBar(t, b), "to fix") || strings.Contains(submit(b), "disabled") {
+		t.Fatalf("stale bar after the fix:\n%s", wfBar(t, b))
+	}
+}
+
+// D3: an error the last run found on this content (a script rule's) is
+// counted, and Submit, which runs every rule, waits for it too.
+func TestRunErrorDisablesSubmit(t *testing.T) {
+	e := setupSerial(t)
+	e.gateClean(t)
+	e.rules(t, "- id: scr\n  script: check.sh\n", map[string]string{"check.sh": `cat >/dev/null; echo '[{"message":"script says no","target":"section:Impact"}]'` + "\n"})
+	e.do(t, "alice", "POST", fpath+"/checks", url.Values{}, nil)
+	e.srv.Store.WaitChecks()
+	wf := wfBar(t, e.do(t, "alice", "GET", fpath, nil, nil).Body.String())
+	i := strings.Index(wf, `data-action="submit"`)
+	if !strings.Contains(wf, ">1 error to fix<") || i < 0 || !strings.Contains(wf[i:i+strings.Index(wf[i:], ">")], "disabled") {
+		t.Fatalf("bar with a run's error:\n%s", wf)
+	}
+}
+
+// D3: in verification the bar's "errors open" is the strip's Errors count
+// (the gate's rows included).
+func TestErrorsOpenCountMatchesStrip(t *testing.T) {
+	e := setup(t)
+	e.toVerification(t)
+	form := vecForm(nil)
+	form.Set("reason_C", "because C")
+	form.Set("reason_I", "because I")
+	if rec := e.do(t, "alice", "POST", fpath+"/cvss", form, nil); rec.Code >= 400 {
+		t.Fatalf("cvss %d: %s", rec.Code, rec.Body.String())
+	}
+	e.rules(t, "- id: title-word\n  target: title\n  regex_forbid: 'injection'\n  message: Avoid the word injection\n", nil)
+	b := e.do(t, "bob", "GET", fpath, nil, nil).Body.String()
+	if p := checksPanel(t, b); !strings.Contains(p, `Errors <span class="badge">2</span>`) {
+		t.Fatalf("strip:\n%s", p)
+	}
+	if wf := wfBar(t, b); !strings.Contains(wf, ">2 errors open<") {
+		t.Fatalf("bob's bar:\n%s", wf)
 	}
 }
 
@@ -254,7 +353,8 @@ func TestChecksPanel(t *testing.T) {
 		t.Fatalf("workflow bar and rule errors:\n%s", wf)
 	}
 	// the panel refetches itself on check events
-	if !strings.Contains(p, `hx-get="/e/acme/f/001/checks"`) || !strings.Contains(p, "sse:check") || !strings.Contains(p, "data-sse") {
+	// workflow events too: the gate's rows (reviewers, status) are listed here (D3)
+	if !strings.Contains(p, `hx-get="/e/acme/f/001/checks"`) || !strings.Contains(p, "sse:check") || !strings.Contains(p, "sse:workflow") || !strings.Contains(p, "data-sse") {
 		t.Fatalf("no live refresh:\n%s", p)
 	}
 	// the Check button sits in the workflow bar, before Submit
@@ -454,12 +554,9 @@ func TestChecksDismiss(t *testing.T) {
 		!strings.Contains(p, "<th class=\"c-reason\">Reason</th>") || !strings.Contains(p, "Injection is the client&#39;s term") {
 		t.Fatalf("dismissed row:\n%s", p)
 	}
-	// the gate ignores it now
-	b := e.do(t, "alice", "GET", fpath, nil, nil).Body.String()
-	wf := b[strings.Index(b, `id="workflow"`):]
-	wf = wf[:strings.Index(wf, "</section>")]
-	if strings.Contains(wf, "Avoid the word injection") {
-		t.Fatalf("dismissed error still in the gate:\n%s", wf)
+	// the bar no longer counts it: the gate's two are left (D3)
+	if wf := wfBar(t, e.do(t, "alice", "GET", fpath, nil, nil).Body.String()); !strings.Contains(wf, ">2 errors to fix<") {
+		t.Fatalf("dismissed error still counted:\n%s", wf)
 	}
 	if rec := e.do(t, "alice", "POST", fpath+"/checks/undismiss", form, nil); rec.Code != 403 {
 		t.Fatalf("pentester restored an error: %d", rec.Code)

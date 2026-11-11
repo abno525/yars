@@ -2,7 +2,7 @@
 
 {{define "checks_panel"}}
 {{if .Enabled}}
-<details class="panel checks strip{{if .Empty}} empty{{end}}" id="checks"{{if .Open}} open{{end}}{{if .Running}} data-running{{end}} hx-get="{{.URL}}" hx-trigger="sse:check, sse:content, sse:resync, sse:poll{{if .OOB}}, load{{end}}" hx-swap="outerHTML" data-sse{{if .OOB}} hx-swap-oob="true"{{end}}>
+<details class="panel checks strip{{if .Empty}} empty{{end}}" id="checks"{{if .Open}} open{{end}}{{if .Running}} data-running{{end}} hx-get="{{.URL}}" hx-trigger="sse:check, sse:content, sse:workflow, sse:resync, sse:poll{{if .OOB}}, load{{end}}" hx-swap="outerHTML" data-sse{{if .OOB}} hx-swap-oob="true"{{end}}>
   <summary class="panelhead">
     <div class="panelname">
       <h2>Checks</h2>

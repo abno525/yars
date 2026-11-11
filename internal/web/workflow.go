@@ -41,7 +41,8 @@ type wfView struct {
 	// open check errors and warnings keeping Sign off or Approve disabled
 	OpenErrors, OpenWarnings int
 	// Problems: the Checks strip's Errors count, shown as "N errors to fix"
-	// to a viewer who may submit or approve (D3: one count)
+	// to a viewer who may submit or approve, and as "N errors open" to one
+	// who signs off (D3: one count)
 	Problems int
 	// Require Check: Sign off and Approve wait for a check run on this content
 	NeedsCheck   bool
@@ -205,7 +206,12 @@ func (v *wfView) arrange(u config.User, m finding.Meta) {
 	case v.Problems > 0 && v.HasGated:
 		v.State, v.StateError = plural(v.Problems, "error")+" to fix", true
 	case v.OpenErrors > 0:
-		v.State, v.StateError = plural(v.OpenErrors, "error")+" open", true
+		// the strip's count where it lists them (D3: one count)
+		n := v.OpenErrors
+		if v.Problems > 0 {
+			n = v.Problems
+		}
+		v.State, v.StateError = plural(n, "error")+" open", true
 	case v.OpenWarnings > 0:
 		v.State = plural(v.OpenWarnings, "warning") + " open"
 	case v.NeedsCheck:
@@ -312,21 +318,22 @@ func (s *Server) wfGated(r *http.Request, ref store.FindingRef) (wfView, checksV
 			}
 		}
 	}
-	if errs := checks.Gate; len(errs) > 0 {
+	if errs := checks.Gate; len(errs) > 0 && wf.HasGated {
+		wf.Gate = append(wf.Gate, errs...)
+	}
+	// D3: Submit and Approve wait while the strip counts an error: the fast
+	// rules' now, or one the last run found on this content (they run every
+	// rule)
+	if len(checks.Gate) > 0 || checks.Errors > 0 {
 		for i, a := range wf.Actions {
 			if a.Gated {
 				wf.Actions[i].Disabled = true
 			}
 		}
-		if wf.HasGated {
-			wf.Gate = append(wf.Gate, errs...)
-		}
 	}
-	if wf.HasGated {
-		wf.Problems = checks.Errors
-		if !checks.Enabled { // no rules, no strip: the gate's own count
-			wf.Problems = len(wf.Gate)
-		}
+	wf.Problems = checks.Errors
+	if !checks.Enabled && wf.HasGated { // no rules, no strip: the gate's own count
+		wf.Problems = len(wf.Gate)
 	}
 	wf.arrange(auth.UserFrom(r.Context()), ref.F.Meta)
 	wf.Check = checkOf(checks)

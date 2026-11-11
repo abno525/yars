@@ -9,7 +9,9 @@ import (
 	"time"
 
 	"yars/internal/auth"
+	"yars/internal/cvss"
 	"yars/internal/db"
+	"yars/internal/finding"
 	"yars/internal/rules"
 	"yars/internal/store"
 	"yars/internal/workflow"
@@ -179,7 +181,10 @@ func (s *Server) checksFor(r *http.Request, ref store.FindingRef) checksView {
 		default:
 			v.State = st.Run.State
 		}
-		if !st.Running {
+		// a finished run on this content with these rules lists its results;
+		// while one runs or is out of date the fast rules say how it is now
+		// (as Submit and the store's open checks see it)
+		if !st.Running && !st.Stale {
 			items = nil
 			for _, x := range st.Results {
 				items = append(items, rules.Violation{Rule: x.Rule, Level: x.Level, Message: x.Message, Target: x.Target, Quote: x.Quote})
@@ -218,19 +223,6 @@ func (s *Server) checksFor(r *http.Request, ref store.FindingRef) checksView {
 	for _, x := range st.Steps {
 		stepped[x.Rule] = true
 	}
-	// D3: what the workflow gate asks for is listed and counted here, first,
-	// for a draft or a finding in verification (the cvss-explained rule, when
-	// on, says the CVSS one itself)
-	if m := ref.F.Meta; m.Status == "draft" || m.Status == "verification" {
-		cvssRule := slices.ContainsFunc(set.Rules, func(r rules.Rule) bool { return r.On() && r.Check == "cvss-explained" })
-		for _, p := range workflow.Gate(m, s.conf()) {
-			if cvssRule && strings.HasPrefix(p, "explain the non-standard CVSS value for ") {
-				continue
-			}
-			v.Rows = append(v.Rows, checkRow{Level: "error", Rule: "workflow", Message: p, Where: "Workflow"})
-			v.Errors++
-		}
-	}
 	seen := map[string]bool{} // rule, place and quote: one row each (D18)
 	for n, it := range items {
 		notice := it.Target == "rules" || it.Target == "ai"
@@ -259,10 +251,49 @@ func (s *Server) checksFor(r *http.Request, ref store.FindingRef) checksView {
 		}
 		v.Rows = append(v.Rows, row)
 	}
+	gate := s.gateRows(ref.F.Meta, set, v.Rows) // first, and counted
+	v.Errors += len(gate)
+	v.Rows = append(gate, v.Rows...)
 	v.Empty = len(v.Rows) == 0 && len(v.Dismissed) == 0
 	m := ref.F.Meta
 	v.Open = v.Running || (m.Status == "draft" && u.Username == m.Author && v.Errors > 0)
 	return v
+}
+
+// gateRule names the strip's rows that are the workflow gate's problems
+// (their title; they have no Dismiss).
+const gateRule = "workflow"
+
+// gateRows are what the workflow gate asks for, as rows of the strip, for a
+// draft or a finding in verification (D3). An unexplained CVSS value is left
+// to a cvss-explained rule only while that rule's open error names the same
+// metric (a warning or a dismissed row does not stand for the gate's error).
+func (s *Server) gateRows(m finding.Meta, set *rules.Set, rows []checkRow) []checkRow {
+	if m.Status != "draft" && m.Status != "verification" {
+		return nil
+	}
+	cvssRule := map[string]bool{}
+	for _, r := range set.Rules {
+		if r.On() && r.Check == "cvss-explained" {
+			cvssRule[r.ID] = true
+		}
+	}
+	said := map[string]bool{} // metric keys ("AC") an open cvss-explained error names
+	for _, r := range rows {
+		if key, _, ok := strings.Cut(r.Quote, ":"); ok && cvssRule[r.Rule] && r.Level == "error" {
+			said[key] = true
+		}
+	}
+	var out []checkRow
+	for _, p := range workflow.Gate(m, s.conf()) {
+		if name, ok := strings.CutPrefix(p, "explain the non-standard CVSS value for "); ok {
+			if i := slices.IndexFunc(cvss.Metrics, func(mt cvss.Metric) bool { return mt.Name == name }); i >= 0 && said[cvss.Metrics[i].Key] {
+				continue
+			}
+		}
+		out = append(out, checkRow{Level: "error", Rule: gateRule, Message: p, Where: "Workflow"})
+	}
+	return out
 }
 
 // stamp shows a stored RFC 3339 time like the chat does.
