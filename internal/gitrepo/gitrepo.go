@@ -54,7 +54,11 @@ func (r *Repo) runWithin(timeout time.Duration, env []string, args ...string) (s
 		if ctx.Err() == context.DeadlineExceeded {
 			return "", fmt.Errorf("git %s: timed out after %s", strings.Join(args, " "), timeout)
 		}
-		return "", fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
+		msg := strings.TrimSpace(stderr.String())
+		if msg == "" { // some commands say what is wrong on stdout (fsck)
+			msg, _, _ = strings.Cut(strings.TrimSpace(stdout.String()), "\n")
+		}
+		return "", fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, msg)
 	}
 	return stdout.String(), nil
 }

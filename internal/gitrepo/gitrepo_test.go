@@ -193,7 +193,8 @@ func TestFsck(t *testing.T) {
 	if err := os.Remove(filepath.Join(dir, ".git", "objects", blob[:2], blob[2:])); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.Fsck(); err == nil {
-		t.Fatal("a repository without a blob passes fsck")
+	// git fsck says what is wrong on stdout: the error carries it
+	if err := r.Fsck(); err == nil || !strings.Contains(err.Error(), "missing blob "+blob) {
+		t.Fatalf("a repository without a blob: %v", err)
 	}
 }

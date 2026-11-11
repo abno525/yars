@@ -364,7 +364,7 @@ func TestRunIntegrityReportsBrokenRepo(t *testing.T) {
 	}
 	e.do(t, "dora", "POST", "/admin/system/check", url.Values{}, nil)
 	row := healthRowOf(t, e.do(t, "dora", "GET", "/admin/system", nil, nil).Body.String(), "Git repositories")
-	if !strings.Contains(row, `<span class="tag bad">Error</span>`) || !strings.Contains(row, `title="acme">acme<`) {
+	if !strings.Contains(row, `<span class="tag bad">Error</span>`) || !strings.Contains(row, `title="acme">acme<`) || !strings.Contains(row, "missing blob "+blob) {
 		t.Fatalf("git row with a broken repository:\n%s", row)
 	}
 }

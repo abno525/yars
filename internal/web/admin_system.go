@@ -61,12 +61,13 @@ func (s *Server) routesAdminSystem(mux *http.ServeMux) {
 	// a POST, so the cross-origin check covers it: a link elsewhere can't
 	// make an admin's browser save a backup (with the key)
 	mux.HandleFunc("POST /admin/system/backup", s.adminOnly(s.backup))
-	// Run integrity: fsck reads every object of every repository, which can
-	// outlast the server's write deadline
-	mux.Handle("POST /admin/system/check", longLived(s.adminOnly(func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /admin/system/check", s.adminOnly(func(w http.ResponseWriter, r *http.Request) {
+		// Run integrity: fsck reads every object of every repository, which
+		// can outlast the server's write deadline (lifted for admins only)
+		clearDeadlines(w)
 		s.runHealth(r.Context(), true)
 		http.Redirect(w, r, "/admin/system", http.StatusSeeOther)
-	})))
+	}))
 	mux.HandleFunc("POST /admin/system/retention", s.adminOnly(s.retentionSave))
 	mux.HandleFunc("POST /admin/system/sync", s.adminOnly(s.systemOp("sync")))
 	mux.HandleFunc("POST /admin/system/reindex", s.adminOnly(s.systemOp("reindex")))
