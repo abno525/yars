@@ -138,6 +138,32 @@ func TestWriteSkipsSymlinksAndSnapshots(t *testing.T) {
 	}
 }
 
+// A file that a commit removes between listing and copying (git's own
+// temporary files) is left out, not an error: the command line copies
+// without locks.
+func TestWriteSkipsVanishedFile(t *testing.T) {
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	b := &writer{zw: zw, root: t.TempDir()}
+	p := filepath.Join(b.root, "tmp_obj_1")
+	if err := os.WriteFile(p, []byte("x"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Remove(p)
+	if err := b.add(p, "tmp_obj_1", info); err != nil {
+		t.Fatalf("a vanished file is an error: %v", err)
+	}
+	zw.Close()
+	zr, _ := zip.NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+	if len(zr.File) != 0 {
+		t.Fatalf("entries %v", zr.File)
+	}
+}
+
 // A linked engagements folder is not followed.
 func TestWriteSkipsLinkedEngagementsFolder(t *testing.T) {
 	dir, d, _ := dataFolder(t)
@@ -251,6 +277,11 @@ func TestSkip(t *testing.T) {
 		".yars/secret.key":         true,
 		".yars/config.yaml":        false,
 		"engagements/acme/x.md":    false,
+		// a git lock caught mid-commit would stop every commit after a restore
+		".git/index.lock": true,
+		"engagements/acme/.git/refs/heads/main.lock": true,
+		"engagements/acme/.git/config":               false,
+		"engagements/acme/findings/001-x/yarn.lock":  false,
 	} {
 		if got := Skip(rel, false); got != want {
 			t.Errorf("Skip(%q, false) = %v, want %v", rel, got, want)

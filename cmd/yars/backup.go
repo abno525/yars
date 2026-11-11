@@ -46,19 +46,33 @@ func cmdBackup(args []string, out io.Writer) error {
 	}
 	defer d.Close()
 	part := *to + ".part"
+	var last error
 	for try := 0; try < backupTries; try++ {
-		n, err := writeBackup(part, r.Dir, d, *withKey)
+		// a .part that exists belongs to another backup (or a crashed one)
+		fh, err := os.OpenFile(part, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if os.IsExist(err) {
+			return fmt.Errorf("%s exists: another yars backup is writing it; remove it if none is", part)
+		}
 		if err != nil {
-			os.Remove(part)
 			return err
 		}
-		rep, err := verifyBackup(part)
+		n, err := writeBackup(fh, r.Dir, d, *withKey)
+		var rep backup.Report
+		if err == nil {
+			rep, err = verifyBackup(part)
+		}
 		if err != nil {
 			os.Remove(part)
+			last = err
 			continue
 		}
-		if err := os.Rename(part, *to); err != nil {
-			os.Remove(part)
+		// a link, not a rename: a file that appeared at --out stays
+		err = os.Link(part, *to)
+		os.Remove(part)
+		if os.IsExist(err) {
+			return fmt.Errorf("%s exists already", *to)
+		}
+		if err != nil {
 			return err
 		}
 		detail := "without key"
@@ -69,16 +83,11 @@ func cmdBackup(args []string, out io.Writer) error {
 		fmt.Fprintf(out, "wrote %s (%s, %s, %s)\n", *to, byteSize(n), count(rep.Engagements, "engagement"), count(rep.Findings, "finding"))
 		return nil
 	}
-	return fmt.Errorf("could not take a consistent backup while the server is writing; try again")
+	return fmt.Errorf("could not take a consistent backup while the server is writing; try again (last try: %v)", last)
 }
 
-// writeBackup writes a backup of dir to path (created or truncated), without
-// locks.
-func writeBackup(path, dir string, d *db.DB, withKey bool) (int64, error) {
-	fh, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
-	if err != nil {
-		return 0, err
-	}
+// writeBackup writes a backup of dir to fh, without locks, and closes it.
+func writeBackup(fh *os.File, dir string, d *db.DB, withKey bool) (int64, error) {
 	n, err := backup.Write(fh, dir, d, nil, backup.Options{WithKey: withKey})
 	if cerr := fh.Close(); err == nil {
 		err = cerr

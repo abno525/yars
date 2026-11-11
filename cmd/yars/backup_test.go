@@ -123,11 +123,76 @@ func TestBackupRetriesInconsistent(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "could not take a consistent backup while the server is writing; try again") {
 		t.Fatalf("err %v", err)
 	}
+	// the cause of the last try is kept: a fault that never goes away shows
+	if !strings.Contains(err.Error(), "missing blob") {
+		t.Fatalf("the last error is lost: %v", err)
+	}
 	if runs != backupTries {
 		t.Fatalf("verified %d times, want %d", runs, backupTries)
 	}
 	if ents, _ := os.ReadDir(folder); len(ents) != 0 {
 		t.Fatalf("files left: %v", ents)
+	}
+}
+
+// A copy that fails (a file it cannot read) is tried again like one that
+// does not verify, and the reason is shown.
+func TestBackupRetriesWriteErrors(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads every file")
+	}
+	dir := dataWithFinding(t)
+	locked := filepath.Join(dir, ".yars", "unreadable.txt")
+	if err := os.WriteFile(locked, []byte("x"), 0o000); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(locked, 0o600)
+	defer func(v func(string) (backup.Report, error)) { verifyBackup = v }(verifyBackup)
+	verifyBackup = func(string) (backup.Report, error) {
+		t.Fatal("verified a backup that failed to write")
+		return backup.Report{}, nil
+	}
+	folder := t.TempDir()
+	err := cmdBackup([]string{"--data", dir, "--out", filepath.Join(folder, "b.zip")}, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "could not take a consistent backup") || !strings.Contains(err.Error(), "permission denied") {
+		t.Fatalf("err %v", err)
+	}
+	if ents, _ := os.ReadDir(folder); len(ents) != 0 {
+		t.Fatalf("files left: %v", ents)
+	}
+}
+
+// Another backup writing the same file's .part is not disturbed, and a
+// file that appears at --out meanwhile is not replaced.
+func TestBackupLeavesOthersFiles(t *testing.T) {
+	dir := dataWithFinding(t)
+	out := filepath.Join(t.TempDir(), "b.zip")
+	if err := os.WriteFile(out+".part", []byte("theirs"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := cmdBackup([]string{"--data", dir, "--out", out}, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), out+".part exists") {
+		t.Fatalf("err %v", err)
+	}
+	if b, _ := os.ReadFile(out + ".part"); string(b) != "theirs" {
+		t.Fatal("the other .part was changed")
+	}
+	os.Remove(out + ".part")
+
+	defer func(v func(string) (backup.Report, error)) { verifyBackup = v }(verifyBackup)
+	verifyBackup = func(p string) (backup.Report, error) {
+		os.WriteFile(out, []byte("mine"), 0o600) // written while we verify
+		return backup.Verify(p)
+	}
+	err = cmdBackup([]string{"--data", dir, "--out", out}, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "exists already") {
+		t.Fatalf("err %v", err)
+	}
+	if b, _ := os.ReadFile(out); string(b) != "mine" {
+		t.Fatal("the file at --out was replaced")
+	}
+	if _, err := os.Stat(out + ".part"); !os.IsNotExist(err) {
+		t.Fatal("the .part file is left behind")
 	}
 }
 

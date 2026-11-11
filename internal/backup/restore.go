@@ -62,6 +62,9 @@ func Restore(zipPath, destDir string) (Report, error) {
 			return rep, fmt.Errorf("%s: not a plain file inside the data folder", f.Name)
 		}
 		name := strings.TrimSuffix(f.Name, "/")
+		if name != dbEntry && Skip(name, true) {
+			return rep, fmt.Errorf("%s: not part of a backup", f.Name)
+		}
 		switch {
 		case name == dbEntry && !f.Mode().IsDir():
 			dbFile = f

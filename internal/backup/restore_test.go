@@ -230,6 +230,43 @@ func TestRestoreRemovesBrokenResult(t *testing.T) {
 	gone(t, dest)
 }
 
+// A file a backup never holds (the database's side files, a migration
+// snapshot, a git lock) refuses the restore before anything is written: a
+// WAL file could change the database after its schema was read.
+func TestRestoreRefusesSkippedEntries(t *testing.T) {
+	dbh := fileHeader(".yars/yars.db", 0o600)
+	for _, name := range []string{".yars/yars.db-wal", ".yars/yars.db.before-v3", ".git/index.lock"} {
+		t.Run(name, func(t *testing.T) {
+			dest := filepath.Join(t.TempDir(), "restored")
+			_, err := Restore(handZip(t, dbh, fileHeader(name, 0o600)), dest)
+			if err == nil || !strings.Contains(err.Error(), name+": not part of a backup") {
+				t.Fatalf("err %v", err)
+			}
+			gone(t, dest)
+		})
+	}
+}
+
+// The report gives the schema of the backup as written, before the restore
+// migrates it.
+func TestRestoreReportsBackupSchema(t *testing.T) {
+	dir, d, st := dataFolder(t, "acme")
+	if _, err := d.Exec(fmt.Sprintf("PRAGMA user_version = %d", db.SchemaVersion-1)); err != nil {
+		t.Fatal(err)
+	}
+	dest := filepath.Join(t.TempDir(), "restored")
+	rep, err := Restore(backupFile(t, dir, d, st), dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Schema != db.SchemaVersion-1 {
+		t.Fatalf("schema %d, want %d", rep.Schema, db.SchemaVersion-1)
+	}
+	if v, err := db.SchemaOf(filepath.Join(dest, ".yars", "yars.db")); err != nil || v != db.SchemaVersion {
+		t.Fatalf("restored database at %d %v", v, err)
+	}
+}
+
 func TestVerify(t *testing.T) {
 	dir, d, st := dataFolder(t, "acme")
 	rep, err := Verify(backupFile(t, dir, d, st))

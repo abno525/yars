@@ -27,13 +27,16 @@ type Locker interface {
 }
 
 // Skip reports files a backup leaves out: the live database and its side
-// files (a snapshot goes in instead), the snapshots taken before migrations
-// and, unless withKey, the secret key.
+// files (a snapshot goes in instead), the snapshots taken before migrations,
+// git's lock files (a commit in progress; restored, they would stop every
+// later commit) and, unless withKey, the secret key.
 func Skip(rel string, withKey bool) bool {
 	switch {
 	case rel == ".yars/yars.db",
 		strings.HasPrefix(rel, ".yars/yars.db-"),
 		strings.HasPrefix(rel, ".yars/yars.db.before-"):
+		return true
+	case strings.HasSuffix(rel, ".lock") && (strings.HasPrefix(rel, ".git/") || strings.Contains(rel, "/.git/")):
 		return true
 	case rel == ".yars/secret.key":
 		return !withKey
@@ -121,9 +124,14 @@ type writer struct {
 
 // walk adds every folder and regular file under from. With main set, the
 // engagement repos (folders under engagements/) are left for their own walk.
+// A file or folder that is gone by the time it is read (git's temporary
+// files, when the copy takes no lock) is left out.
 func (b *writer) walk(from string, main bool) error {
 	return filepath.WalkDir(from, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
+			if os.IsNotExist(err) && p != from {
+				return nil
+			}
 			return err
 		}
 		rel, err := filepath.Rel(b.root, p)
@@ -141,6 +149,9 @@ func (b *writer) walk(from string, main bool) error {
 			return nil
 		}
 		info, err := d.Info()
+		if os.IsNotExist(err) {
+			return nil
+		}
 		if err != nil {
 			return err
 		}
@@ -168,6 +179,9 @@ func (b *writer) add(src, rel string, info fs.FileInfo) error {
 	}
 	h.Name, h.Method = rel, zip.Deflate
 	f, err := os.Open(src)
+	if os.IsNotExist(err) {
+		return nil // removed since it was listed
+	}
 	if err != nil {
 		return err
 	}
