@@ -267,6 +267,27 @@ func TestRestoreReportsBackupSchema(t *testing.T) {
 	}
 }
 
+// The database and the key are unpacked private whatever mode the ZIP
+// gives them.
+func TestUnpackKeepsSecretsPrivate(t *testing.T) {
+	zp := handZip(t, fileHeader(".yars/yars.db", 0o644), fileHeader(".yars/secret.key", 0o644), fileHeader(".yars/config.yaml", 0o644))
+	zr, err := zip.OpenReader(zp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer zr.Close()
+	dest := t.TempDir()
+	if err := unpack(zr.File, dest); err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]fs.FileMode{".yars/yars.db": 0o600, ".yars/secret.key": 0o600, ".yars/config.yaml": 0o644} {
+		fi, err := os.Stat(filepath.Join(dest, name))
+		if err != nil || fi.Mode().Perm() != want {
+			t.Errorf("%s: %v %v, want %v", name, fi, err, want)
+		}
+	}
+}
+
 func TestVerify(t *testing.T) {
 	dir, d, st := dataFolder(t, "acme")
 	rep, err := Verify(backupFile(t, dir, d, st))

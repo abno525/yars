@@ -64,6 +64,10 @@ func Write(w io.Writer, dataDir string, d *db.DB, l Locker, o Options) (int64, e
 	if err := d.Snapshot(snap); err != nil {
 		return 0, err
 	}
+	// private in the ZIP, as the live database is (VACUUM INTO makes 0644)
+	if err := os.Chmod(snap, 0o600); err != nil {
+		return 0, err
+	}
 	cw := &countWriter{w: w}
 	zw := zip.NewWriter(cw)
 	b := &writer{zw: zw, root: dataDir, withKey: o.WithKey}
@@ -120,6 +124,8 @@ type writer struct {
 	zw      *zip.Writer
 	root    string
 	withKey bool
+
+	beforeInfo func(path string) // test hook: runs before an entry is read
 }
 
 // walk adds every folder and regular file under from. With main set, the
@@ -147,6 +153,9 @@ func (b *writer) walk(from string, main bool) error {
 		}
 		if !d.IsDir() && !d.Type().IsRegular() {
 			return nil
+		}
+		if b.beforeInfo != nil {
+			b.beforeInfo(p)
 		}
 		info, err := d.Info()
 		if os.IsNotExist(err) {

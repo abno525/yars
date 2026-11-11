@@ -164,6 +164,46 @@ func TestWriteSkipsVanishedFile(t *testing.T) {
 	}
 }
 
+// The walk leaves out a file or a folder removed after its folder was
+// listed (a commit renaming git's temporary objects).
+func TestWriteWalkSkipsVanished(t *testing.T) {
+	root := t.TempDir()
+	for _, p := range []string{"keep.txt", "gone.txt", "gonedir/x.txt"} {
+		os.MkdirAll(filepath.Join(root, filepath.Dir(p)), 0o755)
+		if err := os.WriteFile(filepath.Join(root, p), []byte(p), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	b := &writer{zw: zw, root: root, beforeInfo: func(p string) {
+		if n := filepath.Base(p); n == "gone.txt" || n == "gonedir" {
+			os.RemoveAll(p)
+		}
+	}}
+	if err := b.walk(root, false); err != nil {
+		t.Fatalf("a vanished entry is an error: %v", err)
+	}
+	zw.Close()
+	zr, _ := zip.NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+	var names []string
+	for _, f := range zr.File {
+		names = append(names, f.Name)
+	}
+	if strings.Join(names, ",") != "keep.txt" {
+		t.Fatalf("entries %v", names)
+	}
+}
+
+// The database in a backup is private, as the live one is.
+func TestWriteDatabaseEntryPrivate(t *testing.T) {
+	dir, d, _ := dataFolder(t, "acme")
+	f := entry(zipOf(t, dir, d, nil, Options{}), ".yars/yars.db")
+	if f == nil || f.Mode().Perm() != 0o600 {
+		t.Fatalf("database entry %v", f)
+	}
+}
+
 // A linked engagements folder is not followed.
 func TestWriteSkipsLinkedEngagementsFolder(t *testing.T) {
 	dir, d, _ := dataFolder(t)

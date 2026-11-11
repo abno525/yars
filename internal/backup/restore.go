@@ -184,20 +184,24 @@ func unpack(files []*zip.File, dest string) error {
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return err
 		}
-		if err := extract(f, target); err != nil {
+		perm := f.Mode().Perm()
+		if f.Name == dbEntry || f.Name == ".yars/secret.key" {
+			perm = 0o600 // private whatever the ZIP says
+		}
+		if err := extract(f, target, perm); err != nil {
 			return fmt.Errorf("%s: %w", f.Name, err)
 		}
 	}
 	return nil
 }
 
-func extract(f *zip.File, target string) error {
+func extract(f *zip.File, target string, perm os.FileMode) error {
 	rc, err := f.Open()
 	if err != nil {
 		return err
 	}
 	defer rc.Close()
-	out, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, f.Mode().Perm())
+	out, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, perm)
 	if err != nil {
 		return err
 	}

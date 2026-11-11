@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 
 	"yars/internal/backup"
 	"yars/internal/db"
@@ -17,6 +19,10 @@ const backupTries = 3
 
 // verifyBackup checks a backup file (a test replaces it).
 var verifyBackup = backup.Verify
+
+// linkFile puts the finished backup in place without replacing a file (a
+// test replaces it).
+var linkFile = os.Link
 
 // cmdBackup writes a verified backup of the data folder: yars backup [--data
 // dir] [--key] --out file.zip. It takes no locks, so it works while the
@@ -39,6 +45,9 @@ func cmdBackup(args []string, out io.Writer) error {
 	r, err := openData(f, *data)
 	if err != nil {
 		return err
+	}
+	if inside(*to, r.Dir) {
+		return fmt.Errorf("%s is inside the data folder %s; write the backup elsewhere", *to, r.Dir)
 	}
 	d, err := dataDB(r.Dir)
 	if err != nil {
@@ -66,13 +75,7 @@ func cmdBackup(args []string, out io.Writer) error {
 			last = err
 			continue
 		}
-		// a link, not a rename: a file that appeared at --out stays
-		err = os.Link(part, *to)
-		os.Remove(part)
-		if os.IsExist(err) {
-			return fmt.Errorf("%s exists already", *to)
-		}
-		if err != nil {
+		if err := place(part, *to); err != nil {
 			return err
 		}
 		detail := "without key"
@@ -84,6 +87,49 @@ func cmdBackup(args []string, out io.Writer) error {
 		return nil
 	}
 	return fmt.Errorf("could not take a consistent backup while the server is writing; try again (last try: %v)", last)
+}
+
+// place puts the verified part file at to without replacing a file there:
+// a hard link, or where the file system has none, a rename after looking
+// again. The part file is gone afterwards.
+func place(part, to string) error {
+	err := linkFile(part, to)
+	if err == nil || os.IsExist(err) {
+		os.Remove(part)
+		if err != nil {
+			return fmt.Errorf("%s exists already", to)
+		}
+		return nil
+	}
+	if _, lerr := os.Lstat(to); lerr == nil {
+		os.Remove(part)
+		return fmt.Errorf("%s exists already", to)
+	}
+	if err := os.Rename(part, to); err != nil {
+		os.Remove(part)
+		return err
+	}
+	return nil
+}
+
+// inside reports whether file would be written inside dir (both resolved,
+// links followed).
+func inside(file, dir string) bool {
+	parent, err := filepath.Abs(filepath.Dir(file))
+	if err != nil {
+		return false
+	}
+	if p, err := filepath.EvalSymlinks(parent); err == nil {
+		parent = p
+	}
+	root, err := filepath.Abs(dir)
+	if err != nil {
+		return false
+	}
+	if p, err := filepath.EvalSymlinks(root); err == nil {
+		root = p
+	}
+	return parent == root || strings.HasPrefix(parent, root+string(filepath.Separator))
 }
 
 // writeBackup writes a backup of dir to fh, without locks, and closes it.

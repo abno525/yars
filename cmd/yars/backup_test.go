@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"yars/internal/backup"
@@ -159,6 +160,41 @@ func TestBackupRetriesWriteErrors(t *testing.T) {
 	}
 	if ents, _ := os.ReadDir(folder); len(ents) != 0 {
 		t.Fatalf("files left: %v", ents)
+	}
+}
+
+// A backup written into the data folder would copy itself, and the next one
+// both: it is refused.
+func TestBackupRefusesOutInsideData(t *testing.T) {
+	dir := dataWithFinding(t)
+	for _, out := range []string{filepath.Join(dir, "b.zip"), filepath.Join(dir, "engagements", "acme", "b.zip")} {
+		err := cmdBackup([]string{"--data", dir, "--out", out}, &bytes.Buffer{})
+		if err == nil || !strings.Contains(err.Error(), "is inside the data folder") {
+			t.Fatalf("%s: err %v", out, err)
+		}
+		if _, err := os.Stat(out); !os.IsNotExist(err) {
+			t.Fatalf("%s was written", out)
+		}
+	}
+}
+
+// Where the target has no hard links (FAT, many network mounts) the backup
+// is renamed into place.
+func TestBackupWithoutHardLinks(t *testing.T) {
+	dir := dataWithFinding(t)
+	defer func(v func(string, string) error) { linkFile = v }(linkFile)
+	linkFile = func(old, new string) error {
+		return &os.LinkError{Op: "link", Old: old, New: new, Err: syscall.EPERM}
+	}
+	out := filepath.Join(t.TempDir(), "b.zip")
+	if err := cmdBackup([]string{"--data", dir, "--out", out}, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := backup.Verify(out); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(out + ".part"); !os.IsNotExist(err) {
+		t.Fatal("the .part file is left behind")
 	}
 }
 
