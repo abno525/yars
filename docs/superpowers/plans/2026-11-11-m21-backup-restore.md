@@ -176,9 +176,9 @@ Behaviour: in `migrate`, when the stored version is above 0 and below `schemaVer
   - `TestMigrateKeepsSnapshot`: `openAtVersion(t, schemaVersion-1)`, then `Open`; the file `<path>.before-v<schemaVersion-1>` exists, has mode `0600`, and `SchemaOf` on it returns `schemaVersion-1`.
   - `TestMigrateKeepsTwoSnapshots`: pre-create `.before-v3`, `.before-v7`, `.before-v9`; after the `Open` above only the two highest version numbers remain (the new one and `.before-v9`).
   - `TestFreshDatabaseHasNoSnapshot`: `Open` on a new path leaves no `.before-` file.
-- [ ] **Step 2:** run `go test ./internal/db -run Migrate`. Expected: FAIL.
-- [ ] **Step 3:** implement. Run `go test ./internal/db ./cmd/yars`. Expected: PASS.
-- [ ] **Step 4:** commit: `feat(db): keep a snapshot of the database before a migration`.
+- [x] **Step 2:** run `go test ./internal/db -run Migrate`. Expected: FAIL.
+- [x] **Step 3:** implement. Run `go test ./internal/db ./cmd/yars`. Expected: PASS.
+- [x] **Step 4:** commit: `feat(db): keep a snapshot of the database before a migration`.
 
 ### Task 6: documents
 

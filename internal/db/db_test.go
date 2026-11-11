@@ -1,8 +1,13 @@
 package db
 
 import (
+	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -37,6 +42,105 @@ func TestSchemaOf(t *testing.T) {
 	}
 	if _, err := os.Stat(missing); !os.IsNotExist(err) {
 		t.Fatal("SchemaOf created the file")
+	}
+}
+
+// openAtVersion creates a database file at schema v (the first v migrations,
+// their Go steps included), closes it and returns its path.
+func openAtVersion(t *testing.T, v int) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), ".yars", "yars.db")
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := sql.Open("sqlite", "file:"+p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer raw.Close()
+	for i, m := range migrations[0:v] {
+		tx, err := raw.Begin()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tx.Exec(m); err != nil {
+			t.Fatalf("migration %d: %v", i+1, err)
+		}
+		if fn := goMigrations[i]; fn != nil {
+			if err := fn(tx); err != nil {
+				t.Fatalf("migration %d: %v", i+1, err)
+			}
+		}
+		if err := tx.Commit(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := raw.Exec(fmt.Sprintf("PRAGMA user_version = %d", v)); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+// Opening an older database keeps a copy of it as it was, private.
+func TestMigrateKeepsSnapshot(t *testing.T) {
+	p := openAtVersion(t, schemaVersion-1)
+	d, err := Open(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.Close()
+	snap := fmt.Sprintf("%s.before-v%d", p, schemaVersion-1)
+	info, err := os.Stat(snap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("snapshot mode %v", info.Mode().Perm())
+	}
+	if v, err := SchemaOf(snap); err != nil || v != schemaVersion-1 {
+		t.Fatalf("snapshot schema %d %v", v, err)
+	}
+}
+
+// Only the two newest snapshots are kept.
+func TestMigrateKeepsTwoSnapshots(t *testing.T) {
+	p := openAtVersion(t, schemaVersion-1)
+	for _, v := range []int{3, 7, 9} {
+		if err := os.WriteFile(fmt.Sprintf("%s.before-v%d", p, v), []byte("old"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	d, err := Open(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.Close()
+	ents, err := os.ReadDir(filepath.Dir(p))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var snaps []string
+	for _, e := range ents {
+		if strings.Contains(e.Name(), ".before-") {
+			snaps = append(snaps, e.Name())
+		}
+	}
+	want := []string{"yars.db.before-v" + strconv.Itoa(schemaVersion-1), "yars.db.before-v9"}
+	slices.Sort(snaps)
+	slices.Sort(want)
+	if !slices.Equal(snaps, want) {
+		t.Fatalf("snapshots %v, want %v", snaps, want)
+	}
+}
+
+// A new database has nothing to keep.
+func TestFreshDatabaseHasNoSnapshot(t *testing.T) {
+	_, p := open(t)
+	ents, _ := os.ReadDir(filepath.Dir(p))
+	for _, e := range ents {
+		if strings.Contains(e.Name(), ".before-") {
+			t.Fatalf("snapshot %s", e.Name())
+		}
 	}
 }
 

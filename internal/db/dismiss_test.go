@@ -1,6 +1,9 @@
 package db
 
-import "testing"
+import (
+	"path/filepath"
+	"testing"
+)
 
 // v14: stored results get per-row keys, and an old quote-only dismissal a
 // copy for each place a run found its quote (so stored counts keep
@@ -77,7 +80,7 @@ func TestCutOffRunsNotStored(t *testing.T) {
 	if _, err := d.Exec("PRAGMA user_version = 17"); err != nil {
 		t.Fatal(err)
 	}
-	if err := d.migrate(); err != nil {
+	if err := d.migrate(filepath.Join(t.TempDir(), "yars.db")); err != nil {
 		t.Fatal(err)
 	}
 	runs, err := d.FinishedRuns("e", "F-001", "h", 10)
@@ -115,7 +118,7 @@ func TestLegacyDismissalsEnd(t *testing.T) {
 	if _, err := d.Exec("PRAGMA user_version = 16"); err != nil {
 		t.Fatal(err)
 	}
-	if err := d.migrate(); err != nil {
+	if err := d.migrate(filepath.Join(t.TempDir(), "yars.db")); err != nil {
 		t.Fatal(err)
 	}
 	ds, _ := d.Dismissals("e", "F-001")

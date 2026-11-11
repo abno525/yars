@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -379,7 +381,7 @@ func Open(path string) (*DB, error) {
 	}
 	sdb.SetMaxOpenConns(8)
 	d := &DB{DB: sdb, now: time.Now}
-	if err := d.migrate(); err != nil {
+	if err := d.migrate(path); err != nil {
 		sdb.Close()
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
@@ -409,7 +411,11 @@ func SchemaOf(path string) (int, error) {
 	return v, nil
 }
 
-func (d *DB) migrate() error {
+// migrate brings the schema of the database at path up to date. Before it
+// changes an existing database it keeps a copy as it was, at
+// <path>.before-v<stored> (0600); after the migrations it keeps the two
+// newest such copies and deletes the others.
+func (d *DB) migrate(path string) error {
 	var v int
 	if err := d.QueryRow("PRAGMA user_version").Scan(&v); err != nil {
 		return err
@@ -417,6 +423,52 @@ func (d *DB) migrate() error {
 	if v > schemaVersion {
 		return fmt.Errorf("database schema %d is newer than this yars (%d)", v, schemaVersion)
 	}
+	if v == 0 || v == schemaVersion {
+		return d.migrateFrom(v)
+	}
+	snap := fmt.Sprintf("%s.before-v%d", path, v)
+	if err := os.Remove(snap); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if err := d.Snapshot(snap); err != nil {
+		return fmt.Errorf("snapshot before migrating: %w", err)
+	}
+	if err := os.Chmod(snap, 0o600); err != nil {
+		return err
+	}
+	if err := d.migrateFrom(v); err != nil {
+		return err
+	}
+	pruneSnapshots(path, 2)
+	return nil
+}
+
+// pruneSnapshots deletes all but the keep newest <path>.before-v<N> files.
+func pruneSnapshots(path string, keep int) {
+	ents, err := os.ReadDir(filepath.Dir(path))
+	if err != nil {
+		return
+	}
+	prefix := filepath.Base(path) + ".before-v"
+	var vs []int
+	for _, e := range ents {
+		n, ok := strings.CutPrefix(e.Name(), prefix)
+		if !ok || e.IsDir() {
+			continue
+		}
+		if v, err := strconv.Atoi(n); err == nil && v >= 0 {
+			vs = append(vs, v)
+		}
+	}
+	slices.Sort(vs)
+	for len(vs) > keep {
+		os.Remove(fmt.Sprintf("%s%d", filepath.Join(filepath.Dir(path), prefix), vs[0]))
+		vs = vs[1:]
+	}
+}
+
+// migrateFrom runs the migrations after schema v, one transaction each.
+func (d *DB) migrateFrom(v int) error {
 	for ; v < schemaVersion; v++ {
 		tx, err := d.Begin()
 		if err != nil {
