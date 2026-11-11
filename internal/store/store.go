@@ -1544,7 +1544,7 @@ func (s *Store) TransitionChecked(engID, dir string, act workflow.Action, reason
 		if err := check(ref.F.Meta); err != nil {
 			return err
 		}
-		errs, err := s.blocking(act, ref, contentHash(raw))
+		errs, err := s.blocking(act, ref, contentHash(raw), u)
 		if err != nil {
 			return err
 		}

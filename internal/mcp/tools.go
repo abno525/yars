@@ -510,7 +510,8 @@ var tools = []tool{
 				DismissedBy string `json:"dismissed_by,omitempty"`
 			}
 			out := []marked{}
-			for _, v := range s.Rules.Lint(ctx, ref.F, kinds) {
+			// AI calls are recorded for the token's user on this finding (D24)
+			for _, v := range s.Rules.Lint(rules.WithCaller(ctx, rules.Caller{User: u.Username, Eng: ref.EngID, Fid: ref.F.Meta.ID}), ref.F, kinds) {
 				m := marked{Violation: v}
 				if d, ok := db.Lookup(ds, v.Rule, v.Target, v.Quote); ok {
 					m.Dismissed, m.DismissedBy = true, d.By

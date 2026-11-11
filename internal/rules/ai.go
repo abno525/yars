@@ -87,7 +87,7 @@ func (rn *Runner) ask(ctx context.Context, c config.AIConfig, key, user, purpose
 		content, in, out, err = rn.openai(ctx, c, key, user)
 	}
 	if rn.OnUsage != nil {
-		who := callerOf(ctx)
+		who := CallerOf(ctx)
 		rn.OnUsage(Usage{Purpose: purpose, Provider: c.Provider, Model: c.Model, Rule: rule, User: who.User, Eng: who.Eng, Fid: who.Fid,
 			In: in, Out: out, Took: max(time.Since(start), time.Nanosecond), OK: err == nil})
 	}

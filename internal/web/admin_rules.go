@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"errors"
 	"io"
 	"io/fs"
@@ -549,11 +550,17 @@ func (s *Server) ruleBench(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	v := benchView{Ran: true}
-	for _, it := range s.Rules.RunRule(r.Context(), x, rules.DocOf(ref.F)) {
+	for _, it := range s.Rules.RunRule(benchCaller(r, ref), x, rules.DocOf(ref.F)) {
 		v.Rows = append(v.Rows, checkRow{Rule: it.Rule, Level: it.Level, Message: it.Message, Quote: it.Quote, Where: where(it.Target)})
 	}
 	v.Hits = len(v.Rows)
 	s.exec(w, "admin.html", "bench_out", v)
+}
+
+// benchCaller is the request's context naming the admin and the finding a
+// bench run is for (AI usage, D24).
+func benchCaller(r *http.Request, ref store.FindingRef) context.Context {
+	return rules.WithCaller(r.Context(), rules.Caller{User: auth.UserFrom(r.Context()).Username, Eng: ref.EngID, Fid: ref.F.Meta.ID})
 }
 
 // ruleBenchAll runs one saved rule on every finding of an engagement;
@@ -581,7 +588,7 @@ func (s *Server) ruleBenchAll(w http.ResponseWriter, r *http.Request, x rules.Ru
 			return
 		}
 		f := benchFinding{ID: row.ID, Title: row.Title, URL: findingURL(eng, row.Dir)}
-		for _, it := range s.Rules.RunRule(r.Context(), x, rules.DocOf(ref.F)) {
+		for _, it := range s.Rules.RunRule(benchCaller(r, ref), x, rules.DocOf(ref.F)) {
 			if f.Hits == 0 {
 				f.Quote = it.Quote
 			}

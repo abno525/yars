@@ -82,8 +82,9 @@ func SignsOff(act workflow.Action) bool { return act == workflow.Clear || act ==
 // and Approve are blocked by every open check, warnings too (OpenChecks,
 // the source the page and Ready to approve show). With Require Check on,
 // Sign off and Approve first need a finished run on this content
-// (checkGate), and Approve runs nothing inline: the run is the source.
-func (s *Store) blocking(act workflow.Action, ref FindingRef, hash string) ([]string, error) {
+// (checkGate), and Approve runs nothing inline: the run is the source. The
+// rules run for u on the finding (their AI calls are recorded so, D24).
+func (s *Store) blocking(act workflow.Action, ref FindingRef, hash string, u config.User) ([]string, error) {
 	var out []string
 	gate := SignsOff(act) && s.gating()
 	if gate {
@@ -97,7 +98,8 @@ func (s *Store) blocking(act workflow.Action, ref FindingRef, hash string) ([]st
 		}
 	}
 	if act == workflow.Submit || (act == workflow.Approve && !gate) {
-		vs, err := s.undismissed(ref.EngID, ref.F.Meta.ID, s.Linter.Lint(context.Background(), ref.F, rules.All))
+		ctx := rules.WithCaller(context.Background(), rules.Caller{User: u.Username, Eng: ref.EngID, Fid: ref.F.Meta.ID})
+		vs, err := s.undismissed(ref.EngID, ref.F.Meta.ID, s.Linter.Lint(ctx, ref.F, rules.All))
 		if err != nil {
 			return nil, err
 		}

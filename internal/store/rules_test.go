@@ -23,6 +23,44 @@ func withRules(t *testing.T, s *Store, dir, body string) {
 	s.Linter = rules.NewEngine(rd, config.Default())
 }
 
+// callerLinter keeps the caller each lint ran for (D24: AI usage is
+// recorded under it).
+type callerLinter struct{ got *[]rules.Caller }
+
+func (l callerLinter) Lint(ctx context.Context, _ *finding.Finding, _ rules.Kind) []rules.Violation {
+	*l.got = append(*l.got, rules.CallerOf(ctx))
+	return nil
+}
+
+// D24: a check run and a Submit run their rules for the user who asked,
+// on the finding, so AI calls are recorded under them.
+func TestRulesRunForTheCaller(t *testing.T) {
+	s, _, fd := ready(t)
+	var got []rules.Caller
+	s.Linter = callerLinter{&got}
+	if _, err := s.StartCheck(eng, fd, uAlice); err != nil {
+		t.Fatal(err)
+	}
+	s.WaitChecks()
+	if err := s.Transition(eng, fd, workflow.Submit, "", uAlice); err != nil {
+		t.Fatal(err)
+	}
+	// the check run's lint and the submit's (every rule) carry alice; fast
+	// lints for the page need none
+	want := rules.Caller{User: "alice", Eng: eng, Fid: "F-001"}
+	n := 0
+	for _, c := range got {
+		if c == want {
+			n++
+		} else if c != (rules.Caller{}) {
+			t.Fatalf("caller %+v", c)
+		}
+	}
+	if n < 2 || got[0] != want {
+		t.Fatalf("the check run or the submit ran without the caller: %+v", got)
+	}
+}
+
 // editingLinter edits the finding while "checking" it, simulating a write
 // that lands during a slow script/AI run.
 type editingLinter struct{ s *Store }

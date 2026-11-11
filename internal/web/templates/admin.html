@@ -318,7 +318,7 @@
     <table class="table stable usagetable">
       <thead><tr><th>User</th><th class="c-num">Calls</th><th class="c-num">Tokens in</th><th class="c-num">Tokens out</th><th class="c-num">Cost</th></tr></thead>
       <tbody>
-        {{range .Users}}<tr><td class="clip" title="{{.User}}">{{.User}}</td><td class="num">{{.Calls}}</td><td class="num">{{.In}}</td><td class="num">{{.Out}}</td><td class="num">{{.Cost}}</td></tr>
+        {{range .Users}}<tr><td class="clip" title="{{.User}}">{{.User}}</td><td class="num" title="{{.Calls}}">{{.Calls}}</td><td class="num" title="{{.In}}">{{.In}}</td><td class="num" title="{{.Out}}">{{.Out}}</td><td class="num" title="{{.Cost}}">{{.Cost}}</td></tr>
         {{else}}{{template "empty_row" 5}}{{end}}
       </tbody>
     </table>

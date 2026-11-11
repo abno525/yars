@@ -26,8 +26,8 @@ func WithCaller(ctx context.Context, c Caller) context.Context {
 	return context.WithValue(ctx, callerKey{}, c)
 }
 
-// callerOf is the caller ctx carries (zero when none).
-func callerOf(ctx context.Context) Caller {
+// CallerOf is the caller ctx carries (zero when none).
+func CallerOf(ctx context.Context) Caller {
 	c, _ := ctx.Value(callerKey{}).(Caller)
 	return c
 }

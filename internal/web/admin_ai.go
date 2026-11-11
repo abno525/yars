@@ -208,6 +208,9 @@ func (s *Server) aiSave(w http.ResponseWriter, r *http.Request) {
 	if key != "" {
 		detail += " key " + ending(key)
 	}
+	if priceIn != "" || priceOut != "" {
+		detail += " price " + priceIn + "/" + priceOut
+	}
 	d.Audit(auth.UserFrom(r.Context()).Username, "settings.ai", "", strings.TrimSpace(detail))
 	http.Redirect(w, r, "/admin/ai", http.StatusSeeOther)
 }

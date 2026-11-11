@@ -40,10 +40,14 @@ func TestUsagePanelCost(t *testing.T) {
 	for _, want := range []string{`<span class="sl">Period</span><span class="sv">7 days</span>`, `<span class="sl">Period</span><span class="sv">30 days</span>`,
 		`<span class="sl">Cost</span><span class="sv">4.50</span>`,
 		`<thead><tr><th>User</th><th class="c-num">Calls</th><th class="c-num">Tokens in</th><th class="c-num">Tokens out</th><th class="c-num">Cost</th></tr></thead>`,
-		`<td class="clip" title="alice">alice</td><td class="num">1</td><td class="num">1000000</td><td class="num">100000</td><td class="num">4.50</td>`} {
+		`<td class="clip" title="alice">alice</td><td class="num" title="1">1</td><td class="num" title="1000000">1000000</td><td class="num" title="100000">100000</td><td class="num" title="4.50">4.50</td>`} {
 		if !strings.Contains(p, want) {
 			t.Fatalf("panel lacks %s:\n%s", want, p)
 		}
+	}
+	// ten digits and "TOKENS OUT" fit their columns
+	if css := e.do(t, "dora", "GET", "/static/style.css", nil, nil).Body.String(); !strings.Contains(css, ".usagetable th.c-num { width: 152px; }") {
+		t.Fatal("the usage table's number columns are the narrow default")
 	}
 	if n := strings.Count(p, `<span class="sv">4.50</span>`); n != 2 {
 		t.Fatalf("cost shown %d times in the stats:\n%s", n, p)
@@ -59,7 +63,7 @@ func TestUsagePanelNoPrice(t *testing.T) {
 	}
 	e.srv.Store.DB().AddAIUsage(db.AIUsage{User: "alice", Purpose: "rule", Provider: "openai", Model: "m1", In: 10, Out: 1, OK: true})
 	p := usagePanel(t, e)
-	if !strings.Contains(p, `<td class="num">—</td>`) || !strings.Contains(p, `<span class="sl">Cost</span><span class="sv">—</span>`) || strings.Contains(p, "0.00") {
+	if !strings.Contains(p, `<td class="num" title="—">—</td>`) || !strings.Contains(p, `<span class="sl">Cost</span><span class="sv">—</span>`) || strings.Contains(p, "0.00") {
 		t.Fatalf("panel without prices:\n%s", p)
 	}
 }
@@ -74,6 +78,9 @@ func TestAIPricesSaved(t *testing.T) {
 	}
 	if in, _ := d.Setting(db.AIPriceInKey); in != "2.5" {
 		t.Fatalf("price in %q", in)
+	}
+	if l, _ := d.AuditLog(1); len(l) != 1 || !strings.Contains(l[0].Detail, "price 2.5/10.1234") {
+		t.Fatalf("audit %+v", l)
 	}
 	b := e.do(t, "dora", "GET", "/admin/ai", nil, nil).Body.String()
 	if !strings.Contains(b, `name="price_in" value="2.5"`) || !strings.Contains(b, `name="price_out" value="10.1234"`) || !strings.Contains(b, `class="monoin w128"`) {

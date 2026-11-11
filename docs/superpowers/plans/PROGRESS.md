@@ -62,6 +62,7 @@ M25 task 1  review   fix 077937c (fsck's message in the row; deadlines lifted fo
 M25 task 3  done     78af795 (schema v20)
 M25 task 4  done     e125a18
 M25 task 2  review   fix 2d033af (runs on the newest run's content kept; field labels in the error)
-M25 task 4  review   passed; fix (read-only parent named in the panel; one restore at a time)
+M25 task 4  review   passed; fix ff9c75f (read-only parent named in the panel; one restore at a time)
+M25 task 3  review   passed; fixes (Submit, MCP and bench AI calls attributed; usage columns; prices audited)
 M25 browser check    passed (System at 1440: Health, Backup, Retention, AI usage, Restore, Operations, Server, full width, no overflow; Run integrity 4 repos and integrity_check; a backup restored into data24.restored-… with the serve command; Retention saved)
 ```
