@@ -112,7 +112,7 @@ func TestLiveRefreshKeepsPresence(t *testing.T) {
 func TestLiveRefreshAccess(t *testing.T) {
 	e := setup(t)
 	e.outsider(t)
-	for _, p := range []string{"/head", "/details", "/assets", "/cvss?live=1", "/s/Impact?live=1"} {
+	for _, p := range []string{"/head", "/details", "/assets", "/cvss?live=1", "/s/Impact?live=1", "/attachments"} {
 		rec := e.do(t, "eve", "GET", fpath+p, nil, nil)
 		if rec.Code == 200 || strings.Contains(rec.Body.String(), "SQL injection") {
 			t.Errorf("%s answered an outsider %d", p, rec.Code)

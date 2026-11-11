@@ -11,7 +11,7 @@
 {{end}}
 
 {{define "attachments_panel"}}
-<section class="panel compact" id="attachments" hx-get="{{.UploadURL}}" hx-trigger="sse:content, sse:resync, sse:poll" hx-swap="outerHTML" data-sse>
+<section class="panel compact" id="attachments" hx-get="{{.UploadURL}}" hx-trigger="{{liveTrigger}}" hx-swap="outerHTML" data-sse>
   <div class="panelhead"><h2>Attachments <span class="qcnt{{if not .Items}} zero{{end}}">{{len .Items}}</span></h2></div>
   <table class="table stable atttable flush">
     <thead><tr><th>Name</th><th class="c-kind">Type</th><th class="c-size">Size</th><th class="c-act">Action</th></tr></thead>

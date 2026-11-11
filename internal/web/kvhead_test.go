@@ -48,7 +48,7 @@ func TestRetestOriginalHasHeader(t *testing.T) {
 		t.Fatal(err)
 	}
 	b := e.do(t, "alice", "GET", "/e/rt/f/"+fdir, nil, nil).Body.String()
-	orig := between(b, `class="panel compact orig"`, "</section>")
+	orig := between(b, `class="panel compact orig"`, "</details>")
 	if !strings.Contains(orig, `<th scope="col">Field</th><th scope="col">Value</th>`) {
 		t.Fatalf("retest Original:\n%s", orig)
 	}
