@@ -1,0 +1,9 @@
+# local tooling
+.claude/
+.superpowers/
+# build output
+/yars
+*.test
+*.out
+# a local data folder
+/data/
