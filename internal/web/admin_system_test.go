@@ -116,6 +116,23 @@ func TestBackupDownloadUsesStoreLocks(t *testing.T) {
 	}
 }
 
+// A backup that fails before any byte is sent (here: no temporary folder for
+// the database snapshot) answers with an error, not a broken download.
+func TestBackupEarlyFailureIsAnError(t *testing.T) {
+	e := setupSerial(t)
+	t.Setenv("TMPDIR", filepath.Join(e.dir, "missing"))
+	rec := e.do(t, "dora", "POST", "/admin/system/backup", url.Values{}, nil)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("code %d", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); strings.Contains(ct, "zip") || rec.Header().Get("Content-Disposition") != "" {
+		t.Fatalf("an error sent as a download: %v", rec.Header())
+	}
+	if l, _ := e.srv.Store.DB().AuditLog(1); len(l) == 1 && l[0].Action == "backup" {
+		t.Fatalf("a failed backup is audited: %+v", l)
+	}
+}
+
 func TestAdminSystem(t *testing.T) {
 	e := setup(t)
 	e.srv.MigrateStatus = func() []string { return []string{".yars/users.yaml"} }

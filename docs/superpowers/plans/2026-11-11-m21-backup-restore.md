@@ -172,7 +172,7 @@ Behaviour of `cmdRestore`: both flags are required; `--data` here is never defau
 
 Behaviour: in `migrate`, when the stored version is above 0 and below `schemaVersion`, before the first migration run `VACUUM INTO '<path>.before-v<stored>'` (remove a file of that name first). After the migrations succeed, keep the two snapshots with the highest version numbers and delete the others. Snapshots get mode `0600`. `migrate` takes the database path as a parameter.
 
-- [ ] **Step 1: write the failing tests.** Add the helper `openAtVersion(t *testing.T, v int) string` to `db_test.go`: it creates a database file, runs `migrations[0:v]` (and their `goMigrations`) in order, sets `PRAGMA user_version = v`, closes it and returns the path.
+- [x] **Step 1: write the failing tests.** Add the helper `openAtVersion(t *testing.T, v int) string` to `db_test.go`: it creates a database file, runs `migrations[0:v]` (and their `goMigrations`) in order, sets `PRAGMA user_version = v`, closes it and returns the path.
   - `TestMigrateKeepsSnapshot`: `openAtVersion(t, schemaVersion-1)`, then `Open`; the file `<path>.before-v<schemaVersion-1>` exists, has mode `0600`, and `SchemaOf` on it returns `schemaVersion-1`.
   - `TestMigrateKeepsTwoSnapshots`: pre-create `.before-v3`, `.before-v7`, `.before-v9`; after the `Open` above only the two highest version numbers remain (the new one and `.before-v9`).
   - `TestFreshDatabaseHasNoSnapshot`: `Open` on a new path leaves no `.before-` file.

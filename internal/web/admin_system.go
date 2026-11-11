@@ -218,6 +218,14 @@ func (s *Server) backup(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Disposition", `attachment; filename="`+name+`"`)
 	w.Header().Set("Cache-Control", "no-store")
 	n, err := backup.Write(w, dir, s.Store.DB(), s.Store, backup.Options{WithKey: withKey})
+	if err != nil && n == 0 {
+		// nothing sent yet (the snapshot failed): an error, not a download
+		for _, h := range []string{"Content-Type", "Content-Disposition", "Cache-Control"} {
+			w.Header().Del(h)
+		}
+		s.fail(w, err)
+		return
+	}
 	if err != nil {
 		// headers are gone: the download ends broken rather than silently short
 		log.Printf("backup: %v", err)
