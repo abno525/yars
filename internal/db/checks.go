@@ -111,6 +111,32 @@ func (d *DB) RunSteps(run int64) ([]CheckStep, error) {
 	return out, rows.Err()
 }
 
+// FailedAIRuns reports which of the runs have a step of kind ai that failed
+// (the rule could not run).
+func (d *DB) FailedAIRuns(ids []int64) (map[int64]bool, error) {
+	out := map[int64]bool{}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	args := []any{"ai", StepFailed}
+	for _, id := range ids {
+		args = append(args, id)
+	}
+	rows, err := d.Query("SELECT DISTINCT run_id FROM check_steps WHERE kind = ? AND state = ? AND run_id IN (?"+strings.Repeat(", ?", len(ids)-1)+")", args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out[id] = true
+	}
+	return out, rows.Err()
+}
+
 // DismissKey identifies a violation of a finding across runs and edits.
 func DismissKey(rule, quoteHash string) string { return rule + "\x00" + quoteHash }
 

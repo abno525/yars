@@ -32,6 +32,29 @@ func TestChatKindRoundTrip(t *testing.T) {
 	}
 }
 
+// Q11: which runs have an AI step that could not run.
+func TestFailedAIRuns(t *testing.T) {
+	d, _ := open(t)
+	a, _ := d.StartRun("e", "F-001", "h", "bob")
+	b, _ := d.StartRun("e", "F-002", "h", "bob")
+	c, _ := d.StartRun("e", "F-003", "h", "bob")
+	if err := d.AddSteps([]CheckStep{
+		{RunID: a, Pos: 0, Rule: "ai1", Kind: "ai", State: StepFailed},
+		{RunID: b, Pos: 0, Rule: "ai1", Kind: "ai", State: StepPass},
+		{RunID: b, Pos: 1, Rule: "sh", Kind: "script", State: StepFailed},
+		{RunID: c, Pos: 0, Rule: "ai1", Kind: "ai", State: StepHits},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := d.FailedAIRuns([]int64{a, b, c})
+	if err != nil || len(got) != 1 || !got[a] {
+		t.Fatalf("failed AI runs %v %v", got, err)
+	}
+	if got, err := d.FailedAIRuns(nil); err != nil || len(got) != 0 {
+		t.Fatalf("none asked: %v %v", got, err)
+	}
+}
+
 func TestCheckRunLifecycle(t *testing.T) {
 	d, _ := open(t)
 	if _, ok, err := d.LatestRun("e", "F-001"); ok || err != nil {

@@ -55,6 +55,17 @@ func (e *Engine) SetConfig(c config.Config) {
 	e.mu.Unlock()
 }
 
+// AIConfigured reports whether a provider and a key are set, so AI rules can
+// run.
+func (e *Engine) AIConfigured() bool {
+	rn, ok := e.Runner.(*Runner)
+	if !ok {
+		return false
+	}
+	c, key, _ := rn.Effective()
+	return c.Provider != "" && key != ""
+}
+
 // checkNames flags section:/details: targets that the config doesn't know
 // (typos such as section:location would otherwise never fire).
 func (e *Engine) checkNames(s *Set) {

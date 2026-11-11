@@ -17,6 +17,8 @@ const (
 	GateStale   = "run check first: the content changed since the last check"
 	GateRunning = "run check first: a check is still running"
 	GateFailed  = "run check first: the last check failed"
+	// Q11: an AI rule could not run although a provider is set up
+	GateAIFailed = "run check first: an AI check failed; retry it"
 	// a run left running by an earlier server: a restart cut it off
 	GateInterrupted = "run check first: the last check was interrupted"
 )
@@ -77,13 +79,29 @@ func (s *Store) checkGate(engID, fid, hash string) (string, error) {
 			return "", err
 		}
 	}
-	return gateOf(run.State, run.ContentHash, hash, running), nil
+	aiFailed, err := s.aiFailed([]int64{run.ID})
+	if err != nil {
+		return "", err
+	}
+	return gateOf(run.State, run.ContentHash, hash, running, aiFailed[run.ID]), nil
+}
+
+// aiFailed reports which of the runs had an AI rule that could not run, while
+// an AI provider is set up (Q11); without one AI rules can never run, and
+// none counts.
+func (s *Store) aiFailed(ids []int64) (map[int64]bool, error) {
+	l, ok := s.Linter.(interface{ AIConfigured() bool })
+	if !ok || !l.AIConfigured() {
+		return map[int64]bool{}, nil
+	}
+	return s.db.FailedAIRuns(ids)
 }
 
 // gateOf decides from the latest run's state and content (running: in
 // progress in this server; a run left running by an earlier server was
-// cut off, so it failed).
-func gateOf(state, runHash, hash string, running bool) string {
+// cut off, so it failed; aiFailed: an AI rule of it could not run while AI is
+// set up).
+func gateOf(state, runHash, hash string, running, aiFailed bool) string {
 	switch {
 	case state == db.RunRunning && running:
 		return GateRunning
@@ -91,6 +109,8 @@ func gateOf(state, runHash, hash string, running bool) string {
 		return GateInterrupted
 	case runHash != hash:
 		return GateStale
+	case aiFailed:
+		return GateAIFailed
 	case state != db.RunDone:
 		return GateFailed
 	}
@@ -131,6 +151,14 @@ func (s *Store) CheckGates(keys []GateKey) (map[string]string, error) {
 	if s.beforeGateMap != nil {
 		s.beforeGateMap()
 	}
+	ids := make([]int64, 0, len(runs))
+	for _, r := range runs {
+		ids = append(ids, r.ID)
+	}
+	aiFailed, err := s.aiFailed(ids) // one query for every run
+	if err != nil {
+		return nil, err
+	}
 	for _, k := range keys {
 		name := k.Eng + "/" + k.Fid
 		r, ok := runs[name]
@@ -147,7 +175,7 @@ func (s *Store) CheckGates(keys []GateKey) (map[string]string, error) {
 			}
 			state, runHash = now.State, now.ContentHash
 		}
-		if g := gateOf(state, runHash, k.Hash, running); g != "" {
+		if g := gateOf(state, runHash, k.Hash, running, aiFailed[r.ID]); g != "" {
 			out[name] = g
 		}
 	}

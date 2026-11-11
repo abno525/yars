@@ -36,5 +36,6 @@ M23 task 3  done     4861cb3 (browser check passed: two tile panels and two bars
 M23 task 4  done     a1f5f09, review fix 41086fd
 M23 task 2  review   fix cafc51c
 M23 task 3  review   fix 4643d30
-M23 task 5  done
+M23 task 5  done     6903760
+M23 task 6  done
 ```

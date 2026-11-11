@@ -82,6 +82,45 @@ func TestRequireCheckGate(t *testing.T) {
 	}
 }
 
+// aiLinter is a linter that says whether an AI provider is set up.
+type aiLinter struct{ configured bool }
+
+func (aiLinter) Lint(context.Context, *finding.Finding, rules.Kind) []rules.Violation { return nil }
+func (l aiLinter) AIConfigured() bool                                                 { return l.configured }
+
+// Q11: with Require Check on, a run whose AI rule could not run keeps Sign
+// off and Approve waiting while an AI provider is set up; without one the
+// AI rules can never run, and it does not.
+func TestGateAIFailedBlocksOnlyWithProvider(t *testing.T) {
+	s, _, fd := ready(t)
+	ref := load(t, s, fd)
+	id, err := s.DB().StartRun(eng, ref.F.Meta.ID, ref.Hash, "bob")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DB().AddSteps([]db.CheckStep{
+		{RunID: id, Pos: 0, Rule: "title-word", Kind: "pattern", State: db.StepPass},
+		{RunID: id, Pos: 1, Rule: "plain-words", Kind: "ai", State: db.StepFailed, Message: "AI provider timed out"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DB().TxFor(eng, func(tx *db.Tx) error { return tx.FinishRun(id, db.RunDone, "", nil) }); err != nil {
+		t.Fatal(err)
+	}
+	s.Linter = aiLinter{configured: true}
+	if g, err := s.CheckGate(eng, fd); err != nil || g != GateAIFailed {
+		t.Fatalf("with a provider: %q %v", g, err)
+	}
+	gates, err := s.CheckGates([]GateKey{{Eng: eng, Fid: ref.F.Meta.ID, Hash: ref.Hash}})
+	if err != nil || gates[eng+"/"+ref.F.Meta.ID] != GateAIFailed {
+		t.Fatalf("CheckGates with a provider: %v %v", gates, err)
+	}
+	s.Linter = aiLinter{configured: false}
+	if g, err := s.CheckGate(eng, fd); err != nil || g != "" {
+		t.Fatalf("without a provider: %q %v", g, err)
+	}
+}
+
 // R1: Approve with the gate on uses the stored run, not the slow rules
 // inline; off, it runs every rule as before (TestApproveRunsSlowRules).
 func TestRequireCheckApproveUsesStoredRun(t *testing.T) {
