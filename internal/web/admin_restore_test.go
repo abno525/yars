@@ -154,6 +154,26 @@ func TestRestoreUploadRefusesNonZip(t *testing.T) {
 	}
 }
 
+// D24: when nothing can be written beside the data folder (its parent is
+// read-only), the Restore panel says so.
+func TestRestoreUploadParentNotWritable(t *testing.T) {
+	e := setupSerial(t)
+	parent := filepath.Dir(e.dir)
+	if err := os.Chmod(parent, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(parent, 0o755) })
+	if f, err := os.CreateTemp(parent, "probe-"); err == nil { // running as root: permissions do not hold
+		f.Close()
+		os.Remove(f.Name())
+		t.Skip("the parent stays writable for this user")
+	}
+	rec := e.uploadFile(t, "dora", "/admin/system/restore", "backup", "b.zip", []byte("PK"))
+	if rec.Code != http.StatusInternalServerError || !strings.Contains(between(rec.Body.String(), `id="restore"`, "</form>"), "cannot write beside "+e.dir) {
+		t.Fatalf("read-only parent %d:\n%s", rec.Code, rec.Body.String())
+	}
+}
+
 // D24: only an admin restores.
 func TestRestoreUploadAdminOnly(t *testing.T) {
 	e := setupSerial(t)

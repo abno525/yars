@@ -57,8 +57,8 @@ func (s *Server) restoreUpload(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		f, err := os.CreateTemp(filepath.Dir(data), ".yars-restore-*.zip")
-		if err != nil {
-			s.fail(w, err)
+		if err != nil { // the restored folder could not go there either
+			fail(http.StatusInternalServerError, "cannot write beside "+data+": "+err.Error())
 			return
 		}
 		tmp = f.Name()
@@ -81,8 +81,12 @@ func (s *Server) restoreUpload(w http.ResponseWriter, r *http.Request) {
 		fail(http.StatusBadRequest, "choose a backup file")
 		return
 	}
+	// one restore at a time: two in the same second would share the target,
+	// and the one refused would remove the other's folder
+	s.restoreMu.Lock()
 	target := data + ".restored-" + time.Now().Format("20060102-150405")
 	rep, err := backup.Restore(tmp, target)
+	s.restoreMu.Unlock()
 	if err != nil {
 		msg := err.Error()
 		if errors.Is(err, zip.ErrFormat) {
