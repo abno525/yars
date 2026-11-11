@@ -132,6 +132,60 @@ func TestSessionExpiredHX(t *testing.T) {
 	}
 }
 
+// attachmentsPanel is the finding page's Attachments panel.
+func attachmentsPanel(t *testing.T, b string) string {
+	t.Helper()
+	i := strings.Index(b, `<section class="panel compact" id="attachments"`)
+	if i < 0 {
+		t.Fatalf("no Attachments panel:\n%s", b)
+	}
+	return b[i : i+strings.Index(b[i:], "</section>")]
+}
+
+// D4: the finding page lists its attachments: name, type, size, Open, and a
+// slot kept for Purge; the panel sits after the text, before Checks.
+func TestAttachmentsPanelListsFiles(t *testing.T) {
+	e := setup(t)
+	e.rules(t, styleRules, nil)
+	if rec := e.sendFile(t, "alice", fpath+"/attachments", "shot.png", testPNG(t, color.White)); rec.Code != 200 {
+		t.Fatalf("upload %d", rec.Code)
+	}
+	b := e.do(t, "bob", "GET", fpath, nil, nil).Body.String()
+	p := attachmentsPanel(t, b)
+	for _, want := range []string{`<span class="qcnt">1</span>`, `<th>Name</th><th class="c-kind">Type</th><th class="c-size">Size</th><th class="c-act">Action</th>`,
+		`title="shot.png">shot.png</td>`, "<td>PNG</td>", `<a class="btn ghost sm w96" href="/e/acme/f/001/attachments/shot.png">Open</a><span class="slot w96"></span>`} {
+		if !strings.Contains(p, want) {
+			t.Fatalf("panel lacks %s:\n%s", want, p)
+		}
+	}
+	// it refreshes itself like the other panels (D15): an upload from a
+	// section editor shows up
+	if !strings.Contains(b, `<section class="panel compact" id="attachments" hx-get="/e/acme/f/001/attachments" hx-trigger="sse:content, sse:resync, sse:poll" hx-swap="outerHTML" data-sse>`) {
+		t.Fatalf("panel without live refresh:\n%s", p)
+	}
+	e.sendFile(t, "alice", fpath+"/attachments", "notes.txt", []byte("see above"))
+	if q := attachmentsPanel(t, e.do(t, "bob", "GET", fpath+"/attachments", nil, nil).Body.String()); !strings.Contains(q, ">notes.txt<") || !strings.Contains(q, `<span class="qcnt">2</span>`) {
+		t.Fatalf("refreshed panel:\n%s", q)
+	}
+	last, att, checks := strings.LastIndex(b, `<section class="panel" id="s-`), strings.Index(b, `id="attachments"`), strings.Index(b, `id="checks"`)
+	if !(last < att && att < checks) {
+		t.Fatalf("order: last section %d, attachments %d, checks %d", last, att, checks)
+	}
+	css := e.do(t, "bob", "GET", "/static/style.css", nil, nil).Body.String()
+	if !strings.Contains(css, ".atttable th.c-kind, .atttable th.c-size { width: 96px; }") || !strings.Contains(css, ".atttable th.c-act { width: 224px; }") {
+		t.Fatal("no Attachments column widths")
+	}
+}
+
+// D4: without attachments the panel keeps its header and one empty row.
+func TestAttachmentsPanelEmptyRow(t *testing.T) {
+	e := setup(t)
+	p := attachmentsPanel(t, e.do(t, "alice", "GET", fpath, nil, nil).Body.String())
+	if !strings.Contains(p, `<span class="qcnt zero">0</span>`) || !strings.Contains(p, "<thead>") || !strings.Contains(p, `<tr class="emptyrow"><td colspan="4">—</td></tr>`) {
+		t.Fatalf("empty panel:\n%s", p)
+	}
+}
+
 func TestAttachmentsUploadServeRedact(t *testing.T) {
 	e := setup(t)
 	ed := e.do(t, "alice", "GET", fpath+"/s/Impact/edit", nil, nil).Body.String()

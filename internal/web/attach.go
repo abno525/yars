@@ -14,9 +14,10 @@ import (
 	"yars/internal/store"
 )
 
-// attachView is the attachment strip of a section editor.
+// attachView is the attachment strip of a section editor and the finding
+// page's Attachments panel.
 type attachView struct {
-	UploadURL string
+	UploadURL string // POST adds a file; GET answers the Attachments panel
 	Items     []attachItem
 }
 
@@ -35,6 +36,7 @@ func attachVer(a store.Attachment) string {
 }
 
 func (s *Server) routesAttach(mux *http.ServeMux) {
+	mux.HandleFunc("GET /e/{eng}/f/{fid}/attachments", s.attachmentsPanel)
 	mux.HandleFunc("GET /e/{eng}/f/{fid}/attachments/{name}", s.attachmentGet)
 	mux.HandleFunc("POST /e/{eng}/f/{fid}/attachments", s.attachmentAdd)
 	mux.HandleFunc("POST /e/{eng}/f/{fid}/attachments/{name}/redact", s.attachmentRedact)
@@ -77,6 +79,21 @@ func (s *Server) attachFor(ref store.FindingRef) (*attachView, error) {
 		v.Items = append(v.Items, it)
 	}
 	return v, nil
+}
+
+// attachmentsPanel answers the finding page's Attachments panel alone (live
+// refreshes).
+func (s *Server) attachmentsPanel(w http.ResponseWriter, r *http.Request) {
+	ref, ok := s.cvssRef(w, r)
+	if !ok {
+		return
+	}
+	v, err := s.attachFor(ref)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	s.exec(w, "finding.html", "attachments_panel", v)
 }
 
 // linkAttachments points the relative attachment links of a finding's

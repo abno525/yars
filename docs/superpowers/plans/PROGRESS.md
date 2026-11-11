@@ -50,5 +50,6 @@ M24 task 1  review   fix 5a1a821 (open strip scrolls; strip choice kept on out-o
 M24 task 3  done     5fc1c72
 M24 task 4  done     245b0ea (review passed)
 M24 task 2  review   fix 8976f09 (strip on workflow events; stale run lists rules now; run errors hold Submit; CVSS row; errors open count)
-M24 task 3  review   fix (duplicates: title room, three rows high)
+M24 task 3  review   fix aa97cf0 (duplicates: title room, three rows high)
+M24 task 5  done     (browser check of the whole page passed: strip closed 48 px under the text and Attachments; bar two rows, no list; Return event red in the chat; side column duplicates then chat; retest Original closed 50 px; no sideways scroll)
 ```

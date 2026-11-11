@@ -623,6 +623,8 @@ summary.panelhead::-webkit-details-marker { display: none; }
 .panel.checks.strip > .panelhead { height: 46px; }
 .panel.checks.strip:not([open]) { height: 48px; }
 .panel.checks.strip:not([open]) > .panelhead { border-bottom: 0; }
+/* D4: a retest's Original starts closed the same way */
+.panel.orig:not([open]) > .panelhead { border-bottom: 0; }
 /* a <details> wraps its body in a box of its own, out of the flex column:
    the list is held to the strip's 360 px (less border and head) and scrolls */
 .panel.checks.strip > .checkbody { max-height: 312px; }
@@ -1464,6 +1466,11 @@ input.bigin { height: 48px; font: 600 18px var(--sans); border: 2px solid var(--
 .side .dups th:nth-child(3), .side .dups td:nth-child(3) { display: none; }
 .side .dups { flex: none; }
 .side .dups .dscroll { max-height: 188px; overflow-y: auto; }
+/* D4: the finding's attachments: Name | Type 96 | Size 96 | Action 224, two
+   96 px slots (Open, then Purge or its empty slot) 8 apart */
+.atttable th.c-kind, .atttable th.c-size { width: 96px; }
+.atttable th.c-act { width: 224px; }
+.atttable td.acts { padding: 0 12px; }
 
 /* merge */
 .mscroll { max-height: 520px; overflow-y: auto; scrollbar-gutter: stable; }

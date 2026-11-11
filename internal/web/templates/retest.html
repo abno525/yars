@@ -1,11 +1,11 @@
 {{define "retest_panel"}}
 {{with .}}
 <div class="retestgrid" id="retest">
-  <section class="panel compact orig">
-    <div class="panelhead">
+  <details class="panel compact orig">
+    <summary class="panelhead">
       <div class="panelname"><h2>Original</h2><span class="mono clip" title="{{.Source}}">{{.Source}}</span>{{if not .SourceMissing}}<span class="tag status-{{.SourceStatus}}">{{statusLabel .SourceStatus}}</span>{{end}}</div>
       {{if .SourceMissing}}<span class="slot w96"></span>{{else}}<a class="btn secondary sm w96" href="{{.SourceURL}}">Open</a>{{end}}
-    </div>
+    </summary>
     {{if .SourceMissing}}<p class="muted">—</p>{{else}}
     {{if or .Details .Vector .SourceSev}}
     <table class="kv flush">{{template "kv_head"}}<tbody>
@@ -16,7 +16,7 @@
     {{end}}
     {{range .Sections}}<div class="osec flush"><h3>{{.Name}}</h3><div class="md">{{.HTML}}</div></div>{{end}}
     {{end}}
-  </section>
+  </details>
   <section class="panel resultp{{if not .Result}} needs{{end}}">
     <div class="panelhead"><h2>Retest result</h2><span class="req">{{if not .Result}}Needs result{{end}}</span></div>
     {{if .Error}}<p class="error">{{.Error}}</p>{{end}}

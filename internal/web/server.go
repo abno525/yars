@@ -169,6 +169,7 @@ type page struct {
 	CloneURL      string
 	Retest        *retestView
 	IsRetest      bool
+	Attach        *attachView // the finding page: its attachments (D4)
 	Users         []config.User
 	ExportV       exportView
 	Source        store.Engagement
@@ -793,6 +794,10 @@ func (s *Server) renderFinding(w http.ResponseWriter, r *http.Request, status in
 		return
 	}
 	p.Retest = s.retestFor(r, p.Finding)
+	if p.Attach, err = s.attachFor(p.Finding); err != nil {
+		s.fail(w, err)
+		return
+	}
 	// fast rule errors also block submit/approve; show them in the bar
 	p.WF, p.Checks = s.wfGated(r, p.Finding)
 	p.TabTitle = p.Finding.F.Meta.ID + " " + p.Finding.F.Meta.Title

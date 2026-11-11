@@ -10,6 +10,19 @@
 </div>
 {{end}}
 
+{{define "attachments_panel"}}
+<section class="panel compact" id="attachments" hx-get="{{.UploadURL}}" hx-trigger="sse:content, sse:resync, sse:poll" hx-swap="outerHTML" data-sse>
+  <div class="panelhead"><h2>Attachments <span class="qcnt{{if not .Items}} zero{{end}}">{{len .Items}}</span></h2></div>
+  <table class="table stable atttable flush">
+    <thead><tr><th>Name</th><th class="c-kind">Type</th><th class="c-size">Size</th><th class="c-act">Action</th></tr></thead>
+    <tbody>
+      {{range .Items}}<tr><td class="mono clip" title="{{.Name}}">{{.Name}}</td><td>{{.Kind}}</td><td class="mono">{{.Size}}</td><td class="acts"><div class="actions"><a class="btn ghost sm w96" href="{{.URL}}">Open</a><span class="slot w96"></span></div></td></tr>
+      {{else}}{{template "empty_row" 4}}{{end}}
+    </tbody>
+  </table>
+</section>
+{{end}}
+
 {{define "content"}}
 {{$f := .Finding.F}}
 {{$wd := eq $f.Meta.Status "withdrawn"}}
@@ -32,6 +45,7 @@
     {{template "assets_panel" .Assets}}
     {{template "cvss_panel" .CVSS}}
     {{range .Panels}}{{template "panel" .}}{{end}}
+    {{with .Attach}}{{template "attachments_panel" .}}{{end}}
     {{if not $wd}}{{template "checks_panel" .Checks}}{{end}}
   </div>
   <div class="side">

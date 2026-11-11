@@ -20,6 +20,28 @@ func TestNewRetestLayout(t *testing.T) {
 	noInline(t, "new retest", b)
 }
 
+// D4: on a retest the Original starts collapsed; its head keeps Open.
+func TestRetestOriginalCollapsed(t *testing.T) {
+	e := setup(t)
+	if err := e.srv.Store.CreateRetest(store.Engagement{ID: "rt", Name: "RT"}, "acme", []string{fdir}, "", wDora); err != nil {
+		t.Fatal(err)
+	}
+	b := e.do(t, "alice", "GET", "/e/rt/f/"+fdir, nil, nil).Body.String()
+	i := strings.Index(b, `<details class="panel compact orig"`)
+	if i < 0 {
+		t.Fatalf("no collapsible Original:\n%s", b)
+	}
+	tag := b[i : i+strings.Index(b[i:], ">")+1]
+	head := between(b[i:], `<summary class="panelhead">`, "</summary>")
+	if strings.Contains(tag, " open") || !strings.Contains(head, "<h2>Original</h2>") || !strings.Contains(head, `href="/e/acme/f/001">Open</a>`) {
+		t.Fatalf("Original: %s\n%s", tag, head)
+	}
+	// closed it is its head alone, one line under it (the panel's)
+	if css := e.do(t, "alice", "GET", "/static/style.css", nil, nil).Body.String(); !strings.Contains(css, ".panel.orig:not([open]) > .panelhead { border-bottom: 0; }") {
+		t.Fatal("the closed Original keeps its head's line")
+	}
+}
+
 func TestRetestSideBySide(t *testing.T) {
 	e := setup(t)
 	st := e.srv.Store
