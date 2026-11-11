@@ -270,7 +270,7 @@ func TestRestoreReportsBackupSchema(t *testing.T) {
 // The database and the key are unpacked private whatever mode the ZIP
 // gives them.
 func TestUnpackKeepsSecretsPrivate(t *testing.T) {
-	zp := handZip(t, fileHeader(".yars/yars.db", 0o644), fileHeader(".yars/secret.key", 0o644), fileHeader(".yars/config.yaml", 0o644))
+	zp := handZip(t, fileHeader(".yars/yars.db", 0o644), fileHeader(".yars/secret.key", 0o644), fileHeader(".yars/rules/x.sh", 0o755))
 	zr, err := zip.OpenReader(zp)
 	if err != nil {
 		t.Fatal(err)
@@ -280,11 +280,15 @@ func TestUnpackKeepsSecretsPrivate(t *testing.T) {
 	if err := unpack(zr.File, dest); err != nil {
 		t.Fatal(err)
 	}
-	for name, want := range map[string]fs.FileMode{".yars/yars.db": 0o600, ".yars/secret.key": 0o600, ".yars/config.yaml": 0o644} {
+	for _, name := range []string{".yars/yars.db", ".yars/secret.key"} {
 		fi, err := os.Stat(filepath.Join(dest, name))
-		if err != nil || fi.Mode().Perm() != want {
-			t.Errorf("%s: %v %v, want %v", name, fi, err, want)
+		if err != nil || fi.Mode().Perm() != 0o600 {
+			t.Errorf("%s: %v %v, want 0600", name, fi, err)
 		}
+	}
+	// any other file keeps the ZIP's mode (the owner's bits survive any umask)
+	if fi, err := os.Stat(filepath.Join(dest, ".yars/rules/x.sh")); err != nil || fi.Mode().Perm()&0o700 != 0o700 {
+		t.Errorf("x.sh: %v %v, want the owner's rwx kept", fi, err)
 	}
 }
 

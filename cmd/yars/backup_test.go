@@ -167,7 +167,12 @@ func TestBackupRetriesWriteErrors(t *testing.T) {
 // both: it is refused.
 func TestBackupRefusesOutInsideData(t *testing.T) {
 	dir := dataWithFinding(t)
-	for _, out := range []string{filepath.Join(dir, "b.zip"), filepath.Join(dir, "engagements", "acme", "b.zip")} {
+	// a link elsewhere that leads into the data folder
+	link := filepath.Join(t.TempDir(), "into-data")
+	if err := os.Symlink(filepath.Join(dir, "engagements"), link); err != nil {
+		t.Fatal(err)
+	}
+	for _, out := range []string{filepath.Join(dir, "b.zip"), filepath.Join(dir, "engagements", "acme", "b.zip"), filepath.Join(link, "b.zip")} {
 		err := cmdBackup([]string{"--data", dir, "--out", out}, &bytes.Buffer{})
 		if err == nil || !strings.Contains(err.Error(), "is inside the data folder") {
 			t.Fatalf("%s: err %v", out, err)
@@ -175,6 +180,41 @@ func TestBackupRefusesOutInsideData(t *testing.T) {
 		if _, err := os.Stat(out); !os.IsNotExist(err) {
 			t.Fatalf("%s was written", out)
 		}
+	}
+	// a folder beside it whose name starts with the data folder's is not inside
+	sibling := dir + "2"
+	if err := os.Mkdir(sibling, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(sibling) })
+	if err := cmdBackup([]string{"--data", dir, "--out", filepath.Join(sibling, "b.zip")}, &bytes.Buffer{}); err != nil {
+		t.Fatalf("a sibling folder: %v", err)
+	}
+}
+
+// Without hard links the file at --out is looked at again just before the
+// rename: one that appeared meanwhile stays.
+func TestBackupWithoutHardLinksKeepsNewOut(t *testing.T) {
+	dir := dataWithFinding(t)
+	defer func(v func(string, string) error) { linkFile = v }(linkFile)
+	linkFile = func(old, new string) error {
+		return &os.LinkError{Op: "link", Old: old, New: new, Err: syscall.EPERM}
+	}
+	defer func(v func(string) (backup.Report, error)) { verifyBackup = v }(verifyBackup)
+	out := filepath.Join(t.TempDir(), "b.zip")
+	verifyBackup = func(p string) (backup.Report, error) {
+		os.WriteFile(out, []byte("mine"), 0o600) // written while we verify
+		return backup.Verify(p)
+	}
+	err := cmdBackup([]string{"--data", dir, "--out", out}, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "exists already") {
+		t.Fatalf("err %v", err)
+	}
+	if b, _ := os.ReadFile(out); string(b) != "mine" {
+		t.Fatal("the file at --out was replaced")
+	}
+	if _, err := os.Stat(out + ".part"); !os.IsNotExist(err) {
+		t.Fatal("the .part file is left behind")
 	}
 }
 
