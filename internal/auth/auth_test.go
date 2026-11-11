@@ -33,6 +33,29 @@ func newAuth(t *testing.T) (*Auth, *db.DB) {
 	return New(d), d
 }
 
+// The session cookie is Secure when the site is served over HTTPS; it is
+// always HttpOnly and SameSite=Lax, and clearing it matches.
+func TestCookieSecureFlag(t *testing.T) {
+	for _, secure := range []bool{false, true} {
+		a := &Auth{Secure: secure}
+		rec := httptest.NewRecorder()
+		a.SetCookie(rec, "tok")
+		a.ClearCookie(rec)
+		cs := rec.Result().Cookies()
+		if len(cs) != 2 {
+			t.Fatalf("cookies %v", cs)
+		}
+		for _, c := range cs {
+			if c.Name != CookieName || c.Secure != secure || !c.HttpOnly || c.SameSite != http.SameSiteLaxMode {
+				t.Errorf("secure=%v: cookie %+v", secure, c)
+			}
+		}
+		if cs[0].Value != "tok" || cs[0].MaxAge <= 0 || cs[1].MaxAge >= 0 {
+			t.Errorf("set %+v, clear %+v", cs[0], cs[1])
+		}
+	}
+}
+
 func TestLoginOK(t *testing.T) {
 	a, _ := newAuth(t)
 	tok, ok := a.Login("alice", "secret")

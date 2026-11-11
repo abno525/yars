@@ -72,7 +72,7 @@ func (s *Server) passwordSet(w http.ResponseWriter, r *http.Request) {
 	}
 	s.Store.DB().Audit(u.Username, "user.password", u.Username, "first login")
 	if tok, ok := s.Auth.Login(u.Username, pw); ok {
-		auth.SetCookie(w, tok)
+		s.Auth.SetCookie(w, tok)
 	}
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }

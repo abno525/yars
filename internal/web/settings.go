@@ -282,7 +282,7 @@ func (s *Server) settingsPassword(w http.ResponseWriter, r *http.Request) {
 	}
 	s.Store.DB().Audit(u.Username, "user.password", u.Username, "")
 	if tok, ok := s.Auth.Login(u.Username, r.FormValue("new")); ok {
-		auth.SetCookie(w, tok)
+		s.Auth.SetCookie(w, tok)
 	}
 	http.Redirect(w, r, "/settings#password", http.StatusSeeOther)
 }

@@ -6,7 +6,7 @@
 //	yars useradd --data <dir> --role <role> [--email e] <username>   (password read from stdin)
 //	yars passwd|userdel|unlock --data <dir> <username>; yars role --data <dir> <username> <role>
 //	yars admin --data <dir> <username> on|off
-//	yars serve --data <dir> [--addr :8080]
+//	yars serve --data <dir> [--addr :8080] [--tls-cert <file> --tls-key <file>] [--https]
 //	yars migrate --data <dir>   (move state and chat from files into the database)
 //	yars backup --data <dir> [--key] --out <file.zip>   (works while the server runs)
 //	yars restore --from <file.zip> --data <new dir>   (--data is required: never the default)
@@ -563,7 +563,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, `usage (flags first; --data defaults to $YARS_DATA, then yars use, then .):
   yars init <dir>
   yars use [<dir>]   (set the default data folder, or show it)
-  yars serve --data <dir> [--addr :8080]
+  yars serve --data <dir> [--addr :8080] [--tls-cert <file> --tls-key <file>] [--https]
   yars useradd --data <dir> --role pentester|reviewer|director [--email e] [--admin] <user>   (password from stdin)
   yars admin --data <dir> <user> on|off
   yars passwd --data <dir> <user>   (password from stdin)
@@ -901,10 +901,19 @@ func backfillTeams(st *store.Store, d *db.DB) error {
 }
 
 func cmdServe(args []string) error {
-	fs := flag.NewFlagSet("serve", flag.ExitOnError)
+	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	data := dataFlag(fs)
 	addr := fs.String("addr", ":8080", "listen address")
-	fs.Parse(args)
+	cert := fs.String("tls-cert", "", "serve HTTPS with this certificate file (needs --tls-key)")
+	key := fs.String("tls-key", "", "the certificate's private key file (needs --tls-cert)")
+	https := fs.Bool("https", false, "a proxy in front serves HTTPS: Secure cookies and HSTS")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if (*cert == "") != (*key == "") {
+		return fmt.Errorf("--tls-cert and --tls-key go together")
+	}
+	secure := *https || *cert != ""
 	r, err := openData(fs, *data)
 	if err != nil {
 		return err
@@ -938,6 +947,7 @@ func cmdServe(args []string) error {
 	eng := rules.NewEngine(rules.DirFor(r.Dir), cfg)
 	st.Linter = eng
 	au := auth.New(d)
+	au.Secure = secure
 	exe, err := os.Executable()
 	if err != nil {
 		return err
@@ -970,8 +980,11 @@ func cmdServe(args []string) error {
 		return fmt.Errorf("secret key: %w", err)
 	}
 	srv := &web.Server{Store: st, Index: ix, Auth: au, Cfg: cfg, Rules: eng, Git: gs.Handler(), Export: exportRunner(r.Dir),
-		MCP: mcpSrv.HTTPHandler(tokens), Events: hub, Tokens: tokens, Secret: box,
+		MCP: mcpSrv.HTTPHandler(tokens), Events: hub, Tokens: tokens, Secret: box, HTTPS: secure,
 		MigrateStatus: func() []string { return legacyItems(r.Dir) }}
 	log.Printf("yars serving %s on %s", r.Dir, *addr)
+	if *cert != "" {
+		return srv.HTTPServer(*addr).ListenAndServeTLS(*cert, *key)
+	}
 	return srv.HTTPServer(*addr).ListenAndServe()
 }

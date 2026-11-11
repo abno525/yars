@@ -24,6 +24,9 @@ const CookieName = "yars_session"
 type ctxKey struct{}
 
 type Auth struct {
+	// Secure marks the session cookie Secure (the site is served over HTTPS).
+	Secure bool
+
 	db    *db.DB
 	dummy []byte
 }
@@ -195,12 +198,14 @@ func UserFrom(ctx context.Context) config.User {
 	return u
 }
 
-// SetCookie writes the session cookie for token.
-func SetCookie(w http.ResponseWriter, token string) {
+// SetCookie writes the session cookie for token (Secure over HTTPS).
+func (a *Auth) SetCookie(w http.ResponseWriter, token string) {
 	http.SetCookie(w, &http.Cookie{Name: CookieName, Value: token, Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode,
-		MaxAge: int(db.SessionIdle.Seconds())})
+		Secure: a.Secure, MaxAge: int(db.SessionIdle.Seconds())})
 }
 
-func ClearCookie(w http.ResponseWriter) {
-	http.SetCookie(w, &http.Cookie{Name: CookieName, Value: "", Path: "/", MaxAge: -1, HttpOnly: true})
+// ClearCookie removes the session cookie (with the attributes it was set with).
+func (a *Auth) ClearCookie(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{Name: CookieName, Value: "", Path: "/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteLaxMode,
+		Secure: a.Secure})
 }

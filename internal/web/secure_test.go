@@ -3,9 +3,12 @@ package web
 import (
 	"io/fs"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 	"testing"
+
+	"yars/internal/auth"
 )
 
 var wantHeaders = map[string]string{
@@ -70,6 +73,22 @@ func TestHSTSOnlyWithHTTPS(t *testing.T) {
 	e.h = e.srv.Handler()
 	if h := e.do(t, "", "GET", "/login", nil, nil).Header().Get("Strict-Transport-Security"); h != "max-age=31536000" {
 		t.Fatalf("HSTS with HTTPS: %q", h)
+	}
+}
+
+// Over HTTPS the session cookie a login sets is Secure.
+func TestLoginCookieSecureWhenHTTPS(t *testing.T) {
+	e := setup(t)
+	e.srv.Auth.Secure = true
+	rec := e.do(t, "", "POST", "/login", url.Values{"username": {"alice"}, "password": {"pw"}}, nil)
+	var got *http.Cookie
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == auth.CookieName {
+			got = c
+		}
+	}
+	if got == nil || !got.Secure || got.Value == "" {
+		t.Fatalf("login cookie %+v (status %d)", got, rec.Code)
 	}
 }
 

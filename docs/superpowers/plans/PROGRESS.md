@@ -21,5 +21,6 @@ M21 branch  reviewed fixes ba507ff
 M21 PR      opened   #15
 M21 tests   b8d4226 (from the review of ba507ff)
 M22 task 1  done     aa387bd
-M22 task 2  done     browser check passed (no policy refusals; list holds off while ticked)
+M22 task 2  done     321ce25 (browser check passed: no policy refusals; list holds off while ticked)
+M22 task 3  done
 ```

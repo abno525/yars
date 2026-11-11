@@ -448,7 +448,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		s.renderStatus(w, http.StatusUnauthorized, "login.html", p)
 		return
 	}
-	auth.SetCookie(w, tok)
+	s.Auth.SetCookie(w, tok)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
@@ -466,7 +466,7 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie(auth.CookieName); err == nil {
 		s.Auth.Logout(c.Value)
 	}
-	auth.ClearCookie(w)
+	s.Auth.ClearCookie(w)
 	http.Redirect(w, r, "/login", http.StatusSeeOther)
 }
 
