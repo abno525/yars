@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"yars/internal/config"
@@ -136,6 +137,9 @@ func (rn *Runner) Script(ctx context.Context, r Rule, d Doc) []Violation {
 	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + os.Getenv("HOME")}
 	cmd.Stdin = bytes.NewReader(input)
 	cmd.WaitDelay = time.Second
+	// its own process group: the timeout kills what the script started too
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	out, stderr := &capWriter{max: 1 << 20}, &capWriter{max: 64 << 10}
 	cmd.Stdout, cmd.Stderr = out, stderr
 	err = cmd.Run()
