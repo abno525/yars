@@ -83,9 +83,9 @@ Rules `Write` follows:
 
 **Files:** modify `internal/web/admin_system.go` (the `backup` handler), `internal/web/admin_system_test.go`
 
-- [ ] **Step 1:** change the existing backup tests only where they call `backupSkip` (use `backup.Skip`). Add `TestBackupDownloadUsesStoreLocks`: start the download with `e.do`, and assert the response is a ZIP that `backup.Verify` (task 3) accepts. Until task 3 exists, assert `zip.NewReader` opens it and it holds `.yars/yars.db`.
-- [ ] **Step 2:** the handler body becomes: set the headers as now, `n, err := backup.Write(cw, dir, s.Store.DB(), s.Store, backup.Options{WithKey: withKey})`, the same `panic(http.ErrAbortHandler)` on error, the same audit line.
-- [ ] **Step 3:** run `go test ./internal/web -run Backup`. Expected: PASS. Commit: `refactor(admin): the backup download uses internal/backup`.
+- [x] **Step 1:** change the existing backup tests only where they call `backupSkip` (use `backup.Skip`). Add `TestBackupDownloadUsesStoreLocks`: start the download with `e.do`, and assert the response is a ZIP that `backup.Verify` (task 3) accepts. Until task 3 exists, assert `zip.NewReader` opens it and it holds `.yars/yars.db`.
+- [x] **Step 2:** the handler body becomes: set the headers as now, `n, err := backup.Write(cw, dir, s.Store.DB(), s.Store, backup.Options{WithKey: withKey})`, the same `panic(http.ErrAbortHandler)` on error, the same audit line.
+- [x] **Step 3:** run `go test ./internal/web -run Backup`. Expected: PASS. Commit: `refactor(admin): the backup download uses internal/backup`.
 
 ### Task 3: `backup.Restore` and `backup.Verify`
 

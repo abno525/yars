@@ -1,23 +1,19 @@
 package web
 
 import (
-	"archive/zip"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"io/fs"
 	"log"
 	"net/http"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
 	"yars/internal/auth"
+	"yars/internal/backup"
 	"yars/internal/db"
 )
 
@@ -210,89 +206,18 @@ func (s *Server) runOp(op string) sysOp {
 	return v
 }
 
-// backupSkip reports files of the data directory a backup leaves out: the
-// live database (a snapshot goes in instead) and, unless asked for, the
-// secret key.
-func backupSkip(rel string, withKey bool) bool {
-	switch rel {
-	case ".yars/yars.db", ".yars/yars.db-wal", ".yars/yars.db-shm", ".yars/yars.db-journal":
-		return true
-	case ".yars/secret.key":
-		return !withKey
-	}
-	return false
-}
-
-// backup streams a ZIP of the data directory: the main repo and every
-// engagement repo (their .git folders included) and a snapshot of the
-// database (VACUUM INTO) at .yars/yars.db; the secret key only with key=1.
+// backup streams a ZIP of the data directory (backup.Write): the main repo
+// and every engagement repo, each copied under the store's lock of it, and a
+// snapshot of the database at .yars/yars.db; the secret key only with key=1.
 func (s *Server) backup(w http.ResponseWriter, r *http.Request) {
 	withKey := r.PostFormValue("key") == "1"
 	dir := s.Store.Repo().Dir
-	tmp, err := os.MkdirTemp("", "yars-backup-")
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	defer os.RemoveAll(tmp)
-	snap := filepath.Join(tmp, "yars.db")
-	if err := s.Store.DB().Snapshot(snap); err != nil {
-		s.fail(w, err)
-		return
-	}
 	http.NewResponseController(w).SetWriteDeadline(time.Now().Add(time.Hour))
 	name := "yars-backup-" + time.Now().Format("2006-01-02-1504") + ".zip"
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", `attachment; filename="`+name+`"`)
 	w.Header().Set("Cache-Control", "no-store")
-	cw := &countWriter{w: w}
-	zw := zip.NewWriter(cw)
-	add := func(src, rel string, info fs.FileInfo) error {
-		h, err := zip.FileInfoHeader(info)
-		if err != nil {
-			return err
-		}
-		h.Name, h.Method = rel, zip.Deflate
-		f, err := os.Open(src)
-		if err != nil {
-			return err
-		}
-		defer f.Close()
-		out, err := zw.CreateHeader(h)
-		if err != nil {
-			return err
-		}
-		_, err = io.Copy(out, f)
-		return err
-	}
-	err = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, rerr := filepath.Rel(dir, p)
-		if rerr != nil || rel == "." {
-			return rerr
-		}
-		rel = filepath.ToSlash(rel)
-		// only plain files: links could point out of the data directory
-		if d.IsDir() || !d.Type().IsRegular() || backupSkip(rel, withKey) {
-			return nil
-		}
-		info, err := d.Info()
-		if err != nil {
-			return err
-		}
-		return add(p, rel, info)
-	})
-	if err == nil {
-		var info fs.FileInfo
-		if info, err = os.Stat(snap); err == nil {
-			err = add(snap, ".yars/yars.db", info)
-		}
-	}
-	if err == nil {
-		err = zw.Close()
-	}
+	n, err := backup.Write(w, dir, s.Store.DB(), s.Store, backup.Options{WithKey: withKey})
 	if err != nil {
 		// headers are gone: the download ends broken rather than silently short
 		log.Printf("backup: %v", err)
@@ -302,19 +227,7 @@ func (s *Server) backup(w http.ResponseWriter, r *http.Request) {
 	if withKey {
 		detail = "with key"
 	}
-	s.Store.DB().Audit(auth.UserFrom(r.Context()).Username, "backup", "", detail+" · "+size(cw.n))
-}
-
-// countWriter counts the bytes written through it (the backup's size).
-type countWriter struct {
-	w io.Writer
-	n int64
-}
-
-func (c *countWriter) Write(p []byte) (int, error) {
-	n, err := c.w.Write(p)
-	c.n += int64(n)
-	return n, err
+	s.Store.DB().Audit(auth.UserFrom(r.Context()).Username, "backup", "", detail+" · "+size(n))
 }
 
 // lastHealthOr is the last run of the health checks, which the System page

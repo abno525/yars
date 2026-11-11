@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"yars/internal/auth"
 	"yars/internal/config"
@@ -82,6 +83,29 @@ func TestBackupZip(t *testing.T) {
 	l, _ := e.srv.Store.DB().AuditLog(1)
 	if len(l) != 1 || l[0].Action != "backup" || !strings.HasPrefix(l[0].Detail, "with key · ") || !strings.HasSuffix(l[0].Detail, " KB") {
 		t.Fatalf("audit %+v", l)
+	}
+}
+
+// The download copies each repository under the store's lock of it, so it
+// waits for a commit in progress; what it sends is a whole backup.
+func TestBackupDownloadUsesStoreLocks(t *testing.T) {
+	e := setup(t)
+	unlock := e.srv.Store.LockEngagement("acme")
+	done := make(chan []byte)
+	go func() {
+		done <- e.do(t, "dora", "POST", "/admin/system/backup", url.Values{}, nil).Body.Bytes()
+	}()
+	select {
+	case <-done:
+		unlock()
+		t.Fatal("the download did not wait for the engagement's lock")
+	case <-time.After(300 * time.Millisecond):
+	}
+	unlock()
+	body := <-done
+	files := zipNames(t, body)
+	if _, ok := files[".yars/yars.db"]; !ok {
+		t.Fatal("the backup has no database")
 	}
 }
 
