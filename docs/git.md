@@ -48,7 +48,8 @@ Only `refs/heads/main` can be pushed, and every commit in the push is checked on
 | `commit 1a2b3c4: authored by … <…>, but the account … has the email …` | The author email is not your account's email (the name may differ; directors too) | `git config user.email <account email>` · `git commit --amend --reset-author` |
 | `the email … of account … is also the email of account …` | Two accounts share an email (from before emails had to be unique) | one of them changes it in Settings › Account |
 | `…/finding.md: CVSS vector … is not written as this server's CVSS 3.1 vector; write …` | Another version (3.0) or metric order | the vector the message gives |
-| `…/finding.md: CVSS vector …: missing metric …` | Incomplete or invalid vector | a complete `CVSS:3.1/…` base vector, or none |
+| `…/finding.md: CVSS vector …: missing metric A (Availability): add A:N, A:L or A:H` | Incomplete vector | one of the values the message names |
+| `…/finding.md: CVSS vector …: invalid value Q for I (Integrity): use N, L or H` (also `no value for …`, `invalid component …: write metric:value`) | A metric with a value it does not take, or a part that is not `metric:value` | one of the values the message names |
 | `…/finding.md: severity … does not match the CVSS vector (score … is …)` | The website derives the severity from the vector | `severity: <the rating named>` |
 | `…/finding.md: asset 2: port must be 1–65535` | An asset row the website refuses (also: host or URL, URL with scheme and host, one line) | correct the row |
 | `…/finding.md: the title must be one line of 1–200 characters` | Empty, multi-line or long title | one line |
