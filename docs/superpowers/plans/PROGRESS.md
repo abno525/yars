@@ -195,4 +195,5 @@ M35 after   done     7040895 (asked after the run: status, CVSS, author under th
 M35 after   review   fix bf9b94b (the ? list's t b and e rows only where they act; with the row tint asked after the run)
 M35 after   done     68c48f5 (asked after the run: pages outside an engagement keep the one opened last; f always goes to Findings)
 M35 after   done     a8f5e1b (asked after the run: the page's own confirm dialog; comments picked, resolved and answered from the keyboard; Ctrl+H)
+M35 after   review   fix b24e2ea (a hidden chat takes no keys; j k h r never write in the chat; Clear vector asks; no close on a click outside)
 ```
