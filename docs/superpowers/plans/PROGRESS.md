@@ -189,4 +189,7 @@ M35 after   review   fix ff93d36 (the unused theme endpoint removed; its tests s
 M35 after   done     5075f25 (asked after the run: the notices in the inbox's Notifications section, review fixes in; no bell; user name, Go to, Log out)
 M35 after   done     28d9bc7 (asked after the run: digits pick the state filter, ↓ ↑ move the row focus on lists)
 M35 after   review   fix 3ddf906 (arrows on the findings and engagements lists only, held down too, never in an open menu)
+M35 after   done     cbd553b (asked after the run: Notifications first, no My drafts in the inbox, Mark all read on New on team board)
+M35 after   done     5114e21 (asked after the run: t Team board, o Overview, r Report, s Settings, e Export)
+M35 after   done     7040895 (asked after the run: status, CVSS, author under the title; Not Defined until a CVSS is set)
 ```
