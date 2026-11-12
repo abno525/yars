@@ -153,7 +153,7 @@ func TestAttachmentsPanelListsFiles(t *testing.T) {
 	b := e.do(t, "bob", "GET", fpath, nil, nil).Body.String()
 	p := attachmentsPanel(t, b)
 	for _, want := range []string{`<span class="qcnt">1</span>`, `<th>Name</th><th class="c-kind">Type</th><th class="c-size">Size</th><th class="c-act">Action</th>`,
-		`title="shot.png">shot.png</td>`, "<td>PNG</td>", `<a class="btn ghost sm w96" href="/e/acme/f/001/attachments/shot.png">Open</a><span class="slot w96"></span>`} {
+		`title="shot.png"><span class="attn"><span class="clip">shot.png</span></span></td>`, "<td>PNG</td>", `<a class="btn ghost sm w96" href="/e/acme/f/001/attachments/shot.png">Open</a><span class="slot w96"></span>`} {
 		if !strings.Contains(p, want) {
 			t.Fatalf("panel lacks %s:\n%s", want, p)
 		}
@@ -206,12 +206,14 @@ func TestMarkOnThumbAndRow(t *testing.T) {
 		t.Fatalf("no mark on the thumbnail:\n%s", between(s, `class="attstrip`, `</div>
 </div>`))
 	}
-	if p := panel(); !strings.Contains(p, `title="shot.png">shot.png`+mark+`</td>`) {
+	// the name clips, the mark beside it stays whole
+	if p := panel(); !strings.Contains(p, `<td class="mono" title="shot.png"><span class="attn"><span class="clip">shot.png</span>`+mark+`</span></td>`) {
 		t.Fatalf("no mark on the row:\n%s", p)
 	}
 	css := e.do(t, "alice", "GET", "/static/style.css", nil, nil).Body.String()
 	for _, want := range []string{".histdot { display: inline-block; width: 8px; height: 8px; background: var(--accent); }",
-		".thumb .histdot { position: absolute; top: 4px; right: 4px; }", "td .histdot { margin-left: 8px; }"} {
+		".thumb .histdot { position: absolute; top: 4px; right: 4px; }",
+		".attn { display: flex; align-items: center; gap: 8px; min-width: 0; }", ".attn .histdot { flex: none; }"} {
 		if !strings.Contains(css, want) {
 			t.Errorf("style.css lacks %s", want)
 		}

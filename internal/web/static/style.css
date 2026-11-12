@@ -1510,14 +1510,14 @@ form.dirty .dirtydot { visibility: visible; }
 /* attachments */
 .attstrip { padding: 16px 24px; display: flex; flex-wrap: wrap; gap: 12px; align-items: stretch; border-top: 1px solid var(--line); background: var(--panel); max-height: 440px; overflow-y: auto; }
 .att { width: 200px; flex: none; display: flex; flex-direction: column; border: 1px solid var(--line); background: var(--surface); }
-.att .thumb { height: 110px; display: flex; align-items: center; justify-content: center; overflow: hidden; background: var(--code-bg); }
+.att .thumb { position: relative; height: 110px; display: flex; align-items: center; justify-content: center; overflow: hidden; background: var(--code-bg); }
 .att .thumb img { max-width: 100%; max-height: 100%; display: block; }
 .att .thumb .mono { font-size: 12px; }
 /* D28: an earlier version of this image is in git history */
 .histdot { display: inline-block; width: 8px; height: 8px; background: var(--accent); }
-.att .thumb { position: relative; }
 .thumb .histdot { position: absolute; top: 4px; right: 4px; }
-td .histdot { margin-left: 8px; }
+.attn { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.attn .histdot { flex: none; }
 .attname { padding: 6px 10px; display: flex; flex-direction: column; border-top: 1px solid var(--line); min-width: 0; }
 .attname .mono { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .attname .mono:first-child { color: var(--text); }

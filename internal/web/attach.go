@@ -64,7 +64,7 @@ func attachMD(name string, image bool) string {
 func (s *Server) attachFor(ref store.FindingRef) (*attachView, error) {
 	base := findingURL(ref.EngID, ref.Dir) + "/attachments"
 	v := &attachView{UploadURL: base}
-	as, err := s.Store.Attachments(ref.EngID, ref.Dir)
+	as, err := s.Store.AttachmentsOf(ref)
 	if err != nil {
 		return nil, err
 	}
@@ -105,7 +105,7 @@ func (s *Server) linkAttachments(h template.HTML, ref store.FindingRef) template
 	}
 	base := findingURL(ref.EngID, ref.Dir) + "/attachments/"
 	out := string(h)
-	if as, err := s.Store.Attachments(ref.EngID, ref.Dir); err == nil {
+	if as, err := s.Store.AttachmentsOf(ref); err == nil {
 		for _, a := range as {
 			if a.Image {
 				out = strings.ReplaceAll(out, `src="attachments/`+a.Name+`"`, `src="`+base+a.Name+`?v=`+attachVer(a)+`"`)

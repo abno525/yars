@@ -41,4 +41,14 @@ func TestNoteRedactionClearsPurged(t *testing.T) {
 	if b, _ := d.PurgedBlobs("acme"); len(b) != 2 {
 		t.Fatalf("purged blobs after a second purge %v", b)
 	}
+	// an engagement made again under the same id inherits neither
+	if err := d.Tx(func(tx *Tx) error { return tx.Purge("acme") }); err != nil {
+		t.Fatal(err)
+	}
+	if u, _ := d.Unpurged("acme", "F-001"); len(u) != 0 {
+		t.Fatalf("marks survive the engagement: %v", u)
+	}
+	if b, _ := d.PurgedBlobs("acme"); len(b) != 0 {
+		t.Fatalf("purged blobs survive the engagement: %v", b)
+	}
 }

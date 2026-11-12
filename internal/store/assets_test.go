@@ -109,6 +109,30 @@ func TestRedactRecordsRow(t *testing.T) {
 	}
 }
 
+// D28: the redaction is noted before the change is announced (a page that
+// refreshes on it shows the mark; a purge waiting on the lock sees the row).
+func TestRedactNotedBeforeAnnounced(t *testing.T) {
+	s, _ := withEngagement(t)
+	f, _ := s.CreateFinding(eng, "XSS", alice)
+	name, err := s.AddAttachment(eng, f.Dir, "shot.png", pngBytes(t, color.White), m17Pen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var seen []bool
+	s.OnChange(func(c Change) {
+		if c.Kind == ChangeContent {
+			u, _ := s.DB().Unpurged(eng, c.Fid)
+			seen = append(seen, u[name])
+		}
+	})
+	if err := s.ReplaceAttachment(eng, f.Dir, name, pngBytes(t, color.Black), m17Pen); err != nil {
+		t.Fatal(err)
+	}
+	if len(seen) != 1 || !seen[0] {
+		t.Fatalf("at the announcement the mark was %v", seen)
+	}
+}
+
 // D28, Review focus 5: an image redacted in the browser before its first
 // upload has no original on the server: no mark.
 func TestFirstUploadHasNoMark(t *testing.T) {

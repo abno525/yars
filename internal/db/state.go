@@ -83,7 +83,7 @@ func (tx *Tx) Purge(eng string) error {
 		return err
 	}
 	for _, t := range []string{"finding_state", "reviewers", "chat", "chat_hidden", "check_runs", "dismissals", "engagement_members", "engagement_meta",
-		"board_notes", "board_messages", "board_seen"} {
+		"board_notes", "board_messages", "board_seen", "redactions", "purged_blobs"} {
 		if _, err := tx.Exec("DELETE FROM "+t+" WHERE eng = ?", eng); err != nil {
 			return err
 		}

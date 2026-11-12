@@ -133,7 +133,7 @@ func (s *Server) renderMerge(w http.ResponseWriter, r *http.Request, status int,
 		}
 		v.Targets = append(v.Targets, mergeTarget{Dir: row.Dir, ID: row.ID, Title: row.Title, Shown: row.Shown, Severity: row.Severity, On: row.Dir == into})
 	}
-	atts, err := s.Store.Attachments(ref.EngID, ref.Dir)
+	atts, err := s.Store.AttachmentsOf(ref)
 	if err != nil {
 		s.fail(w, err)
 		return

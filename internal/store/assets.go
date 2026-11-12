@@ -111,6 +111,25 @@ func attachDir(eng, dir string) string {
 
 // Attachments lists the finding's attachments, sorted by name.
 func (s *Store) Attachments(engID, dir string) ([]Attachment, error) {
+	fid := ""
+	if ref, err := s.Finding(engID, dir); err == nil {
+		fid = ref.F.Meta.ID
+	}
+	return s.attachments(engID, dir, fid)
+}
+
+// AttachmentsOf is Attachments of a finding already read.
+func (s *Store) AttachmentsOf(ref FindingRef) ([]Attachment, error) {
+	fid := ""
+	if ref.F != nil {
+		fid = ref.F.Meta.ID
+	}
+	return s.attachments(ref.EngID, ref.Dir, fid)
+}
+
+// attachments lists dir's attachments; fid ("" = unknown) finds the ones
+// whose original is still in history.
+func (s *Store) attachments(engID, dir, fid string) ([]Attachment, error) {
 	if !ValidID(engID) || !ValidID(dir) {
 		return nil, ErrNotFound
 	}
@@ -122,11 +141,9 @@ func (s *Store) Attachments(engID, dir string) ([]Attachment, error) {
 		return nil, err
 	}
 	marked := map[string]bool{}
-	if s.db != nil {
-		if ref, err := s.Finding(engID, dir); err == nil {
-			if marked, err = s.db.Unpurged(engID, ref.F.Meta.ID); err != nil {
-				return nil, err
-			}
+	if s.db != nil && fid != "" {
+		if marked, err = s.db.Unpurged(engID, fid); err != nil {
+			return nil, err
 		}
 	}
 	var out []Attachment
@@ -222,8 +239,15 @@ func freeName(name string, taken func(string) bool) string {
 // own file included when it changed), and commits them as one commit
 // "<ID>: <msg>". A config.User must be allowed to edit the finding.
 func (s *Store) changeFiles(engID, dir string, who Actor, fn func(ref FindingRef) (map[string][]byte, string, error)) (FindingRef, error) {
+	return s.changeFilesThen(engID, dir, who, fn, nil)
+}
+
+// changeFilesThen is changeFiles; after, when set, runs once the commit is
+// made, still under the lock and before the change is announced (a failure
+// there is logged: the commit stands).
+func (s *Store) changeFilesThen(engID, dir string, who Actor, fn func(ref FindingRef) (map[string][]byte, string, error), after func(ref FindingRef) error) (FindingRef, error) {
 	var ev Event
-	ref, err := s.changeFilesLocked(engID, dir, who, fn, &ev)
+	ref, err := s.changeFilesLocked(engID, dir, who, fn, after, &ev)
 	if ev.Kind != "" {
 		s.Emit(ev) // after the lock is released
 	}
@@ -232,7 +256,7 @@ func (s *Store) changeFiles(engID, dir string, who Actor, fn func(ref FindingRef
 
 // changeFilesLocked does changeFiles' work under the lock; once it
 // committed, *ev is the finding.updated event.
-func (s *Store) changeFilesLocked(engID, dir string, who Actor, fn func(ref FindingRef) (map[string][]byte, string, error), ev *Event) (FindingRef, error) {
+func (s *Store) changeFilesLocked(engID, dir string, who Actor, fn func(ref FindingRef) (map[string][]byte, string, error), after func(ref FindingRef) error, ev *Event) (FindingRef, error) {
 	if !ValidID(engID) {
 		return FindingRef{}, ErrNotFound
 	}
@@ -283,6 +307,11 @@ func (s *Store) changeFilesLocked(engID, dir string, who Actor, fn func(ref Find
 			s.root.RemoveAll(d)
 		}
 		return ref, err
+	}
+	if after != nil {
+		if err := after(ref); err != nil {
+			log.Printf("after %s %s: %v", engID, ref.F.Meta.ID, err)
+		}
 	}
 	s.notify(Change{Eng: engID, Fid: ref.F.Meta.ID, Kind: ChangeContent})
 	*ev = filesEvent(who.GitAuthor().Name, ref, findingPath(engID, ref.Dir), prev, files)
@@ -349,8 +378,7 @@ func (s *Store) ReplaceAttachment(engID, dir, name string, data []byte, a Actor)
 	if !attachmentRe.MatchString("attachments/" + name) {
 		return ErrNotFound
 	}
-	fid := ""
-	_, err := s.changeFiles(engID, dir, a, func(ref FindingRef) (map[string][]byte, string, error) {
+	_, err := s.changeFilesThen(engID, dir, a, func(ref FindingRef) (map[string][]byte, string, error) {
 		p := path.Join(attachDir(engID, ref.Dir), name)
 		old, err := s.ReadAttachment(engID, ref.Dir, "attachments/"+name)
 		if err != nil {
@@ -359,13 +387,16 @@ func (s *Store) ReplaceAttachment(engID, dir, name string, data []byte, a Actor)
 		if !strings.HasPrefix(AttachmentType(old), "image/") {
 			return nil, "", fmt.Errorf("%w: only an image can be redacted", ErrInvalidValue)
 		}
-		fid = ref.F.Meta.ID
 		return map[string][]byte{p: data}, "redact " + name, nil
+	}, func(ref FindingRef) error {
+		// noted under the lock, before the page hears of the change: a purge
+		// waits for it, and the live refresh shows the mark
+		if s.db == nil {
+			return nil
+		}
+		return s.db.NoteRedaction(engID, ref.F.Meta.ID, name, a.GitAuthor().Name)
 	})
-	if err != nil || s.db == nil {
-		return err
-	}
-	return s.db.NoteRedaction(engID, fid, name, a.GitAuthor().Name)
+	return err
 }
 
 // Merge moves finding src into dst as u (a director): src's sections are
@@ -480,7 +511,7 @@ func (s *Store) mergeContent(engID, srcDir, dstDir string, u config.User) (strin
 		files := map[string][]byte{}
 		// attachments: copy, renaming on a clash
 		renames := map[string]string{}
-		atts, err := s.Attachments(engID, sr.Dir)
+		atts, err := s.AttachmentsOf(sr)
 		if err != nil {
 			return nil, "", err
 		}
