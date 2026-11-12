@@ -117,11 +117,16 @@ func TestTokenCommandScopes(t *testing.T) {
 	if !strings.HasPrefix(list.String(), strconv.FormatInt(ts[0].ID, 10)+"\tbob\tgit\t") {
 		t.Fatalf("list does not start with the token's id:\n%s", list.String())
 	}
+	// revoke --id takes that token only (review: with one token, revoking
+	// every one would pass)
+	if code, err := cmdToken([]string{"add", "--data", dir, "--kind", "mcp", "bob"}, &out); code != 0 {
+		t.Fatal(code, err)
+	}
 	if code, err := cmdToken([]string{"revoke", "--data", dir, "--id", strconv.FormatInt(ts[0].ID, 10), "bob"}, &out); code != 0 {
 		t.Fatal(code, err)
 	}
-	if ts, _ := d.UserTokens("bob"); len(ts) != 0 {
-		t.Fatalf("not revoked %+v", ts)
+	if left, _ := d.UserTokens("bob"); len(left) != 1 || left[0].ID == ts[0].ID || left[0].Kind != "mcp" {
+		t.Fatalf("after revoke --id %+v", left)
 	}
 }
 
@@ -141,6 +146,14 @@ func TestTokenRevokeUnknownUser(t *testing.T) {
 	}
 	if log, _ := openDB(t, dir).AuditLog(10); len(log) != 0 {
 		t.Fatalf("audit %+v", log)
+	}
+	// a database that does not answer is said as such, not as an unknown
+	// account (D9; review)
+	if _, err := openDB(t, dir).Exec("ALTER TABLE users RENAME TO users_away"); err != nil {
+		t.Fatal(err)
+	}
+	if code, err := cmdToken([]string{"revoke", "--data", dir, "bob"}, &out); code != 1 || err == nil || strings.Contains(err.Error(), "unknown user") {
+		t.Fatalf("code %d err %v", code, err)
 	}
 }
 

@@ -137,6 +137,26 @@ func TestCreateRetestWholeOrNothing(t *testing.T) {
 	}
 }
 
+// When the retest's repository cannot be made (here the main repository
+// refuses the commit that records it), the links and team written first are
+// taken back (M34 review).
+func TestCreateRetestRepoFailsPurges(t *testing.T) {
+	s, dir := srcFixture(t)
+	hook := filepath.Join(dir, ".git", "hooks", "pre-commit")
+	if err := os.WriteFile(hook, []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateRetest(Engagement{ID: "rt", Name: "RT"}, eng, []string{"F-001-sql-injection"}, "", uDora); err == nil {
+		t.Fatal("created though the main repository refused")
+	}
+	if st, _ := s.db.State("rt", "F-001"); st.RetestSource != "" {
+		t.Fatalf("a link was left: %+v", st)
+	}
+	if m, _ := s.db.Members("rt"); len(m) != 0 {
+		t.Fatalf("a team was left: %v", m)
+	}
+}
+
 // A retest needs the database (its links and team live there): without
 // one (a clone) it is refused before anything is written (backlog, M10).
 func TestCreateRetestNeedsDB(t *testing.T) {
