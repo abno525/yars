@@ -76,6 +76,15 @@ func TestRuleMessageCapped(t *testing.T) {
 	}
 }
 
+// A missing script whose name starts with two dots is inside the folder:
+// its error is not "outside" (the exporters' same check, backlog M8).
+func TestScriptDotDotName(t *testing.T) {
+	r := NewRunner(t.TempDir(), config.AIConfig{})
+	if _, err := r.scriptPath("..check.sh"); err == nil || strings.Contains(err.Error(), "outside") {
+		t.Fatalf("err %v", err)
+	}
+}
+
 // A symlink in the rules folder that points outside it is not run, nor is
 // one inside a linked folder that leaves it; a link that stays inside is
 // (backlog, M5).

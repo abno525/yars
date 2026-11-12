@@ -5,10 +5,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"image"
 	"image/color"
 	"image/png"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -525,6 +527,16 @@ func TestExporterPathEscape(t *testing.T) {
 	}
 	if _, err := r.Run(context.Background(), Exporter{ID: "s", Type: "script", Script: "../s.sh", Extension: "txt"}, input(t)); err == nil || !strings.Contains(err.Error(), "outside") {
 		t.Errorf("script escape: %v", err)
+	}
+}
+
+// A missing file whose name starts with two dots (..notes.docx) is inside
+// the folder: its error is "not found", not "outside" (backlog, M8).
+func TestExporterDotDotName(t *testing.T) {
+	r, _ := runner(t, "")
+	_, err := r.safePath("..notes.docx")
+	if err == nil || strings.Contains(err.Error(), "outside") || !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("err %v", err)
 	}
 }
 

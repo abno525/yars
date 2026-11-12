@@ -85,7 +85,7 @@ func (rn *Runner) scriptPath(script string) (string, error) {
 	}
 	p, err := filepath.EvalSymlinks(filepath.Join(dir, script))
 	if err != nil {
-		if rel, rerr := filepath.Rel(dir, filepath.Join(dir, script)); rerr != nil || strings.HasPrefix(rel, "..") {
+		if rel, rerr := filepath.Rel(dir, filepath.Join(dir, script)); rerr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			return "", errors.New("script outside rules dir")
 		}
 		return "", err

@@ -443,7 +443,7 @@ func (r *Runner) safePath(rel string) (string, error) {
 	}
 	p, err := filepath.EvalSymlinks(filepath.Join(dir, rel))
 	if err != nil {
-		if rr, rerr := filepath.Rel(dir, filepath.Join(dir, rel)); rerr != nil || strings.HasPrefix(rr, "..") {
+		if rr, rerr := filepath.Rel(dir, filepath.Join(dir, rel)); rerr != nil || rr == ".." || strings.HasPrefix(rr, ".."+string(filepath.Separator)) {
 			return "", errors.New(rel + " is outside the exporters directory")
 		}
 		return "", err
