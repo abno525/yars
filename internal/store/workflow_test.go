@@ -193,7 +193,7 @@ func TestRevertNeedsReasonInStore(t *testing.T) {
 	if err := s.Transition(eng, fd, workflow.Report, "", uDora); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Transition(eng, fd, workflow.Unreport, "", uDora); !denied(err) || !strings.Contains(err.Error(), "a reason is required") {
+	if err := s.Transition(eng, fd, workflow.Unreport, "  ", uDora); !denied(err) || !strings.Contains(err.Error(), "a reason is required") {
 		t.Fatalf("unreport without a reason: %v", err)
 	}
 	if m := load(t, s, fd).F.Meta; m.Status != "reported" {
@@ -219,6 +219,12 @@ func TestRevertEventCarriesReason(t *testing.T) {
 	}
 	if e := rec.last(EventStatus); e.Action != "unreport" || e.From != "reported" || e.To != "complete" || e.Reason != "sent too early" {
 		t.Fatalf("event %+v", e)
+	}
+	if err := s.Transition(eng, fd, workflow.Reopen, "wrong host", uAlice); err != nil {
+		t.Fatal(err)
+	}
+	if e := rec.last(EventStatus); e.Action != "reopen" || e.From != "complete" || e.To != "verification" || e.Reason != "wrong host" {
+		t.Fatalf("reopen event %+v", e)
 	}
 }
 

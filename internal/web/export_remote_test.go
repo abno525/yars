@@ -5,6 +5,8 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	"yars/internal/workflow"
 )
 
 // Sending a finding again updates its issue instead of making another; an
@@ -36,9 +38,23 @@ func TestExportUpdatesSentFinding(t *testing.T) {
 	if items := itemsOf(h[0]); len(items) != 1 || items[0].Action != "updated" {
 		t.Fatalf("history %+v", items)
 	}
+	// R4, Review focus 1: reported, then reverted to complete, the next send
+	// updates the same issue
+	for _, step := range []struct {
+		a      workflow.Action
+		reason string
+	}{{workflow.Report, ""}, {workflow.Unreport, "sent too early"}} {
+		if err := e.srv.Store.Transition("acme", fdir, step.a, step.reason, wDora); err != nil {
+			t.Fatal(err)
+		}
+	}
+	send()
+	if strings.Join(j.writes, " ") != "POST PUT PEN-1 PUT PEN-1" {
+		t.Fatalf("send after a revert %v", j.writes)
+	}
 	delete(j.issues, "PEN-1")
 	send()
-	if strings.Join(j.writes, " ") != "POST PUT PEN-1 POST" {
+	if strings.Join(j.writes, " ") != "POST PUT PEN-1 PUT PEN-1 POST" {
 		t.Fatalf("after delete %v", j.writes)
 	}
 	if rm, _, _ := e.srv.Store.DB().ExportRemote("jira", "acme", "F-001"); rm.RemoteID != "PEN-2" {
