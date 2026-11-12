@@ -1089,6 +1089,71 @@ func TestPushOfPurgedBlobRefused(t *testing.T) {
 	if !has(ps, fdir+"/attachments/shot.png brings back shot.png, which was purged from this engagement's history; clone the engagement again and redo your change") {
 		t.Fatalf("push from a pre-purge clone: %v", ps)
 	}
+	// the merge's refusal is listed once
+	for i, p := range ps {
+		if slices.Contains(ps[i+1:], p) {
+			t.Fatalf("listed twice: %s", p)
+		}
+	}
+}
+
+// D28: a clone that puts the original back and keeps it through a merge is
+// refused at the commits that brought it (the old upload, then mine), not
+// again at the merge.
+func TestPushOfPurgedBlobListedOnce(t *testing.T) {
+	f := newFx(t)
+	f.purged()
+	as := []string{"-c", "user.name=alice", "-c", "user.email=alice@yars.local"}
+	write(f.clone, fdir+"/attachments/shot.png", string(pngOf(t, color.White)))
+	git(t, f.clone, "add", "-A")
+	git(t, f.clone, append(as, "commit", "-qm", "the original again")...)
+	mine := short(t, f.clone, "HEAD")
+	exec.Command("git", append(append([]string{"-C", f.clone}, as...), "pull", "-q", "--no-rebase", "--no-edit")...).Run() // conflicts
+	git(t, f.clone, "checkout", "--ours", "--", fdir+"/attachments/shot.png")
+	git(t, f.clone, "add", "-A")
+	git(t, f.clone, append(as, "commit", "-qm", "merge, keeping mine")...)
+	merge := short(t, f.clone, "HEAD")
+	ps := f.check("alice", git(t, f.clone, "rev-parse", "HEAD"))
+	if !has(ps, "commit "+mine+": "+fdir+"/attachments/shot.png brings back") || has(ps, "commit "+merge+": ") {
+		t.Fatalf("refusals %q", ps)
+	}
+}
+
+// D28: bytes the server holds again (uploaded on the website after the
+// purge) are no original to keep out: a push that moves them is accepted.
+func TestPushOfBlobTheServerHoldsAccepted(t *testing.T) {
+	f := newFx(t)
+	f.purged()
+	if _, err := f.st.AddAttachment("acme", "F-001-sqli", "again.png", pngOf(t, color.White), user("alice")); err != nil {
+		t.Fatal(err)
+	}
+	f.reclone()
+	ps := f.push("alice", func(d string) {
+		os.Rename(filepath.Join(d, fdir, "attachments", "again.png"), filepath.Join(d, fdir, "attachments", "moved.png"))
+	})
+	if len(ps) != 0 {
+		t.Fatalf("a push of bytes the server holds: %v", ps)
+	}
+}
+
+// D28: a purged original under a name with a line break is refused by the
+// name rule, the name shown quoted.
+func TestPushOfPurgedBlobOddName(t *testing.T) {
+	f := newFx(t)
+	f.purged()
+	write(f.clone, fdir+"/attachments/a\nb.png", string(pngOf(t, color.White)))
+	git(t, f.clone, "add", "-A")
+	git(t, f.clone, "-c", "user.name=alice", "-c", "user.email=alice@yars.local", "commit", "-qm", "odd")
+	git(t, f.clone, "-c", "user.name=alice", "-c", "user.email=alice@yars.local", "pull", "-q", "--no-rebase", "--no-edit")
+	ps := f.check("alice", git(t, f.clone, "rev-parse", "HEAD"))
+	for _, p := range ps {
+		if strings.Contains(p, "a\nb.png") {
+			t.Fatalf("an unquoted name: %q", p)
+		}
+	}
+	if !has(ps, `/attachments/a\nb.png": the file name has control characters`) {
+		t.Fatalf("odd name: %q", ps)
+	}
 }
 
 // D28: a clone made after the purge pushes as usual.

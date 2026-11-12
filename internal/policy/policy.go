@@ -155,6 +155,17 @@ func (c *Checker) Check(username string, ups []Update) []string {
 	if err != nil {
 		return []string{"server: " + err.Error()}
 	}
+	if tip := c.Repo.Ref(branch); tip != "" && len(c.purged) > 0 {
+		// bytes the server holds again (the same image uploaded on the
+		// website after the purge) are no original to keep out
+		held, err := c.Repo.TreeBlobs(tip)
+		if err != nil {
+			return []string{"server: " + err.Error()}
+		}
+		for id := range held {
+			delete(c.purged, id)
+		}
+	}
 	var ps []string
 	repairs := false // the push changes .yars/config.yaml (see ConfigErr)
 	for _, up := range ups {
@@ -297,7 +308,8 @@ func (c *Checker) checkWhole(u config.User, old, new string, seen []string) ([]s
 	}
 	ps, repairs := c.checkChanges(u, short, old, new, changes)
 	ps = slices.DeleteFunc(ps, func(p string) bool {
-		return known[strings.TrimPrefix(p, "commit "+short+" ")]
+		// "commit <short> <path>: …", and D28's "commit <short>: <path> …"
+		return known[strings.TrimPrefix(p, "commit "+short+" ")] || known[strings.TrimPrefix(p, "commit "+short+": ")]
 	})
 	return ps, repairs
 }
@@ -328,16 +340,15 @@ func (c *Checker) checkChanges(u config.User, short, parent, rev string, changes
 		if c.Eng == "" && ch.Path == ".yars/config.yaml" {
 			repairs = true
 		}
-		if name, ok := c.purged[ch.Blob]; ok && ch.Status != 'D' {
-			// D28: an original a director purged, from a clone made before
-			ps = append(ps, fmt.Sprintf("commit %s: %s brings back %s, which was purged from this engagement's history; clone the engagement again and redo your change", short, ch.Path, name))
-			continue
-		}
 		var probs []string
 		switch n, tooBig := big[ch.Path]; {
 		case strings.ContainsFunc(ch.Path, unicode.IsControl):
 			// shown quoted: the name may hold a line break
 			ps = append(ps, fmt.Sprintf("commit %s %q: the file name has control characters (such as a line break); rename it", short, ch.Path))
+			continue
+		case c.purged[ch.Blob] != "" && ch.Status != 'D':
+			// D28: an original a director purged, from a clone made before
+			ps = append(ps, fmt.Sprintf("commit %s: %s brings back %s, which was purged from this engagement's history; clone the engagement again and redo your change", short, ch.Path, c.purged[ch.Blob]))
 			continue
 		case tooBig:
 			probs = []string{fmt.Sprintf("%.1f MB; files over 10 MB are not accepted (remove it from the commit: git rm --cached)", float64(n)/(1<<20))}

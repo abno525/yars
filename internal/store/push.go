@@ -127,14 +127,15 @@ func (s *Store) ReceivePush(eng string, u config.User, serve func()) {
 			restoreTree(eng, r)
 		}
 	}
+	var evs []Event
+	if err == nil && after != "" && after != before {
+		// read under the lock: a purge (D28) waiting on it rewrites the
+		// pushed commits
+		if evs, err = s.pushEvents(eng, before, after, u.Username); err != nil {
+			log.Printf("push to %s: events: %v", eng, err)
+		}
+	}
 	l.Unlock()
-	if err != nil || after == "" || after == before {
-		return
-	}
-	evs, err := s.pushEvents(eng, before, after, u.Username)
-	if err != nil {
-		log.Printf("push to %s: events: %v", eng, err)
-	}
 	for _, ev := range evs {
 		s.notify(Change{Eng: eng, Fid: ev.Fid, Kind: ChangeContent})
 		s.Emit(ev)

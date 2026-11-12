@@ -12,8 +12,8 @@ import (
 // upload (marked) and other.png as uploaded (not marked).
 func redacted(t *testing.T, e *env) {
 	t.Helper()
-	for _, n := range []string{"shot.png", "other.png"} {
-		if rec := e.sendFile(t, "alice", fpath+"/attachments", n, testPNG(t, color.White)); rec.Code != 200 {
+	for n, c := range map[string]color.Color{"shot.png": color.White, "other.png": color.Gray{Y: 128}} {
+		if rec := e.sendFile(t, "alice", fpath+"/attachments", n, testPNG(t, c)); rec.Code != 200 {
 			t.Fatalf("upload %s %d", n, rec.Code)
 		}
 	}
@@ -93,6 +93,23 @@ func TestPurgePostRemovesMark(t *testing.T) {
 	// the redacted copy is what the finding still holds
 	if rec := e.do(t, "dora", "GET", fpath+"/attachments/shot.png", nil, nil); rec.Code != 200 || rec.Body.String() != string(testPNG(t, color.Black)) {
 		t.Fatalf("the current version %d", rec.Code)
+	}
+}
+
+// D28: a copy of the original under another name keeps it in history: the
+// page says where (409) and the mark stays.
+func TestPurgeRefusedWhileCopyElsewhere(t *testing.T) {
+	e := setup(t)
+	redacted(t, e)
+	if rec := e.sendFile(t, "alice", fpath+"/attachments", "copy.png", testPNG(t, color.White)); rec.Code != 200 {
+		t.Fatalf("upload %d", rec.Code)
+	}
+	rec := e.do(t, "dora", "POST", fpath+"/attachments/shot.png/purge", url.Values{}, nil)
+	if b := rec.Body.String(); rec.Code != http.StatusConflict || !strings.Contains(between(b, `<div class="errslot">`, "</div>"), "is also at findings/F-001-sql-injection/attachments/copy.png; remove it there first") {
+		t.Fatalf("purge with a copy %d:\n%s", rec.Code, b)
+	}
+	if p := attachmentsPanel(t, e.do(t, "dora", "GET", fpath, nil, nil).Body.String()); !strings.Contains(rowOf(t, p, "shot.png"), "histdot") {
+		t.Fatalf("a refused purge took the mark:\n%s", p)
 	}
 }
 

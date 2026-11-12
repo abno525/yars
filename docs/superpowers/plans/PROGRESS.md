@@ -71,5 +71,7 @@ M26 task 1  done     385f462 (schema v21)
 M26 task 2  done     050c6a5
 M26 task 3  done     e111aec
 M26 task 1  review   fix 6a4a662 (purge clears the marks; noted under the lock; one lister; long names)
-M26 task 4  done
+M26 task 4  done     bfacfff
+M26 task 2  review   fix (HEAD's version kept; merged versions; copy elsewhere refused; gc past the point of no return; dirty tree; lock test)
+M26 task 3  review   fix (bytes the server holds; merge repeat; quoted name)
 ```

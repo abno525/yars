@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"yars/internal/auth"
+	"yars/internal/gitrepo"
 	"yars/internal/store"
 )
 
@@ -78,9 +79,14 @@ func (s *Server) purgePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	err := s.Store.PurgeFromHistory(ref.EngID, ref.Dir, r.PathValue("name"), auth.UserFrom(r.Context()))
+	var elsewhere *gitrepo.ElsewhereError
 	switch {
 	case errors.Is(err, store.ErrNotFound), errors.Is(err, store.ErrArchived):
 		s.fail(w, err)
+		return
+	case errors.As(err, &elsewhere):
+		// nothing changed; the director removes the copy first
+		s.renderPurge(w, r, http.StatusConflict, err.Error())
 		return
 	case err != nil:
 		// the store put the repository back; the director can try again

@@ -143,21 +143,159 @@ func TestPurgeUpdatesMainPointer(t *testing.T) {
 }
 
 // D28, Review focus 2: the purge holds the engagement's lock (a push holds
-// it too), so it waits for whoever has it.
+// it too), so it waits for whoever has it: it does not even rewrite.
 func TestPurgeWaitsForLock(t *testing.T) {
-	s, _, fd, name, _, _ := redacted(t)
+	s, dir, fd, name, oldBlob, _ := redacted(t)
+	head0 := engGit(t, dir, "rev-parse", "HEAD")
+	rewritten := make(chan struct{})
+	s.beforePurgeGC = func() error { close(rewritten); return nil }
 	unlock := s.LockEngagement(eng)
 	done := make(chan error, 1)
 	go func() { done <- s.PurgeFromHistory(eng, fd, name, uDora) }()
 	select {
+	case <-rewritten:
+		unlock()
+		t.Fatal("the purge rewrote under someone else's lock")
 	case err := <-done:
 		unlock()
-		t.Fatalf("the purge ran under someone else's lock: %v", err)
-	case <-time.After(100 * time.Millisecond):
+		t.Fatalf("the purge ended under someone else's lock: %v", err)
+	case <-time.After(time.Second):
+	}
+	if h := engGit(t, dir, "rev-parse", "HEAD"); h != head0 || !hasBlob(dir, oldBlob) {
+		unlock()
+		t.Fatal("the history changed while the lock was held")
 	}
 	unlock()
 	if err := <-done; err != nil {
 		t.Fatal(err)
+	}
+}
+
+// commitAs commits in the engagement's repository with git itself (merges
+// the store does not make: a pushed history).
+func commitAs(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	engGit(t, dir, append([]string{"-c", "user.name=alice", "-c", "user.email=alice@yars.local"}, args...)...)
+}
+
+// D28: an image whose current version a merge made (a conflict resolved
+// with a new file) keeps that version; every other one goes.
+func TestPurgeKeepsMergeMadeImage(t *testing.T) {
+	s, dir, fd, name, oldBlob, curBlob := redacted(t)
+	p := "findings/" + fd + "/attachments/" + name
+	file := filepath.Join(dir, "engagements", eng, p)
+	main := engGit(t, dir, "rev-parse", "--abbrev-ref", "HEAD")
+	put := func(c color.Color, msg string) string {
+		t.Helper()
+		if err := os.WriteFile(file, pngBytes(t, c), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		commitAs(t, dir, "commit", "-q", "-a", "-m", msg)
+		return engGit(t, dir, "rev-parse", "HEAD:"+p)
+	}
+	commitAs(t, dir, "checkout", "-q", "-b", "side", "HEAD~1")
+	sideBlob := put(color.Gray{Y: 128}, "side")
+	commitAs(t, dir, "checkout", "-q", main)
+	exec.Command("git", "-C", filepath.Join(dir, "engagements", eng), "-c", "user.name=alice", "-c", "user.email=alice@yars.local", "merge", "-q", "side").Run() // conflicts
+	red := color.RGBA{R: 255, A: 255}
+	mergeBlob := put(red, "resolved")
+	commitAs(t, dir, "branch", "-q", "-D", "side")
+	s.Invalidate(eng)
+	if err := s.PurgeFromHistory(eng, fd, name, uDora); err != nil {
+		t.Fatal(err)
+	}
+	if got := engGit(t, dir, "rev-parse", "HEAD:"+p); got != mergeBlob {
+		t.Fatalf("current version %s, want %s", got, mergeBlob)
+	}
+	if b, _ := os.ReadFile(file); !bytes.Equal(b, pngBytes(t, red)) {
+		t.Fatal("the image on disk changed")
+	}
+	for _, b := range []string{oldBlob, curBlob, sideBlob} {
+		if hasBlob(dir, b) {
+			t.Fatalf("version %s is still in history", b)
+		}
+	}
+	if b, _ := s.DB().PurgedBlobs(eng); len(b) != 3 {
+		t.Fatalf("purged blobs %v", b)
+	}
+}
+
+// D28: the same bytes under another name keep the original in history; the
+// purge says where and changes nothing.
+func TestPurgeRefusedWhileCopyElsewhere(t *testing.T) {
+	s, dir, fd, name, oldBlob, _ := redacted(t)
+	if _, err := s.AddAttachment(eng, fd, "copy.png", pngBytes(t, color.White), uAlice); err != nil {
+		t.Fatal(err)
+	}
+	head0 := engGit(t, dir, "rev-parse", "HEAD")
+	err := s.PurgeFromHistory(eng, fd, name, uDora)
+	if err == nil || !strings.Contains(err.Error(), "attachments/copy.png") {
+		t.Fatalf("purge with a copy: %v", err)
+	}
+	if h := engGit(t, dir, "rev-parse", "HEAD"); h != head0 || !hasBlob(dir, oldBlob) {
+		t.Fatal("a refused purge changed the history")
+	}
+	if !hasOriginal(t, s, fd, name) {
+		t.Fatal("a refused purge took the mark")
+	}
+	if b, _ := s.DB().PurgedBlobs(eng); len(b) != 0 {
+		t.Fatalf("a refused purge recorded %v", b)
+	}
+}
+
+// D28: a gc that fails comes after the point of no return: the purge is
+// recorded, audited and the main repository follows; the error says the
+// cleanup failed.
+func TestPurgeCleanupFailureStillRecorded(t *testing.T) {
+	s, dir, fd, name, oldBlob, _ := redacted(t)
+	lock := filepath.Join(dir, "engagements", eng, ".git", "objects", "info", "commit-graph.lock")
+	if err := os.WriteFile(lock, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := s.PurgeFromHistory(eng, fd, name, uDora)
+	if err == nil || !strings.Contains(err.Error(), "cleanup failed") {
+		t.Fatalf("gc failure: %v", err)
+	}
+	if hasOriginal(t, s, fd, name) {
+		t.Fatal("still marked")
+	}
+	if b, _ := s.DB().PurgedBlobs(eng); b[oldBlob] != name {
+		t.Fatalf("purged blobs %v", b)
+	}
+	if l, _ := s.DB().AuditLog(1); len(l) != 1 || l[0].Action != "attachment.purge" {
+		t.Fatalf("audit %+v", l)
+	}
+	out, _ := exec.Command("git", "-C", dir, "ls-tree", "HEAD", "engagements/"+eng).Output()
+	if f := strings.Fields(string(out)); len(f) < 3 || f[2] != engGit(t, dir, "rev-parse", "HEAD") {
+		t.Fatalf("main pointer %q", out)
+	}
+}
+
+// D28: a purge git refuses (an uncommitted change) leaves that change.
+func TestPurgeRefusedKeepsWorkTree(t *testing.T) {
+	s, dir, fd, name, _, _ := redacted(t)
+	md := filepath.Join(dir, "engagements", eng, "findings", fd, "finding.md")
+	b, _ := os.ReadFile(md)
+	changed := append(b, []byte("\nnot committed\n")...)
+	if err := os.WriteFile(md, changed, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PurgeFromHistory(eng, fd, name, uDora); err == nil {
+		t.Fatal("purged with an uncommitted change")
+	}
+	if got, _ := os.ReadFile(md); !bytes.Equal(got, changed) {
+		t.Fatal("the uncommitted change is gone")
+	}
+}
+
+// D28: the finding may be named as Finding accepts it (its ID).
+func TestPurgeByFindingID(t *testing.T) {
+	s, dir, _, name, oldBlob, _ := redacted(t)
+	if err := s.PurgeFromHistory(eng, "F-001", name, uDora); err != nil {
+		t.Fatal(err)
+	}
+	if hasBlob(dir, oldBlob) {
+		t.Fatal("the original is still there")
 	}
 }
 

@@ -1,6 +1,7 @@
 package gitrepo
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -53,6 +54,97 @@ func TestBlobsOf(t *testing.T) {
 	}
 	if got, _ := r.BlobsOf("note.txt"); len(got) != 1 {
 		t.Fatalf("note blobs %v", got)
+	}
+}
+
+// git runs a command that needs an identity (merge) in dir.
+func git(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	return gitOut(t, dir, append([]string{"-c", "user.name=t", "-c", "user.email=t@yars.local"}, args...)...)
+}
+
+// D28: a version a merge left out (-s ours) and one a merge made (a
+// conflict resolved with a new file) are listed too.
+func TestBlobsOfMergedVersions(t *testing.T) {
+	r, dir, blobA, blobB := history(t)
+	main, err := r.CurrentBranch()
+	if err != nil {
+		t.Fatal(err)
+	}
+	put := func(body, msg string) string {
+		t.Helper()
+		os.WriteFile(filepath.Join(dir, "a.png"), []byte(body), 0o644)
+		git(t, dir, "add", "a.png")
+		git(t, dir, "commit", "-q", "-m", msg)
+		return gitOut(t, dir, "rev-parse", "HEAD:a.png")
+	}
+	git(t, dir, "checkout", "-q", "-b", "side", "HEAD~1")
+	blobC := put("C", "side")
+	git(t, dir, "checkout", "-q", main)
+	git(t, dir, "merge", "-q", "-s", "ours", "-m", "keep ours", "side")
+	git(t, dir, "checkout", "-q", "-b", "side2", "HEAD")
+	blobD := put("D", "side2")
+	git(t, dir, "checkout", "-q", main)
+	put("E", "main")
+	exec.Command("git", "-C", dir, "-c", "user.name=t", "-c", "user.email=t@yars.local", "merge", "-q", "side2").Run() // conflicts
+	blobF := put("F", "resolved")
+	got, err := r.BlobsOf("a.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{blobA, blobB, blobC, blobD, blobF} {
+		if !slices.Contains(got, want) {
+			t.Fatalf("blobs %v lack %s", got, want)
+		}
+	}
+	if b, err := r.BlobAt("HEAD", "a.png"); err != nil || b != blobF {
+		t.Fatalf("blob at HEAD %s %v, want %s", b, err, blobF)
+	}
+	if b, err := r.BlobAt("HEAD", "none.png"); err != nil || b != "" {
+		t.Fatalf("a path HEAD lacks: %q %v", b, err)
+	}
+}
+
+// D28: the same bytes under another path keep the old version in history:
+// the drop says where, before anything is removed.
+func TestDropOldBlobsRefusesWhileElsewhere(t *testing.T) {
+	r, dir, blobA, blobB := history(t)
+	if err := os.WriteFile(filepath.Join(dir, "copy.png"), []byte("A"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Commit([]string{"copy.png"}, "copy", Author{"alice", "alice@yars.local"}); err != nil {
+		t.Fatal(err)
+	}
+	err := r.DropOldBlobs("a.png", blobB)
+	if err == nil || !strings.Contains(err.Error(), "copy.png") {
+		t.Fatalf("drop with a copy elsewhere: %v", err)
+	}
+	if exec.Command("git", "-C", dir, "cat-file", "-e", blobA).Run() != nil {
+		t.Fatal("objects were removed before the refusal")
+	}
+}
+
+// D28: keep must be the current version: a drop that would change HEAD's
+// files is refused.
+func TestDropOldBlobsKeepsHeadTree(t *testing.T) {
+	r, _, blobA, _ := history(t)
+	if err := r.DropOldBlobs("a.png", blobA); err == nil || !strings.Contains(err.Error(), "current files") {
+		t.Fatalf("a drop of the current version: %v", err)
+	}
+}
+
+// D28: once gc has started there is no way back; its failure says so.
+func TestDropOldBlobsCleanupFailure(t *testing.T) {
+	r, dir, blobA, blobB := history(t)
+	if err := os.WriteFile(filepath.Join(dir, ".git", "objects", "info", "commit-graph.lock"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := r.DropOldBlobs("a.png", blobB)
+	if !errors.Is(err, ErrPurgeCleanup) {
+		t.Fatalf("gc failure: %v", err)
+	}
+	if exec.Command("git", "-C", dir, "cat-file", "-e", blobA).Run() == nil {
+		t.Fatal("the old blob is still there")
 	}
 }
 
