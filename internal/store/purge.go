@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 
 	"yars/internal/config"
 	"yars/internal/gitrepo"
@@ -55,7 +56,14 @@ func (s *Store) PurgeFromHistory(engID, dir, name string, u config.User) error {
 	if keep == "" {
 		return ErrNotFound
 	}
-	all, err := r.BlobsOf(p)
+	// the file's versions under every folder name the finding has had (a
+	// push may rename it, before or after the redaction): "<id>" or
+	// "<id>-<slug>", the same attachment name
+	all, err := r.BlobsWhere(func(q string) bool {
+		seg := strings.Split(q, "/")
+		return len(seg) == 4 && seg[0] == "findings" && (seg[1] == fid || strings.HasPrefix(seg[1], fid+"-")) &&
+			seg[2] == "attachments" && seg[3] == name
+	})
 	if err != nil {
 		return err
 	}
@@ -89,7 +97,7 @@ func (s *Store) PurgeFromHistory(engID, dir, name string, u config.User) error {
 	if err != nil {
 		return err
 	}
-	err = r.DropOldBlobsWith(p, keep, s.beforePurgeGC)
+	err = r.DropOldBlobsWith(p, keep, old, s.beforePurgeGC)
 	if err != nil && !errors.Is(err, gitrepo.ErrPurgeCleanup) {
 		// put back only what moved: git refuses a rewrite of a dirty work
 		// tree, and a reset would throw that change away

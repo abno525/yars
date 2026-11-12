@@ -274,6 +274,30 @@ func TestPurgeAfterCopyRedacted(t *testing.T) {
 	}
 }
 
+// D28: after a purge, the same original uploaded and redacted once more is
+// history again; it does not hold up a later Purge of the copy whose own
+// original already went.
+func TestPurgeCopyAfterReupload(t *testing.T) {
+	s, _, fd, name, _, _ := redacted(t)
+	cp, _ := s.AddAttachment(eng, fd, "copy.png", pngBytes(t, color.White), uAlice)
+	if err := s.ReplaceAttachment(eng, fd, cp, pngBytes(t, color.Gray{Y: 64}), uAlice); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PurgeFromHistory(eng, fd, name, uDora); err != nil {
+		t.Fatal(err)
+	}
+	again, _ := s.AddAttachment(eng, fd, "again.png", pngBytes(t, color.White), uAlice)
+	if err := s.ReplaceAttachment(eng, fd, again, pngBytes(t, color.Gray{Y: 32}), uAlice); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PurgeFromHistory(eng, fd, cp, uDora); err != nil {
+		t.Fatal(err)
+	}
+	if hasOriginal(t, s, fd, cp) || !hasOriginal(t, s, fd, again) {
+		t.Fatal("marks: the copy's should be gone, the new upload's kept")
+	}
+}
+
 // D28: a push renamed the finding's folder after the redaction: the
 // original under the old folder name is found and purged.
 func TestPurgeAfterFolderRenamed(t *testing.T) {

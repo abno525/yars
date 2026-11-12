@@ -155,21 +155,61 @@ func TestDropOldBlobsAtEveryPath(t *testing.T) {
 	}
 }
 
-// D28: a file whose folder a push renamed after the redaction keeps its
-// earlier versions under the old name: they are found and dropped.
-func TestBlobsOfFollowsRenames(t *testing.T) {
+// D28: a file whose folder a push renamed (and changed in the same commit)
+// after the redaction keeps its earlier versions under the old name: the
+// paths the caller names find them all, and the drop removes them.
+func TestBlobsWhereFindsEarlierNames(t *testing.T) {
 	r, dir, blobA, blobB := history(t)
 	os.Mkdir(filepath.Join(dir, "moved"), 0o755)
 	git(t, dir, "mv", "a.png", "moved/a.png")
-	git(t, dir, "commit", "-q", "-m", "moved")
-	if got, err := r.BlobsOf("moved/a.png"); err != nil || !slices.Contains(got, blobA) || !slices.Contains(got, blobB) {
+	os.WriteFile(filepath.Join(dir, "moved", "a.png"), []byte("C"), 0o644)
+	git(t, dir, "add", "moved/a.png")
+	git(t, dir, "commit", "-q", "-m", "moved and changed")
+	blobC := gitOut(t, dir, "rev-parse", "HEAD:moved/a.png")
+	got, err := r.BlobsWhere(func(p string) bool { return p == "a.png" || p == "moved/a.png" })
+	if err != nil || !slices.Contains(got, blobA) || !slices.Contains(got, blobB) || !slices.Contains(got, blobC) || slices.Contains(got, gitOut(t, dir, "rev-parse", "HEAD:note.txt")) {
 		t.Fatalf("blobs %v %v", got, err)
 	}
-	if err := r.DropOldBlobs("moved/a.png", blobB); err != nil {
+	if err := r.DropOldBlobsWith("moved/a.png", blobC, []string{blobA, blobB}, nil); err != nil {
 		t.Fatal(err)
 	}
-	if exec.Command("git", "-C", dir, "cat-file", "-e", blobA).Run() == nil {
-		t.Fatal("the old version is still in the repository")
+	for _, b := range []string{blobA, blobB} {
+		if exec.Command("git", "-C", dir, "cat-file", "-e", b).Run() == nil {
+			t.Fatalf("%s is still in the repository", b)
+		}
+	}
+}
+
+// D28: a different file deleted in the commit that added the purged one
+// is not taken for its earlier name, however alike: its history stays.
+func TestDropOldBlobsLeavesSimilarFile(t *testing.T) {
+	r, dir, _, _ := history(t)
+	text := strings.Repeat("the same line of text\n", 50)
+	os.WriteFile(filepath.Join(dir, "other.png"), []byte(text), 0o644)
+	git(t, dir, "add", "other.png")
+	git(t, dir, "commit", "-q", "-m", "other")
+	other := gitOut(t, dir, "rev-parse", "HEAD:other.png")
+	git(t, dir, "rm", "-q", "other.png")
+	os.WriteFile(filepath.Join(dir, "s.png"), []byte(text+"one more\n"), 0o644)
+	git(t, dir, "add", "s.png")
+	git(t, dir, "commit", "-q", "-m", "other gone, s added")
+	os.WriteFile(filepath.Join(dir, "s.png"), []byte("redacted"), 0o644)
+	git(t, dir, "add", "s.png")
+	git(t, dir, "commit", "-q", "-m", "s redacted")
+	if err := r.DropOldBlobs("s.png", gitOut(t, dir, "rev-parse", "HEAD:s.png")); err != nil {
+		t.Fatal(err)
+	}
+	if exec.Command("git", "-C", dir, "cat-file", "-e", other).Run() != nil {
+		t.Fatal("another file's history went with the purge")
+	}
+}
+
+// D28: a purged id that history holds again (the same bytes uploaded and
+// redacted once more) is not cleanup left undone.
+func TestFinishDropLeavesWhatHistoryHolds(t *testing.T) {
+	r, _, blobA, _ := history(t)
+	if err := r.FinishDrop([]string{blobA}); err != nil {
+		t.Fatal(err)
 	}
 }
 

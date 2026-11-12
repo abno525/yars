@@ -14,46 +14,49 @@ import (
 var literal = []string{"GIT_LITERAL_PATHSPECS=1"}
 
 // BlobsOf lists the distinct blob ids path has had in the history of HEAD,
-// newest first: every commit (no history simplification), a merge's own
-// version against each of its parents, and the versions it had under an
-// earlier name (a file or folder a push renamed).
+// newest first: every commit (no history simplification), and a merge's
+// own version against each of its parents.
 func (r *Repo) BlobsOf(path string) ([]string, error) {
+	return r.BlobsWhere(func(p string) bool { return p == path })
+}
+
+// BlobsWhere is BlobsOf for every path match accepts (the names a file had
+// before a push renamed it or its folder; git's own rename detection would
+// also take a different, similar file for one).
+func (r *Repo) BlobsWhere(match func(path string) bool) ([]string, error) {
 	var blobs []string
 	seen := map[string]bool{}
-	for _, args := range [][]string{
-		{"log", "--raw", "--no-abbrev", "--no-renames", "--full-history", "-m", "--format=", "HEAD", "--", path},
-		{"log", "--raw", "--no-abbrev", "--follow", "--format=", "HEAD", "--", path},
-	} {
-		out, err := r.run(literal, args...)
-		if err != nil {
-			return nil, err
+	err := r.eachChange(func(blob, path string) {
+		if match(path) && !seen[blob] {
+			seen[blob] = true
+			blobs = append(blobs, blob)
 		}
-		for _, line := range strings.Split(out, "\n") {
-			// :100644 100644 <old> <new> M<TAB>path (R100<TAB>old<TAB>new)
-			f := strings.Fields(line)
-			if len(f) < 5 || !strings.HasPrefix(f[0], ":") {
-				continue
-			}
-			b := f[3]
-			if strings.Trim(b, "0") == "" || seen[b] {
-				continue // deleted there
-			}
-			seen[b] = true
-			blobs = append(blobs, b)
-		}
-	}
-	return blobs, nil
+	})
+	return blobs, err
 }
 
 // pathsOf lists every path at which one of blobs appears in the history of
 // HEAD (a copy, a file or folder renamed since).
 func (r *Repo) pathsOf(blobs map[string]bool) ([]string, error) {
-	out, err := r.run(nil, "log", "--raw", "-z", "--no-abbrev", "--no-renames", "--full-history", "-m", "--format=", "HEAD")
-	if err != nil {
-		return nil, err
-	}
 	var paths []string
 	seen := map[string]bool{}
+	err := r.eachChange(func(blob, path string) {
+		if blobs[blob] && !seen[path] {
+			seen[path] = true
+			paths = append(paths, path)
+		}
+	})
+	return paths, err
+}
+
+// eachChange calls fn, newest first, for every file version a commit of
+// HEAD's history wrote (no history simplification; a merge against each of
+// its parents; deletions left out).
+func (r *Repo) eachChange(fn func(blob, path string)) error {
+	out, err := r.run(nil, "log", "--raw", "-z", "--no-abbrev", "--no-renames", "--full-history", "-m", "--format=", "HEAD")
+	if err != nil {
+		return err
+	}
 	meta := ""
 	// NUL-separated: a meta field (":<mode> <mode> <old> <new> <status>",
 	// after a commit's line breaks), then its path, taken as it is
@@ -64,13 +67,12 @@ func (r *Repo) pathsOf(blobs map[string]bool) ([]string, error) {
 			}
 			continue
 		}
-		if f := strings.Fields(meta); len(f) >= 5 && blobs[f[3]] && !seen[tok] {
-			seen[tok] = true
-			paths = append(paths, tok)
+		if f := strings.Fields(meta); len(f) >= 5 && strings.Trim(f[3], "0") != "" {
+			fn(f[3], tok)
 		}
 		meta = ""
 	}
-	return paths, nil
+	return nil
 }
 
 // BlobAt is the blob id of path at rev ("" when rev has no such file).
@@ -153,28 +155,32 @@ const purgeFilter = `while IFS= read -r p; do b=$(git rev-parse -q --verify ":$p
 // copy, a folder renamed since), then removes the unreachable objects. The
 // work tree is not changed.
 func (r *Repo) DropOldBlobs(path, keep string) error {
-	return r.DropOldBlobsWith(path, keep, nil)
+	return r.DropOldBlobsWith(path, keep, nil, nil)
 }
 
-// DropOldBlobsWith is DropOldBlobs; beforeGC, when set, runs after the
-// rewrite and before the objects are removed. An old version still in the
-// current files under another name is an ElsewhereError, before anything
-// changes. Until gc runs, a failure leaves the old commits in the
-// repository, reachable again by a reset: keep must be path's version at
-// HEAD (HEAD's files may not change). A gc failure is ErrPurgeCleanup.
-func (r *Repo) DropOldBlobsWith(path, keep string, beforeGC func() error) (err error) {
+// DropOldBlobsWith is DropOldBlobs for the versions oldIDs (nil: the ones
+// BlobsOf(path) lists, but keep), wherever they are; beforeGC, when set,
+// runs after the rewrite and before the objects are removed. An old
+// version still in the current files under another name is an
+// ElsewhereError, before anything changes. Until gc runs, a failure leaves
+// the old commits in the repository, reachable again by a reset: keep must
+// be path's version at HEAD (HEAD's files may not change). A gc failure,
+// or an old version still on disk after it, is ErrPurgeCleanup.
+func (r *Repo) DropOldBlobsWith(path, keep string, oldIDs []string, beforeGC func() error) (err error) {
 	branch, err := r.CurrentBranch()
 	if err != nil {
 		return err
 	}
-	all, err := r.BlobsOf(path)
-	if err != nil {
-		return err
+	all := oldIDs
+	if all == nil {
+		if all, err = r.BlobsOf(path); err != nil {
+			return err
+		}
 	}
 	old := map[string]bool{}
 	var ids []string
 	for _, b := range all {
-		if b != keep {
+		if b != keep && !old[b] {
 			old[b] = true
 			ids = append(ids, b)
 		}
@@ -285,19 +291,10 @@ func (r *Repo) gone(ids []string) error {
 
 // FinishDrop completes a drop that stopped after its rewrite (the server
 // stopped, gc failed): the backup refs and the reflogs go, then gc runs
-// while any of ids the current files do not hold is still on disk. One
-// that stays is ErrPurgeCleanup.
+// while one of ids that no ref reaches is still on disk (one history holds
+// again, uploaded once more, is not the drop's to remove). One that stays
+// is ErrPurgeCleanup.
 func (r *Repo) FinishDrop(ids []string) error {
-	head, err := r.TreeBlobs("HEAD")
-	if err != nil {
-		return err
-	}
-	var want []string
-	for _, id := range ids {
-		if !head[id] {
-			want = append(want, id)
-		}
-	}
 	refs, err := r.run(nil, "for-each-ref", "--format=%(refname)", "refs/original/")
 	if err != nil {
 		return err
@@ -306,6 +303,21 @@ func (r *Repo) FinishDrop(ids []string) error {
 	for _, ref := range backup {
 		if _, err := r.run(nil, "update-ref", "-d", ref); err != nil {
 			return err
+		}
+	}
+	objs, err := r.runWithin(FsckTimeout, nil, "rev-list", "--objects", "--all")
+	if err != nil {
+		return err
+	}
+	reached := map[string]bool{}
+	for _, line := range strings.Split(objs, "\n") {
+		id, _, _ := strings.Cut(line, " ")
+		reached[id] = true
+	}
+	var want []string
+	for _, id := range ids {
+		if !reached[id] {
+			want = append(want, id)
 		}
 	}
 	sizes, err := r.Sizes(want)
