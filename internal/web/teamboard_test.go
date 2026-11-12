@@ -231,15 +231,20 @@ func TestTeamBoardActions(t *testing.T) {
 }
 
 // A lead's head: no Analysis block and no Duplicate of; the likely severity
-// sits right after Set state (disabled the same way when read only).
+// sits right after Set state (disabled the same way when read only). The
+// row fits the 518 px the thread column gives it (136 + 96 + 112 + 136 and
+// three 8 px gaps); a refused change's message has its own line under it.
 func TestTeamBoardHeadSeverity(t *testing.T) {
 	e := setup(t)
 	e.lead(t, "alice", "S3 listing", "", "open")
 	b := e.do(t, "bob", "GET", "/e/acme/board?n=L-001", nil, nil).Body.String()
 	head := between(b, `<div class="tbacts">`, `class="tbstate`)
-	set, sev := strings.Index(head, "Set state ▾</summary>"), strings.Index(head, `<select class="w152" name="severity" aria-label="Likely severity" data-choose>`)
+	set, sev := strings.Index(head, "Set state ▾</summary>"), strings.Index(head, `<select class="w136" name="severity" aria-label="Likely severity" data-choose><option value="">Severity</option>`)
 	if set < 0 || sev < set {
 		t.Errorf("severity is not after Set state:\n%s", head)
+	}
+	if !strings.Contains(head, `<summary class="btn ghost sm w96">Dismiss</summary>`) || strings.Index(b, `<div class="tbstate" role="status" title=""></div>`) < strings.Index(b, `class="tbsev"`) {
+		t.Errorf("Dismiss is not 96 px or the message has no line of its own:\n%s", between(b, `<div class="tbhead">`, `<div class="tbmsgs">`))
 	}
 	for _, gone := range []string{"tbanalysis", ">Analysis<", `name="dup"`, "Duplicate of", "tbdup"} {
 		if strings.Contains(b, gone) {
@@ -250,7 +255,7 @@ func TestTeamBoardHeadSeverity(t *testing.T) {
 	dora, _ := e.srv.Auth.Lookup("dora")
 	e.srv.Store.Archive("acme", dora)
 	head = between(e.do(t, "bob", "GET", "/e/acme/board?n=L-001", nil, nil).Body.String(), `<div class="tbacts">`, `class="tbstate`)
-	if i := strings.Index(head, `<select class="w152" aria-label="Likely severity" disabled>`); i < strings.Index(head, "Set state ▾") {
+	if i := strings.Index(head, `<select class="w136" aria-label="Likely severity" disabled>`); i < strings.Index(head, "Set state ▾") {
 		t.Errorf("read only severity:\n%s", head)
 	}
 }

@@ -56,14 +56,14 @@
       {{if .CanMake}}<form hx-post="{{.PostURL}}finding" hx-target="#board" hx-swap="outerHTML" hx-disabled-elt="find button">{{template "lead_keep" .}}<button class="btn primary sm w136">Make finding</button></form>{{else}}<button type="button" class="btn sm w136" disabled>Make finding</button>{{end}}
       {{if .CanDismiss}}
       <details class="pop tbpop">
-        <summary class="btn ghost sm w112">Dismiss</summary>
+        <summary class="btn ghost sm w96">Dismiss</summary>
         <form class="tbdlg" hx-post="{{.PostURL}}dismiss" hx-target="#board" hx-swap="outerHTML">
           {{template "lead_keep" .}}<input type="hidden" name="from" value="{{.State}}">
           <label>Reason<input name="reason" maxlength="1000" autocomplete="off" required></label>
           <div class="acts"><button class="btn danger sm w112" aria-keyshortcuts="Control+Enter">Dismiss</button></div>
         </form>
       </details>
-      {{else}}<button type="button" class="btn sm w112" disabled>Dismiss</button>{{end}}
+      {{else}}<button type="button" class="btn sm w96" disabled>Dismiss</button>{{end}}
       {{if .CanMove}}
       <details class="pop tbpop">
         <summary class="btn secondary sm w112">Set state ▾</summary>
@@ -73,13 +73,14 @@
         </form>
       </details>
       {{else}}<button type="button" class="btn sm w112" disabled>Set state ▾</button>{{end}}
-      {{/* the likely severity, beside the state */}}
-      {{if .ReadOnly}}<select class="w152" aria-label="Likely severity" disabled><option>{{if .Severity}}{{.SevLabel}}{{else}}Likely severity{{end}}</option></select>
+      {{/* the likely severity, beside the state (136 px: the row fits the thread column's 518) */}}
+      {{if .ReadOnly}}<select class="w136" aria-label="Likely severity" disabled><option>{{if .Severity}}{{.SevLabel}}{{else}}Severity{{end}}</option></select>
       {{else}}<form class="tbsev" hx-post="{{.PostURL}}severity" hx-trigger="yars:choose" hx-target="#board" hx-swap="outerHTML">{{template "lead_keep" .}}
-        <select class="w152" name="severity" aria-label="Likely severity" data-choose><option value="">Likely severity</option>{{$sev := .Severity}}{{range .Severities}}<option value="{{.Value}}"{{if eq .Value $sev}} selected{{end}}>{{.Label}}</option>{{end}}</select>
+        <select class="w136" name="severity" aria-label="Likely severity" data-choose><option value="">Severity</option>{{$sev := .Severity}}{{range .Severities}}<option value="{{.Value}}"{{if eq .Value $sev}} selected{{end}}>{{.Label}}</option>{{end}}</select>
       </form>{{end}}
-      <span class="tbstate{{if .Error}} error{{end}}" role="status" title="{{.Error}}">{{.Error}}</span>
     </div>
+    {{/* a refused change's message: its own line, always there, so nothing moves */}}
+    <div class="tbstate{{if .Error}} error{{end}}" role="status" title="{{.Error}}">{{.Error}}</div>
   </div>
   <div class="tbmsgs">
     {{with .Strip}}{{template "lead_strip" .}}{{end}}
