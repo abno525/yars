@@ -79,6 +79,28 @@ type Server struct {
 	mu    sync.Mutex
 	cache map[string]cached
 	ready map[string]bool // repos already configured for pushes
+
+	setupMu     sync.Mutex       // one repository setup at a time (git's config lock)
+	beforeSetup func(dir string) // tests: called as a repository's setup starts
+}
+
+// ensureSetup sets r up for pushes unless it is already: the first requests
+// to a new engagement repository wait for one setup instead of racing.
+func (s *Server) ensureSetup(r *gitrepo.Repo) error {
+	isReady := func() bool {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return s.ready[r.Dir]
+	}
+	if isReady() {
+		return nil
+	}
+	s.setupMu.Lock()
+	defer s.setupMu.Unlock()
+	if isReady() { // set up while this one waited
+		return nil
+	}
+	return s.setupRepo(r)
 }
 
 type cached struct {
@@ -130,6 +152,9 @@ func RestoreTrees(main *gitrepo.Repo) error {
 }
 
 func (s *Server) setupRepo(r *gitrepo.Repo) error {
+	if s.beforeSetup != nil {
+		s.beforeSetup(r.Dir)
+	}
 	gd, err := r.GitDir()
 	if err != nil {
 		return err
@@ -313,14 +338,9 @@ func (s *Server) Handler() http.Handler {
 			http.Error(w, "git not available", http.StatusInternalServerError)
 			return
 		}
-		s.mu.Lock()
-		ready := s.ready[repo.Dir]
-		s.mu.Unlock()
-		if !ready {
-			if err := s.setupRepo(repo); err != nil {
-				http.Error(w, "repository setup failed", http.StatusInternalServerError)
-				return
-			}
+		if err := s.ensureSetup(repo); err != nil {
+			http.Error(w, "repository setup failed", http.StatusInternalServerError)
+			return
 		}
 		if repo == s.Repo && s.Sync != nil && strings.HasSuffix(r.URL.Path, "/info/refs") {
 			// clones and fetches of the main repo see current engagement pointers

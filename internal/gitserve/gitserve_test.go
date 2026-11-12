@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -33,6 +34,17 @@ func setupDB(t *testing.T) (*httptest.Server, *gitrepo.Repo, *db.DB) {
 // setupWith is setupDB with a hook told about each invalidation.
 func setupWith(t *testing.T, seen func(eng string)) (*httptest.Server, *gitrepo.Repo, *db.DB) {
 	t.Helper()
+	return setupFull(t, seen, nil)
+}
+
+// setupServer is setupDB with a change to the git server before it starts.
+func setupServer(t *testing.T, change func(*Server)) (*httptest.Server, *gitrepo.Repo, *db.DB) {
+	t.Helper()
+	return setupFull(t, nil, change)
+}
+
+func setupFull(t *testing.T, seen func(eng string), change func(*Server)) (*httptest.Server, *gitrepo.Repo, *db.DB) {
+	t.Helper()
 	r, err := gitrepo.Init(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -56,6 +68,9 @@ func setupWith(t *testing.T, seen func(eng string)) (*httptest.Server, *gitrepo.
 		}
 		st.Invalidate(eng)
 	}}
+	if change != nil {
+		change(gs)
+	}
 	if err := gs.Setup(); err != nil {
 		t.Fatal(err)
 	}
@@ -64,6 +79,61 @@ func setupWith(t *testing.T, seen func(eng string)) (*httptest.Server, *gitrepo.
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return srv, r, d
+}
+
+// Many first requests at once to an engagement made after the server
+// started all get through: the repository is set up once, the others wait
+// for it, none fails on git's config lock (backlog, M11).
+func TestFirstRequestsSetUpOnce(t *testing.T) {
+	var setups atomic.Int32
+	srv, r, d := setupServer(t, func(gs *Server) {
+		gs.beforeSetup = func(dir string) {
+			if filepath.Base(dir) == "fresh" {
+				setups.Add(1)
+				time.Sleep(50 * time.Millisecond)
+			}
+		}
+	})
+	st := store.New(r, config.Default(), d)
+	if err := st.CreateEngagement(store.Engagement{ID: "fresh", Name: "Fresh"}, gitrepo.Author{Name: "a", Email: "a@a"}); err != nil {
+		t.Fatal(err)
+	}
+	d.AddMembers("fresh", "alice")
+	// the login once, on the main repository: the requests below share it
+	warm, _ := http.NewRequest("GET", srv.URL+"/git/yars/info/refs?service=git-upload-pack", nil)
+	warm.SetBasicAuth("alice", "pw")
+	if resp, err := http.DefaultClient.Do(warm); err != nil || resp.StatusCode != 200 {
+		t.Fatalf("login: %v", err)
+	} else {
+		resp.Body.Close()
+	}
+	var wg sync.WaitGroup
+	codes := make(chan int, 24)
+	for range 24 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			req, _ := http.NewRequest("GET", srv.URL+"/git/e/fresh/info/refs?service=git-upload-pack", nil)
+			req.SetBasicAuth("alice", "pw")
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				codes <- 0
+				return
+			}
+			resp.Body.Close()
+			codes <- resp.StatusCode
+		}()
+	}
+	wg.Wait()
+	close(codes)
+	for c := range codes {
+		if c != 200 {
+			t.Fatalf("a first request got %d", c)
+		}
+	}
+	if n := setups.Load(); n != 1 {
+		t.Fatalf("set up %d times", n)
+	}
 }
 
 // The credential cache must not outlive the account: a deleted user or a
