@@ -31,4 +31,8 @@ What the polish backlog left open (it was `docs/superpowers/deferred-minors.md` 
 | MCP: argument names a tool does not know are ignored (M32) | Keep: clients and tests send extra names; refusing them would break working clients for no gain. |
 | A retest copies its findings' attachments as they are: one redacted or purged later in the source stays as it was in the retest (D28 is about one engagement's history) | Redact in the retest too; a purge in the source could list the retests that hold a copy (M34 review). |
 | An attachment over the 20 MB limit (only a hand edit makes one) fails a retest with the form's "try again" | Name the file and the limit in the form's message. |
+| MCP's `transition` signs off and approves the finding as it is when the call lands, not as `read_finding` showed it (the website's bar refuses a changed finding since M34) | An optional `base` on `transition` for `clear` and `approve`: the content hash, which `read_finding` would return too. |
+| The inbox's bulk bar signs off and approves without a viewed version | Keep: its rows show no finding text to have read. |
+| A workflow bar opened before a change can refuse a sign-off of the content the page now shows (its refresh waits while a picker or reason panel is open) | Keep: the refusal says why, and the page comes back current, so a second click works. |
+| A built-in check's configured message near the 300-character cut loses its detail | Keep: none of the built-in messages is that long. |
 | In a SHA-256 repository a pushed branch deletion or new branch is refused with a misleading reason (the hook's zero id is SHA-1's) | Compare with the zero id of the pushed id's length. YARS makes SHA-1 repositories, so only one made by hand meets it. |
