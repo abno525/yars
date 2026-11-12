@@ -3,6 +3,7 @@ package web
 import (
 	"errors"
 	"net/http"
+	"strings"
 
 	"yars/internal/auth"
 	"yars/internal/gitrepo"
@@ -85,8 +86,9 @@ func (s *Server) purgePost(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	case errors.As(err, &elsewhere):
-		// nothing changed; the director removes the copy first
-		s.renderPurge(w, r, http.StatusConflict, err.Error())
+		// nothing changed; the director removes the copy first (the heading
+		// names the file: the one-line slot keeps room for the copy's place)
+		s.renderPurge(w, r, http.StatusConflict, "An earlier version is also at "+strings.TrimPrefix(elsewhere.At, "findings/")+"; remove it there first")
 		return
 	case err != nil:
 		// the store put the repository back; the director can try again

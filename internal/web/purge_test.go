@@ -66,7 +66,7 @@ func TestPurgeConfirmPage(t *testing.T) {
 		t.Fatalf("confirm page %d:\n%s", rec.Code, b)
 	}
 	for _, want := range []string{`<form class="newf" method="post" action="/e/acme/f/001/attachments/shot.png/purge">`,
-		"<h1", "shot.png", "ACME Web", "Existing clones of this engagement must be cloned again",
+		"<h1", "shot.png", "ACME Web", "Existing clones of this engagement must be cloned again", `<table class="kv details purgekv flush">`,
 		`<a class="btn secondary w96" href="/e/acme/f/001#attachments">Cancel</a>`, `<button class="btn danger w112">Purge</button>`} {
 		if !strings.Contains(b, want) {
 			t.Fatalf("confirm page lacks %s:\n%s", want, b)
@@ -105,7 +105,8 @@ func TestPurgeRefusedWhileCopyElsewhere(t *testing.T) {
 		t.Fatalf("upload %d", rec.Code)
 	}
 	rec := e.do(t, "dora", "POST", fpath+"/attachments/shot.png/purge", url.Values{}, nil)
-	if b := rec.Body.String(); rec.Code != http.StatusConflict || !strings.Contains(between(b, `<div class="errslot">`, "</div>"), "is also at findings/F-001-sql-injection/attachments/copy.png; remove it there first") {
+	// the heading names the file; the slot (one line) says where the copy is
+	if b := rec.Body.String(); rec.Code != http.StatusConflict || !strings.Contains(between(b, `<div class="errslot">`, "</div>"), ">An earlier version is also at F-001-sql-injection/attachments/copy.png; remove it there first</p>") {
 		t.Fatalf("purge with a copy %d:\n%s", rec.Code, b)
 	}
 	if p := attachmentsPanel(t, e.do(t, "dora", "GET", fpath, nil, nil).Body.String()); !strings.Contains(rowOf(t, p, "shot.png"), "histdot") {
