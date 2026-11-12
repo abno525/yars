@@ -2,6 +2,7 @@ package web
 
 import (
 	"html"
+	"net/url"
 	"regexp"
 	"strings"
 	"testing"
@@ -343,6 +344,128 @@ func TestBulkKeys(t *testing.T) {
 	// keys.js presses a bulk entry only with a ticked row, and the bar wins
 	js := e.do(t, "dora", "GET", "/static/keys.js", nil, nil).Body.String()
 	for _, w := range []string{"function yarsBulkFire", "input[name=id]:checked", "getElementById('workflow')"} {
+		if !strings.Contains(js, w) {
+			t.Errorf("keys.js lacks %s", w)
+		}
+	}
+}
+
+// K6: the navigation keys are on the links they follow: Inbox I, Findings F
+// (inside an engagement), New finding N, the Team board tab B, History
+// Shift+H.
+func TestNavKeysDeclared(t *testing.T) {
+	e := setup(t)
+	eng := e.do(t, "alice", "GET", "/e/acme", nil, nil).Body.String()
+	nav := between(eng, `<nav class="nav">`, "</nav>")
+	for _, w := range []string{`href="/inbox" aria-keyshortcuts="I"`, `href="/e/acme" aria-keyshortcuts="F"`} {
+		if !strings.Contains(nav, w) {
+			t.Errorf("nav lacks %s:\n%s", w, nav)
+		}
+	}
+	if home := between(e.do(t, "alice", "GET", "/", nil, nil).Body.String(), `<nav class="nav">`, "</nav>"); strings.Contains(home, `aria-keyshortcuts="F"`) {
+		t.Errorf("F outside an engagement:\n%s", home)
+	}
+	if !regexp.MustCompile(`href="/e/acme/findings/new" aria-keyshortcuts="N">New finding<`).MatchString(eng) {
+		t.Error("New finding lacks N")
+	}
+	if !strings.Contains(eng, `<a aria-keyshortcuts="B" class="etab" href="/e/acme/board">`) {
+		t.Errorf("the board tab lacks B:\n%s", between(eng, `<nav class="etabs"`, "</nav>"))
+	}
+	if n := strings.Count(eng, `aria-keyshortcuts="B"`) + strings.Count(eng, `aria-keyshortcuts="N"`); n != 2 {
+		t.Errorf("B and N on %d links", n)
+	}
+	if b := e.do(t, "alice", "GET", fpath, nil, nil).Body.String(); !strings.Contains(b, `href="/e/acme/f/001/history" aria-keyshortcuts="Shift+H">History<`) {
+		t.Error("the finding's History lacks Shift+H")
+	}
+	tpl, err := templateFS.ReadFile("templates/template.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(tpl), `/history" aria-keyshortcuts="Shift+H">History<`) {
+		t.Error("the template's History lacks Shift+H")
+	}
+}
+
+// K7: each list row has one data-nav control, the one j/k focus.
+func TestRowsCarryNav(t *testing.T) {
+	e := setup(t)
+	e.second(t, "bob")
+	b := e.do(t, "dora", "GET", "/e/acme", nil, nil).Body.String()
+	rows, navs := strings.Count(b, "<tr data-fid="), strings.Count(b, " data-nav")
+	if rows < 2 || navs != rows {
+		t.Errorf("findings list: %d rows, %d data-nav", rows, navs)
+	}
+	if !regexp.MustCompile(`<td class="title"><a href="[^"]+" title="[^"]*" data-nav>`).MatchString(b) {
+		t.Error("data-nav is not on the title link")
+	}
+	e.toVerification(t)
+	in := e.do(t, "bob", "GET", "/inbox", nil, nil).Body.String()
+	if rows, navs := strings.Count(in, `<td class="title"><a `), strings.Count(in, " data-nav"); rows == 0 || navs != rows {
+		t.Errorf("inbox: %d rows, %d data-nav", rows, navs)
+	}
+	for _, f := range []string{"engagements.html", "templates.html", "notifications.html", "history.html", "export.html"} {
+		src, err := templateFS.ReadFile("templates/" + f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n := strings.Count(string(src), " data-nav"); n != 1 {
+			t.Errorf("%s: data-nav %d times", f, n)
+		}
+	}
+}
+
+// K7: htmx puts focus back on a control with the same id after a swap, so
+// the filters, sort links, chat controls, retest radios and CVSS paste and
+// severity have stable ids.
+func TestStableIDsForFocus(t *testing.T) {
+	e := setup(t)
+	b := e.do(t, "alice", "GET", "/e/acme", nil, nil).Body.String()
+	for _, id := range []string{"flt-all", "flt-draft", "flt-withdrawn", "sort-id", "sort-title"} {
+		if tag := tagOf(b, id); !strings.HasPrefix(tag, "<a ") {
+			t.Errorf("#%s: %q", id, tag)
+		}
+	}
+	e.do(t, "bob", "POST", fpath+"/chat", url.Values{"text": {"Typo in step 2"}}, nil)
+	id := e.chatIDs(t)[0]
+	p := e.do(t, "alice", "GET", fpath, nil, nil).Body.String()
+	if tag := tagOf(p, "reply-"+id); !strings.Contains(tag, `name="text"`) {
+		t.Errorf("reply input: %q", tag)
+	}
+	if tag := tagOf(p, "resolve-"+id); !strings.HasPrefix(tag, "<button") {
+		t.Errorf("Resolve: %q", tag)
+	}
+	if tag := tagOf(p, "cvss-sev"); !strings.HasPrefix(tag, `<select name="severity"`) {
+		t.Errorf("severity: %q", tag)
+	}
+	e.do(t, "bob", "POST", fpath+"/chat", url.Values{"resolves": {id}}, nil)
+	if tag := tagOf(e.do(t, "alice", "GET", fpath, nil, nil).Body.String(), "reopen-"+id); !strings.HasPrefix(tag, "<button") {
+		t.Errorf("Reopen: %q", tag)
+	}
+	if tag := tagOf(e.do(t, "alice", "GET", fpath+"/cvss/edit", nil, nil).Body.String(), "cvss-paste"); !strings.Contains(tag, `name="paste"`) {
+		t.Errorf("paste: %q", tag)
+	}
+	rt, err := templateFS.ReadFile("templates/retest.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(rt), `name="result" value="{{.Code}}"{{if .Checked}} checked{{end}} id="retest-{{.Code}}">`) {
+		t.Error("retest radios lack their ids")
+	}
+}
+
+// K7: lists: j/k move the row focus, x ticks, Shift+click and Shift+Space
+// tick a range, / finds the search box, Load more focuses the first new row.
+func TestRangeSelectMarkers(t *testing.T) {
+	e := setup(t)
+	app := e.do(t, "alice", "GET", "/static/app.js", nil, nil).Body.String()
+	bulk := app[strings.Index(app, "function yarsBulkSync"):]
+	for _, w := range []string{"shiftKey", "function yarsRange"} {
+		if !strings.Contains(bulk, w) {
+			t.Errorf("app.js's bulk block lacks %s", w)
+		}
+	}
+	js := e.do(t, "alice", "GET", "/static/keys.js", nil, nil).Body.String()
+	for _, w := range []string{"[data-nav]", "'Shift+Space'", "input[type=search]", "yarsGotoOpen()", "tr.more"} {
 		if !strings.Contains(js, w) {
 			t.Errorf("keys.js lacks %s", w)
 		}

@@ -34,8 +34,8 @@
     {{end}}
   </form>
   <nav class="nav">
-    <a class="{{if eq .Nav ""}}on{{end}}" href="{{if .Eng.ID}}/e/{{.Eng.ID}}{{else}}/{{end}}">Findings</a>
-    <a class="{{if eq .Nav "inbox"}}on{{end}}" href="/inbox">Inbox {{with .Inbox.Count}}<span class="badge">{{.}}</span>{{else}}<span class="badge0">0</span>{{end}}</a>
+    <a class="{{if eq .Nav ""}}on{{end}}" href="{{if .Eng.ID}}/e/{{.Eng.ID}}{{else}}/{{end}}"{{if .Eng.ID}} aria-keyshortcuts="F"{{end}}>Findings</a>
+    <a class="{{if eq .Nav "inbox"}}on{{end}}" href="/inbox" aria-keyshortcuts="I">Inbox {{with .Inbox.Count}}<span class="badge">{{.}}</span>{{else}}<span class="badge0">0</span>{{end}}</a>
     {{if .CanAdmin}}<a class="{{if eq .Nav "admin"}}on{{end}}" href="/admin">Admin</a>{{end}}
     <a class="{{if eq .Nav "docs"}}on{{end}}" href="/docs">Developers</a>
   </nav>

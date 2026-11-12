@@ -7,7 +7,7 @@
   </div>
   <div class="actions">
     <span class="mono usedcount" title="{{$t.Slug}}">Owner {{$t.Own.Owner}} · Used {{$t.Used}} · {{$t.Own.EditedBy}} · {{$t.Own.EditedOn}}</span>
-    <a class="btn secondary w128" href="/templates/{{$t.Slug}}/history">History</a>
+    <a class="btn secondary w128" href="/templates/{{$t.Slug}}/history" aria-keyshortcuts="Shift+H">History</a>
     {{if $t.CanEdit}}<form method="post" action="/templates/{{$t.Slug}}/delete"><button class="btn danger w128" data-confirm="Delete template?">Delete</button></form>{{else}}<span class="slot w128"></span>{{end}}
   </div>
 </div>

@@ -37,7 +37,7 @@
     <form class="sevform" hx-post="{{.SeverityURL}}" hx-target="#cvss" hx-swap="outerHTML" hx-trigger="yars:choose">
       <input type="hidden" name="base" value="{{.SevBase}}">
       <label>Severity
-        <select name="severity" data-choose>
+        <select name="severity" id="cvss-sev" data-choose>
           <option value="" {{if not .Severity}}selected{{end}} disabled>—</option>
           {{$cur := .Severity}}
           {{range .Severities}}<option value="{{.}}"{{if eq . $cur}} selected{{end}}>{{.}}</option>{{end}}
@@ -76,7 +76,7 @@
     {{end}}
     </div>
     <div class="paste flush">
-      <input name="paste" placeholder="CVSS:3.1/AV:N/AC:L/…" aria-label="Paste vector" data-enter
+      <input name="paste" id="cvss-paste" placeholder="CVSS:3.1/AV:N/AC:L/…" aria-label="Paste vector" data-enter
         hx-post="{{.CalcURL}}" hx-trigger="yars:enter" hx-include="closest form" hx-target="#cvss" hx-swap="outerHTML">
       <button type="button" class="btn secondary w96" hx-post="{{.CalcURL}}" hx-include="closest form" hx-target="#cvss" hx-swap="outerHTML">Apply</button>
     </div>

@@ -618,11 +618,12 @@ func (s *Server) engPage(r *http.Request, eng string, keep map[string]bool) (*pa
 	}
 	p.Bars = barsOf(p.Summary)
 	for _, st := range append([]string{""}, index.ShownOrder...) {
-		label, n := workflow.StatusTitle(st), p.Summary.ByShown[st]
+		label, n, key := workflow.StatusTitle(st), p.Summary.ByShown[st], st
 		if st == "" {
-			label, n = "All", p.Summary.Total
+			label, n, key = "All", p.Summary.Total, "all"
 		}
-		p.StatusFilters = append(p.StatusFilters, link{Label: label, Active: st == query.Shown, Count: n,
+		// the key names the link's id (flt-…), so focus stays on it after the swap
+		p.StatusFilters = append(p.StatusFilters, link{Key: key, Label: label, Active: st == query.Shown, Count: n,
 			URL: mk(func(v url.Values) { setOrDel(v, "status", st) })})
 	}
 	cols := columns

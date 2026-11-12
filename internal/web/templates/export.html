@@ -38,7 +38,7 @@
       <tbody>
         {{range .Picks}}
         <tr{{if .Off}} class="off"{{end}}>
-          <td><input type="checkbox" name="finding" value="{{.Dir}}" id="pick-{{.Dir}}"{{if .Off}} disabled{{else if .On}} checked{{end}} aria-label="{{.ID}}"></td>
+          <td><input type="checkbox" name="finding" value="{{.Dir}}" data-nav id="pick-{{.Dir}}"{{if .Off}} disabled{{else if .On}} checked{{end}} aria-label="{{.ID}}"></td>
           <td class="fid"><label for="pick-{{.Dir}}">{{.ID}}</label></td>
           <td class="title strong" title="{{.Title}}"><label for="pick-{{.Dir}}">{{.Title}}</label></td>
           <td><span class="tag status-{{.Shown}}">{{statusLabel .Shown}}</span></td>

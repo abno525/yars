@@ -162,7 +162,88 @@ function yarsBulkFire(key) {
 // yarsPick: a list's row checkbox takes no characters, so the list keys work
 // with it focused (a click on it leaves focus there).
 function yarsPick(t) {
-  return !!(t && t.matches && t.matches('.fbulkform input[type=checkbox]'));
+  return !!(t && t.matches && t.matches('.fbulkform input[type=checkbox], input[type=checkbox][data-nav]'));
+}
+
+/* ---------- lists (K7): j/k move the row focus, x ticks, / searches ---------- */
+
+// yarsRows: the rendered [data-nav] controls (one per row) in document order.
+function yarsRows() {
+  return Array.prototype.filter.call(document.querySelectorAll('[data-nav]'), function (el) {
+    return el.getClientRects().length > 0;
+  });
+}
+// yarsRowOf: the [data-nav] control of the row holding el.
+function yarsRowOf(el) {
+  if (!el || !el.closest) return null;
+  var n = el.closest('[data-nav]');
+  if (n) return n;
+  var tr = el.closest('tr');
+  return tr ? tr.querySelector('[data-nav]') : null;
+}
+// yarsRowStep focuses the next (d = 1) or previous (d = -1) row; with none
+// focused, the first.
+function yarsRowStep(d) {
+  var rows = yarsRows();
+  if (!rows.length) return false;
+  var i = rows.indexOf(yarsRowOf(document.activeElement));
+  var to = i < 0 ? rows[0] : rows[Math.max(0, Math.min(rows.length - 1, i + d))];
+  to.focus();
+  if (to.scrollIntoView) to.scrollIntoView({block: 'nearest'});
+  return true;
+}
+// yarsRowBox: the checkbox of the focused row.
+function yarsRowBox() {
+  var a = document.activeElement;
+  var tr = a && a.closest ? a.closest('tr') : null;
+  var cb = tr ? tr.querySelector('input[type=checkbox]') : null;
+  return cb && !cb.disabled ? cb : null;
+}
+// yarsListNav handles the list keys on pages without panels; true when used.
+// x ticks the focused row; Shift+Space ticks the range from the row last
+// clicked to it (app.js yarsRange; bulk lists only).
+function yarsListNav(key) {
+  if (document.querySelector('[data-kpanel]')) return false;
+  var cb;
+  switch (key) {
+  case 'J': return yarsRowStep(1);
+  case 'K': return yarsRowStep(-1);
+  case 'X':
+    if (!(cb = yarsRowBox())) return false;
+    cb.click();
+    return true;
+  case 'Shift+Space':
+    if (!(cb = yarsRowBox()) || !cb.closest('.fbulkform') || cb.name !== 'id') return false;
+    yarsRange(cb, !cb.checked);
+    return true;
+  }
+  return false;
+}
+// After Load more (the row tr.more swaps itself for the next rows), focus
+// goes to the first new row.
+var yarsMoreAt = null;
+document.addEventListener('htmx:beforeSwap', function (evt) {
+  var t = evt.detail.target;
+  if (t && t.matches && t.matches('tr.more')) yarsMoreAt = {prev: t.previousElementSibling, body: t.parentNode};
+});
+document.addEventListener('htmx:afterSettle', function () {
+  var m = yarsMoreAt;
+  if (!m) return;
+  yarsMoreAt = null;
+  var first = m.prev ? m.prev.nextElementSibling : m.body.firstElementChild;
+  var nav = first && !first.matches('tr.more') ? first.querySelector('[data-nav]') : null;
+  if (nav) nav.focus();
+});
+
+// / (K6): the page's search box; without one, Go to.
+function yarsSlash() {
+  var s = Array.prototype.filter.call(document.querySelectorAll('input[type=search]'), function (el) {
+    return !el.closest('dialog') && !el.disabled && el.getClientRects().length > 0;
+  })[0];
+  if (s) { s.focus(); s.select(); return true; }
+  if (!document.getElementById('goto')) return false;
+  yarsGotoOpen();
+  return true;
 }
 
 /* ---------- selection (K2): a click or j/k selects a panel ---------- */
@@ -305,7 +386,8 @@ document.addEventListener('keydown', function (evt) {
   if (yarsKeysOff() || evt.isComposing || evt.repeat || evt.altKey || evt.defaultPrevented ||
       (yarsTyping(evt.target) && !yarsPick(evt.target)) || document.querySelector('dialog[open]')) return;
   if (evt.ctrlKey || evt.metaKey) return; // the browser's own (Ctrl+K is app.js's)
-  if (yarsNav(key)) { evt.preventDefault(); return; }
+  if (yarsNav(key) || yarsListNav(key)) { evt.preventDefault(); return; }
+  if (key === '/') { if (yarsSlash()) evt.preventDefault(); return; }
   if (key === 'E') { if (yarsEdit()) evt.preventDefault(); return; }
   if (key === 'Enter') { if (yarsEnter()) evt.preventDefault(); return; }
   if (key === 'C') { if (yarsCommentKey()) evt.preventDefault(); return; }

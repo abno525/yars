@@ -17,7 +17,7 @@
     </div>
     <div class="evlist flush">
       {{range $h.Events}}
-      <a class="ev{{if .On}} on{{end}}" href="{{.URL}}">
+      <a class="ev{{if .On}} on{{end}}" href="{{.URL}}" data-nav>
         <span class="dot {{.Class}}"></span>
         <span class="evwhat"><span class="evline"><strong>{{.Who}}</strong> <span class="evact">{{.Act}}</span></span>{{if .Short}}<span class="mono">{{.Short}}</span>{{else if .Text}}<span class="mono" title="{{.Text}}">{{.Text}}</span>{{end}}</span>
         <span class="mono evtime">{{.Time}}</span>

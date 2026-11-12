@@ -21,7 +21,7 @@
     <tbody>
     {{range .Tpl.Rows}}
       <tr>
-        <td class="title"><span class="tpltitle"><a href="/templates/{{.Slug}}" title="{{.Title}}">{{.Title}}</a><span class="tplver mono">v{{.Version}}</span></span></td>
+        <td class="title"><span class="tpltitle"><a href="/templates/{{.Slug}}" title="{{.Title}}" data-nav>{{.Title}}</a><span class="tplver mono">v{{.Version}}</span></span></td>
         <td>{{if .Severity}}<span class="tag sev-{{.Severity}}">{{.Severity}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
         <td class="num">{{score .Score}}</td>
         <td class="num">{{if .Used}}<span class="badge">{{.Used}}</span>{{else}}<span class="badge0">0</span>{{end}}</td>

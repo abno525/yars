@@ -443,6 +443,33 @@ function yarsBulkSync(form) {
     else yarsBulkHead(form);
   }
 }
+// Range select (K7): yarsRangeFrom is the row checkbox the user last
+// clicked in a bulk list. yarsRange gives cb the state to and, with Shift
+// (a Shift+click here, Shift+Space on a focused row in keys.js), every
+// checkbox of the same table between the two the same state.
+var yarsRangeFrom = null;
+function yarsRange(cb, to) {
+  var form = cb.closest('.fbulkform');
+  if (!form) return;
+  cb.checked = to;
+  var from = yarsRangeFrom;
+  if (from && from !== cb && from.isConnected) {
+    var list = Array.prototype.slice.call((cb.closest('table') || form).querySelectorAll('input[name=id]'));
+    var a = list.indexOf(from), b = list.indexOf(cb);
+    if (a >= 0 && b >= 0) {
+      list.slice(Math.min(a, b), Math.max(a, b) + 1).forEach(function (c) { if (!c.disabled) c.checked = to; });
+    }
+  }
+  yarsRangeFrom = cb;
+  yarsBulkSync(form);
+}
+document.addEventListener('click', function (evt) {
+  var cb = evt.target;
+  if (!cb.matches || !cb.matches('.fbulkform input[name=id]')) return;
+  // the box has already flipped: its new state is the range's
+  if (evt.shiftKey) yarsRange(cb, cb.checked);
+  else yarsRangeFrom = cb;
+});
 function yarsBulkMenu(btn, open) {
   var menu = btn.parentNode.querySelector('.bmenu');
   if (!menu) return;

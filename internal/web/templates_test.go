@@ -48,7 +48,7 @@ func TestTemplateOwnerAndVersions(t *testing.T) {
 	}
 	noInline(t, "templates", b)
 	p := e.do(t, "alice", "GET", "/templates/sql-injection", nil, nil).Body.String()
-	for _, want := range []string{`<span class="idchip">v2</span>`, `Used 0 · dora · ` + today, `<a class="btn secondary w128" href="/templates/sql-injection/history">History</a>`, "Owner bob"} {
+	for _, want := range []string{`<span class="idchip">v2</span>`, `Used 0 · dora · ` + today, `<a class="btn secondary w128" href="/templates/sql-injection/history" aria-keyshortcuts="Shift+H">History</a>`, "Owner bob"} {
 		if !strings.Contains(p, want) {
 			t.Fatalf("template page lacks %q:\n%s", want, p)
 		}

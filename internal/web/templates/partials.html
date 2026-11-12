@@ -3,7 +3,7 @@
   <div class="filters">
     <nav class="seg nocap fseg" aria-label="Status">
     {{range .StatusFilters}}
-    <a class="{{if .Active}}on{{end}}" href="{{.URL}}" hx-get="{{.URL}}" hx-target="#findings" hx-swap="outerHTML" hx-push-url="true">{{.Label}} · {{.Count}}</a>
+    <a class="{{if .Active}}on{{end}}" id="flt-{{.Key}}" href="{{.URL}}" hx-get="{{.URL}}" hx-target="#findings" hx-swap="outerHTML" hx-push-url="true">{{.Label}} · {{.Count}}</a>
     {{end}}
     </nav>
     {{if .SearchURL}}
@@ -20,7 +20,7 @@
     <thead><tr>
       {{if .Bulk.On}}<th class="col-pick"><input type="checkbox" data-pick-all aria-label="Select all"></th>{{end}}
       {{range .Columns}}
-      <th class="col-{{.Key}}"><a href="{{.URL}}" hx-get="{{.URL}}" hx-target="#findings" hx-swap="outerHTML" hx-push-url="true">{{.Label}}{{if .Active}}{{if .Desc}} ↓{{else}} ↑{{end}}{{end}}</a></th>
+      <th class="col-{{.Key}}"><a id="sort-{{.Key}}" href="{{.URL}}" hx-get="{{.URL}}" hx-target="#findings" hx-swap="outerHTML" hx-push-url="true">{{.Label}}{{if .Active}}{{if .Desc}} ↓{{else}} ↑{{end}}{{end}}</a></th>
       {{end}}
     </tr></thead>
     <tbody>
@@ -72,7 +72,7 @@ the table's column count. */}}
       <tr data-fid="{{.Dir}}"{{if $.Bulk.On}} data-acts="{{index $.Bulk.Acts .Dir}}"{{end}}{{with index $.Bulk.Skipped .Dir}} class="skip" title="{{.}}"{{else}}{{if index $.Bulk.Picked .Dir}} class="sel"{{end}}{{end}}>
         {{if $.Bulk.On}}<td class="c-pick">{{if index $.Bulk.Pick .Dir}}<input type="checkbox" name="id" value="{{.Dir}}" aria-label="Select {{.ID}}"{{if index $.Bulk.Picked .Dir}} checked{{end}}>{{end}}</td>{{end}}
         <td class="fid"><a href="{{fpath .EngID .Dir}}">{{.ID}}</a></td>
-        <td class="title"><a href="{{fpath .EngID .Dir}}" title="{{.Title}}">{{.Title}}</a></td>
+        <td class="title"><a href="{{fpath .EngID .Dir}}" title="{{.Title}}" data-nav>{{.Title}}</a></td>
         <td>{{if .Severity}}<span class="tag sev-{{.Severity}}">{{.Severity}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
         <td class="num">{{score .Score}}</td>
         <td><span class="tag status-{{.Shown}}">{{statusLabel .Shown}}</span></td>
@@ -99,12 +99,12 @@ the table's column count. */}}
     <a class="btn secondary w128" href="/e/{{.Eng.ID}}/export">Export</a>
     {{if .CanManage}}<a class="btn secondary w128" href="/e/{{.Eng.ID}}/retest/new">New retest</a>{{else}}<span class="slot w128"></span>{{end}}
     {{if .Archive.On}}{{if .Archive.CanReopen}}<form method="post" action="/e/{{.Eng.ID}}/reopen"><button class="btn secondary w128">Reopen</button></form>{{else}}<span class="slot w128"></span>{{end}}
-    {{else}}<a class="btn {{if eq .ETab.On "board"}}secondary{{else}}primary{{end}} w128" href="/e/{{.Eng.ID}}/findings/new">New finding</a>{{end}}
+    {{else}}<a class="btn {{if eq .ETab.On "board"}}secondary{{else}}primary{{end}} w128" href="/e/{{.Eng.ID}}/findings/new" aria-keyshortcuts="N">New finding</a>{{end}}
     {{if eq .ETab.On "board"}}{{if .Archive.On}}<span class="slot w128"></span>{{else}}<a class="btn primary w128" href="/e/{{.Eng.ID}}/board?new=1" hx-get="/e/{{.Eng.ID}}/board?new=1" hx-target="#board" hx-swap="outerHTML" hx-push-url="true">New lead</a>{{end}}{{end}}
   </div>
 </div>
 {{template "archive_bar" .Archive}}
-<nav class="etabs" aria-label="Engagement">{{range .ETab.Items}}<a class="etab{{if .Active}} on{{end}}" href="{{.URL}}"{{if .Active}} aria-current="page"{{end}}>{{.Label}}{{if eq .Key "board"}} {{if .Count}}<span class="badge">{{.Count}}</span>{{else}}<span class="badge0">0</span>{{end}}{{end}}</a>{{end}}</nav>
+<nav class="etabs" aria-label="Engagement">{{range .ETab.Items}}<a{{if eq .Key "board"}} aria-keyshortcuts="B"{{end}} class="etab{{if .Active}} on{{end}}" href="{{.URL}}"{{if .Active}} aria-current="page"{{end}}>{{.Label}}{{if eq .Key "board"}} {{if .Count}}<span class="badge">{{.Count}}</span>{{else}}<span class="badge0">0</span>{{end}}{{end}}</a>{{end}}</nav>
 {{end}}
 
 {{define "chart"}}

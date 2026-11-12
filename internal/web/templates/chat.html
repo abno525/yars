@@ -46,7 +46,7 @@
         {{if not $.ReadOnly}}
         <form class="thread-tools" hx-post="{{$.PostURL}}" hx-target="#chat-list" hx-swap="outerHTML">
           {{if $.All}}<input type="hidden" name="all" value="1">{{end}}
-          <input type="hidden" name="reopens" value="{{.Root.ID}}"><button class="btn ghost sm w96">Reopen</button>
+          <input type="hidden" name="reopens" value="{{.Root.ID}}"><button class="btn ghost sm w96" id="reopen-{{.Root.ID}}">Reopen</button>
         </form>
         {{end}}
       </div>
@@ -61,12 +61,12 @@
         <form class="reply-form" hx-post="{{$.PostURL}}" hx-target="#chat-list" hx-swap="outerHTML">
           <input type="hidden" name="reply" value="{{.Root.ID}}">
           {{if $.All}}<input type="hidden" name="all" value="1">{{end}}
-          <input name="text" placeholder="Reply" aria-label="Reply">
+          <input name="text" id="reply-{{.Root.ID}}" placeholder="Reply" aria-label="Reply">
           <button class="btn ghost sm w96">Reply</button>
         </form>
         <form class="thread-tools" hx-post="{{$.PostURL}}" hx-target="#chat-list" hx-swap="outerHTML">
           {{if $.All}}<input type="hidden" name="all" value="1">{{end}}
-          <input type="hidden" name="resolves" value="{{.Root.ID}}"><button class="btn secondary sm w96">Resolve</button>
+          <input type="hidden" name="resolves" value="{{.Root.ID}}"><button class="btn secondary sm w96" id="resolve-{{.Root.ID}}">Resolve</button>
         </form>
       </div>
       {{end}}

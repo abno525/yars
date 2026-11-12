@@ -26,7 +26,7 @@
   {{range .Rows}}
     <tr{{with .Key}} data-key="{{.}}"{{end}}{{if $b}} data-acts="{{index $b.Acts .Key}}"{{with index $b.Skipped .Key}} class="skip" title="{{.}}"{{else}}{{if index $b.Picked .Key}} class="sel"{{end}}{{end}}{{end}}>
       {{if $b}}<td class="c-pick">{{if index $b.Pick .Key}}<input type="checkbox" name="id" value="{{.Key}}" aria-label="Select {{.EngID}} {{.ID}}"{{if index $b.Picked .Key}} checked{{end}}>{{end}}</td>{{end}}
-      <td class="title"><a href="{{.URL}}" title="{{.Title}}">{{.Title}}</a></td>
+      <td class="title"><a href="{{.URL}}" title="{{.Title}}" data-nav>{{.Title}}</a></td>
       <td class="c-tag">{{if .Tag}}<span class="tag {{.TagClass}}">{{.Tag}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
       <td class="c-eng mono" title="{{.EngName}} · {{.ID}}"><span class="engid">{{.EngID}}</span> · <span class="fid">{{.ID}}</span></td>
       <td class="c-what{{with .WhatClass}} {{.}}{{end}}" title="{{with .Who}}{{.}} · {{end}}{{.What}}">{{with .Who}}<strong>{{.}}</strong> · {{end}}{{.What}}</td>
