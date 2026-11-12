@@ -42,6 +42,7 @@ Only `refs/heads/main` can be pushed, and every commit in the push is checked on
 | `…/attachments/x: attachments cannot be executable` | Mode 755 | `git update-index --chmod=-x <file>` |
 | `…/attachments/x: attachment names are letters, digits, . _ -` | Spaces, sub-folders | rename the file |
 | `…: 11.0 MB; files over 10 MB are not accepted` | Any file over 10 MB, even one a later commit deletes | rebase it out of the commit |
+| `commit 1a2b3c4: …/attachments/x.png brings back x.png, which was purged from this engagement's history; …` | The clone was made before a director purged the image's original (Purge from history); its old commits still hold it | clone the engagement again and redo your change |
 | `engagement.yaml: name is required` · `dates are YYYY-MM-DD` · `the end is before the start` | The engagement's Settings tab rules | correct the value |
 | `engagement.yaml: type is fixed when the engagement is created; keep type: …` | Type or source changed | restore `type` / `source` |
 | `refs/heads/wip: only refs/heads/main can be pushed` | Other branch | `git push origin wip:main` |

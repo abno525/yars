@@ -1,8 +1,12 @@
 package policy
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1035,6 +1039,65 @@ func TestPolicyPullMergeAccepted(t *testing.T) {
 	git(t, f.clone, "-c", "user.name=alice", "-c", "user.email=alice@yars.local", "pull", "-q", "--no-rebase", "--no-edit")
 	if ps := f.check("alice", git(t, f.clone, "rev-parse", "HEAD")); len(ps) != 0 {
 		t.Fatalf("pull merge refused: %v", ps)
+	}
+}
+
+// pngOf is a small PNG of one colour.
+func pngOf(t *testing.T, c color.Color) []byte {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, 2, 2))
+	for x := range 2 {
+		for y := range 2 {
+			img.Set(x, y, c)
+		}
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+// purged redacts an image on the server, clones the engagement (the clone
+// holds the original in its history) and purges the original.
+func (f *fx) purged() {
+	f.t.Helper()
+	a := user("alice")
+	if _, err := f.st.AddAttachment("acme", "F-001-sqli", "shot.png", pngOf(f.t, color.White), a); err != nil {
+		f.t.Fatal(err)
+	}
+	if err := f.st.ReplaceAttachment("acme", "F-001-sqli", "shot.png", pngOf(f.t, color.Black), a); err != nil {
+		f.t.Fatal(err)
+	}
+	f.reclone()
+	if err := f.st.PurgeFromHistory("acme", "F-001-sqli", "shot.png", user("dora")); err != nil {
+		f.t.Fatal(err)
+	}
+}
+
+// D28, Review focus 1: a clone made before the purge still holds the
+// original; after a pull its merge carries the old commits, and the push is
+// refused.
+func TestPushOfPurgedBlobRefused(t *testing.T) {
+	f := newFx(t)
+	f.purged()
+	write(f.clone, fdir+"/attachments/note.txt", "x")
+	git(t, f.clone, "add", "-A")
+	git(t, f.clone, "-c", "user.name=alice", "-c", "user.email=alice@yars.local", "commit", "-qm", "mine")
+	git(t, f.clone, "-c", "user.name=alice", "-c", "user.email=alice@yars.local", "pull", "-q", "--no-rebase", "--no-edit")
+	ps := f.check("alice", git(t, f.clone, "rev-parse", "HEAD"))
+	if !has(ps, fdir+"/attachments/shot.png brings back shot.png, which was purged from this engagement's history; clone the engagement again and redo your change") {
+		t.Fatalf("push from a pre-purge clone: %v", ps)
+	}
+}
+
+// D28: a clone made after the purge pushes as usual.
+func TestPushAfterFreshCloneAccepted(t *testing.T) {
+	f := newFx(t)
+	f.purged()
+	f.reclone()
+	if ps := f.push("alice", func(d string) { write(d, fdir+"/attachments/note.txt", "x") }); len(ps) != 0 {
+		t.Fatalf("push from a fresh clone: %v", ps)
 	}
 }
 

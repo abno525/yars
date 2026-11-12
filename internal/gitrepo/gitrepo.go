@@ -185,8 +185,9 @@ func (r *Repo) ChangedFiles(old, new string) ([]Change, error) {
 		old = "4b825dc642cb6eb9a060e54bf8d69288fbee4904" // empty tree
 	}
 	// --ignore-submodules=none: .gitmodules says ignore = all for every
-	// engagement, which would hide a moved or removed pointer
-	out, err := r.run(nil, "diff", "--no-renames", "--ignore-submodules=none", "--raw", "-z", old, new)
+	// engagement, which would hide a moved or removed pointer; --no-abbrev:
+	// full blob ids (a purged blob is matched by its id, D28)
+	out, err := r.run(nil, "diff", "--no-renames", "--no-abbrev", "--ignore-submodules=none", "--raw", "-z", old, new)
 	if err != nil {
 		return nil, err
 	}

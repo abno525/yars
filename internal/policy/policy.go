@@ -57,6 +57,11 @@ type Checker struct {
 	// once the push is accepted the hook moves their approval to the new
 	// content (store.CarryApproval).
 	Carry []Carry
+
+	// purged maps the blob ids purged from this engagement's history to
+	// their file names (D28), read once per Check: a push from an older
+	// clone must not bring one back.
+	purged map[string]string
 }
 
 type Carry struct{ Eng, Fid, OldHash, NewHash string }
@@ -137,6 +142,14 @@ func (c *Checker) Check(username string, ups []Update) []string {
 				return []string{"you are not on the team of engagement " + c.Eng}
 			}
 		}
+	}
+	c.purged = nil
+	if c.Eng != "" && c.DB != nil {
+		p, err := c.DB.PurgedBlobs(c.Eng)
+		if err != nil {
+			return []string{"server: " + err.Error()}
+		}
+		c.purged = p
 	}
 	branch, err := c.Repo.CurrentBranch()
 	if err != nil {
@@ -314,6 +327,11 @@ func (c *Checker) checkChanges(u config.User, short, parent, rev string, changes
 	for _, ch := range changes {
 		if c.Eng == "" && ch.Path == ".yars/config.yaml" {
 			repairs = true
+		}
+		if name, ok := c.purged[ch.Blob]; ok && ch.Status != 'D' {
+			// D28: an original a director purged, from a clone made before
+			ps = append(ps, fmt.Sprintf("commit %s: %s brings back %s, which was purged from this engagement's history; clone the engagement again and redo your change", short, ch.Path, name))
+			continue
 		}
 		var probs []string
 		switch n, tooBig := big[ch.Path]; {
