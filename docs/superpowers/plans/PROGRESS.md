@@ -151,4 +151,5 @@ M32 manual  done     (an MCP session over HTTP: list drafts, read, edit with bas
 M32 branch  review   fixes 4990b7c (can_edit follows the token; template not_found; real refusal before a missing reason; docs table; clone history)
 M32 branch  fix check passed
 M32 PR      opened   #27
+M33 task 1  done     (every colour a token; the scattered token blocks merged; 21 pages' computed colours the same in both themes)
 ```
