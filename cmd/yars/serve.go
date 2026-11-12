@@ -47,6 +47,47 @@ func backfillTeams(st *store.Store, d *db.DB) error {
 	return d.BackfillTeams(ids)
 }
 
+// prepareData readies a data folder the way every start does, before the
+// first request: a push cut off mid-way leaves no tree behind, the database
+// is opened (and migrated), teams are backfilled, board claims a stop cut off
+// are reset, server files are git-ignored and the engagement pointers follow
+// their repositories. The upgrade test runs it on old data.
+func prepareData(r *gitrepo.Repo) (config.Config, *db.DB, *store.Store, error) {
+	if err := gitserve.RestoreTrees(r); err != nil {
+		return config.Config{}, nil, nil, fmt.Errorf("restore work trees: %w", err)
+	}
+	cfg, err := config.Load(r.Dir)
+	if err != nil {
+		return config.Config{}, nil, nil, err
+	}
+	if items := legacyItems(r.Dir); len(items) > 0 {
+		return config.Config{}, nil, nil, fmt.Errorf("this data directory still keeps accounts, workflow state or chat in files (%s); run: yars migrate --data %s", strings.Join(items, ", "), r.Dir)
+	}
+	d, err := dataDB(r.Dir)
+	if err != nil {
+		return config.Config{}, nil, nil, err
+	}
+	st := store.New(r, cfg, d)
+	fail := func(what string, err error) (config.Config, *db.DB, *store.Store, error) {
+		d.Close()
+		return config.Config{}, nil, nil, fmt.Errorf("%s: %w", what, err)
+	}
+	if err := backfillTeams(st, d); err != nil {
+		return fail("team backfill", err)
+	}
+	// a Make finding claim now is one a stop cut off
+	if err := d.ResetBoardClaims(); err != nil {
+		return fail("team board", err)
+	}
+	if err := ensureIgnored(r); err != nil {
+		return fail("ignore server files", err)
+	}
+	if err := st.SyncPointers(); err != nil {
+		return fail("update engagement pointers", err)
+	}
+	return cfg, d, st, nil
+}
+
 func cmdServe(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	data := dataFlag(fs)
@@ -74,31 +115,12 @@ func cmdServe(args []string) error {
 	if err != nil {
 		return err
 	}
-	// a push cut off mid-way must not leave its tree (or config) behind
-	if err := gitserve.RestoreTrees(r); err != nil {
-		return fmt.Errorf("restore work trees: %w", err)
-	}
-	cfg, err := config.Load(r.Dir)
-	if err != nil {
-		return err
-	}
-	if items := legacyItems(r.Dir); len(items) > 0 {
-		return fmt.Errorf("this data directory still keeps accounts, workflow state or chat in files (%s); run: yars migrate --data %s", strings.Join(items, ", "), r.Dir)
-	}
-	d, err := dataDB(r.Dir)
+	cfg, d, st, err := prepareData(r)
 	if err != nil {
 		return err
 	}
 	if users, _ := d.Users(); len(users) == 0 {
 		log.Println("no accounts yet: open the web page to set up the first admin (/setup), or run: yars useradd --data", r.Dir, "--role director --admin <name>")
-	}
-	st := store.New(r, cfg, d)
-	if err := backfillTeams(st, d); err != nil {
-		return fmt.Errorf("team backfill: %w", err)
-	}
-	// before any request: a Make finding claim now is one a stop cut off
-	if err := d.ResetBoardClaims(); err != nil {
-		return fmt.Errorf("team board: %w", err)
 	}
 	eng := rules.NewEngine(rules.DirFor(r.Dir), cfg)
 	st.Linter = eng
@@ -107,12 +129,6 @@ func cmdServe(args []string) error {
 	exe, err := os.Executable()
 	if err != nil {
 		return err
-	}
-	if err := ensureIgnored(r); err != nil {
-		return fmt.Errorf("ignore server files: %w", err)
-	}
-	if err := st.SyncPointers(); err != nil {
-		return fmt.Errorf("update engagement pointers: %w", err)
 	}
 	hub := events.New()
 	// after a push: drop the cached HEAD, then tell open pages
