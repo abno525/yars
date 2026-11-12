@@ -554,6 +554,14 @@ func cmdLint(args []string, out io.Writer) (int, error) {
 		return 2, err
 	}
 	code, checked := 0, 0
+	// the rules' own problems once, before the findings (each finding's
+	// result repeats them: skipped below)
+	for _, p := range eng.Rules().Problems {
+		fmt.Fprintf(out, "rules %s %s: %s\n", p.Level, p.Rule, p.Message)
+		if p.Level == "error" {
+			code = 1
+		}
+	}
 	for _, e := range engs {
 		if scopeEng != "" && e.ID != scopeEng {
 			continue
@@ -574,6 +582,9 @@ func cmdLint(args []string, out io.Writer) (int, error) {
 		for _, ref := range refs {
 			checked++
 			for _, v := range eng.Lint(context.Background(), ref.F, kinds) {
+				if v.Target == "rules" {
+					continue // printed once above
+				}
 				line := fmt.Sprintf("%s/%s %s %s: %s", e.ID, ref.F.Meta.ID, v.Level, v.Rule, v.Message)
 				if v.Quote != "" {
 					line += fmt.Sprintf(" (%q)", v.Quote)

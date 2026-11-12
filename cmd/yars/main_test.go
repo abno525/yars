@@ -243,6 +243,25 @@ func TestLintCommand(t *testing.T) {
 	if code != 0 || strings.Contains(out.String(), "F-001") {
 		t.Fatalf("scoped lint code %d:\n%s", code, out.String())
 	}
+	// a broken rules file is reported once, before the findings, and also
+	// when no finding is checked (backlog, M5)
+	if err := os.WriteFile(filepath.Join(dir, ".yars", "rules", "broken.yaml"), []byte("rules: [\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if code, err := cmdLint([]string{"--data", dir}, &out); code != 1 || err != nil || strings.Count(out.String(), "rules/broken.yaml") != 1 || !strings.HasPrefix(out.String(), "rules error rules/broken.yaml: ") {
+		t.Errorf("a broken rules file: code %d err %v:\n%s", code, err, out.String())
+	}
+	empty := t.TempDir()
+	if err := cmdInit([]string{empty}); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(empty, ".yars", "rules", "broken.yaml"), []byte("rules: [\n"), 0o644)
+	out.Reset()
+	if code, err := cmdLint([]string{"--data", empty}, &out); code != 1 || err != nil || !strings.Contains(out.String(), "rules/broken.yaml") {
+		t.Errorf("no findings: code %d err %v:\n%s", code, err, out.String())
+	}
+	os.Remove(filepath.Join(dir, ".yars", "rules", "broken.yaml"))
 	// the finding in a scope is named as the website names it: its folder,
 	// its ID or its number (backlog, M5)
 	for _, scope := range []string{"acme/F-001", "acme/1", "acme/F-001-bad-title"} {
