@@ -160,7 +160,7 @@ func TestAttachmentsPanelListsFiles(t *testing.T) {
 	}
 	// it refreshes itself like the other panels (D15): an upload from a
 	// section editor shows up
-	if !strings.Contains(b, `<section class="panel compact" id="attachments" hx-get="/e/acme/f/001/attachments" hx-trigger="sse:content, sse:resync, sse:poll" hx-swap="outerHTML" data-sse>`) {
+	if !strings.Contains(b, `<section class="panel compact" id="attachments" data-kpanel hx-get="/e/acme/f/001/attachments" hx-trigger="sse:content, sse:resync, sse:poll" hx-swap="outerHTML" data-sse>`) {
 		t.Fatalf("panel without live refresh:\n%s", p)
 	}
 	e.sendFile(t, "alice", fpath+"/attachments", "notes.txt", []byte("see above"))

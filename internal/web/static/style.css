@@ -1518,6 +1518,8 @@ form.dirty .dirtydot { visibility: visible; }
 .thumb .histdot { position: absolute; top: 4px; right: 4px; }
 .attn { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .attn .histdot { flex: none; }
+/* K2: the selected panel (click, j/k): an outline only, so nothing moves */
+[data-kpanel][data-sel] { outline: 1px solid var(--ink); outline-offset: -1px; }
 .purgekv { table-layout: fixed; }
 .kv.purgekv th + th { width: auto; }
 .purgekv td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

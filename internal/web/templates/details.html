@@ -1,5 +1,5 @@
 {{define "details_panel"}}
-<section class="panel" id="details" hx-get="{{.LiveURL}}" hx-trigger="{{liveTrigger}}" hx-swap="outerHTML" data-sse>
+<section class="panel" id="details" data-kpanel hx-get="{{.LiveURL}}" hx-trigger="{{liveTrigger}}" hx-swap="outerHTML" data-sse>
   <div class="panelhead">
     <h2 id="s-details">Details</h2>
     <div class="panel-tools">
@@ -34,7 +34,7 @@
 {{end}}
 
 {{define "details_editor"}}
-<section class="panel editing" id="details">
+<section class="panel editing" id="details" data-kpanel>
   <form class="flush" hx-post="{{.SaveURL}}" hx-target="#details" hx-swap="outerHTML" data-guard>
     <div class="panelhead"><h2>Details</h2></div>
     <input type="hidden" name="base" value="{{.Base}}">

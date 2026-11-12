@@ -1,5 +1,5 @@
 {{define "workflow_bar"}}
-<section class="wf" id="workflow" aria-label="Workflow" hx-get="{{.URL}}" hx-trigger="sse:workflow, sse:content, sse:check, sse:resync, sse:poll{{if .Refetch}}, load{{end}}" hx-swap="outerHTML" data-sse>
+<section class="wf" id="workflow" data-kpanel aria-label="Workflow" hx-get="{{.URL}}" hx-trigger="sse:workflow, sse:content, sse:check, sse:resync, sse:poll{{if .Refetch}}, load{{end}}" hx-swap="outerHTML" data-sse>
   <ol class="steps">
     {{if .IsWithdrawn}}{{range .Steps}}<li class="step">{{statusLabel .}}</li>{{end}}{{else}}
     {{$past := true}}

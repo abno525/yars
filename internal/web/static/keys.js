@@ -106,6 +106,121 @@ function yarsFire(key, scope) {
   return false;
 }
 
+/* ---------- selection (K2): a click or j/k selects a panel ---------- */
+
+// yarsSel is the selected panel's id (htmx swaps the element; the id stays);
+// yarsSideFrom the main panel selected before l or → went to the side panel.
+var yarsSel = '';
+var yarsSideFrom = '';
+
+function yarsSelected() {
+  var p = yarsSel ? document.getElementById(yarsSel) : null;
+  return p && p.hasAttribute('data-kpanel') ? p : null;
+}
+
+// yarsSelect marks el selected (null: nothing) and keeps it in view; the
+// mark is an outline, so nothing moves.
+function yarsSelect(el) {
+  document.querySelectorAll('[data-kpanel][data-sel]').forEach(function (p) {
+    if (p !== el) p.removeAttribute('data-sel');
+  });
+  yarsSel = el && el.id ? el.id : '';
+  if (!el) return;
+  el.setAttribute('data-sel', '');
+  if (el.scrollIntoView) el.scrollIntoView({block: 'nearest'});
+}
+
+document.addEventListener('pointerdown', function (evt) {
+  var p = evt.target.closest && evt.target.closest('[data-kpanel]');
+  if (p) yarsSelect(p);
+}, true);
+// a swapped panel (live refresh, editor) keeps its mark
+document.addEventListener('htmx:afterSettle', function () {
+  var p = yarsSelected();
+  if (p && !p.hasAttribute('data-sel')) p.setAttribute('data-sel', '');
+});
+
+// yarsMainPanels: the selectable main panels in document order (rendered).
+function yarsMainPanels() {
+  return Array.prototype.filter.call(document.querySelectorAll('[data-kpanel]:not([data-kpanel="side"])'), function (p) {
+    return p.getClientRects().length > 0;
+  });
+}
+
+// yarsStep selects the next (d = 1) or previous (d = -1) main panel; with
+// nothing selected (or the side panel), the first.
+function yarsStep(d) {
+  var list = yarsMainPanels();
+  if (!list.length) return false;
+  var i = list.indexOf(yarsSelected());
+  if (i < 0) { yarsSelect(list[0]); return true; }
+  yarsSelect(list[Math.max(0, Math.min(list.length - 1, i + d))]);
+  return true;
+}
+
+// yarsSide selects the side panel (l, →), remembering where it came from;
+// yarsBack returns there (h, ←).
+function yarsSide() {
+  var s = document.querySelector('[data-kpanel="side"]');
+  if (!s) return false;
+  var cur = yarsSelected();
+  if (cur && cur !== s) yarsSideFrom = cur.id;
+  yarsSelect(s);
+  return true;
+}
+function yarsBack() {
+  var p = yarsSideFrom ? document.getElementById(yarsSideFrom) : null;
+  if (!p || !p.hasAttribute('data-kpanel')) return false;
+  yarsSelect(p);
+  return true;
+}
+
+// yarsEscape closes the topmost thing: an open dialog (the browser's own),
+// an open popover, a reason or dismiss form, the selected panel's open editor
+// (asking before it drops changes), the focus in a field, the selection.
+function yarsEscape() {
+  if (document.querySelector('dialog[open]')) return;
+  var pop = document.querySelector('details.pop[open]');
+  if (pop) {
+    pop.open = false;
+    var sum = pop.querySelector('summary');
+    if (sum) sum.focus();
+    return;
+  }
+  var forms = [['.wfpanel', '[data-reason-cancel]'], ['.dismissrow', '[data-dismiss-cancel]'], ['.bdlg', '[data-bulk-cancel]']];
+  for (var i = 0; i < forms.length; i++) {
+    var open = Array.prototype.filter.call(document.querySelectorAll(forms[i][0]), function (el) { return !el.hidden && el.getClientRects().length > 0; });
+    if (open.length) {
+      var c = open[0].querySelector(forms[i][1]);
+      if (c) { c.click(); return; }
+    }
+  }
+  var sel = yarsSelected();
+  var cancel = sel && sel.classList.contains('editing') ? sel.querySelector('[data-guard-cancel]') : null;
+  if (cancel) { cancel.click(); return; }
+  var a = document.activeElement;
+  if (a && a !== document.body && yarsTyping(a)) { a.blur(); return; }
+  if (sel) yarsSelect(null);
+}
+
+// yarsNav handles the navigation keys of the panel pages; true when used.
+// Arrows act only while a panel is selected (otherwise the page scrolls).
+function yarsNav(key) {
+  if (!document.querySelector('[data-kpanel]')) return false;
+  var sel = !!yarsSelected();
+  switch (key) {
+  case 'J': return yarsStep(1);
+  case 'K': return yarsStep(-1);
+  case 'ArrowDown': return sel && yarsStep(1);
+  case 'ArrowUp': return sel && yarsStep(-1);
+  case 'L': return yarsSide();
+  case 'ArrowRight': return sel && yarsSide();
+  case 'H': return yarsBack();
+  case 'ArrowLeft': return sel && yarsBack();
+  }
+  return false;
+}
+
 document.addEventListener('keydown', function (evt) {
   var key = yarsKeyOf(evt);
   if (key === 'Control+S') {
@@ -119,12 +234,13 @@ document.addEventListener('keydown', function (evt) {
     if (f) { evt.preventDefault(); f.requestSubmit(); }
     return;
   }
-  if (key === 'Escape') return; // the open dialog's own, for now
+  if (key === 'Escape') { yarsEscape(); return; }
   // single keys and Shift+key: never into a field, during composition, on
   // repeat, under a modal dialog, or with shortcuts off
   if (yarsKeysOff() || evt.isComposing || evt.repeat || evt.altKey || evt.defaultPrevented ||
       yarsTyping(evt.target) || document.querySelector('dialog[open]')) return;
   if (evt.ctrlKey || evt.metaKey) return; // the browser's own (Ctrl+K is app.js's)
+  if (yarsNav(key)) { evt.preventDefault(); return; }
   if (key === 'E') { if (yarsEdit()) evt.preventDefault(); return; }
   if (yarsFire(key)) evt.preventDefault();
 });

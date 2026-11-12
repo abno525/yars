@@ -98,6 +98,58 @@ func TestKeysScriptLoaded(t *testing.T) {
 	}
 }
 
+// tagOf is the opening tag of the element with id, of any kind ("" when
+// missing).
+func tagOf(b, id string) string {
+	i := strings.Index(b, ` id="`+id+`"`)
+	if i < 0 {
+		return ""
+	}
+	start := strings.LastIndex(b[:i], "<")
+	return b[start : i+strings.Index(b[i:], ">")+1]
+}
+
+// K2: every panel of the finding page can be selected; the chat is the
+// side panel.
+func TestPanelsCarrySelectHooks(t *testing.T) {
+	e := setup(t)
+	e.rules(t, styleRules, nil)
+	b := e.do(t, "alice", "GET", fpath, nil, nil).Body.String()
+	for _, id := range []string{"workflow", "details", "assets", "cvss", "s-description", "s-impact", "attachments", "checks"} {
+		if tag := tagOf(b, id); !regexp.MustCompile(` data-kpanel[ >]`).MatchString(tag) {
+			t.Errorf("#%s: %q", id, tag)
+		}
+	}
+	if tag := tagOf(b, "chat"); !strings.Contains(tag, ` data-kpanel="side"`) {
+		t.Errorf("#chat: %q", tag)
+	}
+}
+
+// An editor swapped in keeps the hook, so the selection survives Edit.
+func TestEditorKeepsSelectHook(t *testing.T) {
+	e := setup(t)
+	for id, u := range map[string]string{"s-impact": fpath + "/s/Impact/edit", "details": fpath + "/details/edit", "assets": fpath + "/assets/edit", "cvss": fpath + "/cvss/edit"} {
+		if tag := tagOf(e.do(t, "alice", "GET", u, nil, nil).Body.String(), id); !regexp.MustCompile(` data-kpanel[ >]`).MatchString(tag) {
+			t.Errorf("%s editor: %q", id, tag)
+		}
+	}
+}
+
+// K2, K5: keys.js selects panels and closes things on Esc; the selection is
+// an outline (nothing moves).
+func TestKeysSelectionMarkers(t *testing.T) {
+	e := setup(t)
+	js := e.do(t, "alice", "GET", "/static/keys.js", nil, nil).Body.String()
+	for _, want := range []string{"data-sel", "function yarsSelect", "function yarsEscape", `[data-kpanel]:not([data-kpanel="side"])`, "scrollIntoView({block: 'nearest'})"} {
+		if !strings.Contains(js, want) {
+			t.Errorf("keys.js lacks %s", want)
+		}
+	}
+	if css := e.do(t, "alice", "GET", "/static/style.css", nil, nil).Body.String(); !strings.Contains(css, "[data-kpanel][data-sel] { outline: 1px solid var(--ink); outline-offset: -1px; }") {
+		t.Error("style.css lacks the selection outline")
+	}
+}
+
 // The key block left app.js for keys.js.
 func TestAppJSHasNoKeyBlock(t *testing.T) {
 	e := setup(t)

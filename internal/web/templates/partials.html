@@ -151,7 +151,7 @@ the table's column count. */}}
 {{end}}
 
 {{define "editor"}}
-<section class="panel editing{{if .Conflict}} conflict{{end}}" id="s-{{.Anchor}}">
+<section class="panel editing{{if .Conflict}} conflict{{end}}" id="s-{{.Anchor}}" data-kpanel>
   <form class="flush" hx-post="{{.SaveURL}}" hx-target="#s-{{.Anchor}}" hx-swap="outerHTML" data-guard{{if .Presence.URL}} data-presence="{{.Presence.URL}}"{{end}}>
     <div class="panelhead">
       <h2 title="{{.Name}}">{{.Name}}<span class="dirtydot" title="Unsaved"></span></h2>
@@ -204,7 +204,7 @@ the table's column count. */}}
 {{end}}
 
 {{define "panel"}}
-<section class="panel" id="s-{{.Anchor}}"{{if .LiveURL}} hx-get="{{.LiveURL}}" hx-trigger="{{liveTrigger}}" hx-swap="outerHTML" data-sse{{end}}>
+<section class="panel" id="s-{{.Anchor}}" data-kpanel{{if .LiveURL}} hx-get="{{.LiveURL}}" hx-trigger="{{liveTrigger}}" hx-swap="outerHTML" data-sse{{end}}>
   <div class="panelhead">
     <div class="panelname"><h2>{{.Name}}</h2>{{if .Open}}<span class="open-count">{{.Open}}</span>{{end}}</div>
     <span class="panel-tools">

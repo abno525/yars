@@ -3,7 +3,7 @@
 {{define "lock"}}<span class="lock" title="Locked" aria-label="Locked"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><rect x="5" y="11" width="14" height="10"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path></svg></span>{{end}}
 
 {{define "cvss_panel"}}
-<section class="panel cvss" id="cvss" hx-get="{{.LiveURL}}" hx-trigger="{{liveTrigger}}" hx-swap="outerHTML" data-sse>
+<section class="panel cvss" id="cvss" data-kpanel hx-get="{{.LiveURL}}" hx-trigger="{{liveTrigger}}" hx-swap="outerHTML" data-sse>
   <div class="panelhead">
     <h2 id="s-cvss">CVSS 3.1{{if .HasStored}} <code class="vector" title="{{.Vector}}">{{.Vector}}</code>{{end}}</h2>
     <div class="panel-tools">
@@ -50,7 +50,7 @@
 {{end}}
 
 {{define "cvss_editor"}}
-<section class="panel editing cvss" id="cvss">
+<section class="panel editing cvss" id="cvss" data-kpanel>
   <form class="flush" hx-post="{{.SaveURL}}" hx-target="#cvss" hx-swap="outerHTML">
     <div class="panelhead">
       <h2>CVSS 3.1</h2>
