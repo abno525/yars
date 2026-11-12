@@ -14,6 +14,7 @@ echo 'change-me' | ./yars useradd --data data --role director --admin alice
 ```
 
 Open <http://localhost:8080>. Further documentation is in [docs](docs).
+In a git clone, `yars hook install` has every commit checked by the server ([Check before you commit](docs/git.md#check-before-you-commit)).
 
 ## Default data folder
 

@@ -153,6 +153,6 @@ exec <bin> lint --staged --warn-only
 
 **Files:** modify `docs/git.md`, `README.md`
 
-- [ ] **Step 1:** `docs/git.md`, new section "Check before you commit": run `yars hook install` once per clone and again after cloning a new engagement; each commit then sends the staged findings to the server, which runs the same rules as the Check button, AI rules included, and can take as long as they do; nothing is stored on the server; it uses the login git already saved for the clone; it never blocks a commit; the push is checked again by the server.
-- [ ] **Step 2:** README: one line under Quick start pointing to that section.
-- [ ] **Step 3:** run `go test ./internal/web -run Docs` (the docs pages are rendered from these files). Commit: `docs(git): check before you commit`. Push the branch and open PR #24 (title `Pre-commit hook: the server checks staged findings`).
+- [x] **Step 1:** `docs/git.md`, new section "Check before you commit": run `yars hook install` once per clone and again after cloning a new engagement; each commit then sends the staged findings to the server, which runs the same rules as the Check button, AI rules included, and can take as long as they do; nothing is stored on the server; it uses the login git already saved for the clone; it never blocks a commit; the push is checked again by the server.
+- [x] **Step 2:** README: one line under Quick start pointing to that section.
+- [x] **Step 3:** run `go test ./internal/web -run Docs` (the docs pages are rendered from these files). Commit: `docs(git): check before you commit`. Push the branch and open PR #24 (title `Pre-commit hook: the server checks staged findings`).

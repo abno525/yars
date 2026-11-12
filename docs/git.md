@@ -86,3 +86,20 @@ Once a push passes the rules above, the server's check rules (`.yars/rules` as t
 | `… check <rule> (warning): <message>` | A warning | accepted |
 
 Errors and warnings dismissed on the finding's Checks panel don't count. The results are not stored as a check run; press Check to see them on the finding page.
+
+## Check before you commit
+
+```sh
+yars hook install --data <clone>
+```
+
+Run it once in each clone (a main clone or an engagement clone), and again after a new engagement arrives in a main clone (`git submodule update --init`): it puts a `pre-commit` hook in every engagement repository. Each commit then sends the findings it holds (`finding.md` as staged, not the work tree) to the server, which checks them with the same rules as the Check button, AI rules included, so a commit can take as long as a Check does (at most two minutes). Nothing is stored on the server: no commit, no check run. The hook signs in with the login git already saved for the clone (the clone URL, or git's credential helper); without one it says so and checks nothing.
+
+| Output | When |
+|---|---|
+| `findings/F-005-…/finding.md error <rule>: <message> ("<quote>") [<target>]` | A rule the finding breaks; `warning` for a warning |
+| `yars: 1 errors, 0 warnings in 1 findings (commit not blocked)` | The last line |
+| `yars: could not ask <host>: <reason>; nothing checked` | The server is down, slow or refused the login |
+| `<hook>: a pre-commit hook exists already; add this line to it: …` | At install: a hook you wrote is kept; add the line yourself |
+
+The hook never blocks a commit: the push is checked again by the server (see above). `yars lint --staged` runs the same check by hand, and without `--warn-only` exits 1 when there are errors.
