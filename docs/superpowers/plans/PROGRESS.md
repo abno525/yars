@@ -91,5 +91,6 @@ M27 task 1  review   passed; nits 0cb1efe
 M27 task 2  review   passed; test nits 9e94ffe
 M27 task 3  review   passed; fix fcf238a (inbox row kept after a revert; bulk dialog's Revert button secondary)
 M27 task 4  review   passed; nits 51798da
-M27 branch  reviewed fixes 0a3c0a5 (the author's revert over MCP; inbox row in its sorted place; Revert titles); its check passed; nit
+M27 branch  reviewed fixes 0a3c0a5 (the author's revert over MCP; inbox row in its sorted place; Revert titles); its check passed; nit 2e48ccc
+M27 PR      opened   #21
 ```
