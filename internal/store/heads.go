@@ -267,11 +267,24 @@ func (s *Store) commit(prev map[string][]byte, msg string, a gitrepo.Author, cle
 		paths = append(paths, p)
 	}
 	sort.Strings(paths)
+	restore := func(err error) error {
+		for _, p := range paths {
+			if prev[p] == nil {
+				s.root.Remove(p)
+			} else {
+				s.writeFile(p, prev[p])
+			}
+		}
+		if cleanupDir != "" {
+			s.root.RemoveAll(cleanupDir)
+		}
+		return err
+	}
 	repo, rel, key := s.repo, paths, ""
 	if seg := strings.SplitN(paths[0], "/", 3); len(seg) == 3 && seg[0] == "engagements" {
 		r, err := s.EngRepo(seg[1])
 		if err != nil {
-			return err
+			return restore(err)
 		}
 		repo, rel, key = r, nil, seg[1]
 		for _, p := range paths {
@@ -284,15 +297,5 @@ func (s *Store) commit(prev map[string][]byte, msg string, a gitrepo.Author, cle
 		return nil
 	}
 	repo.Unstage(rel)
-	for _, p := range paths {
-		if prev[p] == nil {
-			s.root.Remove(p)
-		} else {
-			s.writeFile(p, prev[p])
-		}
-	}
-	if cleanupDir != "" {
-		s.root.RemoveAll(cleanupDir)
-	}
-	return err
+	return restore(err)
 }
