@@ -93,4 +93,5 @@ M27 task 3  review   passed; fix fcf238a (inbox row kept after a revert; bulk di
 M27 task 4  review   passed; nits 51798da
 M27 branch  reviewed fixes 0a3c0a5 (the author's revert over MCP; inbox row in its sorted place; Revert titles); its check passed; nit 2e48ccc
 M27 PR      opened   #21
+M28 task 1  done     bdac2ae..0ce9144 (nine moves; store.go 268 lines; the 1190 test names unchanged)
 ```
