@@ -3,7 +3,7 @@
   <div class="filters">
     <nav class="seg nocap fseg" aria-label="Status">
     {{range .StatusFilters}}
-    <a class="{{if .Active}}on{{end}}" id="flt-{{.Key}}" href="{{.URL}}" hx-get="{{.URL}}" hx-target="#findings" hx-swap="outerHTML" hx-push-url="true">{{.Label}} · {{.Count}}</a>
+    <a class="{{if .Active}}on{{end}}" id="flt-{{.Key}}"{{with .Keys}} aria-keyshortcuts="{{.}}"{{end}} href="{{.URL}}" hx-get="{{.URL}}" hx-target="#findings" hx-swap="outerHTML" hx-push-url="true">{{.Label}} · {{.Count}}</a>
     {{end}}
     </nav>
     {{if .SearchURL}}

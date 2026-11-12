@@ -33,7 +33,8 @@ func (s *Server) engList(p *page, show string) error {
 		if f.Key != "" {
 			u += "?show=" + f.Key
 		}
-		p.StatusFilters = append(p.StatusFilters, link{Key: f.Key, Label: f.Label, URL: u, Active: f.Key == show, Count: n[f.Key]})
+		p.StatusFilters = append(p.StatusFilters, link{Key: f.Key, Label: f.Label, URL: u, Active: f.Key == show, Count: n[f.Key],
+			Keys: filterKey(len(p.StatusFilters))})
 	}
 	p.EngShow = show
 	engs := p.Engagements[:0:0]

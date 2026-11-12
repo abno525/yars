@@ -423,6 +423,41 @@ func TestNavKeysDeclared(t *testing.T) {
 	}
 }
 
+// The findings list and the engagements list: the digits pick the state
+// filter by its place (1 All, 2 Draft, 3 Verification; 1 All, 2 Active,
+// 3 Archived), and ↓ ↑ move the row focus as j k do, so the page does not
+// scroll instead; the ? list names both.
+func TestListFilterDigitsAndArrows(t *testing.T) {
+	e := setup(t)
+	b := e.do(t, "alice", "GET", "/e/acme", nil, nil).Body.String()
+	for id, key := range map[string]string{"flt-all": "1", "flt-draft": "2", "flt-verification": "3", "flt-withdrawn": "7"} {
+		if tag := tagOf(b, id); !strings.Contains(tag, ` aria-keyshortcuts="`+key+`"`) {
+			t.Errorf("#%s lacks %s: %s", id, key, tag)
+		}
+	}
+	home := between(e.do(t, "alice", "GET", "/", nil, nil).Body.String(), `aria-label="Show"`, "</nav>")
+	for _, w := range []string{`aria-keyshortcuts="1" href="/engagements">All`, `aria-keyshortcuts="2" href="/engagements?show=active">Active`, `aria-keyshortcuts="3" href="/engagements?show=archived">Archived`} {
+		if !strings.Contains(home, w) {
+			t.Errorf("engagements filter lacks %s:\n%s", w, home)
+		}
+	}
+	js := e.do(t, "alice", "GET", "/static/keys.js", nil, nil).Body.String()
+	nav := js[strings.Index(js, "function yarsListNav(key)"):]
+	nav = nav[:strings.Index(nav, "\n}\n")]
+	for _, w := range []string{"case 'ArrowDown': return yarsRowStep(1);", "case 'ArrowUp': return yarsRowStep(-1);"} {
+		if !strings.Contains(nav, w) {
+			t.Errorf("yarsListNav lacks %s:\n%s", w, nav)
+		}
+	}
+	d := between(e.do(t, "alice", "GET", "/", nil, nil).Body.String(), `data-keys-group="lists"`, "</section>")
+	for _, w := range []string{`<dt><kbd>j</kbd><kbd>k</kbd><kbd>↓</kbd><kbd>↑</kbd></dt><dd>Next or previous row</dd>`,
+		`<div class="krow" data-keys-for="1"><dt><kbd>1</kbd>–<kbd>9</kbd></dt><dd>State filter</dd></div>`} {
+		if !strings.Contains(d, w) {
+			t.Errorf("the Lists group lacks %s:\n%s", w, d)
+		}
+	}
+}
+
 // K7: each list row has one data-nav control, the one j/k focus.
 func TestRowsCarryNav(t *testing.T) {
 	e := setup(t)

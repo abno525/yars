@@ -28,7 +28,7 @@ func TestEngagementsListFilterAndArchive(t *testing.T) {
 	}
 	e.srv.Store.AddMembers("beta", []string{"alice"}, dora)
 	b := e.do(t, "dora", "GET", "/engagements", nil, nil).Body.String()
-	for _, want := range []string{`<a class="on" href="/engagements">All · 2</a>`, `<a href="/engagements?show=active">Active · 2</a>`, `<a href="/engagements?show=archived">Archived · 0</a>`} {
+	for _, want := range []string{`<a class="on" aria-keyshortcuts="1" href="/engagements">All · 2</a>`, `<a aria-keyshortcuts="2" href="/engagements?show=active">Active · 2</a>`, `<a aria-keyshortcuts="3" href="/engagements?show=archived">Archived · 0</a>`} {
 		if !strings.Contains(b, want) {
 			t.Fatalf("filter lacks %q:\n%s", want, between(b, `aria-label="Show"`, "</nav>"))
 		}
@@ -76,7 +76,7 @@ func TestEngagementsListFilterAndArchive(t *testing.T) {
 		t.Fatalf("archive %d %q", rec.Code, rec.Header().Get("Location"))
 	}
 	b = e.do(t, "dora", "GET", "/engagements?show=archived", nil, nil).Body.String()
-	if !strings.Contains(b, `<a class="on" href="/engagements?show=archived">Archived · 1</a>`) || englistRow(b, "beta") != "" {
+	if !strings.Contains(b, `<a class="on" aria-keyshortcuts="3" href="/engagements?show=archived">Archived · 1</a>`) || englistRow(b, "beta") != "" {
 		t.Fatalf("archived filter:\n%s", b)
 	}
 	r = englistRow(b, "acme")

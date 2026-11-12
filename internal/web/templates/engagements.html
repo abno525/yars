@@ -6,7 +6,7 @@
   </div>
 </div>
 <section class="englistsec">
-  <nav class="seg small nocap" aria-label="Show">{{range .StatusFilters}}<a{{if .Active}} class="on"{{end}} href="{{.URL}}">{{.Label}} · {{.Count}}</a>{{end}}</nav>
+  <nav class="seg small nocap" aria-label="Show">{{range .StatusFilters}}<a{{if .Active}} class="on"{{end}}{{with .Keys}} aria-keyshortcuts="{{.}}"{{end}} href="{{.URL}}">{{.Label}} · {{.Count}}</a>{{end}}</nav>
   <table class="table englist">
     <thead><tr>
       <th>Name</th>

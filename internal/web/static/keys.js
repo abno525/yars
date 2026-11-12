@@ -223,14 +223,18 @@ function yarsRowBox() {
   return cb && !cb.disabled ? cb : null;
 }
 // yarsListNav handles the list keys on pages without panels; true when used.
-// x ticks the focused row; Shift+Space ticks the range from the row last
-// clicked to it (app.js yarsRange; bulk lists only).
+// ↓ ↑ move as j k do (the page does not scroll instead). x ticks the focused
+// row; Shift+Space ticks the range from the row last clicked to it (app.js
+// yarsRange; bulk lists only). The digits are the state filters' own
+// (aria-keyshortcuts, yarsFire).
 function yarsListNav(key) {
   if (document.querySelector('[data-kpanel]')) return false;
   var cb;
   switch (key) {
   case 'J': return yarsRowStep(1);
   case 'K': return yarsRowStep(-1);
+  case 'ArrowDown': return yarsRowStep(1);
+  case 'ArrowUp': return yarsRowStep(-1);
   case 'X':
     if (!(cb = yarsRowBox())) return false;
     cb.click();
