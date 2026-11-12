@@ -220,16 +220,24 @@ func TestRevertLabel(t *testing.T) {
 	if Label(Reopen) != "Revert" || Label(Unreport) != "Revert" {
 		t.Fatalf("labels %q %q", Label(Reopen), Label(Unreport))
 	}
+	// both are "Revert": a refusal for the wrong status says which one
+	if err := Check(dora, meta("reported"), Reopen); err == nil || err.Error() != "Revert to verification is only possible in complete (finding is reported)" {
+		t.Errorf("reopen on reported: %v", err)
+	}
+	if err := Check(dora, meta("complete"), Unreport); err == nil || err.Error() != "Revert to complete is only possible in reported (finding is complete)" {
+		t.Errorf("unreport on complete: %v", err)
+	}
 }
 
 func TestParseAction(t *testing.T) {
 	for in, want := range map[string]Action{"clear": Clear, "sign_off": Clear, "Sign_Off": Clear, " submit ": Submit,
-		"report": Report, "withdraw": Withdraw, "revise": Revise} {
+		"report": Report, "withdraw": Withdraw, "revise": Revise, "unreport": Unreport, "reopen": Reopen} {
 		if got, ok := ParseAction(in); !ok || got != want {
 			t.Errorf("ParseAction(%q) = %q, %v", in, got, ok)
 		}
 	}
-	for _, in := range []string{"", "bogus", "signoff2"} {
+	// revert is resolved by callers (RevertOf), not parsed
+	for _, in := range []string{"", "bogus", "signoff2", "revert"} {
 		if _, ok := ParseAction(in); ok {
 			t.Errorf("ParseAction(%q) accepted", in)
 		}

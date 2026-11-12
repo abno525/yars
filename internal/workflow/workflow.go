@@ -137,7 +137,12 @@ func Check(u config.User, m finding.Meta, a Action) error {
 		return deny("unknown action %q", a)
 	}
 	if !slices.Contains(from, m.Status) {
-		return deny("%s is only possible in %s (finding is %s)", Label(a), strings.Join(from, " or "), m.Status)
+		// both reverts are labelled Revert: say which one
+		name := map[Action]string{Reopen: "Revert to verification", Unreport: "Revert to complete"}[a]
+		if name == "" {
+			name = Label(a)
+		}
+		return deny("%s is only possible in %s (finding is %s)", name, strings.Join(from, " or "), m.Status)
 	}
 	switch a {
 	case Submit:

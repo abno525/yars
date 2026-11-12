@@ -148,7 +148,7 @@ func TestWorkflowSlotsComplete(t *testing.T) {
 	// the author marks it reported or reverts it (R4); Withdraw (after her
 	// last button) is left out
 	alice := actionsOf(t, e.do(t, "alice", "GET", fpath, nil, nil).Body.String())
-	if strings.Count(alice, "data-action=") != 2 || !strings.Contains(alice, `data-action="report"`) || !strings.Contains(alice, `data-action="reopen"`) || strings.Contains(alice, `data-slot="withdraw"`) {
+	if strings.Count(alice, "data-action=") != 2 || !strings.Contains(alice, `data-action="report"`) || !strings.Contains(alice, `data-action="reopen"`) || strings.Contains(alice, `data-slot="withdraw"`) || strings.Contains(alice, `class="slot w136"`) {
 		t.Fatalf("alice on complete:\n%s", alice)
 	}
 	e.pen2(t)
