@@ -99,4 +99,5 @@ M28 task 3  done     874ca24 to d8e8d03 (one commit per package: web, store, mcp
 M28 tasks   review   passed (1, 2, 3: byte-for-byte moves checked; placements as recorded); wording nits 9da5d61
 M28 branch  reviewed passed but for size: split into pr/22a-store-split (to a2160ff) and pr/22b-test-names 44885ee
 M28 PRs     opened   #22 (pr/22a-store-split), #23 (pr/22b-test-names)
+M29 task 1  done     (browser check 1 passed: "ecinjk?/" typed into a Details textarea, an Assets input, the CVSS paste and reason, a section body, a chat reply, the composer; a CVSS radio and the section select unchanged; the page, its five open editors and its panels unchanged; Ctrl+K and Esc work from the composer)
 ```

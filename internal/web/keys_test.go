@@ -65,11 +65,43 @@ func TestSaveShortcutOnSaveButtons(t *testing.T) {
 			t.Errorf("cvss editor without Clear vector:\n%s", b)
 		}
 	}
-	// app.js has the handlers
-	js := e.do(t, "alice", "GET", "/static/app.js", nil, nil).Body.String()
+	// keys.js has the handlers
+	js := e.do(t, "alice", "GET", "/static/keys.js", nil, nil).Body.String()
 	for _, want := range []string{`aria-keyshortcuts~="Control+S"`, `aria-keyshortcuts~="E"`, "requestSubmit", "preventDefault"} {
 		if !strings.Contains(js, want) {
-			t.Errorf("app.js lacks %s", want)
+			t.Errorf("keys.js lacks %s", want)
 		}
+	}
+}
+
+// K1–K10: one dispatcher in keys.js, loaded on every page after app.js.
+func TestKeysScriptLoaded(t *testing.T) {
+	e := setup(t)
+	for _, u := range []string{"alice", ""} {
+		p := fpath
+		if u == "" {
+			p = "/login"
+		}
+		b := e.do(t, u, "GET", p, nil, nil).Body.String()
+		if !strings.Contains(b, `<script src="`+staticPrefix()+`/keys.js" defer></script>`) {
+			t.Fatalf("%s: no keys.js:\n%s", p, between(b, "<head>", "</head>"))
+		}
+	}
+	js := e.do(t, "alice", "GET", "/static/keys.js", nil, nil)
+	if js.Code != 200 {
+		t.Fatalf("keys.js %d", js.Code)
+	}
+	for _, want := range []string{"function yarsFire", "function yarsKeyOf", "function yarsKeysOff", "isComposing", "evt.repeat"} {
+		if !strings.Contains(js.Body.String(), want) {
+			t.Errorf("keys.js lacks %s", want)
+		}
+	}
+}
+
+// The key block left app.js for keys.js.
+func TestAppJSHasNoKeyBlock(t *testing.T) {
+	e := setup(t)
+	if js := e.do(t, "alice", "GET", "/static/app.js", nil, nil).Body.String(); strings.Contains(js, "function yarsEdit(") || strings.Contains(js, "function yarsSave(") {
+		t.Fatal("app.js still has the key block")
 	}
 }
