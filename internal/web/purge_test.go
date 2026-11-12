@@ -5,6 +5,8 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -174,6 +176,33 @@ func TestPurgeOutlivesWriteTimeout(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusSeeOther {
 		t.Fatalf("code %d", resp.StatusCode)
+	}
+}
+
+// D28: a purge whose cleanup failed says so on its page (500), keeps the
+// mark and the Purge button; Purge again finishes it.
+func TestPurgeNotFinishedPage(t *testing.T) {
+	e := setup(t)
+	redacted(t, e)
+	lock := filepath.Join(e.dir, "engagements", "acme", ".git", "objects", "info", "commit-graph.lock")
+	if err := os.WriteFile(lock, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rec := e.do(t, "dora", "POST", fpath+"/attachments/shot.png/purge", url.Values{}, nil)
+	b := rec.Body.String()
+	if rec.Code != http.StatusInternalServerError || !strings.Contains(between(b, `<div class="errslot">`, "</div>"), ">Purged from history, but not finished (see the server log); Purge again to finish</p>") ||
+		!strings.Contains(b, `<button class="btn danger w112">Purge</button>`) {
+		t.Fatalf("not finished %d:\n%s", rec.Code, b)
+	}
+	if p := attachmentsPanel(t, e.do(t, "dora", "GET", fpath, nil, nil).Body.String()); !strings.Contains(rowOf(t, p, "shot.png"), purgeLink) {
+		t.Fatalf("no mark or Purge while not finished:\n%s", p)
+	}
+	os.Remove(lock)
+	if rec := e.do(t, "dora", "POST", fpath+"/attachments/shot.png/purge", url.Values{}, nil); rec.Code != http.StatusSeeOther {
+		t.Fatalf("Purge again %d:\n%s", rec.Code, rec.Body.String())
+	}
+	if p := attachmentsPanel(t, e.do(t, "dora", "GET", fpath, nil, nil).Body.String()); strings.Contains(p, "histdot") {
+		t.Fatalf("still marked:\n%s", p)
 	}
 }
 

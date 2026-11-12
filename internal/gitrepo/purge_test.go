@@ -155,6 +155,74 @@ func TestDropOldBlobsAtEveryPath(t *testing.T) {
 	}
 }
 
+// D28: a file whose folder a push renamed after the redaction keeps its
+// earlier versions under the old name: they are found and dropped.
+func TestBlobsOfFollowsRenames(t *testing.T) {
+	r, dir, blobA, blobB := history(t)
+	os.Mkdir(filepath.Join(dir, "moved"), 0o755)
+	git(t, dir, "mv", "a.png", "moved/a.png")
+	git(t, dir, "commit", "-q", "-m", "moved")
+	if got, err := r.BlobsOf("moved/a.png"); err != nil || !slices.Contains(got, blobA) || !slices.Contains(got, blobB) {
+		t.Fatalf("blobs %v %v", got, err)
+	}
+	if err := r.DropOldBlobs("moved/a.png", blobB); err != nil {
+		t.Fatal(err)
+	}
+	if exec.Command("git", "-C", dir, "cat-file", "-e", blobA).Run() == nil {
+		t.Fatal("the old version is still in the repository")
+	}
+}
+
+// D28: odd paths in history: one starting with a colon is dropped like any
+// other; one with a line break cannot be listed for the filter, so the
+// drop fails, and not with the advice to redact a current file.
+func TestDropOldBlobsOddPaths(t *testing.T) {
+	for _, odd := range []string{":x.png", "nl\nx.png"} {
+		r, dir, blobA, blobB := history(t)
+		if err := os.WriteFile(filepath.Join(dir, odd), []byte("A"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		git(t, dir, "--literal-pathspecs", "add", "--", odd)
+		git(t, dir, "commit", "-q", "-m", "copy")
+		git(t, dir, "--literal-pathspecs", "rm", "-q", "--", odd)
+		git(t, dir, "commit", "-q", "-m", "copy gone")
+		err := r.DropOldBlobs("a.png", blobB)
+		var ee *ElsewhereError
+		switch {
+		case odd == ":x.png" && err != nil:
+			t.Fatalf("%q: %v", odd, err)
+		case odd == ":x.png" && exec.Command("git", "-C", dir, "cat-file", "-e", blobA).Run() == nil:
+			t.Fatalf("%q: the old version is still there", odd)
+		case odd != ":x.png" && (err == nil || errors.As(err, &ee)):
+			t.Fatalf("%q: %v", odd, err)
+		}
+	}
+}
+
+// D28: a drop that stopped after the rewrite (the server stopped) left the
+// backup ref, the reflogs and the old objects: FinishDrop removes them.
+func TestFinishDrop(t *testing.T) {
+	r, dir, blobA, blobB := history(t)
+	cmd := exec.Command("git", "-C", dir, "filter-branch", "-f", "--index-filter",
+		`test "$(git rev-parse -q --verify :a.png)" = "`+blobA+`" && git rm -q --cached -- a.png; true`, "--", "HEAD")
+	cmd.Env = append(os.Environ(), "FILTER_BRANCH_SQUELCH_WARNING=1")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("filter-branch: %v %s", err, out)
+	}
+	if err := r.FinishDrop([]string{blobA, blobB}); err != nil {
+		t.Fatal(err)
+	}
+	if refs := gitOut(t, dir, "for-each-ref", "refs/original"); refs != "" {
+		t.Fatalf("backup refs left: %s", refs)
+	}
+	if exec.Command("git", "-C", dir, "cat-file", "-e", blobA).Run() == nil {
+		t.Fatal("the old version is still in the repository")
+	}
+	if exec.Command("git", "-C", dir, "cat-file", "-e", blobB).Run() != nil {
+		t.Fatal("the current version went")
+	}
+}
+
 // D28: a drop that fails after the rewrite leaves no backup ref behind.
 func TestDropOldBlobsFailureLeavesNoBackupRef(t *testing.T) {
 	r, dir, blobA, _ := history(t)

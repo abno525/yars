@@ -14,27 +14,33 @@ import (
 var literal = []string{"GIT_LITERAL_PATHSPECS=1"}
 
 // BlobsOf lists the distinct blob ids path has had in the history of HEAD,
-// newest first: every commit (no history simplification), and a merge's
-// own version against each of its parents.
+// newest first: every commit (no history simplification), a merge's own
+// version against each of its parents, and the versions it had under an
+// earlier name (a file or folder a push renamed).
 func (r *Repo) BlobsOf(path string) ([]string, error) {
-	out, err := r.run(literal, "log", "--raw", "--no-abbrev", "--no-renames", "--full-history", "-m", "--format=", "HEAD", "--", path)
-	if err != nil {
-		return nil, err
-	}
 	var blobs []string
 	seen := map[string]bool{}
-	for _, line := range strings.Split(out, "\n") {
-		// :100644 100644 <old> <new> M<TAB>path
-		f := strings.Fields(line)
-		if len(f) < 5 || !strings.HasPrefix(f[0], ":") {
-			continue
+	for _, args := range [][]string{
+		{"log", "--raw", "--no-abbrev", "--no-renames", "--full-history", "-m", "--format=", "HEAD", "--", path},
+		{"log", "--raw", "--no-abbrev", "--follow", "--format=", "HEAD", "--", path},
+	} {
+		out, err := r.run(literal, args...)
+		if err != nil {
+			return nil, err
 		}
-		b := f[3]
-		if strings.Trim(b, "0") == "" || seen[b] {
-			continue // deleted there
+		for _, line := range strings.Split(out, "\n") {
+			// :100644 100644 <old> <new> M<TAB>path (R100<TAB>old<TAB>new)
+			f := strings.Fields(line)
+			if len(f) < 5 || !strings.HasPrefix(f[0], ":") {
+				continue
+			}
+			b := f[3]
+			if strings.Trim(b, "0") == "" || seen[b] {
+				continue // deleted there
+			}
+			seen[b] = true
+			blobs = append(blobs, b)
 		}
-		seen[b] = true
-		blobs = append(blobs, b)
 	}
 	return blobs, nil
 }
@@ -49,16 +55,15 @@ func (r *Repo) pathsOf(blobs map[string]bool) ([]string, error) {
 	var paths []string
 	seen := map[string]bool{}
 	meta := ""
+	// NUL-separated: a meta field (":<mode> <mode> <old> <new> <status>",
+	// after a commit's line breaks), then its path, taken as it is
 	for _, tok := range strings.Split(out, "\x00") {
-		tok = strings.TrimLeft(tok, "\n")
-		if strings.HasPrefix(tok, ":") {
-			meta = tok
-			continue
-		}
 		if meta == "" {
+			if m := strings.TrimLeft(tok, "\n"); strings.HasPrefix(m, ":") {
+				meta = m
+			}
 			continue
 		}
-		// :<mode> <mode> <old> <new> <status>, then the path
 		if f := strings.Fields(meta); len(f) >= 5 && blobs[f[3]] && !seen[tok] {
 			seen[tok] = true
 			paths = append(paths, tok)
@@ -111,12 +116,6 @@ func (r *Repo) TreeBlobs(rev string) (map[string]bool, error) {
 		ids[e.ID] = true
 	}
 	return ids, nil
-}
-
-// HasObject reports whether the repository holds the object.
-func (r *Repo) HasObject(id string) bool {
-	_, err := r.run(nil, "cat-file", "-e", id)
-	return err == nil
 }
 
 // GC removes the objects nothing reaches any more.
@@ -230,7 +229,9 @@ func (r *Repo) DropOldBlobsWith(path, keep string, beforeGC func() error) (err e
 		}
 	}()
 	env := append([]string{"FILTER_BRANCH_SQUELCH_WARNING=1", "YARS_IDS=" + idsFile, "YARS_PATHS=" + pathsFile}, literal...)
-	if _, err := r.runWithin(FsckTimeout, env, "filter-branch", "-f", "--index-filter", purgeFilter, "--", "HEAD"); err != nil {
+	// its scratch folder in the git folder: one left by a stop is not in
+	// the work tree, and -f clears it next time
+	if _, err := r.runWithin(FsckTimeout, env, "filter-branch", "-f", "-d", filepath.Join(gitDir, "yars-rewrite"), "--index-filter", purgeFilter, "--", "HEAD"); err != nil {
 		return err
 	}
 	if tree1, err := r.run(nil, "rev-parse", "HEAD^{tree}"); err != nil {
@@ -247,7 +248,8 @@ func (r *Repo) DropOldBlobsWith(path, keep string, beforeGC func() error) (err e
 	for _, line := range strings.Split(objs, "\n") {
 		id, p, _ := strings.Cut(line, " ")
 		if old[id] {
-			return &ElsewhereError{Path: path, At: p}
+			// not the director's to fix (a path only history has): a server error
+			return fmt.Errorf("an earlier version of %s is still reachable after the rewrite (%q)", path, p)
 		}
 	}
 	if _, err := r.run(nil, "update-ref", "-d", "refs/original/"+branch); err != nil {
@@ -264,7 +266,66 @@ func (r *Repo) DropOldBlobsWith(path, keep string, beforeGC func() error) (err e
 	if err := r.GC(); err != nil {
 		return fmt.Errorf("%w: %v", ErrPurgeCleanup, err)
 	}
+	return r.gone(ids)
+}
+
+// gone checks that none of ids is on disk any more.
+func (r *Repo) gone(ids []string) error {
+	sizes, err := r.Sizes(ids)
+	if err != nil {
+		return err
+	}
+	for i, n := range sizes {
+		if n >= 0 {
+			return fmt.Errorf("%w: %s is still on disk", ErrPurgeCleanup, short(ids[i]))
+		}
+	}
 	return nil
+}
+
+// FinishDrop completes a drop that stopped after its rewrite (the server
+// stopped, gc failed): the backup refs and the reflogs go, then gc runs
+// while any of ids the current files do not hold is still on disk. One
+// that stays is ErrPurgeCleanup.
+func (r *Repo) FinishDrop(ids []string) error {
+	head, err := r.TreeBlobs("HEAD")
+	if err != nil {
+		return err
+	}
+	var want []string
+	for _, id := range ids {
+		if !head[id] {
+			want = append(want, id)
+		}
+	}
+	refs, err := r.run(nil, "for-each-ref", "--format=%(refname)", "refs/original/")
+	if err != nil {
+		return err
+	}
+	backup := strings.Fields(refs)
+	for _, ref := range backup {
+		if _, err := r.run(nil, "update-ref", "-d", ref); err != nil {
+			return err
+		}
+	}
+	sizes, err := r.Sizes(want)
+	if err != nil {
+		return err
+	}
+	left := false
+	for _, n := range sizes {
+		left = left || n >= 0
+	}
+	if !left && len(backup) == 0 {
+		return nil
+	}
+	if _, err := r.run(nil, "reflog", "expire", "--expire=now", "--all"); err != nil {
+		return err
+	}
+	if err := r.GC(); err != nil {
+		return fmt.Errorf("%w: %v", ErrPurgeCleanup, err)
+	}
+	return r.gone(want)
 }
 
 func short(id string) string {

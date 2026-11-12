@@ -70,7 +70,7 @@ func (s *Store) PurgeFromHistory(engID, dir, name string, u config.User) error {
 		// not finish): its cleanup runs again while an original it removed
 		// is still on disk; then the mark goes, and the main repo's pointer
 		// follows
-		if err := s.finishCleanup(r, engID, name); err != nil {
+		if err := s.finishCleanup(r, engID); err != nil {
 			return fmt.Errorf("%w: %w", ErrPurgeIncomplete, err)
 		}
 		if err := errors.Join(s.db.MarkPurged(engID, fid, name, nil), s.SyncPointers()); err != nil {
@@ -121,20 +121,18 @@ func (s *Store) PurgeFromHistory(engID, dir, name string, u config.User) error {
 	return nil
 }
 
-// finishCleanup runs git's gc again when a blob purged for name is still on
-// disk (a purge whose gc failed before it removed anything).
-func (s *Store) finishCleanup(r *gitrepo.Repo, engID, name string) error {
+// finishCleanup completes an earlier purge of the engagement that stopped
+// after its rewrite (the server stopped, gc failed): the backup refs and
+// reflogs go, and gc runs while a purged blob the current files do not
+// hold is still on disk (whatever file it was purged for).
+func (s *Store) finishCleanup(r *gitrepo.Repo, engID string) error {
 	purged, err := s.db.PurgedBlobs(engID)
 	if err != nil {
 		return err
 	}
-	for b, n := range purged {
-		if n == name && r.HasObject(b) {
-			if err := r.GC(); err != nil {
-				return fmt.Errorf("%w: %v", gitrepo.ErrPurgeCleanup, err)
-			}
-			return nil
-		}
+	ids := make([]string, 0, len(purged))
+	for b := range purged {
+		ids = append(ids, b)
 	}
-	return nil
+	return r.FinishDrop(ids)
 }

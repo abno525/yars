@@ -274,6 +274,54 @@ func TestPurgeAfterCopyRedacted(t *testing.T) {
 	}
 }
 
+// D28: a push renamed the finding's folder after the redaction: the
+// original under the old folder name is found and purged.
+func TestPurgeAfterFolderRenamed(t *testing.T) {
+	s, dir, fd, name, oldBlob, _ := redacted(t)
+	commitAs(t, dir, "mv", "findings/"+fd, "findings/F-001-renamed")
+	commitAs(t, dir, "commit", "-q", "-m", "renamed")
+	s.Invalidate(eng)
+	if err := s.PurgeFromHistory(eng, "F-001-renamed", name, uDora); err != nil {
+		t.Fatal(err)
+	}
+	if hasBlob(dir, oldBlob) {
+		t.Fatal("the original is still in the repository")
+	}
+	if b, _ := s.DB().PurgedBlobs(eng); b[oldBlob] != name {
+		t.Fatalf("purged blobs %v", b)
+	}
+	if hasOriginal(t, s, "F-001-renamed", name) {
+		t.Fatal("still marked")
+	}
+}
+
+// D28: a purge the server stopped after the rewrite (backup ref, reflogs
+// and the original still there): Purge again removes them before the mark
+// goes.
+func TestPurgeFinishesInterruptedRewrite(t *testing.T) {
+	s, dir, fd, name, oldBlob, _ := redacted(t)
+	p := "findings/" + fd + "/attachments/" + name
+	if _, err := s.DB().AddPurgedBlobs(eng, name, []string{oldBlob}); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("git", "-C", filepath.Join(dir, "engagements", eng), "filter-branch", "-f", "--index-filter",
+		`test "$(git rev-parse -q --verify :`+p+`)" = "`+oldBlob+`" && git rm -q --cached -- `+p+`; true`, "--", "HEAD")
+	cmd.Env = append(os.Environ(), "FILTER_BRANCH_SQUELCH_WARNING=1")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("filter-branch: %v %s", err, out)
+	}
+	s.Invalidate(eng)
+	if err := s.PurgeFromHistory(eng, fd, name, uDora); err != nil {
+		t.Fatal(err)
+	}
+	if refs := engGit(t, dir, "for-each-ref", "refs/original"); refs != "" || hasBlob(dir, oldBlob) {
+		t.Fatalf("backup refs %q, original on disk %v", refs, hasBlob(dir, oldBlob))
+	}
+	if hasOriginal(t, s, fd, name) {
+		t.Fatal("still marked")
+	}
+}
+
 // D28: a gc that stops before it removes anything (another gc running, a
 // full disk) leaves the original on disk: the mark stays, and Purge again
 // runs the cleanup.

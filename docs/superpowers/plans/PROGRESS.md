@@ -77,5 +77,6 @@ M26 task 3  review   fix 6aff44f (bytes the server holds; merge repeat; quoted n
 M26 task 4  browser  fix a7ecacc (confirm table fits; a refusal names the copy)
 M26 task 4  review   fix be5e0af (deadlines lifted; header row; archived named; ids kept before the rewrite; unfinished purge; marked files only)
 M26 task 2  review 2 fix 6e49d5e (old versions out at every path; copy in the current files redacted first; gc retried; reflogs kept on refusal)
-M26 browser check 2  fix (confirm table's value column)
+M26 browser check 2  fix cc7ecf4 (confirm table's value column)
+M26 branch  reviewed fixes (renames followed; an interrupted purge finished; history-only paths a server error)
 ```

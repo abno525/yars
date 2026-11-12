@@ -73,6 +73,8 @@ Only `refs/heads/main` can be pushed, and every commit in the push is checked on
 
 Settings pushed to the main repository take effect on the website as soon as the push is accepted, as a save on the Admin pages does: `config.yaml` is read again; rules, exporters and templates are read from disk each time they are used. A push can't tell a rename from a removal, so a `config.yaml` that drops a section, details row or severity some finding still uses is refused: change those findings first.
 
+A director's Purge from history (an attachment's Purge on the finding page) rewrites the engagement's history: every commit from the first one that held an earlier version gets a new id, so existing clones must be cloned again, and the main repository's older commits point at engagement commits that no longer exist. Backups made before the purge still hold the original. When the same image is uploaded again later, the server holds those bytes again, and a pre-purge clone's old commits are no longer refused.
+
 ## Check rules on push
 
 Once a push passes the rules above, the server's check rules (`.yars/rules` as the server has them, never the pushed ones) run on each finding the push changes, as its last commit has it: the regex, built-in and script rules the Check button runs. AI rules don't run on push, since they wait on the AI provider; Check on the finding page runs them, and the push lists them as `(could not run)`.
