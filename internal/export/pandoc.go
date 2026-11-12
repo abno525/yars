@@ -15,6 +15,17 @@ import (
 
 var extOf = map[string]string{"markdown": "md", "gfm": "md", "commonmark": "md", "html5": "html", "plain": "txt", "latex": "tex", "docx": "docx", "pdf": "pdf", "odt": "odt", "html": "html", "pptx": "pptx", "rtf": "rtf", "epub": "epub"}
 
+// typeOf is the content type of each extension pandoc writes here, so a
+// download does not depend on the server's mime table (which may lack
+// docx, odt or md); others fall back to that table.
+var typeOf = map[string]string{
+	"docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+	"pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+	"odt":  "application/vnd.oasis.opendocument.text", "epub": "application/epub+zip", "rtf": "application/rtf",
+	"pdf": "application/pdf", "md": "text/markdown; charset=utf-8", "html": "text/html; charset=utf-8",
+	"txt": "text/plain; charset=utf-8", "tex": "application/x-tex",
+}
+
 func (r *Runner) pandoc(ctx context.Context, e Exporter, in Input) (Result, error) {
 	if r.PandocPath == "" {
 		return Result{}, errors.New("pandoc is not installed on the server")
@@ -120,9 +131,17 @@ func (r *Runner) pandoc(ctx context.Context, e Exporter, in Input) (Result, erro
 	if err != nil {
 		return Result{}, err
 	}
-	ct := mime.TypeByExtension("." + ext)
-	if ct == "" {
-		ct = "application/octet-stream"
+	return Result{Filename: in.Engagement.ID + "." + ext, ContentType: contentType(ext), Data: data}, nil
+}
+
+// contentType is a file extension's type: YARS's own, else the mime
+// table's, else bytes.
+func contentType(ext string) string {
+	if ct := typeOf[ext]; ct != "" {
+		return ct
 	}
-	return Result{Filename: in.Engagement.ID + "." + ext, ContentType: ct, Data: data}, nil
+	if ct := mime.TypeByExtension("." + ext); ct != "" {
+		return ct
+	}
+	return "application/octet-stream"
 }

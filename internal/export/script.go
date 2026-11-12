@@ -65,5 +65,5 @@ func (r *Runner) script(ctx context.Context, e Exporter, in Input) (Result, erro
 		return Result{}, fmt.Errorf("export script failed: %v: %s", err, tail(stderr.buf.String()))
 	}
 	ext := strings.TrimPrefix(e.Extension, ".")
-	return Result{Filename: in.Engagement.ID + "." + ext, ContentType: "application/octet-stream", Data: out.buf.Bytes()}, nil
+	return Result{Filename: in.Engagement.ID + "." + ext, ContentType: contentType(ext), Data: out.buf.Bytes()}, nil
 }

@@ -306,6 +306,35 @@ func TestExportCancelledIsNotTimeout(t *testing.T) {
 	}
 }
 
+// A download's type comes from YARS, not from the server's mime table
+// (which may lack docx, odt, epub, md): the browser opens the right program
+// (backlog, M8).
+func TestPandocContentTypes(t *testing.T) {
+	pb, _ := fakePandoc(t, recordingPandoc)
+	r, _ := runner(t, pb)
+	for format, want := range map[string]string{
+		"docx":     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+		"odt":      "application/vnd.oasis.opendocument.text",
+		"pptx":     "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+		"epub":     "application/epub+zip",
+		"rtf":      "application/rtf",
+		"markdown": "text/markdown; charset=utf-8",
+		"html":     "text/html; charset=utf-8",
+		"plain":    "text/plain; charset=utf-8",
+		"latex":    "application/x-tex",
+	} {
+		res, err := r.Run(context.Background(), Exporter{ID: format, Type: "pandoc", Format: format}, input(t))
+		if err != nil || res.ContentType != want {
+			t.Errorf("%s: %q %v", format, res.ContentType, err)
+		}
+	}
+	// a script's result too, by its extension
+	writeFile(t, r.Dir, "md.sh", "#!/bin/sh\necho '# Report'\n", 0o755)
+	if res, err := r.Run(context.Background(), Exporter{ID: "s", Type: "script", Script: "md.sh", Extension: "md"}, input(t)); err != nil || res.ContentType != "text/markdown; charset=utf-8" {
+		t.Errorf("script: %q %v", res.ContentType, err)
+	}
+}
+
 func TestPandocReal(t *testing.T) {
 	p, err := exec.LookPath("pandoc")
 	if err != nil {
