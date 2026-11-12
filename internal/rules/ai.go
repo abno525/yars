@@ -74,17 +74,22 @@ func EnvKeyApplies(conf, eff config.AIConfig) bool {
 	return conf.APIKeyEnv != "" && eff.Provider == conf.Provider && eff.BaseURL == conf.BaseURL
 }
 
-// ask sends one prompt to the provider in c for purpose (and rule) and tells
-// OnUsage about the call, whether it worked or not.
-func (rn *Runner) ask(ctx context.Context, c config.AIConfig, key, user, purpose, rule string) (string, error) {
+// ruleTokens is the reply limit of a rule check (Anthropic needs one;
+// OpenAI-compatible providers get none, as some models refuse max_tokens).
+const ruleTokens = 1024
+
+// ask sends one prompt (system and user) to the provider in c for purpose
+// (and rule), with a reply limit of maxTokens where the provider takes one,
+// and tells OnUsage about the call, whether it worked or not.
+func (rn *Runner) ask(ctx context.Context, c config.AIConfig, key, system, user, purpose, rule string, maxTokens int) (string, error) {
 	start := time.Now()
 	var content string
 	var in, out int
 	var err error
 	if c.Provider == "anthropic" {
-		content, in, out, err = rn.anthropic(ctx, c, key, user)
+		content, in, out, err = rn.anthropic(ctx, c, key, system, user, maxTokens)
 	} else {
-		content, in, out, err = rn.openai(ctx, c, key, user)
+		content, in, out, err = rn.openai(ctx, c, key, system, user)
 	}
 	if rn.OnUsage != nil {
 		who := CallerOf(ctx)
@@ -99,12 +104,12 @@ func (rn *Runner) ask(ctx context.Context, c config.AIConfig, key, user, purpose
 func (rn *Runner) Ping(ctx context.Context) (time.Duration, error) {
 	c, key, _ := rn.Effective()
 	if c.Provider == "" || key == "" {
-		return 0, errors.New("no AI provider configured")
+		return 0, ErrNoAI
 	}
 	ctx, cancel := context.WithTimeout(ctx, min(rn.AITimeout, 20*time.Second))
 	defer cancel()
 	start := time.Now()
-	content, err := rn.ask(ctx, c, key, "Rule: none.\n\nText (title):\nping", "test", "")
+	content, err := rn.ask(ctx, c, key, systemPrompt, "Rule: none.\n\nText (title):\nping", "test", "", ruleTokens)
 	if err != nil {
 		return 0, err
 	}
@@ -131,7 +136,7 @@ func (rn *Runner) AI(ctx context.Context, r Rule, target, text string) []Violati
 		ctx, cancel := context.WithTimeout(ctx, rn.AITimeout)
 		defer cancel()
 		user := "Rule: " + r.AI + "\n\nText (" + target + "):\n" + text
-		content, err := rn.ask(ctx, c, key, user, "rule", r.ID)
+		content, err := rn.ask(ctx, c, key, systemPrompt, user, "rule", r.ID, ruleTokens)
 		if err == nil {
 			err = parseAI(content, &res)
 		}
@@ -152,7 +157,7 @@ func (rn *Runner) AI(ctx context.Context, r Rule, target, text string) []Violati
 }
 
 // parseAI extracts the first JSON object from the model's reply.
-func parseAI(content string, res *aiResult) error {
+func parseAI(content string, res any) error {
 	i, j := strings.Index(content, "{"), strings.LastIndex(content, "}")
 	if i < 0 || j < i {
 		return errors.New("reply is not JSON")
@@ -187,7 +192,7 @@ func (rn *Runner) post(ctx context.Context, url string, body any, hdr map[string
 
 // openai asks an OpenAI-compatible provider; in and out are the tokens it
 // reported (usage.prompt_tokens, usage.completion_tokens).
-func (rn *Runner) openai(ctx context.Context, c config.AIConfig, key, user string) (content string, in, out int, err error) {
+func (rn *Runner) openai(ctx context.Context, c config.AIConfig, key, system, user string) (content string, in, out int, err error) {
 	base := strings.TrimRight(c.BaseURL, "/")
 	if base == "" {
 		base = "https://api.openai.com/v1"
@@ -197,7 +202,7 @@ func (rn *Runner) openai(ctx context.Context, c config.AIConfig, key, user strin
 		"temperature":     0,
 		"response_format": map[string]string{"type": "json_object"},
 		"messages": []map[string]string{
-			{"role": "system", "content": systemPrompt},
+			{"role": "system", "content": system},
 			{"role": "user", "content": user},
 		},
 	}
@@ -224,15 +229,15 @@ func (rn *Runner) openai(ctx context.Context, c config.AIConfig, key, user strin
 
 // anthropic asks Anthropic's Messages API; in and out are the tokens it
 // reported (usage.input_tokens, usage.output_tokens).
-func (rn *Runner) anthropic(ctx context.Context, c config.AIConfig, key, user string) (content string, in, out int, err error) {
+func (rn *Runner) anthropic(ctx context.Context, c config.AIConfig, key, system, user string, maxTokens int) (content string, in, out int, err error) {
 	base := strings.TrimRight(c.BaseURL, "/")
 	if base == "" {
 		base = "https://api.anthropic.com"
 	}
 	body := map[string]any{
 		"model":      c.Model,
-		"max_tokens": 1024,
-		"system":     systemPrompt,
+		"max_tokens": maxTokens,
+		"system":     system,
 		"messages":   []map[string]string{{"role": "user", "content": user}},
 	}
 	var reply struct {
