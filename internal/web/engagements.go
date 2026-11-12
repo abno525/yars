@@ -14,6 +14,9 @@ var engFilters = []struct{ Key, Label string }{{"", "All"}, {"active", "Active"}
 // engList fills the engagements list: the All / Active / Archived segments
 // with counts and the rows the chosen one shows.
 func (s *Server) engList(p *page, show string) error {
+	if p.engsErr != nil { // no list rather than an empty one
+		return p.engsErr
+	}
 	if show != "active" && show != "archived" {
 		show = ""
 	}

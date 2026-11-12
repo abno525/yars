@@ -219,6 +219,9 @@ func (s *Server) rulesView(r *http.Request, p *page, f ruleForm) error {
 	for i, x := range set.Rules {
 		b.Rules = append(b.Rules, option{Value: x.ID, Label: x.ID, On: x.ID == f.Old || (f.New && i == 0)})
 	}
+	if p.engsErr != nil { // no bench rather than one over no engagements
+		return p.engsErr
+	}
 	for i, e := range p.Engagements {
 		b.Engs = append(b.Engs, option{Value: e.ID, Label: e.Name, On: i == 0})
 	}

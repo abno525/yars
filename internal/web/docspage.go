@@ -171,6 +171,10 @@ func (s *Server) docsPage(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	case "git":
+		if p.engsErr != nil { // the clone list needs the engagements
+			s.fail(w, p.engsErr)
+			return
+		}
 		who := strings.Replace(base, "://", "://"+p.User.Username+"@", 1)
 		v.MainURL = who + "/git/yars"
 		v.EngURL = who + "/git/e/"

@@ -27,4 +27,25 @@ func TestPagesOpenWhenIndexFails(t *testing.T) {
 			t.Errorf("%s: %d", path, rec.Code)
 		}
 	}
+	// a page whose content is the engagement list fails, rather than show
+	// none (M34 review)
+	for _, path := range []string{"/", "/engagements", "/docs/git"} {
+		if rec := e.do(t, "dora", "GET", path, nil, nil); rec.Code != http.StatusInternalServerError {
+			t.Errorf("%s: %d", path, rec.Code)
+		}
+	}
+}
+
+// Admin › Rules shows its bench over the engagements: with no index it
+// fails rather than offer none (M34 review).
+func TestRulesPageWhenIndexFails(t *testing.T) {
+	e := setupSerial(t)
+	e.rules(t, styleRules, nil)
+	if err := os.Remove(filepath.Join(e.dir, ".git", "HEAD")); err != nil {
+		t.Fatal(err)
+	}
+	e.srv.Store.Invalidate("")
+	if rec := e.do(t, "dora", "GET", "/admin/rules", nil, nil); rec.Code != http.StatusInternalServerError {
+		t.Fatalf("%d", rec.Code)
+	}
 }
