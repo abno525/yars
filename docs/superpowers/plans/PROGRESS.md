@@ -192,4 +192,6 @@ M35 after   review   fix 3ddf906 (arrows on the findings and engagements lists o
 M35 after   done     cbd553b (asked after the run: Notifications first, no My drafts in the inbox, Mark all read on New on team board)
 M35 after   done     5114e21 (asked after the run: t Team board, o Overview, r Report, s Settings, e Export)
 M35 after   done     7040895 (asked after the run: status, CVSS, author under the title; Not Defined until a CVSS is set)
+M35 after   review   fix bf9b94b (the ? list's t b and e rows only where they act; with the row tint asked after the run)
+M35 after   done     68c48f5 (asked after the run: pages outside an engagement keep the one opened last; f always goes to Findings)
 ```
