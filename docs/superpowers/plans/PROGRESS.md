@@ -182,4 +182,8 @@ M35 after   done     c7abff7 (asked after the run: Token expiring is sent, once 
 M35 after   review   fix b0f1591 (the claim and the notice in one transaction; a re-enabled owner is still told)
 M35 after   done     d286a10 (asked after the run: long user names end in "…" in the header, Reviewers, the reviewer tag, a lead's head)
 M35 after   review   fix 4dfc60a (who is editing, the new-password page, a lead's strips; a short reviewer keeps a letter)
+M35 after   done     a2e8f5f (asked after the run: the state beside the reviewers, Check beside the actions, the author after the status, Hide chat)
+M35 after   review   fix 19448f7 (the state keeps its width; no empty slots before the first action; no empty action box)
+M35 after   done     b43fbab (asked after the run: the theme is chosen in Settings only)
+M35 after   review   fix ff93d36 (the unused theme endpoint removed; its tests save through Settings)
 ```
