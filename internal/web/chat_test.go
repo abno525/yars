@@ -271,7 +271,9 @@ func TestRevertWordsInChatAndHistory(t *testing.T) {
 	// both reverts get the reopen marker colour
 	css := e.do(t, "alice", "GET", "/static/style.css", nil, nil).Body.String()
 	for _, want := range []string{".chatev.ev-reopen::before, .chatev.ev-unreport::before, .chatev.ev-revise::before { background: var(--accent); }",
-		".dot.ev-reopen, .dot.ev-unreport, .dot.ev-revise, .dot.ev-retest { background: var(--accent); }"} {
+		".dot.ev-reopen, .dot.ev-unreport, .dot.ev-revise, .dot.ev-retest { background: var(--accent); }",
+		// and the notification's tag
+		".tag.nev-reverted, .tag.nev-taken_back { background: var(--accent); color: var(--on-accent); }"} {
 		if !strings.Contains(css, want) {
 			t.Errorf("style.css lacks %s", want)
 		}

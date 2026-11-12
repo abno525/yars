@@ -1633,6 +1633,7 @@ dialog.gotodlg::backdrop { background: var(--scrim); }
 .tag.nev-review { background: var(--verification); color: #FFFFFF; }
 .tag.nev-reply { background: var(--navy-600); color: #FFFFFF; }
 .tag.nev-approved { background: var(--green); color: #FFFFFF; }
+.tag.nev-reverted, .tag.nev-taken_back { background: var(--accent); color: var(--on-accent); }
 .tag.nev-mentioned { background: var(--accent); color: var(--on-accent); }
 .tag.nev-check { background: var(--navy); color: #FFFFFF; border-color: var(--navy); }
 .tag.nev-token { background: var(--warn-tag); color: #0F172A; }

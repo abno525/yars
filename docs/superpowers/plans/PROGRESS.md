@@ -89,5 +89,6 @@ M27 task 4  done     510d5a8
 M27 browser check    passed (1440: Complete shows Revert, Mark reported, Withdraw at 136 px; the panel "Revert to verification" with a secondary Revert; Reported shows Revert then Withdraw at the same right edge; a revert with a reason lands in the chat with the accent marker; bulk Set state offers only "Complete · revert" for a reported row, its dialog reads "Revert 1 finding", and it moves the row)
 M27 task 1  review   passed; nits 0cb1efe
 M27 task 2  review   passed; test nits 9e94ffe
-M27 task 3  review   passed; fix (inbox row kept after a revert; bulk dialog's Revert button secondary)
+M27 task 3  review   passed; fix fcf238a (inbox row kept after a revert; bulk dialog's Revert button secondary)
+M27 task 4  review   passed; nits
 ```

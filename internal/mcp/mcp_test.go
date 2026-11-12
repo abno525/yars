@@ -400,12 +400,18 @@ func TestMCPRevertResolvesByStatus(t *testing.T) {
 	if text, isErr := tr(dora, "revert", "x"); !isErr || !strings.Contains(text, "nothing to revert: the finding is draft") {
 		t.Fatalf("revert on a draft: %s", text)
 	}
+	// unreport on a draft says where it is possible, not who may
+	if text, isErr := tr(alice, "unreport", "x"); !isErr || !strings.Contains(text, "Revert to complete is only possible in reported") {
+		t.Fatalf("unreport on a draft: %s", text)
+	}
 	f.ok(alice, "set_field", map[string]any{"engagement": "acme", "finding": "F-001", "field": "reviewers", "value": "bob"})
 	f.ok(alice, "set_field", map[string]any{"engagement": "acme", "finding": "F-001", "field": "severity", "value": "high"})
-	tr(alice, "submit", "")
-	tr(bob, "clear", "")
-	tr(dora, "approve", "")
-	tr(dora, "report", "")
+	for _, step := range []struct {
+		u config.User
+		a string
+	}{{alice, "submit"}, {bob, "clear"}, {dora, "approve"}, {dora, "report"}} {
+		f.ok(step.u, "transition", map[string]any{"engagement": "acme", "finding": "F-001", "action": step.a})
+	}
 	if text, isErr := tr(alice, "revert", "sent too early"); !isErr || !strings.Contains(text, "director") {
 		t.Fatalf("author unreported via MCP: %s", text)
 	}
@@ -415,6 +421,17 @@ func TestMCPRevertResolvesByStatus(t *testing.T) {
 	// the author reverts her complete finding to verification
 	if text, isErr := tr(alice, "revert", "wrong host"); isErr || !strings.Contains(text, "status is now verification") {
 		t.Fatalf("revert of complete: %s", text)
+	}
+}
+
+// R4: a token needs the status action to revert, as to withdraw (an
+// unreport delivers nothing to the client); report alone needs export.
+func TestMCPRevertTokenScope(t *testing.T) {
+	tr := toolByName["transition"]
+	for action, want := range map[string]string{"unreport": "status", "revert": "status", "reopen": "status", "report": "export"} {
+		if got := actionOf(tr, args{"action": action}); got != want {
+			t.Errorf("%s needs %q, want %q", action, got, want)
+		}
 	}
 }
 
@@ -440,7 +457,7 @@ func TestMCPReopenWithoutReasonExplains(t *testing.T) {
 		!strings.Contains(tr.required[2].desc, "unreport | revert") || !strings.Contains(tr.desc, "unreport (") || !strings.Contains(tr.desc, "revert (") {
 		t.Fatalf("transition tool: %+v", tr)
 	}
-	if text, _ := f.call(dora, "transition", map[string]any{"engagement": "acme", "finding": "F-001", "action": "bogus"}); !strings.Contains(text, "unreport, revert") {
+	if text, _ := f.call(dora, "transition", map[string]any{"engagement": "acme", "finding": "F-001", "action": "bogus"}); !strings.Contains(text, "report, unreport, revert, withdraw") {
 		t.Fatalf("unknown action: %s", text)
 	}
 	if !strings.Contains(instructions, "return, withdraw, report, revert)") {

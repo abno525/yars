@@ -84,7 +84,8 @@ type tool struct {
 // actionOf is the token action a call needs: the tool's, except that
 // set_field on reviewers needs "reviewers", marking a finding reported
 // (the delivery to the client) needs "export" and lint_finding with all=true
-// (script and AI rules) needs "checks".
+// (script and AI rules) needs "checks". Taking reported back (unreport,
+// revert) needs "status", as withdraw does: it delivers nothing.
 func actionOf(t tool, a args) string {
 	if t.name == "set_field" && a.str("field") == "reviewers" {
 		return "reviewers"
@@ -451,14 +452,14 @@ var tools = []tool{
 				}
 			}
 			if !ok {
-				return "", errors.New("unknown action (submit, return, clear or sign_off, approve, reopen, report, withdraw, revise, take_back, unreport, revert)")
+				return "", errors.New("unknown action (submit, return, clear or sign_off, approve, reopen, report, unreport, revert, withdraw, revise, take_back)")
 			}
 			// marking reported is a director's over MCP (the delivery to the
 			// client), and so is taking it back (whoever marks reported reverts)
 			if act == workflow.Report && !workflow.AtLeast(u, "director") {
 				return "", &workflow.Denied{Reason: "only a director can mark reported"}
 			}
-			if act == workflow.Unreport && !workflow.AtLeast(u, "director") {
+			if act == workflow.Unreport && ref.F.Meta.Status == "reported" && !workflow.AtLeast(u, "director") {
 				return "", &workflow.Denied{Reason: "only a director can revert a reported finding over MCP"}
 			}
 			if err := s.Store.Transition(ref.EngID, ref.Dir, act, a.str("reason"), u); err != nil {

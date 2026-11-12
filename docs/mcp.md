@@ -70,6 +70,7 @@ Tool errors come back as a result with `isError: true` and one text item:
 | `the finding changed meanwhile (someone else edited it); read_finding again and retry` | Stale `base` |
 | `unknown section "Summary"; valid sections: …` | `update_section` with a section the finding doesn't have |
 | `use the transition tool to change the status` | `set_field status` |
+| `nothing to revert: the finding is draft` | `transition revert` on a finding that is not complete or reported |
 
 ## Safety notes
 
