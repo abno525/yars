@@ -458,23 +458,23 @@ func (s *Server) base(r *http.Request, eng string) (*page, error) {
 	if err != nil {
 		return nil, err
 	}
+	// The engagement menu and the badges come from the index and the
+	// database: when they cannot be read the page still opens without them
+	// (the error is logged); a page that needs the index fails on its own.
 	engs, err := s.Index.EngagementsFor(vis) // cached with the index
 	if err != nil {
-		return nil, err
+		log.Printf("index: %v", err)
 	}
 	p := &page{User: u, Engagements: engs, CanManage: canManage(u), CanEngs: canEngs(u), CanAdmin: canAdmin(u)}
-	if p.Inbox, err = s.inboxFor(u, engs); err != nil {
-		return nil, err
-	}
-	if p.Inbox, err = s.withoutOpenChecks(p.Inbox); err != nil {
-		return nil, err
-	}
-	// a copy of the cached view: the board queue is read now
-	if p.Inbox.Board, p.Inbox.BoardTotal, err = s.boardInbox(u, engs); err != nil {
-		return nil, err
+	if err == nil {
+		if err := s.badges(p, u, engs); err != nil {
+			log.Printf("inbox badges: %v", err)
+			p.Inbox = inboxView{}
+		}
 	}
 	if p.Unread, err = s.Store.UnreadCount(u); err != nil {
-		return nil, err
+		log.Printf("unread notifications: %v", err)
+		p.Unread = 0
 	}
 	if eng != "" {
 		i := slices.IndexFunc(engs, func(e store.Engagement) bool { return e.ID == eng })
@@ -488,6 +488,21 @@ func (s *Server) base(r *http.Request, eng string) (*page, error) {
 		}
 	}
 	return p, nil
+}
+
+// badges reads the inbox the top bar counts: the queues, less findings
+// waiting on open checks, and the team board.
+func (s *Server) badges(p *page, u config.User, engs []store.Engagement) error {
+	var err error
+	if p.Inbox, err = s.inboxFor(u, engs); err != nil {
+		return err
+	}
+	if p.Inbox, err = s.withoutOpenChecks(p.Inbox); err != nil {
+		return err
+	}
+	// a copy of the cached view: the board queue is read now
+	p.Inbox.Board, p.Inbox.BoardTotal, err = s.boardInbox(u, engs)
+	return err
 }
 
 func (s *Server) loginPage(w http.ResponseWriter, r *http.Request) {
