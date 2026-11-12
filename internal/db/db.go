@@ -20,7 +20,7 @@ import (
 // Path is where the database lives inside a data directory (git-ignored).
 func Path(dataDir string) string { return filepath.Join(dataDir, ".yars", "yars.db") }
 
-const schemaVersion = 20
+const schemaVersion = 21
 
 // SchemaVersion is the database schema this build writes.
 const SchemaVersion = schemaVersion
@@ -370,6 +370,25 @@ var migrations = []string{
 		ok         INTEGER NOT NULL DEFAULT 0
 	);
 	CREATE INDEX IF NOT EXISTS ai_usage_ts ON ai_usage(ts);`,
+	// v21: images redacted after their original was committed, and the blob
+	// ids a purge removed from an engagement's history (D28); IF NOT EXISTS,
+	// as the step may run again on a current database
+	`CREATE TABLE IF NOT EXISTS redactions (
+		eng       TEXT NOT NULL,
+		fid       TEXT NOT NULL,
+		name      TEXT NOT NULL,
+		at        TEXT NOT NULL,
+		by_user   TEXT NOT NULL,
+		purged_at TEXT NOT NULL DEFAULT '',
+		PRIMARY KEY (eng, fid, name)
+	) WITHOUT ROWID;
+	CREATE TABLE IF NOT EXISTS purged_blobs (
+		eng  TEXT NOT NULL,
+		blob TEXT NOT NULL,
+		name TEXT NOT NULL,
+		at   TEXT NOT NULL,
+		PRIMARY KEY (eng, blob)
+	) WITHOUT ROWID;`,
 }
 
 // goMigrations are the steps written in Go, by the index of their entry in

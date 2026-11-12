@@ -72,6 +72,57 @@ func TestUpdateAssets(t *testing.T) {
 	}
 }
 
+// hasOriginal is whether the finding's attachment name is marked.
+func hasOriginal(t *testing.T, s *Store, dir, name string) bool {
+	t.Helper()
+	as, err := s.Attachments(eng, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range as {
+		if a.Name == name {
+			return a.HasOriginal
+		}
+	}
+	t.Fatalf("no attachment %s in %+v", name, as)
+	return false
+}
+
+// D28: a redaction of a committed image leaves its original in history,
+// and Attachments says so.
+func TestRedactRecordsRow(t *testing.T) {
+	s, _ := withEngagement(t)
+	f, _ := s.CreateFinding(eng, "XSS", alice)
+	name, err := s.AddAttachment(eng, f.Dir, "shot.png", pngBytes(t, color.White), m17Pen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, _ := s.AddAttachment(eng, f.Dir, "other.png", pngBytes(t, color.White), m17Pen)
+	if err := s.ReplaceAttachment(eng, f.Dir, name, pngBytes(t, color.Black), m17Pen); err != nil {
+		t.Fatal(err)
+	}
+	if !hasOriginal(t, s, f.Dir, name) || hasOriginal(t, s, f.Dir, other) {
+		t.Fatal("the mark is not on the redacted image only")
+	}
+	if u, _ := s.DB().Unpurged(eng, "F-001"); !u[name] {
+		t.Fatalf("no row under the finding's id: %v", u)
+	}
+}
+
+// D28, Review focus 5: an image redacted in the browser before its first
+// upload has no original on the server: no mark.
+func TestFirstUploadHasNoMark(t *testing.T) {
+	s, _ := withEngagement(t)
+	f, _ := s.CreateFinding(eng, "XSS", alice)
+	name, err := s.AddAttachment(eng, f.Dir, "shot.png", pngBytes(t, color.Black), m17Pen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hasOriginal(t, s, f.Dir, name) {
+		t.Fatal("a first upload is marked")
+	}
+}
+
 func TestAttachments(t *testing.T) {
 	s, dir := withEngagement(t)
 	f, _ := s.CreateFinding(eng, "XSS", alice)

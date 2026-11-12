@@ -186,6 +186,38 @@ func TestAttachmentsPanelEmptyRow(t *testing.T) {
 	}
 }
 
+// D28: an image redacted after its upload is marked on its thumbnail in the
+// editor's strip and on its row in the Attachments panel; before, neither.
+func TestMarkOnThumbAndRow(t *testing.T) {
+	e := setup(t)
+	if rec := e.sendFile(t, "alice", fpath+"/attachments", "shot.png", testPNG(t, color.White)); rec.Code != 200 {
+		t.Fatalf("upload %d", rec.Code)
+	}
+	strip := func() string { return e.do(t, "alice", "GET", fpath+"/s/Impact/edit", nil, nil).Body.String() }
+	panel := func() string { return attachmentsPanel(t, e.do(t, "alice", "GET", fpath, nil, nil).Body.String()) }
+	if strings.Contains(strip(), "histdot") || strings.Contains(panel(), "histdot") {
+		t.Fatal("marked before any redaction")
+	}
+	if rec := e.sendFile(t, "alice", fpath+"/attachments/shot.png/redact", "blob", testPNG(t, color.Black)); rec.Code != 200 {
+		t.Fatalf("redact %d:\n%s", rec.Code, rec.Body.String())
+	}
+	mark := `<span class="histdot" title="An earlier version is in git history"></span>`
+	if s := strip(); !strings.Contains(between(s, `<div class="thumb">`, "</div>"), mark) {
+		t.Fatalf("no mark on the thumbnail:\n%s", between(s, `class="attstrip`, `</div>
+</div>`))
+	}
+	if p := panel(); !strings.Contains(p, `title="shot.png">shot.png`+mark+`</td>`) {
+		t.Fatalf("no mark on the row:\n%s", p)
+	}
+	css := e.do(t, "alice", "GET", "/static/style.css", nil, nil).Body.String()
+	for _, want := range []string{".histdot { display: inline-block; width: 8px; height: 8px; background: var(--accent); }",
+		".thumb .histdot { position: absolute; top: 4px; right: 4px; }", "td .histdot { margin-left: 8px; }"} {
+		if !strings.Contains(css, want) {
+			t.Errorf("style.css lacks %s", want)
+		}
+	}
+}
+
 func TestAttachmentsUploadServeRedact(t *testing.T) {
 	e := setup(t)
 	ed := e.do(t, "alice", "GET", fpath+"/s/Impact/edit", nil, nil).Body.String()

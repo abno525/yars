@@ -27,6 +27,7 @@ type attachItem struct {
 	Image                 bool
 	Insert                string // the Markdown to insert
 	RedactURL             string
+	HasOriginal           bool // an earlier version is in git history (D28)
 }
 
 // attachVer tells versions of an attachment apart: a redacted copy gets a
@@ -68,7 +69,7 @@ func (s *Server) attachFor(ref store.FindingRef) (*attachView, error) {
 		return nil, err
 	}
 	for _, a := range as {
-		it := attachItem{Name: a.Name, URL: base + "/" + a.Name, Size: humanSize(a.Size), Image: a.Image, Insert: attachMD(a.Name, a.Image)}
+		it := attachItem{Name: a.Name, URL: base + "/" + a.Name, Size: humanSize(a.Size), Image: a.Image, Insert: attachMD(a.Name, a.Image), HasOriginal: a.HasOriginal}
 		it.Src = it.URL + "?v=" + attachVer(a)
 		if it.Kind = strings.ToUpper(strings.TrimPrefix(path.Ext(a.Name), ".")); it.Kind == "" {
 			it.Kind = "FILE"

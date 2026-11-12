@@ -64,6 +64,8 @@ M25 task 4  done     e125a18
 M25 task 2  review   fix 2d033af (runs on the newest run's content kept; field labels in the error)
 M25 task 4  review   passed; fix ff9c75f (read-only parent named in the panel; one restore at a time)
 M25 task 3  review   passed; fixes dde76c4 (Submit, MCP and bench AI calls attributed; usage columns; prices audited)
-M25 branch  reviewed fixes (refused panels scroll into view; upload's own name; copy row; slow-upload test)
-M25 browser check    passed (System at 1440: Health, Backup, Retention, AI usage, Restore, Operations, Server, full width, no overflow; Run integrity 4 repos and integrity_check; a backup restored into data24.restored-… with the serve command; Retention saved)
+M25 branch  reviewed fixes 7fc59b7 (refused panels scroll into view; upload's own name; copy row; slow-upload test)
+M25 browser check    passed (System at 1440: Health, Backup, Retention, AI usage, Restore, Operations, Server, full width, no overflow; Run integrity 4 repos and integrity_check; a backup restored into data24.restored-… with the serve command; Retention saved; a refused upload scrolls its error into view)
+M25 PR      opened   #19
+M26 task 1  done     (schema v21)
 ```

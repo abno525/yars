@@ -162,4 +162,4 @@ Rules:
   - `TestRestoreUploadRefusesNonZip`: uploading text answers with the page and the error; no folder.
   - `TestRestoreUploadAdminOnly`: `alice` gets 403.
 - [x] **Step 2–4:** fail, implement, pass. **Step 5:** commit: `feat(admin): restore an uploaded backup into a new folder (D24)`.
-- [ ] **Step 6:** browser check against board 6.8. Push the branch and open PR #19 (title `Admin › System: integrity, retention, AI usage, restore`).
+- [x] **Step 6:** browser check against board 6.8. Push the branch and open PR #19 (title `Admin › System: integrity, retention, AI usage, restore`).

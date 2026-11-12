@@ -100,6 +100,9 @@ type Attachment struct {
 	Size    int64
 	Image   bool
 	ModTime time.Time // changes when the file is replaced (redacted)
+	// HasOriginal: an earlier version of this image is in the git history
+	// (it was redacted after its commit, and not purged since; D28)
+	HasOriginal bool
 }
 
 func attachDir(eng, dir string) string {
@@ -118,6 +121,14 @@ func (s *Store) Attachments(engID, dir string) ([]Attachment, error) {
 	if err != nil {
 		return nil, err
 	}
+	marked := map[string]bool{}
+	if s.db != nil {
+		if ref, err := s.Finding(engID, dir); err == nil {
+			if marked, err = s.db.Unpurged(engID, ref.F.Meta.ID); err != nil {
+				return nil, err
+			}
+		}
+	}
 	var out []Attachment
 	for _, e := range ents {
 		if !e.Type().IsRegular() || !attachmentRe.MatchString("attachments/"+e.Name()) {
@@ -127,7 +138,7 @@ func (s *Store) Attachments(engID, dir string) ([]Attachment, error) {
 		if err != nil {
 			continue
 		}
-		out = append(out, Attachment{Name: e.Name(), Size: info.Size(), Image: imageName(e.Name()), ModTime: info.ModTime()})
+		out = append(out, Attachment{Name: e.Name(), Size: info.Size(), Image: imageName(e.Name()), ModTime: info.ModTime(), HasOriginal: marked[e.Name()]})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil
@@ -326,7 +337,8 @@ func (s *Store) AddAttachment(engID, dir, name string, data []byte, a Actor) (st
 }
 
 // ReplaceAttachment overwrites an image attachment with another image (a
-// redacted copy) in a new commit.
+// redacted copy) in a new commit; the original stays in the git history,
+// which is noted (D28: the mark, Purge from history).
 func (s *Store) ReplaceAttachment(engID, dir, name string, data []byte, a Actor) error {
 	if err := checkAttachment(data); err != nil {
 		return err
@@ -337,6 +349,7 @@ func (s *Store) ReplaceAttachment(engID, dir, name string, data []byte, a Actor)
 	if !attachmentRe.MatchString("attachments/" + name) {
 		return ErrNotFound
 	}
+	fid := ""
 	_, err := s.changeFiles(engID, dir, a, func(ref FindingRef) (map[string][]byte, string, error) {
 		p := path.Join(attachDir(engID, ref.Dir), name)
 		old, err := s.ReadAttachment(engID, ref.Dir, "attachments/"+name)
@@ -346,9 +359,13 @@ func (s *Store) ReplaceAttachment(engID, dir, name string, data []byte, a Actor)
 		if !strings.HasPrefix(AttachmentType(old), "image/") {
 			return nil, "", fmt.Errorf("%w: only an image can be redacted", ErrInvalidValue)
 		}
+		fid = ref.F.Meta.ID
 		return map[string][]byte{p: data}, "redact " + name, nil
 	})
-	return err
+	if err != nil || s.db == nil {
+		return err
+	}
+	return s.db.NoteRedaction(engID, fid, name, a.GitAuthor().Name)
 }
 
 // Merge moves finding src into dst as u (a director): src's sections are
