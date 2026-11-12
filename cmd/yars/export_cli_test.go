@@ -51,6 +51,26 @@ func TestExportCLIMarkFailureExits1(t *testing.T) {
 	}
 }
 
+// A named finding is found by its folder, ID or number; a name that matches
+// none is an error that lists it, not silently dropped (backlog, M8).
+func TestExportCLIUnknownFinding(t *testing.T) {
+	dir := exportFixture(t)
+	out := filepath.Join(t.TempDir(), "r.html")
+	var log bytes.Buffer
+	code, err := cmdExport([]string{"--data", dir, "--exporter", "confluence", "--out", out, "acme", "F-001", "nope", "F-009"}, &log)
+	if code != 2 || err == nil || err.Error() != "no finding matches nope, F-009" {
+		t.Fatalf("code %d err %v", code, err)
+	}
+	if _, err := os.Stat(out); err == nil {
+		t.Fatal("exported anyway")
+	}
+	for _, name := range []string{"F-001", "1", "F-001-sql-injection"} {
+		if code, err := cmdExport([]string{"--data", dir, "--exporter", "confluence", "--out", out, "acme", name}, &log); code != 0 || err != nil {
+			t.Errorf("%s: code %d err %v", name, code, err)
+		}
+	}
+}
+
 // Flags go before the engagement: one after it is refused, not taken for
 // a finding (backlog, M8).
 func TestExportCLIFlagAfterEngagement(t *testing.T) {

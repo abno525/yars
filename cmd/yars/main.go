@@ -134,12 +134,28 @@ func cmdExport(args []string, out io.Writer) (int, error) {
 	if err != nil {
 		return 2, err
 	}
+	// named findings, as the website names them: folder, ID or number
+	named := map[string]bool{}
+	var missing []string
+	for _, name := range fs.Args()[1:] {
+		ref, err := st.Finding(e.ID, name)
+		if errors.Is(err, store.ErrNotFound) {
+			missing = append(missing, name)
+			continue
+		} else if err != nil {
+			return 2, err
+		}
+		named[ref.Dir] = true
+	}
+	if len(missing) > 0 {
+		return 2, fmt.Errorf("no finding matches %s", strings.Join(missing, ", "))
+	}
 	var picked []store.FindingRef
 	for _, ref := range refs {
 		if !workflow.Active(ref.F.Meta.Status) {
 			continue // withdrawn findings are never exported
 		}
-		if (fs.NArg() > 1 && slices.Contains(fs.Args()[1:], ref.Dir)) || (fs.NArg() == 1 && slices.Contains(ex.Statuses, ref.F.Meta.Status)) {
+		if (fs.NArg() > 1 && named[ref.Dir]) || (fs.NArg() == 1 && slices.Contains(ex.Statuses, ref.F.Meta.Status)) {
 			picked = append(picked, ref)
 		}
 	}
