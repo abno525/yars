@@ -78,11 +78,12 @@ func TestLoad(t *testing.T) {
 	}
 }
 
-// An exporter can never select withdrawn findings by status.
+// An exporter selects only finished findings by status (R10): withdrawn,
+// draft and in-review ones never.
 func TestLoadDropsWithdrawnStatus(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "all.yaml", "name: All\ntype: pandoc\nformat: docx\nstatuses: [complete, withdrawn, reported]\n", 0o644)
-	writeFile(t, dir, "only.yaml", "name: Only\ntype: pandoc\nformat: docx\nstatuses: [withdrawn]\n", 0o644)
+	writeFile(t, dir, "all.yaml", "name: All\ntype: pandoc\nformat: docx\nstatuses: [complete, withdrawn, draft, verification, approval, reported]\n", 0o644)
+	writeFile(t, dir, "only.yaml", "name: Only\ntype: pandoc\nformat: docx\nstatuses: [withdrawn, draft]\n", 0o644)
 	es, errs := Load(dir)
 	if len(errs) != 0 || len(es) != 2 {
 		t.Fatalf("%+v %v", es, errs)
