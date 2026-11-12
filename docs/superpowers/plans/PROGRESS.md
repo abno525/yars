@@ -148,5 +148,6 @@ M32 task 6  done     51b6489 (mark_notifications_read, fix_checks; instructions;
 M32 task 5  review   fix 94b893b (allowed_actions checks the token; six modes tested; history cached; clone answers)
 M32 task 6  review   fix d40a67d (fix_checks needs edit too; ids once each, at most 200, one statement; plain store words; docs rows checked)
 M32 manual  done     (an MCP session over HTTP: list drafts, read, edit with base, submit; every answer parsed)
-M32 branch  review   fixes (can_edit follows the token; template not_found; real refusal before a missing reason; docs table; clone history)
+M32 branch  review   fixes 4990b7c (can_edit follows the token; template not_found; real refusal before a missing reason; docs table; clone history)
+M32 branch  fix check passed
 ```
