@@ -4,8 +4,8 @@
   <h1 title="{{.Meta.Title}}"{{if eq .Meta.Status "withdrawn"}} class="withdrawn-title"{{end}}>{{.Meta.Title}}</h1>
   <div class="meta">
     {{$st := shown .Meta}}<span class="tag status-{{$st}}">{{statusLabel $st}}</span>
-    <span class="muted by" title="{{.Meta.Author}}">by {{.Meta.Author}}</span>
     {{template "sevpill" .CVSS}}
+    <span class="muted by" title="{{.Meta.Author}}">by {{.Meta.Author}}</span>
   </div>
 </div>
 {{end}}

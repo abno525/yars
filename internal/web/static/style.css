@@ -421,6 +421,9 @@ table.kv { width: 100%; border-collapse: collapse; }
 .titlecol:has(.withdrawn-title) .sevpill .tag { background: transparent; color: var(--off-fg); border-color: var(--line); text-decoration: line-through; }
 .meta .by { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tag.none { visibility: hidden; }
+/* no CVSS yet: one tag the width of the severity and the score (120 + 8 + 56) */
+.tag.nodef { background: transparent; color: var(--muted); border-color: var(--line); }
+.tag.nodef.wide { width: 184px; }
 .lock { width: 32px; height: 32px; flex: none; display: inline-flex; align-items: center; justify-content: center; color: var(--muted); background: var(--panel); border: 1px solid var(--line-soft); }
 .lock svg { width: 16px; height: 16px; }
 .slot.lockslot { min-height: 32px; justify-content: flex-end; }

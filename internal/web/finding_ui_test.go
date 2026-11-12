@@ -41,17 +41,35 @@ func noInline(t *testing.T, what, b string) {
 
 // The finding page as asked after the run: the state text ("1 error to
 // fix") sits beside the reviewers and Check beside the first action (no
-// fixed-width action box between them); the author follows the status tag
-// (the severity pill, empty until set, comes after it, so nothing moves when
-// it is set); and a button hides the chat column, remembered in the browser.
+// fixed-width action box between them); under the title come the status,
+// the CVSS (severity and score; "Not Defined" in their place until set, so
+// nothing moves), then the author; and a button hides the chat column,
+// remembered in the browser.
 func TestFindingPageLayout(t *testing.T) {
 	e := setup(t)
-	b := e.do(t, "alice", "GET", fpath, nil, nil).Body.String()
-	meta := b[strings.Index(b, `<div class="meta">`):]
-	meta = meta[:strings.Index(meta, "</div>")]
-	if by, pill := strings.Index(meta, `class="muted by"`), strings.Index(meta, `id="sevpill"`); by < 0 || pill < by {
-		t.Errorf("the author is not right after the status:\n%s", meta)
+	metaOf := func() string {
+		b := e.do(t, "alice", "GET", fpath, nil, nil).Body.String()
+		m := b[strings.Index(b, `<div class="meta">`):]
+		return m[:strings.Index(m, "</div>")]
 	}
+	meta := metaOf()
+	if st, pill, by := strings.Index(meta, `class="tag status-`), strings.Index(meta, `id="sevpill"`), strings.Index(meta, `class="muted by"`); st < 0 || pill < st || by < pill {
+		t.Errorf("not status, CVSS, author:\n%s", meta)
+	}
+	if !strings.Contains(meta, `<span id="sevpill" class="sevpill"><span class="tag nodef wide">Not Defined</span></span>`) {
+		t.Errorf("no CVSS is not Not Defined:\n%s", meta)
+	}
+	e.srv.Store.UpdateSeverity("acme", fdir, "high", "", e.authorOf(wAlice))
+	if meta := metaOf(); !strings.Contains(meta, `<span class="tag sev-high">high</span><span class="tag score">—</span>`) {
+		t.Errorf("a severity without a score:\n%s", meta)
+	}
+	if err := e.srv.Store.UpdateCVSS("acme", fdir, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H", nil, "", e.authorOf(wAlice)); err != nil {
+		t.Fatal(err)
+	}
+	if meta := metaOf(); !strings.Contains(meta, `<span class="tag score">9.8</span>`) || strings.Contains(meta, "Not Defined") {
+		t.Errorf("a vector:\n%s", meta)
+	}
+	b := e.do(t, "alice", "GET", fpath, nil, nil).Body.String()
 	toggle := `<button type="button" class="btn secondary w136" data-chat-toggle aria-controls="side" aria-expanded="true"><span class="ct-hide">Hide chat</span><span class="ct-show">Show chat</span></button>`
 	if i, h := strings.Index(b, toggle), strings.Index(b, `/history" aria-keyshortcuts="Shift+H">History`); i < 0 || h < i {
 		t.Errorf("no chat toggle before History:\n%s", b)

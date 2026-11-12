@@ -1,4 +1,5 @@
-{{define "sevpill"}}<span id="sevpill" class="sevpill"{{if .OOB}} hx-swap-oob="true"{{end}}>{{if .Severity}}<span class="tag sev-{{.Severity}}">{{.Severity}}</span>{{else}}<span class="tag none"></span>{{end}}{{if .Score}}<span class="tag score">{{.Score}}</span>{{else}}<span class="tag score none"></span>{{end}}</span>{{end}}
+{{/* the severity and score; until either is set one "Not Defined" tag fills their width, so the author after them never moves */}}
+{{define "sevpill"}}<span id="sevpill" class="sevpill"{{if .OOB}} hx-swap-oob="true"{{end}}>{{if or .Severity .Score}}{{if .Severity}}<span class="tag sev-{{.Severity}}">{{.Severity}}</span>{{else}}<span class="tag nodef">Not Defined</span>{{end}}<span class="tag score">{{with .Score}}{{.}}{{else}}—{{end}}</span>{{else}}<span class="tag nodef wide">Not Defined</span>{{end}}</span>{{end}}
 
 {{define "lock"}}<span class="lock" title="Locked" aria-label="Locked"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><rect x="5" y="11" width="14" height="10"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path></svg></span>{{end}}
 
