@@ -130,7 +130,7 @@ func (s *Server) docsPage(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	p.Nav = "docs"
+	p.Nav = "settings" // Developers opens from the user name, so the user name is lit
 	v := &p.Docs
 	v.Page, v.Title, v.User = name, docsTabs[i].Label, p.User.Username
 	for _, t := range docsTabs {

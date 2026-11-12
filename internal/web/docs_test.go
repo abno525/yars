@@ -75,6 +75,11 @@ func TestDeveloperDocs(t *testing.T) {
 	if !strings.Contains(e.do(t, "dora", "GET", "/admin/users", nil, nil).Body.String(), `class="adminfoot"`) {
 		t.Error("no link in the admin footer")
 	}
+	// Developers itself opens from the user name only; the admin footer
+	// links the admin's topics
+	if b := e.do(t, "dora", "GET", "/admin/users", nil, nil).Body.String(); strings.Contains(b, ">Developers<") {
+		t.Error("Developers linked outside Settings")
+	}
 	// rendered once, then from the cache
 	e.do(t, "alice", "GET", "/docs/rules", nil, nil)
 	before := e.srv.md.Misses()

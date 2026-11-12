@@ -31,6 +31,36 @@ func TestShellHeader(t *testing.T) {
 	}
 }
 
+// The header's right side runs Go to, theme, bell, user name, Log out.
+// Developers is reached from the user name (Settings), not the top bar,
+// so its pages light the user name.
+func TestShellHeaderOrder(t *testing.T) {
+	e := setup(t)
+	for _, p := range []string{"/", "/docs/mcp"} {
+		b := e.do(t, "dora", "GET", p, nil, nil).Body.String()
+		i := strings.Index(b, `<header class="topbar">`)
+		j := strings.Index(b, `</header>`)
+		if i < 0 || j < i {
+			t.Fatalf("%s: no header:\n%s", p, b)
+		}
+		head := b[i:j]
+		if strings.Contains(head, `href="/docs`) || strings.Contains(head, "Developers") {
+			t.Fatalf("%s: Developers in the top bar:\n%s", p, head)
+		}
+		last := -1
+		for _, want := range []string{`data-goto`, `data-theme-toggle`, `class="bell`, `class="who`, `logout`} {
+			k := strings.Index(head, want)
+			if k <= last {
+				t.Fatalf("%s: %s out of order (at %d, after %d):\n%s", p, want, k, last, head)
+			}
+			last = k
+		}
+		if on := strings.Contains(head, `class="who on"`); on != (p == "/docs/mcp") {
+			t.Fatalf("%s: user name lit %v:\n%s", p, on, head)
+		}
+	}
+}
+
 // Status and severity render as fixed-size tags; empty chat counts show 0.
 func TestShellTags(t *testing.T) {
 	e := setup(t)

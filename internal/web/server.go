@@ -139,7 +139,7 @@ type page struct {
 	CanManage     bool
 	CanEngs       bool   // creates engagements and changes teams (directors and admins)
 	CanAdmin      bool   // the Admin nav item
-	Nav           string // active top-bar item: "" (findings), "inbox", "admin" or "settings" (the user name)
+	Nav           string // active top-bar item: "" (findings), "inbox", "admin", "notifications" (the bell) or "settings" (the user name: Settings and Developers)
 	Bare          bool   // no top bar: login and first run
 	Admin         adminView
 	Settings      settingsView
