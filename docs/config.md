@@ -1,6 +1,6 @@
 # Config
 
-`.yars/config.yaml` in the main repository; directors change it by push or under **Admin › Structure**. Unknown values are rejected when the server loads it.
+`.yars/config.yaml` in the main repository; admins change it by push or under **Admin › Structure**. Unknown values are rejected when the server loads it.
 
 | Key | Type | Default | Rule |
 |---|---|---|---|

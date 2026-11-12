@@ -174,5 +174,6 @@ M35 task 1  review   fix 8804d8b (the tests check the second call and a short re
 M35 task 2  review   fix c509878 (prepareData shared with yars serve; an M11 pentester on the team; snapshot of schema 1; builder kept)
 M35 task 3  review   fix efb60d2 (the folders yars writes; unbuffered bodies; base_url; LaTeX packages; going back only when the schema changed)
 M35 task 4  review   fix 0843814, 40f167b (every CVSS parse error says how to fix it; the record as the run was)
-M35 branch  review   fixes in the commit after f4161ca (base_url by push; a copy of the old binary; --user-group; the fixture's output path; these PROGRESS lines)
+M35 branch  review   fixes 775331c (base_url by push; a copy of the old binary; --user-group; the fixture's output path; these PROGRESS lines)
+M35 branch  fix check passed (all six fixed; base_url is an admin's, in deploy.md and config.md)
 ```
