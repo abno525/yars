@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -98,6 +99,35 @@ func TestCreateRetest(t *testing.T) {
 	nf, err := s.CreateFinding("2027-01-acme-retest", "New issue", uAlice.GitAuthor())
 	if err != nil || nf.F.Meta.ID != "F-004" || nf.F.Meta.Retest != nil {
 		t.Fatalf("new finding %+v %v", nf.F.Meta, err)
+	}
+}
+
+// A copy brings its finding's attachments, so the screenshots its text
+// shows (attachments/…) are there in the retest too (backlog, M7).
+func TestRetestCopiesAttachments(t *testing.T) {
+	s, dir := srcFixture(t)
+	png := []byte("\x89PNG\r\n\x1a\n" + strings.Repeat("x", 64))
+	if _, err := s.AddAttachment(eng, "F-003-csrf", "shot.png", png, alice); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddAttachment(eng, "F-003-csrf", "notes.txt", []byte("steps"), alice); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateRetest(Engagement{ID: "rt", Name: "RT"}, eng, []string{"F-001-sql-injection", "F-003-csrf"}, "", uDora); err != nil {
+		t.Fatal(err)
+	}
+	as, err := s.Attachments("rt", "F-003-csrf")
+	if err != nil || len(as) != 2 || as[0].Name != "notes.txt" || as[1].Name != "shot.png" {
+		t.Fatalf("attachments %+v %v", as, err)
+	}
+	if b, err := s.ReadAttachment("rt", "F-003-csrf", "attachments/shot.png"); err != nil || string(b) != string(png) {
+		t.Fatalf("shot.png %v", err)
+	}
+	if as, _ := s.Attachments("rt", "F-001-sql-injection"); len(as) != 0 {
+		t.Fatalf("a finding without attachments got %+v", as)
+	}
+	if out, err := exec.Command("git", "-C", filepath.Join(dir, "engagements", "rt"), "status", "--porcelain").Output(); err != nil || len(out) != 0 {
+		t.Fatalf("not committed: %v\n%s", err, out)
 	}
 }
 

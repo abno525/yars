@@ -157,8 +157,9 @@ func (s *Store) CreateRetest(e Engagement, source string, dirs []string, assigne
 		return fmt.Errorf("%w: engagement %s already exists", ErrInvalidValue, e.ID)
 	}
 	type copyOf struct {
-		dir string
-		f   *finding.Finding
+		dir     string
+		f       *finding.Finding
+		attachs map[string][]byte // its attachments, by name (as they are now)
 	}
 	var copies []copyOf
 	for _, d := range dirs {
@@ -175,7 +176,17 @@ func (s *Store) CreateRetest(e Engagement, source string, dirs []string, assigne
 				return err
 			}
 		}
-		copies = append(copies, copyOf{d, f})
+		as, err := s.AttachmentsOf(ref)
+		if err != nil {
+			return err
+		}
+		c := copyOf{d, f, map[string][]byte{}}
+		for _, a := range as {
+			if c.attachs[a.Name], err = s.ReadAttachment(source, d, "attachments/"+a.Name); err != nil {
+				return err
+			}
+		}
+		copies = append(copies, c)
 	}
 	e.Type, e.Source = "retest", source
 	b, err := yaml.Marshal(e)
@@ -199,6 +210,12 @@ func (s *Store) CreateRetest(e Engagement, source string, dirs []string, assigne
 		if err := write(path.Join("findings", c.dir, "finding.md"), c.f.Bytes()); err != nil {
 			s.root.RemoveAll(dir)
 			return err
+		}
+		for name, data := range c.attachs {
+			if err := write(path.Join("findings", c.dir, "attachments", name), data); err != nil {
+				s.root.RemoveAll(dir)
+				return err
+			}
 		}
 	}
 	msg := fmt.Sprintf("engagement %s: retest of %s (%d findings)", e.ID, source, len(copies))
