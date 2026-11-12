@@ -157,6 +157,28 @@ func TestChatBadRef400(t *testing.T) {
 	}
 }
 
+// A refused reply comes back in its thread's reply box, so it can be
+// shortened and sent again; the other threads' boxes stay empty (backlog,
+// M4).
+func TestFailedReplyKeepsText(t *testing.T) {
+	e := setup(t)
+	e.do(t, "alice", "POST", fpath+"/chat", url.Values{"text": {"first"}}, nil)
+	e.do(t, "alice", "POST", fpath+"/chat", url.Values{"text": {"second"}}, nil)
+	ids := e.chatIDs(t)
+	long := strings.Repeat("word ", 2001)
+	rec := e.do(t, "bob", "POST", fpath+"/chat", url.Values{"text": {long}, "reply": {ids[0]}}, nil)
+	b := rec.Body.String()
+	if rec.Code != http.StatusBadRequest || !strings.Contains(b, "longer than 10000") {
+		t.Fatalf("code %d", rec.Code)
+	}
+	if !strings.Contains(b, `id="reply-`+ids[0]+`" placeholder="Reply" aria-label="Reply" value="`+strings.TrimSpace(long)) {
+		t.Fatal("the refused reply is not in its box")
+	}
+	if !strings.Contains(b, `id="reply-`+ids[1]+`" placeholder="Reply" aria-label="Reply">`) {
+		t.Fatal("another thread's box is not empty")
+	}
+}
+
 // chatList is the #chat-list of a page or fragment.
 func chatList(t *testing.T, b string) string {
 	t.Helper()

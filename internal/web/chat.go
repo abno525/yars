@@ -102,7 +102,8 @@ type chatView struct {
 	Sections             []string
 	Error, Text, Section string
 	ListError            string
-	ReadOnly             bool // archived engagement: no composer, replies or resolving
+	ReplyTo, ReplyText   string // a refused reply: its thread and its text, back in that box
+	ReadOnly             bool   // archived engagement: no composer, replies or resolving
 }
 
 var eventText = map[string]string{
@@ -301,6 +302,7 @@ func (s *Server) chatPost(w http.ResponseWriter, r *http.Request) {
 		status := http.StatusOK
 		if errors.Is(err, store.ErrInvalidChat) {
 			status, v.ListError = http.StatusBadRequest, strings.TrimPrefix(err.Error(), store.ErrInvalidChat.Error()+": ")
+			v.ReplyTo, v.ReplyText = m.Reply, m.Text
 		} else if err != nil {
 			s.fail(w, err)
 			return

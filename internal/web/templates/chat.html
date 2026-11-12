@@ -61,7 +61,7 @@
         <form class="reply-form" hx-post="{{$.PostURL}}" hx-target="#chat-list" hx-swap="outerHTML">
           <input type="hidden" name="reply" value="{{.Root.ID}}">
           {{if $.All}}<input type="hidden" name="all" value="1">{{end}}
-          <input name="text" id="reply-{{.Root.ID}}" placeholder="Reply" aria-label="Reply">
+          <input name="text" id="reply-{{.Root.ID}}" placeholder="Reply" aria-label="Reply"{{if and $.ReplyTo (eq $.ReplyTo .Root.ID)}} value="{{$.ReplyText}}"{{end}}>
           <button class="btn ghost sm w96" aria-keyshortcuts="Control+Enter">Reply</button>
         </form>
         <form class="thread-tools" hx-post="{{$.PostURL}}" hx-target="#chat-list" hx-swap="outerHTML">
