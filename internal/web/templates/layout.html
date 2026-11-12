@@ -98,8 +98,8 @@ keys.js hides the Finding page group where there are no panels */}}
         <dl>
           <div class="krow"><dt><kbd>j</kbd><kbd>k</kbd></dt><dd>Next or previous row</dd></div>
           <div class="krow"><dt><kbd>Enter</kbd></dt><dd>Open the row</dd></div>
-          <div class="krow"><dt><kbd>x</kbd></dt><dd>Tick the row</dd></div>
-          <div class="krow"><dt><kbd>Shift+Space</kbd></dt><dd>Tick the range</dd></div>
+          <div class="krow" data-keys-if="tr input[type=checkbox]"><dt><kbd>x</kbd></dt><dd>Tick the row</dd></div>
+          <div class="krow" data-keys-if="input[type=checkbox][name=id]"><dt><kbd>Shift+Space</kbd></dt><dd>Tick the range</dd></div>
           <div class="krow" data-keys-for="Shift+S"><dt><kbd>Shift+S</kbd></dt><dd>Submit the ticked</dd></div>
           <div class="krow" data-keys-for="Shift+A"><dt><kbd>Shift+A</kbd></dt><dd>Approve the ticked</dd></div>
           <div class="krow" data-keys-for="Shift+P"><dt><kbd>Shift+P</kbd></dt><dd>Mark the ticked reported</dd></div>
@@ -110,8 +110,8 @@ keys.js hides the Finding page group where there are no panels */}}
       <section class="kgroup" data-keys-group="finding"><h3 class="gh">Finding page</h3>
         <dl>
           <div class="krow"><dt><kbd>j</kbd><kbd>k</kbd><kbd>↓</kbd><kbd>↑</kbd></dt><dd>Next or previous panel</dd></div>
-          <div class="krow"><dt><kbd>l</kbd><kbd>→</kbd></dt><dd>Chat panel</dd></div>
-          <div class="krow"><dt><kbd>h</kbd><kbd>←</kbd></dt><dd>Back to the panel</dd></div>
+          <div class="krow" data-keys-if="#chat"><dt><kbd>l</kbd><kbd>→</kbd></dt><dd>Chat panel</dd></div>
+          <div class="krow" data-keys-if="#chat"><dt><kbd>h</kbd><kbd>←</kbd></dt><dd>Back to the panel</dd></div>
           <div class="krow" data-keys-for="E"><dt><kbd>e</kbd></dt><dd>Edit the panel</dd></div>
           <div class="krow"><dt><kbd>Enter</kbd></dt><dd>The panel's button</dd></div>
           <div class="krow" data-keys-for="Shift+S"><dt><kbd>Shift+S</kbd></dt><dd>Submit</dd></div>
@@ -123,7 +123,7 @@ keys.js hides the Finding page group where there are no panels */}}
           <div class="krow" data-keys-for="Shift+U"><dt><kbd>Shift+U</kbd></dt><dd>Revert or restore</dd></div>
           <div class="krow" data-keys-for="Shift+C"><dt><kbd>Shift+C</kbd></dt><dd>Check</dd></div>
           <div class="krow" data-keys-for="Shift+H"><dt><kbd>Shift+H</kbd></dt><dd>History</dd></div>
-          <div class="krow"><dt><kbd>Ctrl+S</kbd><kbd>Ctrl+Z</kbd></dt><dd>Redact: save, undo</dd></div>
+          <div class="krow" data-keys-if="#redact"><dt><kbd>Ctrl+S</kbd><kbd>Ctrl+Z</kbd></dt><dd>Redact: save, undo</dd></div>
         </dl>
       </section>
       <section class="kgroup" data-keys-group="chat"><h3 class="gh">Chat</h3>

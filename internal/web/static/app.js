@@ -553,7 +553,8 @@ document.addEventListener('keydown', function (evt) {
 // form: the browser's implicit submission would press the form's first
 // enabled button, the first Set state entry or Assign all.
 document.addEventListener('keydown', function (evt) {
-  if (evt.key === 'Enter' && evt.target.matches && evt.target.matches('.fbulkform input[type=checkbox], input[type=checkbox][data-nav], .picker input[type=checkbox]')) evt.preventDefault();
+  // plain Enter only: Ctrl+Enter in the picker presses its Save (keys.js)
+  if (evt.key === 'Enter' && !evt.ctrlKey && !evt.metaKey && evt.target.matches && evt.target.matches('.fbulkform input[type=checkbox], input[type=checkbox][data-nav], .picker input[type=checkbox]')) evt.preventDefault();
 });
 // While a run is out every bar button is disabled (hx-disabled-elt), so a
 // double click sends one request; a refused run (403, 422: a toast, no swap)

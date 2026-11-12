@@ -278,6 +278,11 @@ function yarsKeysList() {
   d.querySelectorAll('[data-keys-for]').forEach(function (row) {
     row.hidden = !document.querySelector('[aria-keyshortcuts~="' + row.getAttribute('data-keys-for') + '"]');
   });
+  // a row that needs something else on the page (the chat, the Redact
+  // dialog, row checkboxes): [data-keys-if] names it
+  d.querySelectorAll('[data-keys-if]').forEach(function (row) {
+    row.hidden = !document.querySelector(row.getAttribute('data-keys-if'));
+  });
   d.showModal();
   return true;
 }

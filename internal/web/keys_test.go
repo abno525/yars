@@ -643,7 +643,7 @@ func TestSaveReviewFixes(t *testing.T) {
 func TestListReviewFixes(t *testing.T) {
 	e := setup(t)
 	app := e.do(t, "alice", "GET", "/static/app.js", nil, nil).Body.String()
-	if !strings.Contains(app, `evt.key === 'Enter' && evt.target.matches && evt.target.matches('.fbulkform input[type=checkbox], input[type=checkbox][data-nav]`) {
+	if !strings.Contains(app, `evt.target.matches('.fbulkform input[type=checkbox], input[type=checkbox][data-nav]`) {
 		t.Error("app.js does not stop Enter on a list checkbox")
 	}
 	js := e.do(t, "alice", "GET", "/static/keys.js", nil, nil).Body.String()
@@ -683,6 +683,20 @@ func TestBranchReviewFixes(t *testing.T) {
 	app := e.do(t, "alice", "GET", "/static/app.js", nil, nil).Body.String()
 	if !strings.Contains(app, ".picker input[type=checkbox]") {
 		t.Error("app.js does not stop Enter in the reviewer picker")
+	}
+	// plain Enter only: Ctrl+Enter there presses the picker's Save (keys.js)
+	if !strings.Contains(app, "evt.key === 'Enter' && !evt.ctrlKey && !evt.metaKey && evt.target.matches") {
+		t.Error("app.js stops Ctrl+Enter on list and picker checkboxes too")
+	}
+	// rows that need something on the page besides a key
+	d := between(e.do(t, "alice", "GET", "/", nil, nil).Body.String(), `id="keys"`, "</dialog>")
+	for _, w := range []string{`data-keys-if="#chat"`, `data-keys-if="#redact"`, `data-keys-if="tr input[type=checkbox]"`, `data-keys-if="input[type=checkbox][name=id]"`} {
+		if !strings.Contains(d, w) {
+			t.Errorf("the list lacks %s", w)
+		}
+	}
+	if !strings.Contains(js, "[data-keys-if]") {
+		t.Error("keys.js does not hide the rows a page cannot use")
 	}
 	e.second(t, "bob")
 	b := e.do(t, "dora", "GET", "/e/acme", nil, nil).Body.String()
