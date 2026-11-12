@@ -189,28 +189,83 @@ func explain(err error) string {
 	return err.Error()
 }
 
-var findingID = regexp.MustCompile(`^F-\d+$`)
+var (
+	findingID = regexp.MustCompile(`^F-\d+$`)
+	// anyID is a finding id in any case, or its number alone ("f-7", "7")
+	anyID = regexp.MustCompile(`^(?i:f-)?(\d+)$`)
+	// folderNum is the number a folder name starts with (F-001-sqli: 1)
+	folderNum = regexp.MustCompile(`^F-(\d+)(?:-|$)`)
+)
 
-// resolve finds a finding by directory name or by ID.
+// errAmbiguous: a finding id names more than one folder.
+var errAmbiguous = errors.New("ambiguous")
+
+// normalID turns "f-7", "F-7", "f-007" or "7" into "F-007" (at least three
+// digits); other names (a folder name) are returned unchanged.
+func normalID(s string) string {
+	m := anyID.FindStringSubmatch(s)
+	if m == nil {
+		return s
+	}
+	n := strings.TrimLeft(m[1], "0")
+	if len(n) > 9 { // no finding has such a number
+		return s
+	}
+	k := 0
+	fmt.Sscan(n, &k)
+	return fmt.Sprintf("F-%03d", k)
+}
+
+// ambiguous names the folders an id could mean.
+type ambiguous struct {
+	id   string
+	dirs []string
+}
+
+func (e ambiguous) Error() string {
+	return fmt.Sprintf("%s names more than one finding folder (%s); use the folder name", e.id, strings.Join(e.dirs, ", "))
+}
+
+func (e ambiguous) Is(target error) bool { return target == errAmbiguous }
+
+// resolve finds a finding by folder name or by ID (R2: in any case, with or
+// without its zeros). An ID matches the folder of that name, else every
+// finding with that ID or folder number; more than one is ambiguous, never
+// the first.
 func (s *Server) resolve(eng, f string) (store.FindingRef, error) {
+	f = normalID(f)
 	if !store.ValidID(eng) || !store.ValidID(f) {
 		return store.FindingRef{}, store.ErrNotFound
 	}
-	if ref, err := s.Store.Finding(eng, f); err == nil {
-		return ref, nil
+	if !findingID.MatchString(f) {
+		return s.Store.Finding(eng, f)
 	}
-	if findingID.MatchString(f) {
-		refs, err := s.Store.ListFindings(eng)
-		if err != nil {
-			return store.FindingRef{}, err
+	refs, err := s.Store.ListFindings(eng)
+	if err != nil {
+		return store.FindingRef{}, store.ErrNotFound
+	}
+	num := strings.TrimLeft(strings.TrimPrefix(f, "F-"), "0")
+	var hits []store.FindingRef
+	for _, r := range refs {
+		if r.Dir == f {
+			return r, nil // a folder called just that
 		}
-		for _, r := range refs {
-			if r.F.Meta.ID == f {
-				return r, nil
-			}
+		m := folderNum.FindStringSubmatch(r.Dir)
+		if r.F.Meta.ID == f || (m != nil && strings.TrimLeft(m[1], "0") == num) {
+			hits = append(hits, r)
 		}
 	}
-	return store.FindingRef{}, store.ErrNotFound
+	switch len(hits) {
+	case 0:
+		return store.FindingRef{}, store.ErrNotFound
+	case 1:
+		return hits[0], nil
+	}
+	e := ambiguous{id: f}
+	for _, r := range hits {
+		e.dirs = append(e.dirs, r.Dir)
+	}
+	return store.FindingRef{}, e
 }
 
 func (s *Server) ref(a args) (store.FindingRef, error) {
@@ -250,10 +305,18 @@ var tools = []tool{
 			return asJSON(out)
 		}},
 	{name: "list_findings", desc: "List the findings of an engagement, optionally filtered by status or severity.",
-		required: []param{pEng}, optional: []param{{"status", "draft | verification | complete | reported | withdrawn (withdrawn findings are listed only with this filter)"}, {"severity", "critical | high | medium | low | info"}},
+		required: []param{pEng}, optional: []param{{"status", "one of draft, verification, complete, reported, withdrawn (withdrawn findings are listed only with this filter)"}, {"severity", "one of the configured severities (by default critical, high, medium, low, info)"}},
 		run: func(s *Server, ctx context.Context, u config.User, a args) (string, error) {
 			if err := a.need("engagement"); err != nil {
 				return "", err
+			}
+			// R2: an unknown filter is refused with the valid values, not
+			// answered with an empty list
+			if st := a.str("status"); st != "" && !slices.Contains(workflow.AllStatuses, st) {
+				return "", fmt.Errorf("unknown status %q; valid statuses: %s", st, strings.Join(workflow.AllStatuses, ", "))
+			}
+			if sev, valid := a.str("severity"), s.conf().Severities; sev != "" && !slices.Contains(valid, sev) {
+				return "", fmt.Errorf("unknown severity %q; valid severities: %s", sev, strings.Join(valid, ", "))
 			}
 			if _, err := s.Store.Engagement(a.str("engagement")); err != nil {
 				return "", err
@@ -436,7 +499,7 @@ var tools = []tool{
 		required: []param{pEng, pFinding, {"field", "field name"}, {"value", "new value"}},
 		optional: []param{{"base", "the field's entry in field_bases from read_finding (details.*, cvss, cvss_reason.*: refused only if that one row changed since; each set_field answer gives the row's new base; after cvss, one base for the vector and every reason), or cvss_base, details_base or assets_base (assets); refuses the edit if it changed since you read it"}},
 		run:      setField},
-	{name: "transition", action: "status", serverOnly: true, desc: "Move a finding through the workflow: submit (draft→verification), return (verification→draft, needs reason), clear or sign_off (reviewer sign-off), approve (director: verification→complete), reopen (author or director: complete→verification, needs reason), report (director: complete→reported), unreport (author or director: reported→complete, needs reason; the approval stays), revert (the step back from where the finding is: reopen or unreport), withdraw (author while draft or verification, director also when complete or reported; needs reason; takes it out of the report), revise (author or director: withdrawn→draft), take_back (author or director: verification→draft, no reason; sign-offs start over).",
+	{name: "transition", action: "status", serverOnly: true, desc: "Move a finding through the workflow: submit (draft→verification), return (verification→draft, needs reason), clear or sign_off (reviewer sign-off), approve (director: verification→complete), reopen (author or director: complete→verification, needs reason), report (director: complete→reported), unreport (author or director: reported→complete, needs reason; the approval stays), revert (the step back from where the finding is: reopen or unreport), withdraw (author while draft or verification, director also when complete or reported; needs reason; takes it out of the report), revise (author or director: withdrawn→draft), take_back (author or director: verification→draft, no reason; sign-offs start over). The statuses are draft, verification, complete, reported, withdrawn.",
 		required: []param{pEng, pFinding, {"action", "submit | return | clear | sign_off | approve | reopen | report | unreport | revert | withdraw | revise | take_back"}},
 		optional: []param{{"reason", "required for return, withdraw, reopen, unreport and revert"}},
 		run: func(s *Server, ctx context.Context, u config.User, a args) (string, error) {

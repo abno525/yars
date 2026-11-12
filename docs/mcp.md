@@ -53,7 +53,7 @@ A clone holds **content only**. Workflow state (status, reviewers, clearances), 
 | `get_check_results` | read | server only | The latest check run: state, progress, results, whether it is stale |
 | `list_notifications` | read | server only | Your notifications (newest first); `unread: true` for unread ones only |
 
-Findings can be referred to by ID (`F-001`) or directory name (`F-001-sql-injection`). A token restricted to some engagements sees and changes only those; a write to an archived engagement is refused.
+Findings can be referred to by ID (`F-001`, also `f-1` or `1`) or directory name (`F-001-sql-injection`); an ID that two folders share is refused, and the folder name is needed. A token restricted to some engagements sees and changes only those; a write to an archived engagement is refused.
 
 ## Errors
 
@@ -71,6 +71,8 @@ Tool errors come back as a result with `isError: true` and one text item:
 | `unknown section "Summary"; valid sections: …` | `update_section` with a section the finding doesn't have |
 | `use the transition tool to change the status` | `set_field status` |
 | `nothing to revert: the finding is draft` | `transition revert` on a finding that is not complete or reported |
+| `unknown status "open"; valid statuses: draft, verification, complete, reported, withdrawn` | `list_findings` with a status (or severity) that does not exist |
+| `F-001 names more than one finding folder (…); use the folder name` | An ID two folders share |
 
 ## Safety notes
 

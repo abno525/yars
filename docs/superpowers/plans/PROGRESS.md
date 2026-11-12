@@ -135,5 +135,6 @@ M31 task 3  review 2 fix 76a894b (missed live events fired at settle; refusals a
 M31 branch  review   fixes 08ea0ab (the rest of the section must render the same; archived engagements; a 15-minute bound and a stop)
 M31 branch  fix check three low findings, fixed cf87bf2 (list items keep their place; indented code and HTML blocks fixable; a stop in flight says so)
 M31 PR      opened   #26
-M32 task 1  done     (strict JSON-RPC: no batches, jsonrpc 2.0, no null id; bearer in any case; two protocol versions; long stdio lines go on)
+M32 task 1  done     8e1dfb6 (strict JSON-RPC: no batches, jsonrpc 2.0, no null id; bearer in any case; two protocol versions; long stdio lines go on)
+M32 task 2  done     (f-7, F-7, F-007 and 7 name one finding; an ID two folders share is refused; unknown status or severity lists the valid ones)
 ```
