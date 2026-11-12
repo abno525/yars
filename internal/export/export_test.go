@@ -124,6 +124,10 @@ func TestBodyHeadingsBelowSections(t *testing.T) {
 	in := input(t)
 	in.Findings[0].SetSection("Description", "# Big\n\n## Medium\n\nUnderlined\n==========\n\n### Small\n\n#### Smaller\n\ntext")
 	in.Report = append(in.Report, ReportText{Name: "Scope", Body: "# Hosts\n\nall"})
+	// Jira's wiki markup too (review)
+	if j := mdToJira("# Big\n\n## Medium\n\n### Small\n\n#### Smaller"); !strings.Contains(j, "h3. Big") || !strings.Contains(j, "h3. Medium") || !strings.Contains(j, "h4. Smaller") || strings.Contains(j, "h1.") || strings.Contains(j, "h2.") {
+		t.Errorf("jira:\n%s", j)
+	}
 	for name, x := range map[string]string{"xhtml": XHTML(in, false), "report": Report(in)} {
 		for _, want := range []string{"<h3>Big</h3>", "<h3>Medium</h3>", "<h3>Underlined</h3>", "<h3>Small</h3>", "<h4>Smaller</h4>", "<h3>Hosts</h3>"} {
 			if !strings.Contains(x, want) {

@@ -194,7 +194,7 @@ func mdToJira(md string) string {
 		switch {
 		case mdHeading.MatchString(line):
 			m := mdHeading.FindStringSubmatch(line)
-			line = fmt.Sprintf("h%d. %s", len(m[1]), m[2])
+			line = fmt.Sprintf("h%d. %s", max(len(m[1]), 3), m[2]) // below the section's h2
 		case mdBullet.MatchString(line):
 			m := mdBullet.FindStringSubmatch(line)
 			line = strings.Repeat("*", len(m[1])/2+1) + " " + m[2]
