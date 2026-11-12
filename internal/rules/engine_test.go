@@ -15,7 +15,7 @@ import (
 func TestEngineSeesSameSizeRewrite(t *testing.T) {
 	dir := writeRules(t, nil)
 	p := filepath.Join(dir, "r.yaml")
-	now := time.Now().Truncate(time.Second)
+	now := time.Now() // both writes get this time: only the content differs
 	write := func(body string) {
 		t.Helper()
 		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {

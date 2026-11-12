@@ -3,7 +3,6 @@ package export
 import (
 	"context"
 	_ "embed"
-	"errors"
 	"os"
 	"path/filepath"
 )
@@ -34,6 +33,6 @@ func (r *Runner) pdfSlot(ctx context.Context) (release func(), err error) {
 	case r.pdfSlots <- struct{}{}:
 		return func() { <-r.pdfSlots }, nil
 	case <-ctx.Done():
-		return nil, errors.New("PDF not started: " + ctx.Err().Error())
+		return nil, notStarted(ctx, "PDF")
 	}
 }

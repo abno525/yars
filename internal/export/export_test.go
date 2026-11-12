@@ -230,6 +230,17 @@ func fakePandoc(t *testing.T, body string) (string, string) {
 	return p, dir
 }
 
+// waitFor waits up to 10 s for cond, so a slow machine only makes a test
+// slower.
+func waitFor(t *testing.T, cond func() bool) {
+	t.Helper()
+	for deadline := time.Now().Add(10 * time.Second); !cond(); time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("gave up waiting")
+		}
+	}
+}
+
 const recordingPandoc = `printf '%s\n' "$@" > "$(dirname "$0")/args.txt"
 out=""
 while [ $# -gt 0 ]; do if [ "$1" = "-o" ]; then out="$2"; fi; shift; done
@@ -354,11 +365,16 @@ func TestExportWorkers(t *testing.T) {
 			r.Run(busy, Exporter{ID: "d", Type: "pandoc", Format: "docx"}, input(t))
 		}()
 	}
-	time.Sleep(300 * time.Millisecond)
+	waitFor(t, func() bool { return len(r.runQueue()) == exportWorkers })
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancel()
-	if _, err := r.Run(ctx, Exporter{ID: "c", Type: "confluence"}, input(t)); err == nil || !strings.Contains(err.Error(), "export not started") {
+	if _, err := r.Run(ctx, Exporter{ID: "c", Type: "confluence"}, input(t)); err == nil || err.Error() != "export not started: timed out" {
 		t.Fatalf("a fifth export: %v", err)
+	}
+	gone, leave := context.WithCancel(context.Background())
+	time.AfterFunc(100*time.Millisecond, leave)
+	if _, err := r.Run(gone, Exporter{ID: "c", Type: "confluence"}, input(t)); err == nil || err.Error() != "export not started: cancelled" {
+		t.Fatalf("a fifth export whose request went away: %v", err)
 	}
 	stop()
 	wg.Wait()
@@ -867,10 +883,11 @@ func TestPDFWorker(t *testing.T) {
 }
 
 // PDFs waiting for a PDF worker hold no export worker: a DOCX asked for
-// while four PDFs queue runs at once.
+// while four PDFs queue (two rendering until released, two waiting) runs.
 func TestPDFQueueLeavesExports(t *testing.T) {
-	pb, _ := fakePandoc(t, "case \"$*\" in *xelatex*) sleep 0.8;; esac\n"+recordingPandoc)
+	pb, pdir := fakePandoc(t, "case \"$*\" in *xelatex*) while [ ! -e \"$(dirname \"$0\")/go\" ]; do sleep 0.05; done;; esac\n"+recordingPandoc)
 	r, _ := runner(t, pb)
+	r.Timeout = time.Minute
 	var wg sync.WaitGroup
 	for i := 0; i < 4; i++ {
 		wg.Add(1)
@@ -881,15 +898,17 @@ func TestPDFQueueLeavesExports(t *testing.T) {
 			}
 		}()
 	}
-	time.Sleep(150 * time.Millisecond) // the PDFs have queued
-	start := time.Now()
-	if _, err := r.Run(context.Background(), Exporter{ID: "docx", Type: "pandoc", Format: "docx"}, input(t)); err != nil {
-		t.Fatal(err)
+	defer wg.Wait()
+	// the PDFs finish once the test is done
+	defer writeFile(t, pdir, "go", "", 0o644)
+	// two render, then the other two queue
+	waitFor(t, func() bool { return len(r.runQueue()) >= 2 })
+	time.Sleep(100 * time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if _, err := r.Run(ctx, Exporter{ID: "docx", Type: "pandoc", Format: "docx"}, input(t)); err != nil {
+		t.Fatalf("the DOCX behind four PDFs: %v", err)
 	}
-	if d := time.Since(start); d > 400*time.Millisecond {
-		t.Errorf("the DOCX waited %s behind the PDFs", d)
-	}
-	wg.Wait()
 }
 
 // The real thing, when pandoc and xelatex are installed.

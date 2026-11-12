@@ -416,13 +416,28 @@ type Runner struct {
 // run at once); release gives it back. Run takes one itself; a caller that
 // builds a file without Run (the ZIPs) takes one with Slot.
 func (r *Runner) Slot(ctx context.Context) (release func(), err error) {
-	r.runOnce.Do(func() { r.runSlots = make(chan struct{}, exportWorkers) })
+	q := r.runQueue()
 	select {
-	case r.runSlots <- struct{}{}:
-		return func() { <-r.runSlots }, nil
+	case q <- struct{}{}:
+		return func() { <-q }, nil
 	case <-ctx.Done():
-		return nil, errors.New("export not started: " + ctx.Err().Error())
+		return nil, notStarted(ctx, "export")
 	}
+}
+
+// runQueue holds one token per export running.
+func (r *Runner) runQueue() chan struct{} {
+	r.runOnce.Do(func() { r.runSlots = make(chan struct{}, exportWorkers) })
+	return r.runSlots
+}
+
+// notStarted is the error of a run whose wait for a worker ended: its
+// request went away or its time ran out, in the words a finished run uses.
+func notStarted(ctx context.Context, what string) error {
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return errors.New(what + " not started: timed out")
+	}
+	return errors.New(what + " not started: cancelled")
 }
 
 const pdfWorkers = 2
