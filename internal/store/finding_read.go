@@ -2,7 +2,6 @@ package store
 
 import (
 	"errors"
-	"fmt"
 	"io/fs"
 	"log"
 	"path"
@@ -182,7 +181,7 @@ func (s *Store) read(engID, dir string, states map[string]db.State) (FindingRef,
 	}
 	f, err := finding.Parse(b)
 	if err != nil {
-		return FindingRef{}, nil, fmt.Errorf("%s/%s: %w", engID, dir, err)
+		return FindingRef{}, nil, &UnreadableError{Eng: engID, Dir: dir, Err: err}
 	}
 	// a title pushed over git can still hold bidi controls: never show them
 	f.Meta.Title = CleanTitle(f.Meta.Title)

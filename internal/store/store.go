@@ -35,7 +35,22 @@ var (
 	// ErrNoDB: workflow and chat need the YARS database, which only the server
 	// has (a local clone holds content only).
 	ErrNoDB = errors.New("workflow state and chat are kept on the YARS server; use its web UI or its /mcp endpoint")
+	// ErrUnreadable marks a finding file that does not parse (an
+	// *UnreadableError says which and why).
+	ErrUnreadable = errors.New("cannot be read")
 )
+
+// UnreadableError is a finding file that does not parse.
+type UnreadableError struct {
+	Eng, Dir string
+	Err      error
+}
+
+func (e *UnreadableError) Error() string {
+	return e.Eng + "/" + e.Dir + ": " + ErrUnreadable.Error() + ": " + e.Err.Error()
+}
+
+func (e *UnreadableError) Unwrap() []error { return []error{ErrUnreadable, e.Err} }
 
 type Engagement struct {
 	ID     string `yaml:"-" json:"id"`

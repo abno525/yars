@@ -1,0 +1,18 @@
+{{define "content"}}
+<div class="titlerow">
+  <div class="titlecol">
+    <nav class="crumbs"><a href="/e/{{.Eng.ID}}">{{.Eng.Name}}</a><span class="sep" aria-hidden="true">/</span><span class="idchip">{{.TabTitle}}</span></nav>
+    <h1>Cannot read finding</h1>
+  </div>
+</div>
+<section class="panel">
+  <div class="panelhead"><h2>File</h2></div>
+  <table class="table stable">
+    <thead><tr><th>Field</th><th>Value</th></tr></thead>
+    <tbody>
+      <tr><td>Path</td><td class="mono">{{.Unreadable}}</td></tr>
+      <tr><td>Error</td><td class="mono">{{.Error}}</td></tr>
+    </tbody>
+  </table>
+</section>
+{{end}}

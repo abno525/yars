@@ -141,6 +141,7 @@ type page struct {
 	Settings      settingsView
 	Archive       archiveView // the engagement is archived: read-only bar
 	Error         string
+	Unreadable    string // a finding file that does not parse: its path in the engagement
 	Rows          []index.Row
 	Offset        int    // first row shown (board pages after the first)
 	PageSize      int    // rows per board page
@@ -786,7 +787,15 @@ func (s *Server) renderFinding(w http.ResponseWriter, r *http.Request, status in
 		s.fail(w, err)
 		return
 	}
-	if p.Finding, err = s.Store.Finding(eng, r.PathValue("fid")); err != nil {
+	var bad *store.UnreadableError
+	if p.Finding, err = s.Store.Finding(eng, r.PathValue("fid")); errors.As(err, &bad) {
+		// a file put on the server past the push checks: say which and why
+		p.Unreadable = "findings/" + bad.Dir + "/finding.md"
+		p.Error = bad.Err.Error()
+		p.TabTitle = bad.Dir
+		s.renderStatus(w, http.StatusUnprocessableEntity, "unreadable.html", p)
+		return
+	} else if err != nil {
 		s.fail(w, err)
 		return
 	}
