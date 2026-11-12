@@ -376,6 +376,26 @@ func TestFixRefusesBlocksThatReachFurther(t *testing.T) {
 	}
 }
 
+// Branch review 1: the same inside a list item or a quote, and a closer
+// taken away, are caught by how the section renders.
+func TestFixRefusesNestedBlocks(t *testing.T) {
+	cases := []struct{ impact, from, to string }{
+		{"a foo here\n\nsee [the advisory]\n\n[the advisory]: https://good.example", "a foo here", "a bar here\n> [the advisory]: https://evil.example/x"},
+		{"a foo here\n\nsee [ref]", "a foo here", "a bar here\n- [ref]: https://evil.example"},
+		{"1. a foo here\n\n   continuation paragraph", "1. a foo here", "1. <!-- a bar here"},
+		{"- a foo here\n\n  continuation", "- a foo here", "- ```a bar"},
+		{"<!--\nhidden\n\na foo here -->\n\nlast paragraph", "a foo here -->", "a bar here"},
+	}
+	for _, c := range cases {
+		s, dir, fd, _ := fixReady(t, c.impact, "", func(_ rules.Violation, _, body string) (string, error) {
+			return strings.Replace(body, c.from, c.to, 1), nil
+		})
+		if got := notFixed(t, s, dir, fd); !strings.Contains(got, "how the other paragraphs show") {
+			t.Fatalf("%q: reply %q", c.to, got)
+		}
+	}
+}
+
 // qux.sh reports qux in Impact and fails when there is none.
 const quxScript = "#!/bin/sh\nif grep -q qux; then echo '[{\"message\":\"no qux\",\"quote\":\"qux\",\"target\":\"section:Impact\"}]'; else echo boom >&2; exit 3; fi\n"
 
@@ -517,6 +537,53 @@ func TestFixCrashIsOneItem(t *testing.T) {
 	texts := []string{got[0].Text, got[1].Text}
 	if !slices.Contains(texts, "Fixed.") || !slices.ContainsFunc(texts, func(s string) bool { return strings.Contains(s, "crashed") }) {
 		t.Fatalf("replies %q", texts)
+	}
+}
+
+// Branch review 3: an engagement archived while the AI works gets no more
+// commits, no replies, and no check after.
+func TestFixStopsWhenArchived(t *testing.T) {
+	var s *Store
+	s, dir, fd, ff := fixReady(t, "a foo here", "", func(v rules.Violation, section, body string) (string, error) {
+		if err := s.Archive(eng, m17Dir); err != nil {
+			return "", err
+		}
+		return removeFoo(v, section, body)
+	})
+	before := last(t, dir, "%H")
+	prev, _, _ := s.DB().LatestRun(eng, "F-001")
+	fixed(t, s, fd)
+	if last(t, dir, "%H") != before || ff.calls != 1 {
+		t.Fatalf("committed: %s, %d calls", last(t, dir, "%an|%s"), ff.calls)
+	}
+	if got := aiReplies(t, s, fd); len(got) != 0 {
+		t.Fatalf("replies in an archived engagement %+v", got)
+	}
+	if run, _, _ := s.DB().LatestRun(eng, "F-001"); run.ID != prev.ID {
+		t.Fatalf("a check ran: %+v", run)
+	}
+}
+
+// Branch review 4: a stop (the server shutting down) ends the job: what is
+// left is not asked, and no check follows.
+func TestFixStops(t *testing.T) {
+	extra := "- id: no-zz\n  target: section:Impact\n  regex_forbid: 'zz'\n  level: warning\n  message: Avoid zz\n"
+	var s *Store
+	s, _, fd, ff := fixReady(t, "a foo here\n\nsome zz there", extra, func(v rules.Violation, section, body string) (string, error) {
+		s.StopFixes()
+		return strings.NewReplacer("foo", "bar", "zz", "yy").Replace(body), nil
+	})
+	prev, _, _ := s.DB().LatestRun(eng, "F-001")
+	fixed(t, s, fd)
+	if ff.calls != 1 {
+		t.Fatalf("%d calls after the stop", ff.calls)
+	}
+	got := aiReplies(t, s, fd)
+	if len(got) != 2 || !slices.ContainsFunc(got, func(m chat.Message) bool { return strings.Contains(m.Text, "stopping") }) {
+		t.Fatalf("replies %+v", got)
+	}
+	if run, _, _ := s.DB().LatestRun(eng, "F-001"); run.ID != prev.ID {
+		t.Fatalf("a check ran: %+v", run)
 	}
 }
 

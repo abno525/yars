@@ -120,6 +120,10 @@ type Store struct {
 	runningMu sync.Mutex
 	running   map[string]int64
 	checkWG   sync.WaitGroup
+	// every Fix with AI runs under fixCtx; StopFixes cancels it
+	fixOnce sync.Once
+	fixCtx  context.Context
+	fixStop context.CancelFunc
 
 	beforeWrite func() // test hook: runs between reading and writing
 	// beforePurgeGC (test hook) runs in a purge after the rewrite, before

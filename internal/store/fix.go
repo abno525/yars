@@ -18,6 +18,7 @@ import (
 	"yars/internal/finding"
 	"yars/internal/gitrepo"
 	"yars/internal/history"
+	"yars/internal/render"
 	"yars/internal/rules"
 	"yars/internal/workflow"
 )
@@ -136,6 +137,23 @@ func (s *Store) StartFix(engID, dir string, u config.User) error {
 	return nil
 }
 
+// fixJobLimit bounds a whole Fix with AI run: its items run one after
+// another, each up to three times the AI time limit.
+const fixJobLimit = 15 * time.Minute
+
+// fixBase is the context every fix runs under; StopFixes cancels it.
+func (s *Store) fixBase() context.Context {
+	s.fixOnce.Do(func() { s.fixCtx, s.fixStop = context.WithCancel(context.Background()) })
+	return s.fixCtx
+}
+
+// StopFixes ends the fixes running now (the server is stopping): what is
+// left is answered without asking the AI, and no check follows.
+func (s *Store) StopFixes() {
+	s.fixBase()
+	s.fixStop()
+}
+
 // FixOpen reports whether a finding in status may be fixed: a draft or one
 // in verification. An approved finding may not (its approval would carry
 // over to text nobody read), nor a withdrawn one.
@@ -157,9 +175,15 @@ func (s *Store) runFix(engID, dir, fid string, list, all []db.CheckResult, u con
 			s.notify(Change{Eng: engID, Fid: fid, Kind: ChangeCheck})
 		}
 	}()
-	ctx := rules.WithCaller(context.Background(), rules.Caller{User: u.Username, Eng: engID, Fid: fid})
+	base := s.fixBase()
+	job, cancel := context.WithTimeout(base, fixJobLimit)
+	defer cancel()
+	ctx := rules.WithCaller(job, rules.Caller{User: u.Username, Eng: engID, Fid: fid})
 	nFixed, nSkipped := 0, 0
 	for _, r := range list {
+		if s.writable(engID) != nil {
+			break // archived meanwhile: nothing more is written there
+		}
 		row := s.fixItem(ctx, engID, dir, r, all, u)
 		text := "Fixed."
 		if row.Fixed {
@@ -176,6 +200,9 @@ func (s *Store) runFix(engID, dir, fid string, list, all []db.CheckResult, u con
 	cleared = true
 	s.notify(Change{Eng: engID, Fid: fid, Kind: ChangeCheck})
 	s.db.Audit(u.Username, "ai.fix", engID+"/"+fid, fmt.Sprintf("%d fixed · %d not fixed", nFixed, nSkipped))
+	if base.Err() != nil || s.writable(engID) != nil {
+		return // the server is stopping, or the engagement was archived
+	}
 	if _, err := s.StartCheck(engID, dir, u); err != nil && !errors.Is(err, ErrBusy) {
 		log.Printf("check after the fix of %s/%s: %v", engID, fid, err)
 	}
@@ -185,7 +212,15 @@ func (s *Store) runFix(engID, dir, fid string, list, all []db.CheckResult, u con
 // event is emitted (no notifications).
 func (s *Store) replyAI(engID, fid, thread string, u config.User, text string) {
 	m := chat.Message{ID: chat.NewID(), TS: time.Now().UTC().Truncate(time.Second), User: u.Username, Kind: chat.KindAI, Reply: thread, Text: text}
-	seq, err := s.db.TxForSeq(engID, func(tx *db.Tx) error { return tx.AddMessage(engID, fid, m) })
+	seq, err := s.db.TxForSeq(engID, func(tx *db.Tx) error {
+		if err := archivedIn(tx, engID); err != nil {
+			return err
+		}
+		return tx.AddMessage(engID, fid, m)
+	})
+	if errors.Is(err, ErrArchived) {
+		return // archived meanwhile, as a chat post would be refused
+	}
 	if err != nil {
 		log.Printf("AI reply on %s/%s: %v", engID, fid, err)
 		return
@@ -213,6 +248,12 @@ func (s *Store) fixOne(ctx context.Context, engID, dir string, r db.CheckResult,
 	not := func(reason string) FixRow {
 		row.Outcome = "not fixed: " + reason
 		return row
+	}
+	switch err := ctx.Err(); {
+	case errors.Is(err, context.DeadlineExceeded):
+		return not(fmt.Sprintf("the fix took longer than %d minutes", int(fixJobLimit.Minutes())))
+	case err != nil:
+		return not("the server is stopping")
 	}
 	fx, ok := s.Linter.(Fixer)
 	if !ok {
@@ -338,6 +379,19 @@ func quotePara(body, quote string) (int, string) {
 	return at, ""
 }
 
+// paraRange is the byte range of paragraph at of body (split as paragraphs
+// splits it).
+func paraRange(body string, at int) [2]int {
+	start := 0
+	for i, m := range paragraphs.FindAllStringIndex(body, -1) {
+		if i == at {
+			return [2]int{start, m[0]}
+		}
+		start = m[1]
+	}
+	return [2]int{start, len(body)}
+}
+
 // reaching starts a line that opens a block running past its paragraph:
 // raw HTML (a comment, <pre>, <script> … run to their end marker, across
 // blank lines), a code fence, or a link definition (used by any paragraph).
@@ -385,6 +439,11 @@ func (s *Store) acceptFix(ctx context.Context, ref FindingRef, section, old, bod
 	}
 	if addsReaching(po[at], pn[at]) {
 		return "the AI's text adds raw HTML, a code fence or a link definition"
+	}
+	// the same inside a list item or a quote, a closer taken away: the rest
+	// of the section must render as it did
+	if !render.SameOutside(old, body, paraRange(old, at), paraRange(body, at)) {
+		return "the AI's text changes how the other paragraphs show"
 	}
 	if err := finding.ValidateBody(body); err != nil {
 		return "the AI's text is not a valid section (" + err.Error() + ")"
