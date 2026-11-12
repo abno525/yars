@@ -75,5 +75,6 @@ M26 task 4  done     bfacfff
 M26 task 2  review   fix 6aff44f (HEAD's version kept; merged versions; copy elsewhere refused; gc past the point of no return; dirty tree; lock test)
 M26 task 3  review   fix 6aff44f (bytes the server holds; merge repeat; quoted name)
 M26 task 4  browser  fix a7ecacc (confirm table fits; a refusal names the copy)
-M26 task 4  review   fix (deadlines lifted; header row; archived named; ids kept before the rewrite; unfinished purge; marked files only)
+M26 task 4  review   fix be5e0af (deadlines lifted; header row; archived named; ids kept before the rewrite; unfinished purge; marked files only)
+M26 task 2  review 2 fix (old versions out at every path; copy in the current files redacted first; gc retried; reflogs kept on refusal)
 ```

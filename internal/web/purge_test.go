@@ -116,7 +116,7 @@ func TestPurgeRefusedWhileCopyElsewhere(t *testing.T) {
 	}
 	rec := e.do(t, "dora", "POST", fpath+"/attachments/shot.png/purge", url.Values{}, nil)
 	// the heading names the file; the slot (one line) says where the copy is
-	if b := rec.Body.String(); rec.Code != http.StatusConflict || !strings.Contains(between(b, `<div class="errslot">`, "</div>"), ">An earlier version is also at F-001-sql-injection/attachments/copy.png; remove it there first</p>") {
+	if b := rec.Body.String(); rec.Code != http.StatusConflict || !strings.Contains(between(b, `<div class="errslot">`, "</div>"), ">An earlier version is also at F-001-sql-injection/attachments/copy.png; redact it there first</p>") {
 		t.Fatalf("purge with a copy %d:\n%s", rec.Code, b)
 	}
 	if p := attachmentsPanel(t, e.do(t, "dora", "GET", fpath, nil, nil).Body.String()); !strings.Contains(rowOf(t, p, "shot.png"), "histdot") {

@@ -105,8 +105,9 @@ func TestBlobsOfMergedVersions(t *testing.T) {
 	}
 }
 
-// D28: the same bytes under another path keep the old version in history:
-// the drop says where, before anything is removed.
+// D28: the same bytes in the current files under another path would keep
+// the old version: the drop names that path, and changes nothing (no
+// rewrite, the reflog kept).
 func TestDropOldBlobsRefusesWhileElsewhere(t *testing.T) {
 	r, dir, blobA, blobB := history(t)
 	if err := os.WriteFile(filepath.Join(dir, "copy.png"), []byte("A"), 0o644); err != nil {
@@ -115,12 +116,53 @@ func TestDropOldBlobsRefusesWhileElsewhere(t *testing.T) {
 	if err := r.Commit([]string{"copy.png"}, "copy", Author{"alice", "alice@yars.local"}); err != nil {
 		t.Fatal(err)
 	}
+	head0 := gitOut(t, dir, "rev-parse", "HEAD")
+	reflog := gitOut(t, dir, "reflog")
 	err := r.DropOldBlobs("a.png", blobB)
-	if err == nil || !strings.Contains(err.Error(), "copy.png") {
+	var ee *ElsewhereError
+	if !errors.As(err, &ee) || ee.At != "copy.png" || !strings.Contains(err.Error(), "redact it there first") {
 		t.Fatalf("drop with a copy elsewhere: %v", err)
 	}
 	if exec.Command("git", "-C", dir, "cat-file", "-e", blobA).Run() != nil {
 		t.Fatal("objects were removed before the refusal")
+	}
+	if h := gitOut(t, dir, "rev-parse", "HEAD"); h != head0 || gitOut(t, dir, "reflog") != reflog {
+		t.Fatal("a refused drop rewrote the history or its reflog")
+	}
+}
+
+// D28: an old version under other paths in history only (a copy deleted
+// since, a folder renamed since) goes from every one of them.
+func TestDropOldBlobsAtEveryPath(t *testing.T) {
+	r, dir, blobA, blobB := history(t)
+	a := Author{"alice", "alice@yars.local"}
+	if err := os.WriteFile(filepath.Join(dir, "copy.png"), []byte("A"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Commit([]string{"copy.png"}, "copy", a); err != nil {
+		t.Fatal(err)
+	}
+	git(t, dir, "rm", "-q", "copy.png")
+	git(t, dir, "commit", "-q", "-m", "copy gone")
+	if err := r.DropOldBlobs("a.png", blobB); err != nil {
+		t.Fatal(err)
+	}
+	if exec.Command("git", "-C", dir, "cat-file", "-e", blobA).Run() == nil {
+		t.Fatal("the old version is still in the repository")
+	}
+	if got := gitOut(t, dir, "rev-parse", "HEAD:a.png"); got != blobB {
+		t.Fatalf("current %s", got)
+	}
+}
+
+// D28: a drop that fails after the rewrite leaves no backup ref behind.
+func TestDropOldBlobsFailureLeavesNoBackupRef(t *testing.T) {
+	r, dir, blobA, _ := history(t)
+	if err := r.DropOldBlobs("a.png", blobA); err == nil { // HEAD's files would change
+		t.Fatal("no error")
+	}
+	if refs := gitOut(t, dir, "for-each-ref", "refs/original"); refs != "" {
+		t.Fatalf("backup refs left: %s", refs)
 	}
 }
 

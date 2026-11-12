@@ -3,6 +3,7 @@ package store
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"image/color"
 	"os"
 	"os/exec"
@@ -243,9 +244,67 @@ func TestPurgeRefusedWhileCopyElsewhere(t *testing.T) {
 	}
 }
 
+// D28: a copy of the original (Merge copies attachments; the same upload
+// twice) is redacted first, as the refusal says; then the purge takes the
+// original out at both names, and the copy's own Purge only clears its
+// mark.
+func TestPurgeAfterCopyRedacted(t *testing.T) {
+	s, dir, fd, name, oldBlob, _ := redacted(t)
+	cp, err := s.AddAttachment(eng, fd, "copy.png", pngBytes(t, color.White), uAlice)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PurgeFromHistory(eng, fd, name, uDora); err == nil || !strings.Contains(err.Error(), "attachments/copy.png; redact it there first") {
+		t.Fatalf("purge with the copy unredacted: %v", err)
+	}
+	if err := s.ReplaceAttachment(eng, fd, cp, pngBytes(t, color.Gray{Y: 64}), uAlice); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PurgeFromHistory(eng, fd, name, uDora); err != nil {
+		t.Fatal(err)
+	}
+	if hasBlob(dir, oldBlob) {
+		t.Fatal("the original is still in the repository")
+	}
+	if err := s.PurgeFromHistory(eng, fd, cp, uDora); err != nil {
+		t.Fatal(err)
+	}
+	if hasOriginal(t, s, fd, cp) || hasOriginal(t, s, fd, name) {
+		t.Fatal("still marked")
+	}
+}
+
+// D28: a gc that stops before it removes anything (another gc running, a
+// full disk) leaves the original on disk: the mark stays, and Purge again
+// runs the cleanup.
+func TestPurgeRetryFinishesCleanup(t *testing.T) {
+	s, dir, fd, name, oldBlob, _ := redacted(t)
+	host, _ := os.Hostname()
+	pid := filepath.Join(dir, "engagements", eng, ".git", "gc.pid")
+	if err := os.WriteFile(pid, []byte(fmt.Sprintf("%d %s", os.Getpid(), host)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PurgeFromHistory(eng, fd, name, uDora); !errors.Is(err, ErrPurgeIncomplete) {
+		t.Fatalf("gc refused: %v", err)
+	}
+	if !hasBlob(dir, oldBlob) {
+		t.Skip("this git's gc ignores gc.pid")
+	}
+	if !hasOriginal(t, s, fd, name) {
+		t.Fatal("the mark went while the original is still on disk")
+	}
+	os.Remove(pid)
+	if err := s.PurgeFromHistory(eng, fd, name, uDora); err != nil {
+		t.Fatal(err)
+	}
+	if hasBlob(dir, oldBlob) || hasOriginal(t, s, fd, name) {
+		t.Fatalf("after the retry: on disk %v, marked %v", hasBlob(dir, oldBlob), hasOriginal(t, s, fd, name))
+	}
+}
+
 // D28: a gc that fails comes after the point of no return: the purge is
 // recorded, audited and the main repository follows; the error says the
-// cleanup failed.
+// cleanup failed, and the mark stays until a Purge again finishes it.
 func TestPurgeCleanupFailureStillRecorded(t *testing.T) {
 	s, dir, fd, name, oldBlob, _ := redacted(t)
 	lock := filepath.Join(dir, "engagements", eng, ".git", "objects", "info", "commit-graph.lock")
@@ -256,8 +315,8 @@ func TestPurgeCleanupFailureStillRecorded(t *testing.T) {
 	if !errors.Is(err, ErrPurgeIncomplete) || !strings.Contains(err.Error(), "cleanup failed") {
 		t.Fatalf("gc failure: %v", err)
 	}
-	if hasOriginal(t, s, fd, name) {
-		t.Fatal("still marked")
+	if !hasOriginal(t, s, fd, name) {
+		t.Fatal("the mark went before the cleanup")
 	}
 	if b, _ := s.DB().PurgedBlobs(eng); b[oldBlob] != name {
 		t.Fatalf("purged blobs %v", b)
@@ -268,6 +327,14 @@ func TestPurgeCleanupFailureStillRecorded(t *testing.T) {
 	out, _ := exec.Command("git", "-C", dir, "ls-tree", "HEAD", "engagements/"+eng).Output()
 	if f := strings.Fields(string(out)); len(f) < 3 || f[2] != engGit(t, dir, "rev-parse", "HEAD") {
 		t.Fatalf("main pointer %q", out)
+	}
+	// Purge again finishes it
+	os.Remove(lock)
+	if err := s.PurgeFromHistory(eng, fd, name, uDora); err != nil {
+		t.Fatal(err)
+	}
+	if hasOriginal(t, s, fd, name) {
+		t.Fatal("still marked after Purge again")
 	}
 }
 

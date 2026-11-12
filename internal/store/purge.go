@@ -66,10 +66,15 @@ func (s *Store) PurgeFromHistory(engID, dir, name string, u config.User) error {
 		}
 	}
 	if len(old) == 0 {
-		// nothing earlier (or purged before, and that purge did not finish):
-		// the mark goes, and the main repo's pointer follows
+		// nothing earlier in history (or purged before, and that purge did
+		// not finish): its cleanup runs again while an original it removed
+		// is still on disk; then the mark goes, and the main repo's pointer
+		// follows
+		if err := s.finishCleanup(r, engID, name); err != nil {
+			return fmt.Errorf("%w: %w", ErrPurgeIncomplete, err)
+		}
 		if err := errors.Join(s.db.MarkPurged(engID, fid, name, nil), s.SyncPointers()); err != nil {
-			return err
+			return fmt.Errorf("%w: %w", ErrPurgeIncomplete, err)
 		}
 		s.notify(Change{Eng: engID, Fid: fid, Kind: ChangeContent})
 		return nil
@@ -99,16 +104,37 @@ func (s *Store) PurgeFromHistory(engID, dir, name string, u config.User) error {
 		}
 		return err
 	}
-	// rewritten (and perhaps not cleaned up): record it all
+	// rewritten (and perhaps not cleaned up): record it all; the mark goes
+	// once the originals are off the disk too (Purge again runs gc)
 	s.Invalidate(engID)
 	errs := []error{err}
-	errs = append(errs, s.db.MarkPurged(engID, fid, name, nil))
+	if err == nil {
+		errs = append(errs, s.db.MarkPurged(engID, fid, name, nil))
+	}
 	errs = append(errs, s.db.Audit(u.Username, "attachment.purge", engID+"/"+fid+"/"+name, fmt.Sprintf("%d earlier versions", len(old))))
 	// the main repo's pointer follows the new history (engagement, then main)
 	errs = append(errs, s.SyncPointers())
 	s.notify(Change{Eng: engID, Fid: fid, Kind: ChangeContent})
 	if err := errors.Join(errs...); err != nil {
 		return fmt.Errorf("%w: %w", ErrPurgeIncomplete, err)
+	}
+	return nil
+}
+
+// finishCleanup runs git's gc again when a blob purged for name is still on
+// disk (a purge whose gc failed before it removed anything).
+func (s *Store) finishCleanup(r *gitrepo.Repo, engID, name string) error {
+	purged, err := s.db.PurgedBlobs(engID)
+	if err != nil {
+		return err
+	}
+	for b, n := range purged {
+		if n == name && r.HasObject(b) {
+			if err := r.GC(); err != nil {
+				return fmt.Errorf("%w: %v", gitrepo.ErrPurgeCleanup, err)
+			}
+			return nil
+		}
 	}
 	return nil
 }

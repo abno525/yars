@@ -119,9 +119,9 @@ func (s *Server) purgePost(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	case errors.As(err, &elsewhere):
-		// nothing changed; the director removes the copy first (the heading
+		// nothing changed; the director redacts the copy first (the heading
 		// names the file: the one-line slot keeps room for the copy's place)
-		s.renderPurge(w, r, http.StatusConflict, "An earlier version is also at "+strings.TrimPrefix(elsewhere.At, "findings/")+"; remove it there first")
+		s.renderPurge(w, r, http.StatusConflict, "An earlier version is also at "+strings.TrimPrefix(elsewhere.At, "findings/")+"; redact it there first")
 		return
 	case errors.Is(err, store.ErrPurgeIncomplete):
 		// the original is out of the history; what failed after it is for
@@ -130,7 +130,8 @@ func (s *Server) purgePost(w http.ResponseWriter, r *http.Request) {
 		s.renderPurge(w, r, http.StatusInternalServerError, "Purged from history, but not finished (see the server log); Purge again to finish")
 		return
 	case err != nil:
-		// the store put the repository back; logged as any server error
+		// before the history was rewritten (the store put the repository
+		// back), or putting it back failed: logged as any server error
 		s.fail(w, err)
 		return
 	}
