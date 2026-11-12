@@ -225,6 +225,30 @@ func TestRunSection(t *testing.T) {
 	}
 }
 
+// The editor's hints see the body as it will be saved and as the panel's
+// checks see it: line breaks as LF, no blank lines around it. A rule anchored
+// at the end finds the same in both (backlog, M5).
+func TestRunSectionSeesSavedBody(t *testing.T) {
+	s := Load(writeRules(t, map[string]string{"r.yaml": `
+- id: loc-dot
+  target: section:Location
+  regex_forbid: '\.$'
+- id: loc-cr
+  target: section:Location
+  regex_forbid: "\r"
+`}))
+	typed := "\r\n/login.\r\n\r\n"
+	vs := s.RunSection(doc(), config.Default(), "Location", typed)
+	if len(vs) != 1 || vs[0].Rule != "loc-dot" {
+		t.Fatalf("hints %+v", vs)
+	}
+	d := doc()
+	d.Sections[1].Body = "/login."
+	if panel := s.Run(context.Background(), d, config.Default(), Fast, nil); len(panel) != 1 || panel[0].Rule != "loc-dot" {
+		t.Fatalf("panel %+v", panel)
+	}
+}
+
 func TestErrors(t *testing.T) {
 	vs := []Violation{{Level: "error", Message: "a"}, {Level: "warning", Message: "b"}}
 	if e := Errors(vs); len(e) != 1 || e[0] != "a" {

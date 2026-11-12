@@ -516,6 +516,8 @@ func (r Rule) fast(d Doc, cfg config.Config) []Violation {
 // RunSection evaluates fast rules on a section body being edited and returns
 // only the violations for that section (live editor hints).
 func (s *Set) RunSection(d Doc, cfg config.Config, section, body string) []Violation {
+	// the body as it is saved and as DocOf gives it to the panel's checks
+	body = strings.Trim(strings.ReplaceAll(body, "\r\n", "\n"), "\n")
 	d.Sections = append([]Section(nil), d.Sections...)
 	found := false
 	for i := range d.Sections {
