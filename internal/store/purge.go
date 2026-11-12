@@ -61,7 +61,7 @@ func (s *Store) PurgeFromHistory(engID, dir, name string, u config.User) error {
 	// "<id>-<slug>", the same attachment name
 	all, err := r.BlobsWhere(func(q string) bool {
 		seg := strings.Split(q, "/")
-		return len(seg) == 4 && seg[0] == "findings" && (seg[1] == fid || strings.HasPrefix(seg[1], fid+"-")) &&
+		return q == p || len(seg) == 4 && seg[0] == "findings" && (seg[1] == fid || strings.HasPrefix(seg[1], fid+"-")) &&
 			seg[2] == "attachments" && seg[3] == name
 	})
 	if err != nil {
