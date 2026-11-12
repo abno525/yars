@@ -152,6 +152,12 @@ func cmdMigrate(args []string, out io.Writer) error {
 		return err
 	}
 	for _, tk := range toks {
+		if _, ok, err := d.User(tk.User); err != nil {
+			return err
+		} else if !ok { // the account went before the token did
+			fmt.Fprintln(out, "skip API token of", tk.User+": no such account")
+			continue
+		}
 		if _, ok, _ := d.TokenUser(tk.Hash); !ok {
 			if err := d.AddToken(tk.User, tk.Hash); err != nil {
 				return fmt.Errorf("token of %s: %w", tk.User, err)

@@ -165,6 +165,28 @@ func TestMigrate(t *testing.T) {
 // If the migration commit fails, the working tree is left exactly as it was
 // (a dirty tree would make every push fail), and a re-run finishes the job
 // without duplicating chat.
+// An API token whose account is gone from users.yaml is skipped with a
+// line saying so; the migration goes on and finishes (backlog, M10).
+func TestMigrateSkipsTokenOfMissingUser(t *testing.T) {
+	dir := legacyRepo(t)
+	toks := "- user: bob\n  sha256: " + strings.Repeat("ab", 32) + "\n- user: zed\n  sha256: " + strings.Repeat("cd", 32) + "\n"
+	os.WriteFile(filepath.Join(dir, ".yars", "tokens.yaml"), []byte(toks), 0o600)
+	var out bytes.Buffer
+	if err := cmdMigrate([]string{"--data", dir}, &out); err != nil {
+		t.Fatalf("%v\n%s", err, out.String())
+	}
+	if !strings.Contains(out.String(), "skip API token of zed: no such account") {
+		t.Fatalf("output:\n%s", out.String())
+	}
+	d := openDB(t, dir)
+	if u, ok, _ := d.TokenUser(strings.Repeat("ab", 32)); !ok || u != "bob" {
+		t.Fatal("bob's token not migrated")
+	}
+	if items := legacyItems(dir); len(items) != 0 {
+		t.Fatalf("still legacy: %v", items)
+	}
+}
+
 func TestMigrateInterrupted(t *testing.T) {
 	dir := legacyRepo(t)
 	hook := filepath.Join(dir, ".git", "hooks", "pre-commit")
