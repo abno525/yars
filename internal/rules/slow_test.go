@@ -241,6 +241,19 @@ func TestAIAnthropicReplyLimit(t *testing.T) {
 	}
 }
 
+// A provider's error body (which can echo the key or the account) is never
+// shown: users see the status code only (backlog, M5).
+func TestAIErrorShowsStatusOnly(t *testing.T) {
+	f := &fakeAI{status: 401, body: func(map[string]any) string {
+		return `{"error":{"message":"invalid x-api-key sk-ant-secret-1234 for org acme-billing"}}`
+	}}
+	srv := f.server(t)
+	vs := aiRunner(t, "anthropic", srv.URL).AI(context.Background(), acr, "title", "x")
+	if len(vs) != 1 || vs[0].Message != "AI check failed: HTTP 401" {
+		t.Fatalf("got %+v", vs)
+	}
+}
+
 func TestAICache(t *testing.T) {
 	f := &fakeAI{body: func(map[string]any) string {
 		return `{"choices":[{"message":{"content":"{\"violations\":[]}"}}]}`

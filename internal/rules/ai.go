@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -188,7 +189,11 @@ func (rn *Runner) post(ctx context.Context, url string, body any, hdr map[string
 	defer resp.Body.Close()
 	data, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode/100 != 2 {
-		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(data)))
+		// the body can echo the key or the account: the server log has it,
+		// users get the status only
+		body := []rune(strings.TrimSpace(string(data)))
+		log.Printf("ai: HTTP %d from %s: %s", resp.StatusCode, req.URL.Host, string(body[:min(len(body), 500)]))
+		return fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 	return json.Unmarshal(data, out)
 }
