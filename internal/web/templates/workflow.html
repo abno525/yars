@@ -47,17 +47,17 @@
     <div class="wf-actions">
       {{range .Slots}}
       {{if not .Present}}<span class="slot {{.Width}}" data-slot="{{.Slot}}"></span>
-      {{else if .PanelID}}<button type="button" class="btn {{.Width}} {{.Class}}" id="wf-{{.Slot}}"{{with .Key}} aria-keyshortcuts="{{.}}"{{end}} data-slot="{{.Slot}}" data-action="{{.Name}}"{{if .Disabled}} disabled{{end}} title="{{.Title}}" aria-controls="{{.PanelID}}" aria-expanded="false" data-reason-toggle>{{.Label}}</button>
+      {{else if .PanelID}}<button type="button" class="btn {{.Width}} {{.Class}}" id="wf-{{.Slot}}"{{with .Key}} aria-keyshortcuts="{{.}}"{{end}} data-slot="{{.Slot}}" data-action="{{.Name}}"{{if .Disabled}} disabled{{end}} title="{{.Title}}" aria-controls="{{.PanelID}}" aria-expanded="{{if .Open}}true{{else}}false{{end}}" data-reason-toggle>{{.Label}}</button>
       {{else}}<form method="post" action="{{.URL}}" class="wf-action" data-slot="{{.Slot}}"><button class="btn {{.Width}} {{.Class}}" id="wf-{{.Slot}}"{{with .Key}} aria-keyshortcuts="{{.}}"{{end}} data-action="{{.Name}}"{{if .Disabled}} disabled{{end}} title="{{.Title}}"{{with .DescribedBy}} aria-describedby="{{.}}"{{end}}>{{.Label}}</button></form>
       {{end}}
       {{end}}
     </div>
   </div>
   {{range .Panels}}
-  <form method="post" action="{{.URL}}" class="wfpanel {{.Slot}}" id="{{.PanelID}}" hidden>
+  <form method="post" action="{{.URL}}" class="wfpanel {{.Slot}}" id="{{.PanelID}}"{{if not .Open}} hidden{{end}}>
     <div class="panelhead"><h2>{{.PanelHead}}</h2></div>
     <label class="reason"><span>Reason <span class="req">Required</span></span>
-      <textarea name="reason" required rows="4"></textarea>
+      <textarea name="reason" required rows="4">{{.Reason}}</textarea>
     </label>
     <div class="pfoot">
       <button class="btn {{.Class}} sm w96" aria-keyshortcuts="Control+Enter">{{.Label}}</button>

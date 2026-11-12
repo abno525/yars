@@ -4,6 +4,7 @@ package web
 import (
 	"bytes"
 	"embed"
+	"encoding/json"
 	"errors"
 	"html/template"
 	"io"
@@ -822,12 +823,23 @@ func (s *Server) findingHead(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) finding(w http.ResponseWriter, r *http.Request) {
+	var d wfDenial
+	if js := s.flash.take(r, "wfdenied"); js != "" && json.Unmarshal([]byte(js), &d) == nil && d.Path == r.URL.Path {
+		s.renderFindingDenied(w, r, http.StatusOK, d.Error, &d)
+		return
+	}
 	s.renderFinding(w, r, http.StatusOK, "")
 }
 
 // renderFinding renders the full finding page, optionally with an error
-// banner (used when a workflow action is denied).
+// banner.
 func (s *Server) renderFinding(w http.ResponseWriter, r *http.Request, status int, errMsg string) {
+	s.renderFindingDenied(w, r, status, errMsg, nil)
+}
+
+// renderFindingDenied is renderFinding with a denied workflow action's
+// reason panel open again, holding the reason typed (d may be nil).
+func (s *Server) renderFindingDenied(w http.ResponseWriter, r *http.Request, status int, errMsg string, d *wfDenial) {
 	eng := r.PathValue("eng")
 	p, err := s.base(r, eng)
 	if err != nil {
@@ -885,6 +897,9 @@ func (s *Server) renderFinding(w http.ResponseWriter, r *http.Request, status in
 	}
 	// fast rule errors also block submit/approve; show them in the bar
 	p.WF, p.Checks = s.wfGated(r, p.Finding)
+	if d != nil {
+		p.WF.reopen(d)
+	}
 	p.TabTitle = p.Finding.F.Meta.ID + " " + p.Finding.F.Meta.Title
 	s.renderStatus(w, status, "finding.html", p)
 }

@@ -248,8 +248,8 @@ func TestReasonPanels(t *testing.T) {
 			t.Fatalf("bar lacks %s:\n%s", want, wf)
 		}
 	}
-	if rec := e.do(t, "dora", "POST", fpath+"/action/return", url.Values{}, nil); rec.Code != http.StatusBadRequest || e.status(t) != "verification" {
-		t.Fatalf("return without reason: %d", rec.Code)
+	if b := e.denied(t, "dora", fpath+"/action/return", url.Values{}); !strings.Contains(b, "reason is required") || e.status(t) != "verification" {
+		t.Fatalf("return without reason: %s", e.status(t))
 	}
 	e.do(t, "bob", "POST", fpath+"/action/return", url.Values{"reason": {"Add the request"}}, nil)
 	b = e.do(t, "alice", "GET", fpath, nil, nil).Body.String()

@@ -179,12 +179,11 @@ func TestWithdrawAndRestoreWeb(t *testing.T) {
 	if b := e.do(t, "bob", "GET", fpath, nil, nil).Body.String(); strings.Contains(b, fshort+"/action/withdraw") {
 		t.Fatal("reviewer sees withdraw")
 	}
-	rec := e.do(t, "alice", "POST", fpath+"/action/withdraw", url.Values{"reason": {" "}}, nil)
-	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "reason is required") {
-		t.Fatalf("withdraw without reason: %d", rec.Code)
+	if b := e.denied(t, "alice", fpath+"/action/withdraw", url.Values{"reason": {" "}}); !strings.Contains(b, "reason is required") {
+		t.Fatal("withdraw without reason")
 	}
-	if rec := e.do(t, "bob", "POST", fpath+"/action/withdraw", url.Values{"reason": {"x"}}, nil); rec.Code != http.StatusBadRequest {
-		t.Fatalf("reviewer withdraw code %d", rec.Code)
+	if b := e.denied(t, "bob", fpath+"/action/withdraw", url.Values{"reason": {"x"}}); !strings.Contains(b, `class="error`) || e.status(t) != "verification" {
+		t.Fatal("reviewer withdrew")
 	}
 	e.do(t, "alice", "POST", fpath+"/action/withdraw", url.Values{"reason": {"Duplicate of F-002"}}, nil)
 	if e.status(t) != "withdrawn" {
@@ -236,8 +235,8 @@ func TestMarkReportedAction(t *testing.T) {
 			t.Fatalf("%s lacks Mark reported", u)
 		}
 	}
-	if rec := e.do(t, "pen2", "POST", fpath+"/action/report", url.Values{}, nil); rec.Code != http.StatusBadRequest || e.status(t) != "complete" {
-		t.Fatalf("other pentester report code %d", rec.Code)
+	if b := e.denied(t, "pen2", fpath+"/action/report", url.Values{}); !strings.Contains(b, `class="error`) || e.status(t) != "complete" {
+		t.Fatalf("other pentester reported: %s", e.status(t))
 	}
 	if rec := e.do(t, "dora", "POST", fpath+"/action/report", url.Values{}, nil); rec.Code != http.StatusSeeOther || e.status(t) != "reported" {
 		t.Fatalf("report code %d status %s", rec.Code, e.status(t))
@@ -293,9 +292,9 @@ func TestRevertPostNeedsReason(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, blank := range []url.Values{{}, {"reason": {"  "}}} {
-		rec := e.do(t, "dora", "POST", fpath+"/action/unreport", blank, nil)
-		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "a reason is required") || !strings.Contains(rec.Body.String(), `id="wf-unreport-reason"`) || e.status(t) != "reported" {
-			t.Fatalf("without a reason %v: code %d status %s:\n%s", blank, rec.Code, e.status(t), rec.Body.String())
+		b := e.denied(t, "dora", fpath+"/action/unreport", blank)
+		if !strings.Contains(b, "a reason is required") || !strings.Contains(b, `id="wf-unreport-reason">`) || e.status(t) != "reported" {
+			t.Fatalf("without a reason %v: status %s:\n%s", blank, e.status(t), b)
 		}
 	}
 	if rec := e.do(t, "dora", "POST", fpath+"/action/unreport", url.Values{"reason": {"sent too early"}}, nil); rec.Code != http.StatusSeeOther || e.status(t) != "complete" {
@@ -306,9 +305,8 @@ func TestRevertPostNeedsReason(t *testing.T) {
 func TestReturnRequiresReason(t *testing.T) {
 	e := setup(t)
 	e.toVerification(t)
-	rec := e.do(t, "bob", "POST", fpath+"/action/return", url.Values{"reason": {" "}}, nil)
-	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "reason is required") {
-		t.Fatalf("code %d body:\n%s", rec.Code, rec.Body.String())
+	if b := e.denied(t, "bob", fpath+"/action/return", url.Values{"reason": {" "}}); !strings.Contains(b, "reason is required") || e.status(t) != "verification" {
+		t.Fatalf("without a reason:\n%s", b)
 	}
 	e.do(t, "bob", "POST", fpath+"/action/return", url.Values{"reason": {"Steps are incomplete"}}, nil)
 	if e.status(t) != "draft" {
@@ -320,14 +318,44 @@ func TestReturnRequiresReason(t *testing.T) {
 	}
 }
 
+// denied posts an action that must be refused. The answer sends the browser
+// back to the finding's own page (303), returned here as the user then sees
+// it; the caller checks the error is on it.
+func (e *env) denied(t *testing.T, user, path string, form url.Values) string {
+	t.Helper()
+	rec := e.do(t, user, "POST", path, form, nil)
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != fshort {
+		t.Fatalf("%s: code %d to %q", path, rec.Code, rec.Header().Get("Location"))
+	}
+	return e.do(t, user, "GET", fshort, nil, nil).Body.String()
+}
+
 func TestDeniedActionShowsError(t *testing.T) {
 	e := setup(t)
-	rec := e.do(t, "alice", "POST", fpath+"/action/approve", url.Values{}, nil)
-	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), `class="error`) {
-		t.Fatalf("code %d", rec.Code)
+	if b := e.denied(t, "alice", fpath+"/action/approve", url.Values{}); !strings.Contains(b, `class="error`) {
+		t.Fatal("no error on the page")
 	}
 	if rec := e.do(t, "alice", "POST", fpath+"/action/bogus", url.Values{}, nil); rec.Code != http.StatusBadRequest {
 		t.Fatalf("bogus action code %d", rec.Code)
+	}
+}
+
+// A denied action goes back to the finding's own URL, so a reload posts
+// nothing again; the page says why and opens the action's reason panel
+// again with the reason typed. The next visit is the plain page (backlog, M3).
+func TestDeniedActionKeepsReason(t *testing.T) {
+	e := setup(t)
+	e.toVerification(t)
+	typed := " \t "
+	b := e.denied(t, "bob", fpath+"/action/return", url.Values{"reason": {typed}})
+	if !strings.Contains(b, "a reason is required to return a finding") {
+		t.Fatal("the page does not say why")
+	}
+	if !strings.Contains(b, `id="wf-return-reason">`) || !strings.Contains(b, `<textarea name="reason" required rows="4">`+typed+`</textarea>`) || !strings.Contains(b, `aria-controls="wf-return-reason" aria-expanded="true"`) {
+		t.Fatalf("the reason panel is not open with the reason:\n%s", wfSection(t, b))
+	}
+	if b := e.do(t, "bob", "GET", fshort, nil, nil).Body.String(); !strings.Contains(b, `id="wf-return-reason" hidden>`) || strings.Contains(b, "a reason is required") {
+		t.Fatal("the denial is shown twice")
 	}
 }
 
@@ -409,12 +437,16 @@ func TestReviewersRejectUnknown(t *testing.T) {
 		t.Fatalf("code %d", rec.Code)
 	}
 	e.pen2(t)
-	if rec := e.do(t, "pen2", "POST", fpath+"/reviewers", url.Values{"reviewer": {"dora"}}, nil); rec.Code != http.StatusBadRequest {
-		t.Fatalf("other pentester assign code %d", rec.Code)
+	reviewers := func() string {
+		ref, _ := e.srv.Store.Finding("acme", fdir)
+		return strings.Join(ref.F.Meta.Reviewers, ",")
+	}
+	if b := e.denied(t, "pen2", fpath+"/reviewers", url.Values{"reviewer": {"dora"}}); !strings.Contains(b, `class="error`) || reviewers() != "" {
+		t.Fatalf("other pentester assigned: %q", reviewers())
 	}
 	// a reviewer may assign other reviewers, never themselves
-	if rec := e.do(t, "bob", "POST", fpath+"/reviewers", url.Values{"reviewer": {"bob", "carol"}}, nil); rec.Code == http.StatusSeeOther {
-		t.Fatal("bob assigned himself")
+	if b := e.denied(t, "bob", fpath+"/reviewers", url.Values{"reviewer": {"bob", "carol"}}); !strings.Contains(b, `class="error`) || reviewers() != "" {
+		t.Fatalf("bob assigned himself: %q", reviewers())
 	}
 	if rec := e.do(t, "bob", "POST", fpath+"/reviewers", url.Values{"reviewer": {"carol"}}, nil); rec.Code != http.StatusSeeOther {
 		t.Fatalf("reviewer assign code %d", rec.Code)

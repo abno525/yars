@@ -214,8 +214,8 @@ func TestBulkAssignOnlyAdds(t *testing.T) {
 		t.Fatalf("reviewers %q cleared %v", got, ref.F.Meta.ClearedBy)
 	}
 	// on the finding page a reviewer cannot drop the one who signed off
-	if rec := e.do(t, "carol", "POST", fshort+"/reviewers", url.Values{"reviewer": {"carol"}}, nil); rec.Code == http.StatusSeeOther {
-		t.Fatal("carol removed bob")
+	if b := e.denied(t, "carol", fshort+"/reviewers", url.Values{"reviewer": {"carol"}}); !strings.Contains(b, `class="error`) {
+		t.Fatal("no error for carol removing bob")
 	}
 	if ref, _ := e.srv.Store.Finding("acme", fdir); strings.Join(ref.F.Meta.Reviewers, ",") != "bob,carol" {
 		t.Fatalf("reviewers %v", ref.F.Meta.Reviewers)

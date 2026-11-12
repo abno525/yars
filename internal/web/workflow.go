@@ -1,6 +1,7 @@
 package web
 
 import (
+	"encoding/json"
 	"errors"
 	"log"
 	"net/http"
@@ -118,6 +119,25 @@ type wfSlot struct {
 	DescribedBy        string // the id of the state text saying why it is disabled
 	PanelID, PanelHead string // a reason form under the bar (Return, Withdraw, the reverts)
 	Key                string // aria-keyshortcuts of the button ("" = none)
+	Open               bool   // the reason panel is shown: its action was just denied
+	Reason             string // the reason typed before the denial
+}
+
+// wfDenial is a denied action, kept for the finding page the POST
+// redirects to: the error and the typed reason come back with it.
+type wfDenial struct {
+	Path, Act, Reason, Error string
+}
+
+// reopen shows the denied action's reason panel again, with its reason.
+func (v *wfView) reopen(d *wfDenial) {
+	for _, list := range [][]wfSlot{v.Slots, v.Panels} {
+		for i := range list {
+			if list[i].Slot == d.Act && list[i].PanelID != "" {
+				list[i].Open, list[i].Reason = true, d.Reason
+			}
+		}
+	}
 }
 
 // wfKeys maps an action to its key (K4). A key is on the rendered button
@@ -378,7 +398,12 @@ func (s *Server) wfDone(w http.ResponseWriter, r *http.Request, err error) {
 	case err == nil:
 		http.Redirect(w, r, findingURL(r.PathValue("eng"), r.PathValue("fid")), http.StatusSeeOther)
 	case errors.As(err, &d):
-		s.renderFinding(w, r, http.StatusBadRequest, d.Reason)
+		// back to the finding's own URL (a reload re-posts nothing), with the
+		// error and the typed reason kept for it
+		to := findingURL(r.PathValue("eng"), r.PathValue("fid"))
+		js, _ := json.Marshal(wfDenial{Path: to, Act: r.PathValue("act"), Reason: r.FormValue("reason"), Error: d.Reason})
+		s.flash.put(r, "wfdenied", string(js))
+		http.Redirect(w, r, to, http.StatusSeeOther)
 	default:
 		s.fail(w, err)
 	}

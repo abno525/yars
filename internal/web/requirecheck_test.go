@@ -41,9 +41,8 @@ func TestRequireCheckBar(t *testing.T) {
 		t.Fatalf("after an edit:\n%s", bar)
 	}
 	// the store refuses the same way when posted anyway
-	rec := e.do(t, "bob", "POST", fpath+"/action/clear", url.Values{}, nil)
-	if rec.Code != 400 || !strings.Contains(rec.Body.String(), store.GateStale) {
-		t.Fatalf("posted sign off: %d", rec.Code)
+	if b := e.denied(t, "bob", fpath+"/action/clear", url.Values{}); !strings.Contains(b, store.GateStale) {
+		t.Fatal("posted sign off: no refusal on the page")
 	}
 }
 
