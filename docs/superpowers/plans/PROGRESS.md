@@ -90,5 +90,6 @@ M27 browser check    passed (1440: Complete shows Revert, Mark reported, Withdra
 M27 task 1  review   passed; nits 0cb1efe
 M27 task 2  review   passed; test nits 9e94ffe
 M27 task 3  review   passed; fix fcf238a (inbox row kept after a revert; bulk dialog's Revert button secondary)
-M27 task 4  review   passed; nits
+M27 task 4  review   passed; nits 51798da
+M27 branch  reviewed fixes (the author's revert over MCP; inbox row in its sorted place; Revert titles)
 ```

@@ -83,6 +83,7 @@ func TestInboxSameIDTwoEngagements(t *testing.T) {
 func TestInboxRevertKeepsRow(t *testing.T) {
 	e := setup(t)
 	e.toComplete(t)
+	low := e.secondComplete(t) // severity low: after F-001 (high) in the queue
 	hx := map[string]string{"HX-Request": "true"}
 	key := "acme/" + fdir
 	b := e.do(t, "dora", "POST", "/inbox/bulk", url.Values{"action": {"report"}, "id": {key}}, hx).Body.String()
@@ -93,8 +94,13 @@ func TestInboxRevertKeepsRow(t *testing.T) {
 	if e.status(t) != "complete" {
 		t.Fatalf("status %s", e.status(t))
 	}
-	if r := row(queue(b, "report"), key); r == "" || !strings.Contains(r, " checked") || !strings.Contains(b, "1 moved") {
+	q := queue(b, "report")
+	if r := row(q, key); r == "" || !strings.Contains(r, " checked") || !strings.Contains(b, "1 moved") {
 		t.Fatalf("after the revert the row is %q:\n%s", r, b)
+	}
+	// in its place: before the lower-severity finding, as the page had it
+	if i, j := strings.Index(q, `data-key="`+key+`"`), strings.Index(q, `data-key="acme/`+low[:5]); i < 0 || j < 0 || i > j {
+		t.Fatalf("order after the revert (%d, %d):\n%s", i, j, q)
 	}
 }
 

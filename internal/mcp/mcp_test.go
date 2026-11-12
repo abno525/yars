@@ -390,8 +390,8 @@ func TestMCPPermissions(t *testing.T) {
 }
 
 // R4: revert takes the finding back one step from where it is, with a
-// reason; nothing to revert on a draft. Over MCP, as marking reported, the
-// reported step is a director's to revert.
+// reason; nothing to revert on a draft. The author reverts her own finding
+// over MCP as on the website (roadmap answer 6).
 func TestMCPRevertResolvesByStatus(t *testing.T) {
 	f := newFx(t)
 	tr := func(u config.User, action, reason string) (string, bool) {
@@ -412,11 +412,11 @@ func TestMCPRevertResolvesByStatus(t *testing.T) {
 	}{{alice, "submit"}, {bob, "clear"}, {dora, "approve"}, {dora, "report"}} {
 		f.ok(step.u, "transition", map[string]any{"engagement": "acme", "finding": "F-001", "action": step.a})
 	}
-	if text, isErr := tr(alice, "revert", "sent too early"); !isErr || !strings.Contains(text, "director") {
-		t.Fatalf("author unreported via MCP: %s", text)
+	if text, isErr := tr(bob, "revert", "sent too early"); !isErr || !strings.Contains(text, "only the author or a director can revert a finding") {
+		t.Fatalf("reviewer unreported via MCP: %s", text)
 	}
-	if text, isErr := tr(dora, "revert", "sent too early"); isErr || !strings.Contains(text, "status is now complete") {
-		t.Fatalf("revert of reported: %s", text)
+	if text, isErr := tr(alice, "revert", "sent too early"); isErr || !strings.Contains(text, "status is now complete") {
+		t.Fatalf("author's revert of reported: %s", text)
 	}
 	// the author reverts her complete finding to verification
 	if text, isErr := tr(alice, "revert", "wrong host"); isErr || !strings.Contains(text, "status is now verification") {

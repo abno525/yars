@@ -656,9 +656,10 @@ func (s *Server) inboxAfterBulk(u config.User, before inboxView, v bulkView) (in
 	}
 	// a row the page showed in place after an earlier run (marked reported)
 	// is in no queue of the server's: one this run brought back to a queue
-	// (reverted) goes at that queue's end, so no other row moves
-	keys := slices.Sorted(maps.Keys(touched))
-	for _, key := range keys {
+	// (reverted) goes where that queue now sorts it, after the rows that
+	// precede it there, so no other row moves
+	var now *inboxView
+	for _, key := range slices.Sorted(maps.Keys(touched)) {
 		f, ok := fresh[key]
 		if placed[key] || !ok || f.Meta == nil {
 			continue
@@ -667,12 +668,41 @@ func (s *Server) inboxAfterBulk(u config.User, before inboxView, v bulkView) (in
 		if k == workflow.InboxNone || k == workflow.InboxDraft || !slices.Contains(workflow.Queues(u), k) {
 			continue
 		}
-		name := f.EngID
-		if e, err := s.Store.Engagement(f.EngID); err == nil {
-			name = e.Name
+		if now == nil {
+			vis, err := s.Store.Visible(u)
+			if err != nil {
+				return inboxLists{}, err
+			}
+			engs, err := s.Index.EngagementsFor(vis)
+			if err != nil {
+				return inboxLists{}, err
+			}
+			v, err := s.inboxFor(u, engs)
+			if err != nil {
+				return inboxLists{}, err
+			}
+			now = &v
 		}
-		after.Lists[k] = append(after.Lists[k], movedRow(u, f, name))
-		upTo[k] = len(after.Lists[k]) - 1
+		at := slices.IndexFunc(now.Lists[k], func(ir inboxRow) bool { return ir.Key == key })
+		if at < 0 {
+			continue
+		}
+		earlier := map[string]bool{}
+		for _, ir := range now.Lists[k][:at] {
+			earlier[ir.Key] = true
+		}
+		pos := 0
+		for i, ir := range after.Lists[k] {
+			if earlier[ir.Key] {
+				pos = i + 1
+			}
+		}
+		after.Lists[k] = slices.Insert(after.Lists[k], pos, now.Lists[k][at])
+		if last, ok := upTo[k]; ok && last >= pos {
+			upTo[k] = last + 1
+		} else {
+			upTo[k] = max(last, pos)
+		}
 	}
 	l, err := s.inboxListsOf(u, after, upTo, touched)
 	if err != nil {

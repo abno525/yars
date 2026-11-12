@@ -196,6 +196,9 @@ func (v *wfView) arrange(u config.User, m finding.Meta) {
 				sl.PanelID = "wf-" + name
 				sl.PanelHead = map[workflow.Action]string{workflow.Return: "Return to draft", workflow.Withdraw: "Withdraw finding",
 					workflow.Reopen: "Revert to verification", workflow.Unreport: "Revert to complete"}[sp.act]
+				if sp.act == workflow.Reopen || sp.act == workflow.Unreport {
+					sl.Title = sl.PanelHead // both read "Revert": the title says which
+				}
 				v.Panels = append(v.Panels, sl)
 			}
 		}
