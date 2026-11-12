@@ -120,7 +120,7 @@ func short(h string) string {
 func (s *Server) editorPanel(w http.ResponseWriter, r *http.Request, ref store.FindingRef, name string) (panel, bool) {
 	p := s.panelFor(ref, name)
 	p.Presence = s.presenceFor(r, ref, name)
-	a, err := s.attachFor(ref)
+	a, err := s.attachFor(r, ref)
 	if err != nil {
 		s.fail(w, err)
 		return p, false

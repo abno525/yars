@@ -27,7 +27,8 @@ type attachItem struct {
 	Image                 bool
 	Insert                string // the Markdown to insert
 	RedactURL             string
-	HasOriginal           bool // an earlier version is in git history (D28)
+	HasOriginal           bool   // an earlier version is in git history (D28)
+	PurgeURL              string // a director's Purge from history of it
 }
 
 // attachVer tells versions of an attachment apart: a redacted copy gets a
@@ -41,6 +42,8 @@ func (s *Server) routesAttach(mux *http.ServeMux) {
 	mux.HandleFunc("GET /e/{eng}/f/{fid}/attachments/{name}", s.attachmentGet)
 	mux.HandleFunc("POST /e/{eng}/f/{fid}/attachments", s.attachmentAdd)
 	mux.HandleFunc("POST /e/{eng}/f/{fid}/attachments/{name}/redact", s.attachmentRedact)
+	mux.HandleFunc("GET /e/{eng}/f/{fid}/attachments/{name}/purge", s.purgePage)
+	mux.HandleFunc("POST /e/{eng}/f/{fid}/attachments/{name}/purge", s.purgePost)
 }
 
 func humanSize(n int64) string {
@@ -61,15 +64,19 @@ func attachMD(name string, image bool) string {
 	return "[" + name + "](attachments/" + name + ")"
 }
 
-func (s *Server) attachFor(ref store.FindingRef) (*attachView, error) {
+func (s *Server) attachFor(r *http.Request, ref store.FindingRef) (*attachView, error) {
 	base := findingURL(ref.EngID, ref.Dir) + "/attachments"
 	v := &attachView{UploadURL: base}
 	as, err := s.Store.AttachmentsOf(ref)
 	if err != nil {
 		return nil, err
 	}
+	purge := s.canPurge(r, ref)
 	for _, a := range as {
 		it := attachItem{Name: a.Name, URL: base + "/" + a.Name, Size: humanSize(a.Size), Image: a.Image, Insert: attachMD(a.Name, a.Image), HasOriginal: a.HasOriginal}
+		if purge && a.HasOriginal {
+			it.PurgeURL = purgeURL(ref, a.Name)
+		}
 		it.Src = it.URL + "?v=" + attachVer(a)
 		if it.Kind = strings.ToUpper(strings.TrimPrefix(path.Ext(a.Name), ".")); it.Kind == "" {
 			it.Kind = "FILE"
@@ -89,7 +96,7 @@ func (s *Server) attachmentsPanel(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	v, err := s.attachFor(ref)
+	v, err := s.attachFor(r, ref)
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -196,7 +203,7 @@ func (s *Server) attachmentAdd(w http.ResponseWriter, r *http.Request) {
 		s.attachFail(w, err)
 		return
 	}
-	v, err := s.attachFor(ref)
+	v, err := s.attachFor(r, ref)
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -226,7 +233,7 @@ func (s *Server) attachmentRedact(w http.ResponseWriter, r *http.Request) {
 		s.attachFail(w, err)
 		return
 	}
-	v, err := s.attachFor(ref)
+	v, err := s.attachFor(r, ref)
 	if err != nil {
 		s.fail(w, err)
 		return

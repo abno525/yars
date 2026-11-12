@@ -70,5 +70,6 @@ M25 PR      opened   #19
 M26 task 1  done     385f462 (schema v21)
 M26 task 2  done     050c6a5
 M26 task 3  done     e111aec
-M26 task 1  review   fix
+M26 task 1  review   fix 6a4a662 (purge clears the marks; noted under the lock; one lister; long names)
+M26 task 4  done
 ```

@@ -16,7 +16,7 @@
   <table class="table stable atttable flush">
     <thead><tr><th>Name</th><th class="c-kind">Type</th><th class="c-size">Size</th><th class="c-act">Action</th></tr></thead>
     <tbody>
-      {{range .Items}}<tr><td class="mono" title="{{.Name}}"><span class="attn"><span class="clip">{{.Name}}</span>{{if .HasOriginal}}<span class="histdot" title="An earlier version is in git history"></span>{{end}}</span></td><td>{{.Kind}}</td><td class="mono">{{.Size}}</td><td class="acts"><div class="actions"><a class="btn ghost sm w96" href="{{.URL}}">Open</a><span class="slot w96"></span></div></td></tr>
+      {{range .Items}}<tr><td class="mono" title="{{.Name}}"><span class="attn"><span class="clip">{{.Name}}</span>{{if .HasOriginal}}<span class="histdot" title="An earlier version is in git history"></span>{{end}}</span></td><td>{{.Kind}}</td><td class="mono">{{.Size}}</td><td class="acts"><div class="actions"><a class="btn ghost sm w96" href="{{.URL}}">Open</a>{{if .PurgeURL}}<a class="btn ghost sm w96" href="{{.PurgeURL}}">Purge</a>{{else}}<span class="slot w96"></span>{{end}}</div></td></tr>
       {{else}}{{template "empty_row" 4}}{{end}}
     </tbody>
   </table>

@@ -189,6 +189,7 @@ type page struct {
 	Assets      assetsView // a finding's affected assets
 	Dups        dupView    // possible duplicates of a finding
 	Merge       mergeView  // the Merge confirm page
+	Purge       purgeView  // the Purge from history confirm page (D28)
 	CanMerge    bool       // the finding page: Merge into
 	Unread      int        // the bell: unread notifications
 	Notes       notesView  // the notifications page
@@ -796,7 +797,7 @@ func (s *Server) renderFinding(w http.ResponseWriter, r *http.Request, status in
 		return
 	}
 	p.Retest = s.retestFor(r, p.Finding)
-	if p.Attach, err = s.attachFor(p.Finding); err != nil {
+	if p.Attach, err = s.attachFor(r, p.Finding); err != nil {
 		s.fail(w, err)
 		return
 	}

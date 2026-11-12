@@ -1518,6 +1518,8 @@ form.dirty .dirtydot { visibility: visible; }
 .thumb .histdot { position: absolute; top: 4px; right: 4px; }
 .attn { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .attn .histdot { flex: none; }
+.purgekv { table-layout: fixed; }
+.purgekv td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .attname { padding: 6px 10px; display: flex; flex-direction: column; border-top: 1px solid var(--line); min-width: 0; }
 .attname .mono { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .attname .mono:first-child { color: var(--text); }
