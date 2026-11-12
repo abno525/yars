@@ -2,10 +2,14 @@ package web
 
 import (
 	"image/color"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
 	"testing"
+	"time"
+
+	"yars/internal/auth"
 )
 
 // redacted gives the test finding two images, shot.png redacted after its
@@ -66,15 +70,21 @@ func TestPurgeConfirmPage(t *testing.T) {
 		t.Fatalf("confirm page %d:\n%s", rec.Code, b)
 	}
 	for _, want := range []string{`<form class="newf" method="post" action="/e/acme/f/001/attachments/shot.png/purge">`,
-		"<h1", "shot.png", "ACME Web", "Existing clones of this engagement must be cloned again", `<table class="kv details purgekv flush">`,
+		`<h1 title="shot.png">Purge shot.png from history</h1>`, `<td class="mono" title="shot.png">shot.png</td>`, `<td title="ACME Web">ACME Web</td>`,
+		"<td>Existing clones of this engagement must be cloned again</td>",
+		`<table class="kv details purgekv flush"><thead><tr><th scope="col">Field</th><th scope="col">Value</th></tr></thead>`,
 		`<a class="btn secondary w96" href="/e/acme/f/001#attachments">Cancel</a>`, `<button class="btn danger w112">Purge</button>`} {
 		if !strings.Contains(b, want) {
 			t.Fatalf("confirm page lacks %s:\n%s", want, b)
 		}
 	}
 	noInline(t, "purge page", b)
-	if rec := e.do(t, "dora", "GET", fpath+"/attachments/none.png/purge", nil, nil); rec.Code != http.StatusNotFound {
-		t.Fatalf("a file that is not there %d", rec.Code)
+	// a file that is not there: neither the page nor the purge; one with no
+	// original in history (no mark, no link): no page
+	for _, c := range []struct{ m, n string }{{"GET", "none.png"}, {"POST", "none.png"}, {"GET", "other.png"}} {
+		if rec := e.do(t, "dora", c.m, fpath+"/attachments/"+c.n+"/purge", url.Values{}, nil); rec.Code != http.StatusNotFound {
+			t.Fatalf("%s %s %d", c.m, c.n, rec.Code)
+		}
 	}
 }
 
@@ -111,6 +121,55 @@ func TestPurgeRefusedWhileCopyElsewhere(t *testing.T) {
 	}
 	if p := attachmentsPanel(t, e.do(t, "dora", "GET", fpath, nil, nil).Body.String()); !strings.Contains(rowOf(t, p, "shot.png"), "histdot") {
 		t.Fatalf("a refused purge took the mark:\n%s", p)
+	}
+}
+
+// D28: on an archived engagement a director is told it is archived, and no
+// row offers Purge.
+func TestPurgeArchivedSaysArchived(t *testing.T) {
+	e := setup(t)
+	redacted(t, e)
+	if rec := e.do(t, "dora", "POST", "/e/acme/archive", url.Values{}, nil); rec.Code >= 400 {
+		t.Fatalf("archive %d", rec.Code)
+	}
+	for _, m := range []string{"GET", "POST"} {
+		rec := e.do(t, "dora", m, fpath+"/attachments/shot.png/purge", url.Values{}, nil)
+		if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "archived") {
+			t.Fatalf("%s on an archived engagement %d: %s", m, rec.Code, rec.Body.String())
+		}
+	}
+	if p := attachmentsPanel(t, e.do(t, "dora", "GET", fpath, nil, nil).Body.String()); strings.Contains(p, "/purge") {
+		t.Fatalf("Purge on an archived engagement:\n%s", p)
+	}
+}
+
+// D28: a purge runs git over the whole history, which may outlast the
+// server's write timeout: the route lifts it.
+func TestPurgeOutlivesWriteTimeout(t *testing.T) {
+	e := setupSerial(t)
+	redacted(t, e)
+	// the purge waits for the lock (a push holding it) past the timeout
+	unlock := e.srv.Store.LockEngagement("acme")
+	go func() { time.Sleep(time.Second); unlock() }()
+	hs := e.srv.HTTPServer("127.0.0.1:0")
+	hs.WriteTimeout = 300 * time.Millisecond
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	go hs.Serve(ln)
+	t.Cleanup(func() { hs.Close() })
+	req, _ := http.NewRequest("POST", "http://"+ln.Addr().String()+fpath+"/attachments/shot.png/purge", strings.NewReader(""))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: e.toks["dora"]})
+	c := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	resp, err := c.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("code %d", resp.StatusCode)
 	}
 }
 

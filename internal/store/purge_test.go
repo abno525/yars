@@ -253,7 +253,7 @@ func TestPurgeCleanupFailureStillRecorded(t *testing.T) {
 		t.Fatal(err)
 	}
 	err := s.PurgeFromHistory(eng, fd, name, uDora)
-	if err == nil || !strings.Contains(err.Error(), "cleanup failed") {
+	if !errors.Is(err, ErrPurgeIncomplete) || !strings.Contains(err.Error(), "cleanup failed") {
 		t.Fatalf("gc failure: %v", err)
 	}
 	if hasOriginal(t, s, fd, name) {
@@ -319,5 +319,22 @@ func TestPurgeFailureLeavesRepo(t *testing.T) {
 	}
 	if st := engGit(t, dir, "status", "--porcelain"); st != "" {
 		t.Fatalf("work tree after a failed purge: %q", st)
+	}
+	if b, _ := s.DB().PurgedBlobs(eng); len(b) != 0 {
+		t.Fatalf("a failed purge left blob ids %v", b)
+	}
+}
+
+// D28: the removed blob ids are known before the history is rewritten, so
+// no failure after it can lose them.
+func TestPurgeRemembersBlobsFirst(t *testing.T) {
+	s, _, fd, name, oldBlob, _ := redacted(t)
+	var seen map[string]string
+	s.beforePurgeGC = func() error { seen, _ = s.DB().PurgedBlobs(eng); return nil }
+	if err := s.PurgeFromHistory(eng, fd, name, uDora); err != nil {
+		t.Fatal(err)
+	}
+	if seen[oldBlob] != name {
+		t.Fatalf("before gc the purged blobs were %v", seen)
 	}
 }

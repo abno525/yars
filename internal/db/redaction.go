@@ -50,6 +50,41 @@ func (d *DB) MarkPurged(eng, fid, name string, blobs []string) error {
 	})
 }
 
+// AddPurgedBlobs remembers blob ids of name ahead of a purge (so nothing
+// that fails after the rewrite can lose them) and returns those it did not
+// hold yet.
+func (d *DB) AddPurgedBlobs(eng, name string, blobs []string) ([]string, error) {
+	var added []string
+	err := d.Tx(func(tx *Tx) error {
+		added = nil
+		now := tx.stamp()
+		for _, b := range blobs {
+			res, err := tx.Exec("INSERT OR IGNORE INTO purged_blobs(eng, blob, name, at) VALUES (?, ?, ?, ?)", eng, b, name, now)
+			if err != nil {
+				return err
+			}
+			if n, _ := res.RowsAffected(); n > 0 {
+				added = append(added, b)
+			}
+		}
+		return nil
+	})
+	return added, err
+}
+
+// DropPurgedBlobs forgets blob ids AddPurgedBlobs added for a purge that
+// did not happen.
+func (d *DB) DropPurgedBlobs(eng string, blobs []string) error {
+	return d.Tx(func(tx *Tx) error {
+		for _, b := range blobs {
+			if _, err := tx.Exec("DELETE FROM purged_blobs WHERE eng = ? AND blob = ?", eng, b); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
 // PurgedBlobs maps the purged blob ids of an engagement to their file names.
 func (d *DB) PurgedBlobs(eng string) (map[string]string, error) {
 	rows, err := d.Query("SELECT blob, name FROM purged_blobs WHERE eng = ?", eng)

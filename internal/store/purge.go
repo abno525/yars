@@ -3,11 +3,17 @@ package store
 import (
 	"errors"
 	"fmt"
+	"log"
 
 	"yars/internal/config"
 	"yars/internal/gitrepo"
 	"yars/internal/workflow"
 )
+
+// ErrPurgeIncomplete: the history was rewritten (the purge happened), but a
+// step after it failed: git's cleanup, the mark, the audit entry or the
+// main repository's pointer. Purging again finishes what can be finished.
+var ErrPurgeIncomplete = errors.New("purged from history, but not finished")
 
 // PurgeFromHistory removes every earlier version of an attachment from the
 // engagement's git history (D28: the original of a redacted image).
@@ -59,10 +65,22 @@ func (s *Store) PurgeFromHistory(engID, dir, name string, u config.User) error {
 			old = append(old, b)
 		}
 	}
-	if len(old) == 0 { // nothing earlier: only the mark goes
-		return s.db.MarkPurged(engID, fid, name, nil)
+	if len(old) == 0 {
+		// nothing earlier (or purged before, and that purge did not finish):
+		// the mark goes, and the main repo's pointer follows
+		if err := errors.Join(s.db.MarkPurged(engID, fid, name, nil), s.SyncPointers()); err != nil {
+			return err
+		}
+		s.notify(Change{Eng: engID, Fid: fid, Kind: ChangeContent})
+		return nil
 	}
 	head0, err := gitrepo.ReadHead(r.Dir)
+	if err != nil {
+		return err
+	}
+	// the ids are remembered first: once the history is rewritten nothing
+	// may lose them, or a push from an old clone brings the original back
+	added, err := s.db.AddPurgedBlobs(engID, name, old)
 	if err != nil {
 		return err
 	}
@@ -72,19 +90,25 @@ func (s *Store) PurgeFromHistory(engID, dir, name string, u config.User) error {
 		// tree, and a reset would throw that change away
 		if h, herr := gitrepo.ReadHead(r.Dir); herr != nil || h != head0 {
 			if rerr := r.ResetTo(head0); rerr != nil {
-				err = fmt.Errorf("%w; and putting %s back: %v", err, head0, rerr)
+				return fmt.Errorf("%w; and putting %s back: %v", err, head0, rerr) // the ids stay: the rewrite may stand
 			}
 		}
 		s.Invalidate(engID)
+		if derr := s.db.DropPurgedBlobs(engID, added); derr != nil {
+			log.Printf("purge %s %s: forgetting the blob ids: %v", engID, p, derr)
+		}
 		return err
 	}
 	// rewritten (and perhaps not cleaned up): record it all
 	s.Invalidate(engID)
 	errs := []error{err}
-	errs = append(errs, s.db.MarkPurged(engID, fid, name, old))
+	errs = append(errs, s.db.MarkPurged(engID, fid, name, nil))
 	errs = append(errs, s.db.Audit(u.Username, "attachment.purge", engID+"/"+fid+"/"+name, fmt.Sprintf("%d earlier versions", len(old))))
 	// the main repo's pointer follows the new history (engagement, then main)
 	errs = append(errs, s.SyncPointers())
 	s.notify(Change{Eng: engID, Fid: fid, Kind: ChangeContent})
-	return errors.Join(errs...)
+	if err := errors.Join(errs...); err != nil {
+		return fmt.Errorf("%w: %w", ErrPurgeIncomplete, err)
+	}
+	return nil
 }

@@ -41,6 +41,18 @@ func TestNoteRedactionClearsPurged(t *testing.T) {
 	if b, _ := d.PurgedBlobs("acme"); len(b) != 2 {
 		t.Fatalf("purged blobs after a second purge %v", b)
 	}
+	// blobs remembered ahead of a purge: only the new ones are reported, and
+	// those can be dropped again (the purge failed)
+	added, err := d.AddPurgedBlobs("acme", "shot.png", []string{"b1", "b3"})
+	if err != nil || len(added) != 1 || added[0] != "b3" {
+		t.Fatalf("added %v %v", added, err)
+	}
+	if err := d.DropPurgedBlobs("acme", added); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := d.PurgedBlobs("acme"); len(b) != 2 || b["b3"] != "" {
+		t.Fatalf("after the drop %v", b)
+	}
 	// an engagement made again under the same id inherits neither
 	if err := d.Tx(func(tx *Tx) error { return tx.Purge("acme") }); err != nil {
 		t.Fatal(err)

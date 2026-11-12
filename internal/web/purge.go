@@ -2,6 +2,7 @@ package web
 
 import (
 	"errors"
+	"log"
 	"net/http"
 	"strings"
 
@@ -22,6 +23,19 @@ func (s *Server) canPurge(r *http.Request, ref store.FindingRef) bool {
 	return canManage(auth.UserFrom(r.Context())) && !s.Store.Archived(ref.EngID)
 }
 
+// purgeDenied answers a request canPurge refuses, naming the reason.
+func (s *Server) purgeDenied(w http.ResponseWriter, r *http.Request, ref store.FindingRef) bool {
+	switch {
+	case !canManage(auth.UserFrom(r.Context())):
+		http.Error(w, "only a director can purge an image from history", http.StatusForbidden)
+	case s.Store.Archived(ref.EngID):
+		s.fail(w, store.ErrArchived)
+	default:
+		return false
+	}
+	return true
+}
+
 func purgeURL(ref store.FindingRef, name string) string {
 	return findingURL(ref.EngID, ref.Dir) + "/attachments/" + name + "/purge"
 }
@@ -37,12 +51,18 @@ func (s *Server) renderPurge(w http.ResponseWriter, r *http.Request, status int,
 		return
 	}
 	ref := p.Finding
-	if !s.canPurge(r, ref) {
-		http.Error(w, "only a director can purge an image from history", http.StatusForbidden)
+	if s.purgeDenied(w, r, ref) {
 		return
 	}
 	name := r.PathValue("name")
-	if !s.hasAttachment(ref, name) {
+	exists, marked, err := s.attachmentState(ref, name)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	// the page is offered for a marked file (the rows with a Purge link);
+	// drawn again after a POST, the mark may already be gone
+	if !exists || (errMsg == "" && !marked) {
 		http.NotFound(w, r)
 		return
 	}
@@ -52,18 +72,19 @@ func (s *Server) renderPurge(w http.ResponseWriter, r *http.Request, status int,
 	s.renderStatus(w, status, "purge.html", p)
 }
 
-// hasAttachment: the finding has a file of that name.
-func (s *Server) hasAttachment(ref store.FindingRef, name string) bool {
+// attachmentState: the finding has a file of that name, and its original
+// is in history (marked).
+func (s *Server) attachmentState(ref store.FindingRef, name string) (exists, marked bool, err error) {
 	as, err := s.Store.AttachmentsOf(ref)
 	if err != nil {
-		return false
+		return false, false, err
 	}
 	for _, a := range as {
 		if a.Name == name {
-			return true
+			return true, a.HasOriginal, nil
 		}
 	}
-	return false
+	return false, false, nil
 }
 
 func (s *Server) purgePage(w http.ResponseWriter, r *http.Request) {
@@ -75,11 +96,23 @@ func (s *Server) purgePost(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if !s.canPurge(r, ref) {
-		http.Error(w, "only a director can purge an image from history", http.StatusForbidden)
+	if s.purgeDenied(w, r, ref) {
 		return
 	}
-	err := s.Store.PurgeFromHistory(ref.EngID, ref.Dir, r.PathValue("name"), auth.UserFrom(r.Context()))
+	// a file the finding has (marked or not: a purge that did not finish
+	// may have cleared the mark already; the store then finishes it)
+	name := r.PathValue("name")
+	if exists, _, err := s.attachmentState(ref, name); err != nil {
+		s.fail(w, err)
+		return
+	} else if !exists {
+		http.NotFound(w, r)
+		return
+	}
+	// git rewrites the whole history (after waiting for a push to end):
+	// longer than the server's write timeout allows
+	clearDeadlines(w)
+	err := s.Store.PurgeFromHistory(ref.EngID, ref.Dir, name, auth.UserFrom(r.Context()))
 	var elsewhere *gitrepo.ElsewhereError
 	switch {
 	case errors.Is(err, store.ErrNotFound), errors.Is(err, store.ErrArchived):
@@ -90,9 +123,15 @@ func (s *Server) purgePost(w http.ResponseWriter, r *http.Request) {
 		// names the file: the one-line slot keeps room for the copy's place)
 		s.renderPurge(w, r, http.StatusConflict, "An earlier version is also at "+strings.TrimPrefix(elsewhere.At, "findings/")+"; remove it there first")
 		return
+	case errors.Is(err, store.ErrPurgeIncomplete):
+		// the original is out of the history; what failed after it is for
+		// the server's log, and a second Purge finishes it
+		log.Printf("purge %s/%s/%s: %v", ref.EngID, ref.Dir, name, err)
+		s.renderPurge(w, r, http.StatusInternalServerError, "Purged from history, but not finished (see the server log); Purge again to finish")
+		return
 	case err != nil:
-		// the store put the repository back; the director can try again
-		s.renderPurge(w, r, http.StatusInternalServerError, err.Error())
+		// the store put the repository back; logged as any server error
+		s.fail(w, err)
 		return
 	}
 	http.Redirect(w, r, findingURL(ref.EngID, ref.Dir)+"#attachments", http.StatusSeeOther)
