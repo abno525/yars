@@ -70,6 +70,8 @@ func (s *Server) retestFor(r *http.Request, ref store.FindingRef) *retestView {
 		} else {
 			v.SourceMissing = true
 		}
+	} else {
+		v.SourceMissing = true // names no finding
 	}
 	for _, c := range []string{"fixed", "partially_fixed", "not_fixed"} { // the board's order
 		v.Options = append(v.Options, retestOption{Code: c, Label: workflow.RetestLabel(c), Checked: c == rt.Result})

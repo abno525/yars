@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"yars/internal/db"
 	"yars/internal/store"
 	"yars/internal/workflow"
 )
@@ -68,6 +69,35 @@ func TestRetestPanel(t *testing.T) {
 	// the original finding page has no retest panel
 	if b := e.do(t, "alice", "GET", fpath, nil, nil).Body.String(); strings.Contains(b, `id="retest"`) {
 		t.Fatal("retest panel on original")
+	}
+}
+
+// A retest whose source names no finding (no "/": only `yars migrate` of a
+// hand-edited file can store one) shows the original as missing, not an
+// empty link and status (backlog, M7).
+func TestRetestSourceWithoutFinding(t *testing.T) {
+	e := setup(t)
+	if err := e.srv.Store.CreateRetest(store.Engagement{ID: "rt", Name: "RT"}, "acme", []string{"F-001-sql-injection"}, "", wDora); err != nil {
+		t.Fatal(err)
+	}
+	d := e.srv.Store.DB()
+	st, err := d.State("rt", "F-001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.RetestSource = "acme"
+	if err := d.TxFor("rt", func(tx *db.Tx) error { return tx.PutState("rt", "F-001", st) }); err != nil {
+		t.Fatal(err)
+	}
+	b := e.do(t, "alice", "GET", "/e/rt/f/F-001-sql-injection", nil, nil).Body.String()
+	i := strings.Index(b, `id="retest"`)
+	if i < 0 {
+		t.Fatal("no retest panel")
+	}
+	orig := b[i:]
+	orig = orig[:strings.Index(orig, "</summary>")]
+	if strings.Contains(orig, `href=""`) || strings.Contains(orig, `class="tag status-"`) || !strings.Contains(orig, `<span class="slot w96"></span>`) {
+		t.Fatalf("the original's head:\n%s", orig)
 	}
 }
 
