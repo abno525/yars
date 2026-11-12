@@ -38,11 +38,11 @@ func (s *Store) setRetestResult(engID, dir string, was *string, result string, a
 		if st.RetestSource == "" {
 			return nil, fmt.Errorf("%w: %s is not a retest finding", ErrInvalidValue, ref.F.Meta.ID)
 		}
+		if st.RetestResult == result { // already so (a second click too)
+			return nil, nil
+		}
 		if was != nil && *was != st.RetestResult {
 			return nil, ErrConflict
-		}
-		if st.RetestResult == result {
-			return nil, nil
 		}
 		var u string
 		if cu, ok := a.(config.User); ok {

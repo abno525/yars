@@ -128,6 +128,10 @@ func TestRetestResultBase(t *testing.T) {
 	if rec := e.do(t, "bob", "POST", p+"/retest", url.Values{"result": {"not_fixed"}, "was": {"fixed"}}, nil); rec.Code != http.StatusOK {
 		t.Fatalf("a choice on the current page: %d", rec.Code)
 	}
+	// the result someone already chose (or a second click) is no conflict
+	if rec := e.do(t, "alice", "POST", p+"/retest", url.Values{"result": {"not_fixed"}, "was": {"fixed"}}, nil); rec.Code != http.StatusOK {
+		t.Fatalf("the result already chosen: %d", rec.Code)
+	}
 }
 
 // A retest that fails for a reason other than the form's (here the disk)
