@@ -156,5 +156,6 @@ M33 task 2  done     43bab42 (the preview's paper takes the light tokens; in dar
 M33 task 1  review   fix c171964 (the colour checks: media block alone, blocks once, no token set again, any-case and newer colour functions, system colours, %23, strings and url(), nesting)
 M33 task 2  review   fix 052bafd (the preview's text colour and selector placement tested; report severity colours tied to the preview's)
 M33 branch  review   fixes f5d1fc0 (one scanner for strings, escapes, comments and url(); theme-only rules refused; nested rules and data: URLs refused; fewer false positives; cover bar, head bar and PDF palette tied)
-M33 branch  fix check passed (eight fixed; then data: URLs in any string and more made-up-name properties)
+M33 branch  fix check passed bb7f48d (eight fixed; then data: URLs in any string and more made-up-name properties)
+M33 PR      opened   #28
 ```
