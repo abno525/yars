@@ -90,8 +90,14 @@ func (e *Engine) checkNames(s *Set) {
 	}
 }
 
+// freshFor is how long after a write a file's time may not tell a second
+// write from it (file systems keep times in ticks of up to two seconds).
+const freshFor = 2 * time.Second
+
 // signature is every file under the rules folder (sub-folders too: a script
 // may live in one) with its size and time: it changes when any of them does.
+// A file written within freshFor counts by its content too, since a
+// rewrite of the same size in the same tick keeps both.
 func (e *Engine) signature() string {
 	var parts []string
 	filepath.WalkDir(e.Dir, func(p string, d fs.DirEntry, err error) error {
@@ -100,7 +106,14 @@ func (e *Engine) signature() string {
 		}
 		if info, err := d.Info(); err == nil {
 			rel, _ := filepath.Rel(e.Dir, p)
-			parts = append(parts, fmt.Sprintf("%s:%d:%d", filepath.ToSlash(rel), info.Size(), info.ModTime().UnixNano()))
+			part := fmt.Sprintf("%s:%d:%d", filepath.ToSlash(rel), info.Size(), info.ModTime().UnixNano())
+			if time.Since(info.ModTime()) < freshFor {
+				if b, err := os.ReadFile(p); err == nil {
+					sum := sha256.Sum256(b)
+					part += ":" + hex.EncodeToString(sum[:8])
+				}
+			}
+			parts = append(parts, part)
 		}
 		return nil
 	})
