@@ -14,12 +14,33 @@
   var url = null;
   var es = null;
   var pollTimer = null;
+  // events that came while an element's refetch was in flight, by its id:
+  // htmx queues them on that element, and drops them when the answer
+  // replaces it (an answer not swapped in leaves the queue to htmx)
+  var missed = {};
 
   function fire(name) {
     if (!window.htmx) return;
     var els = document.querySelectorAll('[data-sse]');
-    for (var i = 0; i < els.length; i++) htmx.trigger(els[i], 'sse:' + name);
+    for (var i = 0; i < els.length; i++) {
+      var el = els[i];
+      if (el.id && el.classList.contains('htmx-request')) (missed[el.id] = missed[el.id] || {})[name] = true;
+      htmx.trigger(el, 'sse:' + name);
+    }
   }
+
+  // once the answer is in, the element now holding that id gets them
+  // (afterSwap reaches the page from the new element; afterRequest is fired
+  // on the replaced one, out of the page)
+  document.addEventListener('htmx:afterSwap', function (e) {
+    var id = e.detail && e.detail.elt && e.detail.elt.id;
+    if (!id || !missed[id]) return;
+    var names = missed[id];
+    delete missed[id];
+    var el = document.getElementById(id);
+    if (!el) return;
+    for (var n in names) htmx.trigger(el, 'sse:' + n);
+  });
 
   function startPolling() {
     if (pollTimer) return;

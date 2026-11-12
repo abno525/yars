@@ -102,7 +102,8 @@ func TestFixButtonStates(t *testing.T) {
 	if !strings.HasSuffix(btn, "Fixing") || !strings.Contains(btn, " disabled") || !strings.Contains(checksPanel(t, b), "<progress") {
 		t.Fatalf("running: %q", btn)
 	}
-	if !regexp.MustCompile(`<details class="panel checks strip[^"]*" id="checks" data-kpanel open`).MatchString(b) {
+	// open, and marked running: the user's stored choice does not close it
+	if !regexp.MustCompile(`<details class="panel checks strip[^"]*" id="checks" data-kpanel open data-running`).MatchString(b) {
 		t.Fatalf("the strip is closed while fixing:\n%s", checksPanel(t, b))
 	}
 	// nothing left to fix: there, disabled
@@ -115,6 +116,16 @@ func TestFixButtonStates(t *testing.T) {
 	pb := checksPanel(t, e.do(t, "alice", "GET", fpath, nil, nil).Body.String())
 	if fixBtnRe.FindString(pb) != "" || !strings.Contains(between(pb, "<summary", "</summary>"), `<span class="slot w152"></span>`) {
 		t.Fatalf("may not edit:\n%s", between(pb, "<summary", "</summary>"))
+	}
+}
+
+// The strip's head has room for Fix with AI in the left column: the run's
+// progress and start are the state chip's title, not a text of their own.
+func TestStripHeadRunInfoInTitle(t *testing.T) {
+	e, _ := fixEnv(t, true)
+	head := between(checksPanel(t, e.do(t, "alice", "GET", fpath, nil, nil).Body.String()), "<summary", "</summary>")
+	if strings.Contains(head, "runinfo") || !regexp.MustCompile(`<span class="checkstate check-done" title="1 of 1 · \d\d:\d\d">Done</span>`).MatchString(head) {
+		t.Fatalf("head:\n%s", head)
 	}
 }
 

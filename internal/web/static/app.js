@@ -320,7 +320,8 @@ document.addEventListener('htmx:beforeSwap', function (evt) {
 // Checks strip: the server opens it while a check runs or the author's
 // draft has errors; a click on its head is the user's choice, kept for this
 // finding in this tab and re-applied after live refreshes (never against a
-// running check, which stays open).
+// running check or fix, which stays open). A button in the head (Fix with
+// AI) is pressed, not the head.
 function yarsChecksKey() { return 'yars-checks:' + location.pathname; }
 function yarsChecksApply() {
   var d = document.getElementById('checks');
@@ -332,7 +333,7 @@ function yarsChecksApply() {
 }
 document.addEventListener('click', function (evt) {
   var s = evt.target.closest && evt.target.closest('#checks > summary');
-  if (!s) return;
+  if (!s || evt.target.closest('button')) return;
   // the click toggles after this handler: the state it leads to
   try { sessionStorage.setItem(yarsChecksKey(), s.parentNode.open ? 'closed' : 'open'); } catch (e) { /* not kept */ }
 });

@@ -387,6 +387,38 @@ func TestSSEClosedInHiddenTabs(t *testing.T) {
 	}
 }
 
+// An event that comes while a live element's refetch is in flight is queued
+// by htmx on that element, which the answer then replaces: htmx drops it,
+// and the strip or bar keeps the state before the last event (a finished
+// check or fix still shown running). sse.js keeps such an event and fires it
+// on the new element once the answer is in.
+func TestSSERefiresEventMissedInFlight(t *testing.T) {
+	e := setup(t)
+	js := e.do(t, "alice", "GET", "/static/sse.js", nil, nil).Body.String()
+	i := strings.Index(js, "function fire(name)")
+	if i < 0 {
+		t.Fatal("sse.js has no fire")
+	}
+	fire := js[i:]
+	fire = fire[:strings.Index(fire, "\n  }\n")]
+	if !strings.Contains(fire, "classList.contains('htmx-request')") || !strings.Contains(fire, "missed[") {
+		t.Fatalf("fire does not keep events for elements in flight:\n%s", fire)
+	}
+	// afterSwap: htmx fires afterRequest on the element the answer replaced,
+	// which is out of the page by then, so it never reaches a listener there
+	j := strings.Index(js, "addEventListener('htmx:afterSwap'")
+	if j < 0 {
+		t.Fatal("sse.js does not fire kept events after the answer")
+	}
+	after := js[j:]
+	after = after[:strings.Index(after, "\n  });\n")]
+	for _, want := range []string{"document.getElementById(", "htmx.trigger(", "delete missed["} {
+		if !strings.Contains(after, want) {
+			t.Fatalf("afterSwap lacks %q:\n%s", want, after)
+		}
+	}
+}
+
 // --- chat poll ---
 
 func TestChatPollShortCircuit(t *testing.T) {

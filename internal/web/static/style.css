@@ -493,8 +493,8 @@ table.kv { width: 100%; border-collapse: collapse; }
 .checkflag.bad { color: var(--red); background: color-mix(in srgb, var(--red) 6%, transparent); }
 .checkflag.text { height: auto; padding: 0; border: 0; background: transparent; }
 .checkflag .mono { font-size: 12px; }
-.wfcheck .btn svg { width: 16px; height: 16px; }
-.wfcheck .btn { gap: 8px; }
+.wfcheck .btn svg, .btn.checking svg { width: 16px; height: 16px; }
+.wfcheck .btn, .btn.checking { gap: 8px; }
 .btn.checking { position: relative; overflow: hidden; }
 .btn.checking:disabled { background: var(--bg); color: var(--muted); border-color: var(--field-line); cursor: progress; }
 .btn.checking .mono { font-size: 13px; }
@@ -652,7 +652,6 @@ summary.panelhead::-webkit-details-marker { display: none; }
 .checktable td form { margin: 0; display: flex; }
 .table.checktable th.c-reason { width: 104px; }
 /* each rule of the run: id 200 | kind 64 | state | time or Retry 80 */
-.checks .runinfo { width: 136px; text-align: right; font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .steplist { border-bottom: 1px solid var(--line); }
 .steprow {
   min-height: 52px; padding: 0 20px; display: grid; grid-template-columns: 200px 64px minmax(0, 1fr) 80px; gap: 12px; align-items: center;
@@ -884,7 +883,9 @@ a.atab:hover { color: var(--ink); background: var(--panel); }
 .tag.kind-pattern, .tag.kind-builtin { background: transparent; color: var(--text); border-color: var(--field-line); }
 .tag.kind-script { background: var(--panel); color: var(--text); border-color: var(--line); }
 .tag.kind-ai { background: var(--navy); color: #FFFFFF; border-color: var(--navy); }
-.tag.ai { background: var(--off-bg); color: var(--ink); }
+/* the AI mark after a user's name (chat, History): as small as its text */
+.tag.ai { width: 36px; height: 20px; background: var(--off-bg); color: var(--ink); }
+.evline .tag.ai { margin-left: 8px; }
 .cbx {
   width: 20px; height: 20px; padding: 0; flex: none; display: inline-flex; align-items: center; justify-content: center;
   border: 2px solid var(--off-fg); background: transparent; color: var(--bg); cursor: pointer;

@@ -340,6 +340,10 @@ func TestAppJSRemembersChecksStrip(t *testing.T) {
 	if !strings.Contains(js, "yars-checks:") || !strings.Contains(js, "data-running") {
 		t.Fatal("app.js does not remember the strip")
 	}
+	// a press of a button in the head (Fix with AI) is not the user's choice
+	if !strings.Contains(js, "if (!s || evt.target.closest('button')) return;") {
+		t.Fatal("a button in the strip's head counts as opening or closing it")
+	}
 	// an empty Dismiss row left in a closed strip does not hold its refreshes
 	// (a typed reason still does)
 	if !strings.Contains(js, "(t.id === 'checks' && t.open && !!t.querySelector('.dismissrow:not([hidden])'))") {
