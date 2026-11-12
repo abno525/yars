@@ -2,9 +2,11 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 
 	"yars/internal/auth"
@@ -63,6 +65,11 @@ func (s *Server) HTTPHandler(tokens *auth.Tokens) http.Handler {
 			http.Error(w, "a valid YARS MCP token is required", http.StatusUnauthorized)
 			return
 		}
+		// MCP 2025-06-18: a version the server does not speak is refused
+		if v := r.Header.Get("MCP-Protocol-Version"); v != "" && !slices.Contains(protocols, v) {
+			http.Error(w, "unsupported MCP-Protocol-Version "+v+"; this server speaks "+strings.Join(protocols, ", "), http.StatusBadRequest)
+			return
+		}
 		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBody))
 		if err != nil {
 			var tooBig *http.MaxBytesError
@@ -79,6 +86,16 @@ func (s *Server) HTTPHandler(tokens *auth.Tokens) http.Handler {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
+		// an error with id null answers input the server could not accept
+		// (not JSON, a batch, an invalid notification): MCP wants an HTTP
+		// error status for it
+		var a struct {
+			ID    json.RawMessage `json:"id"`
+			Error *rpcErr         `json:"error"`
+		}
+		if json.Unmarshal(resp, &a) == nil && a.Error != nil && string(a.ID) == "null" {
+			w.WriteHeader(http.StatusBadRequest)
+		}
 		w.Write(resp)
 	})
 }

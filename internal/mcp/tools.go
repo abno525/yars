@@ -227,43 +227,67 @@ func (e ambiguous) Error() string {
 func (e ambiguous) Is(target error) bool { return target == errAmbiguous }
 
 // resolve finds a finding by folder name or by ID (R2: in any case, with or
-// without its zeros). An ID matches the folder of that name, else every
-// finding with that ID or folder number; more than one is ambiguous, never
-// the first.
-func (s *Server) resolve(eng, f string) (store.FindingRef, error) {
-	f = normalID(f)
-	if !store.ValidID(eng) || !store.ValidID(f) {
+// without its zeros). An ID names the folder called just that (as given or
+// in its normal form), else every folder of that number and every finding
+// whose front-matter ID it is (the index); more than one is ambiguous,
+// never the first. Only the one found is read, so a finding that does not
+// parse says why.
+func (s *Server) resolve(eng, raw string) (store.FindingRef, error) {
+	f := normalID(raw)
+	if !store.ValidID(eng) || !store.ValidID(raw) || !store.ValidID(f) {
 		return store.FindingRef{}, store.ErrNotFound
 	}
 	if !findingID.MatchString(f) {
 		return s.Store.Finding(eng, f)
 	}
-	refs, err := s.Store.ListFindings(eng)
+	dirs, err := s.Store.FindingDirs(eng)
 	if err != nil {
-		return store.FindingRef{}, store.ErrNotFound
+		return store.FindingRef{}, err
+	}
+	for _, name := range []string{raw, f} {
+		if slices.Contains(dirs, name) {
+			return s.Store.Finding(eng, name) // a folder called just that
+		}
 	}
 	num := strings.TrimLeft(strings.TrimPrefix(f, "F-"), "0")
-	var hits []store.FindingRef
-	for _, r := range refs {
-		if r.Dir == f {
-			return r, nil // a folder called just that
-		}
-		m := folderNum.FindStringSubmatch(r.Dir)
-		if r.F.Meta.ID == f || (m != nil && strings.TrimLeft(m[1], "0") == num) {
-			hits = append(hits, r)
+	hits := map[string]bool{}
+	for _, d := range dirs {
+		if m := folderNum.FindStringSubmatch(d); m != nil && strings.TrimLeft(m[1], "0") == num {
+			hits[d] = true
 		}
 	}
-	switch len(hits) {
+	for _, d := range s.idFolders(eng, f) {
+		hits[d] = true
+	}
+	found := slices.Sorted(maps.Keys(hits))
+	switch len(found) {
 	case 0:
 		return store.FindingRef{}, store.ErrNotFound
 	case 1:
-		return hits[0], nil
+		return s.Store.Finding(eng, found[0])
 	}
-	e := ambiguous{id: f}
-	for _, r := range hits {
-		e.dirs = append(e.dirs, r.Dir)
+	return store.FindingRef{}, ambiguous{id: f, dirs: found}
+}
+
+// idFolders are the folders of eng whose front-matter ID is f, in any form
+// (the index's rows, withdrawn findings too).
+func (s *Server) idFolders(eng, f string) []string {
+	if s.Index == nil {
+		return nil
 	}
-	return store.FindingRef{}, e
+	var out []string
+	for _, st := range []string{"", workflow.Withdrawn} {
+		rows, err := s.Index.Rows(index.Query{EngID: eng, Status: st})
+		if err != nil {
+			continue
+		}
+		for _, r := range rows {
+			if normalID(r.ID) == f {
+				out = append(out, r.Dir)
+			}
+		}
+	}
+	return out
 }
 
 func (s *Server) ref(a args) (store.FindingRef, error) {

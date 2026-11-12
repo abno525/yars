@@ -59,6 +59,32 @@ func Approved(st db.State, hash string) bool {
 	return st.ApprovedHash == "" || st.ApprovedHash == hash
 }
 
+// FindingDirs lists the engagement's finding folders (those holding a
+// finding.md, readable or not), sorted, without reading them.
+func (s *Store) FindingDirs(engID string) ([]string, error) {
+	if _, err := s.Engagement(engID); err != nil {
+		return nil, err
+	}
+	ents, err := s.readDir(path.Join(engDir(engID), "findings"))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, e := range ents {
+		if !e.IsDir() || !ValidID(e.Name()) {
+			continue
+		}
+		if _, err := s.root.Stat(findingPath(engID, e.Name())); err == nil {
+			out = append(out, e.Name())
+		}
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
 // ListFindings returns parseable findings of an engagement, sorted by dir.
 // Unparseable finding files are logged and skipped so one bad local edit
 // cannot hide the whole table.

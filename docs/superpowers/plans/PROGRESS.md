@@ -138,5 +138,7 @@ M31 PR      opened   #26
 M32 task 1  done     8e1dfb6 (strict JSON-RPC: no batches, jsonrpc 2.0, no null id; bearer in any case; two protocol versions; long stdio lines go on)
 M32 task 2  done     82dabad (f-7, F-7, F-007 and 7 name one finding; an ID two folders share is refused; unknown status or severity lists the valid ones)
 M32 task 3  done     b7eb678 (every answer one JSON object with ok; lists items and next; refusals with a code)
-M32 task 4  done     (limit and cursor on the list tools; q in list_findings)
+M32 task 4  done     a5cf93c (limit and cursor on the list tools; q in list_findings)
+M32 task 1  review   fix (ids string or number; non-requests -32600; exact member names; 400 for input it cannot accept; the version header; stdio limits)
+M32 task 2  review   fix (candidates from the folder listing and the index; exact folder first; a broken finding says why)
 ```

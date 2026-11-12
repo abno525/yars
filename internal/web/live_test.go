@@ -171,6 +171,35 @@ func TestHTTPServerTimeouts(t *testing.T) {
 	}
 }
 
+// M30's note for M32: a request that runs every rule (MCP, Submit) keeps its
+// context past the server's read timeout. When the read deadline passes in
+// the handler, net/http's background read fails and cancels the request.
+func TestLintLivedOutlastsReadTimeout(t *testing.T) {
+	e := setup(t)
+	got := make(chan error, 1)
+	h := e.srv.lintLived(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.ReadAll(r.Body)
+		select {
+		case <-time.After(500 * time.Millisecond):
+			got <- nil
+		case <-r.Context().Done():
+			got <- r.Context().Err()
+		}
+	}))
+	ts := httptest.NewUnstartedServer(h)
+	ts.Config.ReadTimeout = 200 * time.Millisecond
+	ts.Start()
+	defer ts.Close()
+	resp, err := http.Post(ts.URL, "application/json", strings.NewReader("{}"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if err := <-got; err != nil {
+		t.Fatalf("the request was cancelled: %v", err)
+	}
+}
+
 // --- server-sent events ---
 
 // liveServer is a real HTTP server for the handler. Its Close is registered

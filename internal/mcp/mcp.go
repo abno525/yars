@@ -80,26 +80,62 @@ func reply(id json.RawMessage, result any, e *rpcErr) []byte {
 	return b
 }
 
-// Handle processes one JSON-RPC message as user u. It returns nil for
-// notifications (no response). It follows the standard strictly (R2): no
-// batches, jsonrpc "2.0", no null id.
-func (s *Server) Handle(ctx context.Context, u config.User, msg []byte) []byte {
+// parse reads one JSON-RPC message strictly (R2): an object, member names
+// exactly as written, no batches, jsonrpc "2.0", a string method, an id that
+// is a string or a number. It returns the request; or the error to answer,
+// with the id to answer it with (nil: null); or neither, for a notification
+// or a client's response (nothing to answer).
+func parse(msg []byte) (*rpcReq, json.RawMessage, *rpcErr) {
 	if t := bytes.TrimLeft(msg, " \t\r\n"); len(t) > 0 && t[0] == '[' {
-		return reply(nil, nil, &rpcErr{-32600, "batches are not supported"})
+		return nil, nil, &rpcErr{-32600, "batches are not supported"}
 	}
-	var req rpcReq
-	if err := json.Unmarshal(msg, &req); err != nil {
-		return reply(nil, nil, &rpcErr{-32700, "parse error"})
+	if !json.Valid(msg) {
+		return nil, nil, &rpcErr{-32700, "parse error"}
 	}
-	if req.ID == nil { // notification
+	var m map[string]json.RawMessage
+	if json.Unmarshal(msg, &m) != nil || m == nil {
+		return nil, nil, &rpcErr{-32600, "the message must be a JSON object"}
+	}
+	id, hasID := m["id"]
+	if hasID {
+		switch c := id[0]; {
+		case string(id) == "null":
+			return nil, nil, &rpcErr{-32600, "id must not be null"}
+		case c != '"' && c != '-' && (c < '0' || c > '9'):
+			return nil, nil, &rpcErr{-32600, "id must be a string or a number"}
+		}
+	}
+	_, hasMethod := m["method"]
+	_, isResult := m["result"]
+	_, isError := m["error"]
+	if hasID && !hasMethod && (isResult || isError) {
+		return nil, nil, nil // a client's response: the server asks nothing
+	}
+	var version, method string
+	if json.Unmarshal(m["jsonrpc"], &version) != nil || version != "2.0" {
+		return nil, id, &rpcErr{-32600, "jsonrpc must be 2.0"}
+	}
+	if json.Unmarshal(m["method"], &method) != nil {
+		return nil, id, &rpcErr{-32600, "method must be a string"}
+	}
+	if !hasID {
+		return nil, nil, nil // a notification
+	}
+	return &rpcReq{JSONRPC: version, ID: id, Method: method, Params: m["params"]}, id, nil
+}
+
+// Handle processes one JSON-RPC message as user u. It returns nil for a
+// notification or a client's response (no answer). An invalid message is
+// answered with id null when it has no usable id.
+func (s *Server) Handle(ctx context.Context, u config.User, msg []byte) []byte {
+	r, id, bad := parse(msg)
+	if bad != nil {
+		return reply(id, nil, bad)
+	}
+	if r == nil {
 		return nil
 	}
-	if string(req.ID) == "null" {
-		return reply(nil, nil, &rpcErr{-32600, "id must not be null"})
-	}
-	if req.JSONRPC != "2.0" {
-		return reply(req.ID, nil, &rpcErr{-32600, "jsonrpc must be 2.0"})
-	}
+	req := *r
 	switch req.Method {
 	case "initialize":
 		var p struct {
@@ -185,6 +221,9 @@ func (s *Server) ServeStdio(ctx context.Context, u config.User, in io.Reader, ou
 	w := bufio.NewWriter(out)
 	for {
 		line, tooLong, err := readLine(r)
+		if err != nil && err != io.EOF {
+			return err // a line cut short by the error is not answered
+		}
 		var resp []byte
 		switch {
 		case tooLong:
@@ -202,18 +241,15 @@ func (s *Server) ServeStdio(ctx context.Context, u config.User, in io.Reader, ou
 		if err == io.EOF {
 			return nil
 		}
-		if err != nil {
-			return err
-		}
 	}
 }
 
-// readLine reads one line without its line break; a line over maxLine is
-// read to its end and dropped (tooLong).
+// readLine reads one line without its line break (LF or CRLF); a line whose
+// text is over maxLine is read to its end and dropped (tooLong).
 func readLine(r *bufio.Reader) (line []byte, tooLong bool, err error) {
 	for {
 		chunk, err := r.ReadSlice('\n')
-		if !tooLong && len(line)+len(chunk) <= maxLine+1 {
+		if !tooLong && len(line)+len(chunk) <= maxLine+2 {
 			line = append(line, chunk...)
 		} else {
 			tooLong, line = true, nil
@@ -221,6 +257,10 @@ func readLine(r *bufio.Reader) (line []byte, tooLong bool, err error) {
 		if err == bufio.ErrBufferFull {
 			continue
 		}
-		return bytes.TrimRight(line, "\r\n"), tooLong, err
+		line = bytes.TrimSuffix(bytes.TrimSuffix(line, []byte("\n")), []byte("\r"))
+		if len(line) > maxLine {
+			tooLong, line = true, nil
+		}
+		return line, tooLong, err
 	}
 }

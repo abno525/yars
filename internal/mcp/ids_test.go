@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -49,6 +50,70 @@ func TestAmbiguousIDRefused(t *testing.T) {
 	}
 	for _, dir := range []string{"F-001-copy", "F-001-sql-injection"} {
 		f.ok(alice, "read_finding", map[string]any{"engagement": "acme", "finding": dir})
+	}
+}
+
+// addFolder writes a finding folder copied from F-001 with its id line
+// changed, and commits it (the index reads committed findings).
+func addFolder(t *testing.T, f *fx, dir, id string) {
+	t.Helper()
+	ed := filepath.Join(f.dir, "engagements", "acme")
+	src, err := os.ReadFile(filepath.Join(ed, "findings", "F-001-sql-injection", "finding.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src = []byte(strings.Replace(string(src), "id: F-001", "id: "+id, 1))
+	os.MkdirAll(filepath.Join(ed, "findings", dir), 0o755)
+	if err := os.WriteFile(filepath.Join(ed, "findings", dir, "finding.md"), src, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range [][]string{{"add", "-A"}, {"-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "add " + dir}} {
+		if out, err := exec.Command("git", append([]string{"-C", ed}, c...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", c, err, out)
+		}
+	}
+}
+
+// A folder whose name has another number than its ID: the ID names both it
+// and the folder of that number (ambiguous); its own number names it.
+func TestIDByFrontMatterToo(t *testing.T) {
+	f := newFx(t)
+	addFolder(t, f, "F-002-renamed", "F-001")
+	text, isErr := f.call(alice, "read_finding", map[string]any{"engagement": "acme", "finding": "F-001"})
+	if !isErr || !strings.Contains(message(t, text), "(F-001-sql-injection, F-002-renamed)") {
+		t.Fatalf("F-001: %.300s", text)
+	}
+	if text := f.ok(alice, "read_finding", map[string]any{"engagement": "acme", "finding": "F-002"}); !strings.Contains(text, `"dir":"F-002-renamed"`) {
+		t.Fatalf("F-002: %.300s", text)
+	}
+}
+
+// A folder named just the ID wins; a folder whose name is an ID in another
+// form (F-7) is still reached by that name.
+func TestIDExactFolder(t *testing.T) {
+	f := newFx(t)
+	addFolder(t, f, "F-001", "F-001")
+	if text := f.ok(alice, "read_finding", map[string]any{"engagement": "acme", "finding": "F-001"}); !strings.Contains(text, `"dir":"F-001"`) {
+		t.Fatalf("F-001: %.300s", text)
+	}
+	addFolder(t, f, "F-7", "F-7")
+	addFolder(t, f, "F-007-xss", "F-007")
+	if text := f.ok(alice, "read_finding", map[string]any{"engagement": "acme", "finding": "F-7"}); !strings.Contains(text, `"dir":"F-7"`) {
+		t.Fatalf("F-7: %.300s", text)
+	}
+}
+
+// A finding that does not parse says why when named by its ID, as by its
+// folder name; it is not "not found".
+func TestIDBrokenFindingSaysWhy(t *testing.T) {
+	f := newFx(t)
+	p := filepath.Join(f.dir, "engagements", "acme", "findings", "F-001-sql-injection", "finding.md")
+	if err := os.WriteFile(p, []byte("---\nid: [unclosed\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	text, isErr := f.call(alice, "read_finding", map[string]any{"engagement": "acme", "finding": "F-001"})
+	if m := object(t, "read_finding", text); !isErr || m["code"] == "not_found" {
+		t.Fatalf("%s", text)
 	}
 }
 
