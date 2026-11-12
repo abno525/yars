@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -218,6 +219,9 @@ func (s *Store) Dismissals(engID, fid string) (map[string]db.Dismissal, error) {
 	return s.db.Dismissals(engID, fid)
 }
 
+// lintFidRe is a finding id (F-001, F-1000).
+var lintFidRe = regexp.MustCompile(`^F-[0-9]{3,6}$`)
+
 // LintContent checks raw (a finding.md as it would be committed to
 // engagement engID) with every rule, as a check run does, and returns the
 // violations that are not dismissed on that finding. Nothing is stored. A
@@ -236,7 +240,10 @@ func (s *Store) LintContent(ctx context.Context, engID string, raw []byte) ([]ru
 		return []rules.Violation{}, nil
 	}
 	c := rules.CallerOf(ctx)
-	c.Eng, c.Fid = engID, f.Meta.ID
+	c.Eng, c.Fid = engID, ""
+	if lintFidRe.MatchString(f.Meta.ID) {
+		c.Fid = f.Meta.ID // only a finding id is recorded (the text is the poster's)
+	}
 	vs, err := s.undismissed(engID, f.Meta.ID, s.Linter.Lint(rules.WithCaller(ctx, c), f, rules.All))
 	if vs == nil {
 		vs = []rules.Violation{}

@@ -84,4 +84,13 @@ func TestLintContentNamesTheFinding(t *testing.T) {
 	if len(got) != 1 || got[0] != (rules.Caller{User: "alice", Eng: eng, Fid: id}) {
 		t.Fatalf("callers %+v", got)
 	}
+	// a posted id that is not a finding id is not recorded
+	raw := strings.Replace(string(load(t, s, fd).F.Bytes()), "id: "+id+"\n", "id: "+strings.Repeat("x", 300)+"\n", 1)
+	got = nil
+	if _, err := s.LintContent(ctx, eng, []byte(raw)); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Fid != "" {
+		t.Fatalf("callers %+v", got)
+	}
 }

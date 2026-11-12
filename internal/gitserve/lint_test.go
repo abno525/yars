@@ -2,14 +2,18 @@ package gitserve
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"yars/internal/auth"
 	"yars/internal/config"
@@ -142,6 +146,35 @@ func TestLintEndpointNeedsLogin(t *testing.T) {
 	if resp, _ := e.post(t, "POST", "acme", "alice", "nope", e.raw); resp.StatusCode != 401 {
 		t.Fatalf("bad password: %d", resp.StatusCode)
 	}
+	// without a login an unknown engagement looks like any other
+	if resp, _ := e.post(t, "POST", "nope", "", "", e.raw); resp.StatusCode != 401 {
+		t.Fatalf("unknown engagement without a login: %d", resp.StatusCode)
+	}
+	// an account that must set a new password first may not lint either
+	e.d.AddUser(config.User{Username: "newbie", Role: "pentester", PasswordHash: testHash(t, "pw"), MustChange: true})
+	e.d.AddMembers("acme", "newbie")
+	if resp, body := e.post(t, "POST", "acme", "newbie", "pw", e.raw); resp.StatusCode != 403 || strings.Contains(body, "violations") {
+		t.Fatalf("must change: %d %s", resp.StatusCode, body)
+	}
+}
+
+// A body sent without a length (chunked) is read like any other.
+func TestLintEndpointChunked(t *testing.T) {
+	e := setupLint(t)
+	pr, pw := io.Pipe()
+	go func() { pw.Write(e.raw); pw.Close() }()
+	req, _ := http.NewRequest("POST", e.srv.URL+"/git/e/acme/lint", pr)
+	req.SetBasicAuth("alice", "pw")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	// a pipe has no length, so the client sends it chunked
+	if resp.StatusCode != 200 || !strings.Contains(string(b), "title-no-trailing-dot") || req.ContentLength > 0 {
+		t.Fatalf("%d %d: %s", resp.StatusCode, req.ContentLength, b)
+	}
 }
 
 // Review focus 3: someone off the team gets the clone's answer, and an
@@ -236,11 +269,52 @@ func TestLintEndpointRestrictedToken(t *testing.T) {
 	}
 }
 
-// No Lint func set: the path is not there.
+// No Lint func set: the path is not there, for any method.
 func TestLintEndpointOff(t *testing.T) {
 	e := setupLint(t)
 	e.gs.Lint = nil
-	if resp, _ := e.post(t, "POST", "acme", "alice", "pw", e.raw); resp.StatusCode != 404 {
-		t.Fatalf("%d", resp.StatusCode)
+	for _, m := range []string{"POST", "GET"} {
+		if resp, _ := e.post(t, m, "acme", "alice", "pw", e.raw); resp.StatusCode != 404 {
+			t.Fatalf("%s: %d", m, resp.StatusCode)
+		}
+	}
+}
+
+// A client that stops sending the body part way does not hold the handler:
+// the body has a read deadline (lifted again before the rules run).
+func TestLintEndpointStalledBody(t *testing.T) {
+	e := setupLint(t)
+	old := lintReadTimeout
+	lintReadTimeout = 300 * time.Millisecond
+	defer func() { lintReadTimeout = old }()
+	conn, err := net.Dial("tcp", strings.TrimPrefix(e.srv.URL, "http://"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	auth := base64.StdEncoding.EncodeToString([]byte("alice:pw"))
+	fmt.Fprintf(conn, "POST /git/e/acme/lint HTTP/1.1\r\nHost: x\r\nAuthorization: Basic %s\r\nContent-Length: 1000\r\n\r\n---\n", auth)
+	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	start := time.Now()
+	b, _ := io.ReadAll(conn) // the server answers or closes
+	if took := time.Since(start); took > 3*time.Second {
+		t.Fatalf("held for %v: %q", took, b)
+	}
+	if strings.Contains(string(b), "violations") {
+		t.Fatalf("a part of a body was checked: %q", b)
+	}
+	// a body announced over the limit is refused before it is read
+	big := e.raw
+	req, _ := http.NewRequest("POST", e.srv.URL+"/git/e/acme/lint", bytes.NewReader(big))
+	req.SetBasicAuth("alice", "pw")
+	req.ContentLength = LintMaxBody + 1
+	req.Body = io.NopCloser(io.MultiReader(bytes.NewReader(big), bytes.NewReader(make([]byte, LintMaxBody+1-len(big)))))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 413 {
+		t.Fatalf("announced over the limit: %d", resp.StatusCode)
 	}
 }

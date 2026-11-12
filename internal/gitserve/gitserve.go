@@ -40,6 +40,10 @@ const DefaultMaxBody = 2 << 30
 // LintMaxBody caps a posted finding (POST /git/e/<id>/lint).
 const LintMaxBody = 1 << 20
 
+// lintReadTimeout bounds reading a posted finding: /git/ has no read
+// deadline (pushes take long), but a finding is at most LintMaxBody.
+var lintReadTimeout = 60 * time.Second
+
 type Server struct {
 	Repo *gitrepo.Repo
 	Auth *auth.Auth
@@ -418,20 +422,37 @@ type lintViolation struct {
 // 422 {"error":…} for a file that does not parse. Nothing is stored. The
 // rules' AI calls are recorded under u (D24).
 func (s *Server) lint(w http.ResponseWriter, r *http.Request, u config.User, eng string) {
+	if s.Lint == nil {
+		http.NotFound(w, r)
+		return
+	}
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", http.MethodPost)
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if s.Lint == nil {
-		http.NotFound(w, r)
+	tooBigMsg := fmt.Sprintf("a finding over %d KiB", LintMaxBody>>10)
+	if r.ContentLength > LintMaxBody {
+		http.Error(w, tooBigMsg, http.StatusRequestEntityTooLarge)
 		return
 	}
+	// a client that stalls part way does not hold the handler. After a
+	// whole body the deadline is lifted before the rules run (an expired
+	// one would cancel the request's context, the AI rules); after a failed
+	// read it stays, and the body is closed, so net/http answers and drops
+	// the connection instead of waiting for the rest
+	rc := http.NewResponseController(w)
+	rc.SetReadDeadline(time.Now().Add(lintReadTimeout))
 	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, LintMaxBody))
+	if err == nil {
+		rc.SetReadDeadline(time.Time{})
+	} else {
+		r.Body.Close()
+	}
 	if err != nil {
 		var tooBig *http.MaxBytesError
 		if errors.As(err, &tooBig) {
-			http.Error(w, fmt.Sprintf("a finding over %d KiB", LintMaxBody>>10), http.StatusRequestEntityTooLarge)
+			http.Error(w, tooBigMsg, http.StatusRequestEntityTooLarge)
 			return
 		}
 		http.Error(w, "could not read the request body", http.StatusBadRequest)
