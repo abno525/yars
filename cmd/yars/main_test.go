@@ -166,6 +166,54 @@ func TestIgnoreReplacesOldComment(t *testing.T) {
 	}
 }
 
+// A script rule that cannot run is reported for each finding it was to
+// check, and an error-level one fails the run: only the rules' own load
+// problems are printed once (M34 review of 0ae5430).
+func TestLintShowsScriptFailure(t *testing.T) {
+	dir := t.TempDir()
+	if err := cmdInit([]string{dir}); err != nil {
+		t.Fatal(err)
+	}
+	rdir := filepath.Join(dir, ".yars", "rules")
+	os.WriteFile(filepath.Join(rdir, "boom.yaml"), []byte("- id: boom\n  level: error\n  script: boom.sh\n"), 0o644)
+	os.WriteFile(filepath.Join(rdir, "boom.sh"), []byte("#!/bin/sh\necho kaputt >&2\nexit 3\n"), 0o755)
+	r, _ := gitrepo.Open(dir)
+	st := store.New(r, config.Default(), nil)
+	a := gitrepo.Author{Name: "t", Email: "t@t"}
+	st.CreateEngagement(store.Engagement{ID: "acme", Name: "ACME"}, a)
+	st.CreateFinding("acme", "Good title", a)
+	var out bytes.Buffer
+	code, err := cmdLint([]string{"--data", dir, "--all"}, &out)
+	if code != 1 || err != nil || !strings.Contains(out.String(), "acme/F-001 error boom: rule failed") {
+		t.Fatalf("code %d err %v:\n%s", code, err, out.String())
+	}
+}
+
+// A scope is one engagement or finding: an engagement with no findings yet
+// is checked (0 findings), a second scope or a scope with --staged is
+// refused for what it is (M34 review of 1748f2e and d9a5d10).
+func TestLintScopeMessages(t *testing.T) {
+	dir := t.TempDir()
+	if err := cmdInit([]string{dir}); err != nil {
+		t.Fatal(err)
+	}
+	r, _ := gitrepo.Open(dir)
+	store.New(r, config.Default(), nil).CreateEngagement(store.Engagement{ID: "new", Name: "New"}, gitrepo.Author{Name: "t", Email: "t@t"})
+	var out bytes.Buffer
+	if code, err := cmdLint([]string{"--data", dir, "new"}, &out); code != 0 || err != nil || !strings.Contains(out.String(), "0 finding(s) checked") {
+		t.Errorf("an empty engagement: code %d err %v", code, err)
+	}
+	for args, want := range map[string][]string{
+		"one scope only":            {"--data", dir, "new", "F-001"},
+		"it takes no scope":         {"--staged", "new"},
+		"flags go before the scope": {"--data", dir, "new", "--all"},
+	} {
+		if code, err := cmdLint(want, &out); code != 2 || err == nil || !strings.Contains(err.Error(), args) {
+			t.Errorf("%v: code %d err %v", want, code, err)
+		}
+	}
+}
+
 func openDB(t *testing.T, dir string) *db.DB {
 	t.Helper()
 	d, err := db.Open(db.Path(dir))

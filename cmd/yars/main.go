@@ -569,7 +569,13 @@ func cmdLint(args []string, out io.Writer) (int, error) {
 		return 2, err
 	}
 	if fs.NArg() > 1 { // the flag package stops at the scope: never ignore what follows
-		return 2, fmt.Errorf("usage: yars lint [flags] [<engagement>[/<finding>]]: flags go before the scope; %q is after it", fs.Arg(1))
+		if strings.HasPrefix(fs.Arg(1), "-") {
+			return 2, fmt.Errorf("usage: yars lint [flags] [<engagement>[/<finding>]]: flags go before the scope; %q is after it", fs.Arg(1))
+		}
+		return 2, fmt.Errorf("usage: yars lint [flags] [<engagement>[/<finding>]]: one scope only; %q is a second", fs.Arg(1))
+	}
+	if *staged && fs.NArg() > 0 {
+		return 2, fmt.Errorf("usage: yars lint --staged [--warn-only]: it checks what is staged, so it takes no scope (%q)", fs.Arg(0))
 	}
 	if *staged {
 		dir := *data
@@ -618,10 +624,12 @@ func cmdLint(args []string, out io.Writer) (int, error) {
 	if err != nil {
 		return 2, err
 	}
-	code, checked := 0, 0
-	// the rules' own problems once, before the findings (each finding's
-	// result repeats them: skipped below)
-	for _, p := range eng.Rules().Problems {
+	code, checked, matched := 0, 0, false
+	// the rules' own load problems once, before the findings (each finding's
+	// result repeats them: skipped below; a rule that fails to run on a
+	// finding is that finding's)
+	problems := eng.Rules().Problems
+	for _, p := range problems {
 		fmt.Fprintf(out, "rules %s %s: %s\n", p.Level, p.Rule, p.Message)
 		if p.Level == "error" {
 			code = 1
@@ -639,15 +647,17 @@ func cmdLint(args []string, out io.Writer) (int, error) {
 				return 2, err
 			}
 			if err == nil {
-				refs = append(refs, ref)
+				refs, matched = append(refs, ref), true
 			}
 		} else if refs, err = st.ListFindings(e.ID); err != nil {
 			return 2, err
+		} else {
+			matched = true // the engagement, even with no findings yet
 		}
 		for _, ref := range refs {
 			checked++
 			for _, v := range eng.Lint(context.Background(), ref.F, kinds) {
-				if v.Target == "rules" {
+				if v.Target == "rules" && slices.Contains(problems, v) {
 					continue // printed once above
 				}
 				line := fmt.Sprintf("%s/%s %s %s: %s", e.ID, ref.F.Meta.ID, v.Level, v.Rule, v.Message)
@@ -661,7 +671,7 @@ func cmdLint(args []string, out io.Writer) (int, error) {
 			}
 		}
 	}
-	if checked == 0 && fs.Arg(0) != "" {
+	if !matched && fs.Arg(0) != "" {
 		return 2, fmt.Errorf("no finding matches %s", fs.Arg(0))
 	}
 	fmt.Fprintf(out, "%d finding(s) checked\n", checked)
