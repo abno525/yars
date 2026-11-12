@@ -52,12 +52,9 @@ func fixable(r db.CheckResult, dismissed map[string]db.Dismissal) bool {
 	return !notice(v) && !gone && r.Thread != "" && r.Quote != "" && sectionOf(r.Target) != ""
 }
 
-// Fixable counts the open check results of the finding the AI can work on
-// (the latest run, finished on the current content); 0 without such a run.
-func (s *Store) Fixable(engID, dir string) (int, error) {
-	list, err := s.fixList(engID, dir)
-	return len(list), err
-}
+// FixCount counts the open check results in st the AI can work on (the
+// latest run, finished on the current content); 0 without such a run.
+func FixCount(st CheckStatus) int { return len(fixResults(st)) }
 
 // fixList is the work list: the fixable results of the latest check run
 // that finished on the current content.
@@ -66,8 +63,12 @@ func (s *Store) fixList(engID, dir string) ([]db.CheckResult, error) {
 	if err != nil {
 		return nil, err
 	}
+	return fixResults(st), nil
+}
+
+func fixResults(st CheckStatus) []db.CheckResult {
 	if !st.HasRun || st.Running || st.Stale {
-		return nil, nil
+		return nil
 	}
 	var out []db.CheckResult
 	for _, r := range st.Results {
@@ -75,7 +76,7 @@ func (s *Store) fixList(engID, dir string) ([]db.CheckResult, error) {
 			out = append(out, r)
 		}
 	}
-	return out, nil
+	return out
 }
 
 // AICanFix reports whether a provider is set up for fixing.

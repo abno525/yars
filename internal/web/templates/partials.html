@@ -178,7 +178,7 @@ the table's column count. */}}
         <div class="lines">{{range .Mine}}<div class="ln{{with .Class}} {{.}}{{end}}"><span class="lno">{{.No}}</span><span class="lop">{{.Op}}</span><span class="ltext">{{.Text}}</span></div>{{end}}</div>
       </div>
       <div class="ccol">
-        <div class="dhead"><h3 title="{{.By}}">{{if .By}}{{.By}} · {{.At}}{{else}}Saved{{end}}</h3><span class="mono">{{.TheirsAt}}</span></div>
+        <div class="dhead"><h3 title="{{.By}}">{{if .By}}{{.By}}{{if .ByAI}}<span class="tag ai">AI</span>{{end}} · {{.At}}{{else}}Saved{{end}}</h3><span class="mono">{{.TheirsAt}}</span></div>
         <div class="lines">{{range .Theirs}}<div class="ln{{with .Class}} {{.}}{{end}}"><span class="lno">{{.No}}</span><span class="lop">{{.Op}}</span><span class="ltext">{{.Text}}</span></div>{{end}}</div>
       </div>
     </div>

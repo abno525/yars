@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"yars/internal/chat"
 	"yars/internal/config"
 	"yars/internal/db"
 	"yars/internal/index"
@@ -222,14 +223,14 @@ func findingRow(k workflow.Inbox, u config.User, r index.Row, engName string) in
 
 // threadRows are u's open threads of a finding u wrote or reviews whose
 // last message is someone else's. A check run's thread counts only once a
-// person wrote in it.
+// person wrote in it (the AI's answer for a user is not that).
 func threadRows(u config.User, r index.Row, engName string) []inboxRow {
 	if r.Author != u.Username && !slices.Contains(r.Reviewers, u.Username) {
 		return nil
 	}
 	var out []inboxRow
 	for _, t := range r.Threads {
-		if t.LastUser == u.Username || t.LastUser == store.CheckUser {
+		if t.LastUser == u.Username || t.LastUser == store.CheckUser || t.LastKind == chat.KindAI {
 			continue
 		}
 		ir := baseRow(r, engName)

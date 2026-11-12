@@ -1395,6 +1395,22 @@ func TestPolicyAuthorEmail(t *testing.T) {
 	}
 }
 
+// M31: "AI for <user>" marks the server's own Fix with AI commits (History
+// shows the AI tag): a pushed commit may not take that name.
+func TestPolicyAIAuthorNameRefused(t *testing.T) {
+	f := newFx(t)
+	edit := func(d string) { write(d, fdir+"/attachments/a.txt", "x") }
+	ps := f.pushWith("alice", "AI for alice", "alice@yars.local", edit)
+	short := git(t, f.clone, "rev-parse", "--short=7", "HEAD")
+	if !has(ps, "commit "+short+": ") || !has(ps, "AI for") {
+		t.Fatalf("an AI author name accepted: %v", ps)
+	}
+	f.reclone()
+	if ps := f.pushWith("alice", "AI fan", "alice@yars.local", edit); len(ps) != 0 {
+		t.Fatalf("a name that only starts alike refused: %v", ps)
+	}
+}
+
 // Accounts that shared an email before emails had to be unique can't tell
 // whose a commit is: neither may push until an admin changes one.
 func TestPolicySharedEmail(t *testing.T) {

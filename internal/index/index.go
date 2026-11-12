@@ -79,6 +79,7 @@ func scoreOf(vec string) (string, float64) {
 type Thread struct {
 	ID, Section, Kind, Starter string
 	LastUser, LastText         string
+	LastKind                   string // chat.KindAI: the AI wrote it for LastUser
 	LastTS                     time.Time
 }
 
@@ -129,7 +130,7 @@ func chatFields(r *Row, msgs []chat.Message) {
 		}
 		r.OpenThreads++
 		r.Threads = append(r.Threads, Thread{ID: t.Root.ID, Section: t.Root.Section, Kind: t.Root.Kind, Starter: t.Root.User,
-			LastUser: last.User, LastText: last.Text, LastTS: last.TS})
+			LastUser: last.User, LastText: last.Text, LastKind: last.Kind, LastTS: last.TS})
 	}
 }
 

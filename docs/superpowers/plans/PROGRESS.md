@@ -126,5 +126,8 @@ M31 task 1  done     59b9d8b (Runner.Fix and Engine.Fix: the whole section back,
 M31 task 2  done     7c1bf33 (StartFix: each open check result fixed only when nothing else changed and the rule no longer fires, committed as AI for <user>, answered in its thread; a check run follows)
 M31 task 3  done     aefc4bc (Fix with AI in the Checks strip's head; Fixing while it runs, the strip open, Check disabled; 409 while busy)
 M31 task 4  done     1af3cac (the AI tag after the user's name on an AI reply and on an AI commit in History)
-M31 browser done     (fake provider; four fixes: the strip head fits, Fixing's spinner, the AI mark's size, live refreshes keep the last event)
+M31 browser done     ace396c (fake provider; four fixes: the strip head fits, Fixing's spinner, the AI mark's size, live refreshes keep the last event)
+M31 task 1  review   fix (the prompt names the problem and quote as data too; 3x time limit; empty body refused; first JSON value read)
+M31 task 3  review   fix (Enter skips Fix with AI; no Retry while fixing; the progress moves; one status read)
+M31 task 4  review   fix (an "AI for" author name refused on push; AI replies out of the inbox; the conflict head marked)
 ```

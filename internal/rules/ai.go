@@ -156,13 +156,14 @@ func (rn *Runner) AI(ctx context.Context, r Rule, target, text string) []Violati
 	return vs
 }
 
-// parseAI extracts the first JSON object from the model's reply.
+// parseAI reads the first JSON object of the model's reply: from its first
+// "{" to where that value ends (words after it are left).
 func parseAI(content string, res any) error {
-	i, j := strings.Index(content, "{"), strings.LastIndex(content, "}")
-	if i < 0 || j < i {
+	i := strings.Index(content, "{")
+	if i < 0 {
 		return errors.New("reply is not JSON")
 	}
-	return json.Unmarshal([]byte(content[i:j+1]), res)
+	return json.NewDecoder(strings.NewReader(content[i:])).Decode(res)
 }
 
 func (rn *Runner) post(ctx context.Context, url string, body any, hdr map[string]string, out any) error {

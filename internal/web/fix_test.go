@@ -40,7 +40,14 @@ const fooRule = "- id: no-foo\n  target: section:Impact\n  regex_forbid: 'foo'\n
 func fixEnv(t *testing.T, ai bool) (*env, *webFixer) {
 	t.Helper()
 	e := setup(t)
-	e.rules(t, fooRule, nil)
+	return e, fixSetup(t, e, fooRule, nil, ai)
+}
+
+// fixSetup loads the rules (and scripts), breaks no-foo in Impact, checks,
+// and puts the fake fixer in place.
+func fixSetup(t *testing.T, e *env, rulesYAML string, scripts map[string]string, ai bool) *webFixer {
+	t.Helper()
+	e.rules(t, rulesYAML, scripts)
 	if err := e.srv.Store.UpdateSection("acme", fdir, "Impact", "a foo here", "", wAlice); err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +57,7 @@ func fixEnv(t *testing.T, ai bool) (*env, *webFixer) {
 	e.srv.Store.WaitChecks()
 	f := &webFixer{Engine: e.srv.Rules, ai: ai}
 	e.srv.Store.Linter = f
-	return e, f
+	return f
 }
 
 // complete marks the finding complete in the database (sign-off would ask
@@ -76,7 +83,8 @@ func TestFixButtonStates(t *testing.T) {
 	e, f := fixEnv(t, true)
 	b := e.do(t, "alice", "GET", fpath, nil, nil).Body.String()
 	btn := fixButton(t, b)
-	if !strings.Contains(btn, `hx-post="/e/acme/f/001/checks/fix"`) || strings.Contains(btn, " disabled") || !strings.Contains(btn, "w152") || !strings.Contains(btn, "secondary") {
+	// data-kskip: Enter on the selected strip does not start a fix
+	if !strings.Contains(btn, `hx-post="/e/acme/f/001/checks/fix"`) || strings.Contains(btn, " disabled") || !strings.Contains(btn, "w152") || !strings.Contains(btn, "secondary") || !strings.Contains(btn, " data-kskip") {
 		t.Fatalf("author with a provider: %q", btn)
 	}
 	// it sits left of the state slot
@@ -97,6 +105,8 @@ func TestFixButtonStates(t *testing.T) {
 	}
 	b = e.do(t, "alice", "GET", fpath, nil, nil).Body.String()
 	btn = fixButton(t, b)
+	// bob is not the author: his strip is open only because a fix runs
+	bobStrip := e.do(t, "bob", "GET", fpath+"/checks", nil, nil).Body.String()
 	close(f.block)
 	e.srv.Store.WaitChecks()
 	if !strings.HasSuffix(btn, "Fixing") || !strings.Contains(btn, " disabled") || !strings.Contains(checksPanel(t, b), "<progress") {
@@ -105,6 +115,9 @@ func TestFixButtonStates(t *testing.T) {
 	// open, and marked running: the user's stored choice does not close it
 	if !regexp.MustCompile(`<details class="panel checks strip[^"]*" id="checks" data-kpanel open data-running`).MatchString(b) {
 		t.Fatalf("the strip is closed while fixing:\n%s", checksPanel(t, b))
+	}
+	if !regexp.MustCompile(`<details class="panel checks strip[^"]*" id="checks" data-kpanel open data-running`).MatchString(bobStrip) {
+		t.Fatalf("bob's strip while fixing:\n%s", bobStrip)
 	}
 	// nothing left to fix: there, disabled
 	if btn := fixButton(t, e.do(t, "alice", "GET", fpath, nil, nil).Body.String()); !strings.Contains(btn, " disabled") || !strings.Contains(btn, "Fix with AI") {
@@ -158,6 +171,38 @@ func TestFixRouteStartsFix(t *testing.T) {
 	// nothing left: 400 with the store's message
 	if rec := e.do(t, "alice", "POST", fpath+"/checks/fix", nil, hxReq); rec.Code != 400 || !strings.Contains(rec.Body.String(), "run Check first") {
 		t.Fatalf("again: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// While a fix runs, a failed rule's Retry is not offered (a press would be
+// refused as busy).
+func TestNoRetryWhileFixing(t *testing.T) {
+	e := setupSerial(t)
+	f := fixSetup(t, e, fooRule+"- id: scripted\n  script: check.sh\n", map[string]string{"check.sh": "cat >/dev/null; echo boom >&2; exit 3\n"}, true)
+	retry := regexp.MustCompile(`<button[^>]*>Retry</button>`)
+	if p := e.do(t, "alice", "GET", fpath+"/checks", nil, nil).Body.String(); !retry.MatchString(p) {
+		t.Fatalf("no Retry before:\n%s", p)
+	}
+	f.block = make(chan struct{})
+	if rec := e.do(t, "alice", "POST", fpath+"/checks/fix", nil, hxReq); rec.Code != 200 {
+		t.Fatalf("fix %d %s", rec.Code, rec.Body.String())
+	}
+	p := e.do(t, "alice", "GET", fpath+"/checks", nil, nil).Body.String()
+	close(f.block)
+	e.srv.Store.WaitChecks()
+	if retry.MatchString(p) || !strings.Contains(p, `<div class="steprow failed">`) {
+		t.Fatalf("while fixing:\n%s", p)
+	}
+}
+
+// Without a provider the route answers 400 with the store's words.
+func TestFixRouteNoProvider(t *testing.T) {
+	e, f := fixEnv(t, false)
+	if rec := e.do(t, "alice", "POST", fpath+"/checks/fix", nil, hxReq); rec.Code != 400 || !strings.Contains(rec.Body.String(), "no AI provider configured") {
+		t.Fatalf("%d %s", rec.Code, rec.Body.String())
+	}
+	if f.calls != 0 {
+		t.Fatal("the AI was asked")
 	}
 }
 

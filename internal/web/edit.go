@@ -33,16 +33,18 @@ func (s *Server) routesEdit(mux *http.ServeMux) {
 // conflictDiff sets the user's text beside the saved one after a conflict.
 type conflictDiff struct {
 	By, At             string // who last changed the section, and when
+	ByAI               bool   // the AI made that change for By
 	MineBase, TheirsAt string // short hashes: what the user started from, what is saved
 	Mine, Theirs       []histLine
 }
 
 // lastChange finds who last changed a section (the newest version whose
-// text differs from the one before it) — from the cached file history.
-func (s *Server) lastChange(ref store.FindingRef, section string) (string, string) {
+// text differs from the one before it) — from the cached file history —
+// and whether the AI made that change for them (Fix with AI).
+func (s *Server) lastChange(ref store.FindingRef, section string) (by, at string, ai bool) {
 	vs, err := s.versions(ref)
 	if err != nil || len(vs) == 0 {
-		return "", ""
+		return "", "", false
 	}
 	sec := func(raw []byte) string {
 		f, err := finding.Parse(raw)
@@ -56,13 +58,14 @@ func (s *Server) lastChange(ref store.FindingRef, section string) (string, strin
 	for j+1 < len(vs) && sec(vs[j+1].Raw) == cur {
 		j++
 	}
-	return vs[j].Author, vs[j].Time.Local().Format("15:04")
+	by, ai = history.Who(vs[j].Author)
+	return by, vs[j].Time.Local().Format("15:04"), ai
 }
 
 func (s *Server) conflictOf(ref store.FindingRef, section, mine, base string) *conflictDiff {
 	theirs, _ := ref.F.Section(section)
 	d := &conflictDiff{MineBase: short(base), TheirsAt: short(store.BodyHash(theirs))}
-	d.By, d.At = s.lastChange(ref, section)
+	d.By, d.At, d.ByAI = s.lastChange(ref, section)
 	norm := func(t string) string { return strings.Trim(strings.ReplaceAll(t, "\r\n", "\n"), "\n") }
 	if old, ok := s.baseText(ref, section, base); ok {
 		// each side against the text both started from: what it removed

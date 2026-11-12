@@ -196,6 +196,19 @@ func TestInboxOpenThreads(t *testing.T) {
 	if q := queue(e.do(t, "bob", "GET", "/inbox", nil, nil).Body.String(), "threads"); !strings.Contains(q, "<strong>alice</strong> · Only after login") || strings.Count(q, "<tr data-key") != 1 {
 		t.Fatalf("bob as reviewer:\n%s", q)
 	}
+	// the AI's answer for alice in a check's thread (Fix with AI) is no
+	// person's word either: the thread stays out of bob's inbox
+	root := chat.Message{ID: chat.NewID(), User: "yars", Kind: chat.KindCheck, Text: "rule two"}
+	st.DB().TxFor("acme", func(tx *db.Tx) error {
+		if err := tx.AddMessage("acme", "F-001", root); err != nil {
+			return err
+		}
+		return tx.AddMessage("acme", "F-001", chat.Message{ID: chat.NewID(), User: "alice", Kind: chat.KindAI, Reply: root.ID, Text: "Not fixed: the rule still finds the problem."})
+	})
+	st.Invalidate("acme")
+	if q := queue(e.do(t, "bob", "GET", "/inbox", nil, nil).Body.String(), "threads"); strings.Contains(q, "Not fixed") || strings.Count(q, "<tr data-key") != 1 {
+		t.Fatalf("bob sees the AI's answer:\n%s", q)
+	}
 }
 
 // My drafts says how the last check went; Submit only when it passed on

@@ -671,12 +671,13 @@ summary.panelhead::-webkit-details-marker { display: none; }
 .stepstate.running { display: flex; align-items: center; gap: 10px; }
 .stepstate.running .mono { font-size: 13px; color: var(--muted); }
 .stepstate.running progress { width: 120px; height: 6px; flex: none; }
-.stepstate.running progress:indeterminate {
+/* a running rule, and Fixing (no count to show): a moving bar */
+.stepstate.running progress:indeterminate, .btn.checking progress:indeterminate {
   background: linear-gradient(90deg, var(--accent) 0 40%, var(--off-bg) 40% 100%) 0 0 / 200% 100%;
   animation: steprun 1.2s linear infinite;
 }
-.stepstate.running progress:indeterminate::-webkit-progress-bar { background: transparent; }
-.stepstate.running progress:indeterminate::-moz-progress-bar { background: transparent; }
+.stepstate.running progress:indeterminate::-webkit-progress-bar, .btn.checking progress:indeterminate::-webkit-progress-bar { background: transparent; }
+.stepstate.running progress:indeterminate::-moz-progress-bar, .btn.checking progress:indeterminate::-moz-progress-bar { background: transparent; }
 @keyframes steprun { from { background-position: 100% 0; } to { background-position: -100% 0; } }
 .stepstate.failed { color: var(--red); font-weight: 600; }
 .aihead ~ .steprow .stepstate.failed { color: var(--accent-text); font-size: 13px; }
@@ -885,7 +886,7 @@ a.atab:hover { color: var(--ink); background: var(--panel); }
 .tag.kind-ai { background: var(--navy); color: #FFFFFF; border-color: var(--navy); }
 /* the AI mark after a user's name (chat, History): as small as its text */
 .tag.ai { width: 36px; height: 20px; background: var(--off-bg); color: var(--ink); }
-.evline .tag.ai { margin-left: 8px; }
+.evline .tag.ai, .dhead .tag.ai { margin-left: 8px; }
 .cbx {
   width: 20px; height: 20px; padding: 0; flex: none; display: inline-flex; align-items: center; justify-content: center;
   border: 2px solid var(--off-fg); background: transparent; color: var(--bg); cursor: pointer;

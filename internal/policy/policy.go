@@ -17,6 +17,7 @@ import (
 	"yars/internal/export"
 	"yars/internal/finding"
 	"yars/internal/gitrepo"
+	"yars/internal/history"
 	"yars/internal/rules"
 	"yars/internal/store"
 	"yars/internal/workflow"
@@ -277,6 +278,12 @@ func (c *Checker) checkCommit(u config.User, cm gitrepo.PushedCommit, base strin
 	if want := u.GitAuthor(); !config.SameEmail(cm.Author.Email, want.Email) {
 		ps = append(ps, fmt.Sprintf("commit %s: authored by %s <%s>, but the account %s has the email %s; run git config user.email %s, then git commit --amend --reset-author (or rebase older commits)",
 			short, cm.Author.Name, cm.Author.Email, u.Username, want.Email, want.Email))
+	}
+	// "AI for <user>" is the server's own Fix with AI commits (History marks
+	// them AI): a pushed commit may not take that name
+	if _, ai := history.Who(cm.Author.Name); ai {
+		ps = append(ps, fmt.Sprintf("commit %s: the author name %q is kept for Fix with AI; run git config user.name %s, then git commit --amend --reset-author (or rebase older commits)",
+			short, cm.Author.Name, u.Username))
 	}
 	parent, changes, err := c.commitChanges(cm, base)
 	if err != nil {

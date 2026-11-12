@@ -212,6 +212,7 @@ func (s *Server) checksFor(r *http.Request, ref store.FindingRef) checksView {
 	}
 	v.StateLabel = checkStateLabel[v.State]
 	v.ReadOnly = s.Store.Archived(ref.EngID)
+	v.Fixing = s.Store.FixRunning(ref.EngID, ref.F.Meta.ID)
 	if st.HasRun {
 		v.Done, v.Total = st.Run.Done, st.Run.Total
 		now := time.Now()
@@ -226,7 +227,7 @@ func (s *Server) checksFor(r *http.Request, ref store.FindingRef) checksView {
 			if rl, ok := s.Rules.Rule(x.Rule); ok {
 				level = rl.Level
 			}
-			row := stepView(x, level, !v.ReadOnly && !st.Running && !st.Stale, now)
+			row := stepView(x, level, !v.ReadOnly && !st.Running && !st.Stale && !v.Fixing, now)
 			if x.Kind == "ai" && x.State == db.StepFailed {
 				v.AIFailed = append(v.AIFailed, row)
 				continue
@@ -276,11 +277,8 @@ func (s *Server) checksFor(r *http.Request, ref store.FindingRef) checksView {
 	v.Empty = len(v.Rows) == 0 && len(v.Dismissed) == 0
 	m := ref.F.Meta
 	v.FixURL = base + "/fix"
-	v.Fixing = s.Store.FixRunning(ref.EngID, m.ID)
 	if v.FixShow = !v.ReadOnly && workflow.CanEdit(u, m); v.FixShow {
-		if n, err := s.Store.Fixable(ref.EngID, ref.Dir); err == nil {
-			v.Fixable = n
-		}
+		v.Fixable = store.FixCount(st)
 		v.CanFix = s.Store.AICanFix() && v.Fixable > 0 && !v.Running && !v.Fixing
 	}
 	v.Open = v.Running || v.Fixing || (m.Status == "draft" && u.Username == m.Author && v.Errors > 0)
