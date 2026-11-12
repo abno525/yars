@@ -280,6 +280,19 @@ func (s *Store) commit(prev map[string][]byte, msg string, a gitrepo.Author, cle
 		}
 		return err
 	}
+	// one commit, one repository: an engagement's (engagements/<id>/…) or
+	// the main one
+	repoOf := func(p string) string {
+		if seg := strings.SplitN(p, "/", 3); len(seg) == 3 && seg[0] == "engagements" {
+			return seg[1]
+		}
+		return ""
+	}
+	for _, p := range paths[1:] {
+		if repoOf(p) != repoOf(paths[0]) {
+			return restore(fmt.Errorf("commit %q spans two repositories (%s, %s)", msg, paths[0], p))
+		}
+	}
 	repo, rel, key := s.repo, paths, ""
 	if seg := strings.SplitN(paths[0], "/", 3); len(seg) == 3 && seg[0] == "engagements" {
 		r, err := s.EngRepo(seg[1])
