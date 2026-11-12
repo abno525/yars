@@ -155,6 +155,11 @@ func TestCreateRetestRepoFailsPurges(t *testing.T) {
 	if m, _ := s.db.Members("rt"); len(m) != 0 {
 		t.Fatalf("a team was left: %v", m)
 	}
+	// the form says "try again": that works
+	os.Remove(hook)
+	if err := s.CreateRetest(Engagement{ID: "rt", Name: "RT"}, eng, []string{"F-001-sql-injection"}, "", uDora); err != nil {
+		t.Fatalf("trying again: %v", err)
+	}
 }
 
 // A retest needs the database (its links and team live there): without

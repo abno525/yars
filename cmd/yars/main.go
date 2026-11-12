@@ -441,9 +441,6 @@ func engOfGitDir(dataDir, gitDir string) string {
 	return ""
 }
 
-// cmdHook implements "yars hook pre-receive": reads "<old> <new> <ref>"
-// lines from git, checks them against the server's rules and prints one
-// "yars: <problem>" line per rejection reason. Exit 1 rejects the push.
 // objectID reports whether s is a git object name: 40 hex digits (SHA-1)
 // or 64 (SHA-256), lower case as git writes them.
 func objectID(s string) bool {
@@ -453,6 +450,9 @@ func objectID(s string) bool {
 	return strings.Trim(s, "0123456789abcdef") == ""
 }
 
+// cmdHook implements "yars hook pre-receive": reads "<old> <new> <ref>"
+// lines from git, checks them against the server's rules and prints one
+// "yars: <problem>" line per rejection reason. Exit 1 rejects the push.
 func cmdHook(args []string, in io.Reader, errOut io.Writer) int {
 	if len(args) == 0 || args[0] != "pre-receive" {
 		fmt.Fprintln(errOut, "yars: usage: yars hook pre-receive --data <dir> | yars hook install [--data <clone>]")
