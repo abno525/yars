@@ -575,6 +575,9 @@ func cmdLint(args []string, out io.Writer) (int, error) {
 			}
 		}
 	}
+	if checked == 0 && fs.Arg(0) != "" {
+		return 2, fmt.Errorf("no finding matches %s", fs.Arg(0))
+	}
 	fmt.Fprintf(out, "%d finding(s) checked\n", checked)
 	return code, nil
 }

@@ -243,4 +243,11 @@ func TestLintCommand(t *testing.T) {
 	if code != 0 || strings.Contains(out.String(), "F-001") {
 		t.Fatalf("scoped lint code %d:\n%s", code, out.String())
 	}
+	// a scope that matches nothing is an error, not "0 checked" (backlog, M5)
+	for _, scope := range []string{"acme/F-009-gone", "nope", "nope/F-001-bad-title"} {
+		out.Reset()
+		if code, err := cmdLint([]string{"--data", dir, scope}, &out); code != 2 || err == nil || !strings.Contains(err.Error(), "no finding matches "+scope) {
+			t.Errorf("%s: code %d err %v", scope, code, err)
+		}
+	}
 }
