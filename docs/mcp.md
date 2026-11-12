@@ -59,14 +59,41 @@ A clone holds **content only**. Workflow state (status, reviewers, clearances), 
 | `list_history` | read | local + server | The finding's versions, newest first: commit, author (AI marked), time, what changed |
 | `list_attachments` | read | local + server | The finding's attachments: name, size, type, whether an earlier version is in the history |
 | `read_template` | read | local + server | A template's Markdown by slug |
-
-The list tools (`list_engagements`, `list_findings`, `list_templates`, `list_notifications`) answer a page at a time: `limit` (1 to 200, default 50) and `cursor` (the `next` of the previous answer; empty `next` means the end).
+| `mark_notifications_read` | read | server only | Mark your notifications read: `ids` (comma-separated) or `all: true`; a token limited to some engagements marks only theirs |
+| `fix_checks` | checks | server only | Fix with AI: the AI fixes the open check results in the background, answers their threads (marked AI), and a check run follows |
 
 Findings can be referred to by ID (`F-001`, also `f-1` or `1`) or directory name (`F-001-sql-injection`); an ID that two folders share is refused, and the folder name is needed. A token restricted to some engagements sees and changes only those; a write to an archived engagement is refused.
 
+## Answers
+
+Every tool answers with one JSON object as its text:
+
+- a result: `{"ok": true, …}` with the tool's fields (`read_finding`: `state`, `sections`, `allowed_actions`, …);
+- a plain outcome: `{"ok": true, "message": "updated Impact"}` (the sentence earlier versions answered with); a `set_field` that gives a row's new base has it as `base` too;
+- a list: `{"ok": true, "items": […], "next": "<cursor or empty>"}`;
+- a refusal: the result has `isError: true` and the text `{"ok": false, "code": "<code>", "message": "<what to do>"}`.
+
+The codes:
+
+| Code | Meaning |
+|---|---|
+| `not_found` | No such engagement, finding, template or notification, or one you are not on the team of |
+| `not_allowed` | Your role, the token's actions or engagements, or the workflow forbids it |
+| `conflict` | It changed since you read it: read again and retry |
+| `invalid` | A missing or wrong argument or value (the message says which) |
+| `archived` | The engagement is archived: read only |
+| `busy` | A check or a fix of the finding is running |
+| `no_database` | A server-only tool on a local clone |
+
+## Paging
+
+The list tools (`list_engagements`, `list_findings`, `list_templates`, `list_notifications`, `list_team`, `read_chat`, `list_history`, `list_attachments`) answer a page at a time. `limit` is 1 to 200 (default 50); `cursor` is the `next` of the previous answer; an empty `next` means the end. A limit or cursor that is not such a whole number is `invalid`; a cursor past the end gives an empty page.
+
+`list_notifications` pages by notification id: marking some read, or new ones arriving, between two calls neither skips nor repeats one. The other lists page by position: they can move between calls (a finding submitted between two pages of `list_findings status=draft` leaves it), so a client that changes what it filters on starts again without a cursor. A cursor belongs to the call it came from: pass it to the same tool with the same filters.
+
 ## Errors
 
-Every answer is one JSON object: `{"ok": true, …}` on success (a list: `{"ok": true, "items": […], "next": ""}`; a plain outcome: `{"ok": true, "message": "updated Impact"}`). A refusal comes back as a result with `isError: true` and the text `{"ok": false, "code": "<code>", "message": "<what to do>"}`; the code is one of `not_found`, `not_allowed`, `conflict`, `invalid`, `archived`, `busy`, `no_database`. Some messages:
+Some refusals and their messages:
 
 | Code | Message | Cause |
 |---|---|---|

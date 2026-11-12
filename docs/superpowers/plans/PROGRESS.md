@@ -142,6 +142,7 @@ M32 task 4  done     a5cf93c (limit and cursor on the list tools; q in list_find
 M32 task 1  review   fix f14881b (ids string or number; non-requests -32600; exact member names; 400 for input it cannot accept; the version header; stdio limits)
 M32 task 2  review   fix f14881b (candidates from the folder listing and the index; exact folder first; a broken finding says why)
 M32 task 5  done     6918a57 (whoami, get_config, list_team, read_chat, list_history, list_attachments, read_template; read_finding bodies and allowed_actions)
-M32 task 3  review   fix (gate codes tested; revert and missing reason codes; the checks race is a conflict; docs code column)
-M32 task 4  review   fix (notifications paged by id in the query, token engagements filtered there; no 5,000 cut)
+M32 task 3  review   fix 4408985 (gate codes tested; revert and missing reason codes; the checks race is a conflict; docs code column)
+M32 task 4  review   fix 4408985 (notifications paged by id in the query, token engagements filtered there; no 5,000 cut)
+M32 task 6  done     (mark_notifications_read, fix_checks; instructions; docs Answers and Paging)
 ```

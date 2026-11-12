@@ -299,7 +299,7 @@ func (s *Server) ref(a args) (store.FindingRef, error) {
 }
 
 // tools are every tool, in the order tools/list gives them.
-var tools = append(slices.Clone(coreTools), readingTools...)
+var tools = slices.Concat(coreTools, readingTools, writingTools)
 
 var coreTools = []tool{
 	{name: "list_engagements", desc: "List the engagements you work on (pentests and retests). Archived engagements are read only.",

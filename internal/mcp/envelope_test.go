@@ -51,7 +51,7 @@ func withRules(t *testing.T, f *fx) {
 	t.Helper()
 	rd := filepath.Join(f.dir, ".yars", "rules")
 	os.MkdirAll(rd, 0o755)
-	os.WriteFile(filepath.Join(rd, "r.yaml"), []byte("- id: no-sql\n  target: title\n  regex_forbid: 'SQL'\n"), 0o644)
+	os.WriteFile(filepath.Join(rd, "r.yaml"), []byte("- id: no-sql\n  target: title\n  regex_forbid: 'SQL'\n- id: no-foo\n  target: section:Impact\n  regex_forbid: 'foo'\n  level: warning\n"), 0o644)
 	eng := rules.NewEngine(rd, f.s.Cfg)
 	f.s.Rules, f.s.Store.Linter = eng, eng
 }
@@ -80,7 +80,7 @@ func TestEverySuccessIsAnObjectWithOK(t *testing.T) {
 		{"read_finding", func() map[string]any { return fd }},
 		{"list_templates", func() map[string]any { return map[string]any{} }},
 		{"create_finding", func() map[string]any { return map[string]any{"engagement": "acme", "title": "Open redirect"} }},
-		{"update_section", func() map[string]any { return with(map[string]any{"section": "Impact", "body": "Full read."}) }},
+		{"update_section", func() map[string]any { return with(map[string]any{"section": "Impact", "body": "a foo here"}) }},
 		{"set_field", func() map[string]any {
 			return with(map[string]any{"field": "title", "value": "SQL injection in search"})
 		}},
@@ -89,7 +89,9 @@ func TestEverySuccessIsAnObjectWithOK(t *testing.T) {
 		{"lint_finding", func() map[string]any { return fd }},
 		{"start_check", func() map[string]any { return fd }},
 		{"get_check_results", func() map[string]any { return fd }},
+		{"fix_checks", func() map[string]any { return fd }},
 		{"list_notifications", func() map[string]any { return map[string]any{} }},
+		{"mark_notifications_read", func() map[string]any { return map[string]any{"all": true} }},
 		{"whoami", func() map[string]any { return map[string]any{} }},
 		{"get_config", func() map[string]any { return map[string]any{} }},
 		{"list_team", func() map[string]any { return map[string]any{"engagement": "acme"} }},
@@ -102,6 +104,9 @@ func TestEverySuccessIsAnObjectWithOK(t *testing.T) {
 	seen := map[string]bool{}
 	for _, c := range calls {
 		seen[c.tool] = true
+		if c.tool == "fix_checks" {
+			f.s.Store.Linter = &fixer{Engine: f.s.Rules} // a provider that answers
+		}
 		text, isErr := f.call(alice, c.tool, c.args())
 		if isErr {
 			t.Fatalf("%s failed: %s", c.tool, text)
@@ -113,7 +118,7 @@ func TestEverySuccessIsAnObjectWithOK(t *testing.T) {
 		if c.tool == "add_chat_message" {
 			thread, _ = m["id"].(string)
 		}
-		if c.tool == "start_check" {
+		if c.tool == "start_check" || c.tool == "fix_checks" {
 			f.s.Store.WaitChecks()
 		}
 	}

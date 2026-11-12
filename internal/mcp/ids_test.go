@@ -135,11 +135,17 @@ func TestUnknownSeverityListsValid(t *testing.T) {
 	f.ok(alice, "list_findings", map[string]any{"engagement": "acme", "severity": "high"})
 }
 
-// The server's instructions and the tools that take a status name them.
+// The server's instructions and the tools that take a status name them;
+// the instructions name the new tools an assistant starts with.
 func TestInstructionsNameStatuses(t *testing.T) {
 	const all = "draft, verification, complete, reported, withdrawn"
 	if !strings.Contains(instructions, all) {
 		t.Errorf("instructions: %s", instructions)
+	}
+	for _, name := range []string{"whoami", "get_config", "read_chat", "fix_checks"} {
+		if !strings.Contains(instructions, name) {
+			t.Errorf("instructions lack %s", name)
+		}
 	}
 	for _, name := range []string{"list_findings", "transition"} {
 		tl := toolByName[name]

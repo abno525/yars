@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	"yars/internal/mcp"
 )
 
 func TestDeveloperDocs(t *testing.T) {
@@ -84,6 +86,23 @@ func TestDeveloperDocs(t *testing.T) {
 
 // With base_url set (behind a proxy), the docs show the public address,
 // not the one the request came in on.
+// M32: the developer page lists every MCP tool (it is built from the
+// catalogue, so a new tool shows without a template change).
+func TestDocsListEveryTool(t *testing.T) {
+	e := setup(t)
+	b := e.do(t, "alice", "GET", "/docs/mcp", nil, nil).Body.String()
+	for _, td := range mcp.Catalog() {
+		if !strings.Contains(b, td.Name) {
+			t.Errorf("the docs page lacks %s", td.Name)
+		}
+	}
+	for _, name := range []string{"whoami", "read_chat", "fix_checks", "mark_notifications_read"} {
+		if !strings.Contains(b, name) {
+			t.Errorf("the docs page lacks %s", name)
+		}
+	}
+}
+
 func TestDocsUseBaseURL(t *testing.T) {
 	e := setup(t)
 	c := e.srv.conf()

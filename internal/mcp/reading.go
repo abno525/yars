@@ -2,8 +2,11 @@ package mcp
 
 import (
 	"context"
+	"fmt"
 	"path"
 	"slices"
+	"strconv"
+	"strings"
 	"time"
 
 	"yars/internal/chat"
@@ -227,6 +230,71 @@ func readTemplate(s *Server, ctx context.Context, u config.User, a args) (string
 		CVSS     string `json:"cvss,omitempty"`
 		Markdown string `json:"markdown"`
 	}{t.Slug, m.Title, m.Severity, m.CVSS, string(t.F.Bytes())})
+}
+
+// writingTools are MCP v2's new writing tools (M32 task 6).
+var writingTools = []tool{
+	{name: "mark_notifications_read", serverOnly: true, desc: "Mark your notifications read: ids (comma-separated, from list_notifications) or all. Your own state: a read-only token may do it; a token limited to some engagements marks only theirs.",
+		optional: []param{{"ids", "notification ids, comma-separated"}}, boolArgs: []param{{"all", "every unread notification"}},
+		run: markRead},
+	{name: "fix_checks", action: "checks", serverOnly: true, desc: "Fix with AI: the AI fixes the finding's open check results one by one in the background, answers each result's thread (marked AI) and a check run follows. Needs a finished check run on the current text and an AI provider; drafts and findings in verification only. Read the outcome with get_check_results and read_chat.",
+		required: []param{pEng, pFinding},
+		run:      fixChecks},
+}
+
+func markRead(s *Server, ctx context.Context, u config.User, a args) (string, error) {
+	d := s.Store.DB()
+	if d == nil {
+		return "", store.ErrNoDB
+	}
+	all, _ := a["all"].(bool)
+	ids := strings.TrimSpace(a.str("ids"))
+	if all == (ids != "") {
+		return "", refuse("invalid", "give ids or all (true), one of them")
+	}
+	tk, hasTok := tokenFrom(ctx)
+	if all {
+		var engs []string
+		if hasTok {
+			engs = tk.Engagements
+		}
+		if err := d.MarkAllReadIn(u.Username, engs); err != nil {
+			return "", err
+		}
+		return okMsg("marked all read")
+	}
+	var list []int64
+	for _, p := range strings.Split(ids, ",") {
+		id, err := strconv.ParseInt(strings.TrimSpace(p), 10, 64)
+		if err != nil || id <= 0 {
+			return "", refuse("invalid", fmt.Sprintf("ids must be notification ids from list_notifications, comma-separated (not %q)", strings.TrimSpace(p)))
+		}
+		n, found, err := d.NotificationByID(u.Username, id)
+		if err != nil {
+			return "", err
+		}
+		if !found || (hasTok && !tk.AllowsEng(n.Eng)) {
+			return "", refuse("not_found", fmt.Sprintf("no notification %d of yours", id))
+		}
+		list = append(list, id)
+	}
+	for _, id := range list {
+		if err := d.MarkRead(u.Username, id); err != nil {
+			return "", err
+		}
+	}
+	return okMsg(fmt.Sprintf("marked %d read", len(list)))
+}
+
+func fixChecks(s *Server, ctx context.Context, u config.User, a args) (string, error) {
+	ref, err := s.ref(a)
+	if err != nil {
+		return "", err
+	}
+	if err := s.Store.StartFix(ref.EngID, ref.Dir, u); err != nil {
+		return "", err
+	}
+	return okMsg("fix started; read get_check_results")
 }
 
 // allowedActions are the actions of the finding's status as u could take
