@@ -29,10 +29,30 @@ func TestPagesOpenWhenIndexFails(t *testing.T) {
 	}
 	// a page whose content is the engagement list fails, rather than show
 	// none (M34 review)
-	for _, path := range []string{"/", "/engagements", "/docs/git"} {
+	for _, path := range []string{"/", "/engagements", "/docs/git", "/inbox"} {
 		if rec := e.do(t, "dora", "GET", path, nil, nil); rec.Code != http.StatusInternalServerError {
 			t.Errorf("%s: %d", path, rec.Code)
 		}
+	}
+	// the inbox's queues too: no queue rather than an empty one
+	if rec := e.do(t, "dora", "GET", "/inbox?list=approve", nil, map[string]string{"HX-Request": "true"}); rec.Code != http.StatusInternalServerError {
+		t.Errorf("a queue: %d", rec.Code)
+	}
+}
+
+// When the database cannot give the inbox (here the board's seen marks are
+// gone), other pages open without the badges, but the inbox fails rather
+// than show nothing to do (M34 review).
+func TestInboxWhenBadgesFail(t *testing.T) {
+	e := setup(t)
+	if _, err := e.srv.Store.DB().Exec("ALTER TABLE board_seen RENAME TO board_seen_gone"); err != nil {
+		t.Fatal(err)
+	}
+	if rec := e.do(t, "dora", "GET", "/settings", nil, nil); rec.Code != http.StatusOK {
+		t.Fatalf("settings: %d", rec.Code)
+	}
+	if rec := e.do(t, "dora", "GET", "/inbox", nil, nil); rec.Code != http.StatusInternalServerError {
+		t.Fatalf("inbox: %d", rec.Code)
 	}
 }
 

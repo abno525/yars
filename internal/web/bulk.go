@@ -143,6 +143,9 @@ func (s *Server) bulk(w http.ResponseWriter, r *http.Request) {
 	var before inboxView
 	if inPlace {
 		p, err := s.base(r, "")
+		if err == nil {
+			err = p.inboxErr // nothing to show the results against
+		}
 		if err != nil {
 			s.fail(w, err)
 			return

@@ -145,6 +145,7 @@ type page struct {
 	Error         string
 	Unreadable    string // a finding file that does not parse: its path in the engagement
 	engsErr       error  // the index did not give Engagements: a page that lists them fails with it
+	inboxErr      error  // Inbox could not be read: a page made of it fails with it
 	Rows          []index.Row
 	Offset        int    // first row shown (board pages after the first)
 	PageSize      int    // rows per board page
@@ -476,11 +477,11 @@ func (s *Server) base(r *http.Request, eng string) (*page, error) {
 	if err != nil {
 		log.Printf("index: %v", err)
 	}
-	p := &page{User: u, Engagements: engs, CanManage: canManage(u), CanEngs: canEngs(u), CanAdmin: canAdmin(u), engsErr: err}
+	p := &page{User: u, Engagements: engs, CanManage: canManage(u), CanEngs: canEngs(u), CanAdmin: canAdmin(u), engsErr: err, inboxErr: err}
 	if err == nil {
 		if err := s.badges(p, u, engs); err != nil {
 			log.Printf("inbox badges: %v", err)
-			p.Inbox = inboxView{}
+			p.Inbox, p.inboxErr = inboxView{}, err
 		}
 	}
 	if p.Unread, err = s.Store.UnreadCount(u); err != nil {

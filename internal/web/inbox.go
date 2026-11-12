@@ -569,6 +569,9 @@ func (s *Server) inboxBar(u config.User, rows []index.Row) bulkBar {
 
 func (s *Server) inbox(w http.ResponseWriter, r *http.Request) {
 	p, err := s.base(r, "")
+	if err == nil {
+		err = p.inboxErr // no queues rather than empty ones
+	}
 	if err != nil {
 		s.fail(w, err)
 		return
