@@ -362,6 +362,19 @@ func TestExportWorkers(t *testing.T) {
 	}
 }
 
+// A pandoc that floods its error output past the 1 MiB cap is stopped at
+// once (the pipe is closed on it), not left blocked until the timeout
+// (backlog, M8: kept as a test, M34 review).
+func TestPandocStderrFloodStops(t *testing.T) {
+	pb, _ := fakePandoc(t, "exec head -c 16000000 /dev/zero >&2\n")
+	r, _ := runner(t, pb)
+	start := time.Now()
+	_, err := r.Run(context.Background(), Exporter{ID: "d", Type: "pandoc", Format: "docx"}, input(t))
+	if err == nil || strings.Contains(err.Error(), "timed out") || time.Since(start) > 3*time.Second {
+		t.Fatalf("%v after %s", err, time.Since(start))
+	}
+}
+
 func TestPandocReal(t *testing.T) {
 	p, err := exec.LookPath("pandoc")
 	if err != nil {

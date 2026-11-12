@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -228,7 +229,14 @@ func cmdMigrate(args []string, out io.Writer) error {
 				// ids are unique: a message already stored is this finding's
 				// (a migration run again) or a copied folder's, which is told
 				theirs := map[string]int{}
+				var fileTime time.Time // a line written without a time gets the file's
+				if info, err := os.Stat(filepath.Join(r.Dir, cp)); err == nil {
+					fileTime = info.ModTime().UTC().Truncate(time.Second)
+				}
 				for _, m := range chat.Parse(cb) {
+					if m.TS.IsZero() {
+						m.TS = fileTime
+					}
 					var hasEng, hasFid string
 					err := tx.QueryRow("SELECT eng, fid FROM chat WHERE id = ?", m.ID).Scan(&hasEng, &hasFid)
 					switch {

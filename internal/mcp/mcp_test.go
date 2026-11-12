@@ -373,10 +373,13 @@ func TestMCPPermissions(t *testing.T) {
 	f.ok(alice, "transition", map[string]any{"engagement": "acme", "finding": "F-001", "action": "submit"})
 	// another pentester on the team may neither change the reviewers nor
 	// sign off (backlog, M9)
-	if text, isErr := f.call(pen2, "set_field", map[string]any{"engagement": "acme", "finding": "F-001", "field": "reviewers", "value": "pen2"}); !isErr {
+	// (a valid list, so only the permission can refuse it: review)
+	if text, isErr := f.call(pen2, "set_field", map[string]any{"engagement": "acme", "finding": "F-001", "field": "reviewers", "value": "bob"}); !isErr ||
+		!strings.Contains(text, "not_allowed") || !strings.Contains(text, "only a reviewer, the author or a director can assign reviewers") {
 		t.Fatalf("a pentester who is not the author set the reviewers: %s", text)
 	}
-	if text, isErr := f.call(pen2, "transition", map[string]any{"engagement": "acme", "finding": "F-001", "action": "clear"}); !isErr {
+	if text, isErr := f.call(pen2, "transition", map[string]any{"engagement": "acme", "finding": "F-001", "action": "clear"}); !isErr ||
+		!strings.Contains(text, "not_allowed") || !strings.Contains(text, "only an assigned reviewer or a director can clear") {
 		t.Fatalf("a pentester who is not a reviewer signed off: %s", text)
 	}
 	if text, isErr := f.call(alice, "transition", map[string]any{"engagement": "acme", "finding": "F-001", "action": "approve"}); !isErr || !strings.Contains(text, "director") {

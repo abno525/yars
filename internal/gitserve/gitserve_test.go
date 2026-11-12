@@ -158,6 +158,30 @@ func TestSetupAgainWithoutHook(t *testing.T) {
 	}
 }
 
+// Failed git logins count toward the lockout (D27) as the website's do:
+// after five, even the right password is refused for a while (M34 review).
+func TestGitLoginLockout(t *testing.T) {
+	srv, _, _ := setupDB(t)
+	get := func(pw string) int {
+		req, _ := http.NewRequest("GET", srv.URL+"/git/yars/info/refs?service=git-upload-pack", nil)
+		req.SetBasicAuth("alice", pw)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+	for range 5 {
+		if c := get("wrong"); c != 401 {
+			t.Fatalf("a wrong password: %d", c)
+		}
+	}
+	if c := get("pw"); c != 401 {
+		t.Fatalf("the right password after five failures: %d", c)
+	}
+}
+
 // The credential cache must not outlive the account: a deleted user or a
 // changed password stops working at once.
 func TestCacheFollowsAccountChanges(t *testing.T) {

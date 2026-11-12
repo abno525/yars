@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"yars/internal/config"
 	"yars/internal/gitrepo"
@@ -247,6 +248,25 @@ func TestMigrateReportsChatOfCopies(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "2 chat messages of acme/F-003 are already acme/F-001's: not copied") {
 		t.Fatalf("output:\n%s", out.String())
+	}
+}
+
+// A chat line written by hand without a time gets the chat file's time,
+// not year 0001 (M34 review of the backlog's timestamp line).
+func TestMigrateChatWithoutTime(t *testing.T) {
+	dir := legacyRepo(t)
+	cp := filepath.Join(dir, "engagements", "acme", "findings", "F-002-xss", "chat.jsonl")
+	os.WriteFile(cp, []byte(`{"id":"cccccccccccc","user":"bob","text":"no time"}`+"\n"), 0o644)
+	when := time.Date(2026, 3, 4, 5, 6, 7, 0, time.UTC)
+	os.Chtimes(cp, when, when)
+	var out bytes.Buffer
+	if err := cmdMigrate([]string{"--data", dir}, &out); err != nil {
+		t.Fatalf("%v\n%s", err, out.String())
+	}
+	r, _ := gitrepo.Open(dir)
+	msgs, err := store.New(r, config.Default(), openDB(t, dir)).Chat("acme", "F-002-xss")
+	if err != nil || len(msgs) != 1 || !msgs[0].TS.Equal(when) {
+		t.Fatalf("%v %+v", err, msgs)
 	}
 }
 
