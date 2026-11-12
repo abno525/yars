@@ -281,7 +281,12 @@ func (s *Store) fixOne(ctx context.Context, engID, dir string, r db.CheckResult,
 		return not("the rule no longer finds the problem")
 	}
 	body, err := fx.Fix(ctx, v, section, old)
-	if err != nil {
+	switch {
+	case err != nil && errors.Is(ctx.Err(), context.Canceled):
+		return not("the server is stopping") // not the provider's error
+	case err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded):
+		return not(fmt.Sprintf("the fix took longer than %d minutes", int(fixJobLimit.Minutes())))
+	case err != nil:
 		return not(err.Error())
 	}
 	// CRLF is a line break for the paragraphs too (the section is saved with
@@ -380,12 +385,13 @@ func quotePara(body, quote string) (int, string) {
 }
 
 // paraRange is the byte range of paragraph at of body (split as paragraphs
-// splits it).
+// splits it), with the line break that ends its last line (an indented code
+// or raw HTML block keeps it as its own).
 func paraRange(body string, at int) [2]int {
 	start := 0
 	for i, m := range paragraphs.FindAllStringIndex(body, -1) {
 		if i == at {
-			return [2]int{start, m[0]}
+			return [2]int{start, m[0] + 1}
 		}
 		start = m[1]
 	}

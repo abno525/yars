@@ -92,10 +92,19 @@ func container(n ast.Node) bool {
 	return false
 }
 
-// label names a container with what changes how its blocks render.
+// label names a container with what changes how its blocks render: a list
+// its kind, start and tightness, an item its place in the list (two lists
+// made one, or one split, renumber the items after the change).
 func label(n ast.Node) string {
-	if l, ok := n.(*ast.List); ok {
+	switch l := n.(type) {
+	case *ast.List:
 		return fmt.Sprintf("%s(%c,%d,%v)", n.Kind(), l.Marker, l.Start, l.IsTight)
+	case *ast.ListItem:
+		k := 0
+		for p := n.PreviousSibling(); p != nil; p = p.PreviousSibling() {
+			k++
+		}
+		return fmt.Sprintf("%s#%d", n.Kind(), k)
 	}
 	return n.Kind().String()
 }

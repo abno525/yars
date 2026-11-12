@@ -37,6 +37,10 @@ func TestSameOutside(t *testing.T) {
 		{"closer dropped", "<!--\nhidden\n\na foo here -->\n\nlast paragraph\n", "a foo here -->",
 			"<!--\nhidden\n\na bar here\n\nlast paragraph\n", "a bar here", false},
 		{"list made loose", "x foo\n\n- a\n- b\n", "x foo", "- x bar\n\n- a\n- b\n", "- x bar", false},
+		// two loose lists made one: step b would show as 3, not 1
+		{"lists merged", "1. a\n\n   a2\n\nACME note\n\n1. b\n\n   b2\n", "ACME note", "1. a\n\n   a2\n\n1. note\n\n1. b\n\n   b2\n", "1. note", false},
+		{"list split", "1. a\n\n1. mid foo\n\n1. b\n", "1. mid foo", "1. a\n\nmid bar\n\n1. b\n", "mid bar", false},
+		{"loose list middle item", "1. a\n\n1. mid foo\n\n1. b\n", "1. mid foo", "1. a\n\n1. mid bar\n\n1. b\n", "1. mid bar", true},
 	}
 	for _, c := range cases {
 		if got := SameOutside(c.old, c.nw, rangeOf(t, c.old, c.oldP), rangeOf(t, c.nw, c.newP)); got != c.want {

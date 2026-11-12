@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -393,6 +394,32 @@ func TestFixRefusesNestedBlocks(t *testing.T) {
 		if got := notFixed(t, s, dir, fd); !strings.Contains(got, "how the other paragraphs show") {
 			t.Fatalf("%q: reply %q", c.to, got)
 		}
+	}
+}
+
+// Fix check: blocks whose last line keeps its line break (indented code,
+// raw HTML) are fixed like any paragraph, not only as the last one.
+func TestFixIndentedCodeAndHTML(t *testing.T) {
+	for _, impact := range []string{"    curl foo\n\nanother paragraph", "<br>\nsome foo text\n\nanother paragraph"} {
+		s, _, fd, _ := fixReady(t, impact, "", removeFoo)
+		fixed(t, s, fd)
+		if got := aiReplies(t, s, fd); len(got) != 1 || got[0].Text != "Fixed." {
+			t.Fatalf("%q: replies %+v", impact, got)
+		}
+	}
+}
+
+// Fix check: a stop that cuts the AI's answer short says so, not the
+// provider's error.
+func TestFixStoppedInFlight(t *testing.T) {
+	var s *Store
+	s, _, fd, _ := fixReady(t, "a foo here", "", func(rules.Violation, string, string) (string, error) {
+		s.StopFixes()
+		return "", fmt.Errorf("Post %q: %w", "https://provider.example/v1", context.Canceled)
+	})
+	fixed(t, s, fd)
+	if got := aiReplies(t, s, fd); len(got) != 1 || got[0].Text != "Not fixed: the server is stopping." {
+		t.Fatalf("replies %+v", got)
 	}
 }
 
