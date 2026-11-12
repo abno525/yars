@@ -7,12 +7,12 @@ import (
 	"yars/internal/config"
 )
 
-// The page shell: new header, theme toggle, toast area, no inline styles.
+// The page shell: new header, toast area, no inline styles.
 func TestShellHeader(t *testing.T) {
 	e := setup(t)
 	for _, p := range []string{"/", "/e/acme", fpath, "/inbox", "/e/acme/export", "/e/acme/findings/new"} {
 		b := e.do(t, "dora", "GET", p, nil, nil).Body.String()
-		for _, want := range []string{`class="topbar"`, `class="logo"`, `id="toasts"`, `data-theme-toggle`, `class="btn ghost w96 logout"`, `class="who"`} {
+		for _, want := range []string{`class="topbar"`, `class="logo"`, `id="toasts"`, `class="btn ghost w96 logout"`, `class="who"`} {
 			if !strings.Contains(b, want) {
 				t.Fatalf("%s lacks %s:\n%s", p, want, b)
 			}
@@ -33,9 +33,9 @@ func TestShellHeader(t *testing.T) {
 	}
 }
 
-// The header's right side runs Go to, theme, bell, user name, Log out.
-// Developers is reached from the user name (Settings), not the top bar,
-// so its pages light the user name.
+// The header's right side runs Go to, bell, user name, Log out. Developers
+// and the theme are reached from the user name (Settings), not the top bar,
+// so the Developers pages light the user name.
 func TestShellHeaderOrder(t *testing.T) {
 	e := setup(t)
 	for _, p := range []string{"/", "/docs/mcp"} {
@@ -49,8 +49,11 @@ func TestShellHeaderOrder(t *testing.T) {
 		if strings.Contains(head, `href="/docs`) || strings.Contains(head, "Developers") {
 			t.Fatalf("%s: Developers in the top bar:\n%s", p, head)
 		}
+		if strings.Contains(head, "data-theme-toggle") || strings.Contains(head, "Theme") {
+			t.Fatalf("%s: a theme button in the top bar:\n%s", p, head)
+		}
 		last := -1
-		for _, want := range []string{`data-goto`, `data-theme-toggle`, `class="bell`, `class="who`, `logout`} {
+		for _, want := range []string{`data-goto`, `class="bell`, `class="who`, `logout`} {
 			k := strings.Index(head, want)
 			if k <= last {
 				t.Fatalf("%s: %s out of order (at %d, after %d):\n%s", p, want, k, last, head)
@@ -60,6 +63,14 @@ func TestShellHeaderOrder(t *testing.T) {
 		if on := strings.Contains(head, `class="who on"`); on != (p == "/docs/mcp") {
 			t.Fatalf("%s: user name lit %v:\n%s", p, on, head)
 		}
+	}
+	// the theme is chosen in Settings › Preferences only; the button's script
+	// is gone with it
+	if b := e.do(t, "alice", "GET", "/settings", nil, nil).Body.String(); !strings.Contains(b, `role="radiogroup" aria-label="Theme"`) {
+		t.Error("Settings has no theme choice")
+	}
+	if js := e.do(t, "alice", "GET", "/static/app.js", nil, nil).Body.String(); strings.Contains(js, "yarsTheme") || strings.Contains(js, "data-theme-toggle") {
+		t.Error("app.js keeps the theme button's code")
 	}
 }
 

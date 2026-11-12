@@ -1,7 +1,7 @@
-// Theme: an explicit choice lives in data-theme on <html> and in
-// localStorage; without one the system setting applies. The account's saved
-// theme (set on <html> by the server) wins over localStorage. Runs in
-// <head>, so the theme is set before the page paints.
+// Theme: the account's choice (Settings › Preferences) is set on <html> by
+// the server and kept in localStorage for the pages before login; without
+// one the system setting applies. Runs in <head>, so the theme is set before
+// the page paints.
 (function () {
   var root = document.documentElement;
   try {
@@ -44,19 +44,6 @@ function yarsChatState() {
   Array.prototype.forEach.call(document.querySelectorAll('[data-chat-toggle]'), function (b) { b.setAttribute('aria-expanded', shown); });
 }
 document.addEventListener('DOMContentLoaded', yarsChatState);
-
-function yarsTheme() {
-  var root = document.documentElement;
-  var cur = root.getAttribute('data-theme');
-  if (!cur) cur = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-  var next = cur === 'dark' ? 'light' : 'dark';
-  root.setAttribute('data-theme', next);
-  try { localStorage.setItem('yars-theme', next); } catch (e) { /* not remembered */ }
-  if (root.hasAttribute('data-theme-save') && window.fetch) {
-    // the account remembers it too (same origin, so the CSRF check passes)
-    fetch('/settings/theme', {method: 'POST', body: new URLSearchParams({theme: next}), credentials: 'same-origin'}).catch(function () {});
-  }
-}
 
 // yarsListIdle tells whether the findings board may refresh itself: not
 // while rows are picked or more rows were loaded (both would be lost).
@@ -251,9 +238,8 @@ document.addEventListener('DOMContentLoaded', yarsLockout);
 document.addEventListener('htmx:afterSettle', yarsPickCountAll);
 
 document.addEventListener('click', function (evt) {
-  var el = evt.target.closest && evt.target.closest('[data-theme-toggle], [data-copy], [data-check-all]');
+  var el = evt.target.closest && evt.target.closest('[data-copy], [data-check-all]');
   if (!el) return;
-  if (el.hasAttribute('data-theme-toggle')) { yarsTheme(); return; }
   if (el.hasAttribute('data-check-all')) {
     // "Add everyone": tick every box of that name in the form
     var form = el.closest('form');

@@ -306,7 +306,6 @@ label { font-size: 13px; font-weight: 600; }
 .topbar form { margin: 0; display: flex; }
 .topbar .btn.ghost { background: transparent; color: var(--head-strong); border-color: var(--head-field-line); }
 .topbar .btn.ghost:hover { background: var(--head-field); }
-.theme-icon { width: 18px; height: 18px; }
 
 /* ---------- toasts ---------- */
 #toasts { position: fixed; right: 24px; bottom: 24px; z-index: 50; display: flex; flex-direction: column; gap: 8px; width: 400px; pointer-events: none; }

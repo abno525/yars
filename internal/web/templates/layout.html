@@ -39,16 +39,11 @@
     {{if .CanAdmin}}<a class="{{if eq .Nav "admin"}}on{{end}}" href="/admin">Admin</a>{{end}}
   </nav>
   <button type="button" class="goto" data-goto aria-haspopup="dialog" aria-controls="goto"><span>Go to</span><kbd>Ctrl K</kbd></button>
-  {{else}}
-  <span class="nav"></span>
-  {{end}}
-  <button type="button" class="btn ghost icon" data-theme-toggle aria-label="Theme" title="Theme">
-    <svg class="theme-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="8"></circle><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor"></path></svg>
-  </button>
-  {{if .User.Username}}
   <a class="bell{{if eq .Nav "notifications"}} on{{end}}" href="/notifications" title="Notifications" aria-label="Notifications"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4z"></path><path d="M10 20a2 2 0 0 0 4 0"></path></svg>{{with .Unread}}<span class="badge">{{.}}</span>{{else}}<span class="badge0">0</span>{{end}}</a>
   <a class="who{{if eq .Nav "settings"}} on{{end}}" href="/settings" title="{{.User.Username}} · {{.User.Role}}">{{.User.Username}}</a>
   <form method="post" action="/logout"><button class="btn ghost w96 logout">Log out</button></form>
+  {{else}}
+  <span class="nav"></span>
   {{end}}
 </header>
 <main>
