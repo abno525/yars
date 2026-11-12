@@ -677,11 +677,11 @@ func (s *Server) inboxAfterBulk(u config.User, before inboxView, v bulkView) (in
 			if err != nil {
 				return inboxLists{}, err
 			}
-			v, err := s.inboxFor(u, engs)
+			iv, err := s.inboxFor(u, engs)
 			if err != nil {
 				return inboxLists{}, err
 			}
-			now = &v
+			now = &iv
 		}
 		at := slices.IndexFunc(now.Lists[k], func(ir inboxRow) bool { return ir.Key == key })
 		if at < 0 {
