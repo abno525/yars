@@ -243,6 +243,12 @@ func TestLintCommand(t *testing.T) {
 	if code != 0 || strings.Contains(out.String(), "F-001") {
 		t.Fatalf("scoped lint code %d:\n%s", code, out.String())
 	}
+	// flags go before the scope: anything after it is refused, never
+	// ignored (backlog, M5)
+	out.Reset()
+	if code, err := cmdLint([]string{"--data", dir, "acme", "--all"}, &out); code != 2 || err == nil || !strings.Contains(err.Error(), `flags go before the scope; "--all" is after it`) {
+		t.Errorf("a flag after the scope: code %d err %v", code, err)
+	}
 	// a scope that matches nothing is an error, not "0 checked" (backlog, M5)
 	for _, scope := range []string{"acme/F-009-gone", "nope", "nope/F-001-bad-title"} {
 		out.Reset()

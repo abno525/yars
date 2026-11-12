@@ -502,6 +502,9 @@ func cmdLint(args []string, out io.Writer) (int, error) {
 	if err := fs.Parse(args); err != nil {
 		return 2, err
 	}
+	if fs.NArg() > 1 { // the flag package stops at the scope: never ignore what follows
+		return 2, fmt.Errorf("usage: yars lint [flags] [<engagement>[/<finding>]]: flags go before the scope; %q is after it", fs.Arg(1))
+	}
 	if *staged {
 		dir := *data
 		if dir == "" {
