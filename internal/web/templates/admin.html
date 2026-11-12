@@ -296,9 +296,9 @@
       <div class="st wide"><span class="sl">Last prune</span><span class="sv" title="{{.LastPrune}}">{{.LastPrune}}</span></div>
     </div>
     <div class="sfields">
-      <label class="sfield"><span class="sl">Audit log</span><span class="sfc"><input class="w96" type="number" name="audit_days" min="0" max="3650" value="{{.Retention.AuditDays}}"><span class="muted">days</span></span></label>
-      <label class="sfield"><span class="sl">Check runs</span><span class="sfc"><input class="w96" type="number" name="check_run_days" min="0" max="3650" value="{{.Retention.CheckRunDays}}"><span class="muted">days</span></span></label>
-      <label class="sfield"><span class="sl">Sessions</span><span class="sfc"><input class="w96" type="number" name="session_days" min="0" max="3650" value="{{.Retention.SessionDays}}"><span class="muted">days</span></span></label>
+      <label class="sfield"><span class="sl">Audit log</span><span class="sfc"><input class="w96" type="number" name="audit_days" min="0" max="3650" value="{{.Retention.AuditDays}}"{{if eq .RetentionBad "audit_days"}} autofocus{{end}}><span class="muted">days</span></span></label>
+      <label class="sfield"><span class="sl">Check runs</span><span class="sfc"><input class="w96" type="number" name="check_run_days" min="0" max="3650" value="{{.Retention.CheckRunDays}}"{{if eq .RetentionBad "check_run_days"}} autofocus{{end}}><span class="muted">days</span></span></label>
+      <label class="sfield"><span class="sl">Sessions</span><span class="sfc"><input class="w96" type="number" name="session_days" min="0" max="3650" value="{{.Retention.SessionDays}}"{{if eq .RetentionBad "session_days"}} autofocus{{end}}><span class="muted">days</span></span></label>
     </div>
   </div>
 </form>
@@ -328,7 +328,7 @@
 <form class="panel sys" id="restore" method="post" action="/admin/system/restore" enctype="multipart/form-data">
   <div class="panelhead">
     <h2>Restore</h2>
-    <div class="actions"><span class="pstate error" title="{{.RestoreError}}">{{.RestoreError}}</span><input class="restorefile" type="file" name="backup" accept=".zip,application/zip" required aria-label="Backup"><button class="btn primary sm w128">Restore</button></div>
+    <div class="actions"><span class="pstate error" title="{{.RestoreError}}">{{.RestoreError}}</span><input class="restorefile" type="file" name="backup" accept=".zip,application/zip" required aria-label="Backup"{{if .RestoreError}} autofocus{{end}}><button class="btn primary sm w128">Restore</button></div>
   </div>
   <div class="pbody flush">
     {{with .Restored}}
@@ -338,7 +338,7 @@
       <div class="st"><span class="sl">Findings</span><span class="sv">{{.Find}}</span></div>
       <div class="st"><span class="sl">Keys</span><span class="sv">{{if .HasKey}}with key{{else}}without key{{end}}</span></div>
     </div>
-    <div class="copyrow flush"><code id="restore-cmd">yars serve --data {{.Target}}</code><button type="button" class="btn save sm w96" data-copy="restore-cmd">Copy</button></div>
+    <div class="copyrow flush"><code id="restore-cmd" title="yars serve --data {{.Target}}">yars serve --data {{.Target}}</code><button type="button" class="btn save sm w96" data-copy="restore-cmd">Copy</button></div>
     {{end}}
     <div class="stats">
       <div class="st"><span class="sl">Last restore</span><span class="sv" title="{{.LastRestore}}">{{.LastRestore}}</span></div>

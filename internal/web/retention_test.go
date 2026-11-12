@@ -54,6 +54,11 @@ func TestRetentionFormSaves(t *testing.T) {
 	if r, _ := d.Retention(); r != (db.Retention{AuditDays: 365, CheckRunDays: 30, SessionDays: 7}) {
 		t.Fatalf("a refused form stored %+v", r)
 	}
+	// the refused field takes the focus, so the browser shows the panel
+	rec := e.do(t, "dora", "POST", "/admin/system/retention", retentionForm("365", "4000", "7"), nil)
+	if !strings.Contains(rec.Body.String(), `name="check_run_days" min="0" max="3650" value="30" autofocus>`) {
+		t.Fatalf("the refused field is not focused:\n%s", between(rec.Body.String(), `id="retention"`, "</form>"))
+	}
 	if rec := e.do(t, "alice", "POST", "/admin/system/retention", retentionForm("1", "1", "1"), nil); rec.Code != http.StatusForbidden {
 		t.Fatalf("non-admin %d", rec.Code)
 	}

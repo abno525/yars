@@ -100,9 +100,12 @@ func TestPruneKeepsLatestRun(t *testing.T) {
 			t.Errorf("results of the latest run %d: %d", id, len(res))
 		}
 	}
-	// a run still going is never deleted either (it has not finished)
-	going, _ := d.StartRun("acme", "F-003", "h", "bob", "")
+	// a run still going is never deleted either (it has not finished), even
+	// when it is neither the newest nor on the newest run's content
+	going, _ := d.StartRun("acme", "F-003", "old", "bob", "")
 	d.Exec("UPDATE check_runs SET started = ? WHERE id = ?", at(time.Now().AddDate(-1, 0, 0)), going)
+	newer, _ := d.StartRun("acme", "F-003", "new", "bob", "")
+	d.TxFor("acme", func(tx *Tx) error { return tx.FinishRun(newer, RunDone, "", nil) })
 	if _, err := d.Prune(time.Now(), Retention{CheckRunDays: 90}); err != nil {
 		t.Fatal(err)
 	}

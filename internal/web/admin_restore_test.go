@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"fmt"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"yars/internal/auth"
 	"yars/internal/db"
@@ -75,7 +77,7 @@ func TestRestoreUploadMakesSiblingFolder(t *testing.T) {
 	}
 	b := e.do(t, "dora", "GET", "/admin/system", nil, nil).Body.String()
 	p := between(b, `id="restore"`, "</form>")
-	for _, want := range []string{`<code id="restore-cmd">yars serve --data ` + dirs[0] + `</code>`, `data-copy="restore-cmd"`,
+	for _, want := range []string{`<code id="restore-cmd" title="yars serve --data ` + dirs[0] + `">yars serve --data ` + dirs[0] + `</code>`, `data-copy="restore-cmd"`,
 		`<span class="sl">Schema</span><span class="sv">v` + fmt.Sprint(db.SchemaVersion) + `</span>`, `<span class="sl">Engagements</span><span class="sv">1</span>`,
 		`<span class="sl">Findings</span><span class="sv">1</span>`, `<span class="sl">Keys</span><span class="sv">without key</span>`, `title="` + dirs[0] + `"`} {
 		if !strings.Contains(p, want) {
@@ -142,8 +144,14 @@ func TestRestoreUploadRefusesNewerSchema(t *testing.T) {
 func TestRestoreUploadRefusesNonZip(t *testing.T) {
 	e := setupSerial(t)
 	rec := e.uploadFile(t, "dora", "/admin/system/restore", "backup", "notes.txt", []byte("hello"))
-	if rec.Code != http.StatusBadRequest || !strings.Contains(between(rec.Body.String(), `id="restore"`, "</form>"), "not a ZIP file") {
+	p := between(rec.Body.String(), `id="restore"`, "</form>")
+	if rec.Code != http.StatusBadRequest || !strings.Contains(p, "not a ZIP file") {
 		t.Fatalf("text %d:\n%s", rec.Code, rec.Body.String())
+	}
+	// the panel is far down the page: its file input takes the focus, so the
+	// browser shows the reason
+	if !strings.Contains(p, `name="backup" accept=".zip,application/zip" required aria-label="Backup" autofocus>`) {
+		t.Fatalf("the refused panel is not brought into view:\n%s", p)
 	}
 	if dirs := e.restored(t); len(dirs) != 0 {
 		t.Fatalf("left behind %v", dirs)
@@ -151,6 +159,56 @@ func TestRestoreUploadRefusesNonZip(t *testing.T) {
 	left, _ := filepath.Glob(filepath.Join(filepath.Dir(e.dir), ".yars-restore-*"))
 	if len(left) != 0 {
 		t.Fatalf("the upload was left on disk: %v", left)
+	}
+}
+
+// D24: a ZIP that is not a backup is refused naming the file uploaded, not
+// the temporary copy.
+func TestRestoreUploadNotABackupNamesTheUpload(t *testing.T) {
+	e := setupSerial(t)
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	w, _ := zw.Create("readme.txt")
+	w.Write([]byte("hello"))
+	zw.Close()
+	rec := e.uploadFile(t, "dora", "/admin/system/restore", "backup", "photos.zip", buf.Bytes())
+	p := between(rec.Body.String(), `id="restore"`, "</form>")
+	if rec.Code != http.StatusBadRequest || !strings.Contains(p, "photos.zip holds no .yars/yars.db") || strings.Contains(p, ".yars-restore-") {
+		t.Fatalf("not a backup %d:\n%s", rec.Code, p)
+	}
+}
+
+// D24, Review focus 5: an upload slower than the server's read timeout
+// still arrives (the route lifts the deadlines).
+func TestRestoreUploadOutlastsReadTimeout(t *testing.T) {
+	e := setupSerial(t)
+	backupZip := e.do(t, "dora", "POST", "/admin/system/backup", url.Values{}, nil).Body.Bytes()
+	srv := httptest.NewUnstartedServer(e.h)
+	srv.Config.ReadTimeout = 200 * time.Millisecond
+	srv.Start()
+	t.Cleanup(srv.Close)
+	pr, pw := io.Pipe()
+	mw := multipart.NewWriter(pw)
+	go func() {
+		fw, _ := mw.CreateFormFile("backup", "b.zip")
+		for i := 0; i < len(backupZip); i += len(backupZip)/6 + 1 {
+			fw.Write(backupZip[i:min(i+len(backupZip)/6+1, len(backupZip))])
+			time.Sleep(100 * time.Millisecond) // about 0.6 s in all
+		}
+		mw.Close()
+		pw.Close()
+	}()
+	req, _ := http.NewRequest("POST", srv.URL+"/admin/system/restore", pr)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: e.toks["dora"]})
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("slow upload: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusSeeOther || len(e.restored(t)) != 1 {
+		t.Fatalf("slow upload %d, restored %v", resp.StatusCode, e.restored(t))
 	}
 }
 

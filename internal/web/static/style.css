@@ -1141,7 +1141,9 @@ code.block { display: block; padding: 8px 10px; background: var(--code-bg); font
 .usagetable th.c-num { width: 152px; }
 .usagetable td.num { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* D24: the Restore panel's file input keeps its place beside the button */
-.panel.sys .restorefile { width: 280px; flex: none; font-size: 13px; }
+.panel.sys .restorefile { width: 280px; height: 32px; flex: none; align-self: center; font-size: 13px; }
+/* the restore command row lines up with the stats around it */
+.panel.sys .pbody > .copyrow { margin: 0; }
 .panel.sys .checked { width: 112px; text-align: right; white-space: nowrap; font-size: 13px; color: var(--muted); }
 .panel.sys .checked .mono { font-size: 13px; color: var(--text); }
 .pbody { padding: 24px; display: flex; flex-direction: column; gap: 24px; }

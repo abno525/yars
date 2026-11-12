@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"yars/internal/auth"
@@ -43,7 +44,7 @@ func (s *Server) restoreUpload(w http.ResponseWriter, r *http.Request) {
 		fail(http.StatusBadRequest, "choose a backup file")
 		return
 	}
-	tmp := ""
+	tmp, upload := "", "the upload"
 	for tmp == "" {
 		part, err := mr.NextPart()
 		if errors.Is(err, io.EOF) {
@@ -55,6 +56,9 @@ func (s *Server) restoreUpload(w http.ResponseWriter, r *http.Request) {
 		}
 		if part.FormName() != "backup" {
 			continue
+		}
+		if n := filepath.Base(part.FileName()); n != "." && n != "/" && n != "" {
+			upload = n
 		}
 		f, err := os.CreateTemp(filepath.Dir(data), ".yars-restore-*.zip")
 		if err != nil { // the restored folder could not go there either
@@ -88,7 +92,8 @@ func (s *Server) restoreUpload(w http.ResponseWriter, r *http.Request) {
 	rep, err := backup.Restore(tmp, target)
 	s.restoreMu.Unlock()
 	if err != nil {
-		msg := err.Error()
+		// the reason names the file the admin chose, not its temporary copy
+		msg := strings.ReplaceAll(err.Error(), tmp, upload)
 		if errors.Is(err, zip.ErrFormat) {
 			msg = "not a ZIP file"
 		}

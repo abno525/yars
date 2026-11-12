@@ -36,6 +36,7 @@ type systemAdmin struct {
 	// refused save's reason
 	Retention                 db.Retention
 	LastPrune, RetentionError string
+	RetentionBad              string      // the refused field, which takes the focus
 	AIUsage                   aiUsageView // D24
 	// Restore (D24): a refused upload's reason, a restore just made (shown
 	// once) and the last one ("—" when none)

@@ -76,10 +76,11 @@ func (s *Server) retentionSave(w http.ResponseWriter, r *http.Request) {
 	r.ParseForm()
 	var n [3]int
 	var bad error
+	badField := ""
 	for i, f := range retentionFields {
 		v, err := strconv.Atoi(strings.TrimSpace(r.PostForm.Get(f[0])))
 		if (err != nil || v < 0 || v > 3650) && bad == nil {
-			bad = fmt.Errorf("%s: 0 to 3650 days", f[1])
+			bad, badField = fmt.Errorf("%s: 0 to 3650 days", f[1]), f[0]
 		}
 		n[i] = v
 	}
@@ -89,7 +90,7 @@ func (s *Server) retentionSave(w http.ResponseWriter, r *http.Request) {
 		bad = d.SetRetention(ret)
 	}
 	if bad != nil {
-		s.systemPageStatus(w, r, http.StatusBadRequest, systemAdmin{RetentionError: bad.Error()})
+		s.systemPageStatus(w, r, http.StatusBadRequest, systemAdmin{RetentionError: bad.Error(), RetentionBad: badField})
 		return
 	}
 	d.Audit(auth.UserFrom(r.Context()).Username, "setting.retention", "", fmt.Sprintf("audit %d · check runs %d · sessions %d", ret.AuditDays, ret.CheckRunDays, ret.SessionDays))
