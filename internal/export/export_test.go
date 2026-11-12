@@ -115,6 +115,27 @@ func TestXHTMLLayout(t *testing.T) {
 	}
 }
 
+// A heading written in a finding's body (#, ##, or underlined) sits below
+// the finding's title (h1) and its section (h2) in every export: it is an
+// h3 at most; ### and lower keep their level (backlog, M8).
+func TestBodyHeadingsBelowSections(t *testing.T) {
+	in := input(t)
+	in.Findings[0].SetSection("Description", "# Big\n\n## Medium\n\nUnderlined\n==========\n\n### Small\n\n#### Smaller\n\ntext")
+	in.Report = append(in.Report, ReportText{Name: "Scope", Body: "# Hosts\n\nall"})
+	for name, x := range map[string]string{"xhtml": XHTML(in, false), "report": Report(in)} {
+		for _, want := range []string{"<h3>Big</h3>", "<h3>Medium</h3>", "<h3>Underlined</h3>", "<h3>Small</h3>", "<h4>Smaller</h4>", "<h3>Hosts</h3>"} {
+			if !strings.Contains(x, want) {
+				t.Errorf("%s lacks %q", name, want)
+			}
+		}
+		for _, bad := range []string{"<h1>Big", "<h2>Medium", "<h1>Underlined", "<h1>Hosts"} {
+			if strings.Contains(x, bad) {
+				t.Errorf("%s has %q", name, bad)
+			}
+		}
+	}
+}
+
 func pngBytes() []byte {
 	return []byte("\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\rIDATx\x9cc\xf8\xff\xff?\x00\x05\xfe\x02\xfe\xa7\x35\x81\x84\x00\x00\x00\x00IEND\xaeB`\x82")
 }

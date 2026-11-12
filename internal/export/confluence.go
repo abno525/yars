@@ -23,8 +23,12 @@ import (
 	"yars/internal/finding"
 
 	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
+	"github.com/yuin/goldmark/parser"
 	ghtml "github.com/yuin/goldmark/renderer/html"
+	"github.com/yuin/goldmark/text"
+	"github.com/yuin/goldmark/util"
 )
 
 type httpDoer interface {
@@ -33,7 +37,23 @@ type httpDoer interface {
 
 // md renders untrusted finding Markdown: raw HTML is omitted (no script,
 // no Confluence macro injection), output is XHTML for the storage format.
-var md = goldmark.New(goldmark.WithExtensions(extension.GFM), goldmark.WithRendererOptions(ghtml.WithXHTML()))
+// A body's headings sit below the finding's title and its section's.
+var md = goldmark.New(goldmark.WithExtensions(extension.GFM), goldmark.WithRendererOptions(ghtml.WithXHTML()),
+	goldmark.WithParserOptions(parser.WithASTTransformers(util.Prioritized(headingFloor{}, 100))))
+
+// headingFloor makes a body's # and ## headings h3: in a report a
+// finding's title is the h1 and its sections are h2, so a heading written
+// in a section is an h3 at most (the contents list holds h1 and h2 only).
+type headingFloor struct{}
+
+func (headingFloor) Transform(doc *ast.Document, _ text.Reader, _ parser.Context) {
+	ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+		if h, ok := n.(*ast.Heading); ok && entering && h.Level < 3 {
+			h.Level = 3
+		}
+		return ast.WalkContinue, nil
+	})
+}
 
 var codeBlock = regexp.MustCompile(`(?s)<pre><code(?: class="language-([A-Za-z0-9_+-]+)")?>(.*?)</code></pre>`)
 
