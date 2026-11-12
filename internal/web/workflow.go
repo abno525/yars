@@ -242,6 +242,10 @@ func (v *wfView) arrange(u config.User, m finding.Meta) {
 	for len(v.Slots) > 0 && !v.Slots[len(v.Slots)-1].Present {
 		v.Slots = v.Slots[:len(v.Slots)-1]
 	}
+	// and the ones before the first: Check sits beside it (asked after the run)
+	for len(v.Slots) > 0 && !v.Slots[0].Present {
+		v.Slots = v.Slots[1:]
+	}
 	switch {
 	case v.Problems > 0 && v.HasGated:
 		v.State, v.StateError = plural(v.Problems, "error")+" to fix", true

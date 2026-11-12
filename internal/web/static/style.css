@@ -590,8 +590,9 @@ progress::-moz-progress-bar { background: var(--accent); }
 .picklist label { height: 44px; padding: 0 16px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid var(--line-soft); font-size: 14px; font-weight: 600; cursor: pointer; }
 .picklist > .muted { display: block; padding: 12px 16px; font-size: 14px; }
 .pickfoot { height: 56px; padding: 0 16px; display: flex; align-items: center; justify-content: space-between; background: var(--panel); }
-/* beside the reviewers; the space after it puts Check beside the actions */
-.wfstate { flex: 0 1 auto; min-width: 0; max-width: 240px; margin-right: auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left; font-size: 13px; font-weight: 600; color: var(--muted); }
+/* beside the reviewers, its width kept (the reviewer chips shorten first);
+   the space after it puts Check beside the actions */
+.wfstate { flex: none; max-width: 240px; margin-right: auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left; font-size: 13px; font-weight: 600; color: var(--muted); }
 .wfstate.error { color: var(--red); }
 /* D3: with problems the state opens the Checks strip: the same box as a button */
 button.wfstate { height: auto; padding: 0; border: 0; background: none; font-family: inherit; cursor: pointer; }
@@ -599,6 +600,8 @@ button.wfstate:hover { text-decoration: underline; }
 /* the status's buttons at the right edge (Withdraw / Restore last), Check
    right before them */
 .wf-actions { flex: none; display: flex; gap: 8px; align-items: center; }
+/* no actions: no box, so Check ends at the right edge */
+.wf-actions:not(:has(*)) { display: none; }
 .wf-action { display: flex; margin: 0; }
 .btn.danger[aria-expanded=true] { background: var(--red); color: var(--on-fill); }
 /* reason form under the bar (Return, Withdraw) */

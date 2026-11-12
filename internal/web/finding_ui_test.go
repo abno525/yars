@@ -62,8 +62,11 @@ func TestFindingPageLayout(t *testing.T) {
 	css := e.do(t, "alice", "GET", "/static/style.css", nil, nil).Body.String()
 	for _, want := range []string{
 		".wfrow { height: 56px; padding: 0 var(--wf-inset); display: flex; align-items: center; gap: 12px;",
-		".wfstate { flex: 0 1 auto; min-width: 0; max-width: 240px; margin-right: auto;",
+		// the state keeps its width; the reviewer chips shorten first
+		".wfstate { flex: none; max-width: 240px; margin-right: auto;",
 		".wf-actions { flex: none; display: flex; gap: 8px; align-items: center; }",
+		// no actions: no box, so Check ends at the right edge
+		".wf-actions:not(:has(*)) { display: none; }",
 		":root[data-chat=hidden] [data-chat-grid] { grid-template-columns: minmax(0, 1fr); }",
 		":root[data-chat=hidden] [data-chat-grid] > .side { display: none; }",
 		":root[data-chat=hidden] .ct-hide, .ct-show { display: none; }",
@@ -76,10 +79,18 @@ func TestFindingPageLayout(t *testing.T) {
 	if strings.Contains(css, "width: 496px") {
 		t.Error("the action box still has its fixed width")
 	}
-	js := e.do(t, "alice", "GET", "/static/app.js", nil, nil).Body.String()
-	for _, want := range []string{"yars-chat", "data-chat-toggle", "function yarsChat("} {
-		if !strings.Contains(js, want) {
-			t.Errorf("app.js lacks %q", want)
+	// the toggle, the state on its button, and Comment (button or c) and l
+	// bringing a hidden chat back
+	for file, wants := range map[string][]string{
+		"app.js": {"yars-chat", "data-chat-toggle", "function yarsChat(", "b.setAttribute('aria-expanded', shown)",
+			"if (!sel || !txt) return;\n  if (yarsChatHidden()) yarsChat(true);"},
+		"keys.js": {"if (yarsChatHidden()) yarsChat(true); // l shows a hidden chat"},
+	} {
+		js := e.do(t, "alice", "GET", "/static/"+file, nil, nil).Body.String()
+		for _, want := range wants {
+			if !strings.Contains(js, want) {
+				t.Errorf("%s lacks %q", file, want)
+			}
 		}
 	}
 }
@@ -117,14 +128,15 @@ func TestD22TwoRowBar(t *testing.T) {
 	}
 }
 
-// Every viewer of a status sees the same fixed slots up to the viewer's last
-// button; an action before it the viewer may not take keeps its place as an
-// empty slot of the same width, and the ones after it are left out, so the
-// last button ends at the bar's right edge (board 3.5).
+// Every viewer of a status sees the same fixed slots from the viewer's first
+// button to the last; an action between them the viewer may not take keeps
+// its place as an empty slot of the same width. The ones after the last are
+// left out, so it ends at the bar's right edge (board 3.5), and the ones
+// before the first too, so Check sits beside it (asked after the run).
 func TestWorkflowSlotsFixed(t *testing.T) {
 	e := setup(t)
 	e.toVerification(t)
-	for u, want := range map[string]int{"alice": 4, "bob": 2, "carol": 0, "dora": 4} {
+	for u, want := range map[string]int{"alice": 1, "bob": 2, "carol": 0, "dora": 4} {
 		a := actionsOf(t, e.do(t, u, "GET", fpath, nil, nil).Body.String())
 		if n := strings.Count(a, "data-slot="); n != want {
 			t.Fatalf("%s: %d slots in verification, want %d:\n%s", u, n, want, a)
