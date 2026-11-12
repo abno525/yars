@@ -84,13 +84,14 @@ func (s *Server) retestSave(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	err := s.Store.SetRetestResult(ref.EngID, ref.Dir, r.FormValue("result"), auth.UserFrom(r.Context()))
-	if err != nil && !errors.Is(err, store.ErrInvalidValue) {
+	err := s.Store.SetRetestResultFrom(ref.EngID, ref.Dir, r.FormValue("was"), r.FormValue("result"), auth.UserFrom(r.Context()))
+	conflict := errors.Is(err, store.ErrConflict)
+	if err != nil && !errors.Is(err, store.ErrInvalidValue) && !conflict {
 		s.fail(w, err)
 		return
 	}
 	status := http.StatusOK
-	if err == nil {
+	if err == nil || conflict {
 		if ref, err = s.Store.Finding(ref.EngID, ref.Dir); err != nil {
 			s.fail(w, err)
 			return
@@ -101,7 +102,10 @@ func (s *Server) retestSave(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not a retest finding", http.StatusBadRequest)
 		return
 	}
-	if err != nil {
+	if conflict {
+		// the panel as it is now: the choice is made again on it
+		status, v.Error = http.StatusConflict, "the result changed since you opened the page; choose again"
+	} else if err != nil {
 		status, v.Error = http.StatusBadRequest, err.Error()
 	} else {
 		// the result feeds the submit gate: reload so the workflow bar updates

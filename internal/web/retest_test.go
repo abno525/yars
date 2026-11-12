@@ -101,6 +101,32 @@ func TestRetestSourceWithoutFinding(t *testing.T) {
 	}
 }
 
+// The result form says which result it showed: a choice made on a page
+// that is out of date (someone set another result since) is refused, and
+// the panel comes back with the result as it is now (backlog, M7).
+func TestRetestResultBase(t *testing.T) {
+	e := setup(t)
+	if err := e.srv.Store.CreateRetest(store.Engagement{ID: "rt", Name: "RT"}, "acme", []string{"F-001-sql-injection"}, "", wDora); err != nil {
+		t.Fatal(err)
+	}
+	p := "/e/rt/f/F-001-sql-injection"
+	if b := e.do(t, "alice", "GET", p, nil, nil).Body.String(); !strings.Contains(b, `<input type="hidden" name="was" value="">`) {
+		t.Fatal("the form does not say which result it shows")
+	}
+	if rec := e.do(t, "alice", "POST", p+"/retest", url.Values{"result": {"fixed"}, "was": {""}}, nil); rec.Code != http.StatusOK {
+		t.Fatalf("first choice: %d", rec.Code)
+	}
+	// bob's page still shows no result
+	rec := e.do(t, "bob", "POST", p+"/retest", url.Values{"result": {"not_fixed"}, "was": {""}}, nil)
+	b := rec.Body.String()
+	if rec.Code != http.StatusConflict || !strings.Contains(b, "the result changed since you opened the page") || !strings.Contains(b, `value="fixed" checked`) || !strings.Contains(b, `name="was" value="fixed"`) {
+		t.Fatalf("a choice on an old page: %d\n%s", rec.Code, b)
+	}
+	if rec := e.do(t, "bob", "POST", p+"/retest", url.Values{"result": {"not_fixed"}, "was": {"fixed"}}, nil); rec.Code != http.StatusOK {
+		t.Fatalf("a choice on the current page: %d", rec.Code)
+	}
+}
+
 func TestRetestPanelLocked(t *testing.T) {
 	e := setup(t)
 	st := e.srv.Store

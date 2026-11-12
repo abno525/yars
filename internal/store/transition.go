@@ -17,6 +17,17 @@ import (
 
 // SetRetestResult records the outcome of a retested finding (database).
 func (s *Store) SetRetestResult(engID, dir, result string, a Actor) error {
+	return s.setRetestResult(engID, dir, nil, result, a)
+}
+
+// SetRetestResultFrom is SetRetestResult for a choice made on a page that
+// showed the result was ("" = none): another result stored since is
+// ErrConflict.
+func (s *Store) SetRetestResultFrom(engID, dir, was, result string, a Actor) error {
+	return s.setRetestResult(engID, dir, &was, result, a)
+}
+
+func (s *Store) setRetestResult(engID, dir string, was *string, result string, a Actor) error {
 	if !slices.Contains(workflow.RetestResults, result) {
 		return fmt.Errorf("%w: retest result must be fixed, not_fixed or partially_fixed", ErrInvalidValue)
 	}
@@ -26,6 +37,9 @@ func (s *Store) SetRetestResult(engID, dir, result string, a Actor) error {
 		}
 		if st.RetestSource == "" {
 			return nil, fmt.Errorf("%w: %s is not a retest finding", ErrInvalidValue, ref.F.Meta.ID)
+		}
+		if was != nil && *was != st.RetestResult {
+			return nil, ErrConflict
 		}
 		if st.RetestResult == result {
 			return nil, nil
