@@ -23,7 +23,7 @@ yars version
 Create the account the service runs as, its data folder and the backup folder:
 
 ```sh
-sudo useradd --system --home-dir /var/lib/yars --create-home --shell /usr/sbin/nologin yars
+sudo useradd --system --user-group --home-dir /var/lib/yars --create-home --shell /usr/sbin/nologin yars
 sudo install -d -o yars -g yars /srv/yars
 sudo install -d -o yars -g yars -m 0700 /backups
 sudo -u yars yars init /srv/yars
@@ -110,6 +110,8 @@ Set the address people use in `.yars/config.yaml`, so links in mail and webhooks
 base_url: https://yars.example.com
 ```
 
+The file is in the main repository: a director changes it in a clone and pushes it (see `docs/config.md`). An edit made in place on the server is undone at the next start, which resets the data folder's tree to its last commit.
+
 **Without a proxy:**
 
 ```sh
@@ -146,6 +148,7 @@ A restore always goes into a new (or empty) folder and checks it before it repor
 ```sh
 yars version                      # the running release and its schema
 sudo systemctl stop yars
+sudo cp /usr/local/bin/yars /usr/local/bin/yars.previous
 sudo install -m 0755 yars /usr/local/bin/yars
 yars version                      # the new release and its schema
 sudo systemctl start yars
@@ -153,10 +156,10 @@ sudo systemctl start yars
 
 At the start the database is brought up to the new schema. When the schema changes, a copy is kept next to it first, `/srv/yars/.yars/yars.db.before-v<old schema>` (the two newest copies are kept). The git repositories need nothing.
 
-**Going back:** when the two `yars version` lines show the same schema, put the old binary back and restart. When the schema changed:
+**Going back:** when the two `yars version` lines show the same schema, put `yars.previous` back as `/usr/local/bin/yars` and restart. When the schema changed:
 
 1. Stop the service.
-2. Put the old binary back.
+2. Put `yars.previous` back as `/usr/local/bin/yars`.
 3. Replace `.yars/yars.db` with `yars.db.before-v<old schema>`, and delete `.yars/yars.db-wal` and `.yars/yars.db-shm`.
 4. Start the service.
 

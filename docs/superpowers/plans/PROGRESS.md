@@ -166,4 +166,13 @@ M34 known   done     docs/known-limits.md (3 won't, 22 needing a decision); the 
 M34 branch  review   fixes e301b0e..356f174 (the inbox fails rather than show empty queues; exporter statuses finished only, R10 in the CLI; timing-free worker tests; MCP sign-off base in known limits)
 M34 branch  fix check passed (all five fixed; two wording points taken)
 M34 PR      opened   #29
+M35 task 1  done     ab6e7d7 (yars version: build version, schema, Go release; Admin › System's Version)
+M35 task 2  done     39764d9 (data from M11 opens with this version; no migration bug)
+M35 task 3  done     cd3b982 (docs/deploy.md: requirements, install, service, HTTPS, backup and drill, upgrade, health)
+M35 task 4  done     da92b59 (the v1.0 walkthrough: nine lines pass; line 3 failed and was fixed in 54cac0f)
+M35 task 1  review   fix 8804d8b (the tests check the second call and a short revision; the plan's buildVersion kept)
+M35 task 2  review   fix c509878 (prepareData shared with yars serve; an M11 pentester on the team; snapshot of schema 1; builder kept)
+M35 task 3  review   fix efb60d2 (the folders yars writes; unbuffered bodies; base_url; LaTeX packages; going back only when the schema changed)
+M35 task 4  review   fix 0843814, 40f167b (every CVSS parse error says how to fix it; the record as the run was)
+M35 branch  review   fixes in the commit after f4161ca (base_url by push; a copy of the old binary; --user-group; the fixture's output path; these PROGRESS lines)
 ```

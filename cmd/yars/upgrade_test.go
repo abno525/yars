@@ -1,13 +1,14 @@
 package main
 
 // testdata/m11-data.zip is a data folder made by the M11 release (8fce339,
-// the M11 merge on master), built once from this folder:
+// the M11 merge on master), built once from the top of this checkout
+// (<checkout> is its absolute path: the builder runs in the worktree):
 //
 //	git worktree add --detach <scratch>/m11 8fce339
 //	mkdir <scratch>/m11/cmd/mkfixture
 //	cp cmd/yars/testdata/mkfixture/main.go <scratch>/m11/cmd/mkfixture/
 //	go -C <scratch>/m11 build -o <scratch>/yars-m11 ./cmd/yars
-//	go -C <scratch>/m11 run ./cmd/mkfixture <scratch>/yars-m11 <scratch>/m11data cmd/yars/testdata/m11-data.zip
+//	go -C <scratch>/m11 run ./cmd/mkfixture <scratch>/yars-m11 <scratch>/m11data <checkout>/cmd/yars/testdata/m11-data.zip
 //	git worktree remove --force <scratch>/m11
 //
 // testdata/mkfixture runs the M11 binary's init and useradd (director dora,
