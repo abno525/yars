@@ -6,6 +6,7 @@ import (
 	"embed"
 	"errors"
 	"html/template"
+	"io"
 	"io/fs"
 	"log"
 	"maps"
@@ -318,7 +319,53 @@ func (s *Server) Handler() http.Handler {
 		root.Handle("/mcp", s.lintLived(s.MCP)) // Bearer tokens, no cookies; lint and transition run every rule
 	}
 	// Reject cross-origin state-changing requests (CSRF, incl. login CSRF).
-	return gzipHandler(secureHeaders(s.HTTPS, http.NewCrossOriginProtection().Handler(s.firstRun(root))))
+	return gzipHandler(secureHeaders(s.HTTPS, http.NewCrossOriginProtection().Handler(limitBody(s.firstRun(root)))))
+}
+
+// formMax caps a request body on the website, as MCP caps its requests (a
+// section's text comes either way).
+const formMax = 2 << 20
+
+// limitBody refuses a body over formMax with 413 before any handler reads
+// it. A body sent without a length is read up to the cap first, so a handler
+// never parses half a form. Git, MCP and the uploads (attachments, a
+// redacted image, a backup to restore, a rule's script) set their own caps:
+// an outer cap could not be raised inside them.
+func limitBody(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if ownBodyLimit(r) || r.Body == nil || r.Body == http.NoBody {
+			next.ServeHTTP(w, r)
+			return
+		}
+		tooLarge := func() { http.Error(w, "the request is larger than 2 MiB", http.StatusRequestEntityTooLarge) }
+		if r.ContentLength > formMax {
+			tooLarge()
+			return
+		}
+		if r.ContentLength < 0 {
+			b, err := io.ReadAll(io.LimitReader(r.Body, formMax+1))
+			if err != nil {
+				http.Error(w, "the request could not be read", http.StatusBadRequest)
+				return
+			}
+			if len(b) > formMax {
+				tooLarge()
+				return
+			}
+			r.Body, r.ContentLength = io.NopCloser(bytes.NewReader(b)), int64(len(b))
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// ownBodyLimit: the request goes to a handler that caps its body itself.
+func ownBodyLimit(r *http.Request) bool {
+	p := r.URL.Path
+	if strings.HasPrefix(p, "/git/") || p == "/mcp" {
+		return true
+	}
+	return r.Method == http.MethodPost && (p == "/admin/system/restore" || p == "/admin/rules/save" ||
+		strings.HasPrefix(p, "/e/") && (strings.HasSuffix(p, "/attachments") || strings.HasSuffix(p, "/redact")))
 }
 
 func (s *Server) render(w http.ResponseWriter, name string, p *page) {
