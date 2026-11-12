@@ -69,8 +69,7 @@ func TestHookInstallWritesEveryEngagement(t *testing.T) {
 			t.Fatalf("%s: %v %v", id, st, err)
 		}
 		b, _ := os.ReadFile(p)
-		want := "#!/bin/sh\n" + hookMarker + "\ntest -x '/opt/yars bin/yars' || exit 0\nexec '/opt/yars bin/yars' lint --staged --warn-only\n"
-		if string(b) != want {
+		if string(b) != hookBody("/opt/yars bin/yars") {
 			t.Fatalf("%s hook:\n%s", id, b)
 		}
 	}
@@ -116,6 +115,27 @@ func TestHookInstallKeepsForeignHook(t *testing.T) {
 	}
 }
 
+// With core.hooksPath set (a tracked folder in the work tree, or one
+// shared by every repository), nothing is written there: the output names
+// the setting and the line to add.
+func TestHookInstallLeavesHooksPath(t *testing.T) {
+	useHookBin(t, "/usr/bin/yars")
+	dir := mainClone(t)
+	a := filepath.Join(dir, "engagements", "a")
+	gitT(t, a, "config", "core.hooksPath", ".githooks")
+	var out bytes.Buffer
+	if err := cmdHookInstall([]string{"--data", dir}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(a, ".githooks")); err == nil {
+		t.Fatal("a hook was written into the work tree")
+	}
+	want := a + ": core.hooksPath is set (.githooks); add this line to its pre-commit hook: '/usr/bin/yars' lint --staged --warn-only\ninstalled b\n1 installed\n"
+	if out.String() != want {
+		t.Fatalf("output:\n%s\nwant:\n%s", out.String(), want)
+	}
+}
+
 func TestHookInstallReplacesOwnHook(t *testing.T) {
 	dir := mainClone(t)
 	useHookBin(t, "/old/yars")
@@ -129,8 +149,126 @@ func TestHookInstallReplacesOwnHook(t *testing.T) {
 		t.Fatalf("%v\n%s", err, out.String())
 	}
 	b, _ := os.ReadFile(hookAt(t, filepath.Join(dir, "engagements", "a")))
-	if strings.Contains(string(b), "/old/yars") || strings.Count(string(b), "/new/yars") != 2 || strings.Count(string(b), hookMarker) != 1 {
+	if string(b) != hookBody("/new/yars") {
 		t.Fatalf("hook:\n%s", b)
+	}
+}
+
+// The hook's text: it never stops a commit, and says so when the binary it
+// names is gone (an upgrade moved it).
+func TestHookBody(t *testing.T) {
+	want := "#!/bin/sh\n" + hookMarker + "\n" +
+		"if ! test -x '/opt/y'\\''s/yars'; then\n" +
+		"  echo \"yars: '/opt/y'\\''s/yars' not found; this commit was not checked; run yars hook install again\" >&2\n" +
+		"  exit 0\nfi\n" +
+		"'/opt/y'\\''s/yars' lint --staged --warn-only\nexit 0\n"
+	if got := hookBody("/opt/y's/yars"); got != want {
+		t.Fatalf("hook:\n%s\nwant:\n%s", got, want)
+	}
+	if !ownHook([]byte(hookBody("/a b/yars"))) || ownHook([]byte(hookBody("/a/yars")+"echo extra\n")) || ownHook([]byte("#!/bin/sh\n"+hookMarker+"\n")) {
+		t.Fatal("ownHook")
+	}
+}
+
+// commitIn commits everything in repo; the output and whether git refused.
+func commitIn(t *testing.T, repo, msg string) (string, error) {
+	t.Helper()
+	gitT(t, repo, "add", "-A")
+	cmd := exec.Command("git", "-C", repo, "-c", "user.name=alice", "-c", "user.email=a@a", "-c", "commit.gpgsign=false", "commit", "-q", "-m", msg)
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
+// A binary that is gone, or that fails, never blocks a commit.
+func TestHookNeverBlocksWhenTheBinaryFails(t *testing.T) {
+	dir := lintClone(t, "http://h/git/e/acme")
+	useHookBin(t, filepath.Join(t.TempDir(), "gone", "yars"))
+	var out bytes.Buffer
+	if err := cmdHookInstall([]string{"--data", dir}, &out); err != nil {
+		t.Fatal(err)
+	}
+	got, err := commitIn(t, dir, "one")
+	if err != nil || !strings.Contains(got, "not found; this commit was not checked; run yars hook install again") {
+		t.Fatalf("gone: %v\n%s", err, got)
+	}
+	crash := filepath.Join(t.TempDir(), "yars")
+	write(t, crash, "#!/bin/sh\necho panic >&2\nexit 2\n")
+	os.Chmod(crash, 0o755)
+	useHookBin(t, crash)
+	if err := cmdHookInstall([]string{"--data", dir}, &out); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(dir, "notes.txt"), "x")
+	if got, err := commitIn(t, dir, "two"); err != nil || !strings.Contains(got, "panic") {
+		t.Fatalf("a failing binary blocked the commit: %v\n%s", err, got)
+	}
+}
+
+// The hook names the binary as PATH finds it when that is the same file
+// (a Homebrew or Nix link survives an upgrade; the resolved path does not).
+func TestHookInstallUsesPathName(t *testing.T) {
+	cellar := filepath.Join(t.TempDir(), "Cellar", "yars", "1.2")
+	write(t, filepath.Join(cellar, "yars"), "#!/bin/sh\n")
+	os.Chmod(filepath.Join(cellar, "yars"), 0o755)
+	bin := t.TempDir()
+	if err := os.Symlink(filepath.Join(cellar, "yars"), filepath.Join(bin, "yars")); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	useHookBin(t, filepath.Join(cellar, "yars"))
+	dir := lintClone(t, "http://h/git/e/acme")
+	var out bytes.Buffer
+	if err := cmdHookInstall([]string{"--data", dir}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(hookAt(t, dir)); string(b) != hookBody(filepath.Join(bin, "yars")) {
+		t.Fatalf("hook:\n%s", b)
+	}
+}
+
+// One engagement that cannot take the hook does not stop the others; the
+// run ends with an error. A symlink, a folder or our hook with lines added
+// counts as a hook someone else wrote.
+func TestHookInstallGoesOn(t *testing.T) {
+	useHookBin(t, "/usr/bin/yars")
+	dir := mainClone(t)
+	for _, id := range []string{"c", "d", "e"} {
+		gitT(t, filepath.Join(dir, "engagements"), "init", "-q", id)
+	}
+	// a: a .git file pointing at a modules folder that was removed
+	os.RemoveAll(filepath.Join(dir, "engagements", "a", ".git"))
+	write(t, filepath.Join(dir, "engagements", "a", ".git"), "gitdir: /nonexistent/modules/a\n")
+	// c: a dangling symlink, d: a folder, e: our hook with a line added
+	pc := hookAt(t, filepath.Join(dir, "engagements", "c"))
+	os.MkdirAll(filepath.Dir(pc), 0o755)
+	os.Symlink("/nonexistent/hook", pc)
+	pd := hookAt(t, filepath.Join(dir, "engagements", "d"))
+	os.MkdirAll(pd, 0o755)
+	pe := hookAt(t, filepath.Join(dir, "engagements", "e"))
+	write(t, pe, hookBody("/usr/bin/yars")+"echo mine\n")
+	var out bytes.Buffer
+	err := cmdHookInstall([]string{"--data", dir}, &out)
+	got := out.String()
+	if err == nil || !strings.Contains(got, filepath.Join(dir, "engagements", "a")+": ") || !strings.Contains(got, "installed b\n") || !strings.HasSuffix(got, "1 installed\n") {
+		t.Fatalf("%v\n%s", err, got)
+	}
+	for _, p := range []string{pc, pd, pe} {
+		if !strings.Contains(got, p+": a pre-commit hook exists already") {
+			t.Errorf("%s not reported as someone else's:\n%s", p, got)
+		}
+	}
+	if l, err := os.Readlink(pc); err != nil || l != "/nonexistent/hook" {
+		t.Errorf("the symlink changed: %q %v", l, err)
+	}
+	if b, _ := os.ReadFile(pe); !strings.HasSuffix(string(b), "echo mine\n") {
+		t.Errorf("the edited hook changed:\n%s", b)
+	}
+}
+
+func TestHookInstallRefusesArguments(t *testing.T) {
+	var out bytes.Buffer
+	if err := cmdHookInstall([]string{"some/clone"}, &out); err == nil || !strings.Contains(err.Error(), "--data") {
+		t.Fatalf("%v", err)
 	}
 }
 

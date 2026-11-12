@@ -55,6 +55,10 @@ func TestMain(m *testing.M) {
 	}
 	os.Setenv("XDG_CONFIG_HOME", cfg)
 	os.Unsetenv("YARS_DATA")
+	// nor the developer's git settings: a core.hooksPath there would send
+	// the hook tests to their real hooks, a credential helper their logins
+	os.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	os.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	code := m.Run()
 	os.RemoveAll(cfg)
 	if binDir != "" {

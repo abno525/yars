@@ -390,7 +390,7 @@ func engOfGitDir(dataDir, gitDir string) string {
 // "yars: <problem>" line per rejection reason. Exit 1 rejects the push.
 func cmdHook(args []string, in io.Reader, errOut io.Writer) int {
 	if len(args) == 0 || args[0] != "pre-receive" {
-		fmt.Fprintln(errOut, "yars: usage: yars hook pre-receive --data <dir>")
+		fmt.Fprintln(errOut, "yars: usage: yars hook pre-receive --data <dir> | yars hook install [--data <clone>]")
 		return 2
 	}
 	fs := flag.NewFlagSet("hook", flag.ContinueOnError)

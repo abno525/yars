@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -234,6 +235,9 @@ func lintStaged(ctx context.Context, dir string, out io.Writer, warnOnly bool) (
 // lintParallel is how many findings are asked about at a time.
 const lintParallel = 4
 
+// lintDialTimeout bounds connecting to the server.
+const lintDialTimeout = 10 * time.Second
+
 // gitHTTPClient is an HTTP client with git's own settings for the URL
 // (http.sslCAInfo, http.sslVerify, http.proxy, and their GIT_SSL_*
 // variables), so a clone that reaches its server through them needs
@@ -244,6 +248,9 @@ func gitHTTPClient(ctx context.Context, dir, origin string) (*http.Client, error
 		return strings.TrimSpace(string(out))
 	}
 	tr := http.DefaultTransport.(*http.Transport).Clone()
+	// a network that drops packets (offline, VPN down) fails in seconds; the
+	// answer itself may take as long as the run allows
+	tr.DialContext = (&net.Dialer{Timeout: lintDialTimeout, KeepAlive: 30 * time.Second}).DialContext
 	tr.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12}
 	ca := os.Getenv("GIT_SSL_CAINFO")
 	if ca == "" {
