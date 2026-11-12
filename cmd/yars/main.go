@@ -156,6 +156,8 @@ func cmdExport(args []string, out io.Writer) (int, error) {
 		// only finished findings leave YARS, as on the website (R10)
 		if s := ref.F.Meta.Status; s != "complete" && s != "reported" {
 			return 2, fmt.Errorf("%s is %s: only complete and reported findings are exported", ref.F.Meta.ID, s)
+		} else if !slices.Contains(ex.Statuses, s) { // and only those the exporter takes
+			return 2, fmt.Errorf("%s is %s: %s exports %s findings only", ref.F.Meta.ID, s, ex.ID, strings.Join(ex.Statuses, " and "))
 		}
 		named[ref.Dir] = true
 	}

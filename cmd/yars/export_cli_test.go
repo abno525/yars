@@ -72,6 +72,28 @@ func TestExportCLINamedDraftRefused(t *testing.T) {
 	}
 }
 
+// A named finding must be one the exporter takes, as on the website: a
+// reported finding is refused by an exporter of complete findings.
+func TestExportCLINamedOutsideStatuses(t *testing.T) {
+	dir := exportFixture(t)
+	if err := os.WriteFile(filepath.Join(dir, ".yars", "exporters", "done.yaml"), []byte("name: Done\ntype: confluence\nstatuses: [complete]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	d := openDB(t, dir)
+	if err := d.TxFor("acme", func(tx *db.Tx) error { return tx.PutState("acme", "F-001", db.State{Status: "reported"}) }); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(t.TempDir(), "r.html")
+	var log bytes.Buffer
+	code, err := cmdExport([]string{"--data", dir, "--exporter", "done", "--out", out, "acme", "F-001"}, &log)
+	if code != 2 || err == nil || err.Error() != "F-001 is reported: done exports complete findings only" {
+		t.Fatalf("code %d err %v", code, err)
+	}
+	if _, err := os.Stat(out); err == nil {
+		t.Fatal("exported anyway")
+	}
+}
+
 // An exporter whose file does not load says why, not "unknown exporter"
 // (backlog, M8).
 func TestExportCLIBrokenExporter(t *testing.T) {
