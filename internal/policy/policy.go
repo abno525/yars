@@ -418,7 +418,7 @@ func (c *Checker) checkRules(old, new string) []string {
 				return []string{"server: " + err.Error()}
 			}
 		}
-		blocks := status == "verification" || status == "complete" || status == "reported"
+		blocks := status == "verification" || status == "complete" || status == "reported" || status == unreadable
 		for _, v := range c.Linter.Lint(context.Background(), f, rules.All) {
 			// as the website: its own dismissal, or one made before they
 			// were per row
@@ -764,6 +764,10 @@ func plain(err error) string {
 	return strings.TrimPrefix(err.Error(), store.ErrInvalidValue.Error()+": ")
 }
 
+// unreadable is the status of a finding whose workflow state the database
+// did not give (a transient error): locked as a complete one is.
+const unreadable = "unreadable"
+
 // status is the finding's workflow status for content raw, from the
 // database (a complete finding whose content changed after approval counts
 // as in verification, as everywhere else).
@@ -773,7 +777,7 @@ func (c *Checker) status(eng, fid string, raw []byte) string {
 	}
 	st, err := c.DB.State(eng, fid)
 	if err != nil {
-		return "complete" // fail closed: only a director may edit
+		return unreadable // fail closed: only a director may edit, and is told why
 	}
 	if (st.Status == "complete" || st.Status == "reported") && !store.Approved(st, store.ContentHash(raw)) {
 		return "verification"
@@ -787,6 +791,10 @@ func (c *Checker) status(eng, fid string, raw []byte) string {
 // and directors'.
 func (c *Checker) lockProblem(u config.User, eng string, o finding.Meta) string {
 	switch o.Status {
+	case unreadable:
+		if !manager(u) {
+			return "the workflow state of " + o.ID + " could not be read; push again in a moment"
+		}
 	case "complete", "reported", workflow.Withdrawn:
 		if !manager(u) {
 			return o.ID + " is " + o.Status + "; only a director can change it"

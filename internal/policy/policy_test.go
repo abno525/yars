@@ -643,6 +643,26 @@ func TestPolicyLockedEdit(t *testing.T) {
 	}
 }
 
+// When the workflow state cannot be read, a push to the finding is refused
+// for that reason ("push again"), not as "complete; only a director": the
+// hook still fails closed for everyone but directors (backlog, M10).
+func TestPolicyStateUnreadable(t *testing.T) {
+	f := newFx(t)
+	edit := func(d string) { editMeta(d, func(fd *finding.Finding) { fd.SetSection("Impact", "changed") }) }
+	f.reclone()
+	if _, err := f.st.DB().Exec("ALTER TABLE finding_state RENAME TO finding_state_away"); err != nil {
+		t.Fatal(err)
+	}
+	ps := f.push("alice", edit)
+	if !has(ps, "the workflow state of F-001 could not be read; push again in a moment") || has(ps, "only a director can change it") {
+		t.Fatalf("alice: %v", ps)
+	}
+	f.reclone()
+	if ps := f.push("dora", edit); has(ps, "could not be read") {
+		t.Fatalf("dora: %v", ps)
+	}
+}
+
 // A withdrawn finding is locked like a complete one: only a director may
 // change it by push (the author restores it first).
 func TestPolicyWithdrawnLocked(t *testing.T) {
