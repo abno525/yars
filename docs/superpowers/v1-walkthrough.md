@@ -1,6 +1,6 @@
 # v1.0 walkthrough
 
-Run on 2026-11-12 with the binary built from `pr/29-release` (`go build -ldflags "-X main.version=v1.0.0-rc"`), on a fresh data folder (`yars init`), served at 127.0.0.1:8099. The browser was 1440 × 900, light theme. The machine has git 2.56, pandoc 3.10 and xelatex; no AI provider is configured.
+Run on 2026-11-12 on a fresh data folder (`yars init`), served at 127.0.0.1:8099, with binaries built from `pr/29-release` (`go build -ldflags "-X main.version=v1.0.0-rc"`): from cd3b982 for lines 1, 2 and line 3's first push, then from 54cac0f (the fix line 3 called for; the server restarted on it) for the rest. The browser was 1440 × 900, light theme. The machine has git 2.56, pandoc 3.10 and xelatex; no AI provider is configured.
 
 **Setup.** `/setup` created dana (director, admin). Admin › Users added pat (pentester) and rex (reviewer) with temporary passwords; each set a new one at first login. dana created engagement `acme` (ACME Web) with pat and rex on its team.
 
@@ -14,7 +14,7 @@ Run on 2026-11-12 with the binary built from `pr/29-release` (`go build -ldflags
 | 6 | Redact an image, see the mark, purge it as director, clone again, the old blob is gone | pass |
 | 7 | Keyboard only: inbox, finding, section, edit, save, submit | pass |
 | 8 | `yars backup`, `yars restore` into a new folder, serve it on another port, the findings are there | pass |
-| 9 | Admin › System: Run integrity is all OK | pass |
+| 9 | Admin › System: Run integrity is all OK | pass (AI provider Off: none configured; the Health heading shows no error or warning tag) |
 
 ## 1. Draft to reported, two reverts — pass
 
@@ -28,11 +28,13 @@ Run on 2026-11-12 with the binary built from `pr/29-release` (`go build -ldflags
 
 ## 2. Check, fix by hand, sign-off, approval — pass
 
+This ran on F-001 while it was still a draft, before line 1's Submit; its sign-off and its approval from Ready to approve are line 1's.
+
 - pat wrote the Description with a table whose cells were in backticks.
   - The live hint showed the error, and Check reported "Do not use backticks in table fields (backticks are not allowed in table cells)".
   - The Checks strip was open for the author, and the check opened a thread by `yars` on Description.
 - pat rewrote the table without backticks and ran Check: the thread shows "Resolved by yars".
-- rex signed off, and dana approved from Ready to approve, as in line 1.
+- rex then signed off and dana approved from Ready to approve: the steps recorded in line 1.
 - The AI rule `acronyms-expanded` reported "AI rules skipped: no AI provider configured". Fix with AI is disabled without a provider, so it was not run; its unit tests stand for it.
 
 ## 3. Git — fail, fixed, then pass
@@ -48,7 +50,7 @@ Commits and pushes:
 
 - **A rule error warns and goes through.** In the clone, a title ending in a dot, then `git commit -a`: "error title-no-trailing-dot: The title must not end with a dot … (commit not blocked)", and the commit was made.
 - **First push: fail.** A commit with `cvss: CVSS:3.1/…/I:Q/A:N`, then `git push`: refused with "invalid value Q for I". That says what is wrong, not how to fix it.
-- **The fix.** Commit 54cac0f, with the test `TestParseErrorsSayHowToFix` seen failing first. A vector that does not parse now names the values the metric takes, and a missing metric by name.
+- **The fix.** Commit 54cac0f, with the test `TestParseErrorsSayHowToFix` seen failing first. A vector that does not parse now names the values the metric takes, and a missing metric by name. The record's review found the same gap in the other parse errors (an empty value, a part that is not `metric:value`, a missing metric's values); 0843814 makes them say how to fix it too, and `docs/git.md` lists them.
 - **Run again** with the rebuilt binary:
   1. The same push: refused with "invalid value Q for I (Integrity): use N, L or H".
   2. Amended to `I:L` (every commit of a push is checked, D9): refused with "severity (none) does not match the CVSS vector (score 5.4 is medium); set severity: medium".
@@ -64,7 +66,9 @@ Commits and pushes:
 |---|---|
 | `zip` | 200 `application/zip`, `acme-html.zip`; its `acme/index.html` holds the finding, its severity and its table |
 | `pdf` | 200 `application/pdf`, `acme.pdf`, begins `%PDF-`, 14,847 bytes (pandoc and xelatex, 1.5 s) |
-| `docx` | 200 Word type, `acme.docx`, 11,021 bytes |
+| `docx` | 200 Word type, `acme.docx`, 11,021 bytes; its `word/document.xml` holds the title, the severity, the description and the table |
+
+Four more ZIP downloads followed (13:39–13:40 UTC in the audit log): the same request again, while the page's script read the ZIP's entries and unpacked `index.html`. They answered as the first did. The PDF was checked by its type, size and first bytes, not its text.
 
 ## 5. MCP over HTTP — pass
 
@@ -112,17 +116,19 @@ While 8099 served:
 
 dana logged in there with her password. `/e/acme` lists F-001 complete (signed off by rex), F-002 in verification and F-003 in verification, as on the live server.
 
-## 9. Integrity — pass
+## 9. Integrity — pass (AI provider Off)
 
-dana, Admin › System, Run integrity:
+dana, Admin › System, Run integrity (run at 14:46, and again at 14:59 for this record). The Health heading reads "Checked 14:59", with no error or warning tag. The table, as the page shows it:
 
-| Check | State | Result |
-|---|---|---|
-| Rules | OK | 5 loaded |
-| Destinations | OK | 2 destinations |
-| pandoc + PDF engine | OK | pandoc 3.10, XeTeX |
-| Git server repos | OK | 2 repos |
-| AI provider | Off | none configured |
-| Disk free | OK | 13.3 GB of 15.2 GB |
-| Database integrity | OK | `integrity_check ok`, schema v22 |
-| Git repositories | OK | 2 repos, fsck |
+| Check | Status | Result | Detail |
+|---|---|---|---|
+| Rules | OK | 5 loaded | — |
+| Destinations | OK | Confluence HTML, Client report (DOCX) | 2 destinations |
+| pandoc + PDF engine | OK | pandoc 3.10 · xelatex | XeTeX 3.141592653-2.6-0.999998 (TeX Live 2026/TeX Live for SUSE Linux) |
+| Git server repos | OK | 2 repos | git version 2.56.0 |
+| AI provider | OFF | Off | — |
+| Disk free | OK | 13.3 GB of 15.2 GB | (the data folder) |
+| Database integrity | OK | 212.0 KB | integrity_check ok · schema v22 |
+| Git repositories | OK | 2 repos | fsck |
+
+The AI provider is Off because none is configured, as in line 2; every other row is OK.
