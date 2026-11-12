@@ -44,11 +44,11 @@ func TestQueues(t *testing.T) {
 		u    config.User
 		want []Inbox
 	}{
-		{alice, []Inbox{InboxReturned, InboxThreads, InboxBoard, InboxDraft}},
-		{bob, []Inbox{InboxReview, InboxThreads, InboxBoard}},
-		{dora, []Inbox{InboxApprove, InboxReport, InboxBoard}},
-		{config.User{Username: "root", Role: "pentester", IsAdmin: true}, []Inbox{InboxReturned, InboxThreads, InboxBoard, InboxDraft}},
-		{config.User{Username: "x", Role: "nobody"}, []Inbox{InboxBoard}},
+		{alice, []Inbox{InboxReturned, InboxThreads, InboxBoard, InboxNotes, InboxDraft}},
+		{bob, []Inbox{InboxReview, InboxThreads, InboxBoard, InboxNotes}},
+		{dora, []Inbox{InboxApprove, InboxReport, InboxBoard, InboxNotes}},
+		{config.User{Username: "root", Role: "pentester", IsAdmin: true}, []Inbox{InboxReturned, InboxThreads, InboxBoard, InboxNotes, InboxDraft}},
+		{config.User{Username: "x", Role: "nobody"}, []Inbox{InboxBoard, InboxNotes}},
 	}
 	for _, c := range cases {
 		if got := Queues(c.u); !slices.Equal(got, c.want) {
@@ -66,7 +66,7 @@ func TestQueues(t *testing.T) {
 			last = i
 		}
 	}
-	if len(QueueOrder) != 7 {
+	if len(QueueOrder) != 8 {
 		t.Errorf("%d queues", len(QueueOrder))
 	}
 }

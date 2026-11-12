@@ -117,7 +117,16 @@ type link struct {
 	Key          string // columns: the sort key (sets the column width)
 	Label, URL   string
 	Active, Desc bool
-	Count        int // status filters: findings with that status
+	Count        int    // status filters: findings with that status
+	Keys         string // status filters: the digit that picks it (its place, 1–9)
+}
+
+// filterKey is the digit of the filter at place i (0-based): 1 to 9, then none.
+func filterKey(i int) string {
+	if i < 9 {
+		return strconv.Itoa(i + 1)
+	}
+	return ""
 }
 
 type panel struct {
@@ -140,7 +149,7 @@ type page struct {
 	CanManage     bool
 	CanEngs       bool   // creates engagements and changes teams (directors and admins)
 	CanAdmin      bool   // the Admin nav item
-	Nav           string // active top-bar item: "" (findings), "inbox", "admin", "notifications" (the bell) or "settings" (the user name: Settings and Developers)
+	Nav           string // active top-bar item: "" (findings), "inbox" (the inbox and the notifications page), "admin" or "settings" (the user name: Settings and Developers)
 	Bare          bool   // no top bar: login and first run
 	Admin         adminView
 	Settings      settingsView
@@ -200,7 +209,7 @@ type page struct {
 	Merge       mergeView  // the Merge confirm page
 	Purge       purgeView  // the Purge from history confirm page (D28)
 	CanMerge    bool       // the finding page: Merge into
-	Unread      int        // the bell: unread notifications
+	Unread      int        // the notifications page: unread notifications
 	Notes       notesView  // the notifications page
 	Docs        docsView   // the developer docs
 	TeamBoard   teamBoardView
@@ -487,10 +496,6 @@ func (s *Server) base(r *http.Request, eng string) (*page, error) {
 			p.Inbox, p.inboxErr = inboxView{}, err
 		}
 	}
-	if p.Unread, err = s.Store.UnreadCount(u); err != nil {
-		log.Printf("unread notifications: %v", err)
-		p.Unread = 0
-	}
 	if eng != "" {
 		i := slices.IndexFunc(engs, func(e store.Engagement) bool { return e.ID == eng })
 		if i >= 0 {
@@ -506,7 +511,7 @@ func (s *Server) base(r *http.Request, eng string) (*page, error) {
 }
 
 // badges reads the inbox the top bar counts: the queues, less findings
-// waiting on open checks, and the team board.
+// waiting on open checks, the team board and the notices.
 func (s *Server) badges(p *page, u config.User, engs []store.Engagement) error {
 	var err error
 	if p.Inbox, err = s.inboxFor(u, engs); err != nil {
@@ -515,8 +520,11 @@ func (s *Server) badges(p *page, u config.User, engs []store.Engagement) error {
 	if p.Inbox, err = s.withoutOpenChecks(p.Inbox); err != nil {
 		return err
 	}
-	// a copy of the cached view: the board queue is read now
-	p.Inbox.Board, p.Inbox.BoardTotal, err = s.boardInbox(u, engs)
+	// a copy of the cached view: the board and the notices are read now
+	if p.Inbox.Board, p.Inbox.BoardTotal, err = s.boardInbox(u, engs); err != nil {
+		return err
+	}
+	p.Inbox.Notes, p.Inbox.NotesTotal, err = s.notesInbox(u, engs)
 	return err
 }
 
@@ -708,7 +716,7 @@ func (s *Server) engPage(r *http.Request, eng string, keep map[string]bool) (*pa
 		}
 		// the key names the link's id (flt-…), so focus stays on it after the swap
 		p.StatusFilters = append(p.StatusFilters, link{Key: key, Label: label, Active: st == query.Shown, Count: n,
-			URL: mk(func(v url.Values) { setOrDel(v, "status", st) })})
+			URL: mk(func(v url.Values) { setOrDel(v, "status", st) }), Keys: filterKey(len(p.StatusFilters))})
 	}
 	cols := columns
 	if p.Eng.Type == "retest" {

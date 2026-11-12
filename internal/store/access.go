@@ -61,8 +61,26 @@ func (s *Store) NotificationPage(u config.User, unread bool, engs []string, befo
 	return s.db.NotificationPage(u.Username, SeesAll(u), unread, engs, before, limit)
 }
 
+// UnreadNotes lists u's newest unread notifications, as Notifications
+// filters them, without the events in skip and the engagements in skipEngs,
+// at most limit, and how many there are in all.
+func (s *Store) UnreadNotes(u config.User, skip, skipEngs []string, limit int) ([]db.Notification, int, error) {
+	if s.db == nil {
+		return nil, 0, nil
+	}
+	return s.db.UnreadNotes(u.Username, SeesAll(u), skip, skipEngs, limit)
+}
+
+// MarkNotesRead marks read what UnreadNotes lists for the same filters.
+func (s *Store) MarkNotesRead(u config.User, skip, skipEngs []string) error {
+	if s.db == nil {
+		return ErrNoDB
+	}
+	return s.db.MarkNotesRead(u.Username, SeesAll(u), skip, skipEngs)
+}
+
 // UnreadCount is how many of u's notifications of engagements u can see
-// are unread (the bell).
+// are unread (the notifications page).
 func (s *Store) UnreadCount(u config.User) (int, error) {
 	if s.db == nil {
 		return 0, nil

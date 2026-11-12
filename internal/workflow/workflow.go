@@ -348,25 +348,26 @@ const (
 	InboxReport   Inbox = "report"   // 4 Ready to mark reported
 	InboxThreads  Inbox = "threads"  // 5 Open threads on my findings
 	InboxBoard    Inbox = "board"    // 6 New on team board
-	InboxDraft    Inbox = "drafts"   // 7 My drafts
+	InboxNotes    Inbox = "notes"    // 7 Notifications
+	InboxDraft    Inbox = "drafts"   // 8 My drafts
 )
 
 // QueueOrder is the one order the inbox shows its queues in.
-var QueueOrder = []Inbox{InboxReturned, InboxReview, InboxApprove, InboxReport, InboxThreads, InboxBoard, InboxDraft}
+var QueueOrder = []Inbox{InboxReturned, InboxReview, InboxApprove, InboxReport, InboxThreads, InboxBoard, InboxNotes, InboxDraft}
 
 var roleQueues = map[string][]Inbox{
-	"pentester": {InboxReturned, InboxThreads, InboxBoard, InboxDraft},
-	"reviewer":  {InboxReview, InboxThreads, InboxBoard},
-	"director":  {InboxApprove, InboxReport, InboxBoard},
+	"pentester": {InboxReturned, InboxThreads, InboxBoard, InboxNotes, InboxDraft},
+	"reviewer":  {InboxReview, InboxThreads, InboxBoard, InboxNotes},
+	"director":  {InboxApprove, InboxReport, InboxBoard, InboxNotes},
 }
 
 // Queues are the inbox queues of u's role, in QueueOrder; everyone has New
-// on team board.
+// on team board and Notifications.
 func Queues(u config.User) []Inbox {
 	if q, ok := roleQueues[u.Role]; ok {
 		return q
 	}
-	return []Inbox{InboxBoard}
+	return []Inbox{InboxBoard, InboxNotes}
 }
 
 // Pending classifies whether a finding needs u's attention, and in which

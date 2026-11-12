@@ -16,16 +16,16 @@ import (
 	"yars/internal/workflow"
 )
 
-// bell returns the header's notification count as shown ("0" black, other
-// numbers orange).
+// bell returns the notifications page's unread count as shown ("0" black,
+// other numbers orange).
 func bell(t *testing.T, e *env, user string) string {
 	t.Helper()
-	b := e.do(t, user, "GET", "/inbox", nil, nil).Body.String()
-	m := regexp.MustCompile(`<a class="bell[^"]*" href="/notifications"[^>]*>.*?<span class="(badge|badge0)">(\d+)</span>`).FindStringSubmatch(b)
+	b := e.do(t, user, "GET", "/notifications", nil, nil).Body.String()
+	m := regexp.MustCompile(`<span class="(qcnt|qcnt zero)">(\d+)</span>\s*<button class="btn secondary w152"[^>]*>Mark all read</button>`).FindStringSubmatch(b)
 	if m == nil {
-		t.Fatalf("no bell in header")
+		t.Fatalf("no unread count")
 	}
-	if (m[2] == "0") != (m[1] == "badge0") {
+	if (m[2] == "0") != (m[1] == "qcnt zero") {
 		t.Fatalf("count %s shown as %s", m[2], m[1])
 	}
 	return m[2]
@@ -103,7 +103,7 @@ func TestNotificationsFlow(t *testing.T) {
 		t.Fatalf("carol's bell %s", got)
 	}
 	b := e.do(t, "alice", "GET", "/notifications", nil, nil).Body.String()
-	for _, want := range []string{"Returned to me", "Mentioned", "add a PoC", "@alice which roles?", "F-001", "<thead>", `class="bell on"`} {
+	for _, want := range []string{"Returned to me", "Mentioned", "add a PoC", "@alice which roles?", "F-001", "<thead>", `<a class="on" href="/inbox"`} {
 		if !strings.Contains(b, want) {
 			t.Errorf("notifications page lacks %q", want)
 		}

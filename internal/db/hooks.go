@@ -338,6 +338,62 @@ func (d *DB) UnreadCountFor(user string, all bool) (int, error) {
 	return n, err
 }
 
+// UnreadNotes lists user's newest unread notifications first, filtered like
+// NotificationsFor, without the events in skip and the engagements in
+// skipEngs, at most limit, and how many there are in all (the inbox's
+// Notifications section).
+func (d *DB) UnreadNotes(user string, all bool, skip, skipEngs []string, limit int) ([]Notification, int, error) {
+	cond, args := unreadNotesCond(user, all, skip, skipEngs)
+	var total int
+	if err := d.QueryRow("SELECT COUNT(*) FROM notifications WHERE username = ?"+cond, args...).Scan(&total); err != nil || total == 0 {
+		return nil, 0, err
+	}
+	rows, err := d.Query("SELECT "+noteCols+" FROM notifications WHERE username = ?"+cond+" ORDER BY id DESC LIMIT ?", append(args, limit)...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	var out []Notification
+	for rows.Next() {
+		n, err := scanNote(rows)
+		if err != nil {
+			return nil, 0, err
+		}
+		out = append(out, n)
+	}
+	return out, total, rows.Err()
+}
+
+// MarkNotesRead marks read every notification UnreadNotes lists for the
+// same filters (the inbox section's Mark all read).
+func (d *DB) MarkNotesRead(user string, all bool, skip, skipEngs []string) error {
+	cond, args := unreadNotesCond(user, all, skip, skipEngs)
+	_, err := d.Exec("UPDATE notifications SET read = 1 WHERE username = ?"+cond, args...)
+	return err
+}
+
+// unreadNotesCond is UnreadNotes' filter after "username = ?", and its
+// arguments (the user first).
+func unreadNotesCond(user string, all bool, skip, skipEngs []string) (string, []any) {
+	cond, args := " AND read = 0", []any{user}
+	if !all {
+		cond += onTeams
+	}
+	for _, not := range []struct {
+		col  string
+		vals []string
+	}{{"event", skip}, {"eng", skipEngs}} {
+		if len(not.vals) == 0 {
+			continue
+		}
+		cond += " AND " + not.col + " NOT IN (?" + strings.Repeat(",?", len(not.vals)-1) + ")"
+		for _, v := range not.vals {
+			args = append(args, v)
+		}
+	}
+	return cond, args
+}
+
 func (d *DB) notes(cond, user string, limit int) ([]Notification, error) {
 	rows, err := d.Query("SELECT "+noteCols+" FROM notifications WHERE username = ?"+cond+" ORDER BY id DESC LIMIT ?", user, limit)
 	if err != nil {

@@ -41,9 +41,9 @@ func queue(b, name string) string {
 func TestInboxQueuesPerRole(t *testing.T) {
 	e := setup(t)
 	for u, want := range map[string]string{
-		"alice": "Returned to me,Open threads on my findings,New on team board,My drafts",
-		"bob":   "Awaiting my review,Open threads on my findings,New on team board",
-		"dora":  "Ready to approve,Ready to mark reported,New on team board",
+		"alice": "Returned to me,Open threads on my findings,New on team board,Notifications,My drafts",
+		"bob":   "Awaiting my review,Open threads on my findings,New on team board,Notifications",
+		"dora":  "Ready to approve,Ready to mark reported,New on team board,Notifications",
 	} {
 		b := e.do(t, u, "GET", "/inbox", nil, nil).Body.String()
 		names, _ := queues(b)
@@ -74,7 +74,7 @@ func TestInboxQueuesPerRole(t *testing.T) {
 		t.Fatal(err)
 	}
 	names, _ := queues(e.do(t, "bob", "GET", "/inbox", nil, nil).Body.String())
-	if got := strings.Join(names, ","); got != "Returned to me,Awaiting my review,Open threads on my findings,New on team board" {
+	if got := strings.Join(names, ","); got != "Returned to me,Awaiting my review,Open threads on my findings,New on team board,Notifications" {
 		t.Errorf("bob with a returned finding: %s", got)
 	}
 }
@@ -84,7 +84,7 @@ func TestInboxQueuesPerRole(t *testing.T) {
 func TestInboxEmptyQueues(t *testing.T) {
 	e := setup(t)
 	e.srv.Store.Archive("acme", wDora) // alice's draft leaves her queues
-	for u, want := range map[string]int{"alice": 4, "bob": 3, "dora": 3} {
+	for u, want := range map[string]int{"alice": 5, "bob": 4, "dora": 4} {
 		b := e.do(t, u, "GET", "/inbox", nil, nil).Body.String()
 		_, counts := queues(b)
 		if len(counts) != want || strings.Count(b, `<span class="qcnt zero">0</span>`) != want {

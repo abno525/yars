@@ -33,9 +33,10 @@ func TestShellHeader(t *testing.T) {
 	}
 }
 
-// The header's right side runs Go to, bell, user name, Log out. Developers
-// and the theme are reached from the user name (Settings), not the top bar,
-// so the Developers pages light the user name.
+// The header's right side runs user name, Go to, Log out. Developers and the
+// theme are reached from the user name (Settings), not the top bar, so the
+// Developers pages light the user name; the notices are in the inbox (no
+// bell).
 func TestShellHeaderOrder(t *testing.T) {
 	e := setup(t)
 	for _, p := range []string{"/", "/docs/mcp"} {
@@ -52,8 +53,11 @@ func TestShellHeaderOrder(t *testing.T) {
 		if strings.Contains(head, "data-theme-toggle") || strings.Contains(head, "Theme") {
 			t.Fatalf("%s: a theme button in the top bar:\n%s", p, head)
 		}
+		if strings.Contains(head, `class="bell`) || strings.Contains(head, `href="/notifications"`) {
+			t.Fatalf("%s: a bell in the top bar:\n%s", p, head)
+		}
 		last := -1
-		for _, want := range []string{`data-goto`, `class="bell`, `class="who`, `logout`} {
+		for _, want := range []string{`class="who`, `data-goto`, `logout`} {
 			k := strings.Index(head, want)
 			if k <= last {
 				t.Fatalf("%s: %s out of order (at %d, after %d):\n%s", p, want, k, last, head)

@@ -85,8 +85,12 @@ func (s *Server) notificationsPage(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	p.Nav = "notifications"
+	p.Nav = "inbox" // reached from the inbox's Notifications section
 	if s.Store.DB() != nil {
+		if p.Unread, err = s.Store.UnreadCount(p.User); err != nil {
+			s.fail(w, err)
+			return
+		}
 		l, err := s.Store.Notifications(p.User, false, 200)
 		if err != nil {
 			s.fail(w, err)
@@ -127,27 +131,29 @@ func (s *Server) notificationOpen(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	to := "/notifications"
-	switch {
-	case n.Event == notify.Token:
-		to = "/settings#tokens"
-	case n.Dir != "" && store.ValidID(n.Eng) && store.ValidID(n.Dir):
-		to = findingURL(n.Eng, n.Dir)
-	case store.ValidID(n.Eng):
-		to = "/e/" + n.Eng
-	}
-	http.Redirect(w, r, to, http.StatusSeeOther)
+	http.Redirect(w, r, noteTarget(n), http.StatusSeeOther)
 }
 
+// notificationsRead marks every notice read; from the inbox's Notifications
+// section (back=inbox) only those the section lists, and back to the inbox.
 func (s *Server) notificationsRead(w http.ResponseWriter, r *http.Request) {
 	u := auth.UserFrom(r.Context())
-	if d := s.Store.DB(); d != nil {
-		if err := d.MarkAllRead(u.Username); err != nil {
-			s.fail(w, err)
-			return
-		}
+	d := s.Store.DB()
+	if d == nil {
+		http.Redirect(w, r, "/notifications", http.StatusSeeOther)
+		return
 	}
-	http.Redirect(w, r, "/notifications", http.StatusSeeOther)
+	to, err := "/notifications", error(nil)
+	if r.PostFormValue("back") == "inbox" {
+		to, err = "/inbox", s.markNotesRead(u)
+	} else {
+		err = d.MarkAllRead(u.Username)
+	}
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	http.Redirect(w, r, to, http.StatusSeeOther)
 }
 
 // gotoView is the Go to palette's result list.

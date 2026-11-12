@@ -37,20 +37,24 @@ type inboxRow struct {
 	At                 time.Time
 	Act, ActURL        string
 	Primary            bool
+	NoteID             int64     // a notice (Notifications): Open posts to it
 	row                index.Row // the finding (bulk menu, refresh after a run)
 }
 
 // inboxView is a user's queues. Lists (findings and threads) are built once
-// per index generation and shared: read only. Board is read per request.
+// per index generation and shared: read only. Board and Notes are read per
+// request.
 type inboxView struct {
 	Lists      map[workflow.Inbox][]inboxRow
 	Board      []inboxRow
 	BoardTotal int // notes with something new (Board is capped)
+	Notes      []inboxRow
+	NotesTotal int // unread notices (Notes is capped)
 }
 
 // Count is the nav badge: every row of every queue the user sees.
 func (v inboxView) Count() int {
-	n := v.BoardTotal
+	n := v.BoardTotal + v.NotesTotal
 	for _, l := range v.Lists {
 		n += len(l)
 	}
@@ -69,14 +73,14 @@ type inboxCache struct {
 var inboxHeadings = map[workflow.Inbox]string{
 	workflow.InboxReturned: "Returned to me", workflow.InboxReview: "Awaiting my review", workflow.InboxApprove: "Ready to approve",
 	workflow.InboxReport: "Ready to mark reported", workflow.InboxThreads: "Open threads on my findings",
-	workflow.InboxBoard: "New on team board", workflow.InboxDraft: "My drafts",
+	workflow.InboxBoard: "New on team board", workflow.InboxNotes: "Notifications", workflow.InboxDraft: "My drafts",
 }
 
 // inboxWho heads the who · what column of each queue.
 var inboxWho = map[workflow.Inbox]string{
 	workflow.InboxReturned: "Returned by", workflow.InboxReview: "Author", workflow.InboxApprove: "Signed off by",
 	workflow.InboxReport: "Approved by", workflow.InboxThreads: "Last message", workflow.InboxBoard: "Latest",
-	workflow.InboxDraft: "Checks",
+	workflow.InboxNotes: "By", workflow.InboxDraft: "Checks",
 }
 
 // inboxFor classifies every finding across the open engagements u sees,
@@ -458,8 +462,11 @@ func (s *Server) inboxPage(name workflow.Inbox, rows []inboxRow, off, upTo int, 
 	end := min(max(off+s.pageSize, upTo+1), len(rows))
 	l := inboxList{Name: name, Heading: inboxHeadings[name], TagHead: "Severity", WhoHead: inboxWho[name], Total: len(rows),
 		Rows: rows[off:end], Offset: off, PageSize: s.pageSize}
-	if name == workflow.InboxBoard {
+	switch name {
+	case workflow.InboxBoard:
 		l.TagHead = "State"
+	case workflow.InboxNotes:
+		l.TagHead = "Event"
 	}
 	if end < len(rows) {
 		next := end
@@ -503,6 +510,8 @@ func (s *Server) queueRows(v inboxView, k workflow.Inbox) ([]inboxRow, error) {
 	switch k {
 	case workflow.InboxBoard:
 		return v.Board, nil
+	case workflow.InboxNotes:
+		return v.Notes, nil
 	case workflow.InboxDraft:
 		return s.draftChecks(v.Lists[k])
 	}
@@ -533,8 +542,12 @@ func (s *Server) inboxListsOf(u config.User, v inboxView, upTo map[workflow.Inbo
 			return inboxLists{}, err
 		}
 		l := s.inboxPage(k, rows, 0, upTo[k], moved)
-		if k == workflow.InboxBoard {
-			l.Total = max(l.Total, v.BoardTotal) // the list is capped, the count is not
+		// the lists are capped, the counts are not
+		switch k {
+		case workflow.InboxBoard:
+			l.Total = max(l.Total, v.BoardTotal)
+		case workflow.InboxNotes:
+			l.Total = max(l.Total, v.NotesTotal)
 		}
 		if out.Bulk != nil && inboxPicks(k) {
 			l.Bulk = out.Bulk
@@ -640,7 +653,8 @@ func (s *Server) inboxAfterBulk(u config.User, before inboxView, v bulkView) (in
 			fresh[it.Eng+"/"+r.Dir] = r
 		}
 	}
-	after := inboxView{Lists: map[workflow.Inbox][]inboxRow{}, Board: before.Board, BoardTotal: before.BoardTotal}
+	after := inboxView{Lists: map[workflow.Inbox][]inboxRow{}, Board: before.Board, BoardTotal: before.BoardTotal,
+		Notes: before.Notes, NotesTotal: before.NotesTotal}
 	upTo := map[workflow.Inbox]int{}
 	placed := map[string]bool{}
 	for k, rows := range before.Lists {

@@ -870,7 +870,7 @@ summary.panelhead::-webkit-details-marker { display: none; }
 .inboxt thead th { height: 40px; padding: 0 8px; text-align: left; font: 700 12px/1 var(--sans); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--line); white-space: nowrap; }
 .inboxt thead th:first-child { padding-left: 20px; }
 .inboxt thead th:last-child { padding-right: 20px; }
-/* every queue: [pick 40] | title | tag 120 | engagement · ID 170 | who · what 260 | time 72 | action 104; 16 between, 20 at the ends */
+/* every queue: [pick 40] | title | tag 152 | engagement · ID 170 | who · what 260 | time 72 | action 104; 16 between, 20 at the ends */
 .table.inboxt { border: 0; table-layout: fixed; }
 .inboxt th, .inboxt td { padding: 0 8px; }
 .inboxt th:first-child, .inboxt td:first-child { padding-left: 20px; }
@@ -878,7 +878,9 @@ summary.panelhead::-webkit-details-marker { display: none; }
 .inboxt td { height: 56px; }
 .table.inboxt .title { width: auto; }
 .table.inboxt .c-pick { width: 68px; }
-.table.inboxt .c-tag { width: 136px; }
+.table.inboxt .c-tag { width: 168px; } /* an event's name is the longest tag (as on the notifications page) */
+.q-notes .tag { width: 152px; }
+.qh .qacts { margin-left: auto; display: flex; gap: 8px; }
 .table.inboxt .c-eng { width: 186px; }
 .table.inboxt .c-what { width: 276px; }
 .table.inboxt .c-age { width: 88px; }
@@ -1595,7 +1597,7 @@ dialog.redact::backdrop { background: var(--redact-scrim); }
 .h-s3 { color: var(--http-redirect); }
 .h-s4, .h-s5 { color: var(--http-bad); }
 
-/* ---------- M18: header (Go to, bell), notifications ---------- */
+/* ---------- M18: header (Go to), notifications ---------- */
 .w160 { width: 160px; }
 kbd {
   min-width: 28px; height: 24px; padding: 0 6px; display: inline-flex; align-items: center; justify-content: center; flex: none;
@@ -1607,18 +1609,9 @@ kbd {
 }
 .goto:hover, .goto[aria-expanded=true] { border-color: var(--accent); color: var(--head-strong); }
 .goto kbd { height: 24px; background: transparent; border: 1px solid var(--head-field-line); color: var(--head-text); }
-/* the header holds the Go to button and the bell too: tighter gaps */
+/* the header holds the Go to button too: tighter gaps */
 .topbar { gap: 12px; }
 .nav a { padding: 0 12px; }
-.bell {
-  width: 60px; height: 64px; flex: none; display: inline-flex; align-items: center; justify-content: center; gap: 4px;
-  color: var(--head-text); text-decoration: none;
-}
-.bell:hover { color: var(--head-strong); }
-.bell.on { color: var(--head-strong); box-shadow: inset 0 -3px 0 var(--accent); }
-.bell svg { width: 20px; height: 20px; flex: none; }
-.bell .badge, .bell .badge0 { min-width: 28px; height: 20px; }
-.bell .badge { color: var(--on-accent); }
 
 dialog.gotodlg {
   width: 760px; max-width: calc(100vw - 64px); margin: 120px auto auto; padding: 0; border: 0; background: var(--surface); color: var(--text);
@@ -1671,11 +1664,12 @@ dialog.keysdlg { width: 880px; margin-top: 48px; }
 .notetable th.c-who2 { width: 120px; }
 .notetable td .fid { margin-right: 6px; }
 /* opening marks read, so it is a POST: a button that looks like the link */
-.notetable button.noteopen { width: 100%; min-width: 0; margin: 0; padding: 0; border: 0; border-radius: 0; background: none;
+/* a notice's title is a button (it marks the notice read): it looks like the title links */
+button.noteopen { width: 100%; min-width: 0; margin: 0; padding: 0; border: 0; border-radius: 0; background: none;
   font: inherit; font-weight: 600; color: var(--text); text-align: left; cursor: pointer;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.notetable button.noteopen:hover { color: var(--accent-text); }
-.notetable button.noteopen:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+button.noteopen:hover { color: var(--accent-text); }
+button.noteopen:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .notetable tr.unread td { background: var(--sel-bg); }
 .notetable tr.unread td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 .notetable .tag { width: 152px; }

@@ -1,5 +1,5 @@
 // Package notify turns YARS events into notifications for the people they
-// concern: an in-app list (the bell) and, when the server has SMTP settings,
+// concern: an in-app list (the inbox's Notifications) and, when the server has SMTP settings,
 // email. Each user chooses the channels per event (notify_prefs).
 package notify
 

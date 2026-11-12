@@ -160,6 +160,39 @@ func TestNotifications(t *testing.T) {
 	}
 }
 
+// The inbox's notices: unread only, without the skipped events and
+// engagements, the team filter as the bell's; the total is not capped.
+func TestUnreadNotes(t *testing.T) {
+	d := openTest(t)
+	d.AddUser(config.User{Username: "pen", Role: "pentester"})
+	d.AddMembers("acme", "pen")
+	d.AddMembers("old", "pen")
+	d.AddNotification(Notification{User: "pen", Event: "returned", Eng: "acme", Fid: "F-001", Text: "skipped event"})
+	d.AddNotification(Notification{User: "pen", Event: "mentioned", Eng: "old", Fid: "F-001", Text: "skipped engagement"})
+	d.AddNotification(Notification{User: "pen", Event: "mentioned", Eng: "other", Fid: "F-001", Text: "not on the team"})
+	id, _ := d.AddNotification(Notification{User: "pen", Event: "approved", Eng: "acme", Fid: "F-002", Text: "read"})
+	d.MarkRead("pen", id)
+	d.AddNotification(Notification{User: "pen", Event: "token", Text: "no engagement"})
+	d.AddNotification(Notification{User: "pen", Event: "approved", Eng: "acme", Fid: "F-003", Text: "newest"})
+	l, total, err := d.UnreadNotes("pen", false, []string{"returned", "review"}, []string{"old"}, 1)
+	if err != nil || total != 2 || len(l) != 1 || l[0].Text != "newest" {
+		t.Fatalf("%d %+v %v", total, l, err)
+	}
+	if _, total, _ := d.UnreadNotes("pen", true, nil, nil, 50); total != 5 {
+		t.Fatalf("all %d", total)
+	}
+	if l, total, err := d.UnreadNotes("rev", false, nil, nil, 50); err != nil || total != 0 || l != nil {
+		t.Fatalf("none %d %+v %v", total, l, err)
+	}
+	// marking them read leaves the skipped and the other teams' ones
+	if err := d.MarkNotesRead("pen", false, []string{"returned", "review"}, []string{"old"}); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := d.UnreadCountFor("pen", true); n != 3 {
+		t.Fatalf("unread after %d", n)
+	}
+}
+
 // Listing and counting for someone who sees only their teams' engagements
 // skip the others (filtered before the limit); notifications without an
 // engagement always count.
