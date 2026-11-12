@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -147,6 +148,33 @@ func TestRetestCreateFailureKeepsForm(t *testing.T) {
 	b := rec.Body.String()
 	if rec.Code != http.StatusInternalServerError || !strings.Contains(b, "<html") || !strings.Contains(b, "the retest could not be created; try again") || !strings.Contains(b, `value="Second look"`) {
 		t.Fatalf("code %d:\n%s", rec.Code, b)
+	}
+}
+
+// A retest engagement with no source (only a hand edit on the server makes
+// one: the website and pushes refuse it) names none in its head, instead of
+// linking to /e/ (backlog, M7).
+func TestRetestHeadWithoutSource(t *testing.T) {
+	e := setup(t)
+	repo := filepath.Join(e.dir, "engagements", "acme")
+	f := filepath.Join(repo, "engagement.yaml")
+	b, err := os.ReadFile(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), "type: pentest") {
+		t.Fatalf("engagement.yaml:\n%s", b)
+	}
+	if err := os.WriteFile(f, []byte(strings.Replace(string(b), "type: pentest", "type: retest", 1)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("git", "-C", repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qam", "hand edit").CombinedOutput(); err != nil {
+		t.Fatalf("%v %s", err, out)
+	}
+	e.srv.Store.Invalidate("acme")
+	page := e.do(t, "alice", "GET", "/e/acme", nil, nil).Body.String()
+	if !strings.Contains(page, "Retest of") || strings.Contains(page, `href="/e/"`) {
+		t.Fatalf("the head links nowhere:\n%s", page)
 	}
 }
 

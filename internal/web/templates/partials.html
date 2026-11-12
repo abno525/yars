@@ -93,7 +93,7 @@ the table's column count. */}}
 <div class="titlerow">
   <div class="titlecol">
     <h1 title="{{.Eng.Name}}">{{.Eng.Name}}</h1>
-    <p class="sub">{{.Eng.Client}}{{if .Eng.Start}}{{if .Eng.Client}} · {{end}}{{.Eng.Start}}{{if .Eng.End}} – {{.Eng.End}}{{end}}{{end}}{{if .IsRetest}}{{if or .Eng.Client .Eng.Start}} · {{end}}Retest of <a href="/e/{{.Eng.Source}}">{{if .Source.Name}}{{.Source.Name}}{{else}}{{.Eng.Source}}{{end}}</a>{{end}}</p>
+    <p class="sub">{{.Eng.Client}}{{if .Eng.Start}}{{if .Eng.Client}} · {{end}}{{.Eng.Start}}{{if .Eng.End}} – {{.Eng.End}}{{end}}{{end}}{{if .IsRetest}}{{if or .Eng.Client .Eng.Start}} · {{end}}Retest of {{if .Eng.Source}}<a href="/e/{{.Eng.Source}}">{{if .Source.Name}}{{.Source.Name}}{{else}}{{.Eng.Source}}{{end}}</a>{{else}}—{{end}}{{end}}</p>
   </div>
   <div class="actions">
     <a class="btn secondary w128" href="/e/{{.Eng.ID}}/export">Export</a>
