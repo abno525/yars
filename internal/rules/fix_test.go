@@ -95,12 +95,12 @@ func TestFixAnthropic(t *testing.T) {
 	if sys != fixPrompt || max != float64(8192) {
 		t.Fatalf("request %v %v", sys, max)
 	}
-	// the rule check keeps its own prompt and 1024
+	// the rule check keeps its own prompt and limit
 	r.AI(context.Background(), acr, "title", "XSS")
 	mu.Lock()
 	sys, max = req["system"], req["max_tokens"]
 	mu.Unlock()
-	if sys != systemPrompt || max != float64(1024) {
+	if sys != systemPrompt || max != float64(ruleTokens) {
 		t.Fatalf("rule request %v %v", sys, max)
 	}
 }

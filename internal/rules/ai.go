@@ -76,7 +76,9 @@ func EnvKeyApplies(conf, eff config.AIConfig) bool {
 
 // ruleTokens is the reply limit of a rule check (Anthropic needs one;
 // OpenAI-compatible providers get none, as some models refuse max_tokens).
-const ruleTokens = 1024
+// A check that lists many violations needs room: a cut reply is a failed
+// check, which blocks a sign-off (Q11).
+const ruleTokens = 4096
 
 // ask sends one prompt (system and user) to the provider in c for purpose
 // (and rule), with a reply limit of maxTokens where the provider takes one,
@@ -247,7 +249,8 @@ func (rn *Runner) anthropic(ctx context.Context, c config.AIConfig, key, system,
 			Type string `json:"type"`
 			Text string `json:"text"`
 		} `json:"content"`
-		Usage struct {
+		StopReason string `json:"stop_reason"`
+		Usage      struct {
 			Input  int `json:"input_tokens"`
 			Output int `json:"output_tokens"`
 		} `json:"usage"`
@@ -257,6 +260,9 @@ func (rn *Runner) anthropic(ctx context.Context, c config.AIConfig, key, system,
 		return "", 0, 0, err
 	}
 	in, out = reply.Usage.Input, reply.Usage.Output
+	if reply.StopReason == "max_tokens" {
+		return "", in, out, fmt.Errorf("the reply was cut off at the %d-token limit", maxTokens)
+	}
 	for _, c := range reply.Content {
 		if c.Type == "text" {
 			return c.Text, in, out, nil

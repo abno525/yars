@@ -222,6 +222,25 @@ func TestAIAnthropicBaseWithV1(t *testing.T) {
 	}
 }
 
+// A rule check may answer at length: Anthropic gets 4096 tokens for it, and
+// a reply cut at the limit says so instead of failing as bad JSON (backlog,
+// M5).
+func TestAIAnthropicReplyLimit(t *testing.T) {
+	var asked float64
+	f := &fakeAI{body: func(req map[string]any) string {
+		asked, _ = req["max_tokens"].(float64)
+		return `{"content":[{"type":"text","text":"{\"violations\":[{\"quote\":\"x\",\"mess"}],"stop_reason":"max_tokens"}`
+	}}
+	srv := f.server(t)
+	vs := aiRunner(t, "anthropic", srv.URL).AI(context.Background(), acr, "title", "x")
+	if asked != 4096 {
+		t.Errorf("max_tokens %v", asked)
+	}
+	if len(vs) != 1 || !strings.Contains(vs[0].Message, "the reply was cut off at the 4096-token limit") {
+		t.Fatalf("got %+v", vs)
+	}
+}
+
 func TestAICache(t *testing.T) {
 	f := &fakeAI{body: func(map[string]any) string {
 		return `{"choices":[{"message":{"content":"{\"violations\":[]}"}}]}`
