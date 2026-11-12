@@ -3,6 +3,7 @@ package web
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net"
@@ -181,6 +182,31 @@ func TestExportPage(t *testing.T) {
 	}
 	if strings.Contains(b, "style=") {
 		t.Fatal("inline style")
+	}
+}
+
+// A ZIP counts among the exports running at once: with every export
+// worker busy it waits, and gives up when the request goes away.
+func TestZipWaitsForWorker(t *testing.T) {
+	e := setupSerial(t)
+	e.toComplete(t)
+	e.exporters(t, fakePandoc)
+	for i := 0; i < 4; i++ {
+		release, err := e.srv.Export.Slot(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer release()
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	req := httptest.NewRequestWithContext(ctx, "POST", "/e/acme/export", strings.NewReader(url.Values{"download": {"zip"}, "finding": {fdir}}.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: e.toks["alice"]})
+	rec := httptest.NewRecorder()
+	e.h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusInternalServerError || !strings.Contains(rec.Body.String(), "export not started") {
+		t.Fatalf("zip with every worker busy: %d %v", rec.Code, rec.Header())
 	}
 }
 
