@@ -20,7 +20,7 @@ import (
 // Path is where the database lives inside a data directory (git-ignored).
 func Path(dataDir string) string { return filepath.Join(dataDir, ".yars", "yars.db") }
 
-const schemaVersion = 22
+const schemaVersion = 23
 
 // SchemaVersion is the database schema this build writes.
 const SchemaVersion = schemaVersion
@@ -392,11 +392,19 @@ var migrations = []string{
 	// v22: the account switched the keyboard shortcuts off (K9; addKeysOff,
 	// in Go: the column is added once, even when the step runs again)
 	`SELECT 1;`,
+	// v23: when the token's owner was told it expires soon (addExpiryNoted,
+	// in Go as v22)
+	`SELECT 1;`,
 }
 
 // goMigrations are the steps written in Go, by the index of their entry in
 // migrations; each runs after that entry's SQL, in its transaction.
-var goMigrations = map[int]func(*sql.Tx) error{13: perRowDismissals, 16: endCopiedLegacy, 18: addRulesVersion, 21: addKeysOff}
+var goMigrations = map[int]func(*sql.Tx) error{13: perRowDismissals, 16: endCopiedLegacy, 18: addRulesVersion, 21: addKeysOff, 22: addExpiryNoted}
+
+// addExpiryNoted adds tokens.expiry_noted unless it is there.
+func addExpiryNoted(tx *sql.Tx) error {
+	return addColumn(tx, "tokens", "expiry_noted", "TEXT NOT NULL DEFAULT ''")
+}
 
 // addRulesVersion adds check_runs.rules_version unless it is there.
 func addRulesVersion(tx *sql.Tx) error {

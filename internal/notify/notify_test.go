@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"yars/internal/config"
 	"yars/internal/db"
@@ -202,6 +203,70 @@ func TestPrefsAndEmail(t *testing.T) {
 	n.Wait()
 	if len(m.sent) != 1 {
 		t.Fatal("mailed without a mailer")
+	}
+}
+
+// A token's owner hears once, on the channels they chose, when it has less
+// than TokenSoon left; a later token, a disabled owner and an expired token
+// make no notice.
+func TestTokenExpiring(t *testing.T) {
+	n, d, m := newNotifier(t)
+	now := time.Now()
+	add := func(user, hash, name, kind string, left time.Duration) {
+		t.Helper()
+		exp := now.Add(left).UTC().Format(time.RFC3339)
+		if _, err := d.CreateToken(user, hash, hash[len(hash)-4:], db.TokenSpec{Name: name, Kind: kind, Scopes: []string{db.ScopeAll}, Expires: exp}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	add("pen1", "h-abcd", "laptop", db.TokenMCP, 3*24*time.Hour)
+	add("pen1", "h-wxyz", "", db.TokenGit, 2*24*time.Hour)
+	add("rev1", "h-late", "ci", db.TokenMCP, 30*24*time.Hour)
+	add("gone", "h-gone", "old", db.TokenMCP, 24*time.Hour)
+	add("rev2", "h-past", "dead", db.TokenMCP, -time.Hour)
+	d.SetNotify("pen1", Token, "app", true)
+	d.SetNotify("pen1", Token, "email", true)
+	if err := n.Tokens(now); err != nil {
+		t.Fatal(err)
+	}
+	n.Wait()
+	day := func(left time.Duration) string { return now.Add(left).Format("2006-01-02") }
+	want := "token:yars:MCP · …abcd · expires " + day(3*24*time.Hour) + ",token:yars:Git · …wxyz · expires " + day(2*24*time.Hour)
+	if got := list(t, d, "pen1"); got != want {
+		t.Fatalf("pen1: %s\nwant %s", got, want)
+	}
+	l, _ := d.Notifications("pen1", 10)
+	if titles := l[1].Title + "," + l[0].Title; titles != "laptop,…wxyz" {
+		t.Errorf("titles %s", titles)
+	}
+	for _, u := range []string{"rev1", "gone", "rev2"} {
+		if got := list(t, d, u); got != "" {
+			t.Errorf("%s: %s", u, got)
+		}
+	}
+	m.mu.Lock()
+	if len(m.sent) != 2 {
+		t.Fatalf("mails %+v", m.sent)
+	}
+	// mails go out concurrently: find laptop's by its subject
+	var ml mail
+	for _, x := range m.sent {
+		if x.subject == "[YARS] Token expiring: laptop" {
+			ml = x
+		}
+	}
+	if ml.to != "pen1@acme.example" ||
+		!strings.Contains(ml.body, "MCP · …abcd · expires") || !strings.Contains(ml.body, "https://yars.example.com/settings#tokens") {
+		t.Errorf("%+v", ml)
+	}
+	m.mu.Unlock()
+	// once per token
+	if err := n.Tokens(now.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	n.Wait()
+	if got := list(t, d, "pen1"); got != want || len(m.sent) != 2 {
+		t.Fatalf("told twice: %s, %d mails", got, len(m.sent))
 	}
 }
 

@@ -520,6 +520,28 @@ func (d *DB) tokens(where string, args ...any) ([]TokenInfo, error) {
 // Tokens lists every token.
 func (d *DB) Tokens() ([]TokenInfo, error) { return d.tokens("") }
 
+// TokensExpiring lists the tokens that expire after now and less than within
+// after it, whose owner was not told yet (TokenNoted).
+func (d *DB) TokensExpiring(now time.Time, within time.Duration) ([]TokenInfo, error) {
+	l, err := d.tokens("WHERE expires != '' AND expiry_noted = ''")
+	return slices.DeleteFunc(l, func(t TokenInfo) bool {
+		exp, err := time.Parse(time.RFC3339, t.Expires)
+		return err != nil || !exp.After(now) || exp.Sub(now) >= within
+	}), err
+}
+
+// TokenNoted records that token id's owner was told it expires soon; false
+// when that was already recorded or there is no such token, so one notice
+// goes out per token.
+func (d *DB) TokenNoted(id int64) (bool, error) {
+	res, err := d.Exec("UPDATE tokens SET expiry_noted = ? WHERE id = ? AND expiry_noted = ''", d.stamp(), id)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n == 1, err
+}
+
 // UserTokens lists one account's tokens.
 func (d *DB) UserTokens(user string) ([]TokenInfo, error) {
 	return d.tokens("WHERE username = ?", user)

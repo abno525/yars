@@ -132,7 +132,7 @@ func tokenRowOf(t db.TokenInfo, now time.Time) tokenRow {
 			switch {
 			case !exp.After(now):
 				r.ExpireSoon = "Expired"
-			case exp.Sub(now) < 7*24*time.Hour:
+			case exp.Sub(now) < notify.TokenSoon: // when its owner is told
 				r.ExpireSoon = "Expires soon"
 			}
 		}

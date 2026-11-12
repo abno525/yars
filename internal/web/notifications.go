@@ -66,6 +66,7 @@ type notesView struct {
 type noteRow struct {
 	ID                                    int64
 	Event, Label, Eng, Fid, Title, By, At string
+	Ref                                   string // engagement · finding, or Token
 	Text                                  string
 	Read                                  bool
 }
@@ -94,8 +95,12 @@ func (s *Server) notificationsPage(w http.ResponseWriter, r *http.Request) {
 		// the findings' titles as they are now, not as they were then
 		current := s.Index.CurrentTitles()
 		for _, n := range l {
-			p.Notes.Rows = append(p.Notes.Rows, noteRow{ID: n.ID, Event: n.Event, Label: notify.Label(n.Event), Eng: n.Eng, Fid: n.Fid,
-				Title: current(n.Eng, n.Fid, n.Title), By: n.Actor, At: when(n.TS), Text: n.Text, Read: n.Read})
+			row := noteRow{ID: n.ID, Event: n.Event, Label: notify.Label(n.Event), Eng: n.Eng, Fid: n.Fid,
+				Title: n.Title, By: n.Actor, At: when(n.TS), Text: n.Text, Read: n.Read, Ref: "Token"}
+			if n.Event != notify.Token {
+				row.Title, row.Ref = current(n.Eng, n.Fid, n.Title), n.Eng+" · "+n.Fid
+			}
+			p.Notes.Rows = append(p.Notes.Rows, row)
 		}
 	}
 	s.render(w, "notifications.html", p)
@@ -124,6 +129,8 @@ func (s *Server) notificationOpen(w http.ResponseWriter, r *http.Request) {
 	}
 	to := "/notifications"
 	switch {
+	case n.Event == notify.Token:
+		to = "/settings#tokens"
 	case n.Dir != "" && store.ValidID(n.Eng) && store.ValidID(n.Dir):
 		to = findingURL(n.Eng, n.Dir)
 	case store.ValidID(n.Eng):

@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"yars/internal/config"
 	"yars/internal/db"
@@ -194,27 +195,82 @@ func (n *Notifier) Handle(e store.Event) {
 			continue
 		}
 		u, key := accounts[i], to[name]
-		note := db.Notification{User: u.Username, Event: key, Eng: e.Eng, Dir: e.Dir, Fid: e.Fid, Title: e.Title, Actor: e.Actor, Text: text(e)}
-		if n.DB.Wants(u.Username, key, "app") {
-			if _, err := n.DB.AddNotification(note); err != nil {
-				log.Printf("notify %s: %v", u.Username, err)
-			}
-		}
-		if mail != nil && u.Email != "" && n.DB.Wants(u.Username, key, "email") {
-			subject, body := n.mailFor(note)
-			m := mail
-			n.wg.Add(1)
-			go func() {
-				defer n.wg.Done()
-				if err := m.Send(u.Email, subject, body); err != nil {
-					log.Printf("notify %s by email: %v", u.Username, err)
-				}
-			}()
-		}
+		n.deliver(u, db.Notification{User: u.Username, Event: key, Eng: e.Eng, Dir: e.Dir, Fid: e.Fid, Title: e.Title, Actor: e.Actor, Text: text(e)}, mail)
 	}
 }
 
+// deliver stores note in u's list and emails it, as u chose for its event.
+func (n *Notifier) deliver(u config.User, note db.Notification, mail Mailer) {
+	if n.DB.Wants(u.Username, note.Event, "app") {
+		if _, err := n.DB.AddNotification(note); err != nil {
+			log.Printf("notify %s: %v", u.Username, err)
+		}
+	}
+	if mail != nil && u.Email != "" && n.DB.Wants(u.Username, note.Event, "email") {
+		subject, body := n.mailFor(note)
+		n.wg.Add(1)
+		go func() {
+			defer n.wg.Done()
+			if err := mail.Send(u.Email, subject, body); err != nil {
+				log.Printf("notify %s by email: %v", u.Username, err)
+			}
+		}()
+	}
+}
+
+// TokenSoon is how long before its expiry a token's owner is told, once;
+// the token lists tag it "Expires soon" from then on.
+const TokenSoon = 7 * 24 * time.Hour
+
+// Tokens tells the owner of each token with less than TokenSoon left that
+// it expires (once per token; a disabled account is not told, and is told
+// once enabled again if the token is still about to expire). The notice is
+// by yars, titled with the token's name (its ending when it has none).
+func (n *Notifier) Tokens(now time.Time) error {
+	l, err := n.DB.TokensExpiring(now, TokenSoon)
+	if err != nil || len(l) == 0 {
+		return err
+	}
+	var accounts []config.User
+	if n.Users != nil {
+		accounts = n.Users()
+	}
+	mail := n.mailer()
+	for _, t := range l {
+		i := slices.IndexFunc(accounts, func(u config.User) bool { return u.Username == t.User })
+		if i < 0 || accounts[i].Disabled {
+			continue
+		}
+		if ok, err := n.DB.TokenNoted(t.ID); err != nil || !ok {
+			if err != nil {
+				return err
+			}
+			continue // told already, or revoked meanwhile
+		}
+		kind := "MCP"
+		if t.Kind == db.TokenGit {
+			kind = "Git"
+		}
+		title := t.Name
+		if title == "" {
+			title = "…" + t.Last4
+		}
+		exp, _ := time.Parse(time.RFC3339, t.Expires) // TokensExpiring parsed it
+		n.deliver(accounts[i], db.Notification{User: t.User, Event: Token, Title: title, Actor: "yars",
+			Text: kind + " · …" + t.Last4 + " · expires " + exp.Local().Format("2006-01-02")}, mail)
+	}
+	return nil
+}
+
 func (n *Notifier) mailFor(x db.Notification) (string, string) {
+	if x.Event == Token {
+		subject := "[YARS] " + Label(x.Event) + ": " + x.Title
+		base := ""
+		if n.BaseURL != nil {
+			base = n.BaseURL()
+		}
+		return subject, Label(x.Event) + " · " + x.Actor + "\n" + x.Title + " · " + x.Text + "\n\n" + base + "/settings#tokens\n"
+	}
 	subject := "[YARS] " + Label(x.Event) + ": " + x.Fid + " " + x.Title
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s · %s\n%s · %s %s\n", Label(x.Event), x.Actor, x.Eng, x.Fid, x.Title)

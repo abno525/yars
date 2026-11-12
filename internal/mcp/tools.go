@@ -717,7 +717,7 @@ var coreTools = []tool{
 			}
 			return ok(out)
 		}},
-	{name: "list_notifications", serverOnly: true, desc: "Your notifications, newest first, a page at a time (the cursor is the id of the last one given, so marking some read between pages skips none): returned to you, review requested, replies, approvals, mentions, finished checks.",
+	{name: "list_notifications", serverOnly: true, desc: "Your notifications, newest first, a page at a time (the cursor is the id of the last one given, so marking some read between pages skips none): returned to you, review requested, replies, approvals, mentions, finished checks, tokens about to expire.",
 		optional: []param{pLimit, pCursor}, boolArgs: []param{{"unread", "only unread ones"}},
 		run: func(s *Server, ctx context.Context, u config.User, a args) (string, error) {
 			unread, _ := a["unread"].(bool)

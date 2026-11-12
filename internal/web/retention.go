@@ -16,7 +16,7 @@ import (
 const pruneEvery = 24 * time.Hour
 
 // startRetention starts the retention worker (once; it stops on Close): it
-// prunes now and then every day (D24).
+// runs daily now and then every day.
 func (s *Server) startRetention() {
 	d := s.Store.DB()
 	if d == nil {
@@ -27,13 +27,7 @@ func (s *Server) startRetention() {
 			t := time.NewTicker(pruneEvery)
 			defer t.Stop()
 			for {
-				if _, err := s.prune(d); err != nil {
-					select {
-					case <-s.stop: // the database closes with the server
-					default:
-						log.Printf("retention: %v", err)
-					}
-				}
+				s.daily(d)
 				select {
 				case <-s.stop:
 					return
@@ -42,6 +36,28 @@ func (s *Server) startRetention() {
 			}
 		}()
 	})
+}
+
+// daily prunes (D24), then tells the owners of tokens about to expire; a
+// failure of one is logged and does not stop the other. Runs take turns.
+func (s *Server) daily(d *db.DB) {
+	s.dailyMu.Lock()
+	defer s.dailyMu.Unlock()
+	logErr := func(what string, err error) {
+		select {
+		case <-s.stop: // the database closes with the server
+		default:
+			log.Printf("%s: %v", what, err)
+		}
+	}
+	if _, err := s.prune(d); err != nil {
+		logErr("retention", err)
+	}
+	if s.Notifier != nil {
+		if err := s.Notifier.Tokens(time.Now()); err != nil {
+			logErr("token notices", err)
+		}
+	}
 }
 
 // prune deletes what the retention settings no longer keep; a run that

@@ -4,8 +4,10 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"yars/internal/config"
 	"yars/internal/db"
@@ -42,6 +44,40 @@ func returnToAlice(t *testing.T, e *env) {
 	}
 	if err := st.Transition("acme", "F-001-sql-injection", workflow.Return, "add a PoC", bob); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A token about to expire: the daily run tells its owner once, the bell
+// counts it, the notifications page names the token, and opening the
+// notice leads to the token list, where the token is tagged.
+func TestTokenExpiryNotice(t *testing.T) {
+	e := setup(t)
+	d := e.srv.Store.DB()
+	exp := time.Now().Add(2 * 24 * time.Hour).UTC().Format(time.RFC3339)
+	if _, err := d.CreateToken("alice", "h-abcd", "abcd", db.TokenSpec{Name: "laptop", Kind: db.TokenMCP, Scopes: []string{db.ScopeAll}, Expires: exp}); err != nil {
+		t.Fatal(err)
+	}
+	e.srv.daily(d)
+	e.srv.daily(d)
+	if got := bell(t, e, "alice"); got != "1" {
+		t.Fatalf("alice's bell %s", got)
+	}
+	b := e.do(t, "alice", "GET", "/notifications", nil, nil).Body.String()
+	for _, want := range []string{">Token expiring<", `<span class="fid">Token</span> laptop`, "MCP · …abcd · expires " + day(exp), ">yars<"} {
+		if !strings.Contains(b, want) {
+			t.Errorf("notifications page lacks %q", want)
+		}
+	}
+	if strings.Contains(b, `<span class="fid"> · </span>`) {
+		t.Error("an empty engagement and finding shown")
+	}
+	l, _ := d.Notifications("alice", 1)
+	rec := e.do(t, "alice", "POST", "/notifications/"+strconv.FormatInt(l[0].ID, 10), nil, nil)
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/settings#tokens" {
+		t.Fatalf("open %d %s", rec.Code, rec.Header().Get("Location"))
+	}
+	if b := e.do(t, "alice", "GET", "/settings", nil, nil).Body.String(); !strings.Contains(b, "Expires soon") {
+		t.Error("the token is not tagged on the settings page")
 	}
 }
 

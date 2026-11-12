@@ -110,6 +110,89 @@ func TestKeysOffMigration(t *testing.T) {
 	}
 }
 
+// v23: a token's owner hears once that it expires soon. TokensExpiring
+// lists the tokens that expire after now and within the window and were
+// not noted yet (an expiry in another zone counts by its instant);
+// TokenNoted claims one, once.
+func TestTokensExpiring(t *testing.T) {
+	d, _ := open(t)
+	if err := d.AddUser(config.User{Username: "ann", Role: "pentester"}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 11, 12, 12, 0, 0, 0, time.UTC)
+	ids := map[string]int64{}
+	for name, exp := range map[string]string{
+		"soon":  now.Add(3 * 24 * time.Hour).Format(time.RFC3339),
+		"zone":  now.Add(2 * 24 * time.Hour).In(time.FixedZone("x", 2*3600)).Format(time.RFC3339),
+		"edge":  now.Add(7 * 24 * time.Hour).Format(time.RFC3339),
+		"later": now.Add(8 * 24 * time.Hour).Format(time.RFC3339),
+		"gone":  now.Add(-time.Hour).Format(time.RFC3339),
+		"never": "",
+	} {
+		id, err := d.CreateToken("ann", "h-"+name, "abcd", TokenSpec{Name: name, Kind: TokenMCP, Scopes: []string{ScopeAll}, Expires: exp})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids[name] = id
+	}
+	names := func() []string {
+		t.Helper()
+		l, err := d.TokensExpiring(now, 7*24*time.Hour)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, tk := range l {
+			out = append(out, tk.Name)
+		}
+		slices.Sort(out)
+		return out
+	}
+	if got := names(); !slices.Equal(got, []string{"soon", "zone"}) {
+		t.Fatalf("expiring %v", got)
+	}
+	if ok, err := d.TokenNoted(ids["soon"]); err != nil || !ok {
+		t.Fatalf("first claim %v %v", ok, err)
+	}
+	if ok, err := d.TokenNoted(ids["soon"]); err != nil || ok {
+		t.Fatalf("second claim %v %v", ok, err)
+	}
+	if got := names(); !slices.Equal(got, []string{"zone"}) {
+		t.Fatalf("after the claim %v", got)
+	}
+	if ok, err := d.TokenNoted(99999); err != nil || ok {
+		t.Fatalf("no such token %v %v", ok, err)
+	}
+}
+
+// v23: a token from a v22 database is not noted yet after the upgrade.
+func TestTokenNotedMigration(t *testing.T) {
+	p := openAtVersion(t, 22)
+	raw, err := sql.Open("sqlite", "file:"+p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{
+		"INSERT INTO users(username, role, password_hash, created) VALUES ('ann', 'pentester', 'x', '2026-11-12T00:00:00Z')",
+		`INSERT INTO tokens(hash, username, name, kind, scopes, engagements, expires, last4, created)
+			VALUES ('h1', 'ann', 'laptop', 'mcp', '"all"', '[]', '2026-11-15T12:00:00Z', 'abcd', '2026-11-01T00:00:00Z')`,
+	} {
+		if _, err := raw.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	raw.Close()
+	d, err := Open(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	l, err := d.TokensExpiring(time.Date(2026, 11, 12, 12, 0, 0, 0, time.UTC), 7*24*time.Hour)
+	if err != nil || len(l) != 1 || l[0].Name != "laptop" {
+		t.Fatalf("after v23: %+v %v", l, err)
+	}
+}
+
 func TestScopedTokens(t *testing.T) {
 	d, _ := open(t)
 	now := time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)
