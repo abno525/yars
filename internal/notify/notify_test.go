@@ -268,6 +268,30 @@ func TestTokenExpiring(t *testing.T) {
 	if got := list(t, d, "pen1"); got != want || len(m.sent) != 2 {
 		t.Fatalf("told twice: %s, %d mails", got, len(m.sent))
 	}
+	// a disabled owner, and one the account list lacks, are told once
+	// enabled (listed) again, while the token still expires soon
+	if err := d.AddUser(config.User{Username: "late", Role: "pentester"}); err != nil {
+		t.Fatal(err)
+	}
+	add("late", "h-late2", "new", db.TokenMCP, 24*time.Hour)
+	if err := n.Tokens(now); err != nil {
+		t.Fatal(err)
+	}
+	if got := list(t, d, "late"); got != "" {
+		t.Fatalf("an account not in the list was told: %s", got)
+	}
+	again := []config.User{{Username: "gone", Role: "reviewer"}, {Username: "late", Role: "pentester"}}
+	n.Users = func() []config.User { return again }
+	if err := n.Tokens(now); err != nil {
+		t.Fatal(err)
+	}
+	n.Wait()
+	if got := list(t, d, "gone"); got != "token:yars:MCP · …gone · expires "+day(24*time.Hour) {
+		t.Errorf("gone, enabled again: %q", got)
+	}
+	if got := list(t, d, "late"); got != "token:yars:MCP · …ate2 · expires "+day(24*time.Hour) {
+		t.Errorf("late, listed: %q", got)
+	}
 }
 
 func TestMailMessage(t *testing.T) {

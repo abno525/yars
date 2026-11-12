@@ -206,6 +206,12 @@ func (n *Notifier) deliver(u config.User, note db.Notification, mail Mailer) {
 			log.Printf("notify %s: %v", u.Username, err)
 		}
 	}
+	n.email(u, note, mail)
+}
+
+// email sends note to u when u chose email for its event (and has an
+// address, and the server can send).
+func (n *Notifier) email(u config.User, note db.Notification, mail Mailer) {
 	if mail != nil && u.Email != "" && n.DB.Wants(u.Username, note.Event, "email") {
 		subject, body := n.mailFor(note)
 		n.wg.Add(1)
@@ -241,12 +247,6 @@ func (n *Notifier) Tokens(now time.Time) error {
 		if i < 0 || accounts[i].Disabled {
 			continue
 		}
-		if ok, err := n.DB.TokenNoted(t.ID); err != nil || !ok {
-			if err != nil {
-				return err
-			}
-			continue // told already, or revoked meanwhile
-		}
 		kind := "MCP"
 		if t.Kind == db.TokenGit {
 			kind = "Git"
@@ -256,8 +256,20 @@ func (n *Notifier) Tokens(now time.Time) error {
 			title = "…" + t.Last4
 		}
 		exp, _ := time.Parse(time.RFC3339, t.Expires) // TokensExpiring parsed it
-		n.deliver(accounts[i], db.Notification{User: t.User, Event: Token, Title: title, Actor: "yars",
-			Text: kind + " · …" + t.Last4 + " · expires " + exp.Local().Format("2006-01-02")}, mail)
+		note := db.Notification{User: t.User, Event: Token, Title: title, Actor: "yars",
+			Text: kind + " · …" + t.Last4 + " · expires " + exp.Local().Format("2006-01-02")}
+		// the claim and the in-app notice are one transaction; email after it
+		var inApp *db.Notification
+		if n.DB.Wants(t.User, Token, "app") {
+			inApp = &note
+		}
+		if ok, err := n.DB.TokenNoted(t.ID, inApp); err != nil || !ok {
+			if err != nil {
+				return err
+			}
+			continue // told already, or revoked meanwhile
+		}
+		n.email(accounts[i], note, mail)
 	}
 	return nil
 }

@@ -151,17 +151,32 @@ func TestTokensExpiring(t *testing.T) {
 	if got := names(); !slices.Equal(got, []string{"soon", "zone"}) {
 		t.Fatalf("expiring %v", got)
 	}
-	if ok, err := d.TokenNoted(ids["soon"]); err != nil || !ok {
+	// the claim stores the notice with it (in one transaction)
+	note := &Notification{User: "ann", Event: "token", Title: "soon", Actor: "yars", Text: "MCP · …abcd"}
+	if ok, err := d.TokenNoted(ids["soon"], note); err != nil || !ok {
 		t.Fatalf("first claim %v %v", ok, err)
 	}
-	if ok, err := d.TokenNoted(ids["soon"]); err != nil || ok {
+	if ok, err := d.TokenNoted(ids["soon"], note); err != nil || ok {
 		t.Fatalf("second claim %v %v", ok, err)
+	}
+	if l, _ := d.Notifications("ann", 10); len(l) != 1 || l[0].Title != "soon" || l[0].Event != "token" {
+		t.Fatalf("notices %+v", l)
 	}
 	if got := names(); !slices.Equal(got, []string{"zone"}) {
 		t.Fatalf("after the claim %v", got)
 	}
-	if ok, err := d.TokenNoted(99999); err != nil || ok {
+	// without a notice (the owner wants none in app) the claim alone is stored
+	if ok, err := d.TokenNoted(ids["zone"], nil); err != nil || !ok {
+		t.Fatalf("claim without a notice %v %v", ok, err)
+	}
+	if l, _ := d.Notifications("ann", 10); len(l) != 1 {
+		t.Fatalf("notices %+v", l)
+	}
+	if ok, err := d.TokenNoted(99999, note); err != nil || ok {
 		t.Fatalf("no such token %v %v", ok, err)
+	}
+	if l, _ := d.Notifications("ann", 10); len(l) != 1 {
+		t.Fatalf("a notice for no token: %+v", l)
 	}
 }
 

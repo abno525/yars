@@ -530,16 +530,31 @@ func (d *DB) TokensExpiring(now time.Time, within time.Duration) ([]TokenInfo, e
 	}), err
 }
 
-// TokenNoted records that token id's owner was told it expires soon; false
-// when that was already recorded or there is no such token, so one notice
-// goes out per token.
-func (d *DB) TokenNoted(id int64) (bool, error) {
-	res, err := d.Exec("UPDATE tokens SET expiry_noted = ? WHERE id = ? AND expiry_noted = ''", d.stamp(), id)
+// TokenNoted records that token id's owner was told it expires soon and
+// stores note (nil: none, the owner wants it by email only) in the same
+// transaction; false when that was already recorded or there is no such
+// token, so one notice goes out per token, and none is lost. Like
+// AddNotification it leaves the change counters alone: no content changed.
+func (d *DB) TokenNoted(id int64, note *Notification) (bool, error) {
+	tx, err := d.Begin()
 	if err != nil {
 		return false, err
 	}
-	n, err := res.RowsAffected()
-	return n == 1, err
+	defer tx.Rollback() // a no-op after the commit
+	res, err := tx.Exec("UPDATE tokens SET expiry_noted = ? WHERE id = ? AND expiry_noted = ''", d.stamp(), id)
+	if err != nil {
+		return false, err
+	}
+	if n, err := res.RowsAffected(); err != nil || n != 1 {
+		return false, err
+	}
+	if note != nil {
+		if _, err := tx.Exec("INSERT INTO notifications(username, event, eng, dir, fid, title, actor, text, ts) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+			note.User, note.Event, note.Eng, note.Dir, note.Fid, note.Title, note.Actor, note.Text, d.stamp()); err != nil {
+			return false, err
+		}
+	}
+	return true, tx.Commit()
 }
 
 // UserTokens lists one account's tokens.
