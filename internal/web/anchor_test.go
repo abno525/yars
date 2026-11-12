@@ -7,7 +7,8 @@ import "testing"
 // anchors they had (backlog, Core).
 func TestAnchorsKeepLetters(t *testing.T) {
 	seen := map[string]string{}
-	for _, name := range []string{"Описание", "Шаги", "Ανάλυση", "影响", "复现步骤", "Impact"} {
+	// vowel signs and other combining marks are part of a name too (review)
+	for _, name := range []string{"Описание", "Шаги", "Ανάλυση", "影响", "复现步骤", "Impact", "किम", "कुम", "ผลกระทบ", "ผลกระทบี"} {
 		a := anchor(name)
 		if a == "" || a == "finding" {
 			t.Errorf("%s: anchor %q", name, a)

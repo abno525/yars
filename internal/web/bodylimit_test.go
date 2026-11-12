@@ -49,4 +49,20 @@ func TestBodyLimit(t *testing.T) {
 	if rec := e.sendFile(t, "alice", fpath+"/attachments", "big.txt", []byte(big)); rec.Code != http.StatusOK {
 		t.Fatalf("a 3 MiB attachment: %d %s", rec.Code, rec.Body.String())
 	}
+	// only the upload routes themselves: a section, an action or a note
+	// named like one is capped (review)
+	for _, path := range []string{fpath + "/s/attachments", fpath + "/s/x%2Fattachments", fpath + "/action/redact", "/e/acme/board/n/1/redact"} {
+		req := httptest.NewRequest("POST", path, strings.NewReader(url.Values{"body": {big}}.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: e.toks["alice"]})
+		rec := httptest.NewRecorder()
+		e.h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusRequestEntityTooLarge {
+			t.Errorf("%s: %d", path, rec.Code)
+		}
+	}
+	// a backup to restore is not held to 2 MiB
+	if rec := e.do(t, "dora", "POST", "/admin/system/restore", url.Values{"x": {big}}, nil); rec.Code == http.StatusRequestEntityTooLarge && strings.Contains(rec.Body.String(), "larger than 2 MiB") {
+		t.Fatal("a restore upload was capped at 2 MiB")
+	}
 }

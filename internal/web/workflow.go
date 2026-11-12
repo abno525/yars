@@ -446,8 +446,8 @@ func (s *Server) wfReviewers(w http.ResponseWriter, r *http.Request) {
 		ok := slices.ContainsFunc(users, func(c config.User) bool {
 			return c.Username == n && s.Store.CanReview(c, ref.EngID, ref.F.Meta)
 		})
-		if !ok {
-			s.renderFinding(w, r, http.StatusBadRequest, "unknown or ineligible reviewer "+n)
+		if !ok { // back to the finding's page, as every refusal here
+			s.wfDone(w, r, &workflow.Denied{Reason: "unknown or ineligible reviewer " + n})
 			return
 		}
 	}

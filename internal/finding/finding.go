@@ -321,8 +321,8 @@ func Parse(b []byte) (*Finding, error) {
 	if !strings.HasPrefix(s, "---\n") {
 		return nil, errors.New("finding: missing front matter")
 	}
-	if !strings.HasSuffix(s, "\n") {
-		s += "\n" // a closing "---" at the very end
+	if strings.HasSuffix(s, "\n---") {
+		s += "\n" // a closing "---" at the very end (any other last line stays as it is)
 	}
 	var rest string
 	if strings.HasPrefix(s[4:], "---\n") { // empty front matter

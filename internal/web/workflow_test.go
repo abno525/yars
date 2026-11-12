@@ -466,9 +466,8 @@ func TestReviewersAssignAll(t *testing.T) {
 
 func TestReviewersRejectUnknown(t *testing.T) {
 	e := setup(t)
-	rec := e.do(t, "alice", "POST", fpath+"/reviewers", url.Values{"reviewer": {"mallory"}}, nil)
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("code %d", rec.Code)
+	if b := e.denied(t, "alice", fpath+"/reviewers", url.Values{"reviewer": {"mallory"}}); !strings.Contains(b, "unknown or ineligible reviewer mallory") {
+		t.Fatal("no refusal on the page")
 	}
 	e.pen2(t)
 	reviewers := func() string {
@@ -495,8 +494,8 @@ func TestDisabledNotReviewer(t *testing.T) {
 	if b := e.do(t, "alice", "GET", fpath+"/workflow", nil, nil).Body.String(); strings.Contains(b, "carol") {
 		t.Fatal("reviewer list offers a disabled account")
 	}
-	if rec := e.do(t, "alice", "POST", fpath+"/reviewers", url.Values{"reviewer": {"carol"}}, nil); rec.Code != http.StatusBadRequest {
-		t.Fatalf("assigned a disabled account: %d", rec.Code)
+	if b := e.denied(t, "alice", fpath+"/reviewers", url.Values{"reviewer": {"carol"}}); !strings.Contains(b, "unknown or ineligible reviewer carol") {
+		t.Fatal("assigned a disabled account")
 	}
 	e.do(t, "alice", "POST", fpath+"/reviewers", url.Values{"all": {"1"}}, nil)
 	ref, _ := e.srv.Store.Finding("acme", fdir)

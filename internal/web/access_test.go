@@ -118,8 +118,8 @@ func TestReviewersFromTeam(t *testing.T) {
 	if b := e.do(t, "alice", "GET", fpath+"/workflow", nil, nil).Body.String(); strings.Contains(b, "rev2") {
 		t.Fatal("reviewer list offers someone off the team")
 	}
-	if rec := e.do(t, "alice", "POST", fpath+"/reviewers", url.Values{"reviewer": {"rev2"}}, nil); rec.Code != http.StatusBadRequest {
-		t.Fatalf("assigned someone off the team: %d", rec.Code)
+	if b := e.denied(t, "alice", fpath+"/reviewers", url.Values{"reviewer": {"rev2"}}); !strings.Contains(b, "unknown or ineligible reviewer rev2") {
+		t.Fatal("assigned someone off the team")
 	}
 	e.do(t, "alice", "POST", fpath+"/reviewers", url.Values{"all": {"1"}}, nil)
 	if ref, _ := e.srv.Store.Finding("acme", fdir); slices.Contains(ref.F.Meta.Reviewers, "rev2") {

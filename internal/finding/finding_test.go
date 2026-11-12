@@ -81,6 +81,11 @@ func TestParseEditorQuirks(t *testing.T) {
 			t.Fatalf("%q: meta %+v", in, f.Meta)
 		}
 	}
+	// a body without a final newline is written back as it was (review)
+	noEOL := "---\nid: F-001\n---\n\n## Impact\n\ntext"
+	if f, err := Parse([]byte(noEOL)); err != nil || string(f.Bytes()) != noEOL {
+		t.Fatalf("no final newline: %v %q", err, f.Bytes())
+	}
 	for _, in := range []string{"", "id: F-001\n", "---\nid: F-001\n", "---\nid: F-001\n----\n"} {
 		if _, err := Parse([]byte(in)); err == nil {
 			t.Errorf("%q parsed", in)

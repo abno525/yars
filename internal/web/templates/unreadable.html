@@ -7,12 +7,9 @@
 </div>
 <section class="panel">
   <div class="panelhead"><h2>File</h2></div>
-  <table class="table stable">
-    <thead><tr><th>Field</th><th>Value</th></tr></thead>
-    <tbody>
-      <tr><td>Path</td><td class="mono">{{.Unreadable}}</td></tr>
-      <tr><td>Error</td><td class="mono">{{.Error}}</td></tr>
-    </tbody>
-  </table>
+  <table class="kv details flush">{{template "kv_head"}}<tbody>
+    <tr><th scope="row">Path</th><td class="text mono" title="{{.Unreadable}}">{{.Unreadable}}</td></tr>
+    <tr><th scope="row">Error</th><td class="text mono" title="{{.Error}}">{{.Error}}</td></tr>
+  </tbody></table>
 </section>
 {{end}}

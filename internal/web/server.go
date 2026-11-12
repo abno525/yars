@@ -361,13 +361,23 @@ func limitBody(next http.Handler) http.Handler {
 }
 
 // ownBodyLimit: the request goes to a handler that caps its body itself.
+// The two upload routes are matched by their exact shape (a section or an
+// action may be named like their last segment).
 func ownBodyLimit(r *http.Request) bool {
 	p := r.URL.Path
 	if strings.HasPrefix(p, "/git/") || p == "/mcp" {
 		return true
 	}
-	return r.Method == http.MethodPost && (p == "/admin/system/restore" || p == "/admin/rules/save" ||
-		strings.HasPrefix(p, "/e/") && (strings.HasSuffix(p, "/attachments") || strings.HasSuffix(p, "/redact")))
+	if r.Method != http.MethodPost {
+		return false
+	}
+	if p == "/admin/system/restore" || p == "/admin/rules/save" {
+		return true
+	}
+	seg := strings.Split(strings.TrimPrefix(r.URL.EscapedPath(), "/"), "/")
+	upload := len(seg) == 5 && seg[0] == "e" && seg[2] == "f" && seg[4] == "attachments" // POST /e/{eng}/f/{fid}/attachments
+	redact := len(seg) == 7 && seg[0] == "e" && seg[2] == "f" && seg[4] == "attachments" && seg[6] == "redact"
+	return upload || redact
 }
 
 func (s *Server) render(w http.ResponseWriter, name string, p *page) {
@@ -737,15 +747,15 @@ func setOrDel(v url.Values, k, val string) {
 	}
 }
 
-// anchor is a section's id suffix: its name in lower case, letters and
-// digits of any script kept, every other run of characters one dash, with
+// anchor is a section's id suffix: its name in lower case, letters, marks
+// and digits of any script kept, every other run of characters one dash, with
 // no length cut (store.Slug, which names folders, keeps ASCII only and cuts
 // at 40, so names in other scripts and long names shared an anchor).
 func anchor(name string) string {
 	var b strings.Builder
 	dash := false
 	for _, r := range strings.ToLower(name) {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || unicode.IsMark(r) { // marks: vowel signs, accents
 			b.WriteRune(r)
 			dash = false
 		} else if !dash && b.Len() > 0 {
