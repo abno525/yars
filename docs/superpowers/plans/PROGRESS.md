@@ -96,5 +96,6 @@ M27 PR      opened   #21
 M28 task 1  done     bdac2ae to 0ce9144 (nine moves; store.go 268 lines; the 1190 test names unchanged)
 M28 task 2  done     914487f to 01aa7d1 (three moves; checks.go 61 lines; test names unchanged)
 M28 task 3  done     874ca24 to d8e8d03 (one commit per package: web, store, mcp, export, rules, yars; the fifteen files gone; the 1190 test names unchanged)
-M28 tasks   review   passed (1, 2, 3: byte-for-byte moves checked; placements as recorded); wording nits
+M28 tasks   review   passed (1, 2, 3: byte-for-byte moves checked; placements as recorded); wording nits 9da5d61
+M28 branch  reviewed passed but for size: split into pr/22a-store-split (to a2160ff) and pr/22b-test-names
 ```
