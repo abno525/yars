@@ -108,5 +108,6 @@ M29 task 6  done     35c37dd (schema v22; browser check passed: with shortcuts o
 M29 tasks 1–3 review fix 4c9a535 (Ctrl+Enter presses its forms' marked button only; Ctrl+S needs a field and the form's own button; a click never scrolls; outlines; h/← and arrows; Esc closes CVSS and returns focus)
 M29 task 4  review   passed; nits in the same fix (row checkboxes only; no Shift+T in the list; no id on the running Check)
 M29 task 5  review   fix c80f9a9 (Enter on a list checkbox never submits, opens the row; j/k skip disabled rows; x in lists only; Load more focus only from its button)
-M29 task 6  review   passed; nits c80f9a9 (no selection with shortcuts off; Chat group only with a chat; Redact Ctrl+Z noted) and the next commit (a form without theme keeps it; AddUser stores KeysOff; v21 upgrade test)
+M29 task 6  review   passed; nits c80f9a9 (no selection with shortcuts off; Chat group only with a chat; Redact Ctrl+Z noted) and 6d82ab5 (a form without theme keeps it; AddUser stores KeysOff; v21 upgrade test)
+M29 branch  review   fixes (keys move focus off the old panel; picker Enter; row ids; focus rides on the key's request)
 ```

@@ -431,7 +431,7 @@ func TestRowsCarryNav(t *testing.T) {
 	if rows < 2 || navs != rows {
 		t.Errorf("findings list: %d rows, %d data-nav", rows, navs)
 	}
-	if !regexp.MustCompile(`<td class="title"><a href="[^"]+" title="[^"]*" data-nav>`).MatchString(b) {
+	if !regexp.MustCompile(`<td class="title"><a href="[^"]+" title="[^"]*" data-nav[ >]`).MatchString(b) {
 		t.Error("data-nav is not on the title link")
 	}
 	e.toVerification(t)
@@ -642,7 +642,7 @@ func TestSaveReviewFixes(t *testing.T) {
 func TestListReviewFixes(t *testing.T) {
 	e := setup(t)
 	app := e.do(t, "alice", "GET", "/static/app.js", nil, nil).Body.String()
-	if !strings.Contains(app, `evt.key === 'Enter' && evt.target.matches && evt.target.matches('.fbulkform input[type=checkbox], input[type=checkbox][data-nav]')`) {
+	if !strings.Contains(app, `evt.key === 'Enter' && evt.target.matches && evt.target.matches('.fbulkform input[type=checkbox], input[type=checkbox][data-nav]`) {
 		t.Error("app.js does not stop Enter on a list checkbox")
 	}
 	js := e.do(t, "alice", "GET", "/static/keys.js", nil, nil).Body.String()
@@ -659,6 +659,58 @@ func TestListReviewFixes(t *testing.T) {
 	// the Chat group hides where there is no chat
 	if d := between(e.do(t, "alice", "GET", "/", nil, nil).Body.String(), `id="keys"`, "</dialog>"); !strings.Contains(d, `<section class="kgroup" data-keys-group="chat">`) {
 		t.Error("the Chat group is not marked")
+	}
+}
+
+// M29 branch review: a key that selects a panel takes focus off a control
+// left in another panel (Enter and Space then act on the selection); Enter
+// on a reviewer picker checkbox never presses Assign all; list rows keep
+// their focus through a live refresh (stable ids, unique per page).
+func TestBranchReviewFixes(t *testing.T) {
+	e := setup(t)
+	js := e.do(t, "alice", "GET", "/static/keys.js", nil, nil).Body.String()
+	sel := js[strings.Index(js, "function yarsSelect("):]
+	if sel = sel[:strings.Index(sel, "\n}\n")]; !strings.Contains(sel, "a.blur()") || !strings.Contains(sel, "!el.contains(a)") {
+		t.Errorf("yarsSelect leaves focus behind:\n%s", sel)
+	}
+	// the focus after a key's edit, save or cancel rides on that request
+	for _, w := range []string{"evt.detail.xhr.yarsFocus = yarsFocusAfter", "var want = xhr && xhr.yarsFocus;", "el.id === yarsFocusAfter) return;"} {
+		if !strings.Contains(js, w) {
+			t.Errorf("keys.js lacks %s", w)
+		}
+	}
+	app := e.do(t, "alice", "GET", "/static/app.js", nil, nil).Body.String()
+	if !strings.Contains(app, ".picker input[type=checkbox]") {
+		t.Error("app.js does not stop Enter in the reviewer picker")
+	}
+	e.second(t, "bob")
+	b := e.do(t, "dora", "GET", "/e/acme", nil, nil).Body.String()
+	for _, row := range regexp.MustCompile(`<tr data-fid="([^"]+)"`).FindAllStringSubmatch(b, -1) {
+		dir := row[1]
+		if tag := tagOf(b, "row-"+dir); !strings.Contains(tag, " data-nav") {
+			t.Errorf("row %s: link %q", dir, tag)
+		}
+		if tag := tagOf(b, "pick-"+dir); !strings.Contains(tag, `name="id"`) {
+			t.Errorf("row %s: checkbox %q", dir, tag)
+		}
+	}
+	e.toVerification(t)
+	for _, u := range []string{"alice", "bob", "dora"} {
+		in := e.do(t, u, "GET", "/inbox", nil, nil).Body.String()
+		ids := regexp.MustCompile(` id="([^"]+)"`).FindAllStringSubmatch(in, -1)
+		seen := map[string]bool{}
+		for _, m := range ids {
+			if seen[m[1]] {
+				t.Errorf("%s inbox: id %s twice", u, m[1])
+			}
+			seen[m[1]] = true
+		}
+		if navs := strings.Count(in, " data-nav"); navs != len(regexp.MustCompile(`<a [^>]* data-nav id="row-[^"]+"`).FindAllString(in, -1)) {
+			t.Errorf("%s inbox: %d rows, not every one with its id", u, navs)
+		}
+		if u == "bob" && !strings.Contains(in, " data-nav") {
+			t.Error("bob's inbox has no rows to check")
+		}
 	}
 }
 

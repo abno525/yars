@@ -549,10 +549,11 @@ document.addEventListener('keydown', function (evt) {
   document.querySelectorAll('.fbulkform').forEach(function (f) { yarsBulkReason(f, null); });
 });
 // Enter on a checkbox of a list (a bulk row, Select all, the bulk picker, an
-// export pick) never submits its form: the browser's implicit submission
-// would press the form's first enabled button, the first Set state entry.
+// export pick) or of the workflow bar's reviewer picker never submits its
+// form: the browser's implicit submission would press the form's first
+// enabled button, the first Set state entry or Assign all.
 document.addEventListener('keydown', function (evt) {
-  if (evt.key === 'Enter' && evt.target.matches && evt.target.matches('.fbulkform input[type=checkbox], input[type=checkbox][data-nav]')) evt.preventDefault();
+  if (evt.key === 'Enter' && evt.target.matches && evt.target.matches('.fbulkform input[type=checkbox], input[type=checkbox][data-nav], .picker input[type=checkbox]')) evt.preventDefault();
 });
 // While a run is out every bar button is disabled (hx-disabled-elt), so a
 // double click sends one request; a refused run (403, 422: a toast, no swap)

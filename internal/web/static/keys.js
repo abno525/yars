@@ -46,7 +46,8 @@ function yarsEdit() {
   var b = p.querySelector('button[aria-keyshortcuts~="E"]:not(:disabled)');
   if (!b) return false;
   yarsFocusAfter = p.id;
-  b.click();
+  b.click(); // htmx sends the request in the click: beforeRequest moves the id onto it
+  yarsFocusAfter = '';
   return true;
 }
 
@@ -72,6 +73,7 @@ function yarsSave() {
   var p = yarsPanelOf(form);
   if (p) yarsLastPanel = yarsFocusAfter = p.id;
   btn.click(); // a click, so a confirm on the button still asks
+  yarsFocusAfter = ''; // taken by the request, or no request went (a required field)
 }
 
 // yarsSaveButton: among the form's own submit buttons (form.elements: one
@@ -323,7 +325,12 @@ function yarsSelect(el, scroll) {
   if (!el) return;
   el.setAttribute('data-sel', '');
   if (el.getAttribute('data-kpanel') !== 'side') yarsSideFrom = el.id;
-  if (scroll && el.scrollIntoView) el.scrollIntoView({block: 'nearest'});
+  if (!scroll) return;
+  // a key also takes focus off a control left in another panel (a saved
+  // panel's Edit button), so Enter and Space act on the selection
+  var a = document.activeElement;
+  if (a && a !== document.body && !yarsTyping(a) && !el.contains(a) && a.blur) a.blur();
+  if (el.scrollIntoView) el.scrollIntoView({block: 'nearest'});
 }
 
 document.addEventListener('pointerdown', function (evt) {
@@ -482,12 +489,17 @@ document.addEventListener('keydown', function (evt) {
 });
 
 // After a keyboard edit or save the section keeps focus: an open editor on
-// its first field, a saved section on its Edit button.
+// its first field, a saved section on its Edit button. yarsFocusAfter rides
+// on the request the key sent (its xhr), so only that answer's swap takes
+// focus: never a live refresh of the panel, nor a later swap after a request
+// that failed or never went.
 document.addEventListener('htmx:afterSettle', function (evt) {
+  var xhr = evt.detail.xhr;
+  var want = xhr && xhr.yarsFocus;
   var t = evt.detail.target;
-  if (!yarsFocusAfter || !t || t.id !== yarsFocusAfter) return;
-  var p = document.getElementById(yarsFocusAfter);
-  yarsFocusAfter = '';
+  if (!want || !t || t.id !== want) return;
+  xhr.yarsFocus = '';
+  var p = document.getElementById(want);
   if (!p) return;
   if (p.classList.contains('editing')) { yarsFirstField(p); return; }
   var b = p.querySelector('button[aria-keyshortcuts~="E"]');
@@ -495,13 +507,18 @@ document.addEventListener('htmx:afterSettle', function (evt) {
   p.setAttribute('tabindex', '-1');
   p.focus({preventScroll: true});
 });
-document.addEventListener('htmx:responseError', function () { yarsFocusAfter = ''; });
-// a cancelled editor (Esc or a click on Cancel) gives focus back to its
-// panel too; set when the request really goes (not when "Discard changes?"
-// is answered No)
 document.addEventListener('htmx:beforeRequest', function (evt) {
   var el = evt.detail.elt;
-  if (!el || !el.matches || !el.matches('[data-guard-cancel]')) return;
-  var p = el.closest('[data-kpanel][id]');
-  if (p) yarsLastPanel = yarsFocusAfter = p.id;
+  if (!el || !el.matches) return;
+  // a cancelled editor (Esc or a click on Cancel) gives focus back to its
+  // panel too; set when the request really goes (not when "Discard
+  // changes?" is answered No)
+  if (el.matches('[data-guard-cancel]')) {
+    var p = el.closest('[data-kpanel][id]');
+    if (p) yarsLastPanel = yarsFocusAfter = p.id;
+  }
+  // the panel's own request is a live refresh, not the key's
+  if (!yarsFocusAfter || !evt.detail.xhr || el.id === yarsFocusAfter) return;
+  evt.detail.xhr.yarsFocus = yarsFocusAfter;
+  yarsFocusAfter = '';
 });
