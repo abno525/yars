@@ -31,12 +31,7 @@ func (r *Runner) pandoc(ctx context.Context, e Exporter, in Input) (Result, erro
 		return Result{}, errors.New("pandoc is not installed on the server")
 	}
 	base := baseFormat(e.Format) // the format without its extensions
-	if base == "pdf" {
-		release, err := r.pdfSlot(ctx)
-		if err != nil {
-			return Result{}, err
-		}
-		defer release()
+	if base == "pdf" { // Run holds a PDF worker
 		limit := r.PDFTimeout
 		if limit <= 0 {
 			limit = 60 * time.Second

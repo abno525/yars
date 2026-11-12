@@ -438,6 +438,14 @@ func (r *Runner) Run(ctx context.Context, e Exporter, in Input) (Result, error) 
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+	if e.Type == "pandoc" && baseFormat(e.Format) == "pdf" {
+		// first a PDF worker: a PDF in the queue holds no export worker
+		release, err := r.pdfSlot(ctx)
+		if err != nil {
+			return Result{}, err
+		}
+		defer release()
+	}
 	release, err := r.Slot(ctx)
 	if err != nil {
 		return Result{}, err

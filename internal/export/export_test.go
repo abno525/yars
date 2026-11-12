@@ -865,6 +865,32 @@ func TestPDFWorker(t *testing.T) {
 	}
 }
 
+// PDFs waiting for a PDF worker hold no export worker: a DOCX asked for
+// while four PDFs queue runs at once.
+func TestPDFQueueLeavesExports(t *testing.T) {
+	pb, _ := fakePandoc(t, "case \"$*\" in *xelatex*) sleep 0.8;; esac\n"+recordingPandoc)
+	r, _ := runner(t, pb)
+	var wg sync.WaitGroup
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := r.Run(context.Background(), Exporter{ID: "pdf", Type: "pandoc", Format: "pdf"}, input(t)); err != nil {
+				t.Error(err)
+			}
+		}()
+	}
+	time.Sleep(150 * time.Millisecond) // the PDFs have queued
+	start := time.Now()
+	if _, err := r.Run(context.Background(), Exporter{ID: "docx", Type: "pandoc", Format: "docx"}, input(t)); err != nil {
+		t.Fatal(err)
+	}
+	if d := time.Since(start); d > 400*time.Millisecond {
+		t.Errorf("the DOCX waited %s behind the PDFs", d)
+	}
+	wg.Wait()
+}
+
 // The real thing, when pandoc and xelatex are installed.
 func TestPDFReal(t *testing.T) {
 	p, err := exec.LookPath("pandoc")
