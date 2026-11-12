@@ -176,7 +176,7 @@ func Parse(file string, b []byte) (Exporter, error) {
 	}
 	var err error
 	switch {
-	case e.Type == "pandoc" && !safeWord.MatchString(e.Format):
+	case e.Type == "pandoc" && !pandocFormat.MatchString(e.Format):
 		err = errors.New("pandoc exporter needs a format like docx, pdf or html")
 	case e.Type == "script" && (e.Script == "" || !safeWord.MatchString(e.Extension)):
 		err = errors.New("script exporter needs script and a plain extension (letters/digits)")
@@ -208,6 +208,18 @@ func NeedsAdmin(prev *Exporter, ex Exporter) bool {
 }
 
 var safeWord = regexp.MustCompile(`^[a-z0-9_]+$`)
+
+// pandocFormat is a pandoc format with its extensions turned on or off
+// (docx+styles, markdown-smart+pipe_tables).
+var pandocFormat = regexp.MustCompile(`^[a-z0-9_]+([+-][a-z0-9_]+)*$`)
+
+// baseFormat is a pandoc format without its extensions.
+func baseFormat(f string) string {
+	if i := strings.IndexAny(f, "+-"); i >= 0 {
+		return f[:i]
+	}
+	return f
+}
 
 // pandoc args are limited to presentation options: nothing that reads or
 // writes files, runs filters or changes the output path.

@@ -19,7 +19,8 @@ func (r *Runner) pandoc(ctx context.Context, e Exporter, in Input) (Result, erro
 	if r.PandocPath == "" {
 		return Result{}, errors.New("pandoc is not installed on the server")
 	}
-	if e.Format == "pdf" {
+	base := baseFormat(e.Format) // the format without its extensions
+	if base == "pdf" {
 		release, err := r.pdfSlot(ctx)
 		if err != nil {
 			return Result{}, err
@@ -33,9 +34,9 @@ func (r *Runner) pandoc(ctx context.Context, e Exporter, in Input) (Result, erro
 		ctx, cancel = context.WithTimeout(ctx, limit)
 		defer cancel()
 	}
-	ext := extOf[e.Format]
+	ext := extOf[base]
 	if ext == "" {
-		ext = e.Format
+		ext = base
 	}
 	tmp, err := os.MkdirTemp("", "yars-export-")
 	if err != nil {
@@ -49,7 +50,7 @@ func (r *Runner) pandoc(ctx context.Context, e Exporter, in Input) (Result, erro
 	// --sandbox: pandoc may not read or fetch anything but its arguments
 	// (images are already inlined as data URIs from the finding's attachments).
 	args := []string{"--sandbox", "-f", "html", "-o", out, "--standalone", "--metadata", "title=" + in.Engagement.Name}
-	if e.Format != "pdf" { // pdf: pandoc picks the writer from the extension
+	if base != "pdf" { // pdf: pandoc picks the writer from the extension
 		args = append(args, "-t", e.Format)
 	}
 	if sub := in.subtitle(); sub != "" {
@@ -62,13 +63,13 @@ func (r *Runner) pandoc(ctx context.Context, e Exporter, in Input) (Result, erro
 		if err != nil {
 			return Result{}, err
 		}
-		switch e.Format {
+		switch base {
 		case "docx", "odt", "pptx":
 			args = append(args, "--reference-doc="+p)
 		default:
 			args = append(args, "--template="+p)
 		}
-	case e.Format == "pdf":
+	case base == "pdf":
 		// the theme: report structure, embedded template and filter, xelatex
 		tpl, lua, err := writeTheme(tmp)
 		if err != nil {

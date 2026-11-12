@@ -233,6 +233,35 @@ func TestPandocRun(t *testing.T) {
 	}
 }
 
+// A pandoc format with extensions (docx+styles, markdown-smart) is a
+// format: it goes to pandoc whole, and the base format picks the file
+// extension and the reference document (backlog, M8).
+func TestPandocFormatExtensions(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "styled.yaml", "type: pandoc\nformat: docx+styles\ntemplate: ref.docx\n", 0o644)
+	writeFile(t, dir, "md.yaml", "type: pandoc\nformat: markdown-smart+pipe_tables\n", 0o644)
+	writeFile(t, dir, "bad.yaml", "type: pandoc\nformat: docx+\n", 0o644)
+	if es, errs := Load(dir); len(es) != 2 || len(errs) != 1 {
+		t.Fatalf("exporters %v errors %v", es, errs)
+	}
+	pb, pdir := fakePandoc(t, recordingPandoc)
+	r, edir := runner(t, pb)
+	writeFile(t, edir, "ref.docx", "template", 0o644)
+	res, err := r.Run(context.Background(), Exporter{ID: "styled", Type: "pandoc", Format: "docx+styles", Template: "ref.docx"}, input(t))
+	if err != nil || res.Filename != "acme.docx" {
+		t.Fatalf("%v %s", err, res.Filename)
+	}
+	args, _ := os.ReadFile(filepath.Join(pdir, "args.txt"))
+	for _, want := range []string{"-t\ndocx+styles", "--reference-doc=" + filepath.Join(edir, "ref.docx")} {
+		if !strings.Contains(string(args), want) {
+			t.Errorf("args lack %q:\n%s", want, args)
+		}
+	}
+	if res, err := r.Run(context.Background(), Exporter{ID: "md", Type: "pandoc", Format: "markdown-smart+pipe_tables"}, input(t)); err != nil || res.Filename != "acme.md" {
+		t.Fatalf("%v %s", err, res.Filename)
+	}
+}
+
 func TestPandocReal(t *testing.T) {
 	p, err := exec.LookPath("pandoc")
 	if err != nil {
