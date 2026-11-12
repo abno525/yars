@@ -72,6 +72,9 @@ func (s *Store) startCheck(engID, dir, only string, u config.User) (db.CheckRun,
 	s.runningMu.Unlock()
 	if ok {
 		s.checksMu.Unlock()
+		if id == fixRun {
+			return db.CheckRun{}, ErrBusy // the AI is fixing it (StartFix)
+		}
 		return s.db.Run(id)
 	}
 	var keep *carried

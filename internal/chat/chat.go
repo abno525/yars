@@ -34,6 +34,10 @@ type Message struct {
 // KindCheck is the Kind of a thread a check run opened for a violation.
 const KindCheck = "check"
 
+// KindAI is the Kind of a reply the AI wrote for a user in a check's thread
+// (Fix with AI, R7): it is marked as done by AI.
+const KindAI = "ai"
+
 // Parse decodes JSONL, skipping blank, invalid and id-less lines.
 func Parse(b []byte) []Message {
 	var out []Message

@@ -122,5 +122,6 @@ M30 task 3  review   fix e4ed169 (core.hooksPath left alone; a hook that never s
 M30 branch  review   fixes d6d308e (one failed login per commit, a refused helper login forgotten; the workflow state applied as Check does; how to save a login; could-not-run rules not counted; docs)
 M30 branch  fix check one regression (the first finding asked alone took two rounds), fixed 63117c1: the login checked first with a GET, then all findings at once
 M30 PR      opened   #25
-M31 task 1  done     (Runner.Fix and Engine.Fix: the whole section back, purpose fix, never cached)
+M31 task 1  done     59b9d8b (Runner.Fix and Engine.Fix: the whole section back, purpose fix, never cached)
+M31 task 2  done     (StartFix: each open check result fixed only when nothing else changed and the rule no longer fires, committed as AI for <user>, answered in its thread; a check run follows)
 ```
