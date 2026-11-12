@@ -16,6 +16,7 @@ import (
 	"yars/internal/auth"
 	"yars/internal/config"
 	"yars/internal/db"
+	"yars/internal/finding"
 	"yars/internal/gitrepo"
 	"yars/internal/index"
 	"yars/internal/rules"
@@ -643,5 +644,18 @@ func TestServeStdio(t *testing.T) {
 	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
 	if len(lines) != 2 || !strings.Contains(lines[0], `"id":1`) || !strings.Contains(lines[1], "list_findings") {
 		t.Fatalf("stdio output:\n%s", out.String())
+	}
+}
+
+// addTemplate commits a template to the main repo.
+func addTemplate(t *testing.T, f *fx, slug, title string) {
+	t.Helper()
+	err := f.s.Store.SaveTemplate(slug, gitrepo.Author{Name: "dora", Email: "dora@yars.local"}, func(cur *finding.Finding) (*finding.Finding, error) {
+		nf := f.s.Store.NewTemplate(title)
+		nf.SetSection("Impact", "Attackers read every row.")
+		return nf, nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }
