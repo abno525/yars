@@ -39,7 +39,7 @@
     <div class="bdd">
       <button type="button" class="btn save sm w152" data-bulk-menu aria-haspopup="menu" aria-expanded="false"{{if not .Selected}} disabled{{end}}>Set state ▾</button>
       <div class="bmenu" role="menu" aria-label="Set state" hidden>
-        {{range .Options}}<button {{if .Reason}}type="button" data-bulk-reason="{{.Label}}"{{else}}name="action" value="{{.Action}}"{{end}} role="menuitem" data-act="{{.Action}}"{{if not .Enabled}} disabled{{end}}>{{.Label}}{{with .Verb}} <span class="v">· {{.}}</span>{{end}}</button>{{end}}
+        {{range .Options}}<button {{if .Reason}}type="button" data-bulk-reason="{{.Label}}"{{else}}name="action" value="{{.Action}}"{{end}} role="menuitem" data-act="{{.Action}}"{{with .Key}} aria-keyshortcuts="{{.}}"{{end}}{{if not .Enabled}} disabled{{end}}>{{.Label}}{{with .Verb}} <span class="v">· {{.}}</span>{{end}}</button>{{end}}
       </div>
     </div>
     {{if .Assign}}

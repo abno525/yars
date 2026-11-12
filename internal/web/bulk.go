@@ -258,6 +258,16 @@ type bulkBar struct {
 type bulkMenuItem struct {
 	workflow.BulkOption
 	Reason, Enabled bool
+	Key             string // aria-keyshortcuts: the bar's key, for Submit, Approve and Mark reported only
+}
+
+// menuItem is o's Set state entry.
+func menuItem(o workflow.BulkOption) bulkMenuItem {
+	it := bulkMenuItem{BulkOption: o, Reason: workflow.NeedsReason(o.Action)}
+	if o.Action == workflow.Submit || o.Action == workflow.Approve || o.Action == workflow.Report {
+		it.Key = wfKeys[o.Action]
+	}
+	return it
 }
 
 // bulkBarFor builds the bar for the rows of an open engagement.
@@ -269,7 +279,7 @@ func (s *Server) bulkBarFor(u config.User, eng, query string, rows []index.Row) 
 	}
 	opts := workflow.BulkOptions(u)
 	for _, o := range opts {
-		b.Options = append(b.Options, bulkMenuItem{BulkOption: o, Reason: workflow.NeedsReason(o.Action)})
+		b.Options = append(b.Options, menuItem(o))
 	}
 	var blocked map[string]bool
 	if workflow.BulkAllowed(u, workflow.Clear) || workflow.BulkAllowed(u, workflow.Approve) {

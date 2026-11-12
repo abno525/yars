@@ -241,7 +241,7 @@ func TestReasonPanels(t *testing.T) {
 	b := e.do(t, "dora", "GET", fpath, nil, nil).Body.String()
 	wf := wfSection(t, b)
 	for _, want := range []string{
-		`aria-controls="wf-return"`, `id="wf-return"`, `aria-controls="wf-withdraw"`, `id="wf-withdraw"`,
+		`aria-controls="wf-return-reason"`, `id="wf-return-reason"`, `aria-controls="wf-withdraw-reason"`, `id="wf-withdraw-reason"`,
 		`<textarea name="reason" required`, "Return to draft", "Withdraw finding",
 	} {
 		if !strings.Contains(wf, want) {

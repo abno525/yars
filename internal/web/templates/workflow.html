@@ -39,16 +39,16 @@
     <div class="wfcheck">
       <span class="checkslot">{{if .Flag}}{{if .FlagTag}}<span class="tag check-stale">{{.Flag}}</span>{{else}}<span class="checkflag {{.FlagClass}}">{{.Flag}}{{if .FlagN}} <span class="mono">{{.FlagN}}</span>{{end}}</span>{{end}}{{end}}</span>
       {{if not .Show}}<span class="slot w152"></span>
-      {{else if .Running}}<button type="button" class="btn {{.Class}} w152 checking" disabled aria-busy="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9"></path></svg>Checking <span class="mono">{{.Done}}/{{.Total}}</span><progress value="{{.Done}}" max="{{.Total}}"></progress></button>
-      {{else}}<button type="button" class="btn {{.Class}} w152" hx-post="{{.URL}}" hx-target="#workflow" hx-swap="outerHTML" data-slot="check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>Check</button>
+      {{else if .Running}}<button type="button" class="btn {{.Class}} w152 checking" id="wf-check" disabled aria-busy="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9"></path></svg>Checking <span class="mono">{{.Done}}/{{.Total}}</span><progress value="{{.Done}}" max="{{.Total}}"></progress></button>
+      {{else}}<button type="button" class="btn {{.Class}} w152" hx-post="{{.URL}}" hx-target="#workflow" hx-swap="outerHTML" data-slot="check" id="wf-check" aria-keyshortcuts="Shift+C"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>Check</button>
       {{end}}
     </div>
     {{end}}{{end}}
     <div class="wf-actions">
       {{range .Slots}}
       {{if not .Present}}<span class="slot {{.Width}}" data-slot="{{.Slot}}"></span>
-      {{else if .PanelID}}<button type="button" class="btn {{.Width}} {{.Class}}" data-slot="{{.Slot}}" data-action="{{.Name}}"{{if .Disabled}} disabled{{end}} title="{{.Title}}" aria-controls="{{.PanelID}}" aria-expanded="false" data-reason-toggle>{{.Label}}</button>
-      {{else}}<form method="post" action="{{.URL}}" class="wf-action" data-slot="{{.Slot}}"><button class="btn {{.Width}} {{.Class}}" data-action="{{.Name}}"{{if .Disabled}} disabled{{end}} title="{{.Title}}"{{with .DescribedBy}} aria-describedby="{{.}}"{{end}}>{{.Label}}</button></form>
+      {{else if .PanelID}}<button type="button" class="btn {{.Width}} {{.Class}}" id="wf-{{.Slot}}"{{with .Key}} aria-keyshortcuts="{{.}}"{{end}} data-slot="{{.Slot}}" data-action="{{.Name}}"{{if .Disabled}} disabled{{end}} title="{{.Title}}" aria-controls="{{.PanelID}}" aria-expanded="false" data-reason-toggle>{{.Label}}</button>
+      {{else}}<form method="post" action="{{.URL}}" class="wf-action" data-slot="{{.Slot}}"><button class="btn {{.Width}} {{.Class}}" id="wf-{{.Slot}}"{{with .Key}} aria-keyshortcuts="{{.}}"{{end}} data-action="{{.Name}}"{{if .Disabled}} disabled{{end}} title="{{.Title}}"{{with .DescribedBy}} aria-describedby="{{.}}"{{end}}>{{.Label}}</button></form>
       {{end}}
       {{end}}
     </div>

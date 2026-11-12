@@ -1,5 +1,5 @@
-/* YARS keyboard (K1–K10): the templates declare what exists (Edit and Save
-   buttons carry aria-keyshortcuts); one keydown handler finds a rendered,
+/* YARS keyboard (K1–K10): the templates declare what exists (Edit, Save,
+   workflow and bulk buttons carry aria-keyshortcuts); one keydown handler finds a rendered,
    enabled control for the key and clicks it. Rights stay on the server: a
    control that is not rendered has no shortcut. */
 
@@ -119,19 +119,50 @@ function yarsKeyOf(evt) {
   return mods + k;
 }
 
+// yarsHasKey: el's aria-keyshortcuts lists key.
+function yarsHasKey(el, key) {
+  return (el.getAttribute('aria-keyshortcuts') || '').split(/\s+/).indexOf(key) >= 0;
+}
+
 // yarsFire clicks the first rendered, enabled element in scope (default the
 // document) whose aria-keyshortcuts lists key; true when one was clicked.
+// The bulk menu's entries are yarsBulkFire's.
 function yarsFire(key, scope) {
   if (!key) return false;
   var els = (scope || document).querySelectorAll('[aria-keyshortcuts]');
   for (var i = 0; i < els.length; i++) {
     var el = els[i];
-    if ((el.getAttribute('aria-keyshortcuts') || '').split(/\s+/).indexOf(key) < 0) continue;
+    if (!yarsHasKey(el, key) || el.closest('.bmenu')) continue;
     if (el.offsetParent === null || el.disabled) continue;
     el.click();
     return true;
   }
   return false;
+}
+
+// yarsBulkFire (K4): Shift+S, A and P press the bulk Set state entry with
+// that key (the menu may be closed) while its form has a ticked row; an entry
+// no ticked row can take is disabled, so its key does nothing. On a page with
+// a workflow bar the bar's keys win.
+function yarsBulkFire(key) {
+  if (!key || document.getElementById('workflow')) return false;
+  var forms = document.querySelectorAll('.fbulkform');
+  for (var i = 0; i < forms.length; i++) {
+    if (!forms[i].querySelector('input[name=id]:checked')) continue;
+    var items = forms[i].querySelectorAll('.bmenu [aria-keyshortcuts]');
+    for (var j = 0; j < items.length; j++) {
+      if (!yarsHasKey(items[j], key) || items[j].disabled) continue;
+      items[j].click();
+      return true;
+    }
+  }
+  return false;
+}
+
+// yarsPick: a list's row checkbox takes no characters, so the list keys work
+// with it focused (a click on it leaves focus there).
+function yarsPick(t) {
+  return !!(t && t.matches && t.matches('.fbulkform input[type=checkbox]'));
 }
 
 /* ---------- selection (K2): a click or j/k selects a panel ---------- */
@@ -272,13 +303,13 @@ document.addEventListener('keydown', function (evt) {
   // single keys and Shift+key: never into a field, during composition, on
   // repeat, under a modal dialog, or with shortcuts off
   if (yarsKeysOff() || evt.isComposing || evt.repeat || evt.altKey || evt.defaultPrevented ||
-      yarsTyping(evt.target) || document.querySelector('dialog[open]')) return;
+      (yarsTyping(evt.target) && !yarsPick(evt.target)) || document.querySelector('dialog[open]')) return;
   if (evt.ctrlKey || evt.metaKey) return; // the browser's own (Ctrl+K is app.js's)
   if (yarsNav(key)) { evt.preventDefault(); return; }
   if (key === 'E') { if (yarsEdit()) evt.preventDefault(); return; }
   if (key === 'Enter') { if (yarsEnter()) evt.preventDefault(); return; }
   if (key === 'C') { if (yarsCommentKey()) evt.preventDefault(); return; }
-  if (yarsFire(key)) evt.preventDefault();
+  if (yarsFire(key) || yarsBulkFire(key)) evt.preventDefault();
 });
 
 // After a keyboard edit or save the section keeps focus: an open editor on

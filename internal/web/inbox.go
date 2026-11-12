@@ -550,7 +550,7 @@ func (s *Server) inboxBar(u config.User, rows []index.Row) bulkBar {
 		Pick: map[string]bool{}, Acts: map[string]string{}}
 	opts := workflow.BulkOptions(u)
 	for _, o := range opts {
-		b.Options = append(b.Options, bulkMenuItem{BulkOption: o, Reason: workflow.NeedsReason(o.Action)})
+		b.Options = append(b.Options, menuItem(o))
 	}
 	for _, r := range rows {
 		b.addRow(u, r, opts, false) // Ready to approve is already filtered (withoutOpenChecks)

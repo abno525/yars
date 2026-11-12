@@ -1,9 +1,12 @@
 package web
 
 import (
+	"html"
 	"regexp"
 	"strings"
 	"testing"
+
+	"yars/internal/workflow"
 )
 
 // keyed is the tags that carry aria-keyshortcuts="<key>".
@@ -219,6 +222,129 @@ func TestKeysSaveMarkers(t *testing.T) {
 		}
 		if !strings.Contains(js, want) {
 			t.Errorf("keys.js lacks %s", want)
+		}
+	}
+}
+
+var keyTagRe = regexp.MustCompile(`<button[^>]*aria-keyshortcuts="([^"]+)"[^>]*>`)
+
+// barKeys maps each key of the workflow bar to its button's opening tag.
+func barKeys(t *testing.T, b string) map[string]string {
+	t.Helper()
+	out := map[string]string{}
+	for _, m := range keyTagRe.FindAllStringSubmatch(wfSection(t, b), -1) {
+		k := html.UnescapeString(m[1]) // html/template writes + as &#43;
+		if _, dup := out[k]; dup {
+			t.Errorf("%s twice on the bar", k)
+		}
+		out[k] = m[0]
+	}
+	return out
+}
+
+// K4, review focus 2: a workflow key is on the rendered button only, so it
+// follows the viewer's rights and the finding's state; each slot button has
+// a stable id, and its reason panel another.
+func TestWorkflowKeysPerRoleAndState(t *testing.T) {
+	e := setup(t)
+	page := func(u string) string { return e.do(t, u, "GET", fpath, nil, nil).Body.String() }
+	want := func(who string, keys map[string]string, has map[string]string, not ...string) {
+		t.Helper()
+		for k, id := range has {
+			tag, ok := keys[k]
+			if !ok || !strings.Contains(tag, ` id="`+id+`"`) {
+				t.Errorf("%s: %s on %q, want id %s (bar keys %v)", who, k, tag, id, keys)
+			}
+		}
+		for _, k := range not {
+			if tag, ok := keys[k]; ok {
+				t.Errorf("%s: %s present: %s", who, k, tag)
+			}
+		}
+	}
+	b := page("alice")
+	keys := barKeys(t, b)
+	want("draft, author", keys, map[string]string{"Shift+S": "wf-submit", "Shift+W": "wf-withdraw"}, "Shift+A", "Shift+O", "Shift+R", "Shift+P", "Shift+U")
+	wf := wfSection(t, b)
+	for _, s := range []string{`aria-controls="wf-withdraw-reason"`, `class="wfpanel withdraw" id="wf-withdraw-reason"`, `data-reason-cancel="wf-withdraw-reason"`} {
+		if !strings.Contains(wf, s) {
+			t.Errorf("Withdraw's panel: no %s:\n%s", s, wf)
+		}
+	}
+	if n := strings.Count(b, ` id="wf-withdraw"`); n != 1 {
+		t.Errorf("id wf-withdraw %d times", n)
+	}
+	// the panel's own buttons carry no key
+	if strings.Contains(between(wf, `id="wf-withdraw-reason"`, "</form>"), "aria-keyshortcuts") {
+		t.Errorf("a key in Withdraw's panel:\n%s", wf)
+	}
+
+	e.toVerification(t)
+	want("verification, reviewer", barKeys(t, page("bob")), map[string]string{"Shift+O": "wf-clear", "Shift+R": "wf-return"}, "Shift+A", "Shift+S", "Shift+W")
+	// before a sign-off dora's Approve is there but disabled, so its key does nothing
+	if tag := barKeys(t, page("dora"))["Shift+A"]; !strings.Contains(tag, " disabled") {
+		t.Errorf("dora before a sign-off: Approve %q", tag)
+	}
+	if err := e.srv.Store.Transition("acme", fdir, workflow.Clear, "", wBob); err != nil {
+		t.Fatal(err)
+	}
+	keys = barKeys(t, page("dora"))
+	want("verification, director after a sign-off", keys, map[string]string{"Shift+A": "wf-approve"})
+	if strings.Contains(keys["Shift+A"], " disabled") {
+		t.Errorf("Approve disabled after a sign-off: %s", keys["Shift+A"])
+	}
+	want("verification, author", barKeys(t, page("alice")), nil, "Shift+A", "Shift+O")
+
+	if err := e.srv.Store.Transition("acme", fdir, workflow.Approve, "", wDora); err != nil {
+		t.Fatal(err)
+	}
+	want("complete, director", barKeys(t, page("dora")), map[string]string{"Shift+U": "wf-reopen", "Shift+P": "wf-report", "Shift+W": "wf-withdraw"}, "Shift+A", "Shift+S")
+	want("complete, reviewer", barKeys(t, page("bob")), nil, "Shift+U", "Shift+P", "Shift+W")
+
+	if err := e.srv.Store.Archive("acme", wDora); err != nil {
+		t.Fatal(err)
+	}
+	if wf := wfSection(t, page("dora")); strings.Contains(wf, "aria-keyshortcuts") {
+		t.Errorf("archived: keys on the bar:\n%s", wf)
+	}
+
+	// Check (rules on) has Shift+C
+	e = setup(t)
+	e.rules(t, "- id: no-zebra\n  target: title\n  regex_forbid: 'zebra'\n", nil)
+	want("draft with rules, author", barKeys(t, page("alice")), map[string]string{"Shift+C": "wf-check"})
+}
+
+// K4: Submit, Approve and Mark reported in the bulk menu carry the bar's
+// keys; nothing else there does.
+func TestBulkKeys(t *testing.T) {
+	e := setup(t)
+	bar := html.UnescapeString(toolbarOf(e.do(t, "dora", "GET", "/e/acme", nil, nil).Body.String()))
+	items := regexp.MustCompile(`<button [^>]*role="menuitem"[^>]*>`).FindAllString(bar, -1)
+	if len(items) == 0 {
+		t.Fatalf("no menu:\n%s", bar)
+	}
+	wantKey := map[string]string{"submit": "Shift+S", "approve": "Shift+A", "report": "Shift+P"}
+	for _, it := range items {
+		act := actRe.FindStringSubmatch(it)[1]
+		k := wantKey[act]
+		got := ""
+		if m := regexp.MustCompile(`aria-keyshortcuts="([^"]+)"`).FindStringSubmatch(it); m != nil {
+			got = m[1]
+		}
+		if got != k {
+			t.Errorf("%s: key %q, want %q: %s", act, got, k, it)
+		}
+	}
+	// the director's inbox bar too
+	in := e.do(t, "dora", "GET", "/inbox", nil, nil).Body.String()
+	if bar := html.UnescapeString(toolbarOf(in)); bar == "" || !strings.Contains(bar, `data-act="approve" aria-keyshortcuts="Shift+A"`) {
+		t.Errorf("inbox bar lacks Shift+A:\n%s", bar)
+	}
+	// keys.js presses a bulk entry only with a ticked row, and the bar wins
+	js := e.do(t, "dora", "GET", "/static/keys.js", nil, nil).Body.String()
+	for _, w := range []string{"function yarsBulkFire", "input[name=id]:checked", "getElementById('workflow')"} {
+		if !strings.Contains(js, w) {
+			t.Errorf("keys.js lacks %s", w)
 		}
 	}
 }

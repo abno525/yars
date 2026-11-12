@@ -262,8 +262,8 @@ func TestWorkflowBarRevertSlots(t *testing.T) {
 		t.Helper()
 		wf := wfSection(t, e.do(t, user, "GET", fpath, nil, nil).Body.String())
 		// its title says which revert, as the panel's head does
-		btn := `<button type="button" class="btn w136 secondary" data-slot="` + act + `" data-action="` + act + `" title="` + head + `" aria-controls="wf-` + act + `" aria-expanded="false" data-reason-toggle>Revert</button>`
-		panel := `<form method="post" action="/e/acme/f/001/action/` + act + `" class="wfpanel ` + act + `" id="wf-` + act + `" hidden>
+		btn := `<button type="button" class="btn w136 secondary" id="wf-` + act + `" aria-keyshortcuts="Shift&#43;U" data-slot="` + act + `" data-action="` + act + `" title="` + head + `" aria-controls="wf-` + act + `-reason" aria-expanded="false" data-reason-toggle>Revert</button>`
+		panel := `<form method="post" action="/e/acme/f/001/action/` + act + `" class="wfpanel ` + act + `" id="wf-` + act + `-reason" hidden>
     <div class="panelhead"><h2>` + head + `</h2></div>`
 		has := strings.Contains(wf, btn) && strings.Contains(wf, panel) && strings.Contains(wf, `<button class="btn secondary sm w96">Revert</button>`)
 		if has != want || (!want && strings.Contains(wf, `data-action="`+act+`"`)) {
@@ -294,7 +294,7 @@ func TestRevertPostNeedsReason(t *testing.T) {
 	}
 	for _, blank := range []url.Values{{}, {"reason": {"  "}}} {
 		rec := e.do(t, "dora", "POST", fpath+"/action/unreport", blank, nil)
-		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "a reason is required") || !strings.Contains(rec.Body.String(), `id="wf-unreport"`) || e.status(t) != "reported" {
+		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "a reason is required") || !strings.Contains(rec.Body.String(), `id="wf-unreport-reason"`) || e.status(t) != "reported" {
 			t.Fatalf("without a reason %v: code %d status %s:\n%s", blank, rec.Code, e.status(t), rec.Body.String())
 		}
 	}

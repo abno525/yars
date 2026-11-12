@@ -116,6 +116,15 @@ type wfSlot struct {
 	Present            bool
 	DescribedBy        string // the id of the state text saying why it is disabled
 	PanelID, PanelHead string // a reason form under the bar (Return, Withdraw, the reverts)
+	Key                string // aria-keyshortcuts of the button ("" = none)
+}
+
+// wfKeys maps an action to its key (K4). A key is on the rendered button
+// only, so it follows the viewer's rights; a disabled button's does nothing.
+var wfKeys = map[workflow.Action]string{
+	workflow.Submit: "Shift+S", workflow.Clear: "Shift+O", workflow.Approve: "Shift+A", workflow.Report: "Shift+P",
+	workflow.Return: "Shift+R", workflow.Withdraw: "Shift+W", workflow.Reopen: "Shift+U", workflow.Unreport: "Shift+U",
+	workflow.Revise: "Shift+U", workflow.TakeBack: "Shift+T",
 }
 
 type wfSlotSpec struct {
@@ -183,6 +192,7 @@ func (v *wfView) arrange(u config.User, m finding.Meta) {
 		if sl.Present {
 			sl.Title = sl.Label
 			sl.Label = barLabel(sp.act)
+			sl.Key = wfKeys[sp.act]
 			switch {
 			case sp.act == workflow.Return || sp.act == workflow.Withdraw:
 				sl.Class = "danger"
@@ -192,8 +202,9 @@ func (v *wfView) arrange(u config.User, m finding.Meta) {
 				sl.Class = "primary"
 			}
 			if workflow.NeedsReason(sp.act) {
-				// a reason panel under the bar; its button takes the slot's class
-				sl.PanelID = "wf-" + name
+				// a reason panel under the bar; its button takes the slot's
+				// class (the slot's button is wf-<slot>)
+				sl.PanelID = "wf-" + name + "-reason"
 				sl.PanelHead = map[workflow.Action]string{workflow.Return: "Return to draft", workflow.Withdraw: "Withdraw finding",
 					workflow.Reopen: "Revert to verification", workflow.Unreport: "Revert to complete"}[sp.act]
 				if sp.act == workflow.Reopen || sp.act == workflow.Unreport {
