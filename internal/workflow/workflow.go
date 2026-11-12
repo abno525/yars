@@ -200,6 +200,35 @@ func Check(u config.User, m finding.Meta, a Action) error {
 	return nil
 }
 
+// Allowed is one action as u could take it now on m.
+type Allowed struct {
+	Action  string `json:"action"`
+	Enabled bool   `json:"enabled"`
+	Reason  string `json:"reason,omitempty"` // why not, when disabled
+	Needs   string `json:"needs,omitempty"`  // "reason" when the action takes one
+}
+
+// AllowedActions lists every action possible in m's status, in Actions'
+// order, with whether u may take it (CheckWithGate: the role, the status
+// and the content gate) and, if not, why.
+func AllowedActions(u config.User, m finding.Meta, cfg config.Config) []Allowed {
+	var out []Allowed
+	for _, a := range Actions {
+		if from, _ := Target(a); !slices.Contains(from, m.Status) {
+			continue
+		}
+		al := Allowed{Action: string(a), Enabled: true}
+		if NeedsReason(a) {
+			al.Needs = "reason"
+		}
+		if err := CheckWithGate(u, m, a, cfg); err != nil {
+			al.Enabled, al.Reason = false, err.Error()
+		}
+		out = append(out, al)
+	}
+	return out
+}
+
 // reviewedByOther reports whether an assigned reviewer other than u cleared m.
 func reviewedByOther(u config.User, m finding.Meta) bool {
 	for _, c := range m.ClearedBy {

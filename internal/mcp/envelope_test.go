@@ -58,6 +58,7 @@ func withRules(t *testing.T, f *fx) {
 func TestEverySuccessIsAnObjectWithOK(t *testing.T) {
 	f := newFx(t)
 	withRules(t, f)
+	addTemplate(t, f, "sqli", "SQL injection")
 	defer f.s.Store.WaitChecks()
 	fd := map[string]any{"engagement": "acme", "finding": "F-001"}
 	with := func(extra map[string]any) map[string]any {
@@ -87,6 +88,13 @@ func TestEverySuccessIsAnObjectWithOK(t *testing.T) {
 		{"start_check", func() map[string]any { return fd }},
 		{"get_check_results", func() map[string]any { return fd }},
 		{"list_notifications", func() map[string]any { return map[string]any{} }},
+		{"whoami", func() map[string]any { return map[string]any{} }},
+		{"get_config", func() map[string]any { return map[string]any{} }},
+		{"list_team", func() map[string]any { return map[string]any{"engagement": "acme"} }},
+		{"read_chat", func() map[string]any { return fd }},
+		{"list_history", func() map[string]any { return fd }},
+		{"list_attachments", func() map[string]any { return fd }},
+		{"read_template", func() map[string]any { return map[string]any{"template": "sqli"} }},
 		{"transition", func() map[string]any { return with(map[string]any{"action": "withdraw", "reason": "duplicate"}) }},
 	}
 	seen := map[string]bool{}

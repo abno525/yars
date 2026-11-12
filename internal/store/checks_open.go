@@ -14,6 +14,26 @@ import (
 	"yars/internal/workflow"
 )
 
+// BlockingNow is what would refuse act on the finding now beyond the role,
+// status and content gate, worded as Transition words it ("cannot sign
+// off: …"), with the fast rules only (script and AI rules run at the
+// transition itself); "" when nothing does, or when act runs no rules or
+// there are none (MCP's allowed actions).
+func (s *Store) BlockingNow(engID, dir string, act workflow.Action, u config.User) (string, error) {
+	if s.Linter == nil || !(workflow.Gated(act) || SignsOff(act)) {
+		return "", nil
+	}
+	ref, raw, err := s.read(engID, dir, nil)
+	if err != nil {
+		return "", err
+	}
+	errs, err := s.blocking(act, ref, contentHash(raw), u, rules.Fast)
+	if err != nil || len(errs) == 0 {
+		return "", err
+	}
+	return "cannot " + strings.ToLower(workflow.Label(act)) + ": " + strings.Join(errs, "; "), nil
+}
+
 // blocking lists what blocks act on the finding (content hash): Submit and
 // Approve run every rule now (scripts and AI too: no check run may have
 // covered the content) and are blocked by its undismissed errors; Sign off
@@ -21,8 +41,9 @@ import (
 // the source the page and Ready to approve show). With Require Check on,
 // Sign off and Approve first need a finished run on this content
 // (checkGate), and Approve runs nothing inline: the run is the source. The
-// rules run for u on the finding (their AI calls are recorded so, D24).
-func (s *Store) blocking(act workflow.Action, ref FindingRef, hash string, u config.User) ([]string, error) {
+// rules run for u on the finding (their AI calls are recorded so, D24);
+// kinds are the rules run inline (Transition: all; BlockingNow: fast).
+func (s *Store) blocking(act workflow.Action, ref FindingRef, hash string, u config.User, kinds rules.Kind) ([]string, error) {
 	var out []string
 	gate := SignsOff(act) && s.gating()
 	if gate {
@@ -37,7 +58,7 @@ func (s *Store) blocking(act workflow.Action, ref FindingRef, hash string, u con
 	}
 	if act == workflow.Submit || (act == workflow.Approve && !gate) {
 		ctx := rules.WithCaller(context.Background(), rules.Caller{User: u.Username, Eng: ref.EngID, Fid: ref.F.Meta.ID})
-		vs, err := s.undismissed(ref.EngID, ref.F.Meta.ID, s.Linter.Lint(ctx, ref.F, rules.All))
+		vs, err := s.undismissed(ref.EngID, ref.F.Meta.ID, s.Linter.Lint(ctx, ref.F, kinds))
 		if err != nil {
 			return nil, err
 		}

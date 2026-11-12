@@ -4,6 +4,7 @@
 package history
 
 import (
+	"reflect"
 	"strings"
 	"time"
 
@@ -124,6 +125,52 @@ func split(raw []byte) (string, []finding.Section) {
 }
 
 func trim(s string) string { return strings.Trim(s, "\n") }
+
+// Parts names what changed from before to after, as History says it: the
+// front matter's parts (the title, severity, CVSS, details, assets), then
+// the sections.
+func Parts(before, after []byte) []string {
+	var n []string
+	for _, c := range Changes(before, after) {
+		if c.Name == FrontMatter {
+			n = append(n, frontMatterParts(before, after)...)
+			continue
+		}
+		n = append(n, c.Name)
+	}
+	return n
+}
+
+// frontMatterParts lists the front matter parts that differ; anything else
+// there (keys YARS does not know) counts as "details".
+func frontMatterParts(before, after []byte) []string {
+	b, berr := finding.Parse(before)
+	a, aerr := finding.Parse(after)
+	if berr != nil || aerr != nil {
+		return []string{"details"}
+	}
+	bm, am := b.Meta, a.Meta
+	var n []string
+	if bm.Title != am.Title {
+		n = append(n, "the title")
+	}
+	if bm.Severity != am.Severity {
+		n = append(n, "severity")
+	}
+	if bm.CVSS != am.CVSS || !reflect.DeepEqual(bm.CVSSReasons, am.CVSSReasons) {
+		n = append(n, "CVSS")
+	}
+	if !reflect.DeepEqual(bm.Details, am.Details) || !reflect.DeepEqual(bm.Extra, am.Extra) || bm.ID != am.ID || bm.Author != am.Author {
+		n = append(n, "details")
+	}
+	if !reflect.DeepEqual(bm.Assets, am.Assets) {
+		n = append(n, "assets")
+	}
+	if len(n) == 0 {
+		n = []string{"details"} // only formatting changed
+	}
+	return n
+}
 
 // Changes lists what differs from before to after (nil before = the first
 // version): the front matter first, then each section in the newer file's

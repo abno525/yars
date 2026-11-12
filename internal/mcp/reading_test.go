@@ -1,0 +1,249 @@
+package mcp
+
+import (
+	"encoding/json"
+	"fmt"
+	"slices"
+	"strings"
+	"testing"
+
+	"yars/internal/chat"
+	"yars/internal/config"
+	"yars/internal/db"
+	"yars/internal/workflow"
+)
+
+func TestWhoami(t *testing.T) {
+	f := newFx(t)
+	m := object(t, "whoami", f.ok(alice, "whoami", nil))
+	if m["username"] != "alice" || m["role"] != "pentester" || m["admin"] != false || m["token"] != nil {
+		t.Fatalf("%v", m)
+	}
+	tok := db.TokenInfo{Kind: db.TokenMCP, Scopes: []string{"read", "comment"}, Engagements: []string{"acme"}}
+	text, _ := f.callTok(dora, tok, "whoami", nil)
+	m = object(t, "whoami", text)
+	tk, _ := m["token"].(map[string]any)
+	if m["username"] != "dora" || m["role"] != "director" || tk == nil || fmt.Sprint(tk["scopes"]) != "[read comment]" || fmt.Sprint(tk["engagements"]) != "[acme]" {
+		t.Fatalf("%v", m)
+	}
+}
+
+func TestGetConfig(t *testing.T) {
+	f := newFx(t)
+	var c struct {
+		Sections    []string          `json:"sections"`
+		DetailsRows []string          `json:"details_rows"`
+		Severities  []string          `json:"severities"`
+		CVSSVersion string            `json:"cvss_version"`
+		Standard    map[string]string `json:"cvss_standard"`
+		Statuses    []string          `json:"statuses"`
+		Actions     []string          `json:"actions"`
+	}
+	if err := json.Unmarshal([]byte(f.ok(alice, "get_config", nil)), &c); err != nil {
+		t.Fatal(err)
+	}
+	cfg := f.s.Store.Config()
+	if !slices.Equal(c.Sections, cfg.Sections) || !slices.Equal(c.DetailsRows, cfg.DetailsRows) || !slices.Equal(c.Severities, cfg.Severities) ||
+		c.CVSSVersion != cfg.CVSS.Version || c.Standard["AV"] != cfg.CVSS.Standard["AV"] || !slices.Equal(c.Statuses, workflow.AllStatuses) || !slices.Contains(c.Actions, "take_back") || !slices.Contains(c.Actions, "revert") {
+		t.Fatalf("%+v", c)
+	}
+}
+
+func TestListTeam(t *testing.T) {
+	f := newFx(t)
+	var team []struct {
+		Username, Role string
+	}
+	itemsOf(t, f.ok(alice, "list_team", map[string]any{"engagement": "acme"}), &team)
+	got := fmt.Sprint(team)
+	if got != "[{alice pentester} {bob reviewer} {pen2 pentester}]" {
+		t.Fatalf("%s", got)
+	}
+}
+
+// read_finding gives each section's text and every action of the status
+// with whether the caller may take it now.
+func TestReadFindingHasBodiesAndActions(t *testing.T) {
+	f := newFx(t)
+	f.ok(alice, "update_section", map[string]any{"engagement": "acme", "finding": "F-001", "section": "Impact", "body": "Full read."})
+	var rd struct {
+		Sections []struct{ Name, Base, Body string } `json:"sections"`
+		Allowed  []workflow.Allowed                  `json:"allowed_actions"`
+	}
+	json.Unmarshal([]byte(f.ok(alice, "read_finding", map[string]any{"engagement": "acme", "finding": "F-001"})), &rd)
+	i := slices.IndexFunc(rd.Sections, func(s struct{ Name, Base, Body string }) bool { return s.Name == "Impact" })
+	if i < 0 || strings.TrimSpace(rd.Sections[i].Body) != "Full read." || rd.Sections[i].Base == "" {
+		t.Fatalf("sections %+v", rd.Sections)
+	}
+	acts := map[string]workflow.Allowed{}
+	for _, a := range rd.Allowed {
+		acts[a.Action] = a
+	}
+	if s := acts["submit"]; s.Enabled || !strings.Contains(s.Reason, "assign at least one reviewer") {
+		t.Fatalf("submit %+v", s)
+	}
+	if w := acts["withdraw"]; !w.Enabled || w.Needs != "reason" {
+		t.Fatalf("withdraw %+v", w)
+	}
+	if _, ok := acts["approve"]; ok {
+		t.Fatalf("approve listed for a draft: %+v", rd.Allowed)
+	}
+}
+
+// stateFx is a fixture whose F-001 is in state: draft (not ready), ready
+// (reviewer bob, severity high), verification, cleared (bob signed off),
+// complete, reported, withdrawn.
+func stateFx(t *testing.T, state string) *fx {
+	t.Helper()
+	f := newFx(t)
+	a := map[string]any{"engagement": "acme", "finding": "F-001"}
+	set := func(field, value string) {
+		f.ok(alice, "set_field", map[string]any{"engagement": "acme", "finding": "F-001", "field": field, "value": value})
+	}
+	tr := func(u config.User, act string) {
+		m := map[string]any{"action": act, "reason": "because"}
+		for k, v := range a {
+			m[k] = v
+		}
+		f.ok(u, "transition", m)
+	}
+	if state == "draft" {
+		return f
+	}
+	set("reviewers", "bob")
+	set("severity", "high")
+	steps := map[string][]func(){
+		"ready":        nil,
+		"verification": {func() { tr(alice, "submit") }},
+		"cleared":      {func() { tr(alice, "submit") }, func() { tr(bob, "clear") }},
+		"complete":     {func() { tr(alice, "submit") }, func() { tr(bob, "clear") }, func() { tr(dora, "approve") }},
+		"reported":     {func() { tr(alice, "submit") }, func() { tr(bob, "clear") }, func() { tr(dora, "approve") }, func() { tr(dora, "report") }},
+		"withdrawn":    {func() { tr(alice, "withdraw") }},
+	}
+	for _, step := range steps[state] {
+		step()
+	}
+	return f
+}
+
+// Review focus 3: each action read_finding lists as enabled goes through
+// transition; each one listed as disabled is refused with its reason.
+func TestAllowedActionsMatchTransition(t *testing.T) {
+	for _, state := range []string{"draft", "ready", "verification", "cleared", "complete", "reported", "withdrawn"} {
+		for _, u := range []config.User{alice, pen2, bob, dora} {
+			var rd struct {
+				Allowed []workflow.Allowed `json:"allowed_actions"`
+			}
+			json.Unmarshal([]byte(stateFx(t, state).ok(u, "read_finding", map[string]any{"engagement": "acme", "finding": "F-001"})), &rd)
+			if len(rd.Allowed) == 0 {
+				t.Fatalf("%s/%s: no actions", state, u.Username)
+			}
+			for _, al := range rd.Allowed {
+				f := stateFx(t, state)
+				text, isErr := f.call(u, "transition", map[string]any{"engagement": "acme", "finding": "F-001", "action": al.Action, "reason": "because"})
+				switch {
+				case al.Enabled && isErr:
+					t.Errorf("%s/%s %s listed enabled, refused: %s", state, u.Username, al.Action, text)
+				case !al.Enabled && !isErr:
+					t.Errorf("%s/%s %s listed disabled (%s), done", state, u.Username, al.Action, al.Reason)
+				case !al.Enabled && (al.Reason == "" || !strings.Contains(message(t, text), al.Reason)):
+					t.Errorf("%s/%s %s: listed %q, refused %q", state, u.Username, al.Action, al.Reason, message(t, text))
+				}
+			}
+		}
+	}
+}
+
+// The whole chat, oldest first, a page at a time: threads with their
+// replies (an AI reply marked) and workflow events.
+func TestReadChatPagedOldestFirst(t *testing.T) {
+	f := newFx(t)
+	a := map[string]any{"engagement": "acme", "finding": "F-001"}
+	with := func(k, v string) map[string]any {
+		m := map[string]any{k: v}
+		for x, y := range a {
+			m[x] = y
+		}
+		return m
+	}
+	first := object(t, "first", f.ok(alice, "add_chat_message", with("text", "first")))["id"].(string)
+	f.ok(bob, "add_chat_message", map[string]any{"engagement": "acme", "finding": "F-001", "text": "a reply", "reply": first})
+	f.ok(bob, "add_chat_message", with("text", "second"))
+	f.s.Store.DB().TxFor("acme", func(tx *db.Tx) error {
+		return tx.AddMessage("acme", "F-001", chat.Message{ID: chat.NewID(), User: "alice", Kind: chat.KindAI, Reply: first, Text: "Fixed."})
+	})
+	f.ok(alice, "transition", map[string]any{"engagement": "acme", "finding": "F-001", "action": "withdraw", "reason": "duplicate"})
+	type msg struct {
+		User, Text string
+		AI         bool
+	}
+	var items []struct {
+		Type    string `json:"type"`
+		ID      string `json:"id"`
+		User    string `json:"user"`
+		Text    string `json:"text"`
+		Event   string `json:"event"`
+		Replies []msg  `json:"replies"`
+	}
+	text := f.ok(alice, "read_chat", a)
+	itemsOf(t, text, &items)
+	if len(items) != 3 || items[0].Text != "first" || items[1].Text != "second" || items[2].Type != "event" || items[2].Event != "withdraw" {
+		t.Fatalf("%s", text)
+	}
+	if r := items[0].Replies; len(r) != 2 || r[0].Text != "a reply" || r[0].AI || r[1].Text != "Fixed." || !r[1].AI {
+		t.Fatalf("replies %+v", r)
+	}
+	var page []any
+	p := f.ok(alice, "read_chat", with("limit", "2"))
+	itemsOf(t, p, &page)
+	if len(page) != 2 || object(t, "page", p)["next"] != "2" {
+		t.Fatalf("page %s", p)
+	}
+}
+
+// The versions, newest first: commit, who (the AI marked), when, what changed.
+func TestListHistory(t *testing.T) {
+	f := newFx(t)
+	f.ok(alice, "update_section", map[string]any{"engagement": "acme", "finding": "F-001", "section": "Impact", "body": "Full read."})
+	f.ok(alice, "set_field", map[string]any{"engagement": "acme", "finding": "F-001", "field": "severity", "value": "high"})
+	var vs []struct {
+		Commit, Author, Time string
+		AI                   bool
+		Changed              []string
+	}
+	text := f.ok(alice, "list_history", map[string]any{"engagement": "acme", "finding": "F-001"})
+	itemsOf(t, text, &vs)
+	if len(vs) != 3 || fmt.Sprint(vs[0].Changed) != "[severity]" || fmt.Sprint(vs[1].Changed) != "[Impact]" || fmt.Sprint(vs[2].Changed) != "[created]" || vs[1].Author != "alice" || len(vs[0].Commit) != 40 || vs[0].Time == "" {
+		t.Fatalf("%s", text)
+	}
+}
+
+func TestListAttachments(t *testing.T) {
+	f := newFx(t)
+	if _, err := f.s.Store.AddAttachment("acme", "F-001-sql-injection", "notes.txt", []byte("hello\nthere"), alice); err != nil {
+		t.Fatal(err)
+	}
+	var as []struct {
+		Name, Type string
+		Size       int64
+		InHistory  bool `json:"earlier_version_in_history"`
+	}
+	text := f.ok(alice, "list_attachments", map[string]any{"engagement": "acme", "finding": "F-001"})
+	itemsOf(t, text, &as)
+	if len(as) != 1 || as[0].Name != "notes.txt" || as[0].Size != 11 || as[0].Type != "file" || as[0].InHistory {
+		t.Fatalf("%s", text)
+	}
+}
+
+func TestReadTemplateUnknownIsNotFound(t *testing.T) {
+	f := newFx(t)
+	addTemplate(t, f, "sqli", "SQL injection")
+	m := object(t, "read_template", f.ok(alice, "read_template", map[string]any{"template": "sqli"}))
+	if m["slug"] != "sqli" || m["title"] != "SQL injection" || !strings.Contains(m["markdown"].(string), "Attackers read every row.") {
+		t.Fatalf("%v", m)
+	}
+	text, isErr := f.call(alice, "read_template", map[string]any{"template": "nope"})
+	if m := object(t, "nope", text); !isErr || m["code"] != "not_found" {
+		t.Fatalf("%s", text)
+	}
+}

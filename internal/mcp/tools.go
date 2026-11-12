@@ -297,7 +297,10 @@ func (s *Server) ref(a args) (store.FindingRef, error) {
 	return s.resolve(a.str("engagement"), a.str("finding"))
 }
 
-var tools = []tool{
+// tools are every tool, in the order tools/list gives them.
+var tools = append(slices.Clone(coreTools), readingTools...)
+
+var coreTools = []tool{
 	{name: "list_engagements", desc: "List the engagements you work on (pentests and retests). Archived engagements are read only.",
 		optional: []param{pLimit, pCursor},
 		run: func(s *Server, ctx context.Context, u config.User, a args) (string, error) {
@@ -367,7 +370,7 @@ var tools = []tool{
 			}
 			return listPage(a, out)
 		}},
-	{name: "read_finding", desc: "Read one finding: its workflow state (status, reviewers, clearances, return reason, retest), the raw finding.md content (YAML front matter + ## sections; workflow state is not in the file), section names with base hashes for safe edits, open chat threads and style-rule violations.",
+	{name: "read_finding", desc: "Read one finding: its workflow state (status, reviewers, clearances, return reason, retest), the raw finding.md content (YAML front matter + ## sections; workflow state is not in the file), each section's name, body and base hash for safe edits, open chat threads (an AI reply is marked ai), style-rule violations, and allowed_actions: every action of the status with whether you may take it now (enabled), why not (reason) and whether it needs a reason.",
 		required: []param{pEng, pFinding},
 		run: func(s *Server, ctx context.Context, u config.User, a args) (string, error) {
 			ref, err := s.ref(a)
@@ -377,10 +380,12 @@ var tools = []tool{
 			type sec struct {
 				Name string `json:"name"`
 				Base string `json:"base"`
+				Body string `json:"body"`
 			}
 			type msg struct {
 				User string `json:"user"`
 				Text string `json:"text"`
+				AI   bool   `json:"ai,omitempty"` // the AI wrote it for user (Fix with AI)
 			}
 			type thread struct {
 				ID      string `json:"id"`
@@ -404,19 +409,20 @@ var tools = []tool{
 				st.RetestSource, st.RetestResult = m.Retest.Source, m.Retest.Result
 			}
 			out := struct {
-				Engagement  string            `json:"engagement"`
-				Dir         string            `json:"dir"`
-				State       state             `json:"state"`
-				Markdown    string            `json:"finding_md"`
-				Sections    []sec             `json:"sections"`
-				CVSSBase    string            `json:"cvss_base"`
-				DetailsBase string            `json:"details_base"`
-				Bases       map[string]string `json:"field_bases"`
-				Assets      []finding.Asset   `json:"assets"`
-				AssetsBase  string            `json:"assets_base"`
-				CanEdit     bool              `json:"can_edit"`
-				Threads     []thread          `json:"open_threads"`
-				Violations  []rules.Violation `json:"violations"`
+				Engagement  string             `json:"engagement"`
+				Dir         string             `json:"dir"`
+				State       state              `json:"state"`
+				Markdown    string             `json:"finding_md"`
+				Sections    []sec              `json:"sections"`
+				CVSSBase    string             `json:"cvss_base"`
+				DetailsBase string             `json:"details_base"`
+				Bases       map[string]string  `json:"field_bases"`
+				Assets      []finding.Asset    `json:"assets"`
+				AssetsBase  string             `json:"assets_base"`
+				CanEdit     bool               `json:"can_edit"`
+				Threads     []thread           `json:"open_threads"`
+				Violations  []rules.Violation  `json:"violations"`
+				Allowed     []workflow.Allowed `json:"allowed_actions"`
 			}{Engagement: ref.EngID, Dir: ref.Dir, State: st, Markdown: string(ref.F.Bytes()), CVSSBase: store.CVSSHash(ref.F.Meta),
 				DetailsBase: store.DetailsHash(ref.F.Meta), Assets: append([]finding.Asset{}, ref.F.Meta.Assets...), AssetsBase: store.AssetsHash(ref.F.Meta),
 				CanEdit: workflow.CanEdit(u, ref.F.Meta), Threads: []thread{}, Violations: []rules.Violation{}, Bases: s.fieldBases(ref.F.Meta)}
@@ -428,15 +434,16 @@ var tools = []tool{
 				out.CanEdit = false // every write is refused while archived
 			}
 			for _, sct := range ref.F.Sections {
-				out.Sections = append(out.Sections, sec{sct.Name, store.BodyHash(sct.Body)})
+				out.Sections = append(out.Sections, sec{sct.Name, store.BodyHash(sct.Body), sct.Body})
 			}
+			out.Allowed = s.allowedActions(u, ref)
 			msgs, _ := s.Store.Chat(ref.EngID, ref.Dir)
 			for _, it := range chat.Timeline(msgs) {
 				if it.Thread != nil && !it.Thread.Resolved {
 					t := it.Thread
 					th := thread{ID: t.Root.ID, User: t.Root.User, Section: t.Root.Section, Text: t.Root.Text, Replies: []msg{}}
 					for _, r := range t.Replies {
-						th.Replies = append(th.Replies, msg{r.User, r.Text})
+						th.Replies = append(th.Replies, msg{r.User, r.Text, r.Kind == chat.KindAI})
 					}
 					out.Threads = append(out.Threads, th)
 				}

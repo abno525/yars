@@ -41,7 +41,7 @@ A clone holds **content only**. Workflow state (status, reviewers, clearances), 
 |---|---|---|---|
 | `list_engagements` | read | local + server | The engagements you work on (pentests and retests); archived ones are read only |
 | `list_findings` | read | local + server | Findings of an engagement, most severe first; filter by status or severity, search with `q` (ID, title, an asset's host or URL) |
-| `read_finding` | read | local + server | Workflow state, the raw `finding.md`, section base hashes, assets, open chat threads, rule violations |
+| `read_finding` | read | local + server | Workflow state, the raw `finding.md`, each section's body and base hash, assets, open chat threads, rule violations, and `allowed_actions` (each action of the status: `enabled`, `reason` when not, `needs: "reason"`) |
 | `list_templates` | read | local + server | Finding templates (`.yars/templates`) with how often each was used |
 | `create_finding` | create | local + server | New draft in an engagement; `template` starts it from a template |
 | `update_section` | edit | local + server | Replace one `##` section (pass `base` from `read_finding` to avoid overwriting a colleague) |
@@ -52,6 +52,13 @@ A clone holds **content only**. Workflow state (status, reviewers, clearances), 
 | `start_check` | checks | server only | Start a stored check run (every rule); results arrive as chat comments |
 | `get_check_results` | read | server only | The latest check run: state, progress, results, whether it is stale |
 | `list_notifications` | read | server only | Your notifications (newest first); `unread: true` for unread ones only |
+| `whoami` | read | local + server | Your username, role, admin flag and (over HTTP) the token's actions and engagements |
+| `get_config` | read | local + server | Sections, details rows, severities, CVSS version and standard values, statuses, transition actions |
+| `list_team` | read | server only | The engagement's members with their roles |
+| `read_chat` | read | server only | The finding's whole chat, oldest first: threads with replies (AI replies marked) and workflow events |
+| `list_history` | read | local + server | The finding's versions, newest first: commit, author (AI marked), time, what changed |
+| `list_attachments` | read | local + server | The finding's attachments: name, size, type, whether an earlier version is in the history |
+| `read_template` | read | local + server | A template's Markdown by slug |
 
 The list tools (`list_engagements`, `list_findings`, `list_templates`, `list_notifications`) answer a page at a time: `limit` (1 to 200, default 50) and `cursor` (the `next` of the previous answer; empty `next` means the end).
 

@@ -11,6 +11,7 @@ import (
 	"yars/internal/config"
 	"yars/internal/db"
 	"yars/internal/finding"
+	"yars/internal/rules"
 	"yars/internal/workflow"
 )
 
@@ -128,7 +129,7 @@ func (s *Store) TransitionChecked(engID, dir string, act workflow.Action, reason
 		if err := check(ref.F.Meta); err != nil {
 			return err
 		}
-		errs, err := s.blocking(act, ref, contentHash(raw), u)
+		errs, err := s.blocking(act, ref, contentHash(raw), u, rules.All)
 		if err != nil {
 			return err
 		}
