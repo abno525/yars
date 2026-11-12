@@ -133,5 +133,6 @@ M31 task 4  review   fix ee565ee (an "AI for" author name refused on push; AI re
 M31 task 2  review   fix 76a894b (the quote as words in one paragraph; no blocks reaching other paragraphs; a rule that could not run or finds a new problem refuses; open findings only; cut quotes found)
 M31 task 3  review 2 fix 76a894b (missed live events fired at settle; refusals are toasts, 422)
 M31 branch  review   fixes 08ea0ab (the rest of the section must render the same; archived engagements; a 15-minute bound and a stop)
-M31 branch  fix check three low findings, fixed (list items keep their place; indented code and HTML blocks fixable; a stop in flight says so)
+M31 branch  fix check three low findings, fixed cf87bf2 (list items keep their place; indented code and HTML blocks fixable; a stop in flight says so)
+M31 PR      opened   #26
 ```
