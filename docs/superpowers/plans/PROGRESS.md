@@ -177,4 +177,9 @@ M35 task 4  review   fix 0843814, 40f167b (every CVSS parse error says how to fi
 M35 branch  review   fixes 775331c (base_url by push; a copy of the old binary; --user-group; the fixture's output path; these PROGRESS lines)
 M35 branch  fix check passed (all six fixed; base_url is an admin's, in deploy.md and config.md)
 M35 PR      opened   #30
+M35 after   done     c89fcee (asked after the run: Developers opens from the user name only; the header runs Go to, theme, bell, user name)
+M35 after   done     c7abff7 (asked after the run: Token expiring is sent, once per token, under 7 days left; schema v23)
+M35 after   review   fix b0f1591 (the claim and the notice in one transaction; a re-enabled owner is still told)
+M35 after   done     d286a10 (asked after the run: long user names end in "…" in the header, Reviewers, the reviewer tag, a lead's head)
+M35 after   review   fix 4dfc60a (who is editing, the new-password page, a lead's strips; a short reviewer keeps a letter)
 ```
