@@ -40,9 +40,15 @@ func exportFixture(t *testing.T) string {
 // 1), after the export is written and the others are marked (backlog, M8).
 func TestExportCLIMarkFailureExits1(t *testing.T) {
 	dir := exportFixture(t)
+	d := openDB(t, dir)
+	for _, when := range []string{"INSERT", "UPDATE"} { // the database refuses the mark
+		if _, err := d.Exec("CREATE TRIGGER boom" + when + " BEFORE " + when + " ON finding_state WHEN NEW.status = 'reported' BEGIN SELECT RAISE(ABORT, 'disk full'); END"); err != nil {
+			t.Fatal(err)
+		}
+	}
 	out := filepath.Join(t.TempDir(), "r.html")
 	var log bytes.Buffer
-	code, _ := cmdExport([]string{"--data", dir, "--exporter", "confluence", "--out", out, "--mark", "--as", "bob", "acme", "F-001-sql-injection"}, &log)
+	code, _ := cmdExport([]string{"--data", dir, "--exporter", "confluence", "--out", out, "--mark", "--as", "dora", "acme", "F-001-sql-injection"}, &log)
 	if code != 1 || !strings.Contains(log.String(), "not marked F-001") {
 		t.Fatalf("code %d: %s", code, log.String())
 	}
@@ -115,11 +121,12 @@ func TestExportCLIFlagAfterEngagement(t *testing.T) {
 }
 
 // --mark and --as are checked before anything is exported: a mistake in
-// them writes nothing (backlog, M8).
+// them (no account, an unknown one, one that is not a director's) writes
+// nothing (backlog, M8).
 func TestExportCLIMarkCheckedFirst(t *testing.T) {
 	dir := exportFixture(t)
 	out := filepath.Join(t.TempDir(), "r.html")
-	for _, args := range [][]string{{"--mark"}, {"--mark", "--as", "nobody"}} {
+	for _, args := range [][]string{{"--mark"}, {"--mark", "--as", "nobody"}, {"--mark", "--as", "bob"}} {
 		var log bytes.Buffer
 		all := append(append([]string{"--data", dir, "--exporter", "confluence", "--out", out}, args...), "acme", "F-001-sql-injection")
 		if code, err := cmdExport(all, &log); code != 2 || err == nil || !strings.Contains(err.Error(), "--as") {

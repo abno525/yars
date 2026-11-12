@@ -128,6 +128,9 @@ func cmdExport(args []string, out io.Writer) (int, error) {
 		if !ok {
 			return 2, fmt.Errorf("--mark needs --as <director account>")
 		}
+		if !workflow.AtLeast(u, "director") {
+			return 2, fmt.Errorf("--mark needs --as <director account>: %s is a %s", u.Username, u.Role)
+		}
 		marker = u
 	}
 	st := store.New(r, cfg, d)
