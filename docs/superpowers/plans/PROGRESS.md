@@ -145,6 +145,7 @@ M32 task 5  done     6918a57 (whoami, get_config, list_team, read_chat, list_his
 M32 task 3  review   fix 4408985 (gate codes tested; revert and missing reason codes; the checks race is a conflict; docs code column)
 M32 task 4  review   fix 4408985 (notifications paged by id in the query, token engagements filtered there; no 5,000 cut)
 M32 task 6  done     51b6489 (mark_notifications_read, fix_checks; instructions; docs Answers and Paging)
-M32 task 5  review   fix (allowed_actions checks the token; six modes tested; history cached; clone answers)
+M32 task 5  review   fix 94b893b (allowed_actions checks the token; six modes tested; history cached; clone answers)
+M32 task 6  review   fix (fix_checks needs edit too; ids once each, at most 200, one statement; plain store words; docs rows checked)
 M32 manual  done     (an MCP session over HTTP: list drafts, read, edit with base, submit; every answer parsed)
 ```

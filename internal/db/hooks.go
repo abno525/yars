@@ -390,6 +390,20 @@ func (d *DB) MarkAllRead(user string) error {
 	return err
 }
 
+// MarkReadIDs marks those of user's notifications read, in one statement
+// (ids of someone else's are left alone).
+func (d *DB) MarkReadIDs(user string, ids []int64) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	args := []any{user}
+	for _, id := range ids {
+		args = append(args, id)
+	}
+	_, err := d.Exec("UPDATE notifications SET read = 1 WHERE username = ? AND id IN (?"+strings.Repeat(",?", len(ids)-1)+")", args...)
+	return err
+}
+
 // MarkAllReadIn marks user's notifications of the engagements engs read
 // (every one when engs is empty).
 func (d *DB) MarkAllReadIn(user string, engs []string) error {

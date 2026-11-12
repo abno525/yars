@@ -60,7 +60,7 @@ A clone holds **content only**. Workflow state (status, reviewers, clearances), 
 | `list_attachments` | read | local + server | The finding's attachments: name, size, type, whether an earlier version is in the history |
 | `read_template` | read | local + server | A template's Markdown by slug |
 | `mark_notifications_read` | read | server only | Mark your notifications read: `ids` (comma-separated) or `all: true`; a token limited to some engagements marks only theirs |
-| `fix_checks` | checks | server only | Fix with AI: the AI fixes the open check results in the background, answers their threads (marked AI), and a check run follows |
+| `fix_checks` | checks + edit | server only | Fix with AI: the AI fixes the open check results in the background, answers their threads (marked AI), and a check run follows |
 
 Findings can be referred to by ID (`F-001`, also `f-1` or `1`) or directory name (`F-001-sql-injection`); an ID that two folders share is refused, and the folder name is needed. A token restricted to some engagements sees and changes only those; a write to an archived engagement is refused.
 
@@ -77,7 +77,7 @@ The codes:
 
 | Code | Meaning |
 |---|---|
-| `not_found` | No such engagement, finding, template or notification, or one you are not on the team of |
+| `not_found` | No such engagement, finding, template or notification, or one you are not on the team of (a notification of an engagement outside your token too) |
 | `not_allowed` | Your role, the token's actions or engagements, or the workflow forbids it |
 | `conflict` | It changed since you read it: read again and retry |
 | `invalid` | A missing or wrong argument or value (the message says which) |

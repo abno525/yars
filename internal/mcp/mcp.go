@@ -208,6 +208,9 @@ func (s *Server) gate(ctx context.Context, u config.User, t tool, a args) error 
 		if act := actionOf(t, a); !tk.Allows(act) {
 			return refuse("not_allowed", "not allowed: this token may not "+actionLabel[act])
 		}
+		if t.also != "" && !tk.Allows(t.also) {
+			return refuse("not_allowed", "not allowed: this token may not "+actionLabel[t.also])
+		}
 		if eng != "" && !tk.AllowsEng(eng) {
 			return refuse("not_allowed", "not allowed: this token is not valid for engagement "+eng)
 		}

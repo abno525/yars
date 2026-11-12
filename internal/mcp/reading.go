@@ -275,7 +275,7 @@ var writingTools = []tool{
 	{name: "mark_notifications_read", serverOnly: true, desc: "Mark your notifications read: ids (comma-separated, from list_notifications) or all. Your own state: a read-only token may do it; a token limited to some engagements marks only theirs.",
 		optional: []param{{"ids", "notification ids, comma-separated"}}, boolArgs: []param{{"all", "every unread notification"}},
 		run: markRead},
-	{name: "fix_checks", action: "checks", serverOnly: true, desc: "Fix with AI: the AI fixes the finding's open check results one by one in the background, answers each result's thread (marked AI) and a check run follows. Needs a finished check run on the current text and an AI provider; drafts and findings in verification only. Read the outcome with get_check_results and read_chat.",
+	{name: "fix_checks", action: "checks", also: "edit", serverOnly: true, desc: "Fix with AI: the AI fixes the finding's open check results one by one in the background, answers each result's thread (marked AI) and a check run follows. Needs a finished check run on the current text and an AI provider; drafts and findings in verification only; a token needs run checks and edit findings. Read the outcome with get_check_results and read_chat.",
 		required: []param{pEng, pFinding},
 		run:      fixChecks},
 }
@@ -307,6 +307,16 @@ func markRead(s *Server, ctx context.Context, u config.User, a args) (string, er
 		if err != nil || id <= 0 {
 			return "", refuse("invalid", fmt.Sprintf("ids must be notification ids from list_notifications, comma-separated (not %q)", strings.TrimSpace(p)))
 		}
+		if !slices.Contains(list, id) {
+			list = append(list, id)
+		}
+		if len(list) > maxLimit {
+			return "", refuse("invalid", fmt.Sprintf("at most %d ids at a time (or all)", maxLimit))
+		}
+	}
+	// every id is checked before any is marked: the caller's own, of the
+	// token's engagements
+	for _, id := range list {
 		n, found, err := d.NotificationByID(u.Username, id)
 		if err != nil {
 			return "", err
@@ -314,12 +324,9 @@ func markRead(s *Server, ctx context.Context, u config.User, a args) (string, er
 		if !found || (hasTok && !tk.AllowsEng(n.Eng)) {
 			return "", refuse("not_found", fmt.Sprintf("no notification %d of yours", id))
 		}
-		list = append(list, id)
 	}
-	for _, id := range list {
-		if err := d.MarkRead(u.Username, id); err != nil {
-			return "", err
-		}
+	if err := d.MarkReadIDs(u.Username, list); err != nil {
+		return "", err
 	}
 	return okMsg(fmt.Sprintf("marked %d read", len(list)))
 }

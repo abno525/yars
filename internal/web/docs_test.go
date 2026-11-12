@@ -84,10 +84,8 @@ func TestDeveloperDocs(t *testing.T) {
 	}
 }
 
-// With base_url set (behind a proxy), the docs show the public address,
-// not the one the request came in on.
-// M32: the developer page lists every MCP tool (it is built from the
-// catalogue, so a new tool shows without a template change).
+// M32: the developer page lists every MCP tool with its token action (it is
+// built from the catalogue, so a new tool shows without a template change).
 func TestDocsListEveryTool(t *testing.T) {
 	e := setup(t)
 	b := e.do(t, "alice", "GET", "/docs/mcp", nil, nil).Body.String()
@@ -96,13 +94,13 @@ func TestDocsListEveryTool(t *testing.T) {
 			t.Errorf("the docs page lacks %s", td.Name)
 		}
 	}
-	for _, name := range []string{"whoami", "read_chat", "fix_checks", "mark_notifications_read"} {
-		if !strings.Contains(b, name) {
-			t.Errorf("the docs page lacks %s", name)
-		}
+	if !strings.Contains(b, "a token needs run checks and edit findings") {
+		t.Error("the docs page does not say fix_checks needs edit too")
 	}
 }
 
+// With base_url set (behind a proxy), the docs show the public address,
+// not the one the request came in on.
 func TestDocsUseBaseURL(t *testing.T) {
 	e := setup(t)
 	c := e.srv.conf()

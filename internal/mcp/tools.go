@@ -71,8 +71,9 @@ type param struct{ name, desc string }
 
 type tool struct {
 	name, desc string
-	// action is what a scoped token needs to call the tool ("" = read)
-	action string
+	// action is what a scoped token needs to call the tool ("" = read);
+	// also is a second action it needs too (fix_checks rewrites text: edit)
+	action, also string
 	// serverOnly: the tool needs the server's database (workflow, chat,
 	// checks, notifications); on a local clone it answers ErrNoDB
 	serverOnly bool
@@ -138,6 +139,7 @@ type ParamDoc struct {
 // ("read" for reading tools).
 type ToolDoc struct {
 	Name, Desc, Action string
+	Also               string // a second action a token needs ("" = none)
 	ServerOnly         bool
 	Params             []ParamDoc
 }
@@ -146,7 +148,7 @@ type ToolDoc struct {
 func Catalog() []ToolDoc {
 	var out []ToolDoc
 	for _, t := range tools {
-		d := ToolDoc{Name: t.name, Desc: t.desc, Action: actionOf(t, args{}), ServerOnly: t.serverOnly}
+		d := ToolDoc{Name: t.name, Desc: t.desc, Action: actionOf(t, args{}), Also: t.also, ServerOnly: t.serverOnly}
 		for _, p := range t.required {
 			d.Params = append(d.Params, ParamDoc{p.name, "string", p.desc, true})
 		}
@@ -184,6 +186,9 @@ func explain(err error) string {
 		return "not found"
 	case errors.Is(err, store.ErrArchived):
 		return "not allowed: " + store.ErrArchived.Error()
+	case errors.Is(err, store.ErrInvalidValue):
+		// the store's words, as the website shows them
+		return strings.TrimPrefix(err.Error(), store.ErrInvalidValue.Error()+": ")
 	}
 	return err.Error()
 }

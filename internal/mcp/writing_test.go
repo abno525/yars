@@ -110,13 +110,86 @@ func TestFixChecksStarts(t *testing.T) {
 		Sections []struct{ Name, Body string } `json:"sections"`
 	}
 	json.Unmarshal([]byte(f.ok(alice, "read_finding", a)), &rd2)
-	if fx.calls != 1 || !strings.Contains(rd2.Sections[1].Body+rd2.Sections[0].Body+fmt.Sprint(rd2.Sections), "a bar here") {
-		t.Fatalf("%d calls, %+v", fx.calls, rd2.Sections)
+	impact := ""
+	for _, s := range rd2.Sections {
+		if s.Name == "Impact" {
+			impact = strings.TrimSpace(s.Body)
+		}
 	}
-	// nothing left to fix: invalid with the store's words
+	if fx.calls != 1 || impact != "a bar here" {
+		t.Fatalf("%d calls, Impact %q", fx.calls, impact)
+	}
+	// the AI's answer is in the check's thread, marked
+	var chat []struct {
+		Replies []struct {
+			Text string
+			AI   bool
+		}
+	}
+	itemsOf(t, f.ok(alice, "read_chat", a), &chat)
+	if len(chat) != 1 || len(chat[0].Replies) != 1 || chat[0].Replies[0].Text != "Fixed." || !chat[0].Replies[0].AI {
+		t.Fatalf("chat %+v", chat)
+	}
+	// nothing left to fix: invalid with the store's words (no "invalid
+	// value:" in front, as the website shows them)
 	text, isErr := f.call(alice, "fix_checks", a)
-	if m := object(t, "again", text); !isErr || m["code"] != "invalid" || !strings.Contains(m["message"].(string), "run Check first") {
+	if m := object(t, "again", text); !isErr || m["code"] != "invalid" || m["message"] != "nothing to fix: run Check first" {
 		t.Fatalf("%s", text)
+	}
+}
+
+// fix_checks keeps the website's refusals: a fix or check running (busy),
+// an approved finding (not_allowed), an archived engagement.
+func TestFixChecksRefusals(t *testing.T) {
+	f := newFx(t)
+	a := map[string]any{"engagement": "acme", "finding": "F-001"}
+	f.s.Rules = rules.NewEngine(t.TempDir(), f.s.Cfg)
+	f.s.Store.Linter = &fixer{Engine: f.s.Rules}
+	if err := f.s.Store.DB().Tx(func(tx *db.Tx) error {
+		return tx.PutState("acme", "F-001", db.State{Status: "complete"})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if text, isErr := f.call(dora, "fix_checks", a); !isErr || object(t, "complete", text)["code"] != "not_allowed" {
+		t.Errorf("an approved finding: %s", text)
+	}
+	f.s.Store.DB().Tx(func(tx *db.Tx) error { return tx.PutState("acme", "F-001", db.State{Status: "draft"}) })
+	f.s.Store.Archive("acme", dora)
+	if text, isErr := f.call(alice, "fix_checks", a); !isErr || object(t, "archived", text)["code"] != "archived" {
+		t.Errorf("archived: %s", text)
+	}
+}
+
+// fix_checks rewrites text: a token needs edit as well as checks.
+func TestFixChecksNeedsEdit(t *testing.T) {
+	f := newFx(t)
+	checks := db.TokenInfo{Kind: db.TokenMCP, Scopes: []string{db.ScopeRead, "checks"}}
+	text, isErr := f.callTok(alice, checks, "fix_checks", map[string]any{"engagement": "acme", "finding": "F-001"})
+	if m := object(t, "fix", text); !isErr || m["code"] != "not_allowed" || !strings.Contains(m["message"].(string), "edit findings") {
+		t.Fatalf("checks without edit: %s", text)
+	}
+}
+
+// ids are at most 200, each once; the answer counts what was asked.
+func TestMarkReadIDs(t *testing.T) {
+	f := newFx(t)
+	d := f.s.Store.DB()
+	d.AddUser(alice)
+	id, _ := d.AddNotification(db.Notification{User: "alice", Event: "mentioned", Eng: "acme", Fid: "F-001", Actor: "bob"})
+	if m := message(t, f.ok(alice, "mark_notifications_read", map[string]any{"ids": fmt.Sprintf("%d,%d", id, id)})); m != "marked 1 read" {
+		t.Fatalf("%s", m)
+	}
+	many := strings.TrimSuffix(strings.Repeat(fmt.Sprint(id)+",", 201), ",")
+	if text, isErr := f.call(alice, "mark_notifications_read", map[string]any{"ids": many}); isErr {
+		t.Fatalf("201 copies of one id: %s", text) // one id, once
+	}
+	var lots []string
+	for i := range 201 {
+		lots = append(lots, fmt.Sprint(int(id)+i))
+	}
+	text, isErr := f.call(alice, "mark_notifications_read", map[string]any{"ids": strings.Join(lots, ",")})
+	if m := object(t, "lots", text); !isErr || m["code"] != "invalid" || !strings.Contains(m["message"].(string), "200") {
+		t.Fatalf("201 ids: %s", text)
 	}
 }
 

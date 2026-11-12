@@ -194,8 +194,25 @@ func TestToolCatalog(t *testing.T) {
 		t.Fatalf("%d of %d", len(cat), len(tools))
 	}
 	for _, td := range cat {
-		if !strings.Contains(string(b), "`"+td.Name+"`") {
-			t.Errorf("docs/mcp.md lacks %s", td.Name)
+		// the tool's row: its token action and where it runs, as the
+		// catalogue says
+		row := ""
+		for _, l := range strings.Split(string(b), "\n") {
+			if strings.HasPrefix(l, "| `") && strings.Contains(l, "`"+td.Name+"`") {
+				row = l
+				break
+			}
+		}
+		runs := "local + server"
+		if td.ServerOnly {
+			runs = "server only"
+		}
+		action := td.Action
+		if td.Also != "" {
+			action += " + " + td.Also
+		}
+		if row == "" || !strings.Contains(row, "| "+action) || !strings.Contains(row, "| "+runs+" |") {
+			t.Errorf("docs/mcp.md's row of %s (%s, %s): %q", td.Name, action, runs, row)
 		}
 	}
 	i := -1
