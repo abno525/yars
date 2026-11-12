@@ -464,13 +464,52 @@ func TestExportPreviewIsLight(t *testing.T) {
 			t.Fatal(err)
 		}
 		b := e.do(t, "alice", "GET", "/e/acme/export/preview?finding="+fdir, nil, nil).Body.String()
+		page := `<html lang="en" data-theme="` + theme + `"`
+		if theme == "" {
+			page = `<html lang="en" data-theme=`
+		}
+		if strings.Contains(b, page) != (theme != "") {
+			t.Errorf("theme %q: the page does not have the user's theme", theme)
+		}
 		if !strings.Contains(b, `<div class="paper preview-doc" data-theme="light">`) {
 			t.Errorf("theme %q: the preview's container is not light", theme)
 		}
 	}
-	css := e.do(t, "alice", "GET", "/static/style.css", nil, nil).Body.String()
-	if !strings.Contains(css, `.preview-doc[data-theme="light"] {`) {
-		t.Fatal("no light token rule for the preview")
+	// The selector is part of the light token block's opening line, and the
+	// subtree's text colour is computed again from the light token (body's
+	// is inherited already computed, in the user's theme).
+	css := prepare(e.do(t, "alice", "GET", "/static/style.css", nil, nil).Body.String())
+	r, err := tokenRanges(css)
+	if err != nil {
+		t.Fatal(err)
+	}
+	opener := css[r[0][0] : r[0][0]+strings.Index(css[r[0][0]:], "{")]
+	if !strings.Contains(opener, `.preview-doc[data-theme="light"]`) {
+		t.Errorf("the light token block is %q, not the preview's too", opener)
+	}
+	if !strings.Contains(css, ".preview-doc { color: var(--text); }") {
+		t.Error("the preview's text colour is the user's theme's")
+	}
+}
+
+// The report's severity colours (PDF and Word, from export.StyleOf) are the
+// preview's light ones: the tag's fill and its text.
+func TestReportSeveritiesMatchPreview(t *testing.T) {
+	css := prepare(stylesheet(t))
+	r, err := tokenRanges(css)
+	if err != nil {
+		t.Fatal(err)
+	}
+	light := tokens(css, r[0])
+	for _, sev := range []string{"critical", "high", "medium", "low", "info"} {
+		m := regexp.MustCompile(`\.tag\.sev-` + sev + ` \{ background: var\((--[\w-]+)\); color: var\((--[\w-]+)\); \}`).FindStringSubmatch(css)
+		if m == nil {
+			t.Fatalf("no tag rule for %s", sev)
+		}
+		want := export.StyleOf(sev)
+		if bg, fg := light[m[1]], light[m[2]]; !strings.EqualFold(bg, "#"+want.BG) || !strings.EqualFold(fg, "#"+want.FG) {
+			t.Errorf("%s: the preview has %s on %s, the report #%s on #%s", sev, fg, bg, want.FG, want.BG)
+		}
 	}
 }
 
