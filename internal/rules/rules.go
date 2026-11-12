@@ -25,6 +25,10 @@ const MaxPerRule = 20
 
 const maxQuote = 80
 
+// maxMessage caps a violation's message (a script's or a model's can be any
+// length).
+const maxMessage = 300
+
 type Rule struct {
 	ID              string `yaml:"id"`
 	Level           string `yaml:"level"`
@@ -360,6 +364,9 @@ func quote(s string) string {
 }
 
 func (r Rule) v(target, msg, q string) Violation {
+	if utf8.RuneCountInString(msg) > maxMessage {
+		msg = string([]rune(msg)[:maxMessage]) + "…"
+	}
 	return Violation{Rule: r.ID, Level: r.Level, Message: msg, Target: target, Quote: quote(q)}
 }
 

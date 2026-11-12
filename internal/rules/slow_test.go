@@ -64,6 +64,18 @@ func TestScriptTimeoutAndEscape(t *testing.T) {
 	}
 }
 
+// A script's (or a model's) message is cut at 300 characters, as a quote
+// is at 80: one long answer cannot fill the bar or the strip (backlog, M5).
+func TestRuleMessageCapped(t *testing.T) {
+	dir := t.TempDir()
+	script(t, dir, "long.sh", "printf '[{\"message\":\"%05000d\"}]' 0\n")
+	r := NewRunner(dir, config.AIConfig{})
+	vs := r.Script(context.Background(), Rule{ID: "s", Level: "warning", Script: "long.sh"}, doc())
+	if len(vs) != 1 || len([]rune(vs[0].Message)) != maxMessage+1 || !strings.HasSuffix(vs[0].Message, "…") {
+		t.Fatalf("got %d characters: %+v", len([]rune(vs[0].Message)), vs)
+	}
+}
+
 // A symlink in the rules folder that points outside it is not run, nor is
 // one inside a linked folder that leaves it; a link that stays inside is
 // (backlog, M5).
