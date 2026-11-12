@@ -1,15 +1,18 @@
 package main
 
 import (
+	"database/sql"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"os/exec"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -222,16 +225,25 @@ func cmdMigrate(args []string, out io.Writer) error {
 			}
 			cp := base + "/chat.jsonl"
 			if cb, err := os.ReadFile(filepath.Join(r.Dir, cp)); err == nil {
-				var have int
+				// ids are unique: a message already stored is this finding's
+				// (a migration run again) or a copied folder's, which is told
+				theirs := map[string]int{}
 				for _, m := range chat.Parse(cb) {
-					if err := tx.QueryRow("SELECT count(*) FROM chat WHERE id = ?", m.ID).Scan(&have); err != nil {
-						return err
-					}
-					if have == 0 {
+					var hasEng, hasFid string
+					err := tx.QueryRow("SELECT eng, fid FROM chat WHERE id = ?", m.ID).Scan(&hasEng, &hasFid)
+					switch {
+					case errors.Is(err, sql.ErrNoRows):
 						if err := tx.AddMessage(eng, fid, m); err != nil {
 							return err
 						}
+					case err != nil:
+						return err
+					case hasEng != eng || hasFid != fid:
+						theirs[hasEng+"/"+hasFid]++
 					}
+				}
+				for _, other := range slices.Sorted(maps.Keys(theirs)) {
+					fmt.Fprintf(out, "%d chat messages of %s/%s are already %s's: not copied\n", theirs[other], eng, fid, other)
 				}
 				removed = append(removed, cp)
 				fmt.Fprintln(out, "chat of", eng+"/"+fid)

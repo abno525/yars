@@ -165,6 +165,28 @@ func TestMigrate(t *testing.T) {
 // If the migration commit fails, the working tree is left exactly as it was
 // (a dirty tree would make every push fail), and a re-run finishes the job
 // without duplicating chat.
+// A finding folder copied by hand with its chat.jsonl holds messages whose
+// ids another finding's chat already has: ids are unique, so they are not
+// copied, and the migration says so instead of dropping them silently
+// (backlog, M10).
+func TestMigrateReportsChatOfCopies(t *testing.T) {
+	dir := legacyRepo(t)
+	src := filepath.Join(dir, "engagements", "acme", "findings", "F-001-sqli")
+	dst := filepath.Join(dir, "engagements", "acme", "findings", "F-003-sqli-copy")
+	os.MkdirAll(dst, 0o755)
+	b, _ := os.ReadFile(filepath.Join(src, "finding.md"))
+	os.WriteFile(filepath.Join(dst, "finding.md"), []byte(strings.Replace(string(b), "id: F-001", "id: F-003", 1)), 0o644)
+	c, _ := os.ReadFile(filepath.Join(src, "chat.jsonl"))
+	os.WriteFile(filepath.Join(dst, "chat.jsonl"), c, 0o644)
+	var out bytes.Buffer
+	if err := cmdMigrate([]string{"--data", dir}, &out); err != nil {
+		t.Fatalf("%v\n%s", err, out.String())
+	}
+	if !strings.Contains(out.String(), "2 chat messages of acme/F-003 are already acme/F-001's: not copied") {
+		t.Fatalf("output:\n%s", out.String())
+	}
+}
+
 // An API token whose account is gone from users.yaml is skipped with a
 // line saying so; the migration goes on and finishes (backlog, M10).
 func TestMigrateSkipsTokenOfMissingUser(t *testing.T) {
