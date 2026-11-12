@@ -102,6 +102,19 @@ func TestCreateRetest(t *testing.T) {
 	}
 }
 
+// A retest needs the database (its links and team live there): without
+// one (a clone) it is refused before anything is written (backlog, M10).
+func TestCreateRetestNeedsDB(t *testing.T) {
+	s, dir := srcFixture(t)
+	clone := New(s.repo, s.Config(), nil)
+	if err := clone.CreateRetest(Engagement{ID: "rt", Name: "RT"}, eng, []string{"F-001-sql-injection"}, "", uDora); !errors.Is(err, ErrNoDB) {
+		t.Fatalf("err %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "engagements", "rt")); err == nil {
+		t.Fatal("the retest engagement was written")
+	}
+}
+
 // A copy brings its finding's attachments, so the screenshots its text
 // shows (attachments/…) are there in the retest too (backlog, M7).
 func TestRetestCopiesAttachments(t *testing.T) {

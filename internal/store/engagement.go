@@ -150,6 +150,9 @@ func (s *Store) CreateRetest(e Engagement, source string, dirs []string, assigne
 	if s.rootErr != nil {
 		return s.rootErr
 	}
+	if s.db == nil { // the links to the originals and the team live there
+		return ErrNoDB
+	}
 	unlock := s.lockNew(e.ID)
 	defer unlock()
 	dir := engDir(e.ID)
@@ -221,9 +224,6 @@ func (s *Store) CreateRetest(e Engagement, source string, dirs []string, assigne
 	msg := fmt.Sprintf("engagement %s: retest of %s (%d findings)", e.ID, source, len(copies))
 	if err := s.newEngagementRepo(e.ID, files, msg, u.GitAuthor()); err != nil {
 		return err
-	}
-	if s.db == nil {
-		return nil
 	}
 	// each copy starts as a fresh draft that links to the original
 	return s.db.TxFor(e.ID, func(tx *db.Tx) error {
