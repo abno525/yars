@@ -517,9 +517,17 @@ func (s *Server) download(ctx context.Context, id string, eng store.Engagement, 
 			ex.Args = []string{"--toc"}
 		}
 		return s.Export.Run(ctx, ex, in)
-	case "zip":
-		return export.HTMLZip(in)
-	case "full":
+	case "zip", "full":
+		if s.Export != nil { // the ZIPs count among the exports running at once
+			release, err := s.Export.Slot(ctx)
+			if err != nil {
+				return export.Result{}, err
+			}
+			defer release()
+		}
+		if id == "zip" {
+			return export.HTMLZip(in)
+		}
 		repo, err := s.Store.EngRepo(eng.ID)
 		if err != nil {
 			return export.Result{}, err

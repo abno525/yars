@@ -407,9 +407,28 @@ type Runner struct {
 
 	pdfOnce  sync.Once
 	pdfSlots chan struct{}
+	runOnce  sync.Once
+	runSlots chan struct{}
+}
+
+// Slot waits for one of the export workers (at most exportWorkers exports
+// run at once); release gives it back. Run takes one itself; a caller that
+// builds a file without Run (the ZIPs) takes one with Slot.
+func (r *Runner) Slot(ctx context.Context) (release func(), err error) {
+	r.runOnce.Do(func() { r.runSlots = make(chan struct{}, exportWorkers) })
+	select {
+	case r.runSlots <- struct{}{}:
+		return func() { <-r.runSlots }, nil
+	case <-ctx.Done():
+		return nil, errors.New("export not started: " + ctx.Err().Error())
+	}
 }
 
 const pdfWorkers = 2
+
+// exportWorkers is how many exports run at once: each may hold up to
+// maxOutput in memory.
+const exportWorkers = 4
 
 // Run executes exporter e on the input.
 func (r *Runner) Run(ctx context.Context, e Exporter, in Input) (Result, error) {
@@ -419,6 +438,11 @@ func (r *Runner) Run(ctx context.Context, e Exporter, in Input) (Result, error) 
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+	release, err := r.Slot(ctx)
+	if err != nil {
+		return Result{}, err
+	}
+	defer release()
 	switch e.Type {
 	case "pandoc":
 		return r.pandoc(ctx, e, in)

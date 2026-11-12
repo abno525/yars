@@ -335,6 +335,33 @@ func TestPandocContentTypes(t *testing.T) {
 	}
 }
 
+// At most four exports run at once (each may hold up to 100 MB): a fifth
+// waits for a slot, and gives up when its request does (backlog, M8).
+func TestExportWorkers(t *testing.T) {
+	pb, _ := fakePandoc(t, "exec sleep 5\n")
+	r, _ := runner(t, pb)
+	busy, stop := context.WithCancel(context.Background())
+	var wg sync.WaitGroup
+	for range exportWorkers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			r.Run(busy, Exporter{ID: "d", Type: "pandoc", Format: "docx"}, input(t))
+		}()
+	}
+	time.Sleep(300 * time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	if _, err := r.Run(ctx, Exporter{ID: "c", Type: "confluence"}, input(t)); err == nil || !strings.Contains(err.Error(), "export not started") {
+		t.Fatalf("a fifth export: %v", err)
+	}
+	stop()
+	wg.Wait()
+	if res, err := r.Run(context.Background(), Exporter{ID: "c", Type: "confluence"}, input(t)); err != nil || res.Filename == "" {
+		t.Fatalf("after the others: %v", err)
+	}
+}
+
 func TestPandocReal(t *testing.T) {
 	p, err := exec.LookPath("pandoc")
 	if err != nil {
