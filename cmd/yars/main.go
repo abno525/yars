@@ -490,14 +490,38 @@ func (p pushRunner) AI(_ context.Context, r rules.Rule, _, _ string) []rules.Vio
 }
 
 // cmdLint checks findings against the style rules. Exit code 1 when any
-// error-level violation is found.
+// error-level violation is found. With --staged it asks the clone's server
+// to check the findings staged for a commit instead (the pre-commit hook).
 func cmdLint(args []string, out io.Writer) (int, error) {
 	fs := flag.NewFlagSet("lint", flag.ContinueOnError)
 	data := dataFlag(fs)
 	fs.Bool("fast", true, "only regex and built-in rules (the default)")
 	all := fs.Bool("all", false, "also run script and AI rules (runs code from the repo and sends text to the AI provider)")
+	staged := fs.Bool("staged", false, "ask the server to check the findings staged in the engagement clone in the current folder (or --data)")
+	warnOnly := fs.Bool("warn-only", false, "with --staged: always exit 0")
 	if err := fs.Parse(args); err != nil {
 		return 2, err
+	}
+	if *staged {
+		dir := *data
+		if dir == "" {
+			dir = "."
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), lintTimeout)
+		defer cancel()
+		errs, _, err := lintStaged(ctx, dir, out, *warnOnly)
+		switch {
+		case *warnOnly:
+			if err != nil {
+				fmt.Fprintln(out, "yars:", err)
+			}
+			return 0, nil
+		case err != nil:
+			return 2, err
+		case errs > 0:
+			return 1, nil
+		}
+		return 0, nil
 	}
 	r, err := openData(fs, *data)
 	if err != nil {
@@ -573,6 +597,7 @@ func usage() {
   yars backup --data <dir> [--key] --out <file.zip>
   yars restore --from <file.zip> --data <new dir>
   yars lint --data <dir> [--all] [eng[/finding]]
+  yars lint --staged [--warn-only] [--data <engagement clone>]   (the server checks what is being committed)
   yars export --data <dir> --exporter <id> <eng>
   yars mcp --data <clone> --user <name>
   yars seed --data <new dir> [--engagements 50] [--findings 300] [--messages 10000]   (development data)`)

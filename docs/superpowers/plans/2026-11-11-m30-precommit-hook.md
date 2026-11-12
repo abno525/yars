@@ -93,7 +93,7 @@ Rules:
 8. The last line, when anything was checked: `yars: <E> errors, <W> warnings in <F> findings`, plus ` (commit not blocked)` with `--warn-only`.
 9. Exit code: 1 when there are errors and `--warn-only` is not set; otherwise 0.
 
-- [ ] **Step 1: write the failing tests.** The server is an `httptest.Server` with a handler that records requests and answers a programmed body; the clone is a temp git repository with `remote.origin.url` set to `<server URL with user:pass@>/git/e/acme`.
+- [x] **Step 1: write the failing tests.** The server is an `httptest.Server` with a handler that records requests and answers a programmed body; the clone is a temp git repository with `remote.origin.url` set to `<server URL with user:pass@>/git/e/acme`.
   - `TestLintURL`: `http://h:8080/git/e/acme` and `https://h/git/e/acme.git` map to `…/git/e/acme/lint`; `http://h/git/yars` and `/tmp/x` are not ok.
   - `TestLintStagedReadsIndexNotWorktree`: stage a finding, change it in the work tree without staging: the posted body equals the staged content.
   - `TestLintStagedOnlyStagedFindings`: a second, unstaged finding is not posted; a staged file that is not a `finding.md` is not posted.
@@ -104,10 +104,10 @@ Rules:
   - `TestLintStagedRefusedLogin`: a 401 answer prints `could not ask` with `login refused`.
   - `TestLintStagedNotAnEngagementClone`: origin `http://h/git/yars` prints the "not a YARS engagement" line and posts nothing.
   - `TestLintStagedUnparseable`: a 422 answer prints a `parse` line.
-- [ ] **Step 2:** run `go test ./cmd/yars -run "LintStaged|LintURL"`. Expected: FAIL.
-- [ ] **Step 3:** implement.
-- [ ] **Step 4:** run `go test ./cmd/yars`. Expected: PASS.
-- [ ] **Step 5:** commit: `feat(cli): yars lint --staged asks the server to check what is being committed`.
+- [x] **Step 2:** run `go test ./cmd/yars -run "LintStaged|LintURL"`. Expected: FAIL.
+- [x] **Step 3:** implement.
+- [x] **Step 4:** run `go test ./cmd/yars`. Expected: PASS.
+- [x] **Step 5:** commit: `feat(cli): yars lint --staged asks the server to check what is being committed`.
 
 ### Task 3: `yars hook install`
 
