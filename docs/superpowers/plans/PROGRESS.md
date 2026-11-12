@@ -160,4 +160,7 @@ M33 branch  fix check passed bb7f48d (eight fixed; then data: URLs in any string
 M33 PR      opened   #28
 M34 task 1  done     add547c (every backlog line marked: 37 fixed, 11 of them by a new test; 6 won't; 63 do; 12 ask)
 M34 task 2  done     ce24307..49df5a9 (the 63 do lines, one commit each with its test)
+M34 task 1  review   fix 08b3cb4..4fa33ea (two tests that missed their line; three won't lines closed by rule 1; revoke --id with two tokens)
+M34 task 2  review   fixes 15292a7..40ef1dd (four reviewers, one per part: lint's hidden script failures, the one blocker; live counts; the migration import; Jira headings; a hand-written pandoc format; PDF worker order; sandboxed downloads; export --as and statuses)
+M34 known   done     docs/known-limits.md (3 won't, 19 needing a decision); the backlog file removed
 ```
