@@ -431,8 +431,12 @@ func TestCtrlSSearches(t *testing.T) {
 	js := e.do(t, "alice", "GET", "/static/keys.js", nil, nil).Body.String()
 	save := js[strings.Index(js, "function yarsSave()"):]
 	save = save[:strings.Index(save, "\n}\n")]
-	if !strings.Contains(save, "if (!yarsTyping(a) || yarsPick(a)) { yarsSearchFocus(); return; }") {
-		t.Errorf("Ctrl+S does not search:\n%s", save)
+	// not from a focused button of a form that saves (nothing, as before),
+	// nor with the shortcuts off
+	for _, w := range []string{"if (!yarsTyping(a) || yarsPick(a)) {", "if (!yarsKeysOff() && !(form && !yarsPick(a) && yarsSaveButton(form))) yarsSearchFocus();"} {
+		if !strings.Contains(save, w) {
+			t.Errorf("yarsSave lacks %s:\n%s", w, save)
+		}
 	}
 	for _, w := range []string{"function yarsSearchBox()", "function yarsSearchFocus()"} {
 		if !strings.Contains(js, w) {
@@ -751,7 +755,7 @@ func TestSaveReviewFixes(t *testing.T) {
 	}
 	save := js[i:]
 	save = save[:strings.Index(save, "\n}\n")]
-	for _, w := range []string{"if (!yarsTyping(a) || yarsPick(a)) { yarsSearchFocus(); return; }", "yarsSaveButton(form)", "btn.click()"} {
+	for _, w := range []string{"if (!yarsTyping(a) || yarsPick(a)) {", "yarsSaveButton(form)", "btn.click()"} {
 		if !strings.Contains(save, w) {
 			t.Errorf("yarsSave lacks %s", w)
 		}

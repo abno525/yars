@@ -72,7 +72,7 @@ type leadView struct {
 	Items                 []leadItem
 	Older                 int
 	NoReplies             bool
-	Error                 string // a refused change, in the action row
+	Error                 string // a refused change, on its own line under the action row
 	Text, TextError       string // the composer after a refused post
 	Quote                 string // Quote request: the request block the composer gets
 	KeepState, KeepQ      string // the board's filter, sent along with every change

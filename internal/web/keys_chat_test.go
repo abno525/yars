@@ -69,7 +69,11 @@ func TestDupsKeys(t *testing.T) {
 	}
 	js := e.do(t, "alice", "GET", "/static/keys.js", nil, nil).Body.String()
 	for _, w := range []string{"'#chat-list .thread[data-thread], #dups tr[data-pick]'", "var mg = t ? t.querySelector('[data-merge]') : null;",
-		"document.querySelector('#chat[data-kpanel=\"side\"]')", "function yarsThreadPick(t)"} {
+		"document.querySelector('#chat[data-kpanel=\"side\"]')", "function yarsThreadPick(t)",
+		// with nothing picked, the first step starts in the selected panel
+		"var own = list.filter(function (x) { return s && s.contains(x); });",
+		// l leaves a duplicate picked behind
+		"if (t && !s.contains(t)) yarsThreadMark(null);"} {
 		if !strings.Contains(js, w) {
 			t.Errorf("keys.js lacks %s", w)
 		}

@@ -49,10 +49,15 @@ function yarsSave() {
   if (rd) { if (!rd.disabled) rd.click(); return; }
   if (document.querySelector('dialog[open]')) return;
   var a = document.activeElement;
+  var form = a && a !== document.body && a.closest ? a.closest('form') || a.form : null;
   // nothing being filled in (a focused button, link or row checkbox is not):
-  // the page's search box (the findings list's, the team board's)
-  if (!yarsTyping(a) || yarsPick(a)) { yarsSearchFocus(); return; }
-  var form = a.closest('form') || a.form;
+  // the page's search box (the findings list's, the team board's); never
+  // from a focused button of a form that saves (nothing, as before), nor
+  // with the shortcuts off
+  if (!yarsTyping(a) || yarsPick(a)) {
+    if (!yarsKeysOff() && !(form && !yarsPick(a) && yarsSaveButton(form))) yarsSearchFocus();
+    return;
+  }
   if (!form || form.hasAttribute('data-nosave')) return;
   var conflict = form.closest('.conflict');
   if (conflict) {
@@ -414,6 +419,9 @@ function yarsSide() {
   if (!s) return false;
   if (yarsChatHidden()) yarsChat(true); // l shows a hidden chat
   yarsSelect(s, true);
+  // a duplicate picked before stays behind
+  var t = yarsThread();
+  if (t && !s.contains(t)) yarsThreadMark(null);
   return true;
 }
 function yarsBack() {
@@ -471,8 +479,16 @@ function yarsThreadStep(d) {
   var list = yarsThreads();
   if (!list.length) return false;
   var i = list.indexOf(yarsThread());
-  if (i < 0) yarsThreadPick(d > 0 ? list[0] : list[list.length - 1]);
-  else yarsThreadPick(list[Math.max(0, Math.min(list.length - 1, i + d))]);
+  if (i >= 0) {
+    yarsThreadPick(list[Math.max(0, Math.min(list.length - 1, i + d))]);
+    return true;
+  }
+  // nothing picked: start in the selected panel (the chat's first comment
+  // after l), else anywhere in the column
+  var s = yarsSelected();
+  var own = list.filter(function (x) { return s && s.contains(x); });
+  var from = own.length ? own : list;
+  yarsThreadPick(d > 0 ? from[0] : from[from.length - 1]);
   return true;
 }
 // yarsResolveKey: r resolves the picked comment (its Resolve button).
