@@ -11,7 +11,7 @@ import (
 // The three token blocks of the stylesheet (M33): every colour is a token
 // set here, so the later dark-mode remake changes values only.
 var tokenBlocks = []string{
-	":root {",
+	":root, .preview-doc[data-theme=\"light\"] {",
 	"@media (prefers-color-scheme: dark) {\n  :root:not([data-theme=\"light\"]) {",
 	":root[data-theme=\"dark\"] {",
 }

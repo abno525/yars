@@ -453,6 +453,27 @@ func TestExportPreview(t *testing.T) {
 	}
 }
 
+// The preview shows the report as it is exported, so it is light whatever
+// the user's theme is: its container sets the light tokens for its subtree.
+func TestExportPreviewIsLight(t *testing.T) {
+	e := setupSerial(t)
+	e.toComplete(t)
+	e.exporters(t, fakePandoc)
+	for _, theme := range []string{"", "light", "dark"} {
+		if err := e.srv.Store.DB().SetTheme("alice", theme); err != nil {
+			t.Fatal(err)
+		}
+		b := e.do(t, "alice", "GET", "/e/acme/export/preview?finding="+fdir, nil, nil).Body.String()
+		if !strings.Contains(b, `<div class="paper preview-doc" data-theme="light">`) {
+			t.Errorf("theme %q: the preview's container is not light", theme)
+		}
+	}
+	css := e.do(t, "alice", "GET", "/static/style.css", nil, nil).Body.String()
+	if !strings.Contains(css, `.preview-doc[data-theme="light"] {`) {
+		t.Fatal("no light token rule for the preview")
+	}
+}
+
 // Destinations are edited by directors, written to .yars/exporters and
 // committed to the main repository; a file export.Load refuses is not saved.
 func TestExportSetup(t *testing.T) {

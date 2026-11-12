@@ -8,7 +8,9 @@
 @font-face { font-family: "IBM Plex Sans"; font-weight: 700; src: url("fonts/plex-sans-700.woff2") format("woff2"); font-display: swap; }
 @font-face { font-family: "IBM Plex Mono"; font-weight: 500; src: url("fonts/plex-mono-500.woff2") format("woff2"); font-display: swap; }
 
-:root {
+/* The light tokens also apply under the report preview, which looks like the
+   exported document whatever the user's theme is. */
+:root, .preview-doc[data-theme="light"] {
   --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   --logo: "Bungee", "Arial Black", Impact, sans-serif;
@@ -1254,6 +1256,7 @@ code.block { display: block; padding: 8px 10px; background: var(--code-bg); font
 .tocn { width: 56px; flex: none; }
 .tsub { height: 36px; padding: 0 20px; display: flex; align-items: center; background: var(--panel); border-bottom: 1px solid var(--line); font: 700 12px var(--sans); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
 .paper { padding: 32px; background: var(--panel); border: 1px solid var(--line); }
+.preview-doc { color: var(--text); } /* body's colour is inherited already computed, in the user's theme */
 .sheet {
   max-width: 860px; margin: 0 auto; padding: 48px 56px; display: flex; flex-direction: column; gap: 14px;
   background: var(--surface); box-shadow: 0 1px 3px var(--sheet-shadow); font-size: 14px; line-height: 1.55;

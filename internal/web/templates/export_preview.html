@@ -19,7 +19,7 @@
     <div class="tsub flush">Findings · {{len .ExportV.Toc}}</div>
     {{range .ExportV.Toc}}<a class="flush fd" href="#{{.Anchor}}"><span class="mono tocn">{{.ID}}</span><span class="clip" title="{{.Title}}">{{.Title}}</span></a>{{end}}
   </nav>
-  <div class="paper">
+  <div class="paper preview-doc" data-theme="light">
     <article class="sheet">{{.ExportV.Report}}</article>
   </div>
 </div>
