@@ -48,7 +48,7 @@ Rules:
 4. A read-only git token may lint (it reads only). The write deadline is lifted for this route as for the other git routes (it already is: `/git/` is wrapped in `longLived`), since AI rules can take up to the engine's 90 s budget.
 5. `cmdServe` sets `gs.Lint = st.LintContent`.
 
-- [ ] **Step 1: write the failing tests.**
+- [x] **Step 1: write the failing tests.**
   - `TestLintContent` (`store`, with the rule file the check tests use): a finding whose title ends with a dot returns the `title-no-trailing-dot` violation; a clean one returns none; an unparseable one is `ErrInvalidValue`.
   - `TestLintContentHonoursDismissals`: after `DismissWhy` on that violation for `F-001`, posting the same content with id `F-001` returns none.
   - `TestLintEndpointReturnsViolations` (`gitserve`): `POST /git/e/acme/lint` with Basic auth returns 200 and the JSON list.
@@ -57,10 +57,10 @@ Rules:
   - `TestLintEndpointStoresNothing`: after the call the engagement repo's HEAD, the number of check runs and the number of chat messages are unchanged.
   - `TestLintEndpointUnparseable`: 422 with the message; `TestLintEndpointTooLarge`: 413; `TestLintEndpointGetIs405`.
   - `TestLintEndpointRestrictedToken`: a git token limited to another engagement gets 403; a read-only token for this one gets 200.
-- [ ] **Step 2:** run `go test ./internal/store ./internal/gitserve -run Lint`. Expected: FAIL.
-- [ ] **Step 3:** implement.
-- [ ] **Step 4:** run `go test ./internal/store ./internal/gitserve ./cmd/yars`. Expected: PASS.
-- [ ] **Step 5:** commit: `feat(git): the server checks a posted finding with every rule`.
+- [x] **Step 2:** run `go test ./internal/store ./internal/gitserve -run Lint`. Expected: FAIL.
+- [x] **Step 3:** implement.
+- [x] **Step 4:** run `go test ./internal/store ./internal/gitserve ./cmd/yars`. Expected: PASS.
+- [x] **Step 5:** commit: `feat(git): the server checks a posted finding with every rule`.
 
 ### Task 2: `yars lint --staged`
 

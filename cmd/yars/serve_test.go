@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"errors"
 	"net"
 	"net/http"
 	"strings"
@@ -56,6 +57,13 @@ func TestHookEnvHasNoAIKey(t *testing.T) {
 	gs := gitServer(r, au, auth.NewTokens(d), st, "yars", func(string) {})
 	if len(gs.InheritEnv) != 0 {
 		t.Fatalf("the hook inherits %v", gs.InheritEnv)
+	}
+	// M30: the lint endpoint is on; it runs in the server, with every rule
+	if gs.Lint == nil {
+		t.Fatal("the git server has no lint endpoint")
+	}
+	if _, err := gs.Lint(context.Background(), "nope", []byte("---\nid: F-001\ntitle: x\n---\n")); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("lint of an unknown engagement: %v", err)
 	}
 }
 

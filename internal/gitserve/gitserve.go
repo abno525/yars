@@ -5,8 +5,10 @@
 package gitserve
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -25,6 +27,8 @@ import (
 	"yars/internal/db"
 	"yars/internal/gitrepo"
 	"yars/internal/policy"
+	"yars/internal/rules"
+	"yars/internal/store"
 )
 
 // RepoName is the fixed name in the clone URL: http(s)://host/git/yars.
@@ -32,6 +36,9 @@ const RepoName = "yars"
 
 // DefaultMaxBody is the largest chunked request body (a push) accepted.
 const DefaultMaxBody = 2 << 30
+
+// LintMaxBody caps a posted finding (POST /git/e/<id>/lint).
+const LintMaxBody = 1 << 20
 
 type Server struct {
 	Repo *gitrepo.Repo
@@ -61,6 +68,9 @@ type Server struct {
 	// MaxBody caps a request body sent without a length (chunked), which
 	// is spooled to a temporary file; 0 = DefaultMaxBody.
 	MaxBody int64
+	// Lint, when set, answers POST /git/e/<id>/lint: it checks a posted
+	// finding.md with every rule and stores nothing (yars lint --staged).
+	Lint func(ctx context.Context, eng string, raw []byte) ([]rules.Violation, error)
 
 	mu    sync.Mutex
 	cache map[string]cached
@@ -289,6 +299,12 @@ func (s *Server) Handler() http.Handler {
 				return
 			}
 		}
+		if eng != "" && r.URL.Path == root+"/lint" {
+			// answered here, after the login, the team and the token's
+			// engagements: a read-only token may lint (it only reads)
+			s.lint(w, r, u, eng)
+			return
+		}
 		if gitErr != nil {
 			http.Error(w, "git not available", http.StatusInternalServerError)
 			return
@@ -386,6 +402,64 @@ func spool(body io.Reader) (*os.File, error) {
 		return nil, err
 	}
 	return f, nil
+}
+
+// lintViolation is one violation in the lint answer.
+type lintViolation struct {
+	Rule    string `json:"rule"`
+	Level   string `json:"level"`
+	Message string `json:"message"`
+	Target  string `json:"target"`
+	Quote   string `json:"quote"`
+}
+
+// lint answers POST /git/e/<eng>/lint: the body is a finding.md as it would
+// be committed; the answer is {"violations":[…]} (an empty list when clean),
+// 422 {"error":…} for a file that does not parse. Nothing is stored. The
+// rules' AI calls are recorded under u (D24).
+func (s *Server) lint(w http.ResponseWriter, r *http.Request, u config.User, eng string) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.Lint == nil {
+		http.NotFound(w, r)
+		return
+	}
+	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, LintMaxBody))
+	if err != nil {
+		var tooBig *http.MaxBytesError
+		if errors.As(err, &tooBig) {
+			http.Error(w, fmt.Sprintf("a finding over %d KiB", LintMaxBody>>10), http.StatusRequestEntityTooLarge)
+			return
+		}
+		http.Error(w, "could not read the request body", http.StatusBadRequest)
+		return
+	}
+	ctx := rules.WithCaller(r.Context(), rules.Caller{User: u.Username, Eng: eng})
+	vs, err := s.Lint(ctx, eng, raw)
+	answer := func(code int, v any) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(code)
+		json.NewEncoder(w).Encode(v)
+	}
+	switch {
+	case errors.Is(err, store.ErrInvalidValue):
+		answer(http.StatusUnprocessableEntity, map[string]string{"error": strings.TrimPrefix(err.Error(), store.ErrInvalidValue.Error()+": ")})
+		return
+	case errors.Is(err, store.ErrNotFound):
+		http.NotFound(w, r)
+		return
+	case err != nil:
+		http.Error(w, "could not check the finding", http.StatusInternalServerError)
+		return
+	}
+	out := make([]lintViolation, 0, len(vs))
+	for _, v := range vs {
+		out = append(out, lintViolation{Rule: v.Rule, Level: v.Level, Message: v.Message, Target: v.Target, Quote: v.Quote})
+	}
+	answer(http.StatusOK, map[string][]lintViolation{"violations": out})
 }
 
 // isPush reports whether r is part of a push (receive-pack).

@@ -150,10 +150,11 @@ func cmdServe(args []string) error {
 }
 
 // gitServer is the git endpoint of yars serve. The push hook it runs gets no
-// AI key: AI rules do not run on a push (pushRunner).
+// AI key: AI rules do not run on a push (pushRunner). The lint endpoint runs
+// in the server itself, with every rule (AI included), as Check does.
 func gitServer(r *gitrepo.Repo, au *auth.Auth, tokens *auth.Tokens, st *store.Store, exe string, invalidate func(string)) *gitserve.Server {
 	return &gitserve.Server{Repo: r, Auth: au, HookCmd: hookCmd(exe, r.Dir), Sync: st.SyncPointers, Invalidate: invalidate,
-		Receive: st.ReceivePush, Tokens: tokens, CanSee: st.CanSee}
+		Receive: st.ReceivePush, Tokens: tokens, CanSee: st.CanSee, Lint: st.LintContent}
 }
 
 // serve runs the server until ctx is cancelled, then stops it: new

@@ -8,6 +8,7 @@ import (
 
 	"yars/internal/config"
 	"yars/internal/db"
+	"yars/internal/finding"
 	"yars/internal/rules"
 	"yars/internal/workflow"
 )
@@ -215,6 +216,32 @@ func (s *Store) Dismissals(engID, fid string) (map[string]db.Dismissal, error) {
 		return map[string]db.Dismissal{}, nil
 	}
 	return s.db.Dismissals(engID, fid)
+}
+
+// LintContent checks raw (a finding.md as it would be committed to
+// engagement engID) with every rule, as a check run does, and returns the
+// violations that are not dismissed on that finding. Nothing is stored. A
+// file that does not parse is ErrInvalidValue with the parser's message; an
+// unknown engagement is ErrNotFound. The rules' AI calls are recorded under
+// the caller ctx carries and this finding (D24).
+func (s *Store) LintContent(ctx context.Context, engID string, raw []byte) ([]rules.Violation, error) {
+	f, err := finding.Parse(raw)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrInvalidValue, err)
+	}
+	if _, err := s.Engagement(engID); err != nil {
+		return nil, err
+	}
+	if s.Linter == nil {
+		return []rules.Violation{}, nil
+	}
+	c := rules.CallerOf(ctx)
+	c.Eng, c.Fid = engID, f.Meta.ID
+	vs, err := s.undismissed(engID, f.Meta.ID, s.Linter.Lint(rules.WithCaller(ctx, c), f, rules.All))
+	if vs == nil {
+		vs = []rules.Violation{}
+	}
+	return vs, err
 }
 
 // undismissed drops the violations dismissed on finding fid.

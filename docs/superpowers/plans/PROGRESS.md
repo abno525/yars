@@ -112,4 +112,5 @@ M29 task 6  review   passed; nits c80f9a9 (no selection with shortcuts off; Chat
 M29 branch  review   fixes 513cfda (keys move focus off the old panel; picker Enter; row ids; focus rides on the key's request), nits 7515b28 (held Esc; Esc order; focus back to a reason toggle; the ? list shows what works on the page)
 M29 branch  fix check one regression (picker Ctrl+Enter), fixed 938c6c7 with the check's optional leftovers
 M29 PR      opened   #24
+M30 task 1  done     (POST /git/e/<id>/lint: every rule, nothing stored, team and token checks as a clone)
 ```
