@@ -35,4 +35,5 @@ What the polish backlog left open (it was `docs/superpowers/deferred-minors.md` 
 | The bulk bars (the inbox's and the findings list's) sign off and approve without a viewed version | Keep: their rows show no finding text to have read. |
 | A workflow bar opened before a change can refuse a sign-off of the content the page now shows (its refresh waits while a picker or reason panel is open) | Keep: the refusal says why, and the page comes back current, so a second click works. |
 | A built-in check's configured message near the 300-character cut loses its detail | Keep: none of the built-in messages is that long. |
+| MCP's `initialize` answers `serverInfo.version` "1", not the build's version (M35) | Pass the build's version to the MCP server, as `yars serve` does to the website. |
 | In a SHA-256 repository a pushed branch deletion or new branch is refused with a misleading reason (the hook's zero id is SHA-1's) | Compare with the zero id of the pushed id's length. YARS makes SHA-1 repositories, so only one made by hand meets it. |
