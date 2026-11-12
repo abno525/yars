@@ -35,7 +35,8 @@ func TestGitGuidePullSubmodules(t *testing.T) {
 	if j := strings.Index(sec[3:], "\n## "); j >= 0 {
 		sec = sec[:j+3]
 	}
-	for _, want := range []string{"git clone --recurse-submodules", "git pull --recurse-submodules", "detached HEAD", "git submodule foreach git switch -q main"} {
+	// and git's "redirecting" warning for a URL with a user name (M34 review)
+	for _, want := range []string{"git clone --recurse-submodules", "git pull --recurse-submodules", "detached HEAD", "git submodule foreach git switch -q main", "warning: redirecting to", "Nothing is redirected"} {
 		if !strings.Contains(sec, want) {
 			t.Errorf("the section lacks %q", want)
 		}

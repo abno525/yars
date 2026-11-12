@@ -31,11 +31,13 @@ git clone --recurse-submodules https://<server>/git/yars findings
 git -C findings submodule foreach git switch -q main
 ```
 
-Git checks submodules out on a detached HEAD: a commit made there is on no branch, and the push of `main` leaves it out. The second line puts every engagement on `main`. `git pull --recurse-submodules` (and `git submodule update`) detaches them again: run the same `git submodule foreach git switch -q main` after it, or pull inside an engagement (`git -C engagements/<id> pull`), which keeps it on `main`.
+Git checks submodules out on a detached HEAD: a commit made there is on no branch, and the push of `main` leaves it out. The second line puts every engagement on `main`. `git pull --recurse-submodules` (and `git submodule update`) detaches them again: run the same `git submodule foreach git switch -q main` after it, or pull inside an engagement (`git -C findings/engagements/<id> pull`), which keeps it on `main`.
+
+With a clone URL that holds your user name, as Developers › Git shows it, git prints `warning: redirecting to …/git/yars/`: it compares the URL it was given with the one it reached, which has no user name. Nothing is redirected, and the clone is whole.
 
 ### A clone from before engagements had their own repositories
 
-Before version M11 every engagement was a folder of the main repository. A clone from then with commits not pushed yet: push them before the server is upgraded (`yars migrate` makes each engagement a repository of its own). After the upgrade such a clone's next pull meets modify/delete conflicts, since the engagement folders left the main repository. Then clone again (as above), copy the files you changed from the old clone into the new one's `engagements/<id>/`, and commit and push them there.
+Engagements were once folders of the main repository; `yars migrate` makes each a repository of its own. A clone from before that with commits not pushed yet: push them before the server is upgraded. After the upgrade such a clone's next pull meets modify/delete conflicts, since the engagement folders left the main repository. Then clone again (as above), copy the files you changed from the old clone into the new one's `engagements/<id>/`, and commit and push them there.
 
 ## Push rules
 
