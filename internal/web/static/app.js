@@ -264,8 +264,9 @@ function yarsComment(section) {
 }
 
 // yarsConfirm asks text in the page's own dialog (#confirm), its OK button
-// labelled ok, and runs done when that is pressed; Cancel, Esc or a click
-// outside keep things as they are. A page without the dialog (none signed
+// labelled ok, and runs done when that is pressed; Cancel or Esc keep things
+// as they are (a click outside does nothing: the second click of a
+// double-click would land there). A page without the dialog (none signed
 // in) falls back to the browser's.
 function yarsConfirm(text, ok, done) {
   var d = document.getElementById('confirm');
@@ -282,10 +283,6 @@ function yarsConfirm(text, ok, done) {
   // a dialog opened during it
   setTimeout(function () { d.showModal(); b.focus(); }, 0);
 }
-document.addEventListener('click', function (evt) {
-  var d = document.getElementById('confirm');
-  if (d && d.open && evt.target === d) d.close();
-});
 
 // Comment buttons and confirm buttons are wired here (no inline handlers:
 // the page's script policy allows none). A data-confirm button asks first

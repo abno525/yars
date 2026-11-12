@@ -327,9 +327,11 @@ function yarsSlash() {
 var yarsSel = '';
 var yarsSideFrom = '';
 
+// yarsSelected: the selected panel, while it is shown (a hidden chat is not
+// selected: no key acts in it)
 function yarsSelected() {
   var p = yarsSel ? document.getElementById(yarsSel) : null;
-  return p && p.hasAttribute('data-kpanel') ? p : null;
+  return p && p.hasAttribute('data-kpanel') && p.getClientRects().length > 0 ? p : null;
 }
 
 // yarsSelect marks el selected (null: nothing); a key (scroll true) also
@@ -520,13 +522,14 @@ function yarsNav(key) {
   var main = !!sel && sel.getAttribute('data-kpanel') !== 'side';
   var side = !!sel && !main;
   switch (key) {
-  case 'J': return side ? yarsThreadStep(1) : yarsStep(1);
-  case 'K': return side ? yarsThreadStep(-1) : yarsStep(-1);
+  // in the chat j k h are its own even with nothing to step to (never written)
+  case 'J': return side ? yarsThreadStep(1) || true : yarsStep(1);
+  case 'K': return side ? yarsThreadStep(-1) || true : yarsStep(-1);
   case 'ArrowDown': return side ? yarsThreadStep(1) : yarsStep(1);
   case 'ArrowUp': return side ? yarsThreadStep(-1) : yarsStep(-1);
   case 'L': return yarsSide();
   case 'ArrowRight': return !side && yarsSide();
-  case 'H': return yarsBack();
+  case 'H': return yarsBack() || side;
   case 'ArrowLeft': return side && yarsBack();
   }
   return false;
@@ -567,7 +570,14 @@ document.addEventListener('keydown', function (evt) {
     var tg = document.querySelector('[data-chat-toggle]');
     if (!tg || yarsKeysOff() || evt.isComposing || document.querySelector('dialog[open]')) return;
     evt.preventDefault();
-    if (!evt.repeat) tg.click();
+    if (evt.repeat) return;
+    var inChat = yarsSelected() && yarsSelected().getAttribute('data-kpanel') === 'side';
+    tg.click();
+    // hiding the selected chat goes back to the panel it was entered from
+    if (inChat && yarsChatHidden()) {
+      var back = yarsSideFrom ? document.getElementById(yarsSideFrom) : null;
+      yarsSelect(back && back.hasAttribute('data-kpanel') ? back : null, true);
+    }
     return;
   }
   // Esc during IME composition cancels the composition only
@@ -594,7 +604,8 @@ document.addEventListener('keydown', function (evt) {
   if (key === 'E') { if (yarsEdit() || (!document.querySelector('[data-kpanel]') && yarsFire('E')) || yarsWrite(evt)) evt.preventDefault(); return; }
   if (key === 'Enter') { if (yarsEnter()) evt.preventDefault(); return; }
   if (key === 'C') { if (yarsCommentKey()) evt.preventDefault(); return; }
-  if (key === 'R' && yarsResolveKey()) { evt.preventDefault(); return; }
+  // r is the picked comment's (a resolved one: nothing), never written
+  if (key === 'R' && (yarsResolveKey() || yarsThread())) { evt.preventDefault(); return; }
   // a key nothing took: in the chat it starts writing
   if (yarsFire(key) || yarsBulkFire(key) || yarsWrite(evt)) evt.preventDefault();
 });

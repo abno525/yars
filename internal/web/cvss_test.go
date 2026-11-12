@@ -229,7 +229,7 @@ func TestCVSSEditorUIGuards(t *testing.T) {
 		`id="cvss-AV-N"`,                 // radios keep focus across swaps
 		`hx-sync="closest form:replace"`, // fast clicks don't race
 		`data-enter`,                     // Enter in paste box applies (app.js)
-		`hx-confirm=`,                    // clear asks first
+		`data-confirm=`,                  // clear asks first
 	} {
 		if !strings.Contains(b, want) {
 			t.Fatalf("missing %q:\n%s", want, b)

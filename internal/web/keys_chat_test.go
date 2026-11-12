@@ -31,6 +31,18 @@ func TestConfirmIsInApp(t *testing.T) {
 			t.Errorf("app.js lacks %s", w)
 		}
 	}
+	// a click outside does not close it (the second click of a double-click
+	// on Archive would)
+	if strings.Contains(app, "d.open && evt.target === d) d.close()") {
+		t.Error("a click on the backdrop closes the dialog")
+	}
+	// a form's submit button asks with data-confirm (htmx reads hx-confirm
+	// from the form only, and the dialog's focus would drop the button from
+	// the request): Clear vector
+	src, _ := templateFS.ReadFile("templates/cvss.html")
+	if !strings.Contains(string(src), `value="clear" data-confirm="Remove the CVSS vector?">Clear vector</button>`) {
+		t.Error("Clear vector does not ask")
+	}
 	if css := e.do(t, "alice", "GET", "/static/style.css", nil, nil).Body.String(); !strings.Contains(css, "dialog.confirmdlg {") {
 		t.Error("no style for the dialog")
 	}
@@ -54,10 +66,14 @@ func TestChatKeys(t *testing.T) {
 		t.Error("the chat toggle lacks Ctrl+H")
 	}
 	js := e.do(t, "alice", "GET", "/static/keys.js", nil, nil).Body.String()
-	for _, w := range []string{"function yarsThreadStep(d)", "case 'J': return side ? yarsThreadStep(1) : yarsStep(1);", "case 'K': return side ? yarsThreadStep(-1) : yarsStep(-1);",
+	for _, w := range []string{"function yarsThreadStep(d)", "case 'J': return side ? yarsThreadStep(1) || true : yarsStep(1);", "case 'K': return side ? yarsThreadStep(-1) || true : yarsStep(-1);",
 		"case 'ArrowDown': return side ? yarsThreadStep(1) : yarsStep(1);", "case 'ArrowUp': return side ? yarsThreadStep(-1) : yarsStep(-1);",
-		"function yarsResolveKey()", "if (key === 'R' && yarsResolveKey())", "function yarsWrite(evt)", "yarsFire(key) || yarsBulkFire(key) || yarsWrite(evt)",
-		"key === 'Control+H'"} {
+		"function yarsResolveKey()", "if (key === 'R' && (yarsResolveKey() || yarsThread()))", "function yarsWrite(evt)", "yarsFire(key) || yarsBulkFire(key) || yarsWrite(evt)",
+		"key === 'Control+H'",
+		// a hidden panel is not selected: keys never act in a hidden chat
+		"return p && p.hasAttribute('data-kpanel') && p.getClientRects().length > 0 ? p : null;",
+		// in the chat j k h are its own, even with nothing to step to
+		"case 'H': return yarsBack() || side;"} {
 		if !strings.Contains(js, w) {
 			t.Errorf("keys.js lacks %s", w)
 		}
@@ -68,7 +84,7 @@ func TestChatKeys(t *testing.T) {
 	g := between(b, `data-keys-group="chat"`, "</section>")
 	for _, w := range []string{`<div class="krow" data-keys-if="#chat-list .thread"><dt><kbd>j</kbd><kbd>k</kbd><kbd>↓</kbd><kbd>↑</kbd></dt><dd>Next or previous comment</dd></div>`,
 		`<div class="krow" data-keys-if="#chat-list .thread-tools [name=resolves]"><dt><kbd>r</kbd></dt><dd>Resolve the comment</dd></div>`,
-		`<div class="krow" data-keys-if="#chat-text"><dt><kbd>a</kbd>–<kbd>z</kbd></dt><dd>Write a reply</dd></div>`,
+		`<div class="krow" data-keys-if="#chat-text"><dt><kbd>Other keys</kbd></dt><dd>Write a reply</dd></div>`,
 		`<div class="krow" data-keys-for="Control+H"><dt><kbd>Ctrl+H</kbd></dt><dd>Hide or show the chat</dd></div>`} {
 		if !strings.Contains(g, w) {
 			t.Errorf("the Chat group lacks %s:\n%s", w, g)
