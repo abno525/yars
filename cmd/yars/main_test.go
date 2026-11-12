@@ -144,6 +144,28 @@ func TestTokenRevokeUnknownUser(t *testing.T) {
 	}
 }
 
+// A .gitignore written by an older YARS has an older comment over the same
+// lines: it is replaced by the current one, not joined by it; the other
+// lines stay, and a second run changes nothing (backlog, M9).
+func TestIgnoreReplacesOldComment(t *testing.T) {
+	for _, old := range []string{"# password hashes stay on the server", "# password hashes and API tokens stay on the server"} {
+		dir := t.TempDir()
+		gi := filepath.Join(dir, ".gitignore")
+		os.WriteFile(gi, []byte("node_modules/\n"+old+"\n.yars/users.yaml\n"), 0o644)
+		if changed, err := writeIgnore(dir); !changed || err != nil {
+			t.Fatalf("%s: %v %v", old, changed, err)
+		}
+		b, _ := os.ReadFile(gi)
+		got := string(b)
+		if strings.Contains(got, old) || strings.Count(got, "# ") != 1 || !strings.HasPrefix(got, "node_modules/\n# accounts, tokens, chat and workflow state stay on the server\n.yars/users.yaml\n") {
+			t.Fatalf("%s:\n%s", old, got)
+		}
+		if changed, _ := writeIgnore(dir); changed {
+			t.Fatalf("%s: a second run changed it", old)
+		}
+	}
+}
+
 func openDB(t *testing.T, dir string) *db.DB {
 	t.Helper()
 	d, err := db.Open(db.Path(dir))

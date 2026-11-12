@@ -226,6 +226,10 @@ func cmdExport(args []string, out io.Writer) (int, error) {
 // tokens, sessions, workflow state, chat) and the pre-database account files.
 const serverIgnore = "# accounts, tokens, chat and workflow state stay on the server\n.yars/yars.db*\n.yars/users.yaml\n.yars/tokens.yaml\n.yars/secret.key\n"
 
+// oldIgnoreComments are the comments earlier versions wrote over the same
+// lines (cef68f5, 70f67a6).
+var oldIgnoreComments = []string{"# password hashes stay on the server", "# password hashes and API tokens stay on the server"}
+
 // dataDB opens (creating if needed) the data directory's database.
 func dataDB(dir string) (*db.DB, error) { return db.Open(db.Path(dir)) }
 
@@ -359,6 +363,13 @@ func writeIgnore(dir string) (bool, error) {
 	gi := filepath.Join(dir, ".gitignore")
 	b, _ := os.ReadFile(gi)
 	next := string(b)
+	// an older YARS's comment over the same lines gives way to the current one
+	current, _, _ := strings.Cut(serverIgnore, "\n")
+	for _, old := range oldIgnoreComments {
+		if strings.Contains(next, old+"\n") && !strings.Contains(next, current+"\n") {
+			next = strings.Replace(next, old+"\n", current+"\n", 1)
+		}
+	}
 	for _, l := range strings.Split(strings.TrimSpace(serverIgnore), "\n") {
 		if !strings.Contains(next, l) {
 			if next != "" && !strings.HasSuffix(next, "\n") {
