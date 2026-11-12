@@ -551,8 +551,9 @@ progress::-moz-progress-bar { background: var(--accent); }
 .rl { flex: none; font-size: 13px; color: var(--muted); }
 .chips { display: flex; gap: 8px; min-width: 0; overflow: hidden; flex: 0 1 auto; }
 .chips .none { font-size: 13px; color: var(--muted); white-space: nowrap; }
+/* 160 wide; narrower, a long name ending in "…", when the row has less room */
 .rev {
-  width: 160px; height: 28px; padding: 0 10px; flex: none; display: inline-flex; align-items: center; gap: 6px; overflow: hidden;
+  width: 160px; height: 28px; padding: 0 10px; flex: 0 1 auto; min-width: 0; display: inline-flex; align-items: center; gap: 6px; overflow: hidden;
   background: var(--panel); color: var(--text); font-size: 13px; font-weight: 600; white-space: nowrap;
 }
 .rev::before { content: ""; flex: none; width: 10px; height: 10px; border: 2px solid var(--off-fg); }
@@ -805,7 +806,10 @@ summary.panelhead::-webkit-details-marker { display: none; }
 .findings th.col-reviewers { width: 180px; }
 .tag.status-withdrawn { background: transparent; color: var(--muted); border-color: var(--off-fg); }
 .tag.status-ok { background: var(--green); color: var(--on-fill); }
-.rv { display: inline-flex; align-items: center; gap: 6px; margin-right: 14px; font-size: 14px; }
+/* a long name ends in "…" inside the cell; several share it */
+.rvs { display: flex; gap: 14px; min-width: 0; overflow: hidden; }
+.rv { display: inline-flex; align-items: center; gap: 6px; min-width: 0; font-size: 14px; }
+.rv .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .rv::before { content: ""; width: 10px; height: 10px; flex: none; border: 2px solid var(--off-fg); }
 .rv.cleared::before { background: var(--green); border-color: var(--green); }
 
@@ -1096,7 +1100,8 @@ body.bare { background: var(--head-bg); min-height: 100vh; }
 .barealert .mono { flex: none; font-size: 14px; color: var(--red); }
 
 /* ---------- header: the user name opens the settings ---------- */
-a.who { height: 64px; display: inline-flex; align-items: center; justify-content: flex-end; text-decoration: none; }
+/* a block, so a long name keeps its start and ends in "…" (.who) */
+a.who { height: 64px; display: block; line-height: 64px; text-decoration: none; }
 a.who:hover { color: var(--head-strong); }
 a.who.on { box-shadow: inset 0 -3px 0 var(--accent); }
 
@@ -1847,9 +1852,10 @@ code.plain { font: 500 13px var(--mono); color: var(--text); background: transpa
 .tbmeta { height: 24px; display: flex; align-items: center; gap: 12px; min-width: 0; font-size: 13px; color: var(--muted); }
 .tbfid { width: 48px; flex: none; font: 500 13px var(--mono); }
 .tbhost { flex: 1; min-width: 0; font-family: var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tbby { flex: none; white-space: nowrap; }
-.tbby strong { color: var(--text); }
-.tbby .mono { font-size: 12px; }
+/* at most 40% of the line, so the host keeps room; a long name ends in "…" */
+.tbby { flex: 0 1 auto; min-width: 0; max-width: 40%; display: flex; white-space: pre; }
+.tbby strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
+.tbby .mono { flex: none; font-size: 12px; }
 .tbacts { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .tbacts form { margin: 0; display: flex; }
 .tbstate { flex: 1; min-width: 0; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; font-weight: 600; color: var(--muted); }

@@ -3,6 +3,8 @@ package web
 import (
 	"strings"
 	"testing"
+
+	"yars/internal/config"
 )
 
 // The page shell: new header, theme toggle, toast area, no inline styles.
@@ -57,6 +59,36 @@ func TestShellHeaderOrder(t *testing.T) {
 		}
 		if on := strings.Contains(head, `class="who on"`); on != (p == "/docs/mcp") {
 			t.Fatalf("%s: user name lit %v:\n%s", p, on, head)
+		}
+	}
+}
+
+// Long user names end in "…" where they do not fit, rather than losing
+// their start (the header), running past their cell (Reviewers on the
+// findings list), being cut without one (a reviewer tag on a narrow finding
+// row) or pushing the host out of a lead's head (the team board).
+func TestLongNamesFit(t *testing.T) {
+	e := setup(t)
+	if err := e.srv.Store.SetReviewers("acme", "F-001-sql-injection", []string{"bob"}, config.User{Username: "alice", Role: "pentester"}); err != nil {
+		t.Fatal(err)
+	}
+	b := e.do(t, "alice", "GET", "/e/acme", nil, nil).Body.String()
+	row := b[strings.Index(b, "F-001"):]
+	row = row[:strings.Index(row, "</tr>")]
+	if !strings.Contains(row, `<td class="revs"><span class="rvs"><span class="rv" title="bob"><span class="name">bob</span></span></span></td>`) {
+		t.Fatalf("reviewers cell:\n%s", row)
+	}
+	css := e.do(t, "alice", "GET", "/static/style.css", nil, nil).Body.String()
+	for _, want := range []string{
+		"a.who { height: 64px; display: block; line-height: 64px;",
+		".rvs { display: flex; gap: 14px; min-width: 0; overflow: hidden; }",
+		".rv .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }",
+		"width: 160px; height: 28px; padding: 0 10px; flex: 0 1 auto; min-width: 0;",
+		".tbby { flex: 0 1 auto; min-width: 0; max-width: 40%; display: flex; white-space: pre; }",
+		".tbby strong { min-width: 0; overflow: hidden; text-overflow: ellipsis;",
+	} {
+		if !strings.Contains(css, want) {
+			t.Errorf("style.css lacks %q", want)
 		}
 	}
 }
