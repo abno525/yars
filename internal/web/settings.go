@@ -294,7 +294,11 @@ func (s *Server) settingsPassword(w http.ResponseWriter, r *http.Request) {
 // checked before either is stored.
 func (s *Server) settingsPrefs(w http.ResponseWriter, r *http.Request) {
 	u := auth.UserFrom(r.Context())
-	t, setTheme := r.FormValue("theme"), r.Form.Has("theme")
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	t, setTheme := r.Form.Get("theme"), r.Form.Has("theme")
 	if t == "system" {
 		t = ""
 	}
@@ -302,7 +306,7 @@ func (s *Server) settingsPrefs(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "theme must be light, dark or system", http.StatusBadRequest)
 		return
 	}
-	keys, setKeys := r.FormValue("keys"), r.Form.Has("keys")
+	keys, setKeys := r.Form.Get("keys"), r.Form.Has("keys")
 	if setKeys && keys != "on" && keys != "off" {
 		http.Error(w, "keyboard shortcuts must be on or off", http.StatusBadRequest)
 		return

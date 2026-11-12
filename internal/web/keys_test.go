@@ -3,6 +3,7 @@ package web
 import (
 	"html"
 	"net/url"
+	"os"
 	"regexp"
 	"strings"
 	"testing"
@@ -161,7 +162,7 @@ func TestKeysSelectionMarkers(t *testing.T) {
 func TestSelectionReviewFixes(t *testing.T) {
 	e := setup(t)
 	js := e.do(t, "alice", "GET", "/static/keys.js", nil, nil).Body.String()
-	for _, w := range []string{"yarsSelect(p, false)", "'htmx:afterSwap', yarsRemark", "a.closest('[data-kpanel].editing')", "if (!evt.isComposing) yarsEscape()"} {
+	for _, w := range []string{"yarsSelect(p, false)", "'htmx:afterSwap', yarsRemark", "a.closest('[data-kpanel].editing')", "if (!evt.isComposing && !evt.repeat) yarsEscape()"} {
 		if !strings.Contains(js, w) {
 			t.Errorf("keys.js lacks %s", w)
 		}
@@ -711,6 +712,48 @@ func TestBranchReviewFixes(t *testing.T) {
 		if u == "bob" && !strings.Contains(in, " data-nav") {
 			t.Error("bob's inbox has no rows to check")
 		}
+	}
+}
+
+// M29 branch review nits: a held Esc closes one thing; app.js's Esc waits
+// during composition; Esc blurs a field outside the editors before it cancels
+// one, and a closed reason or dismiss form gives focus back to its toggle;
+// the ? list hides rows whose key the page has not got, and the Lists group
+// without rows; the unused panel memory is gone.
+func TestBranchReviewNits(t *testing.T) {
+	e := setup(t)
+	js := e.do(t, "alice", "GET", "/static/keys.js", nil, nil).Body.String()
+	for _, w := range []string{"if (!evt.isComposing && !evt.repeat) yarsEscape()", "[data-keys-for]", `[data-keys-group="lists"]`, "a field outside every editor"} {
+		if !strings.Contains(js, w) {
+			t.Errorf("keys.js lacks %s", w)
+		}
+	}
+	for _, gone := range []string{"yarsLastPanel", "function yarsRemember"} {
+		if strings.Contains(js, gone) {
+			t.Errorf("keys.js still has %s", gone)
+		}
+	}
+	app := e.do(t, "alice", "GET", "/static/app.js", nil, nil).Body.String()
+	for _, w := range []string{"evt.key !== 'Escape' || evt.isComposing", "yarsFocusToggle("} {
+		if !strings.Contains(app, w) {
+			t.Errorf("app.js lacks %s", w)
+		}
+	}
+	d := between(e.do(t, "alice", "GET", "/", nil, nil).Body.String(), `id="keys"`, "</dialog>")
+	for _, k := range []string{"I", "F", "B", "N", "E", "Shift+S", "Shift+O", "Shift+A", "Shift+P", "Shift+R", "Shift+W", "Shift+U", "Shift+C", "Shift+H"} {
+		if !strings.Contains(d, `data-keys-for="`+k+`"`) {
+			t.Errorf("the list's %s row is not tied to its key", k)
+		}
+	}
+	if !strings.Contains(d, `<section class="kgroup" data-keys-group="lists">`) {
+		t.Error("the Lists group is not marked")
+	}
+	src, err := os.ReadFile("settings.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(src), "if err := r.ParseForm(); err != nil {") {
+		t.Error("settingsPrefs reads r.Form without parsing it first")
 	}
 }
 

@@ -544,7 +544,7 @@ document.addEventListener('click', function (evt) {
 });
 document.addEventListener('keydown', function (evt) {
   // Esc closes the topmost thing: an open dialog (Go to) is the browser's
-  if (evt.key !== 'Escape' || document.querySelector('dialog[open]')) return;
+  if (evt.key !== 'Escape' || evt.isComposing || document.querySelector('dialog[open]')) return;
   yarsBulkCloseMenus(null);
   document.querySelectorAll('.fbulkform').forEach(function (f) { yarsBulkReason(f, null); });
 });
@@ -632,6 +632,13 @@ document.addEventListener('close', function (evt) {
 
 /* ---------- finding page ---------- */
 
+// yarsFocusToggle gives focus back to the button that opened the form id
+// (the form is hidden, so the field or Cancel that had focus is gone).
+function yarsFocusToggle(id) {
+  var t = document.querySelector('[aria-controls="' + id + '"]');
+  if (t) t.focus();
+}
+
 // Workflow bar: Return, Withdraw and Revert open their reason form under
 // the bar (one at a time); Cancel closes it. A popover (details.pop) closes when
 // another opens or on a click outside it.
@@ -651,6 +658,8 @@ document.addEventListener('click', function (evt) {
     if (opening) {
       var ta = document.querySelector('#' + id + ' textarea');
       if (ta) ta.focus();
+    } else if (cancel) {
+      yarsFocusToggle(id);
     }
     return;
   }
@@ -676,6 +685,8 @@ document.addEventListener('click', function (evt) {
   if (opening) {
     var inp = document.querySelector('#' + id + ' input[name=reason]');
     if (inp) inp.focus();
+  } else if (cancel) {
+    yarsFocusToggle(id);
   }
 });
 

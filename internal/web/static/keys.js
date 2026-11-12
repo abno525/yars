@@ -8,23 +8,13 @@ function yarsKeysOff() { return document.documentElement.getAttribute('data-keys
 
 // The templates mark the controls: Edit buttons carry aria-keyshortcuts="E",
 // editor Save buttons "Control+S". A section is a section.panel with an id
-// (finding page, report tab, template page); the one last clicked, focused
-// or linked to (#s-…) is remembered by id, since htmx swaps the element.
-var yarsLastPanel = '';
+// (finding page, report tab, template page), kept by id since htmx swaps the
+// element.
 var yarsFocusAfter = ''; // the section to put focus back into after its swap
 
 function yarsPanelOf(el) {
   return el && el.closest ? el.closest('section.panel[id]') : null;
 }
-function yarsRemember(el) {
-  var p = yarsPanelOf(el);
-  if (p) yarsLastPanel = p.id;
-}
-document.addEventListener('pointerdown', function (evt) { yarsRemember(evt.target); }, true);
-document.addEventListener('focusin', function (evt) { yarsRemember(evt.target); });
-window.addEventListener('hashchange', function () {
-  if (location.hash.length > 1) yarsRemember(document.getElementById(decodeURIComponent(location.hash.slice(1))));
-});
 
 // yarsTyping: the key goes into a field, so single-key shortcuts stay out.
 function yarsTyping(t) {
@@ -71,7 +61,7 @@ function yarsSave() {
   var btn = yarsSaveButton(form);
   if (!btn || btn.disabled) return;
   var p = yarsPanelOf(form);
-  if (p) yarsLastPanel = yarsFocusAfter = p.id;
+  if (p) yarsFocusAfter = p.id;
   btn.click(); // a click, so a confirm on the button still asks
   yarsFocusAfter = ''; // taken by the request, or no request went (a required field)
 }
@@ -273,16 +263,21 @@ document.addEventListener('htmx:afterSettle', function () {
   if (nav) nav.focus();
 });
 
-// ? (K8): the shortcut list; its Finding page group only where there are
-// panels, its Chat group only where there is a chat. Esc closes it (the
-// browser's own), as does a click outside it.
+// ? (K8): the shortcut list of this page: its Finding page group only where
+// there are panels, its Lists group only where there are rows, its Chat group
+// only where there is a chat, and a row tied to a key ([data-keys-for]) only
+// where a control carries that key (rendered for this viewer). Esc closes it
+// (the browser's own), as does a click outside it.
 function yarsKeysList() {
   var d = document.getElementById('keys');
   if (!d || !d.showModal || d.open) return false;
-  var g = d.querySelector('[data-keys-group="finding"]');
-  if (g) g.hidden = !document.querySelector('[data-kpanel]');
-  var c = d.querySelector('[data-keys-group="chat"]');
-  if (c) c.hidden = !document.getElementById('chat-text');
+  var show = function (sel, on) { var g = d.querySelector(sel); if (g) g.hidden = !on; };
+  show('[data-keys-group="finding"]', document.querySelector('[data-kpanel]'));
+  show('[data-keys-group="lists"]', document.querySelector('[data-nav]'));
+  show('[data-keys-group="chat"]', document.getElementById('chat-text'));
+  d.querySelectorAll('[data-keys-for]').forEach(function (row) {
+    row.hidden = !document.querySelector('[aria-keyshortcuts~="' + row.getAttribute('data-keys-for') + '"]');
+  });
   d.showModal();
   return true;
 }
@@ -402,11 +397,13 @@ function yarsEscape() {
       if (c) { c.click(); return; }
     }
   }
-  // the editor holding focus first (Tab moves focus, not the selection),
-  // else the selected one
+  // the editor holding focus first (Tab moves focus, not the selection);
+  // a field outside every editor (the chat composer) is left before the
+  // selected editor is cancelled
   var a = document.activeElement;
   var sel = yarsSelected();
   var ed = a && a.closest ? a.closest('[data-kpanel].editing') : null;
+  if (!ed && a && a !== document.body && yarsTyping(a)) { a.blur(); return; }
   if (!ed && sel && sel.classList.contains('editing')) ed = sel;
   var cancel = ed ? ed.querySelector('[data-guard-cancel]') : null;
   if (cancel) { cancel.click(); return; }
@@ -465,7 +462,7 @@ document.addEventListener('keydown', function (evt) {
     return;
   }
   // Esc during IME composition cancels the composition only
-  if (key === 'Escape') { if (!evt.isComposing) yarsEscape(); return; }
+  if (key === 'Escape') { if (!evt.isComposing && !evt.repeat) yarsEscape(); return; }
   // Enter on a list's checkbox (app.js keeps it from submitting the form)
   // opens the row, with shortcuts on
   if (key === 'Enter' && yarsPick(evt.target)) {
@@ -515,7 +512,7 @@ document.addEventListener('htmx:beforeRequest', function (evt) {
   // changes?" is answered No)
   if (el.matches('[data-guard-cancel]')) {
     var p = el.closest('[data-kpanel][id]');
-    if (p) yarsLastPanel = yarsFocusAfter = p.id;
+    if (p) yarsFocusAfter = p.id;
   }
   // the panel's own request is a live refresh, not the key's
   if (!yarsFocusAfter || !evt.detail.xhr || el.id === yarsFocusAfter) return;
