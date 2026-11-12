@@ -60,7 +60,7 @@
         <form class="tbdlg" hx-post="{{.PostURL}}dismiss" hx-target="#board" hx-swap="outerHTML">
           {{template "lead_keep" .}}<input type="hidden" name="from" value="{{.State}}">
           <label>Reason<input name="reason" maxlength="1000" autocomplete="off" required></label>
-          <div class="acts"><button class="btn danger sm w112">Dismiss</button></div>
+          <div class="acts"><button class="btn danger sm w112" aria-keyshortcuts="Control+Enter">Dismiss</button></div>
         </form>
       </details>
       {{else}}<button type="button" class="btn sm w112" disabled>Dismiss</button>{{end}}

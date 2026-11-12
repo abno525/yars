@@ -27,7 +27,7 @@
           </div>
           <div class="pickfoot">
             {{if .Candidates}}<button class="btn ghost sm w96" name="all" value="1" title="Assign every account with the reviewer role">Assign all</button>{{else}}<span class="slot w96"></span>{{end}}
-            <button class="btn save sm w96">Save</button>
+            <button class="btn save sm w96" aria-keyshortcuts="Control+S Control+Enter">Save</button>
           </div>
         </form>
       </details>
@@ -39,7 +39,7 @@
     <div class="wfcheck">
       <span class="checkslot">{{if .Flag}}{{if .FlagTag}}<span class="tag check-stale">{{.Flag}}</span>{{else}}<span class="checkflag {{.FlagClass}}">{{.Flag}}{{if .FlagN}} <span class="mono">{{.FlagN}}</span>{{end}}</span>{{end}}{{end}}</span>
       {{if not .Show}}<span class="slot w152"></span>
-      {{else if .Running}}<button type="button" class="btn {{.Class}} w152 checking" id="wf-check" disabled aria-busy="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9"></path></svg>Checking <span class="mono">{{.Done}}/{{.Total}}</span><progress value="{{.Done}}" max="{{.Total}}"></progress></button>
+      {{else if .Running}}<button type="button" class="btn {{.Class}} w152 checking" disabled aria-busy="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9"></path></svg>Checking <span class="mono">{{.Done}}/{{.Total}}</span><progress value="{{.Done}}" max="{{.Total}}"></progress></button>
       {{else}}<button type="button" class="btn {{.Class}} w152" hx-post="{{.URL}}" hx-target="#workflow" hx-swap="outerHTML" data-slot="check" id="wf-check" aria-keyshortcuts="Shift+C"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>Check</button>
       {{end}}
     </div>
@@ -60,7 +60,7 @@
       <textarea name="reason" required rows="4"></textarea>
     </label>
     <div class="pfoot">
-      <button class="btn {{.Class}} sm w96">{{.Label}}</button>
+      <button class="btn {{.Class}} sm w96" aria-keyshortcuts="Control+Enter">{{.Label}}</button>
       <button type="button" class="btn secondary sm w96" data-reason-cancel="{{.PanelID}}">Cancel</button>
     </div>
   </form>

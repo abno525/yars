@@ -457,7 +457,7 @@ func TestChecksPanelLayout(t *testing.T) {
 		t.Fatalf("dismiss width:\n%s", p)
 	}
 	// Dismiss opens a reason form: Reason, Cancel, Dismiss (error: Dismiss error)
-	if !strings.Contains(p, `name="reason"`) || !strings.Contains(p, `class="btn save sm w120">Dismiss</button>`) || !strings.Contains(p, "data-dismiss-cancel") {
+	if !strings.Contains(p, `name="reason"`) || !strings.Contains(p, `class="btn save sm w120" aria-keyshortcuts="Control+Enter">Dismiss</button>`) || !strings.Contains(p, "data-dismiss-cancel") {
 		t.Fatalf("reason form:\n%s", p)
 	}
 	pb := e.do(t, "bob", "GET", fpath+"/checks", nil, nil).Body.String()

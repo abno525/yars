@@ -71,7 +71,7 @@ func TestSaveShortcutOnSaveButtons(t *testing.T) {
 	}
 	// keys.js has the handlers
 	js := e.do(t, "alice", "GET", "/static/keys.js", nil, nil).Body.String()
-	for _, want := range []string{`aria-keyshortcuts~="Control+S"`, `aria-keyshortcuts~="E"`, "requestSubmit", "preventDefault"} {
+	for _, want := range []string{"yarsHasKey(subs[i], 'Control+S')", `aria-keyshortcuts~="E"`, "btn.click()", "preventDefault"} {
 		if !strings.Contains(js, want) {
 			t.Errorf("keys.js lacks %s", want)
 		}
@@ -154,6 +154,41 @@ func TestKeysSelectionMarkers(t *testing.T) {
 	}
 }
 
+// K2 (after review): a click selects without scrolling; the mark goes back
+// on a swapped panel before the settle; the selection outline gives way to
+// an editor's and a linked panel's; a key-selected panel clears the sticky
+// header; Esc reaches the CVSS editor's Cancel; the retest result has a hook.
+func TestSelectionReviewFixes(t *testing.T) {
+	e := setup(t)
+	js := e.do(t, "alice", "GET", "/static/keys.js", nil, nil).Body.String()
+	for _, w := range []string{"yarsSelect(p, false)", "'htmx:afterSwap', yarsRemark", "a.closest('[data-kpanel].editing')", "if (!evt.isComposing) yarsEscape()"} {
+		if !strings.Contains(js, w) {
+			t.Errorf("keys.js lacks %s", w)
+		}
+	}
+	css := e.do(t, "alice", "GET", "/static/style.css", nil, nil).Body.String()
+	sel := strings.Index(css, "[data-kpanel][data-sel] {")
+	for _, later := range []string{".panel:target {", ".panel.editing {"} {
+		if i := strings.Index(css, later); sel < 0 || i < 0 || i < sel {
+			t.Errorf("%s does not come after the selection outline (%d, %d)", later, sel, i)
+		}
+	}
+	if !strings.Contains(css, "[data-kpanel] { scroll-margin-top: 80px; }") {
+		t.Error("no scroll margin for selected panels")
+	}
+	cv := e.do(t, "alice", "GET", fpath+"/cvss/edit", nil, nil).Body.String()
+	if c := regexp.MustCompile(`<button[^>]*>Cancel</button>`).FindString(cv); !strings.Contains(c, " data-guard-cancel") {
+		t.Errorf("CVSS Cancel: %s", c)
+	}
+	rt, err := templateFS.ReadFile("templates/retest.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(rt), `id="retest-result" data-kpanel>`) {
+		t.Error("the retest result has no hook")
+	}
+}
+
 // K3: each editor has exactly one Ctrl+S button, its Save.
 func TestEditorSaveHasCtrlS(t *testing.T) {
 	e := setup(t)
@@ -229,12 +264,16 @@ func TestKeysSaveMarkers(t *testing.T) {
 
 var keyTagRe = regexp.MustCompile(`<button[^>]*aria-keyshortcuts="([^"]+)"[^>]*>`)
 
-// barKeys maps each key of the workflow bar to its button's opening tag.
+// barKeys maps each workflow key of the bar to its button's opening tag
+// (the Control+ keys of its forms' buttons left out).
 func barKeys(t *testing.T, b string) map[string]string {
 	t.Helper()
 	out := map[string]string{}
 	for _, m := range keyTagRe.FindAllStringSubmatch(wfSection(t, b), -1) {
 		k := html.UnescapeString(m[1]) // html/template writes + as &#43;
+		if strings.HasPrefix(k, "Control+") {
+			continue
+		}
 		if _, dup := out[k]; dup {
 			t.Errorf("%s twice on the bar", k)
 		}
@@ -275,9 +314,9 @@ func TestWorkflowKeysPerRoleAndState(t *testing.T) {
 	if n := strings.Count(b, ` id="wf-withdraw"`); n != 1 {
 		t.Errorf("id wf-withdraw %d times", n)
 	}
-	// the panel's own buttons carry no key
-	if strings.Contains(between(wf, `id="wf-withdraw-reason"`, "</form>"), "aria-keyshortcuts") {
-		t.Errorf("a key in Withdraw's panel:\n%s", wf)
+	// the panel's own button carries Ctrl+Enter only
+	if p := html.UnescapeString(between(wf, `id="wf-withdraw-reason"`, "</form>")); strings.Contains(p, "Shift+") || !strings.Contains(p, `aria-keyshortcuts="Control+Enter">Withdraw</button>`) {
+		t.Errorf("Withdraw's panel:\n%s", p)
 	}
 
 	e.toVerification(t)
@@ -544,10 +583,14 @@ func TestOverlayListsEveryKey(t *testing.T) {
 	d := between(b, `id="keys"`, "</dialog>")
 	for _, k := range []string{"?", "/", "Ctrl+K", "Esc", "Ctrl+S", "Ctrl+Enter", "Ctrl+Z", "i", "f", "b", "n",
 		"j", "k", "↓", "↑", "l", "h", "→", "←", "e", "Enter", "c", "x", "Shift+Space",
-		"Shift+S", "Shift+O", "Shift+A", "Shift+P", "Shift+R", "Shift+W", "Shift+U", "Shift+T", "Shift+C", "Shift+H"} {
+		"Shift+S", "Shift+O", "Shift+A", "Shift+P", "Shift+R", "Shift+W", "Shift+U", "Shift+C", "Shift+H"} {
 		if !strings.Contains(d, "<kbd>"+k+"</kbd>") {
 			t.Errorf("the list lacks %s", k)
 		}
+	}
+	// no bar slot has Take back, so the list does not offer its key
+	if strings.Contains(d, "Shift+T") {
+		t.Error("the list offers Shift+T")
 	}
 	for _, g := range []string{">Global<", ">Finding page<", ">Lists<", ">Chat<", `data-keys-group="finding"`} {
 		if !strings.Contains(d, g) {
@@ -562,10 +605,109 @@ func TestOverlayListsEveryKey(t *testing.T) {
 	}
 }
 
+// K3 (after review): Ctrl+S needs a focused field, picks among the form's
+// own submit buttons (the Control+S one, else the only one unless it is a
+// Control+Enter send button) and clicks it, so a confirm still asks; a
+// cancelled editor gives focus back to its panel.
+func TestSaveReviewFixes(t *testing.T) {
+	e := setup(t)
+	js := e.do(t, "alice", "GET", "/static/keys.js", nil, nil).Body.String()
+	i := strings.Index(js, "function yarsSave()")
+	if i < 0 {
+		t.Fatal("no yarsSave")
+	}
+	save := js[i:]
+	save = save[:strings.Index(save, "\n}\n")]
+	for _, w := range []string{"if (!yarsTyping(a)) return;", "yarsSaveButton(form)", "btn.click()"} {
+		if !strings.Contains(save, w) {
+			t.Errorf("yarsSave lacks %s", w)
+		}
+	}
+	if strings.Contains(save, "requestSubmit") || strings.Contains(save, "querySelector('button:not([type=button])')") {
+		t.Errorf("yarsSave still submits without the click or takes the first descendant button:\n%s", save)
+	}
+	for _, w := range []string{"function yarsSaveButton(form)", "form.elements", "yarsHasKey(subs[0], 'Control+Enter')", "el.matches('[data-guard-cancel]')"} {
+		if !strings.Contains(js, w) {
+			t.Errorf("keys.js lacks %s", w)
+		}
+	}
+}
+
 // The key block left app.js for keys.js.
 func TestAppJSHasNoKeyBlock(t *testing.T) {
 	e := setup(t)
-	if js := e.do(t, "alice", "GET", "/static/app.js", nil, nil).Body.String(); strings.Contains(js, "function yarsEdit(") || strings.Contains(js, "function yarsSave(") {
-		t.Fatal("app.js still has the key block")
+	js := e.do(t, "alice", "GET", "/static/app.js", nil, nil).Body.String()
+	for _, f := range []string{"function yarsEdit(", "function yarsSave(", "function yarsTyping(", "function yarsPanelOf(", "function yarsFirstField(", "var yarsLastPanel", "var yarsFocusAfter"} {
+		if strings.Contains(js, f) {
+			t.Errorf("app.js still has %s", f)
+		}
+	}
+}
+
+// K1 (after review): Ctrl+Enter presses the button of the key map's small
+// forms (chat, reply, the reason forms, the reviewer picker), which carries
+// Control+Enter; no editor and no other form has one, so it never posts a
+// form some other way (a conflict editor, Clear vector, a confirm button).
+func TestCtrlEnterButtons(t *testing.T) {
+	e := setup(t)
+	e.toVerification(t)
+	e.do(t, "bob", "POST", fpath+"/chat", url.Values{"text": {"Typo in step 2"}}, nil)
+	got := func(b string) []string {
+		var out []string
+		for _, m := range regexp.MustCompile(`<button[^>]*aria-keyshortcuts="[^"]*Control\+Enter[^"]*"[^>]*>([^<]*)`).FindAllStringSubmatch(html.UnescapeString(b), -1) {
+			out = append(out, strings.TrimSpace(m[1]))
+		}
+		return out
+	}
+	b := e.do(t, "dora", "GET", fpath, nil, nil).Body.String()
+	want := map[string]bool{"Send": false, "Reply": false, "Return": false, "Withdraw": false, "Save": false}
+	for _, g := range got(b) {
+		if _, ok := want[g]; !ok {
+			t.Errorf("Control+Enter on %q", g)
+		}
+		want[g] = true
+	}
+	for k, seen := range want {
+		if !seen {
+			t.Errorf("no Control+Enter on %s", k)
+		}
+	}
+	// the picker's Save is its Ctrl+S button too, never Assign all
+	if pick := between(b, `class="picker"`, "</form>"); !strings.Contains(pick, `<button class="btn save sm w96" aria-keyshortcuts="Control+S Control+Enter">Save</button>`) {
+		t.Errorf("picker:\n%s", pick)
+	}
+	for name, u := range map[string]string{"section": fpath + "/s/Impact/edit", "details": fpath + "/details/edit", "assets": fpath + "/assets/edit", "cvss": fpath + "/cvss/edit"} {
+		if g := got(e.do(t, "alice", "GET", u, nil, nil).Body.String()); len(g) != 0 {
+			t.Errorf("%s editor: Control+Enter on %v", name, g)
+		}
+	}
+	if g := got(toolbarOf(e.do(t, "bob", "GET", "/e/acme", nil, nil).Body.String())); len(g) != 1 || g[0] != "Return" {
+		t.Errorf("bulk bar: %v", g)
+	}
+	// the Checks strip's and the team board's Dismiss reason forms
+	for f, w := range map[string]string{"checks.html": `<button class="btn save sm w120" aria-keyshortcuts="Control+Enter">{{if eq .Level "error"}}`,
+		"team_board.html": `<button class="btn danger sm w112" aria-keyshortcuts="Control+Enter">Dismiss</button>`} {
+		src, err := templateFS.ReadFile("templates/" + f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(src), w) || strings.Count(string(src), "Control+Enter") != 1 {
+			t.Errorf("%s: Dismiss lacks Control+Enter, or another button has it", f)
+		}
+	}
+	js := e.do(t, "alice", "GET", "/static/keys.js", nil, nil).Body.String()
+	i := strings.Index(js, "key === 'Control+Enter'")
+	if i < 0 {
+		t.Fatal("keys.js: no Control+Enter branch")
+	}
+	branch := js[i:]
+	branch = branch[:strings.Index(branch, "return;\n  }")]
+	for _, w := range []string{"evt.defaultPrevented", "evt.isComposing", "evt.repeat", "'Control+Enter'", ".click()"} {
+		if !strings.Contains(branch, w) {
+			t.Errorf("the Control+Enter branch lacks %s:\n%s", w, branch)
+		}
+	}
+	if strings.Contains(branch, "requestSubmit()") {
+		t.Error("the Control+Enter branch submits a form without its button")
 	}
 }

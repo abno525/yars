@@ -265,7 +265,7 @@ func TestWorkflowBarRevertSlots(t *testing.T) {
 		btn := `<button type="button" class="btn w136 secondary" id="wf-` + act + `" aria-keyshortcuts="Shift&#43;U" data-slot="` + act + `" data-action="` + act + `" title="` + head + `" aria-controls="wf-` + act + `-reason" aria-expanded="false" data-reason-toggle>Revert</button>`
 		panel := `<form method="post" action="/e/acme/f/001/action/` + act + `" class="wfpanel ` + act + `" id="wf-` + act + `-reason" hidden>
     <div class="panelhead"><h2>` + head + `</h2></div>`
-		has := strings.Contains(wf, btn) && strings.Contains(wf, panel) && strings.Contains(wf, `<button class="btn secondary sm w96">Revert</button>`)
+		has := strings.Contains(wf, btn) && strings.Contains(wf, panel) && strings.Contains(wf, `<button class="btn secondary sm w96" aria-keyshortcuts="Control+Enter">Revert</button>`)
 		if has != want || (!want && strings.Contains(wf, `data-action="`+act+`"`)) {
 			t.Errorf("%s on %s: Revert %v, want %v:\n%s", user, act, has, want, wf)
 		}
@@ -280,7 +280,7 @@ func TestWorkflowBarRevertSlots(t *testing.T) {
 		check(u, "unreport", "Revert to complete", want)
 	}
 	// Return and Withdraw stay red
-	if wf := wfSection(t, e.do(t, "dora", "GET", fpath, nil, nil).Body.String()); !strings.Contains(wf, `<button class="btn danger sm w96">Withdraw</button>`) {
+	if wf := wfSection(t, e.do(t, "dora", "GET", fpath, nil, nil).Body.String()); !strings.Contains(wf, `<button class="btn danger sm w96" aria-keyshortcuts="Control+Enter">Withdraw</button>`) {
 		t.Fatalf("withdraw panel:\n%s", wf)
 	}
 }

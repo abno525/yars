@@ -15,7 +15,7 @@
         {{$cur := .Section}}
         {{range .Sections}}<option value="{{.}}"{{if eq . $cur}} selected{{end}}>{{.}}</option>{{end}}
       </select>
-      <button class="btn save w112">Send</button>
+      <button class="btn save w112" aria-keyshortcuts="Control+Enter">Send</button>
     </div>
   </form>
   {{end}}
@@ -62,7 +62,7 @@
           <input type="hidden" name="reply" value="{{.Root.ID}}">
           {{if $.All}}<input type="hidden" name="all" value="1">{{end}}
           <input name="text" id="reply-{{.Root.ID}}" placeholder="Reply" aria-label="Reply">
-          <button class="btn ghost sm w96">Reply</button>
+          <button class="btn ghost sm w96" aria-keyshortcuts="Control+Enter">Reply</button>
         </form>
         <form class="thread-tools" hx-post="{{$.PostURL}}" hx-target="#chat-list" hx-swap="outerHTML">
           {{if $.All}}<input type="hidden" name="all" value="1">{{end}}

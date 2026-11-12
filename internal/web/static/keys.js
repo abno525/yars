@@ -50,17 +50,16 @@ function yarsEdit() {
   return true;
 }
 
-// Ctrl+S (K3): saves the form holding focus, never one marked data-nosave
-// (login, setup, set password). In a save conflict it only moves focus to
-// Keep mine. The button is the form's Control+S one (never a first submit
-// button such as Clear vector), else its first submit button; a disabled
-// one does nothing. In the Redact dialog it presses the dialog's Save.
+// Ctrl+S (K3): saves the form holding a focused field, never one marked
+// data-nosave (login, setup, set password). In a save conflict it only moves
+// focus to Keep mine. In the Redact dialog it presses the dialog's Save.
 function yarsSave() {
   var rd = document.querySelector('dialog[open] [data-redact-save]');
   if (rd) { if (!rd.disabled) rd.click(); return; }
   if (document.querySelector('dialog[open]')) return;
   var a = document.activeElement;
-  var form = a && a.closest ? a.closest('form') : null;
+  if (!yarsTyping(a)) return; // a focused button or link is not a form being filled in
+  var form = a.closest('form') || a.form;
   if (!form || form.hasAttribute('data-nosave')) return;
   var conflict = form.closest('.conflict');
   if (conflict) {
@@ -68,11 +67,27 @@ function yarsSave() {
     if (keep) keep.focus();
     return;
   }
-  var btn = form.querySelector('[aria-keyshortcuts~="Control+S"]') || form.querySelector('button:not([type=button])');
+  var btn = yarsSaveButton(form);
   if (!btn || btn.disabled) return;
   var p = yarsPanelOf(form);
   if (p) yarsLastPanel = yarsFocusAfter = p.id;
-  form.requestSubmit(btn);
+  btn.click(); // a click, so a confirm on the button still asks
+}
+
+// yarsSaveButton: among the form's own submit buttons (form.elements: one
+// outside it with form= counts, a nested one of another form does not), the
+// Control+S one; without one, the only submit button, unless it is a
+// Control+Enter one (a chat, reply or reason form is sent, not saved). Two
+// or more without a Control+S one (a bulk menu, the export cards): none.
+function yarsSaveButton(form) {
+  var subs = Array.prototype.filter.call(form.elements, function (el) {
+    return el.tagName === 'BUTTON' && el.type === 'submit';
+  });
+  for (var i = 0; i < subs.length; i++) {
+    if (yarsHasKey(subs[i], 'Control+S')) return subs[i];
+  }
+  if (subs.length !== 1 || yarsHasKey(subs[0], 'Control+Enter')) return null;
+  return subs[0];
 }
 
 // Enter (K3) on a selected panel with no field or control focused presses
@@ -124,6 +139,20 @@ function yarsHasKey(el, key) {
   return (el.getAttribute('aria-keyshortcuts') || '').split(/\s+/).indexOf(key) >= 0;
 }
 
+// yarsKeyButton: box's own button with key: a form's submit buttons (those
+// outside it with form= too), never one of a bulk reason panel (.bdlg)
+// inside it, which is its own box.
+function yarsKeyButton(box, key) {
+  var els = box.tagName === 'FORM' ? box.elements : box.querySelectorAll('button');
+  for (var i = 0; i < els.length; i++) {
+    var b = els[i];
+    if (b.tagName !== 'BUTTON' || !yarsHasKey(b, key)) continue;
+    if (box.tagName === 'FORM' && b.closest('.bdlg')) continue;
+    return b;
+  }
+  return null;
+}
+
 // yarsFire clicks the first rendered, enabled element in scope (default the
 // document) whose aria-keyshortcuts lists key; true when one was clicked.
 // The bulk menu's entries are yarsBulkFire's.
@@ -162,7 +191,7 @@ function yarsBulkFire(key) {
 // yarsPick: a list's row checkbox takes no characters, so the list keys work
 // with it focused (a click on it leaves focus there).
 function yarsPick(t) {
-  return !!(t && t.matches && t.matches('.fbulkform input[type=checkbox], input[type=checkbox][data-nav]'));
+  return !!(t && t.matches && t.matches('.fbulkform input[type=checkbox][name=id], .fbulkform [data-pick-all], input[type=checkbox][data-nav]'));
 }
 
 /* ---------- lists (K7): j/k move the row focus, x ticks, / searches ---------- */
@@ -273,27 +302,32 @@ function yarsSelected() {
   return p && p.hasAttribute('data-kpanel') ? p : null;
 }
 
-// yarsSelect marks el selected (null: nothing) and keeps it in view; the
-// mark is an outline, so nothing moves.
-function yarsSelect(el) {
+// yarsSelect marks el selected (null: nothing); a key (scroll true) also
+// keeps it in view, a click never scrolls. The mark is an outline, so
+// nothing moves. A main panel is remembered for h and ←.
+function yarsSelect(el, scroll) {
   document.querySelectorAll('[data-kpanel][data-sel]').forEach(function (p) {
     if (p !== el) p.removeAttribute('data-sel');
   });
   yarsSel = el && el.id ? el.id : '';
   if (!el) return;
   el.setAttribute('data-sel', '');
-  if (el.scrollIntoView) el.scrollIntoView({block: 'nearest'});
+  if (el.getAttribute('data-kpanel') !== 'side') yarsSideFrom = el.id;
+  if (scroll && el.scrollIntoView) el.scrollIntoView({block: 'nearest'});
 }
 
 document.addEventListener('pointerdown', function (evt) {
   var p = evt.target.closest && evt.target.closest('[data-kpanel]');
-  if (p) yarsSelect(p);
+  if (p) yarsSelect(p, false);
 }, true);
-// a swapped panel (live refresh, editor) keeps its mark
-document.addEventListener('htmx:afterSettle', function () {
+// a swapped panel (live refresh, editor) keeps its mark: put back on the
+// swap, before htmx's settle delay, so it does not blink
+function yarsRemark() {
   var p = yarsSelected();
   if (p && !p.hasAttribute('data-sel')) p.setAttribute('data-sel', '');
-});
+}
+document.addEventListener('htmx:afterSwap', yarsRemark);
+document.addEventListener('htmx:afterSettle', yarsRemark);
 
 // yarsMainPanels: the selectable main panels in document order (rendered).
 function yarsMainPanels() {
@@ -308,25 +342,25 @@ function yarsStep(d) {
   var list = yarsMainPanels();
   if (!list.length) return false;
   var i = list.indexOf(yarsSelected());
-  if (i < 0) { yarsSelect(list[0]); return true; }
-  yarsSelect(list[Math.max(0, Math.min(list.length - 1, i + d))]);
+  if (i < 0) { yarsSelect(list[0], true); return true; }
+  yarsSelect(list[Math.max(0, Math.min(list.length - 1, i + d))], true);
   return true;
 }
 
-// yarsSide selects the side panel (l, →), remembering where it came from;
-// yarsBack returns there (h, ←).
+// yarsSide selects the side panel (l, →); yarsBack, from there, returns to
+// the main panel selected last (h, ←).
 function yarsSide() {
   var s = document.querySelector('[data-kpanel="side"]');
   if (!s) return false;
-  var cur = yarsSelected();
-  if (cur && cur !== s) yarsSideFrom = cur.id;
-  yarsSelect(s);
+  yarsSelect(s, true);
   return true;
 }
 function yarsBack() {
+  var cur = yarsSelected();
+  if (!cur || cur.getAttribute('data-kpanel') !== 'side') return false;
   var p = yarsSideFrom ? document.getElementById(yarsSideFrom) : null;
   if (!p || !p.hasAttribute('data-kpanel')) return false;
-  yarsSelect(p);
+  yarsSelect(p, true);
   return true;
 }
 
@@ -350,28 +384,35 @@ function yarsEscape() {
       if (c) { c.click(); return; }
     }
   }
-  var sel = yarsSelected();
-  var cancel = sel && sel.classList.contains('editing') ? sel.querySelector('[data-guard-cancel]') : null;
-  if (cancel) { cancel.click(); return; }
+  // the editor holding focus first (Tab moves focus, not the selection),
+  // else the selected one
   var a = document.activeElement;
+  var sel = yarsSelected();
+  var ed = a && a.closest ? a.closest('[data-kpanel].editing') : null;
+  if (!ed && sel && sel.classList.contains('editing')) ed = sel;
+  var cancel = ed ? ed.querySelector('[data-guard-cancel]') : null;
+  if (cancel) { cancel.click(); return; }
   if (a && a !== document.body && yarsTyping(a)) { a.blur(); return; }
   if (sel) yarsSelect(null);
 }
 
 // yarsNav handles the navigation keys of the panel pages; true when used.
-// Arrows act only while a panel is selected (otherwise the page scrolls).
+// ↓ ↑ → act only while a main panel is selected, ← only while the side panel
+// is (otherwise the page or the chat list scrolls).
 function yarsNav(key) {
   if (!document.querySelector('[data-kpanel]')) return false;
-  var sel = !!yarsSelected();
+  var sel = yarsSelected();
+  var main = !!sel && sel.getAttribute('data-kpanel') !== 'side';
+  var side = !!sel && !main;
   switch (key) {
   case 'J': return yarsStep(1);
   case 'K': return yarsStep(-1);
-  case 'ArrowDown': return sel && yarsStep(1);
-  case 'ArrowUp': return sel && yarsStep(-1);
+  case 'ArrowDown': return main && yarsStep(1);
+  case 'ArrowUp': return main && yarsStep(-1);
   case 'L': return yarsSide();
-  case 'ArrowRight': return sel && yarsSide();
+  case 'ArrowRight': return main && yarsSide();
   case 'H': return yarsBack();
-  case 'ArrowLeft': return sel && yarsBack();
+  case 'ArrowLeft': return side && yarsBack();
   }
   return false;
 }
@@ -391,11 +432,22 @@ document.addEventListener('keydown', function (evt) {
     return;
   }
   if (key === 'Control+Enter') {
-    var f = evt.target.closest && evt.target.closest('form');
-    if (f) { evt.preventDefault(); f.requestSubmit(); }
+    // the key map's small forms only (chat, reply, the reason forms, the
+    // reviewer picker): their Control+Enter button is pressed, so a confirm
+    // or a disabled button still holds; anywhere else (a link opens in a new
+    // tab) the browser's own
+    if (evt.defaultPrevented || evt.isComposing) return;
+    var t = evt.target;
+    if (!t.closest || t.closest('a')) return;
+    var box = t.closest('.bdlg') || t.closest('form');
+    var send = box ? yarsKeyButton(box, 'Control+Enter') : null;
+    if (!send) return;
+    evt.preventDefault();
+    if (!evt.repeat && !send.disabled) send.click();
     return;
   }
-  if (key === 'Escape') { yarsEscape(); return; }
+  // Esc during IME composition cancels the composition only
+  if (key === 'Escape') { if (!evt.isComposing) yarsEscape(); return; }
   // single keys and Shift+key: never into a field, during composition, on
   // repeat, under a modal dialog, or with shortcuts off
   if (yarsKeysOff() || evt.isComposing || evt.repeat || evt.altKey || evt.defaultPrevented ||
@@ -425,3 +477,12 @@ document.addEventListener('htmx:afterSettle', function (evt) {
   p.focus({preventScroll: true});
 });
 document.addEventListener('htmx:responseError', function () { yarsFocusAfter = ''; });
+// a cancelled editor (Esc or a click on Cancel) gives focus back to its
+// panel too; set when the request really goes (not when "Discard changes?"
+// is answered No)
+document.addEventListener('htmx:beforeRequest', function (evt) {
+  var el = evt.detail.elt;
+  if (!el || !el.matches || !el.matches('[data-guard-cancel]')) return;
+  var p = el.closest('[data-kpanel][id]');
+  if (p) yarsLastPanel = yarsFocusAfter = p.id;
+});

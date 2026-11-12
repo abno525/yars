@@ -543,7 +543,8 @@ document.addEventListener('click', function (evt) {
   }
 });
 document.addEventListener('keydown', function (evt) {
-  if (evt.key !== 'Escape') return;
+  // Esc closes the topmost thing: an open dialog (Go to) is the browser's
+  if (evt.key !== 'Escape' || document.querySelector('dialog[open]')) return;
   yarsBulkCloseMenus(null);
   document.querySelectorAll('.fbulkform').forEach(function (f) { yarsBulkReason(f, null); });
 });

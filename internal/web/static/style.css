@@ -293,6 +293,11 @@ label { font-size: 13px; font-weight: 600; }
 
 /* ---------- panels ---------- */
 .panel { width: 100%; border: 1px solid var(--line); background: var(--surface); scroll-margin-top: 80px; }
+/* K2: the selected panel (click, j/k): an outline only, so nothing moves; it
+   comes before .panel:target and .panel.editing, whose outlines win; a panel
+   j/k brings into view clears the sticky header */
+[data-kpanel][data-sel] { outline: 1px solid var(--ink); outline-offset: -1px; }
+[data-kpanel] { scroll-margin-top: 80px; }
 .panel:target { outline: 2px solid var(--accent); outline-offset: -1px; }
 .panelhead {
   height: 56px; padding: 0 24px; display: flex; align-items: center; justify-content: space-between; gap: 12px;
@@ -1518,8 +1523,6 @@ form.dirty .dirtydot { visibility: visible; }
 .thumb .histdot { position: absolute; top: 4px; right: 4px; }
 .attn { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .attn .histdot { flex: none; }
-/* K2: the selected panel (click, j/k): an outline only, so nothing moves */
-[data-kpanel][data-sel] { outline: 1px solid var(--ink); outline-offset: -1px; }
 .purgekv { table-layout: fixed; }
 .kv.purgekv th + th { width: auto; }
 .purgekv td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
