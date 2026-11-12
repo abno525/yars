@@ -170,6 +170,37 @@ func TestFixChecksNeedsEdit(t *testing.T) {
 	}
 }
 
+// read_finding's can_edit follows the token too: a read-only token may not
+// edit, whatever the account may.
+func TestCanEditFollowsToken(t *testing.T) {
+	f := newFx(t)
+	a := map[string]any{"engagement": "acme", "finding": "F-001"}
+	read := db.TokenInfo{Kind: db.TokenMCP, Scopes: []string{db.ScopeRead}}
+	text, _ := f.callTok(alice, read, "read_finding", a)
+	if object(t, "read", text)["can_edit"] != false {
+		t.Fatalf("read token: can_edit true")
+	}
+	edit := db.TokenInfo{Kind: db.TokenMCP, Scopes: []string{db.ScopeRead, "edit"}}
+	text, _ = f.callTok(alice, edit, "read_finding", a)
+	if object(t, "edit", text)["can_edit"] != true {
+		t.Fatalf("edit token: can_edit false")
+	}
+}
+
+// Without a reason on a clone or an archived engagement the real refusal
+// comes first (as allowed_actions lists it), not "a reason is required".
+func TestTransitionNoReasonRealRefusalFirst(t *testing.T) {
+	a := map[string]any{"engagement": "acme", "finding": "F-001", "action": "withdraw"}
+	f := newFx(t)
+	if text, _ := cloneOf(t, f).call(alice, "transition", a); object(t, "clone", text)["code"] != "no_database" {
+		t.Errorf("clone: %s", text)
+	}
+	f.s.Store.Archive("acme", dora)
+	if text, _ := f.call(alice, "transition", a); object(t, "archived", text)["code"] != "archived" {
+		t.Errorf("archived: %s", text)
+	}
+}
+
 // ids are at most 200, each once; the answer counts what was asked.
 func TestMarkReadIDs(t *testing.T) {
 	f := newFx(t)

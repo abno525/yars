@@ -382,8 +382,8 @@ func TestMCPUnknownTemplate(t *testing.T) {
 	f := newFx(t)
 	for _, slug := range []string{"nope", "../../etc"} {
 		out, isErr := f.call(alice, "create_finding", map[string]any{"engagement": "acme", "title": "x", "template": slug})
-		if want := `unknown template "` + slug + `"; see list_templates`; !isErr || message(t, out) != want {
-			t.Errorf("%s: %v %q, want %q", slug, isErr, out, want)
+		if want := `unknown template "` + slug + `"; see list_templates`; !isErr || message(t, out) != want || object(t, slug, out)["code"] != "not_found" {
+			t.Errorf("%s: %v %q, want %q (not_found)", slug, isErr, out, want)
 		}
 	}
 	if out, _ := f.call(alice, "create_finding", map[string]any{"engagement": "nope", "title": "x", "template": "nope"}); message(t, out) != "not found" {

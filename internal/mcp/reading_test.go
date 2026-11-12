@@ -3,6 +3,9 @@ package mcp
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -203,6 +206,19 @@ func TestAllowedActionsMatchTransition(t *testing.T) {
 					case !al.Enabled && (al.Reason == "" || !strings.Contains(message(t, text), al.Reason)):
 						t.Errorf("%s %s/%s %s: listed %q, refused %q", mode.name, state, u.Username, al.Action, al.Reason, message(t, text))
 					}
+					// without the reason it needs: a disabled action is refused
+					// for the listed reason first, an enabled one asks for it
+					if al.Needs != "reason" {
+						continue
+					}
+					text, _ = call(mode.prep(t, stateFx(t, state)), "transition", map[string]any{"engagement": "acme", "finding": "F-001", "action": al.Action})
+					m := object(t, al.Action, text)
+					switch {
+					case al.Enabled && m["code"] != "invalid":
+						t.Errorf("%s %s/%s %s without a reason: %s", mode.name, state, u.Username, al.Action, text)
+					case !al.Enabled && !strings.Contains(m["message"].(string), al.Reason):
+						t.Errorf("%s %s/%s %s without a reason: listed %q, refused %s", mode.name, state, u.Username, al.Action, al.Reason, text)
+					}
 				}
 			}
 		}
@@ -225,6 +241,29 @@ func TestReadingToolsOnClone(t *testing.T) {
 	text = c.ok(alice, "list_attachments", map[string]any{"engagement": "acme", "finding": "F-001"})
 	if strings.Contains(text, "earlier_version_in_history") || !strings.Contains(text, "notes.txt") {
 		t.Fatalf("list_attachments on a clone: %s", text)
+	}
+}
+
+// On a clone a commit made outside yars mcp (a pull, a hand commit) shows
+// in list_history at once.
+func TestListHistoryOnCloneSeesOutsideCommits(t *testing.T) {
+	f := newFx(t)
+	c := cloneOf(t, f)
+	a := map[string]any{"engagement": "acme", "finding": "F-001"}
+	var before, after []any
+	itemsOf(t, c.ok(alice, "list_history", a), &before)
+	ed := filepath.Join(f.dir, "engagements", "acme")
+	p := filepath.Join(ed, "findings", "F-001-sql-injection", "finding.md")
+	b, _ := os.ReadFile(p)
+	os.WriteFile(p, append(b, []byte("\nmore\n")...), 0o644)
+	for _, cmd := range [][]string{{"add", "-A"}, {"-c", "user.name=alice", "-c", "user.email=a@a", "commit", "-qm", "by hand"}} {
+		if out, err := exec.Command("git", append([]string{"-C", ed}, cmd...)...).CombinedOutput(); err != nil {
+			t.Fatalf("%v %s", err, out)
+		}
+	}
+	itemsOf(t, c.ok(alice, "list_history", a), &after)
+	if len(after) != len(before)+1 {
+		t.Fatalf("%d versions, then %d", len(before), len(after))
 	}
 }
 

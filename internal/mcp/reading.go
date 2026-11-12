@@ -172,13 +172,20 @@ func listHistory(s *Server, ctx context.Context, u config.User, a args) (string,
 	if err != nil {
 		return "", err
 	}
-	head, err := s.Store.EngHead(ref.EngID)
-	if err != nil {
-		return "", err
+	file := path.Join("findings", ref.Dir, "finding.md")
+	var vs []history.Version
+	if s.Store.DB() == nil {
+		// a clone: its HEAD moves outside this process too (a pull, a hand
+		// commit), which the store's head does not see; read git each time
+		vs, err = history.Versions(repo, file)
+	} else {
+		// cached per engagement HEAD, as the history page does: paging does
+		// not start git again
+		var head string
+		if head, err = s.Store.EngHead(ref.EngID); err == nil {
+			vs, err = s.historyCache().Versions(repo, ref.EngID+"/"+ref.Dir, head, file)
+		}
 	}
-	// cached per engagement HEAD, as the history page does: paging does not
-	// start git again
-	vs, err := s.historyCache().Versions(repo, ref.EngID+"/"+ref.Dir, head, path.Join("findings", ref.Dir, "finding.md"))
 	if err != nil {
 		return "", err
 	}

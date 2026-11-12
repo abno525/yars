@@ -97,6 +97,12 @@ func TestDocsListEveryTool(t *testing.T) {
 	if !strings.Contains(b, "a token needs run checks and edit findings") {
 		t.Error("the docs page does not say fix_checks needs edit too")
 	}
+	// the token actions table lists fix_checks under Edit findings as well
+	acts := between(b, "Token actions → tools", "</table>")
+	edit := between(acts, ">Edit findings<", "</tr>")
+	if !strings.Contains(edit, "<span>fix_checks</span>") || !strings.Contains(between(acts, ">Run checks<", "</tr>"), "<span>fix_checks</span>") {
+		t.Errorf("token actions:\n%s", acts)
+	}
 }
 
 // With base_url set (behind a proxy), the docs show the public address,

@@ -150,6 +150,9 @@ func (s *Server) docsPage(w http.ResponseWriter, r *http.Request) {
 		byAction := map[string][]string{}
 		for _, t := range v.Tools {
 			byAction[t.Action] = append(byAction[t.Action], t.Name)
+			if t.Also != "" { // a tool that needs a second action too (fix_checks: edit)
+				byAction[t.Also] = append(byAction[t.Also], t.Name)
+			}
 		}
 		byAction["reviewers"] = append(byAction["reviewers"], "set_field reviewers")
 		byAction["export"] = append(byAction["export"], "transition report")

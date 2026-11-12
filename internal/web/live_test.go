@@ -171,9 +171,10 @@ func TestHTTPServerTimeouts(t *testing.T) {
 	}
 }
 
-// M30's note for M32: a request that runs every rule (MCP, Submit) keeps its
-// context past the server's read timeout. When the read deadline passes in
-// the handler, net/http's background read fails and cancels the request.
+// M30's note for M32: a request that runs every rule (MCP, Submit) must keep
+// its context past the server's read timeout. With this Go a read deadline
+// passing in the handler does not cancel the request; this guards that it
+// stays so (lintLived would have to lift the read deadline otherwise).
 func TestLintLivedOutlastsReadTimeout(t *testing.T) {
 	e := setup(t)
 	got := make(chan error, 1)

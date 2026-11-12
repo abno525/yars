@@ -439,6 +439,9 @@ var coreTools = []tool{
 			if e, err := s.Store.Engagement(ref.EngID); err != nil || e.Archived {
 				out.CanEdit = false // every write is refused while archived
 			}
+			if tk, ok := tokenFrom(ctx); ok && !tk.Allows("edit") {
+				out.CanEdit = false // the token may not edit, whatever the account may
+			}
 			for _, sct := range ref.F.Sections {
 				out.Sections = append(out.Sections, sec{sct.Name, store.BodyHash(sct.Body), sct.Body})
 			}
@@ -496,7 +499,7 @@ var coreTools = []tool{
 				ref, err = s.Store.CreateFindingFrom(a.str("engagement"), a.str("title"), slug, u.GitAuthor())
 				if errors.Is(err, store.ErrNotFound) {
 					if _, eerr := s.Store.Engagement(a.str("engagement")); eerr == nil {
-						return "", fmt.Errorf("unknown template %q; see list_templates", slug)
+						return "", refuse("not_found", fmt.Sprintf("unknown template %q; see list_templates", slug))
 					}
 				}
 			} else {
@@ -566,8 +569,10 @@ var coreTools = []tool{
 				return "", &workflow.Denied{Reason: "only a director can mark reported"}
 			}
 			// a missing reason is a missing argument, once the role and the
-			// status allow the action (the store's own words)
-			if workflow.NeedsReason(act) && strings.TrimSpace(a.str("reason")) == "" && workflow.Check(u, ref.F.Meta, act) == nil {
+			// status allow the action and nothing else refuses it first (a
+			// clone, the archive: the store's own refusals come then)
+			if workflow.NeedsReason(act) && strings.TrimSpace(a.str("reason")) == "" && workflow.Check(u, ref.F.Meta, act) == nil &&
+				s.Store.DB() != nil && !s.Store.Archived(ref.EngID) {
 				what := map[workflow.Action]string{workflow.Return: "return", workflow.Withdraw: "withdraw"}[act]
 				if what == "" {
 					what = "revert"
