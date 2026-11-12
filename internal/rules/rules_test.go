@@ -36,6 +36,20 @@ func run(t *testing.T, rulesYAML string, d Doc) []Violation {
 	return s.Run(context.Background(), d, config.Default(), Fast, nil)
 }
 
+// A problem with a rule that has no id names the rule by its file and its
+// place in it, as a problem with the whole file is named by the file
+// (backlog, M5).
+func TestProblemOfRuleWithoutID(t *testing.T) {
+	s := Load(writeRules(t, map[string]string{"r.yaml": "- id: fine\n  regex_forbid: 'x'\n- level: error\n  regex_forbid: 'y'\n- regex_forbid: 'z'\n  levle: error\n"}))
+	var rules []string
+	for _, p := range s.Problems {
+		rules = append(rules, p.Rule)
+	}
+	if strings.Join(rules, ",") != "rules/r.yaml#2,rules/r.yaml#3" {
+		t.Fatalf("problems %+v", s.Problems)
+	}
+}
+
 func TestLoadReportsBadRules(t *testing.T) {
 	dir := writeRules(t, map[string]string{
 		"bad.yaml": "- id: [unclosed\n",

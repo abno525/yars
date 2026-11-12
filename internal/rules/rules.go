@@ -218,15 +218,19 @@ func (s *Set) add(file string, b []byte, seen map[string]bool) {
 	yaml.Unmarshal(b, &raw)
 	for i, r := range rs {
 		r.File = file
+		name := r.ID // a rule without an id: by its file and place
+		if name == "" {
+			name = fmt.Sprintf("rules/%s#%d", file, i+1)
+		}
 		// a typo like "levle:" must not be silently ignored
 		if i < len(raw) {
 			if bad := unknownKeys(raw[i]); len(bad) > 0 {
-				problem(r.ID, fmt.Sprintf("%s: unknown field(s) %s", r.ID, strings.Join(bad, ", ")))
+				problem(name, fmt.Sprintf("%s: unknown field(s) %s", name, strings.Join(bad, ", ")))
 				continue
 			}
 		}
 		if err := r.prepare(); err != nil {
-			problem(r.ID, err.Error())
+			problem(name, err.Error())
 			continue
 		}
 		if seen[r.ID] {
