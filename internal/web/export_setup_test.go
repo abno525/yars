@@ -12,6 +12,24 @@ import (
 	"yars/internal/export"
 )
 
+// A destination whose pandoc format is not one of the editor's (written by
+// hand, such as docx+styles) opens with that format selected, so a save
+// keeps it.
+func TestDestKeepsUnlistedFormat(t *testing.T) {
+	e := setupSerial(t)
+	e.exporters(t, fakePandoc)
+	os.WriteFile(filepath.Join(e.srv.Export.Dir, "styled.yaml"), []byte("name: Styled\ntype: pandoc\nformat: docx+styles\n"), 0o644)
+	b := e.do(t, "dora", "GET", "/e/acme/export/setup?edit=styled", nil, nil).Body.String()
+	if !strings.Contains(b, "<option selected>docx&#43;styles</option>") {
+		_, sel, _ := strings.Cut(b, `name="format"`)
+		sel, _, _ = strings.Cut(sel, "</select>")
+		t.Fatalf("styled listed %v, format select: %s", strings.Contains(b, "styled.yaml"), sel)
+	}
+	if strings.Contains(e.do(t, "dora", "GET", "/e/acme/export/setup?edit=docx", nil, nil).Body.String(), "<option>docx&#43;styles") {
+		t.Fatal("another destination offers docx+styles")
+	}
+}
+
 // Only an admin sets where a service destination sends its keys: a
 // director who is not an admin can't change its address or key variables
 // or create one, but can edit the rest.

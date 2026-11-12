@@ -97,6 +97,9 @@ func newDestForm() destForm {
 // fillSetup lists the destinations; editing is the open one.
 func (s *Server) fillSetup(p *page, editing string) {
 	v := &p.ExportV
+	if f := v.Setup.Form.Format; f != "" && !slices.Contains(v.Setup.Formats, f) {
+		v.Setup.Formats = append(slices.Clone(v.Setup.Formats), f) // written by hand: kept
+	}
 	for _, ex := range v.exporters {
 		row := destRow{ID: ex.ID, Name: ex.Name, Sub: destSub(ex), Kind: "file", Key: "—", Service: ex.Service(), Marks: ex.Marks(), Editing: ex.ID == editing}
 		if row.Service {
