@@ -36,6 +36,21 @@ func exportFixture(t *testing.T) string {
 	return dir
 }
 
+// A finding that could not be marked reported makes the command fail (exit
+// 1), after the export is written and the others are marked (backlog, M8).
+func TestExportCLIMarkFailureExits1(t *testing.T) {
+	dir := exportFixture(t)
+	out := filepath.Join(t.TempDir(), "r.html")
+	var log bytes.Buffer
+	code, _ := cmdExport([]string{"--data", dir, "--exporter", "confluence", "--out", out, "--mark", "--as", "bob", "acme", "F-001-sql-injection"}, &log)
+	if code != 1 || !strings.Contains(log.String(), "not marked F-001") {
+		t.Fatalf("code %d: %s", code, log.String())
+	}
+	if _, err := os.Stat(out); err != nil {
+		t.Fatal("the export was not written")
+	}
+}
+
 // --mark and --as are checked before anything is exported: a mistake in
 // them writes nothing (backlog, M8).
 func TestExportCLIMarkCheckedFirst(t *testing.T) {

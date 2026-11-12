@@ -176,18 +176,20 @@ func cmdExport(args []string, out io.Writer) (int, error) {
 	if d != nil {
 		d.Audit("cli", "export", e.ID, fmt.Sprintf("%s, %d findings", ex.ID, len(picked)))
 	}
+	code := 0
 	if *mark && ex.Marks() {
 		for _, p := range picked {
 			if p.F.Meta.Status == "complete" {
 				if err := st.Transition(e.ID, p.Dir, workflow.Report, "", marker); err != nil {
 					fmt.Fprintln(out, "not marked", p.F.Meta.ID+":", err)
+					code = 1 // the export stands; the others are still marked
 				} else {
 					fmt.Fprintln(out, "marked reported", p.F.Meta.ID)
 				}
 			}
 		}
 	}
-	return 0, nil
+	return code, nil
 }
 
 // serverIgnore keeps server-only files out of git: the database (accounts,
