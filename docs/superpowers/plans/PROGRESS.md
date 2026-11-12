@@ -165,4 +165,5 @@ M34 task 2  review   fixes 15292a7..40ef1dd (four reviewers, one per part: lint'
 M34 known   done     docs/known-limits.md (3 won't, 22 needing a decision); the backlog file removed
 M34 branch  review   fixes e301b0e..356f174 (the inbox fails rather than show empty queues; exporter statuses finished only, R10 in the CLI; timing-free worker tests; MCP sign-off base in known limits)
 M34 branch  fix check passed (all five fixed; two wording points taken)
+M34 PR      opened   #29
 ```
