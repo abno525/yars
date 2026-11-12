@@ -80,6 +80,21 @@ func TestParse(t *testing.T) {
 	}
 }
 
+// A vector that does not parse says how to fix it: the values a metric
+// takes, and the name of a metric that is missing (found in the M35
+// walkthrough: a refused push said only "invalid value Q for I").
+func TestParseErrorsSayHowToFix(t *testing.T) {
+	for in, want := range map[string]string{
+		"CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:L/I:Q/A:N": "invalid value Q for I (Integrity): use N, L or H",
+		"CVSS:3.1/AV:X/AC:L/PR:N/UI:R/S:U/C:L/I:L/A:N": "invalid value X for AV (Attack Vector): use N, A, L or P",
+		"CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:L/I:L":     "missing metric A (Availability)",
+	} {
+		if _, err := Parse(in); err == nil || err.Error() != want {
+			t.Errorf("%s: %v, want %q", in, err, want)
+		}
+	}
+}
+
 func TestParsePartial(t *testing.T) {
 	v, err := ParsePartial("CVSS:3.1/AV:N/AC:L")
 	if err != nil {

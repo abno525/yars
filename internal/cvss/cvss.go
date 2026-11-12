@@ -79,10 +79,19 @@ func Parse(s string) (Vector, error) {
 	}
 	for _, m := range Metrics {
 		if _, ok := v[m.Key]; !ok {
-			return nil, fmt.Errorf("missing metric %s", m.Key)
+			return nil, fmt.Errorf("missing metric %s (%s)", m.Key, m.Name)
 		}
 	}
 	return v, nil
+}
+
+// codes lists a metric's values for a message: "N, L or H".
+func (m Metric) codes() string {
+	cs := make([]string, len(m.Values))
+	for i, v := range m.Values {
+		cs[i] = v.Code
+	}
+	return strings.Join(cs[:len(cs)-1], ", ") + " or " + cs[len(cs)-1]
 }
 
 // ParsePartial is Parse but allows missing metrics.
@@ -113,7 +122,8 @@ func ParsePartial(s string) (Vector, error) {
 			return nil, fmt.Errorf("duplicate metric %s", k)
 		}
 		if !Valid(k, val) {
-			return nil, fmt.Errorf("invalid value %s for %s", val, k)
+			m, _ := metric(k)
+			return nil, fmt.Errorf("invalid value %s for %s (%s): use %s", val, k, m.Name, m.codes())
 		}
 		v[k] = val
 	}
