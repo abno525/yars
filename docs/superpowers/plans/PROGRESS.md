@@ -110,5 +110,6 @@ M29 task 4  review   passed; nits in the same fix (row checkboxes only; no Shift
 M29 task 5  review   fix c80f9a9 (Enter on a list checkbox never submits, opens the row; j/k skip disabled rows; x in lists only; Load more focus only from its button)
 M29 task 6  review   passed; nits c80f9a9 (no selection with shortcuts off; Chat group only with a chat; Redact Ctrl+Z noted) and 6d82ab5 (a form without theme keeps it; AddUser stores KeysOff; v21 upgrade test)
 M29 branch  review   fixes 513cfda (keys move focus off the old panel; picker Enter; row ids; focus rides on the key's request), nits 7515b28 (held Esc; Esc order; focus back to a reason toggle; the ? list shows what works on the page)
-M29 branch  fix check one regression (picker Ctrl+Enter), fixed in the next commit with the check's optional leftovers
+M29 branch  fix check one regression (picker Ctrl+Enter), fixed 938c6c7 with the check's optional leftovers
+M29 PR      opened   #24
 ```
