@@ -30,6 +30,7 @@ type pushEnv struct {
 	st    *store.Store
 	clone string // recursive clone of the main repo
 	url   string
+	srv   *httptest.Server
 	// beforeReceive, when set, runs once as a push's POST arrives, before
 	// the engagement lock is taken (after the client read the refs).
 	beforeReceive atomic.Pointer[func()]
@@ -246,7 +247,7 @@ func newPushEnvWith(t *testing.T, tune func(gs *gitserve.Server)) *pushEnv {
 		t.Fatalf("clone: %v %s", err, out)
 	}
 	er, _ := st.EngRepo("acme")
-	p.repo, p.clone, p.url = er, clone, srv.URL
+	p.repo, p.clone, p.url, p.srv = er, clone, srv.URL, srv
 	if out, err := p.git("switch", "-q", "main"); err != nil {
 		t.Fatalf("switch: %v %s", err, out)
 	}

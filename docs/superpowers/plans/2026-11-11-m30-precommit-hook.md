@@ -138,7 +138,7 @@ exec <bin> lint --staged --warn-only
 4. An existing hook that contains `hookMarker` is replaced. One that does not is left alone and reported: `<path>: a pre-commit hook exists already; add this line to it: <bin> lint --staged --warn-only`.
 5. Output: one line per target, `installed <engagement id>` or the line above; then `<N> installed`.
 
-- [ ] **Step 1: write the failing tests.**
+- [x] **Step 1: write the failing tests.**
   - `TestHookInstallWritesEveryEngagement`: a main clone with two engagement repositories: both get an executable hook holding `hookMarker` and `lint --staged --warn-only`.
   - `TestHookInstallSubmodulePath`: for a real `git clone --recurse-submodules` of a data folder (built as `cmd/yars/push_test.go` does), the hook lands where `git rev-parse --git-path hooks/pre-commit` points.
   - `TestHookInstallKeepsForeignHook`: a hand-written hook is unchanged and the output names the line to add.
@@ -146,8 +146,8 @@ exec <bin> lint --staged --warn-only
   - `TestHookNeverBlocksCommit`: end to end against a real server (as `push_test.go` starts one), with a rule that the finding breaks: `git commit` exits 0 and its stderr has the rule id and `commit not blocked`.
   - `TestHookCommitWorksWithServerDown`: the same clone after the server stopped: `git commit` exits 0 with the `could not ask` line.
   - `TestHookInstallNotAClone`.
-- [ ] **Step 2–4:** fail, implement, pass.
-- [ ] **Step 5:** commit: `feat(cli): yars hook install`.
+- [x] **Step 2–4:** fail, implement, pass.
+- [x] **Step 5:** commit: `feat(cli): yars hook install`.
 
 ### Task 4: documents
 

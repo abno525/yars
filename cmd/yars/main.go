@@ -598,6 +598,7 @@ func usage() {
   yars restore --from <file.zip> --data <new dir>
   yars lint --data <dir> [--all] [eng[/finding]]
   yars lint --staged [--warn-only] [--data <engagement clone>]   (the server checks what is being committed)
+  yars hook install [--data <clone>]   (a pre-commit hook in every engagement of the clone)
   yars export --data <dir> --exporter <id> <eng>
   yars mcp --data <clone> --user <name>
   yars seed --data <new dir> [--engagements 50] [--findings 300] [--messages 10000]   (development data)`)
@@ -649,6 +650,10 @@ func main() {
 		}
 		os.Exit(code)
 	case "hook":
+		if len(os.Args) > 2 && os.Args[2] == "install" {
+			err = cmdHookInstall(os.Args[3:], os.Stdout)
+			break
+		}
 		os.Exit(cmdHook(os.Args[2:], os.Stdin, os.Stderr))
 	case "seed":
 		err = cmdSeed(os.Args[2:], os.Stdout)
