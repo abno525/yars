@@ -232,6 +232,21 @@ func inDir(t *testing.T, dir string, fn func() (int, error)) (int, error) {
 	return fn()
 }
 
+// A rule that could not run (a broken script, no AI provider) is shown as
+// such and counts as neither error nor warning, as on push and the website.
+func TestLintStagedCouldNotRun(t *testing.T) {
+	ls := newLintServer(t, 200, `{"violations":[{"rule":"acronyms-expanded","level":"warning","message":"AI rules skipped: no AI provider configured","target":"ai","quote":""},{"rule":"broken","level":"error","message":"the script crashed","target":"rules","quote":""}]}`)
+	dir := lintClone(t, withLogin(t, ls.URL, "alice", "pw")+"/git/e/acme")
+	var out bytes.Buffer
+	code, err := cmdLint([]string{"--staged", "--data", dir}, &out)
+	want := "findings/F-001-sqli/finding.md could not run acronyms-expanded: AI rules skipped: no AI provider configured [ai]\n" +
+		"findings/F-001-sqli/finding.md could not run broken: the script crashed [rules]\n" +
+		"yars: 0 errors, 0 warnings in 1 findings\n"
+	if err != nil || code != 0 || out.String() != want {
+		t.Fatalf("exit %d %v:\n%s", code, err, out.String())
+	}
+}
+
 func TestLintStagedSendsBasicAuth(t *testing.T) {
 	ls := newLintServer(t, 200, `{"violations":[]}`)
 	dir := lintClone(t, withLogin(t, ls.URL, "alice", "s3cret:pw")+"/git/e/acme")
@@ -283,6 +298,40 @@ func TestLintStagedRefusedLogin(t *testing.T) {
 	e, w, err := lintStaged(context.Background(), dir, &out, false)
 	if err != nil || e != 0 || w != 0 || !strings.Contains(out.String(), "could not ask") || !strings.Contains(out.String(), "login refused") {
 		t.Fatalf("%d %d %v:\n%s", e, w, err, out.String())
+	}
+}
+
+// A stale saved password costs one failed login, not one per finding (the
+// lockout counts git and website logins alike), and git forgets it, as git
+// does after a 401: the next commit says there is no saved login.
+func TestLintStagedRefusedLoginOnce(t *testing.T) {
+	ls := newLintServer(t, 401, "authentication required\n")
+	dir := lintClone(t, ls.URL+"/git/e/acme")
+	noUserGit(t)
+	for _, id := range []string{"F-002-a", "F-003-b", "F-004-c"} {
+		write(t, filepath.Join(dir, "findings", id, "finding.md"), "---\nid: "+id[:5]+"\ntitle: x\n---\n")
+	}
+	gitT(t, dir, "add", "-A")
+	cred := filepath.Join(t.TempDir(), "creds")
+	u, _ := url.Parse(ls.URL)
+	write(t, cred, "http://alice:old@"+u.Host+"\n")
+	gitT(t, dir, "config", "credential.helper", "store --file="+cred)
+	var out bytes.Buffer
+	if _, _, err := lintStaged(context.Background(), dir, &out, false); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "login refused") || len(ls.requests()) != 1 {
+		t.Fatalf("%d requests:\n%s", len(ls.requests()), out.String())
+	}
+	if b, _ := os.ReadFile(cred); strings.Contains(string(b), "alice:old") {
+		t.Fatalf("the refused login is still saved: %q", b)
+	}
+	out.Reset()
+	if _, _, err := lintStaged(context.Background(), dir, &out, false); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "no saved login") || len(ls.requests()) != 1 {
+		t.Fatalf("again: %d requests:\n%s", len(ls.requests()), out.String())
 	}
 }
 
@@ -360,7 +409,7 @@ func TestLintStagedNoSavedLogin(t *testing.T) {
 		t.Fatal(err)
 	}
 	host := strings.TrimPrefix(ls.URL, "http://")
-	if out.String() != "yars: no saved login for "+host+"; run git fetch once, then commit again\n" || len(ls.requests()) != 0 {
+	if out.String() != "yars: no saved login for "+host+"; save one for git (a credential helper, then git fetch once; or a Git token in the clone URL) and commit again\n" || len(ls.requests()) != 0 {
 		t.Fatalf("%q %q", out.String(), ls.requests())
 	}
 	// a store helper with the login: it is used

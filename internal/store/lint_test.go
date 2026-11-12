@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"yars/internal/db"
+	"yars/internal/finding"
 	"yars/internal/rules"
 )
 
@@ -68,6 +70,42 @@ func TestLintContentHonoursDismissals(t *testing.T) {
 	}
 	if vs, err := s.LintContent(context.Background(), eng, raw); err != nil || len(vs) != 0 {
 		t.Fatalf("after the dismissal: %+v %v", vs, err)
+	}
+}
+
+// metaLinter keeps the finding each lint ran on.
+type metaLinter struct{ got *[]finding.Meta }
+
+func (l metaLinter) Lint(_ context.Context, f *finding.Finding, _ rules.Kind) []rules.Violation {
+	*l.got = append(*l.got, f.Meta)
+	return nil
+}
+
+// M30 (branch review): the rules see the finding as Check does: its title
+// cleaned and the server's workflow state applied (status, reviewers,
+// retest), which the file never holds.
+func TestLintContentSeesTheState(t *testing.T) {
+	s, _, fd := ready(t)
+	var got []finding.Meta
+	s.Linter = metaLinter{&got}
+	ref := load(t, s, fd)
+	if err := s.DB().Tx(func(tx *db.Tx) error {
+		return tx.PutState(eng, ref.F.Meta.ID, db.State{Status: "verification", Reviewers: []db.Reviewer{{Name: "bob"}}})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	raw := strings.Replace(string(ref.F.Bytes()), "title: "+ref.F.Meta.Title+"\n", "title: "+ref.F.Meta.Title+"‮\n", 1)
+	if _, err := s.LintContent(context.Background(), eng, []byte(raw)); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Status != "verification" || len(got[0].Reviewers) != 1 || got[0].Reviewers[0] != "bob" || got[0].Title != ref.F.Meta.Title {
+		t.Fatalf("meta %+v", got)
+	}
+	// a finding the server does not know yet is a draft
+	got = nil
+	raw = strings.Replace(string(ref.F.Bytes()), "id: "+ref.F.Meta.ID+"\n", "id: F-999\n", 1)
+	if _, err := s.LintContent(context.Background(), eng, []byte(raw)); err != nil || len(got) != 1 || got[0].Status != "draft" {
+		t.Fatalf("new finding: %+v %v", got, err)
 	}
 }
 

@@ -89,6 +89,26 @@ func gitCredential(ctx context.Context, dir, rawURL string) (user, pass string, 
 	return user, pass, nil
 }
 
+// loginInURL reports whether rawURL carries a password (user:pass@).
+func loginInURL(rawURL string) bool {
+	u, err := url.Parse(rawURL)
+	if err != nil || u.User == nil {
+		return false
+	}
+	_, ok := u.User.Password()
+	return ok
+}
+
+// rejectCredential tells git's credential helper that a login was refused,
+// so it is not offered again (git credential reject, as git does after a
+// 401), never interactively.
+func rejectCredential(ctx context.Context, dir, rawURL, user, pass string) {
+	cmd := gitCmd(ctx, dir, "-c", "credential.interactive=false", "credential", "reject")
+	cmd.Stdin = strings.NewReader("url=" + rawURL + "\nusername=" + user + "\npassword=" + pass + "\n\n")
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=", "SSH_ASKPASS=", "GCM_INTERACTIVE=never")
+	cmd.Run()
+}
+
 // stagedFindings lists the finding.md files staged in the clone at dir
 // (added, copied or modified; a moved one counts as added: no rename
 // detection, whatever diff.renames says).
@@ -141,7 +161,7 @@ func lintStaged(ctx context.Context, dir string, out io.Writer, warnOnly bool) (
 		return 0, 0, nil
 	}
 	if err != nil {
-		fmt.Fprintf(out, "yars: no saved login for %s; run git fetch once, then commit again\n", host)
+		fmt.Fprintf(out, "yars: no saved login for %s; save one for git (a credential helper, then git fetch once; or a Git token in the clone URL) and commit again\n", host)
 		return 0, 0, nil
 	}
 	client, err := gitHTTPClient(ctx, dir, origin)
@@ -170,6 +190,18 @@ func lintStaged(ctx context.Context, dir string, out io.Writer, warnOnly bool) (
 		code int
 	}
 	results := make([]result, len(paths))
+	// the first finding alone: a login that is refused costs one failed
+	// attempt (the lockout counts git and website logins alike), and a
+	// login from git's helper is forgotten, as git does after a 401
+	a, code, reason := askLint(ctx, client, endpoint, user, pass, raws[0])
+	if reason != "" {
+		if code == http.StatusUnauthorized && !loginInURL(origin) {
+			rejectCredential(ctx, dir, origin, user, pass)
+		}
+		fmt.Fprintf(out, "yars: could not ask %s: %s; nothing checked\n", host, reason)
+		return 0, 0, nil
+	}
+	results[0] = result{paths[0], a, code}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	var (
@@ -179,6 +211,9 @@ func lintStaged(ctx context.Context, dir string, out io.Writer, warnOnly bool) (
 	)
 	sem := make(chan struct{}, lintParallel)
 	for i, p := range paths {
+		if i == 0 {
+			continue // asked above
+		}
 		wg.Add(1)
 		go func(i int, p string) {
 			defer wg.Done()
@@ -201,6 +236,11 @@ func lintStaged(ctx context.Context, dir string, out io.Writer, warnOnly bool) (
 		}(i, p)
 	}
 	wg.Wait()
+	for _, r := range results {
+		if r.path == "" && failed == "" { // not asked: the time ran out first
+			failed = fmt.Sprintf("no answer within %s", lintTimeout)
+		}
+	}
 	if failed != "" {
 		fmt.Fprintf(out, "yars: could not ask %s: %s; nothing checked\n", host, failed)
 		return 0, 0, nil
@@ -212,14 +252,21 @@ func lintStaged(ctx context.Context, dir string, out io.Writer, warnOnly bool) (
 			continue
 		}
 		for _, v := range r.a.Violations {
-			line := fmt.Sprintf("%s %s %s: %s", r.path, v.Level, v.Rule, v.Message)
+			level := v.Level
+			cannot := v.Target == "rules" || v.Target == "ai" // a broken rule, no AI provider
+			if cannot {
+				level = "could not run" // as on push; it counts as neither
+			}
+			line := fmt.Sprintf("%s %s %s: %s", r.path, level, v.Rule, v.Message)
 			if v.Quote != "" {
 				line += fmt.Sprintf(" (%q)", v.Quote)
 			}
 			fmt.Fprintln(out, line+" ["+v.Target+"]")
-			if v.Level == "error" {
+			switch {
+			case cannot:
+			case v.Level == "error":
 				errs++
-			} else {
+			default:
 				warns++
 			}
 		}
@@ -321,7 +368,7 @@ func askLint(ctx context.Context, client *http.Client, endpoint, user, pass stri
 		}
 		return a, resp.StatusCode, ""
 	case http.StatusUnauthorized:
-		return a, 0, "login refused"
+		return a, resp.StatusCode, "login refused"
 	}
 	msg := resp.Status
 	if first, _, _ := strings.Cut(strings.TrimSpace(string(body)), "\n"); first != "" && len(first) <= 200 {

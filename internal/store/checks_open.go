@@ -239,6 +239,16 @@ func (s *Store) LintContent(ctx context.Context, engID string, raw []byte) ([]ru
 	if s.Linter == nil {
 		return []rules.Violation{}, nil
 	}
+	// the finding as Check sees it (read): the title cleaned, the server's
+	// workflow state applied (the file never holds it)
+	f.Meta.Title = CleanTitle(f.Meta.Title)
+	st := db.State{Status: "draft"}
+	if s.db != nil {
+		if st, err = s.db.State(engID, f.Meta.ID); err != nil {
+			return nil, err
+		}
+	}
+	applyState(&f.Meta, st, contentHash(raw))
 	c := rules.CallerOf(ctx)
 	c.Eng, c.Fid = engID, ""
 	if lintFidRe.MatchString(f.Meta.ID) {

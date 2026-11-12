@@ -93,13 +93,18 @@ Errors and warnings dismissed on the finding's Checks panel don't count. The res
 yars hook install --data <clone>
 ```
 
-Run it once in each clone (a main clone or an engagement clone), and again after a new engagement arrives in a main clone (`git submodule update --init`): it puts a `pre-commit` hook in every engagement repository. Each commit then sends the findings it holds (`finding.md` as staged, not the work tree) to the server, which checks them with the same rules as the Check button, AI rules included, so a commit can take as long as a Check does (at most two minutes). Nothing is stored on the server: no commit, no check run. The hook signs in with the login git already saved for the clone (the clone URL, or git's credential helper, never asking), and reaches the server as git does (`http.sslCAInfo`, `http.sslVerify`, `http.proxy`); without a saved login it says so and checks nothing.
+Run it once in each clone (a main clone or an engagement clone), and again after a new engagement arrives in a main clone (`git submodule update --init`): it puts a `pre-commit` hook in every engagement repository. Each commit then sends the `finding.md` files it adds or changes (as staged, not the work tree) to the server, which checks them as the Check button does, with the same rules, AI rules included, and the finding's workflow state, so a commit can take as long as a Check does (at most two minutes). Nothing of it is kept on the server (no commit, no check run) except the AI usage records Check keeps too, under your account.
+
+The hook signs in with the login git has saved for the clone and never asks for one: the login in the clone URL (a Git token from Settings › Tokens works there, and failed tokens never lock the account), or the one git's credential helper keeps. Stock git keeps none: set a helper once (`git config --global credential.helper store`, or `cache`, or your system's keyring helper), then `git fetch` once to save the login. A login the server refuses is forgotten by the helper, as git does. The hook reaches the server as git does (`http.sslCAInfo`, `http.sslVerify`, `http.proxy`).
 
 | Output | When |
 |---|---|
 | `findings/F-005-…/finding.md error <rule>: <message> ("<quote>") [<target>]` | A rule the finding breaks; `warning` for a warning |
+| `findings/F-005-…/finding.md could not run <rule>: <message> [ai]` | A rule the server could not run (no AI provider, a broken script); not counted |
 | `yars: 1 errors, 0 warnings in 1 findings (commit not blocked)` | The last line |
 | `yars: could not ask <host>: <reason>; nothing checked` | The server is down, slow or refused the login |
+| `yars: no saved login for <host>; …` | git has no login for the server (see above) |
 | `<hook>: a pre-commit hook exists already; add this line to it: …` | At install: a hook you wrote is kept; add the line yourself |
+| `<engagement>: core.hooksPath is set (…); add this line to its pre-commit hook: …` | At install: your hooks live elsewhere; add the line there |
 
 The hook never blocks a commit: the push is checked again by the server (see above). `yars lint --staged` runs the same check by hand, and without `--warn-only` exits 1 when there are errors.
