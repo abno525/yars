@@ -1619,6 +1619,15 @@ dialog.gotodlg {
   box-shadow: 0 16px 48px var(--dialog-shadow);
 }
 dialog.gotodlg::backdrop { background: var(--scrim); }
+/* the page's confirmation (Discard changes?, Delete template?): never the browser's */
+dialog.confirmdlg {
+  width: 440px; max-width: calc(100vw - 64px); margin: 160px auto auto; padding: 0; border: 0; border-top: 2px solid var(--accent);
+  background: var(--surface); color: var(--text); box-shadow: 0 16px 48px var(--dialog-shadow);
+}
+dialog.confirmdlg::backdrop { background: var(--scrim); }
+.confirmdlg form { padding: 24px; display: flex; flex-direction: column; gap: 24px; }
+.confirmdlg p { margin: 0; font: 600 16px/1.4 var(--sans); overflow-wrap: anywhere; }
+.confirmdlg .acts { display: flex; justify-content: flex-end; gap: 8px; }
 .gotohead { height: 64px; padding: 0 20px; display: flex; align-items: center; gap: 12px; border-bottom: 2px solid var(--accent); }
 .gotohead svg { width: 20px; height: 20px; flex: none; color: var(--muted); }
 .gotohead input[type=search] { flex: 1; min-width: 0; height: 44px; padding: 0; border: 0; outline: 0; background: transparent; font: 500 18px var(--sans); }
@@ -1932,3 +1941,5 @@ code.plain { font: 500 13px var(--mono); color: var(--text); background: transpa
    last, so it wins over a ticked or an archived row's tint */
 .table tbody tr:has([data-nav]:focus-visible) > td { background: var(--mark-bg); }
 .table [data-nav]:focus-visible { outline: none; }
+/* the comment the keys picked in the chat, tinted the same way */
+#chat-list .thread[data-tsel] { background: var(--mark-bg); }

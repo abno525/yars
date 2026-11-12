@@ -30,7 +30,7 @@
     {{with .Event}}<div class="chatev ev-{{.Kind}}"><span class="what"><strong>{{.User}}</strong> {{.What}}{{if .Text}}: <span class="text">{{.Text}}</span>{{end}}</span><span class="time">{{.Time}}</span></div>{{end}}
     {{with .Thread}}
     {{if .Resolved}}
-    <div class="thread resolved"{{if .Hidden}} data-hidden{{end}}>
+    <div class="thread resolved" id="t-{{.Root.ID}}" data-thread="{{.Root.ID}}"{{if .Hidden}} data-hidden{{end}}>
       <form class="rform" hx-post="{{if .Hidden}}{{.ShowURL}}{{else}}{{.HideURL}}{{end}}" hx-target="#chat-list" hx-swap="outerHTML">
         {{if $.All}}<input type="hidden" name="all" value="1">{{end}}
         <button class="rrow" aria-expanded="{{if .Hidden}}false{{else}}true{{end}}">
@@ -53,7 +53,8 @@
       {{end}}
     </div>
     {{else}}
-    <div class="thread">
+    {{/* a comment the keys pick (keys.js yarsThreadStep): by its id, kept through a refresh */}}
+    <div class="thread" id="t-{{.Root.ID}}" data-thread="{{.Root.ID}}">
       {{template "chat_msg" .Root}}
       {{range .Replies}}<div class="reply">{{template "chat_msg" .}}</div>{{end}}
       {{if not $.ReadOnly}}

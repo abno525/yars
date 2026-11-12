@@ -263,15 +263,43 @@ function yarsComment(section) {
   txt.scrollIntoView({block: 'center', behavior: 'smooth'});
 }
 
+// yarsConfirm asks text in the page's own dialog (#confirm), its OK button
+// labelled ok, and runs done when that is pressed; Cancel, Esc or a click
+// outside keep things as they are. A page without the dialog (none signed
+// in) falls back to the browser's.
+function yarsConfirm(text, ok, done) {
+  var d = document.getElementById('confirm');
+  if (!d || !d.showModal) {
+    if (window.confirm(text)) done();
+    return;
+  }
+  d.querySelector('[data-confirm-text]').textContent = text;
+  var b = d.querySelector('[data-confirm-ok]');
+  b.textContent = ok || 'OK';
+  d.returnValue = '';
+  d.onclose = function () { d.onclose = null; if (d.returnValue === 'ok') done(); };
+  // after the event that asked: an Esc that cancelled an editor would close
+  // a dialog opened during it
+  setTimeout(function () { d.showModal(); b.focus(); }, 0);
+}
+document.addEventListener('click', function (evt) {
+  var d = document.getElementById('confirm');
+  if (d && d.open && evt.target === d) d.close();
+});
+
 // Comment buttons and confirm buttons are wired here (no inline handlers:
-// the page's script policy allows none).
+// the page's script policy allows none). A data-confirm button asks first
+// and is pressed again once confirmed.
 document.addEventListener('click', function (evt) {
   if (!evt.target.closest) return;
   var c = evt.target.closest('[data-comment]');
   if (c) { yarsComment(c.getAttribute('data-comment')); return; }
   if (evt.target.closest('[data-chat-toggle]')) { yarsChat(yarsChatHidden()); return; }
-  var q = evt.target.closest('[data-confirm]');
-  if (q && !window.confirm(q.getAttribute('data-confirm'))) evt.preventDefault();
+  c = evt.target.closest('[data-confirm]');
+  if (!c) return;
+  if (c.yarsConfirmed) { c.yarsConfirmed = false; return; }
+  evt.preventDefault();
+  yarsConfirm(c.getAttribute('data-confirm'), c.textContent.trim(), function () { c.yarsConfirmed = true; c.click(); });
 });
 // The findings list refreshes itself on a live event only while idle
 // (nothing ticked, no extra rows loaded): see yarsListIdle.
@@ -778,13 +806,21 @@ window.addEventListener('beforeunload', function (evt) {
   evt.preventDefault();
   evt.returnValue = '';
 });
+// An editor's Cancel with unsaved text, and any hx-confirm (Clear vector,
+// Take theirs), ask in the page's dialog; the request goes once confirmed.
 document.addEventListener('htmx:confirm', function (evt) {
   var el = evt.detail.elt;
-  if (!el || !el.hasAttribute || !el.hasAttribute('data-guard-cancel')) return;
-  var form = el.closest('form[data-guard]');
-  if (!form || !yarsDirty(form.parentNode)) return;
+  var q = evt.detail.question, ok = el && el.textContent ? el.textContent.trim() : '';
+  if (el && el.hasAttribute && el.hasAttribute('data-guard-cancel')) {
+    var form = el.closest('form[data-guard]');
+    if (form && yarsDirty(form.parentNode)) {
+      q = 'Discard changes?';
+      ok = 'Discard';
+    }
+  }
+  if (!q) return;
   evt.preventDefault();
-  if (window.confirm('Discard changes?')) evt.detail.issueRequest(true);
+  yarsConfirm(q, ok, function () { evt.detail.issueRequest(true); });
 });
 
 /* ---------- section editor states ---------- */

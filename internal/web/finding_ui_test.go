@@ -70,7 +70,7 @@ func TestFindingPageLayout(t *testing.T) {
 		t.Errorf("a vector:\n%s", meta)
 	}
 	b := e.do(t, "alice", "GET", fpath, nil, nil).Body.String()
-	toggle := `<button type="button" class="btn secondary w136" data-chat-toggle aria-controls="side" aria-expanded="true"><span class="ct-hide">Hide chat</span><span class="ct-show">Show chat</span></button>`
+	toggle := `<button type="button" class="btn secondary w136" data-chat-toggle aria-controls="side" aria-expanded="true" aria-keyshortcuts="Control+H"><span class="ct-hide">Hide chat</span><span class="ct-show">Show chat</span></button>`
 	if i, h := strings.Index(b, toggle), strings.Index(b, `/history" aria-keyshortcuts="Shift+H">History`); i < 0 || h < i {
 		t.Errorf("no chat toggle before History:\n%s", b)
 	}

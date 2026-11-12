@@ -90,6 +90,10 @@ function yarsEnter() {
   if (!p) return false;
   var a = document.activeElement;
   if (a && a !== document.body && a !== p && a.closest && a.closest('a, button, summary, input, select, textarea, [contenteditable]')) return false;
+  // a picked comment: its reply box
+  var t = yarsThread();
+  var r = t ? t.querySelector('input[name=text]') : null;
+  if (r) { r.focus(); return true; }
   var bs = Array.prototype.filter.call(p.querySelectorAll('button:not(:disabled):not([data-kskip]), a.btn:not([data-kskip])'), function (b) {
     return b.getClientRects().length > 0;
   });
@@ -336,6 +340,7 @@ function yarsSelect(el, scroll) {
     if (p !== el) p.removeAttribute('data-sel');
   });
   yarsSel = el && el.id ? el.id : '';
+  if (!el || el.getAttribute('data-kpanel') !== 'side') yarsThreadMark(null); // a comment is the chat's
   if (!el) return;
   el.setAttribute('data-sel', '');
   if (el.getAttribute('data-kpanel') !== 'side') yarsSideFrom = el.id;
@@ -351,6 +356,8 @@ document.addEventListener('pointerdown', function (evt) {
   if (yarsKeysOff()) return; // with shortcuts off nothing uses a selection
   var p = evt.target.closest && evt.target.closest('[data-kpanel]');
   if (p) yarsSelect(p, false);
+  // a click in the chat picks the comment it is in (or none)
+  if (p && p.getAttribute('data-kpanel') === 'side') yarsThreadMark(evt.target.closest('#chat-list .thread[data-thread]'), false);
 }, true);
 // a swapped panel (live refresh, editor) keeps its mark: put back on the
 // swap, before htmx's settle delay, so it does not blink
@@ -397,6 +404,77 @@ function yarsBack() {
   return true;
 }
 
+/* ---------- the chat: j k ↓ ↑ pick a comment, r resolves it, keys write ---------- */
+
+// yarsThreadSel is the picked comment's id (its thread's root message; the
+// list is swapped by live refreshes, the id stays). A comment is picked only
+// while the chat (the side panel) is selected.
+var yarsThreadSel = '';
+
+// yarsThreads: the chat's rendered comments, in order.
+function yarsThreads() {
+  return Array.prototype.filter.call(document.querySelectorAll('#chat-list .thread[data-thread]'), function (t) {
+    return t.getClientRects().length > 0;
+  });
+}
+// yarsThread: the picked comment, while the chat is selected.
+function yarsThread() {
+  var s = yarsSelected();
+  if (!yarsThreadSel || !s || s.getAttribute('data-kpanel') !== 'side') return null;
+  return document.getElementById('t-' + yarsThreadSel);
+}
+// yarsThreadMark picks t (null: none): tinted as a list row; a key also
+// keeps it in view.
+function yarsThreadMark(t, scroll) {
+  document.querySelectorAll('#chat-list .thread[data-tsel]').forEach(function (x) {
+    if (x !== t) x.removeAttribute('data-tsel');
+  });
+  yarsThreadSel = t ? t.getAttribute('data-thread') : '';
+  if (!t) return;
+  t.setAttribute('data-tsel', '');
+  if (scroll && t.scrollIntoView) t.scrollIntoView({block: 'nearest'});
+}
+// yarsThreadStep picks the next (d = 1) or previous (d = -1) comment; with
+// none picked, the first (↓) or the last (↑).
+function yarsThreadStep(d) {
+  var list = yarsThreads();
+  if (!list.length) return false;
+  var i = list.indexOf(yarsThread());
+  if (i < 0) yarsThreadMark(d > 0 ? list[0] : list[list.length - 1], true);
+  else yarsThreadMark(list[Math.max(0, Math.min(list.length - 1, i + d))], true);
+  return true;
+}
+// yarsResolveKey: r resolves the picked comment (its Resolve button).
+function yarsResolveKey() {
+  var t = yarsThread();
+  var b = t ? t.querySelector('.thread-tools [name=resolves] + button') : null;
+  if (!b || b.disabled) return false;
+  b.click();
+  return true;
+}
+// yarsWrite: with the chat selected, a character no key took starts
+// writing: the picked comment's reply, else a new message, with the
+// character in it.
+function yarsWrite(evt) {
+  var s = yarsSelected();
+  if (!s || s.getAttribute('data-kpanel') !== 'side' || !evt.key || evt.key.length !== 1 || evt.key === ' ') return false;
+  var t = yarsThread();
+  var f = t ? t.querySelector('input[name=text]') : null;
+  if (!f) f = document.getElementById('chat-text');
+  if (!f || f.disabled) return false;
+  f.focus();
+  f.setRangeText(evt.key, f.value.length, f.value.length, 'end');
+  f.dispatchEvent(new Event('input', {bubbles: true}));
+  return true;
+}
+// a refreshed list keeps the picked comment (gone: none)
+document.addEventListener('htmx:afterSwap', function () {
+  if (!yarsThreadSel) return;
+  var t = document.getElementById('t-' + yarsThreadSel);
+  if (t) t.setAttribute('data-tsel', '');
+  else yarsThreadSel = '';
+});
+
 // yarsEscape closes the topmost thing: an open dialog (the browser's own),
 // an open popover, a reason or dismiss form, the selected panel's open editor
 // (asking before it drops changes), the focus in a field, the selection.
@@ -428,24 +506,26 @@ function yarsEscape() {
   var cancel = ed ? ed.querySelector('[data-guard-cancel]') : null;
   if (cancel) { cancel.click(); return; }
   if (a && a !== document.body && yarsTyping(a)) { a.blur(); return; }
+  if (yarsThread()) { yarsThreadMark(null); return; } // the picked comment, then the chat
   if (sel) yarsSelect(null);
 }
 
 // yarsNav handles the navigation keys of the panel pages; true when used.
-// ↓ ↑ → act only while a main panel is selected, ← only while the side panel
-// is (otherwise the page or the chat list scrolls).
+// j k ↓ ↑ step the main panels (with none selected, the first), or the
+// comments while the chat is selected; → goes to the chat from anywhere but
+// the chat, ← back from it.
 function yarsNav(key) {
   if (!document.querySelector('[data-kpanel]')) return false;
   var sel = yarsSelected();
   var main = !!sel && sel.getAttribute('data-kpanel') !== 'side';
   var side = !!sel && !main;
   switch (key) {
-  case 'J': return yarsStep(1);
-  case 'K': return yarsStep(-1);
-  case 'ArrowDown': return main && yarsStep(1);
-  case 'ArrowUp': return main && yarsStep(-1);
+  case 'J': return side ? yarsThreadStep(1) : yarsStep(1);
+  case 'K': return side ? yarsThreadStep(-1) : yarsStep(-1);
+  case 'ArrowDown': return side ? yarsThreadStep(1) : yarsStep(1);
+  case 'ArrowUp': return side ? yarsThreadStep(-1) : yarsStep(-1);
   case 'L': return yarsSide();
-  case 'ArrowRight': return main && yarsSide();
+  case 'ArrowRight': return !side && yarsSide();
   case 'H': return yarsBack();
   case 'ArrowLeft': return side && yarsBack();
   }
@@ -481,6 +561,15 @@ document.addEventListener('keydown', function (evt) {
     if (!evt.repeat && !send.disabled) send.click();
     return;
   }
+  if (key === 'Control+H') {
+    // hides or shows the chat (the finding page's toggle); anywhere else the
+    // browser's own (History)
+    var tg = document.querySelector('[data-chat-toggle]');
+    if (!tg || yarsKeysOff() || evt.isComposing || document.querySelector('dialog[open]')) return;
+    evt.preventDefault();
+    if (!evt.repeat) tg.click();
+    return;
+  }
   // Esc during IME composition cancels the composition only
   if (key === 'Escape') { if (!evt.isComposing && !evt.repeat) yarsEscape(); return; }
   // Enter on a list's checkbox (app.js keeps it from submitting the form)
@@ -500,11 +589,14 @@ document.addEventListener('keydown', function (evt) {
   if (yarsNav(key) || yarsListNav(key)) { evt.preventDefault(); return; }
   if (key === '/') { if (yarsSlash()) evt.preventDefault(); return; }
   if (key === '?') { if (yarsKeysList()) evt.preventDefault(); return; }
-  // e edits the selected panel; on a page without panels it is Export's
-  if (key === 'E') { if (yarsEdit() || (!document.querySelector('[data-kpanel]') && yarsFire('E'))) evt.preventDefault(); return; }
+  // e edits the selected panel; on a page without panels it is Export's; in
+  // the chat it writes
+  if (key === 'E') { if (yarsEdit() || (!document.querySelector('[data-kpanel]') && yarsFire('E')) || yarsWrite(evt)) evt.preventDefault(); return; }
   if (key === 'Enter') { if (yarsEnter()) evt.preventDefault(); return; }
   if (key === 'C') { if (yarsCommentKey()) evt.preventDefault(); return; }
-  if (yarsFire(key) || yarsBulkFire(key)) evt.preventDefault();
+  if (key === 'R' && yarsResolveKey()) { evt.preventDefault(); return; }
+  // a key nothing took: in the chat it starts writing
+  if (yarsFire(key) || yarsBulkFire(key) || yarsWrite(evt)) evt.preventDefault();
 });
 
 // After a keyboard edit or save the section keeps focus: an open editor on

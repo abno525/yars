@@ -453,7 +453,7 @@ func TestEngagementTabKeys(t *testing.T) {
 		t.Error("tab keys on the finding page")
 	}
 	js := e.do(t, "alice", "GET", "/static/keys.js", nil, nil).Body.String()
-	for _, w := range []string{"if (key === 'E') { if (yarsEdit() || (!document.querySelector('[data-kpanel]') && yarsFire('E'))) evt.preventDefault(); return; }",
+	for _, w := range []string{"if (key === 'E') { if (yarsEdit() || (!document.querySelector('[data-kpanel]') && yarsFire('E')) || yarsWrite(evt)) evt.preventDefault(); return; }",
 		`show('[data-keys-group="eng"]', document.querySelector('.etabs'));`} {
 		if !strings.Contains(js, w) {
 			t.Errorf("keys.js lacks %s", w)

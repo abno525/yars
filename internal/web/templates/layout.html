@@ -71,6 +71,13 @@
 {{/* keys_dialog is the shortcut list (?, K8): the key map in four groups;
 keys.js hides the Finding page group where there are no panels */}}
 {{define "keys_dialog"}}
+{{/* the page's confirmation (app.js yarsConfirm): the browser's own is never shown */}}
+<dialog id="confirm" class="confirmdlg" aria-labelledby="confirm-text">
+  <form method="dialog">
+    <p id="confirm-text" data-confirm-text></p>
+    <div class="acts"><button value="cancel" class="btn secondary w128">Cancel</button><button value="ok" class="btn danger w128" data-confirm-ok>OK</button></div>
+  </form>
+</dialog>
 <dialog id="keys" class="gotodlg keysdlg" aria-labelledby="keys-head">
   <div class="gotohead"><h2 id="keys-head">Keyboard shortcuts</h2><kbd>Esc</kbd></div>
   <div class="keysbody">
@@ -133,7 +140,11 @@ keys.js hides the Finding page group where there are no panels */}}
       <section class="kgroup" data-keys-group="chat"><h3 class="gh">Chat</h3>
         <dl>
           <div class="krow"><dt><kbd>c</kbd></dt><dd>Comment on the panel</dd></div>
+          <div class="krow" data-keys-if="#chat-list .thread"><dt><kbd>j</kbd><kbd>k</kbd><kbd>↓</kbd><kbd>↑</kbd></dt><dd>Next or previous comment</dd></div>
+          <div class="krow" data-keys-if="#chat-list .thread-tools [name=resolves]"><dt><kbd>r</kbd></dt><dd>Resolve the comment</dd></div>
+          <div class="krow" data-keys-if="#chat-text"><dt><kbd>a</kbd>–<kbd>z</kbd></dt><dd>Write a reply</dd></div>
           <div class="krow"><dt><kbd>Ctrl+Enter</kbd></dt><dd>Send</dd></div>
+          <div class="krow" data-keys-for="Control+H"><dt><kbd>Ctrl+H</kbd></dt><dd>Hide or show the chat</dd></div>
         </dl>
       </section>
     </div>
