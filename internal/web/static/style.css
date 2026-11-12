@@ -408,6 +408,12 @@ table.kv { width: 100%; border-collapse: collapse; }
 
 /* ---------- finding page ---------- */
 .finding-grid { display: grid; grid-template-columns: minmax(0, 1fr) 560px; gap: 24px; align-items: start; }
+/* Hide chat: the panels take the whole width (app.js sets data-chat on
+   <html> before the page paints) */
+:root[data-chat=hidden] [data-chat-grid] { grid-template-columns: minmax(0, 1fr); }
+:root[data-chat=hidden] [data-chat-grid] > .side { display: none; }
+:root[data-chat=hidden] .ct-hide, .ct-show { display: none; }
+:root[data-chat=hidden] .ct-show { display: inline; }
 .finding-main { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 .side { position: sticky; top: 88px; max-height: calc(100vh - 112px); display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 /* title row */
@@ -521,11 +527,12 @@ table.kv { width: 100%; border-collapse: collapse; }
 }
 .step.done { background: var(--navy); color: var(--on-fill); }
 .step.current { background: var(--accent); color: var(--on-accent); }
-/* second row: reviewers (clipped) | state 128 | fixed button slots */
+/* second row: reviewers (clipped), the state beside them | Check's slot,
+   Check and the status's buttons at the right */
 /* --wf-inset is shared with .actions.fhead, so the finding head buttons stay over these */
-.wfrow { height: 56px; padding: 0 var(--wf-inset); display: grid; grid-template-columns: minmax(0, 1fr) 128px auto auto; align-items: center; gap: 12px; border-top: 1px solid var(--line); }
+.wfrow { height: 56px; padding: 0 var(--wf-inset); display: flex; align-items: center; gap: 12px; border-top: 1px solid var(--line); }
 /* Check (152) and its state slot (164): stale, a failed rule, AI down */
-.wfcheck { display: flex; align-items: center; gap: 8px; }
+.wfcheck { flex: none; display: flex; align-items: center; gap: 8px; }
 .checkslot { width: 164px; flex: none; display: flex; justify-content: flex-end; align-items: center; overflow: hidden; white-space: nowrap; }
 .checkflag {
   height: 28px; max-width: 164px; padding: 0 10px; display: inline-flex; align-items: center; gap: 8px; overflow: hidden;
@@ -547,7 +554,7 @@ progress { appearance: none; -webkit-appearance: none; border: 0; background: va
 progress::-webkit-progress-bar { background: var(--off-bg); }
 progress::-webkit-progress-value { background: var(--accent); }
 progress::-moz-progress-bar { background: var(--accent); }
-.wfrevs { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.wfrevs { flex: 0 1 auto; display: flex; align-items: center; gap: 8px; min-width: 0; }
 .rl { flex: none; font-size: 13px; color: var(--muted); }
 .chips { display: flex; gap: 8px; min-width: 0; overflow: hidden; flex: 0 1 auto; }
 .chips .none { font-size: 13px; color: var(--muted); white-space: nowrap; }
@@ -583,15 +590,15 @@ progress::-moz-progress-bar { background: var(--accent); }
 .picklist label { height: 44px; padding: 0 16px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid var(--line-soft); font-size: 14px; font-weight: 600; cursor: pointer; }
 .picklist > .muted { display: block; padding: 12px 16px; font-size: 14px; }
 .pickfoot { height: 56px; padding: 0 16px; display: flex; align-items: center; justify-content: space-between; background: var(--panel); }
-.wfstate { width: 128px; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; font-weight: 600; color: var(--muted); }
+/* beside the reviewers; the space after it puts Check beside the actions */
+.wfstate { flex: 0 1 auto; min-width: 0; max-width: 240px; margin-right: auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left; font-size: 13px; font-weight: 600; color: var(--muted); }
 .wfstate.error { color: var(--red); }
 /* D3: with problems the state opens the Checks strip: the same box as a button */
 button.wfstate { height: auto; padding: 0; border: 0; background: none; font-family: inherit; cursor: pointer; }
 button.wfstate:hover { text-decoration: underline; }
-/* as wide as the widest status (136 + 3 × 112 + gaps), packed right:
-   Withdraw / Restore sit at the right edge and the state text stays put
-   when the status changes */
-.wf-actions { width: 496px; display: flex; justify-content: flex-end; gap: 8px; align-items: center; }
+/* the status's buttons at the right edge (Withdraw / Restore last), Check
+   right before them */
+.wf-actions { flex: none; display: flex; gap: 8px; align-items: center; }
 .wf-action { display: flex; margin: 0; }
 .btn.danger[aria-expanded=true] { background: var(--red); color: var(--on-fill); }
 /* reason form under the bar (Return, Withdraw) */

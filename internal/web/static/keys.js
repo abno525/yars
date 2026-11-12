@@ -370,6 +370,7 @@ function yarsStep(d) {
 function yarsSide() {
   var s = document.querySelector('[data-kpanel="side"]');
   if (!s) return false;
+  if (yarsChatHidden()) yarsChat(true); // l shows a hidden chat
   yarsSelect(s, true);
   return true;
 }

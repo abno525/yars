@@ -14,6 +14,37 @@
   } catch (e) { /* storage blocked: follow the server or the system */ }
 })();
 
+// Hide chat (the finding page): the choice lives in localStorage and is set
+// on <html> as data-chat before the page paints, so the panels take the
+// whole width without a jump.
+(function () {
+  try {
+    if (localStorage.getItem('yars-chat') === 'hidden') document.documentElement.setAttribute('data-chat', 'hidden');
+  } catch (e) { /* storage blocked: the chat is shown */ }
+})();
+
+// yarsChat shows (true) or hides (false) the chat column and remembers it.
+function yarsChat(show) {
+  var root = document.documentElement;
+  if (show) root.removeAttribute('data-chat'); else root.setAttribute('data-chat', 'hidden');
+  try {
+    if (show) localStorage.removeItem('yars-chat'); else localStorage.setItem('yars-chat', 'hidden');
+  } catch (e) { /* not remembered */ }
+  yarsChatState();
+}
+
+// yarsChatHidden tells whether the chat column is hidden.
+function yarsChatHidden() {
+  return document.documentElement.getAttribute('data-chat') === 'hidden';
+}
+
+// yarsChatState tells the toggle whether the chat is shown.
+function yarsChatState() {
+  var shown = yarsChatHidden() ? 'false' : 'true';
+  Array.prototype.forEach.call(document.querySelectorAll('[data-chat-toggle]'), function (b) { b.setAttribute('aria-expanded', shown); });
+}
+document.addEventListener('DOMContentLoaded', yarsChatState);
+
 function yarsTheme() {
   var root = document.documentElement;
   var cur = root.getAttribute('data-theme');
@@ -234,11 +265,13 @@ document.addEventListener('click', function (evt) {
   navigator.clipboard.writeText(src.textContent.trim()).then(function () { yarsToast('Copied'); });
 });
 
-// yarsComment points the chat composer at a section and focuses it.
+// yarsComment points the chat composer at a section and focuses it (showing
+// the chat first when it is hidden).
 function yarsComment(section) {
   var sel = document.getElementById('chat-section');
   var txt = document.getElementById('chat-text');
   if (!sel || !txt) return;
+  if (yarsChatHidden()) yarsChat(true);
   sel.value = section;
   txt.focus();
   txt.scrollIntoView({block: 'center', behavior: 'smooth'});
@@ -250,6 +283,7 @@ document.addEventListener('click', function (evt) {
   if (!evt.target.closest) return;
   var c = evt.target.closest('[data-comment]');
   if (c) { yarsComment(c.getAttribute('data-comment')); return; }
+  if (evt.target.closest('[data-chat-toggle]')) { yarsChat(yarsChatHidden()); return; }
   var q = evt.target.closest('[data-confirm]');
   if (q && !window.confirm(q.getAttribute('data-confirm'))) evt.preventDefault();
 });

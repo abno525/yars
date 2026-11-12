@@ -39,6 +39,51 @@ func noInline(t *testing.T, what, b string) {
 	}
 }
 
+// The finding page as asked after the run: the state text ("1 error to
+// fix") sits beside the reviewers and Check beside the first action (no
+// fixed-width action box between them); the author follows the status tag
+// (the severity pill, empty until set, comes after it, so nothing moves when
+// it is set); and a button hides the chat column, remembered in the browser.
+func TestFindingPageLayout(t *testing.T) {
+	e := setup(t)
+	b := e.do(t, "alice", "GET", fpath, nil, nil).Body.String()
+	meta := b[strings.Index(b, `<div class="meta">`):]
+	meta = meta[:strings.Index(meta, "</div>")]
+	if by, pill := strings.Index(meta, `class="muted by"`), strings.Index(meta, `id="sevpill"`); by < 0 || pill < by {
+		t.Errorf("the author is not right after the status:\n%s", meta)
+	}
+	toggle := `<button type="button" class="btn secondary w136" data-chat-toggle aria-controls="side" aria-expanded="true"><span class="ct-hide">Hide chat</span><span class="ct-show">Show chat</span></button>`
+	if i, h := strings.Index(b, toggle), strings.Index(b, `/history" aria-keyshortcuts="Shift+H">History`); i < 0 || h < i {
+		t.Errorf("no chat toggle before History:\n%s", b)
+	}
+	if !strings.Contains(b, `<div class="finding-grid" data-chat-grid`) || !strings.Contains(b, `<div class="side" id="side">`) {
+		t.Errorf("the grid or its side column is not marked for the toggle")
+	}
+	css := e.do(t, "alice", "GET", "/static/style.css", nil, nil).Body.String()
+	for _, want := range []string{
+		".wfrow { height: 56px; padding: 0 var(--wf-inset); display: flex; align-items: center; gap: 12px;",
+		".wfstate { flex: 0 1 auto; min-width: 0; max-width: 240px; margin-right: auto;",
+		".wf-actions { flex: none; display: flex; gap: 8px; align-items: center; }",
+		":root[data-chat=hidden] [data-chat-grid] { grid-template-columns: minmax(0, 1fr); }",
+		":root[data-chat=hidden] [data-chat-grid] > .side { display: none; }",
+		":root[data-chat=hidden] .ct-hide, .ct-show { display: none; }",
+		":root[data-chat=hidden] .ct-show { display: inline; }",
+	} {
+		if !strings.Contains(css, want) {
+			t.Errorf("style.css lacks %q", want)
+		}
+	}
+	if strings.Contains(css, "width: 496px") {
+		t.Error("the action box still has its fixed width")
+	}
+	js := e.do(t, "alice", "GET", "/static/app.js", nil, nil).Body.String()
+	for _, want := range []string{"yars-chat", "data-chat-toggle", "function yarsChat("} {
+		if !strings.Contains(js, want) {
+			t.Errorf("app.js lacks %q", want)
+		}
+	}
+}
+
 // Details and CVSS each have a Comment button, the composer can target them,
 // and a comment on them is accepted and links back to the panel.
 func TestCommentOnDetailsAndCVSS(t *testing.T) {
@@ -370,12 +415,13 @@ func TestMoreMenuHoldsMergeAndTemplate(t *testing.T) {
 	}
 }
 
-// D4: with neither right the More slot is empty, the same width.
+// D4: with neither right the More slot is empty, the same width (the row:
+// More, Hide chat, History, Export).
 func TestMoreSlotEmptyWithoutRights(t *testing.T) {
 	e := setup(t)
 	row := titleActions(t, e.do(t, "alice", "GET", fpath, nil, nil).Body.String())
 	if strings.Contains(row, "pop more") || !strings.Contains(row, `<span class="slot w136"></span>`) || strings.Index(row, `<span class="slot w136"></span>`) > strings.Index(row, "/history") ||
-		strings.Count(row, "w136") != 3 || strings.Contains(row, "w152") {
+		strings.Count(row, "w136") != 4 || strings.Contains(row, "w152") {
 		t.Fatalf("alice's title row:\n%s", row)
 	}
 }
