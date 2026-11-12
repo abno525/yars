@@ -174,7 +174,8 @@ var (
 	hexColour = regexp.MustCompile(`#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{4}|[0-9a-fA-F]{3})\b`)
 	colourFn  = regexp.MustCompile(`(?i)\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color|light-dark)\(`)
 	ident     = regexp.MustCompile(`(?:^|[^\w-])(-?[A-Za-z][\w-]*)`)
-	dataURL   = regexp.MustCompile(`(?i)\burl\(\s*["']?\s*data:`)
+	dataURL   = regexp.MustCompile(`(?i)(?:\burl\(\s*["']?|["'])\s*data:`)
+	counterOf = regexp.MustCompile(`(?i)\bcounters?\(\s*$`)
 	setsProp  = regexp.MustCompile(`(--[\w-]+)\s*:`)
 )
 
@@ -206,15 +207,17 @@ threedface threedhighlight threedlightshadow threedshadow window windowframe win
 -moz-buttondefault -moz-cellhighlight -moz-cellhighlighttext -moz-default-color -moz-default-background-color`)
 
 // nameProps take names a stylesheet makes up (an animation called
-// "highlight", a grid area called "field"), not colours.
-var nameProps = strings.Fields(`animation animation-name font-family transition transition-property will-change
-counter-reset counter-increment counter-set grid-area grid-row grid-column grid-row-start grid-row-end
-grid-column-start grid-column-end view-transition-name container-name anchor-name position-anchor`)
+// "highlight", a grid area or line called "field", the system font
+// "menu"), never colours.
+var nameProps = strings.Fields(`animation animation-name font font-family transition transition-property will-change
+counter-reset counter-increment counter-set grid grid-template grid-template-areas grid-template-columns
+grid-template-rows grid-area grid-row grid-column grid-row-start grid-row-end grid-column-start grid-column-end
+list-style list-style-type page view-transition-name container container-name anchor-name position-anchor`)
 
 // colourLiterals lists every colour literal of css that is not a token's
 // value in one of the three token blocks, by line, or why the blocks
-// cannot be told apart. A data: URL is one too: an image's colours cannot
-// be tokens.
+// cannot be told apart. A data: URL is refused anywhere, in a token too
+// (in url(), image-set(), @import): an image's colours cannot be tokens.
 func colourLiterals(css string) []string {
 	structure, code := scan(css)
 	ranges, err := tokenRanges(structure)
@@ -228,7 +231,7 @@ func colourLiterals(css string) []string {
 		}
 	}
 	for _, m := range dataURL.FindAllStringIndex(structure, -1) {
-		report(m[0], "a data: URL")
+		found = append(found, fmt.Sprintf("line %d: a data: URL", lineOf(css, m[0])))
 	}
 	for _, re := range []*regexp.Regexp{hexColour, colourFn} {
 		for _, m := range re.FindAllStringIndex(code, -1) {
@@ -237,7 +240,8 @@ func colourLiterals(css string) []string {
 	}
 	for _, m := range ident.FindAllStringSubmatchIndex(code, -1) {
 		w := code[m[2]:m[3]]
-		if slices.Contains(namedColours, strings.ToLower(w)) && !slices.Contains(nameProps, property(structure, m[2])) {
+		if slices.Contains(namedColours, strings.ToLower(w)) && !slices.Contains(nameProps, property(structure, m[2])) &&
+			!counterOf.MatchString(code[:m[2]]) {
 			report(m[2], w)
 		}
 	}
@@ -335,7 +339,9 @@ func TestThemeChecksCatchEscapes(t *testing.T) {
 			"#add, .x:hover #add { color: var(--ink); }\n" +
 			"@font-face { font-family: \"Plex\", \"Arial Black\"; src: url(\"fonts/a;b.woff2\") format(\"woff2\"); }\n" +
 			".a::before { content: \"Red\"; } .b { background: url(img/white.png); } .c { mask: url(#abc); }\n" +
-			".d { grid-template-areas: \"label field\"; animation: highlight 1s; transition: background 0.2s; }\n" + rest
+			".d { grid-template-areas: \"label field\"; animation: highlight 1s; transition: background 0.2s; }\n" +
+			".e { font: menu; grid-template-columns: [field] 1fr [mark] 2fr; container: field / inline-size; }\n" +
+			".f::before { content: counter(mark) \". \" counters(field, \".\"); list-style-type: highlight; page: highlight; }\n" + rest
 	}
 	clean := sheet("", "", "", "")
 	if found := colourLiterals(clean); len(found) > 0 {
@@ -356,6 +362,9 @@ func TestThemeChecksCatchEscapes(t *testing.T) {
 		"a vendor colour":                          sheet("", "", "", ".x { color: -webkit-link; }\n"),
 		"a data URI":                               sheet("", "", "", ".x { background: url(\"data:image/svg+xml,%3Csvg fill=%22red%22/%3E\"); }\n"),
 		"an unquoted data URI":                     sheet("", "", "", ".x { background: url(data:image/svg+xml;utf8,%3Csvg%20fill=%23ABC/%3E); }\n"),
+		"a data URI in image-set()":                sheet("", "", "", ".x { background: image-set(\"data:image/svg+xml,<svg fill='red'/>\" 1x); }\n"),
+		"a data URI in @import":                    sheet("", "", "", "@import \"data:text/css,.x{color:red}\";\n"),
+		"a data URI as a token's value":            sheet("  --icon: url(\"data:image/svg+xml,<svg fill='red'/>\");\n", "", "", ""),
 		"a nested rule before a declaration":       sheet("", "", "", ".a { .b { margin: 0; } color: red; }\n"),
 		"a colour after an escaped quote":          sheet("", "", "", "q::before { content: \"\\\"\"; }\n.x { color: red; }\n"),
 		"a colour after a /* in a string":          sheet("", "", "", ".a::before { content: \"/*\"; }\n.x { color: red; }\n"),
