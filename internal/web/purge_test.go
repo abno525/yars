@@ -79,6 +79,10 @@ func TestPurgeConfirmPage(t *testing.T) {
 		}
 	}
 	noInline(t, "purge page", b)
+	// the label column keeps its width; the value column takes the rest
+	if css := e.do(t, "dora", "GET", "/static/style.css", nil, nil).Body.String(); !strings.Contains(css, ".kv.purgekv th + th { width: auto; }") {
+		t.Fatal("style.css: the value column is not left to take the rest")
+	}
 	// a file that is not there: neither the page nor the purge; one with no
 	// original in history (no mark, no link): no page
 	for _, c := range []struct{ m, n string }{{"GET", "none.png"}, {"POST", "none.png"}, {"GET", "other.png"}} {

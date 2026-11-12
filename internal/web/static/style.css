@@ -1519,6 +1519,7 @@ form.dirty .dirtydot { visibility: visible; }
 .attn { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .attn .histdot { flex: none; }
 .purgekv { table-layout: fixed; }
+.kv.purgekv th + th { width: auto; }
 .purgekv td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .attname { padding: 6px 10px; display: flex; flex-direction: column; border-top: 1px solid var(--line); min-width: 0; }
 .attname .mono { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
