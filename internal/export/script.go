@@ -57,8 +57,10 @@ func (r *Runner) script(ctx context.Context, e Exporter, in Input) (Result, erro
 		switch {
 		case out.over:
 			return Result{}, errors.New("export script output too large")
-		case ctx.Err() != nil:
+		case errors.Is(ctx.Err(), context.DeadlineExceeded):
 			return Result{}, errors.New("export script timed out")
+		case ctx.Err() != nil: // the request went away
+			return Result{}, errors.New("export cancelled")
 		}
 		return Result{}, fmt.Errorf("export script failed: %v: %s", err, tail(stderr.buf.String()))
 	}

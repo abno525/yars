@@ -283,6 +283,27 @@ func TestPandocFormatExtensions(t *testing.T) {
 	}
 }
 
+// An export whose request went away (the browser closed) says it was
+// cancelled; only a run that reached its time limit says it timed out
+// (backlog, M8).
+func TestExportCancelledIsNotTimeout(t *testing.T) {
+	pb, _ := fakePandoc(t, "exec sleep 5\n")
+	r, edir := runner(t, pb)
+	writeFile(t, edir, "slow.sh", "#!/bin/sh\nexec sleep 5\n", 0o755)
+	for _, ex := range []Exporter{{ID: "d", Type: "pandoc", Format: "docx"}, {ID: "s", Type: "script", Script: "slow.sh", Extension: "txt"}} {
+		ctx, cancel := context.WithCancel(context.Background())
+		time.AfterFunc(200*time.Millisecond, cancel)
+		if _, err := r.Run(ctx, ex, input(t)); err == nil || !strings.Contains(err.Error(), "cancelled") || strings.Contains(err.Error(), "timed out") {
+			t.Errorf("%s cancelled: %v", ex.Type, err)
+		}
+		ctx, cancel = context.WithTimeout(context.Background(), 200*time.Millisecond)
+		if _, err := r.Run(ctx, ex, input(t)); err == nil || !strings.Contains(err.Error(), "timed out") {
+			t.Errorf("%s deadline: %v", ex.Type, err)
+		}
+		cancel()
+	}
+}
+
 func TestPandocReal(t *testing.T) {
 	p, err := exec.LookPath("pandoc")
 	if err != nil {

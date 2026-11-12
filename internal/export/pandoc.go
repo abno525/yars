@@ -101,8 +101,11 @@ func (r *Runner) pandoc(ctx context.Context, e Exporter, in Input) (Result, erro
 		stderr, err = run(args)
 	}
 	if err != nil {
-		if ctx.Err() != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			return Result{}, errors.New("pandoc timed out")
+		}
+		if ctx.Err() != nil { // the request went away
+			return Result{}, errors.New("export cancelled")
 		}
 		return Result{}, fmt.Errorf("pandoc failed: %v: %s", err, tail(stderr))
 	}
