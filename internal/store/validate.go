@@ -74,13 +74,18 @@ func CheckAssets(list []finding.Asset) error {
 	return err
 }
 
-// SectionProblems checks a finding's (or template's) section bodies, and
-// that no section name is used twice: only the first one can be shown or
-// edited, yet both would ship in exports.
+// SectionProblems checks a finding's (or template's) section bodies, that
+// every section has a name (a heading of "##" and spaces has none, and no
+// page can show or edit it), and that no section name is used twice: only
+// the first one can be shown or edited, yet both would ship in exports.
 func SectionProblems(f *finding.Finding) []string {
 	var ps []string
 	seen := map[string]bool{}
 	for _, s := range f.Sections {
+		if s.Name == "" {
+			ps = append(ps, "a section heading (##) has no name; name it or remove it")
+			continue
+		}
 		if err := finding.ValidateBody(s.Body); err != nil {
 			ps = append(ps, "section "+s.Name+": "+err.Error())
 		}

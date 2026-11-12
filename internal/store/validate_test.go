@@ -59,6 +59,20 @@ func TestSharedRules(t *testing.T) {
 	}
 }
 
+// A heading of "##" and spaces would make a section with no name, which no
+// page can show or edit: the shared check refuses it, for the website and
+// pushes alike (backlog, Core).
+func TestSectionWithoutNameRefused(t *testing.T) {
+	f, err := finding.Parse([]byte("---\nid: F-001\ntitle: X\n---\n\n## Description\n\nText.\n\n##   \n\nOrphan.\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ps := FindingProblems(config.Default(), f, nil)
+	if len(ps) != 1 || !strings.Contains(ps[0], "a section heading (##) has no name") {
+		t.Fatalf("problems %q", ps)
+	}
+}
+
 // The website's own writes go through the same rules: a pentest's type
 // stays when its settings are saved.
 func TestEngagementSettingsKeepType(t *testing.T) {
