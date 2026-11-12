@@ -24,6 +24,15 @@ findings/                    /git/yars
 
 Workflow state (status, reviewers, sign-offs), chat, check runs and notifications are not in git: they live in the server's database.
 
+## Cloning and pulling
+
+```sh
+git clone --recurse-submodules https://<server>/git/yars findings
+git -C findings submodule foreach git switch -q main
+```
+
+Git checks submodules out on a detached HEAD: a commit made there is on no branch, and the push of `main` leaves it out. The second line puts every engagement on `main`. `git pull --recurse-submodules` (and `git submodule update`) detaches them again: run the same `git submodule foreach git switch -q main` after it, or pull inside an engagement (`git -C engagements/<id> pull`), which keeps it on `main`.
+
 ## Push rules
 
 Only `refs/heads/main` can be pushed, and every commit in the push is checked on its own, as if it were made on the website: a commit the website could not have made is refused even when a later commit repairs it, since history keeps both. Each refusal of a file reads `commit <hash> <file>: <rule>` (the author check and a purged original read `commit <hash>: …`); the hash is the commit to fix, with `git commit --amend` for the last one or `git rebase -i <hash>~1` (mark it `edit`) for an earlier one. Only the parts a commit changes are checked, so a finding that already broke a rule on the server can still have its other parts edited. Up to 50 problems are listed, then their count.
