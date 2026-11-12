@@ -96,6 +96,9 @@ func (s *Store) PostChat(engID, dir string, m chat.Message, u config.User) (chat
 	if m.Resolves != "" || m.Reopens != "" {
 		m.Text, m.Section = "", "" // markers carry no content
 	}
+	if m.Reply != "" {
+		m.Section = "" // the thread carries the section
+	}
 	if s.db == nil {
 		return m, ErrNoDB
 	}

@@ -112,6 +112,21 @@ func TestResolveDropsText(t *testing.T) {
 	}
 }
 
+// A reply belongs to its thread, which carries the section: a section sent
+// with a reply (MCP takes one) is dropped, as a marker's is (backlog, M4).
+func TestReplyDropsSection(t *testing.T) {
+	s, _, fd := newFinding(t)
+	root, _ := s.PostChat(eng, fd, chat.Message{Text: "about impact", Section: "Impact"}, uBob)
+	got, err := s.PostChat(eng, fd, chat.Message{Reply: root.ID, Text: "agreed", Section: "Description"}, uAlice)
+	if err != nil {
+		t.Fatal(err)
+	}
+	msgs, _ := s.Chat(eng, fd)
+	if got.Section != "" || msgs[1].Section != "" || msgs[0].Section != "Impact" {
+		t.Fatalf("reply section %q / stored %q, root %q", got.Section, msgs[1].Section, msgs[0].Section)
+	}
+}
+
 func TestPostChatConcurrent(t *testing.T) {
 	s, _, fd := newFinding(t)
 	var wg sync.WaitGroup
