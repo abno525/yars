@@ -162,6 +162,30 @@ func TestTargets(t *testing.T) {
 	}
 }
 
+// The table check reads tables as the page renders them: lines in an
+// indented code block are code, a table in a block quote is a table, and a
+// last row written without pipes is a row (backlog, M5).
+func TestTableCellsCheckAsRendered(t *testing.T) {
+	for body, want := range map[string]string{
+		"Code:\n\n    | a | `b` |\n    |---|---|\n    | c | d |\n":           "",
+		"> | a | b |\n> |---|---|\n> | `c` | d |\n":                          "> | `c` | d |",
+		"| a | b |\n|---|---|\n| c | d |\n`e` and f\n":                       "`e` and f",
+		"| a | b |\n|---|---|\n| c | d |\n\n`e` is a paragraph, not a row\n": "",
+	} {
+		d := doc()
+		d.Sections = []Section{{"Description", body}}
+		d.Details = nil
+		vs := run(t, "- id: tc\n  check: table-cells-no-backticks\n", d)
+		var got []string
+		for _, v := range vs {
+			got = append(got, v.Quote)
+		}
+		if strings.Join(got, ";") != want {
+			t.Errorf("%q: found %q, want %q", body, got, want)
+		}
+	}
+}
+
 func TestTableCellsCheck(t *testing.T) {
 	d := doc()
 	d.Sections = []Section{{"Description", "Para with `ok` code.\n\n| Field | Value |\n|---|---|\n| Param | `user` |\n| Pipe | `a|b` |\n\n```\n| x | `y` |\n```\n"}}

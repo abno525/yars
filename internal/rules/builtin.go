@@ -1,15 +1,18 @@
 package rules
 
 import (
-	"regexp"
+	"bytes"
 	"strings"
+
+	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/ast"
+	"github.com/yuin/goldmark/extension"
+	east "github.com/yuin/goldmark/extension/ast"
+	"github.com/yuin/goldmark/text"
 
 	"yars/internal/config"
 	"yars/internal/cvss"
-	"yars/internal/finding"
 )
-
-var delimRow = regexp.MustCompile(`^\s*\|?\s*:?-{1,}:?\s*(\|\s*:?-{1,}:?\s*)*\|?\s*$`)
 
 func (r Rule) builtin(d Doc, cfg config.Config) []Violation {
 	var vs []Violation
@@ -56,28 +59,35 @@ func (r Rule) builtin(d Doc, cfg config.Config) []Violation {
 	return vs
 }
 
-// tableRows returns the lines of GFM tables outside fenced code blocks.
+// tableMD reads tables as the page's renderer does (GFM tables).
+var tableMD = goldmark.New(goldmark.WithExtensions(extension.Table))
+
+// tableRows returns the source lines of the table rows in body, as the
+// renderer reads them: no table in a code block, tables in block quotes,
+// and a last row written without pipes. A row's line is where its first
+// text starts.
 func tableRows(body string) []string {
-	lines := strings.Split(body, "\n")
-	mask := finding.FenceMask(body)
-	isTable := make([]bool, len(lines))
-	for i, l := range lines {
-		if mask[i] || !delimRow.MatchString(l) || !strings.Contains(l, "-") || !strings.Contains(l, "|") {
-			continue
-		}
-		// a delimiter row: the header above and following pipe rows belong to the table
-		if i > 0 && !mask[i-1] && strings.Contains(lines[i-1], "|") {
-			isTable[i-1] = true
-		}
-		for j := i + 1; j < len(lines) && !mask[j] && strings.Contains(lines[j], "|") && strings.TrimSpace(lines[j]) != ""; j++ {
-			isTable[j] = true
-		}
-	}
+	src := []byte(body)
 	var out []string
-	for i, l := range lines {
-		if isTable[i] {
-			out = append(out, l)
+	ast.Walk(tableMD.Parser().Parse(text.NewReader(src)), func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+		if !entering || (n.Kind() != east.KindTableRow && n.Kind() != east.KindTableHeader) {
+			return ast.WalkContinue, nil
 		}
-	}
+		start := -1
+		ast.Walk(n, func(c ast.Node, entering bool) (ast.WalkStatus, error) {
+			if t, ok := c.(*ast.Text); ok && entering && start < 0 {
+				start = t.Segment.Start
+			}
+			return ast.WalkContinue, nil
+		})
+		if start >= 0 {
+			from, to := bytes.LastIndexByte(src[:start], '\n')+1, len(src)
+			if i := bytes.IndexByte(src[start:], '\n'); i >= 0 {
+				to = start + i
+			}
+			out = append(out, string(src[from:to]))
+		}
+		return ast.WalkSkipChildren, nil
+	})
 	return out
 }
