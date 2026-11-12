@@ -1,6 +1,7 @@
 package web
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -25,6 +26,7 @@ import (
 type systemAdmin struct {
 	Users, Engagements, Archived, Findings, Messages int
 	DBSize, IndexBuild, DataDir, Started, Uptime     string
+	Version                                          string // the running build's ("—" when unknown)
 	Schema                                           int
 	Op, OpResult                                     string   // the operation run and what came of it
 	OpOK                                             bool     // … it worked
@@ -159,6 +161,7 @@ func (s *Server) systemPageStatus(w http.ResponseWriter, r *http.Request, status
 		v.DataDir = s.Store.Repo().Dir
 		v.Started = s.started.Format("2006-01-02 15:04")
 		v.Uptime = dur(time.Since(s.started))
+		v.Version = cmp.Or(s.Version, "—")
 		v.LastBackup, v.BackupBy, v.BackupKey, v.BackupSize = "—", "—", "—", "—"
 		if l, _, err := d.AuditQuery(db.AuditFilter{Action: "backup", Limit: 1}); err == nil && len(l) == 1 {
 			v.LastBackup, v.BackupBy = when(l[0].TS), l[0].Actor

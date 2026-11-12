@@ -374,7 +374,7 @@
   <div class="panelhead"><h2>Server</h2></div>
   <div class="pbody flush">
     <div class="stats">
-      <div class="st"><span class="sl">Data folder</span><span class="sv" title="{{.DataDir}}">{{.DataDir}}</span></div>
+      <div class="st"><span class="sl">Version</span><span class="sv" title="{{.Version}}">{{.Version}}</span></div>
       <div class="st"><span class="sl">Running since</span><span class="sv">{{.Started}}</span></div>
       <div class="st"><span class="sl">Up for</span><span class="sv">{{.Uptime}}</span></div>
       <div class="st"><span class="sl">Database</span><span class="sv">{{.DBSize}}</span></div>
@@ -386,6 +386,9 @@
       <div class="st"><span class="sl">Archived</span><span class="sv">{{.Archived}}</span></div>
       <div class="st"><span class="sl">Findings</span><span class="sv">{{.Findings}}</span></div>
       <div class="st"><span class="sl">Chat messages</span><span class="sv">{{.Messages}}</span></div>
+    </div>
+    <div class="stats">
+      <div class="st wide"><span class="sl">Data folder</span><span class="sv" title="{{.DataDir}}">{{.DataDir}}</span></div>
     </div>
   </div>
 </section>

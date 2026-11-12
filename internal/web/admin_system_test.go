@@ -40,6 +40,17 @@ func zipNames(t *testing.T, body []byte) map[string][]byte {
 	return out
 }
 
+// Admin › System names the running version in its Server panel.
+func TestSystemPageShowsVersion(t *testing.T) {
+	e := setup(t)
+	e.srv.Version = "v9"
+	b := e.do(t, "dora", "GET", "/admin/system", nil, nil).Body.String()
+	if !strings.Contains(b, `<span class="sl">Version</span><span class="sv" title="v9">v9</span>`) {
+		_, panel, _ := strings.Cut(b, "<h2>Server</h2>")
+		t.Fatalf("the Server panel:\n%.1200s", panel)
+	}
+}
+
 // The backup holds the main repo, every engagement repo and a snapshot of
 // the database; the secret key only when asked for.
 func TestBackupZip(t *testing.T) {

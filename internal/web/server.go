@@ -66,6 +66,8 @@ type Server struct {
 	// Secret encrypts personal keys and the AI key; opened from the data
 	// directory's key file on first use when nil.
 	Secret *secret.Box
+	// Version is the running build's version (Admin › System); "" shows —.
+	Version string
 	// MigrateStatus lists what in the data directory still needs `yars
 	// migrate` (the admin's Migrate status button); nil = nothing known.
 	MigrateStatus func() []string

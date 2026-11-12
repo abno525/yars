@@ -687,6 +687,7 @@ func cmdLint(args []string, out io.Writer) (int, error) {
 
 func usage() {
 	fmt.Fprintln(os.Stderr, `usage (flags first; --data defaults to $YARS_DATA, then yars use, then .):
+  yars version
   yars init <dir>
   yars use [<dir>]   (set the default data folder, or show it)
   yars serve --data <dir> [--addr :8080] [--tls-cert <file> --tls-key <file>] [--https]
@@ -717,6 +718,8 @@ func main() {
 	}
 	var err error
 	switch os.Args[1] {
+	case "version":
+		err = cmdVersion(os.Args[2:], os.Stdout)
 	case "init":
 		err = cmdInit(os.Args[2:])
 	case "useradd":
