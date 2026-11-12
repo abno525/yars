@@ -151,5 +151,9 @@ M32 manual  done     (an MCP session over HTTP: list drafts, read, edit with bas
 M32 branch  review   fixes 4990b7c (can_edit follows the token; template not_found; real refusal before a missing reason; docs table; clone history)
 M32 branch  fix check passed
 M32 PR      opened   #27
-M33 task 1  done     (every colour a token; the scattered token blocks merged; 21 pages' computed colours the same in both themes)
+M33 task 1  done     6b13c77 (every colour a token; the scattered token blocks merged; 21 pages' computed colours the same in both themes)
+M33 task 2  done     43bab42 (the preview's paper takes the light tokens; in dark only the paper's subtree changed, light unchanged)
+M33 task 1  review   fix c171964 (the colour checks: media block alone, blocks once, no token set again, any-case and newer colour functions, system colours, %23, strings and url(), nesting)
+M33 task 2  review   fix 052bafd (the preview's text colour and selector placement tested; report severity colours tied to the preview's)
+M33 branch  review   fixes (one scanner for strings, escapes, comments and url(); theme-only rules refused; nested rules and data: URLs refused; fewer false positives; cover bar, head bar and PDF palette tied)
 ```

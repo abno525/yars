@@ -492,23 +492,66 @@ func TestExportPreviewIsLight(t *testing.T) {
 	}
 }
 
-// The report's severity colours (PDF and Word, from export.StyleOf) are the
-// preview's light ones: the tag's fill and its text.
+// The report's colours (PDF and Word) are the preview's light ones: each
+// severity's tag (fill and text), cover bar segment and finding-head bar
+// (from export.StyleOf), and every colour the PDF template defines.
 func TestReportSeveritiesMatchPreview(t *testing.T) {
-	css := prepare(stylesheet(t))
+	css, code := scan(stylesheet(t))
 	r, err := tokenRanges(css)
 	if err != nil {
 		t.Fatal(err)
 	}
 	light := tokens(css, r[0])
-	for _, sev := range []string{"critical", "high", "medium", "low", "info"} {
-		m := regexp.MustCompile(`\.tag\.sev-` + sev + ` \{ background: var\((--[\w-]+)\); color: var\((--[\w-]+)\); \}`).FindStringSubmatch(css)
-		if m == nil {
-			t.Fatalf("no tag rule for %s", sev)
+	same := func(token, hex string) bool { return strings.EqualFold(light[token], "#"+hex) }
+	// rule finds the one rule that starts a line with the selector sel and
+	// gives the tokens of its declarations, which must be written as in
+	// decl (var(…) for each VAR).
+	rule := func(sel, decl string) []string {
+		t.Helper()
+		start := `(?m)^` + regexp.QuoteMeta(sel) + ` \{`
+		if n := len(regexp.MustCompile(start).FindAllStringIndex(code, -1)); n != 1 {
+			t.Fatalf("%q has %d rules of its own", sel, n)
 		}
+		v := `var\((--[\w-]+)\)`
+		m := regexp.MustCompile(start + `[^}]*?` + strings.ReplaceAll(regexp.QuoteMeta(decl), "VAR", v)).FindStringSubmatch(css)
+		if m == nil {
+			t.Fatalf("%s has no %q", sel, decl)
+		}
+		return m[1:]
+	}
+	for _, sev := range []string{"critical", "high", "medium", "low", "info"} {
 		want := export.StyleOf(sev)
-		if bg, fg := light[m[1]], light[m[2]]; !strings.EqualFold(bg, "#"+want.BG) || !strings.EqualFold(fg, "#"+want.FG) {
-			t.Errorf("%s: the preview has %s on %s, the report #%s on #%s", sev, fg, bg, want.FG, want.BG)
+		if tag := rule(".tag.sev-"+sev, "background: VAR; color: VAR;"); !same(tag[0], want.BG) || !same(tag[1], want.FG) {
+			t.Errorf("%s tag: the preview has %s on %s, the report #%s on #%s", sev, tag[1], tag[0], want.FG, want.BG)
+		}
+		if seg := rule(".seg-"+sev, "fill: VAR; background: VAR;"); !same(seg[0], want.BG) || !same(seg[1], want.BG) {
+			t.Errorf("%s cover bar: the preview has %v, the report #%s", sev, seg, want.BG)
+		}
+		bar := ".rp-fhead.sevbar-" + sev
+		if sev == "info" { // the head's own border, no rule of its own
+			bar = ".rp-fhead"
+		}
+		decl := "border-left-color: VAR;"
+		if sev == "info" {
+			decl = "border-left: 6px solid VAR;"
+		}
+		if b := rule(bar, decl); !same(b[0], want.BG) {
+			t.Errorf("%s finding head: the preview has %s, the report #%s", sev, b[0], want.BG)
+		}
+	}
+	latex, err := os.ReadFile(filepath.Join("..", "export", "pdf", "report.latex"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pdf := map[string]string{"yarsnavy": "--navy", "yarsorange": "--accent", "yarsmuted": "--muted", "yarsline": "--line",
+		"yarspanel": "--panel", "yarshead": "--head-text", "yarsfaint": "--cover-faint", "yarsrule": "--head-field-line"}
+	defs := regexp.MustCompile(`\\definecolor\{(\w+)\}\{HTML\}\{([0-9A-Fa-f]{6})\}`).FindAllStringSubmatch(string(latex), -1)
+	if len(defs) != len(pdf) {
+		t.Errorf("the PDF template defines %d colours, the test knows %d", len(defs), len(pdf))
+	}
+	for _, d := range defs {
+		if token, ok := pdf[d[1]]; !ok || !same(token, d[2]) {
+			t.Errorf("PDF colour %s is #%s; the preview's %s is %s", d[1], d[2], token, light[token])
 		}
 	}
 }
