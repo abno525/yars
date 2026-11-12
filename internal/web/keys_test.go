@@ -424,6 +424,32 @@ func TestNavKeysDeclared(t *testing.T) {
 	}
 }
 
+// Ctrl+S with nothing being filled in goes to the page's search box (the
+// findings list's, the team board's), as / does; in a form it saves.
+func TestCtrlSSearches(t *testing.T) {
+	e := setup(t)
+	js := e.do(t, "alice", "GET", "/static/keys.js", nil, nil).Body.String()
+	save := js[strings.Index(js, "function yarsSave()"):]
+	save = save[:strings.Index(save, "\n}\n")]
+	if !strings.Contains(save, "if (!yarsTyping(a) || yarsPick(a)) { yarsSearchFocus(); return; }") {
+		t.Errorf("Ctrl+S does not search:\n%s", save)
+	}
+	for _, w := range []string{"function yarsSearchBox()", "function yarsSearchFocus()"} {
+		if !strings.Contains(js, w) {
+			t.Errorf("keys.js lacks %s", w)
+		}
+	}
+	for _, p := range []string{"/e/acme", "/e/acme/board"} {
+		b := e.do(t, "alice", "GET", p, nil, nil).Body.String()
+		if !strings.Contains(between(b, `<main>`, "</main>"), `type="search"`) {
+			t.Errorf("%s has no search box", p)
+		}
+		if !strings.Contains(b, `<div class="krow"><dt><kbd>Ctrl+S</kbd></dt><dd>Save the form, else Search</dd></div>`) {
+			t.Errorf("%s: the ? list does not say Ctrl+S searches", p)
+		}
+	}
+}
+
 // An engagement's pages: t (or b) Team board, o Overview, r Report, s
 // Settings, e Export; on a page with panels e stays Edit. The ? list has
 // them in an Engagement group, shown where the tabs are.
@@ -725,7 +751,7 @@ func TestSaveReviewFixes(t *testing.T) {
 	}
 	save := js[i:]
 	save = save[:strings.Index(save, "\n}\n")]
-	for _, w := range []string{"if (!yarsTyping(a)) return;", "yarsSaveButton(form)", "btn.click()"} {
+	for _, w := range []string{"if (!yarsTyping(a) || yarsPick(a)) { yarsSearchFocus(); return; }", "yarsSaveButton(form)", "btn.click()"} {
 		if !strings.Contains(save, w) {
 			t.Errorf("yarsSave lacks %s", w)
 		}

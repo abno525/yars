@@ -165,11 +165,6 @@ func TestTeamBoardAccess(t *testing.T) {
 	if rec.Code != http.StatusNotFound || strings.Contains(rec.Body.String(), "secret two") {
 		t.Fatalf("cross engagement %d", rec.Code)
 	}
-	// a duplicate-of in another engagement names nothing here
-	rec = e.do(t, "alice", "POST", "/e/acme/board/n/L-001/dup", url.Values{"dup": {"L-002"}}, nil)
-	if rec.Code != http.StatusBadRequest || strings.Contains(rec.Body.String(), "theirs 2") {
-		t.Fatalf("cross dup %d", rec.Code)
-	}
 	// pentester, reviewer and director all write on the board
 	for i, u := range []string{"alice", "bob", "dora"} {
 		rec := e.do(t, u, "POST", "/e/acme/board/n/L-001/post", url.Values{"text": {"from " + u}}, nil)
@@ -207,9 +202,9 @@ func TestTeamBoardActions(t *testing.T) {
 	if code, _ := post("bob", "severity", url.Values{"severity": {"apocalyptic"}}); code != http.StatusBadRequest {
 		t.Fatalf("bad severity %d", code)
 	}
-	e.lead(t, "bob", "Other", "", "open")
-	if code, b := post("bob", "dup", url.Values{"dup": {"l-2"}}); code != 200 || !strings.Contains(b, `href="/e/acme/board?n=L-002"`) {
-		t.Fatalf("dup %d:\n%s", code, b)
+	// Duplicate of is gone from the board, its action too
+	if code, _ := post("bob", "dup", url.Values{"dup": {"l-2"}}); code != http.StatusNotFound {
+		t.Fatalf("dup %d", code)
 	}
 	if code, _ := post("bob", "state", url.Values{"from": {"analyzing"}, "to": {"confirmed"}}); code != 200 {
 		t.Fatalf("confirmed %d", code)
@@ -223,8 +218,8 @@ func TestTeamBoardActions(t *testing.T) {
 		t.Fatalf("finding %+v %v", f.F.Meta, err)
 	}
 	// read only now: every change answers 409, the controls are disabled
-	for _, act := range []string{"post", "state", "dismiss", "severity", "dup", "finding"} {
-		code, _ := post("alice", act, url.Values{"text": {"x"}, "from": {"confirmed"}, "to": {"open"}, "reason": {"r"}, "severity": {"low"}, "dup": {""}})
+	for _, act := range []string{"post", "state", "dismiss", "severity", "finding"} {
+		code, _ := post("alice", act, url.Values{"text": {"x"}, "from": {"confirmed"}, "to": {"open"}, "reason": {"r"}, "severity": {"low"}})
 		if code != http.StatusConflict {
 			t.Errorf("%s on a linked note: %d", act, code)
 		}
@@ -232,6 +227,31 @@ func TestTeamBoardActions(t *testing.T) {
 	b = e.do(t, "alice", "GET", "/e/acme/board?n=L-001", nil, nil).Body.String()
 	if !strings.Contains(b, `placeholder="Read-only"`) || strings.Contains(b, `hx-post="/e/acme/board/n/L-001/post"`) {
 		t.Fatal("linked note still editable")
+	}
+}
+
+// A lead's head: no Analysis block and no Duplicate of; the likely severity
+// sits right after Set state (disabled the same way when read only).
+func TestTeamBoardHeadSeverity(t *testing.T) {
+	e := setup(t)
+	e.lead(t, "alice", "S3 listing", "", "open")
+	b := e.do(t, "bob", "GET", "/e/acme/board?n=L-001", nil, nil).Body.String()
+	head := between(b, `<div class="tbacts">`, `class="tbstate`)
+	set, sev := strings.Index(head, "Set state ▾</summary>"), strings.Index(head, `<select class="w152" name="severity" aria-label="Likely severity" data-choose>`)
+	if set < 0 || sev < set {
+		t.Errorf("severity is not after Set state:\n%s", head)
+	}
+	for _, gone := range []string{"tbanalysis", ">Analysis<", `name="dup"`, "Duplicate of", "tbdup"} {
+		if strings.Contains(b, gone) {
+			t.Errorf("the board still has %s", gone)
+		}
+	}
+	// read only (archived): the select is there, disabled, in the same place
+	dora, _ := e.srv.Auth.Lookup("dora")
+	e.srv.Store.Archive("acme", dora)
+	head = between(e.do(t, "bob", "GET", "/e/acme/board?n=L-001", nil, nil).Body.String(), `<div class="tbacts">`, `class="tbstate`)
+	if i := strings.Index(head, `<select class="w152" aria-label="Likely severity" disabled>`); i < strings.Index(head, "Set state ▾") {
+		t.Errorf("read only severity:\n%s", head)
 	}
 }
 
@@ -249,8 +269,8 @@ func TestTeamBoardArchived(t *testing.T) {
 	if rec := e.do(t, "alice", "POST", "/e/acme/board", url.Values{"title": {"t"}, "text": {"x"}}, nil); rec.Code != http.StatusForbidden {
 		t.Errorf("create: %d", rec.Code)
 	}
-	for _, act := range []string{"post", "state", "dismiss", "severity", "dup", "finding"} {
-		rec := e.do(t, "alice", "POST", "/e/acme/board/n/L-001/"+act, url.Values{"text": {"x"}, "from": {"info"}, "to": {"open"}, "reason": {"r"}, "severity": {"low"}, "dup": {""}}, nil)
+	for _, act := range []string{"post", "state", "dismiss", "severity", "finding"} {
+		rec := e.do(t, "alice", "POST", "/e/acme/board/n/L-001/"+act, url.Values{"text": {"x"}, "from": {"info"}, "to": {"open"}, "reason": {"r"}, "severity": {"low"}}, nil)
 		if rec.Code != http.StatusForbidden {
 			t.Errorf("%s: %d", act, rec.Code)
 		}

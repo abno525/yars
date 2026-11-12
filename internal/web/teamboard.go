@@ -68,7 +68,6 @@ type leadView struct {
 	Moves                 []option // Value = state, Label
 	Severity              string
 	Severities            []option
-	DupOf, DupURL         string
 	Strip                 *leadStrip // the finding it became, or why it was dismissed
 	Items                 []leadItem
 	Older                 int
@@ -274,14 +273,11 @@ func (s *Server) leadViewOf(n store.Note, q boardQuery, archived bool) (*leadVie
 	linked := n.Finding != "" || n.Pending
 	ro := archived || linked
 	v := &leadView{ID: id, PostURL: "/e/" + eng + "/board/n/" + id + "/", Title: n.Title, Host: n.Host, By: n.Author,
-		When: boardClock(n.Created, true), State: n.State, StateLabel: leadStateLabel[n.State], SevLabel: sevLabel(n.Severity), ReadOnly: ro, Severity: n.Severity, DupOf: n.DupOf,
+		When: boardClock(n.Created, true), State: n.State, StateLabel: leadStateLabel[n.State], SevLabel: sevLabel(n.Severity), ReadOnly: ro, Severity: n.Severity,
 		CanMake: !ro && (n.State == "confirmed" || n.State == "info"), CanDismiss: !ro && n.State != "dismissed", CanMove: !ro,
 		KeepState: q.State, KeepQ: q.Q}
 	if n.Finding != "" {
 		v.Finding, v.FindingURL = n.Finding, "/e/"+eng+"/f/"+strings.TrimPrefix(n.Finding, "F-")
-	}
-	if n.DupOf != "" {
-		v.DupURL = dupURL(eng, n.DupOf)
 	}
 	for _, st := range store.NoteStates {
 		if st != "dismissed" {
@@ -430,7 +426,7 @@ func (s *Server) teamBoardNote(w http.ResponseWriter, r *http.Request) {
 }
 
 // fieldLabels name form fields in errors shown away from the field.
-var fieldLabels = map[string]string{"reason": "Reason", "severity": "Severity", "dup": "Duplicate of", "state": "State", "text": "Reply"}
+var fieldLabels = map[string]string{"reason": "Reason", "severity": "Severity", "state": "State", "text": "Reply"}
 
 // changed tells open board pages that eng's board changed (IDs only).
 func (s *Server) boardChanged(eng string) {
@@ -522,8 +518,6 @@ func (s *Server) teamBoardAct(w http.ResponseWriter, r *http.Request) {
 		err = s.Store.DismissNote(eng, num, r.FormValue("from"), r.FormValue("reason"), u)
 	case "severity":
 		err = s.Store.SetNoteSeverity(eng, num, r.FormValue("severity"), u)
-	case "dup":
-		_, err = s.Store.SetNoteDup(eng, num, r.FormValue("dup"), u)
 	case "finding":
 		_, err = s.Store.MakeFinding(eng, num, u)
 	default:
@@ -546,9 +540,6 @@ func (s *Server) teamBoardAct(w http.ResponseWriter, r *http.Request) {
 				msg = fieldLabels[fe.Field] + ": required"
 			}
 			v.Error = msg
-			if fe.Field == "dup" {
-				v.DupOf = r.FormValue("dup")
-			}
 		})
 	case errors.Is(err, store.ErrBoardStale):
 		s.boardAfter(w, r, http.StatusConflict, eng, num, func(v *leadView) { v.Error = "Changed meanwhile" })

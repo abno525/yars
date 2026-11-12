@@ -49,7 +49,9 @@ function yarsSave() {
   if (rd) { if (!rd.disabled) rd.click(); return; }
   if (document.querySelector('dialog[open]')) return;
   var a = document.activeElement;
-  if (!yarsTyping(a)) return; // a focused button or link is not a form being filled in
+  // nothing being filled in (a focused button, link or row checkbox is not):
+  // the page's search box (the findings list's, the team board's)
+  if (!yarsTyping(a) || yarsPick(a)) { yarsSearchFocus(); return; }
   var form = a.closest('form') || a.form;
   if (!form || form.hasAttribute('data-nosave')) return;
   var conflict = form.closest('.conflict');
@@ -309,12 +311,26 @@ document.addEventListener('click', function (evt) {
   if (d && d.open && evt.target === d) d.close();
 });
 
+// yarsSearchBox: the page's own search box (never Go to's), rendered and
+// enabled, or null.
+function yarsSearchBox() {
+  return Array.prototype.filter.call(document.querySelectorAll('input[type=search]'), function (el) {
+    return !el.closest('dialog') && !el.disabled && el.getClientRects().length > 0;
+  })[0] || null;
+}
+// yarsSearchFocus puts focus in the page's search box, its text selected;
+// false without one.
+function yarsSearchFocus() {
+  var s = yarsSearchBox();
+  if (!s) return false;
+  s.focus();
+  s.select();
+  return true;
+}
+
 // / (K6): the page's search box; without one, Go to.
 function yarsSlash() {
-  var s = Array.prototype.filter.call(document.querySelectorAll('input[type=search]'), function (el) {
-    return !el.closest('dialog') && !el.disabled && el.getClientRects().length > 0;
-  })[0];
-  if (s) { s.focus(); s.select(); return true; }
+  if (yarsSearchFocus()) return true;
   if (!document.getElementById('goto')) return false;
   yarsGotoOpen();
   return true;

@@ -73,20 +73,13 @@
         </form>
       </details>
       {{else}}<button type="button" class="btn sm w112" disabled>Set state ▾</button>{{end}}
-      <span class="tbstate{{if .Error}} error{{end}}" role="status" title="{{.Error}}">{{.Error}}</span>
-    </div>
-  </div>
-  <div class="tbanalysis">
-    <h3>Analysis</h3>
-    <div class="tbrow">
+      {{/* the likely severity, beside the state */}}
       {{if .ReadOnly}}<select class="w152" aria-label="Likely severity" disabled><option>{{if .Severity}}{{.SevLabel}}{{else}}Likely severity{{end}}</option></select>
       {{else}}<form class="tbsev" hx-post="{{.PostURL}}severity" hx-trigger="yars:choose" hx-target="#board" hx-swap="outerHTML">{{template "lead_keep" .}}
         <select class="w152" name="severity" aria-label="Likely severity" data-choose><option value="">Likely severity</option>{{$sev := .Severity}}{{range .Severities}}<option value="{{.Value}}"{{if eq .Value $sev}} selected{{end}}>{{.Label}}</option>{{end}}</select>
       </form>{{end}}
-      <span class="tbdup">{{if .DupURL}}Duplicate of <a href="{{.DupURL}}">{{.DupOf}}</a>{{end}}</span>
+      <span class="tbstate{{if .Error}} error{{end}}" role="status" title="{{.Error}}">{{.Error}}</span>
     </div>
-    {{if .ReadOnly}}<div class="tbrow"><input class="grow" aria-label="Duplicate of" placeholder="Duplicate of…" value="{{.DupOf}}" disabled><button type="button" class="btn sm w96" disabled>Link</button></div>
-    {{else}}<form class="tbrow" hx-post="{{.PostURL}}dup" hx-target="#board" hx-swap="outerHTML">{{template "lead_keep" .}}<input class="grow" name="dup" aria-label="Duplicate of" placeholder="Duplicate of…" value="{{.DupOf}}" maxlength="16" autocomplete="off"><button class="btn ghost sm w96">Link</button></form>{{end}}
   </div>
   <div class="tbmsgs">
     {{with .Strip}}{{template "lead_strip" .}}{{end}}

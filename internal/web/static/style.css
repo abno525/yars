@@ -1892,16 +1892,10 @@ code.plain { font: 500 13px var(--mono); color: var(--text); background: transpa
 .tbdlg input[name=reason] { width: 100%; height: 32px; font-size: 14px; }
 .tbdlg .acts { display: flex; justify-content: flex-end; }
 
-.tbanalysis { flex: none; padding: 12px 20px; display: flex; flex-direction: column; gap: 8px; background: var(--panel); border-bottom: 1px solid var(--line); }
-.tbanalysis h3 { font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
-.tbrow { margin: 0; display: flex; align-items: center; gap: 8px; min-width: 0; }
-.tbrow select, .tbrow input:not([type=hidden]) { height: 32px; padding: 0 10px; background: var(--surface); }
-.tbrow select { font: 600 13px var(--sans); color: var(--ink); }
-.tbrow input:not([type=hidden]) { font-size: 14px; }
-.tbrow select:disabled, .tbrow input:disabled { border-color: var(--line-soft); color: var(--off-fg); }
+/* the likely severity, in the action row beside Set state (as tall as its buttons) */
+.tbacts select { flex: none; height: 32px; padding: 0 10px; background: var(--surface); font: 600 13px var(--sans); color: var(--ink); }
+.tbacts select:disabled { border-color: var(--line-soft); color: var(--off-fg); }
 .tbsev { margin: 0; display: flex; }
-.tbdup { flex: 1; min-width: 0; text-align: right; font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tbdup a { font: 500 13px var(--mono); }
 
 .tbmsgs { flex: 1; min-height: 0; overflow-y: auto; }
 .tbmsg { padding: 14px 20px; display: flex; flex-direction: column; gap: 8px; border-bottom: 1px solid var(--line-soft); }
