@@ -96,7 +96,7 @@ func cmdExport(args []string, out io.Writer) (int, error) {
 		return 2, err
 	}
 	run := exportRunner(r.Dir)
-	exs, _ := export.Load(run.Dir)
+	exs, loadErrs := export.Load(run.Dir)
 	var ex *export.Exporter
 	for i := range exs {
 		if exs[i].ID == *exID {
@@ -104,6 +104,11 @@ func cmdExport(args []string, out io.Writer) (int, error) {
 		}
 	}
 	if ex == nil {
+		for _, err := range loadErrs { // its file is there but does not load: say why
+			if strings.HasPrefix(err.Error(), *exID+".yaml: ") {
+				return 2, err
+			}
+		}
 		return 2, fmt.Errorf("unknown exporter %q", *exID)
 	}
 	d, err := existingDB(r.Dir)

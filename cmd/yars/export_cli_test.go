@@ -51,6 +51,23 @@ func TestExportCLIMarkFailureExits1(t *testing.T) {
 	}
 }
 
+// An exporter whose file does not load says why, not "unknown exporter"
+// (backlog, M8).
+func TestExportCLIBrokenExporter(t *testing.T) {
+	dir := exportFixture(t)
+	if err := os.WriteFile(filepath.Join(dir, ".yars", "exporters", "word.yaml"), []byte("type: pandoc\nformat: \"docx;rm\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var log bytes.Buffer
+	code, err := cmdExport([]string{"--data", dir, "--exporter", "word", "acme"}, &log)
+	if code != 2 || err == nil || !strings.HasPrefix(err.Error(), "word.yaml: ") || strings.Contains(err.Error(), "unknown exporter") {
+		t.Fatalf("code %d err %v", code, err)
+	}
+	if _, err := cmdExport([]string{"--data", dir, "--exporter", "nope", "acme"}, &log); err == nil || err.Error() != `unknown exporter "nope"` {
+		t.Fatalf("a missing exporter: %v", err)
+	}
+}
+
 // A named finding is found by its folder, ID or number; a name that matches
 // none is an error that lists it, not silently dropped (backlog, M8).
 func TestExportCLIUnknownFinding(t *testing.T) {
