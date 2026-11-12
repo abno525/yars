@@ -5,10 +5,10 @@ Running YARS for a team: one server, one data folder, a proxy for HTTPS.
 ## Requirements
 
 - **git**, on the server's `PATH`. YARS keeps every engagement in a git repository and serves clones and pushes itself.
-- **Go 1.27**, to build the binary.
-- **pandoc** (optional), for the PDF, Word and other pandoc downloads and destinations. Without it, those are refused and the HTML and ZIP downloads still work.
+- **Go 1.27.2 or later**, to build the binary.
+- **pandoc** (optional), for the PDF, Word and other pandoc downloads and destinations. Without it, those are refused; the ZIP downloads and the Confluence HTML destination still work.
   - Some packaged pandoc builds cannot load their own data files under `--sandbox`. YARS then runs pandoc without the sandbox: what it is given is already sanitised, and images are already inlined. A static release from pandoc's website keeps the sandbox.
-- **xelatex** (optional), for PDF: the report theme is a LaTeX template. Without it, PDFs fail with pandoc's message, and the other formats still work.
+- **xelatex** (optional), for PDF: the report theme is a LaTeX template. It needs the LaTeX packages fontspec, xcolor, geometry, graphicx, longtable, booktabs, array, calc, etoolbox, fancyhdr, fvextra and hyperref, and looks as designed with the IBM Plex fonts installed (else TeX Gyre). Without xelatex, PDFs fail with pandoc's message, and the other formats still work.
 
 ## Install
 
@@ -20,16 +20,19 @@ yars version
 
 `yars version` prints the version, the database schema it writes and the Go release, for example `yars v1.0.0 (schema 22, go1.27.2)`. Built without `-ldflags`, it shows the git revision instead.
 
-Create the data folder as the account the service runs as:
+Create the account the service runs as, its data folder and the backup folder:
 
 ```sh
-sudo useradd --system --home /srv/yars --shell /usr/sbin/nologin yars
+sudo useradd --system --home-dir /var/lib/yars --create-home --shell /usr/sbin/nologin yars
 sudo install -d -o yars -g yars /srv/yars
+sudo install -d -o yars -g yars -m 0700 /backups
 sudo -u yars yars init /srv/yars
 echo 'change-me' | sudo -u yars yars useradd --data /srv/yars --role director --admin alice
 ```
 
-The last line makes the first admin; the password is read from standard input. Without it, the first visit to the website opens `/setup` to create one.
+The account's home is outside the data folder: rule and exporter scripts run with it as `HOME`, and anything in the data folder goes into every backup. The last line makes the first admin; the password is read from standard input. Without it, the first visit to the website opens `/setup` to create one.
+
+Admin › System › Restore writes the restored folder next to the data folder, so it needs `/srv` writable by `yars`. With `/srv` owned by root, restore from the shell instead (see the restore drill).
 
 ## Run as a service
 
@@ -82,21 +85,30 @@ server {
     ssl_certificate     /etc/ssl/yars/fullchain.pem;
     ssl_certificate_key /etc/ssl/yars/privkey.pem;
 
-    # YARS sets its own limits (a push up to 2 GiB, a restore upload up to 16 GiB)
+    # YARS sets its own limits (a push up to 2 GiB, a restore upload up to
+    # 16 GiB); bodies pass through unbuffered so they reach it as sent
     client_max_body_size 0;
+    proxy_request_buffering off;
 
     location / {
         proxy_pass http://127.0.0.1:8080;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-Proto $scheme;
-        # live updates are a long-lived event stream (a ping every 25 s)
+        # Run integrity (git fsck) and a push being checked answer nothing
+        # for a while
         proxy_read_timeout 1h;
     }
 }
 ```
 
-The proxy must keep the `Host` header (YARS refuses cross-origin form posts by it, and builds clone URLs from it) and send `X-Forwarded-Proto`. The event stream asks nginx not to buffer it (`X-Accel-Buffering: no`).
+The proxy must keep the `Host` header (YARS refuses cross-origin form posts by it, and builds clone URLs from it) and send `X-Forwarded-Proto`. The live-update stream asks nginx not to buffer it (`X-Accel-Buffering: no`) and sends a ping every 25 seconds.
+
+Set the address people use in `.yars/config.yaml`, so links in mail and webhooks are whole:
+
+```yaml
+base_url: https://yars.example.com
+```
 
 **Without a proxy:**
 
@@ -104,7 +116,7 @@ The proxy must keep the `Host` header (YARS refuses cross-origin form posts by i
 yars serve --data /srv/yars --addr :443 --tls-cert /etc/ssl/yars/fullchain.pem --tls-key /etc/ssl/yars/privkey.pem
 ```
 
-Binding port 443 needs `AmbientCapabilities=CAP_NET_BIND_SERVICE` in the unit. A certificate that does not load stops the start before anything changes.
+Binding port 443 needs `AmbientCapabilities=CAP_NET_BIND_SERVICE` in the unit, and the `yars` account must be able to read the key. The certificate is read at the start: restart the service after renewing it. A certificate that does not load stops the start before anything changes.
 
 ## Backup
 
@@ -122,27 +134,30 @@ A git clone holds the findings only. Accounts, workflow state, reviewers, chat a
 Try a restore now and then, on the same server, without touching the live one:
 
 ```sh
+sudo install -d -o yars -g yars /srv/yars-restored
 sudo -u yars yars restore --from /backups/yars-2026-11-11.zip --data /srv/yars-restored
 sudo -u yars yars serve --data /srv/yars-restored --addr 127.0.0.1:8081
 ```
 
-A restore always goes into a new folder and checks it before it reports success. Open the second server (an SSH tunnel to port 8081 will do) and compare Admin › System's counts of engagements and findings with the live server's. Then stop it and remove `/srv/yars-restored`.
+A restore always goes into a new (or empty) folder and checks it before it reports success. Open the second server (an SSH tunnel to port 8081 will do) and compare Admin › System's counts of engagements and findings with the live server's. Then stop it and remove the folder (`sudo rm -r /srv/yars-restored`).
 
 ## Upgrade
 
 ```sh
+yars version                      # the running release and its schema
 sudo systemctl stop yars
 sudo install -m 0755 yars /usr/local/bin/yars
+yars version                      # the new release and its schema
 sudo systemctl start yars
 ```
 
-At the start the database is brought up to the new schema. Before it changes, a copy is kept next to it, `/srv/yars/.yars/yars.db.before-v<old schema>` (the two newest copies are kept). The git repositories need nothing.
+At the start the database is brought up to the new schema. When the schema changes, a copy is kept next to it first, `/srv/yars/.yars/yars.db.before-v<old schema>` (the two newest copies are kept). The git repositories need nothing.
 
-**Going back:**
+**Going back:** when the two `yars version` lines show the same schema, put the old binary back and restart. When the schema changed:
 
 1. Stop the service.
 2. Put the old binary back.
-3. Replace `.yars/yars.db` with that copy, and delete `.yars/yars.db-wal` and `.yars/yars.db-shm`.
+3. Replace `.yars/yars.db` with `yars.db.before-v<old schema>`, and delete `.yars/yars.db-wal` and `.yars/yars.db-shm`.
 4. Start the service.
 
 Changes to the database made since the upgrade (chat, workflow state, accounts) are lost; findings in git are not. A newer database refuses to open with an older binary, so the copy is needed.
