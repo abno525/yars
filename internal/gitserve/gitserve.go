@@ -78,7 +78,7 @@ type Server struct {
 
 	mu    sync.Mutex
 	cache map[string]cached
-	ready map[string]bool // repos already configured for pushes
+	ready map[string]string // repos already configured for pushes: the hook each got ("" = none)
 
 	setupMu     sync.Mutex       // one repository setup at a time (git's config lock)
 	beforeSetup func(dir string) // tests: called as a repository's setup starts
@@ -89,8 +89,14 @@ type Server struct {
 func (s *Server) ensureSetup(r *gitrepo.Repo) error {
 	isReady := func() bool {
 		s.mu.Lock()
-		defer s.mu.Unlock()
-		return s.ready[r.Dir]
+		hook, ok := s.ready[r.Dir]
+		s.mu.Unlock()
+		if !ok {
+			return false
+		}
+		// a folder replaced while the server ran has lost its hook
+		_, err := os.Stat(hook)
+		return hook == "" || err == nil
 	}
 	if isReady() {
 		return nil
@@ -160,6 +166,7 @@ func (s *Server) setupRepo(r *gitrepo.Repo) error {
 		return err
 	}
 	hooks := filepath.Join(gd, "hooks")
+	hook := ""
 	for k, v := range map[string]string{
 		"http.receivepack":            "true",
 		"receive.denyCurrentBranch":   "updateInstead",
@@ -179,7 +186,7 @@ func (s *Server) setupRepo(r *gitrepo.Repo) error {
 		if filepath.Dir(r.Dir) == filepath.Join(s.Repo.Dir, "engagements") && engIDRe.MatchString(filepath.Base(r.Dir)) {
 			cmd += " --eng " + filepath.Base(r.Dir)
 		}
-		hook := filepath.Join(hooks, "pre-receive")
+		hook = filepath.Join(hooks, "pre-receive")
 		if err := os.MkdirAll(hooks, 0o755); err != nil {
 			return err
 		}
@@ -189,9 +196,9 @@ func (s *Server) setupRepo(r *gitrepo.Repo) error {
 	}
 	s.mu.Lock()
 	if s.ready == nil {
-		s.ready = map[string]bool{}
+		s.ready = map[string]string{}
 	}
-	s.ready[r.Dir] = true
+	s.ready[r.Dir] = hook
 	s.mu.Unlock()
 	return nil
 }

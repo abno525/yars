@@ -136,6 +136,28 @@ func TestFirstRequestsSetUpOnce(t *testing.T) {
 	}
 }
 
+// A repository counts as set up only while the hook it got is there: one
+// whose folder was replaced while the server ran (no hook) is set up again
+// on its next request, so no push skips the checks (backlog, M11).
+func TestSetupAgainWithoutHook(t *testing.T) {
+	srv, r, _ := setupServer(t, func(gs *Server) { gs.HookCmd = "/bin/false" })
+	hook := filepath.Join(r.Dir, "engagements", "acme", ".git", "hooks", "pre-receive")
+	if _, err := os.Stat(hook); err != nil {
+		t.Fatalf("no hook after the start: %v", err)
+	}
+	os.Remove(hook)
+	req, _ := http.NewRequest("GET", srv.URL+"/git/e/acme/info/refs?service=git-upload-pack", nil)
+	req.SetBasicAuth("alice", "pw")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil || resp.StatusCode != 200 {
+		t.Fatalf("%v %v", err, resp)
+	}
+	resp.Body.Close()
+	if _, err := os.Stat(hook); err != nil {
+		t.Fatal("the hook was not written again")
+	}
+}
+
 // The credential cache must not outlive the account: a deleted user or a
 // changed password stops working at once.
 func TestCacheFollowsAccountChanges(t *testing.T) {
