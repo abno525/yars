@@ -222,6 +222,9 @@ func TestExportDownloads(t *testing.T) {
 	if e.status(t) != "complete" {
 		t.Fatal("download marked reported")
 	}
+	if csp := rec.Header().Get("Content-Security-Policy"); !strings.HasPrefix(csp, "sandbox;") || rec.Header().Get("X-Content-Type-Options") != "nosniff" {
+		t.Fatalf("a file opened in the browser runs as YARS: %q", csp)
+	}
 	rec = e.do(t, "alice", "POST", "/e/acme/export", url.Values{"download": {"docx"}, "finding": {fdir}}, nil)
 	if rec.Code != 200 || !strings.Contains(rec.Header().Get("Content-Disposition"), `filename="acme.docx"`) {
 		t.Fatalf("docx %d", rec.Code)

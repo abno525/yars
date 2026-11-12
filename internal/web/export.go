@@ -180,6 +180,9 @@ func sendFile(w http.ResponseWriter, res export.Result) {
 	w.Header().Set("Content-Type", res.ContentType)
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, strings.ReplaceAll(res.Filename, `"`, "")))
 	w.Header().Set("Cache-Control", "no-store")
+	// opened in the browser (an HTML file), it runs nothing as YARS
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Security-Policy", "sandbox; default-src 'none'; img-src 'self'")
 	w.Write(res.Data)
 }
 
