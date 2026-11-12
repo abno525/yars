@@ -57,8 +57,17 @@ func (headingFloor) Transform(doc *ast.Document, _ text.Reader, _ parser.Context
 
 var codeBlock = regexp.MustCompile(`(?s)<pre><code(?: class="language-([A-Za-z0-9_+-]+)")?>(.*?)</code></pre>`)
 
-// macros turns fenced code blocks into Confluence code macros.
+var checkbox = regexp.MustCompile(`<input (checked="" )?disabled="" type="checkbox" /> ?`)
+
+// macros turns fenced code blocks into Confluence code macros, and a task
+// list's checkboxes into ☐ and ☑ (storage format has no <input>).
 func macros(x string) string {
+	x = checkbox.ReplaceAllStringFunc(x, func(m string) string {
+		if strings.Contains(m, "checked") {
+			return "☑ "
+		}
+		return "☐ "
+	})
 	return codeBlock.ReplaceAllStringFunc(x, func(m string) string {
 		sub := codeBlock.FindStringSubmatch(m)
 		body := strings.ReplaceAll(html.UnescapeString(sub[2]), "]]>", "]]]]><![CDATA[>")

@@ -420,6 +420,21 @@ func TestConfluenceDropsControlCharacters(t *testing.T) {
 	}
 }
 
+// Task lists reach Confluence as ☐ and ☑ text: storage format has no
+// <input>, so a page with one may be refused. The other exports keep the
+// checkboxes for pandoc and the browser (backlog, M8).
+func TestConfluenceTaskList(t *testing.T) {
+	in := input(t)
+	in.Findings[0].SetSection("Impact", "- [ ] rotate keys\n- [x] patch")
+	push := XHTML(in, true)
+	if strings.Contains(push, "<input") || !strings.Contains(push, "☐ rotate keys") || !strings.Contains(push, "☑ patch") {
+		t.Fatalf("push:\n%s", push)
+	}
+	if !strings.Contains(XHTML(in, false), `type="checkbox"`) {
+		t.Fatal("the download lost its checkboxes")
+	}
+}
+
 func TestConfluenceRepublish(t *testing.T) {
 	var method, path string
 	var got map[string]any
