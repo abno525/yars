@@ -808,7 +808,7 @@ summary.panelhead::-webkit-details-marker { display: none; }
 .tag.status-ok { background: var(--green); color: var(--on-fill); }
 /* a long name ends in "…" inside the cell; several share it */
 .rvs { display: flex; gap: 14px; min-width: 0; overflow: hidden; }
-.rv { display: inline-flex; align-items: center; gap: 6px; min-width: 0; font-size: 14px; }
+.rv { display: inline-flex; align-items: center; gap: 6px; min-width: 48px; font-size: 14px; }
 .rv .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .rv::before { content: ""; width: 10px; height: 10px; flex: none; border: 2px solid var(--off-fg); }
 .rv.cleared::before { background: var(--green); border-color: var(--green); }
@@ -1519,8 +1519,9 @@ input.bigin { height: 48px; font: 600 18px var(--sans); border: 2px solid var(--
 
 /* someone else is editing a section */
 .slot.pres { height: 32px; min-height: 32px; padding: 0 10px; gap: 6px; border: 1px solid var(--line); background: var(--panel); font-size: 13px; font-weight: 400; color: var(--text); }
-.slot.pres strong { font-weight: 700; flex: none; }
-.slot.pres .mono { font-size: 12px; }
+/* a long name ends in "…"; "is editing" and the time stay */
+.slot.pres strong { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
+.slot.pres .mono { flex: none; font-size: 12px; }
 .presdot { width: 8px; height: 8px; flex: none; background: var(--verification); }
 /* unsaved: a dot after the section name */
 .dirtydot { width: 8px; height: 8px; flex: none; display: inline-block; background: var(--accent); visibility: hidden; }
@@ -1852,8 +1853,9 @@ code.plain { font: 500 13px var(--mono); color: var(--text); background: transpa
 .tbmeta { height: 24px; display: flex; align-items: center; gap: 12px; min-width: 0; font-size: 13px; color: var(--muted); }
 .tbfid { width: 48px; flex: none; font: 500 13px var(--mono); }
 .tbhost { flex: 1; min-width: 0; font-family: var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-/* at most 40% of the line, so the host keeps room; a long name ends in "…" */
-.tbby { flex: 0 1 auto; min-width: 0; max-width: 40%; display: flex; white-space: pre; }
+/* name · time, in a lead's head and its strips: at most 40% of the line, so
+   the host or the strip's text keeps room; a long name ends in "…" */
+.tbby, .tbwho { flex: 0 1 auto; min-width: 0; max-width: 40%; display: flex; align-items: baseline; white-space: pre; }
 .tbby strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
 .tbby .mono { flex: none; font-size: 12px; }
 .tbacts { display: flex; align-items: center; gap: 8px; min-width: 0; }
@@ -1902,8 +1904,7 @@ code.plain { font: 500 13px var(--mono); color: var(--text); background: transpa
 .tbstrip strong { flex: none; color: var(--text); }
 .tbstrip a { flex: none; font-family: var(--mono); }
 .tbsx { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.tbwho { flex: none; }
-.tbwho .mono { font-size: 12px; }
+.tbwho .mono { flex: none; font-size: 12px; }
 .tbolder { padding: 8px 20px; border-bottom: 1px solid var(--line-soft); font-size: 13px; color: var(--muted); }
 .tbnone { height: 120px; display: flex; align-items: center; justify-content: center; font-size: 14px; color: var(--muted); }
 

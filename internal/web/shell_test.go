@@ -84,11 +84,30 @@ func TestLongNamesFit(t *testing.T) {
 		".rvs { display: flex; gap: 14px; min-width: 0; overflow: hidden; }",
 		".rv .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }",
 		"width: 160px; height: 28px; padding: 0 10px; flex: 0 1 auto; min-width: 0;",
-		".tbby { flex: 0 1 auto; min-width: 0; max-width: 40%; display: flex; white-space: pre; }",
+		// a short reviewer beside a long one keeps a letter and its "…"
+		".rv { display: inline-flex; align-items: center; gap: 6px; min-width: 48px;",
+		".tbby, .tbwho { flex: 0 1 auto; min-width: 0; max-width: 40%; display: flex; align-items: baseline; white-space: pre; }",
 		".tbby strong { min-width: 0; overflow: hidden; text-overflow: ellipsis;",
+		".slot.pres strong { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;",
 	} {
 		if !strings.Contains(css, want) {
 			t.Errorf("style.css lacks %q", want)
+		}
+	}
+	// the other names that can run long end in "…" and show in full on hover:
+	// who is editing, the new-password page, a lead's head and its strips
+	for _, c := range [][2]string{
+		{"templates/assets.html", `<strong title="{{.Who}}">{{.Who}}</strong>`},
+		{"templates/password.html", `<span class="mono muted clip" title="{{.User.Username}}">`},
+		{"templates/team_board.html", `<span class="tbby"><strong title="{{.By}}">{{.By}}</strong>`},
+		{"templates/team_board.html", `<span class="tbwho"><span class="clip" title="{{.User}}">{{.User}}</span> · `},
+	} {
+		src, err := templateFS.ReadFile(c[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(src), c[1]) {
+			t.Errorf("%s lacks %s", c[0], c[1])
 		}
 	}
 }

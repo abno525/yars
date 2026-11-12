@@ -50,7 +50,7 @@
       <span class="tag lead-{{.State}}">{{.StateLabel}}</span>
       <span class="tbfid">{{if .FindingURL}}<a href="{{.FindingURL}}">{{.Finding}}</a>{{end}}</span>
       <span class="tbhost" title="{{.Host}}">{{.Host}}</span>
-      <span class="tbby"><strong>{{.By}}</strong> · <span class="mono">{{.When}}</span></span>
+      <span class="tbby"><strong title="{{.By}}">{{.By}}</strong> · <span class="mono">{{.When}}</span></span>
     </div>
     <div class="tbacts">
       {{if .CanMake}}<form hx-post="{{.PostURL}}finding" hx-target="#board" hx-swap="outerHTML" hx-disabled-elt="find button">{{template "lead_keep" .}}<button class="btn primary sm w136">Make finding</button></form>{{else}}<button type="button" class="btn sm w136" disabled>Make finding</button>{{end}}
@@ -117,7 +117,7 @@
 </section>
 {{end}}
 
-{{define "lead_strip"}}<div class="tbstrip"><strong>{{.What}}</strong>{{if .URL}}<a href="{{.URL}}">{{.Text}}</a>{{else}}<span class="tbsx" title="{{.Text}}">{{.Text}}</span>{{end}}<span class="tbwho">{{.User}} · <span class="mono">{{.Time}}</span></span></div>{{end}}
+{{define "lead_strip"}}<div class="tbstrip"><strong>{{.What}}</strong>{{if .URL}}<a href="{{.URL}}">{{.Text}}</a>{{else}}<span class="tbsx" title="{{.Text}}">{{.Text}}</span>{{end}}<span class="tbwho"><span class="clip" title="{{.User}}">{{.User}}</span> · <span class="mono">{{.Time}}</span></span></div>{{end}}
 
 {{define "lead_new"}}
 {{$e := .New.Errs}}

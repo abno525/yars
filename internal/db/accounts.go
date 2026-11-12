@@ -554,7 +554,10 @@ func (d *DB) TokenNoted(id int64, note *Notification) (bool, error) {
 			return false, err
 		}
 	}
-	return true, tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // UserTokens lists one account's tokens.

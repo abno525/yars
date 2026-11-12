@@ -80,7 +80,7 @@
 </section>
 {{end}}
 
-{{define "presence"}}<span class="slot w216 pres" hx-get="{{.URL}}" hx-target="this" hx-trigger="sse:presence, sse:resync" hx-swap="outerHTML" data-sse>{{if .Who}}<span class="presdot"></span><strong>{{.Who}}</strong>{{if .More}} +{{.More}}{{end}} is editing <span class="mono">{{.Time}}</span>{{end}}</span>{{end}}
+{{define "presence"}}<span class="slot w216 pres" hx-get="{{.URL}}" hx-target="this" hx-trigger="sse:presence, sse:resync" hx-swap="outerHTML" data-sse>{{if .Who}}<span class="presdot"></span><strong title="{{.Who}}">{{.Who}}</strong>{{if .More}} +{{.More}}{{end}} is editing <span class="mono">{{.Time}}</span>{{end}}</span>{{end}}
 
 {{define "attach_strip"}}
 <div class="attstrip flush" data-upload="{{.UploadURL}}">

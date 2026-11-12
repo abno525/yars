@@ -70,7 +70,7 @@ func TestPresence(t *testing.T) {
 		t.Fatal("no presence event")
 	}
 	b := e.do(t, "bob", "GET", fpath, nil, nil).Body.String()
-	if !strings.Contains(b, `<strong>alice</strong> is editing`) {
+	if !strings.Contains(b, `<strong title="alice">alice</strong> is editing`) {
 		t.Fatalf("bob does not see alice editing:\n%s", b)
 	}
 	if !strings.Contains(b, `hx-get="/e/acme/f/001/s/Impact/presence"`) || !strings.Contains(b, "sse:presence") {
