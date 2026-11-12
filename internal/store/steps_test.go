@@ -3,6 +3,7 @@ package store
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -93,5 +94,21 @@ func TestDismissReason(t *testing.T) {
 	th := checkThreads(t, s, fd)[""]
 	if !th.Resolved || len(th.Replies) == 0 || th.Replies[len(th.Replies)-1].Text != why || th.Replies[len(th.Replies)-1].User != "bob" {
 		t.Fatalf("thread %+v", th)
+	}
+}
+
+// A dismissal that resolves the violation's threads tells the pages the
+// chat changed, so a section's open-thread count follows (M34 review).
+func TestDismissAnnouncesChat(t *testing.T) {
+	s, dir, fd := ready(t)
+	withRules(t, s, dir, checkRules)
+	checked(t, s, fd)
+	var kinds []string
+	s.OnChange(func(c Change) { kinds = append(kinds, c.Kind) })
+	if err := s.DismissWhy(eng, fd, "no-sql", "title", "SQL", "glossary", uBob); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(kinds, ChangeChat) {
+		t.Fatalf("changes %v", kinds)
 	}
 }

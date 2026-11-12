@@ -315,7 +315,7 @@ func (s *Server) sectionRef(w http.ResponseWriter, r *http.Request) (store.Findi
 
 // openIn counts the open threads on a section of ref.
 func (s *Server) openIn(ref store.FindingRef, section string) int {
-	msgs, err := s.Store.Chat(ref.EngID, ref.Dir)
+	msgs, err := s.Store.ChatOf(ref) // ref is read already
 	if err != nil {
 		return 0
 	}
@@ -399,6 +399,7 @@ func (s *Server) sectionSave(w http.ResponseWriter, r *http.Request) {
 	}
 	p := s.panelFor(ref, name)
 	p.Presence = s.presenceFor(r, ref, name)
+	p.setOpen(s.openIn(ref, name)) // the saved panel keeps its count and follows the chat
 	s.exec(w, "finding.html", "panel", p)
 }
 

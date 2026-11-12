@@ -66,6 +66,7 @@ func (s *Store) DismissWhy(engID, dir, rule, target, quote, reason string, u con
 	}
 	fid := ref.F.Meta.ID
 	k := db.DismissKey(rule, qh)
+	resolved := false // the violation's threads were resolved: the chat changed
 	seq, err := s.db.TxForSeq(engID, func(tx *db.Tx) error {
 		if err := archivedIn(tx, engID); err != nil {
 			return err
@@ -102,6 +103,7 @@ func (s *Store) DismissWhy(engID, dir, rule, target, quote, reason string, u con
 					User: u.Username, Resolves: it.Thread.Root.ID}); err != nil {
 					return err
 				}
+				resolved = true
 			}
 		}
 		return nil
@@ -111,6 +113,9 @@ func (s *Store) DismissWhy(engID, dir, rule, target, quote, reason string, u con
 	}
 	s.notify(Change{Eng: engID, Fid: fid, Kind: ChangeState, Seq: seq})
 	s.notify(Change{Eng: engID, Fid: fid, Kind: ChangeCheck})
+	if resolved { // the section panels' counts and the chat list follow
+		s.notify(Change{Eng: engID, Fid: fid, Kind: ChangeChat, Seq: seq})
+	}
 	return nil
 }
 

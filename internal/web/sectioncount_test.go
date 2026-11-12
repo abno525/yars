@@ -37,4 +37,14 @@ func TestSectionCountFollowsChat(t *testing.T) {
 	if rec := e.do(t, "alice", "GET", liveURL(rec.Body.String()), nil, nil); rec.Code != http.StatusNoContent {
 		t.Fatalf("the redrawn panel: %d", rec.Code)
 	}
+	// a saved panel keeps its count and still follows the chat (review)
+	saved := e.do(t, "alice", "POST", fpath+"/s/Impact", url.Values{"body": {"Rewritten."}}, nil).Body.String()
+	if !strings.Contains(saved, `<span class="open-count">1</span>`) {
+		t.Fatalf("the saved panel lost its count:\n%s", saved)
+	}
+	after := liveURL(saved)
+	e.do(t, "bob", "POST", fpath+"/chat", url.Values{"text": {"and the likelihood"}, "section": {"Impact"}}, nil)
+	if rec := e.do(t, "alice", "GET", after, nil, nil); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `<span class="open-count">2</span>`) {
+		t.Fatalf("the saved panel after a second thread: %d", rec.Code)
+	}
 }
