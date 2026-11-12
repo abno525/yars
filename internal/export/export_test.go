@@ -386,6 +386,40 @@ func TestConfluencePush(t *testing.T) {
 	}
 }
 
+// Pasted terminal output carries control characters (ANSI colours), which
+// XML forbids: the page sent to Confluence drops them, so it is accepted,
+// and keeps the text around them (backlog, M8).
+func TestConfluenceDropsControlCharacters(t *testing.T) {
+	var storage string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var got struct {
+			Body struct {
+				Storage struct{ Value string } `json:"storage"`
+			} `json:"body"`
+		}
+		json.NewDecoder(r.Body).Decode(&got)
+		storage = got.Body.Storage.Value
+		io.WriteString(w, `{"id":"99","_links":{"base":"https://acme.atlassian.net/wiki","webui":"/pages/99"}}`)
+	}))
+	defer srv.Close()
+	in := input(t)
+	in.Findings[0].SetSection("Impact", "Output: \x1b[31mred\x1b[0m, a bell \x07 and a tab\there.\n\n```\n\x1b[1mbold\x1b[0m\n```")
+	r, _ := runner(t, "")
+	r.Getenv = func(k string) string { return "x" }
+	e := Exporter{ID: "c", Type: "confluence", Confluence: &ConfluenceConf{BaseURL: strings.Replace(srv.URL, "127.0.0.1", "localhost", 1) + "/wiki", Space: "SEC", UserEnv: "CU", TokenEnv: "CT"}}
+	if _, err := r.Run(context.Background(), e, in); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range storage {
+		if c < 0x20 && c != '\t' && c != '\n' && c != '\r' {
+			t.Fatalf("control character %U in the page:\n%q", c, storage)
+		}
+	}
+	if !strings.Contains(storage, "[31mred[0m, a bell  and a tab\there.") || !strings.Contains(storage, "[1mbold[0m") {
+		t.Fatalf("text lost:\n%q", storage)
+	}
+}
+
 func TestConfluenceRepublish(t *testing.T) {
 	var method, path string
 	var got map[string]any

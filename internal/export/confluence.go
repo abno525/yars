@@ -99,6 +99,18 @@ func decodes(data []byte) bool {
 	return err == nil
 }
 
+// xmlChars drops the characters XML 1.0 forbids (controls but tab and line
+// breaks, U+FFFE, U+FFFF), which pasted terminal output carries: Confluence
+// refuses a storage body that holds one.
+func xmlChars(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r < 0x20 && r != '\t' && r != '\n' && r != '\r' || r == 0xFFFE || r == 0xFFFF {
+			return -1
+		}
+		return r
+	}, s)
+}
+
 func esc(s string) string {
 	return strings.ReplaceAll(html.EscapeString(strings.TrimSpace(s)), "\n", "<br />")
 }
@@ -197,7 +209,7 @@ func (r *Runner) confluence(ctx context.Context, e Exporter, in Input) (Result, 
 		"type":  "page",
 		"title": title,
 		"space": map[string]string{"key": c.Space},
-		"body":  map[string]any{"storage": map[string]string{"value": XHTML(in, true), "representation": "storage"}},
+		"body":  map[string]any{"storage": map[string]string{"value": xmlChars(XHTML(in, true)), "representation": "storage"}},
 	}
 	if c.ParentID != "" {
 		payload["ancestors"] = []map[string]string{{"id": c.ParentID}}
