@@ -118,7 +118,7 @@ type link struct {
 	Label, URL   string
 	Active, Desc bool
 	Count        int    // status filters: findings with that status
-	Keys         string // status filters: the digit that picks it (its place, 1–9)
+	Keys         string // aria-keyshortcuts: a status filter's digit (its place, 1–9), a tab's letters
 }
 
 // filterKey is the digit of the filter at place i (0-based): 1 to 9, then none.

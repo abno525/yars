@@ -96,7 +96,7 @@ the table's column count. */}}
     <p class="sub">{{.Eng.Client}}{{if .Eng.Start}}{{if .Eng.Client}} · {{end}}{{.Eng.Start}}{{if .Eng.End}} – {{.Eng.End}}{{end}}{{end}}{{if .IsRetest}}{{if or .Eng.Client .Eng.Start}} · {{end}}Retest of {{if .Eng.Source}}<a href="/e/{{.Eng.Source}}">{{if .Source.Name}}{{.Source.Name}}{{else}}{{.Eng.Source}}{{end}}</a>{{else}}—{{end}}{{end}}</p>
   </div>
   <div class="actions">
-    <a class="btn secondary w128" href="/e/{{.Eng.ID}}/export">Export</a>
+    <a class="btn secondary w128" href="/e/{{.Eng.ID}}/export" aria-keyshortcuts="E">Export</a>
     {{if .CanManage}}<a class="btn secondary w128" href="/e/{{.Eng.ID}}/retest/new">New retest</a>{{else}}<span class="slot w128"></span>{{end}}
     {{if .Archive.On}}{{if .Archive.CanReopen}}<form method="post" action="/e/{{.Eng.ID}}/reopen"><button class="btn secondary w128">Reopen</button></form>{{else}}<span class="slot w128"></span>{{end}}
     {{else}}<a class="btn {{if eq .ETab.On "board"}}secondary{{else}}primary{{end}} w128" href="/e/{{.Eng.ID}}/findings/new" aria-keyshortcuts="N">New finding</a>{{end}}
@@ -104,7 +104,7 @@ the table's column count. */}}
   </div>
 </div>
 {{template "archive_bar" .Archive}}
-<nav class="etabs" aria-label="Engagement">{{range .ETab.Items}}<a{{if eq .Key "board"}} aria-keyshortcuts="B"{{end}} class="etab{{if .Active}} on{{end}}" href="{{.URL}}"{{if .Active}} aria-current="page"{{end}}>{{.Label}}{{if eq .Key "board"}} {{if .Count}}<span class="badge">{{.Count}}</span>{{else}}<span class="badge0">0</span>{{end}}{{end}}</a>{{end}}</nav>
+<nav class="etabs" aria-label="Engagement">{{range .ETab.Items}}<a{{with .Keys}} aria-keyshortcuts="{{.}}"{{end}} class="etab{{if .Active}} on{{end}}" href="{{.URL}}"{{if .Active}} aria-current="page"{{end}}>{{.Label}}{{if eq .Key "board"}} {{if .Count}}<span class="badge">{{.Count}}</span>{{else}}<span class="badge0">0</span>{{end}}{{end}}</a>{{end}}</nav>
 {{end}}
 
 {{define "chart"}}

@@ -405,11 +405,11 @@ func TestNavKeysDeclared(t *testing.T) {
 	if !regexp.MustCompile(`href="/e/acme/findings/new" aria-keyshortcuts="N">New finding<`).MatchString(eng) {
 		t.Error("New finding lacks N")
 	}
-	if !strings.Contains(eng, `<a aria-keyshortcuts="B" class="etab" href="/e/acme/board">`) {
-		t.Errorf("the board tab lacks B:\n%s", between(eng, `<nav class="etabs"`, "</nav>"))
+	if !strings.Contains(eng, `<a aria-keyshortcuts="T B" class="etab" href="/e/acme/board">`) {
+		t.Errorf("the board tab lacks T and B:\n%s", between(eng, `<nav class="etabs"`, "</nav>"))
 	}
-	if n := strings.Count(eng, `aria-keyshortcuts="B"`) + strings.Count(eng, `aria-keyshortcuts="N"`); n != 2 {
-		t.Errorf("B and N on %d links", n)
+	if n := strings.Count(eng, `aria-keyshortcuts="T B"`) + strings.Count(eng, `aria-keyshortcuts="N"`); n != 2 {
+		t.Errorf("T B and N on %d links", n)
 	}
 	if b := e.do(t, "alice", "GET", fpath, nil, nil).Body.String(); !strings.Contains(b, `href="/e/acme/f/001/history" aria-keyshortcuts="Shift+H">History<`) {
 		t.Error("the finding's History lacks Shift+H")
@@ -420,6 +420,43 @@ func TestNavKeysDeclared(t *testing.T) {
 	}
 	if !strings.Contains(string(tpl), `/history" aria-keyshortcuts="Shift+H">History<`) {
 		t.Error("the template's History lacks Shift+H")
+	}
+}
+
+// An engagement's pages: t (or b) Team board, o Overview, r Report, s
+// Settings, e Export; on a page with panels e stays Edit. The ? list has
+// them in an Engagement group, shown where the tabs are.
+func TestEngagementTabKeys(t *testing.T) {
+	e := setup(t)
+	for _, p := range []string{"/e/acme", "/e/acme/overview", "/e/acme/report", "/e/acme/settings", "/e/acme/board"} {
+		b := e.do(t, "alice", "GET", p, nil, nil).Body.String()
+		tabs := between(b, `<nav class="etabs"`, "</nav>")
+		for _, w := range []string{`<a aria-keyshortcuts="T B" class="etab`, `<a aria-keyshortcuts="O" class="etab`, `<a aria-keyshortcuts="R" class="etab`, `<a aria-keyshortcuts="S" class="etab`} {
+			if !strings.Contains(tabs, w) {
+				t.Errorf("%s: tabs lack %s:\n%s", p, w, tabs)
+			}
+		}
+		if !strings.Contains(b, `<a class="btn secondary w128" href="/e/acme/export" aria-keyshortcuts="E">Export</a>`) {
+			t.Errorf("%s: Export lacks E", p)
+		}
+		d := between(b, `data-keys-group="eng"`, "</section>")
+		for _, w := range []string{`<dt><kbd>t</kbd><kbd>b</kbd></dt><dd>Team board</dd>`, `<dt><kbd>o</kbd></dt><dd>Overview</dd>`, `<dt><kbd>r</kbd></dt><dd>Report</dd>`,
+			`<dt><kbd>s</kbd></dt><dd>Settings</dd>`, `data-keys-if="html:not(:has([data-kpanel]))"><dt><kbd>e</kbd></dt><dd>Export</dd>`} {
+			if !strings.Contains(d, w) {
+				t.Errorf("%s: the Engagement group lacks %s:\n%s", p, w, d)
+			}
+		}
+	}
+	// the finding page has no tabs: none of these keys there
+	if b := e.do(t, "alice", "GET", fpath, nil, nil).Body.String(); strings.Contains(b, `aria-keyshortcuts="O"`) || strings.Contains(b, `aria-keyshortcuts="T B"`) {
+		t.Error("tab keys on the finding page")
+	}
+	js := e.do(t, "alice", "GET", "/static/keys.js", nil, nil).Body.String()
+	for _, w := range []string{"if (key === 'E') { if (yarsEdit() || (!document.querySelector('[data-kpanel]') && yarsFire('E'))) evt.preventDefault(); return; }",
+		`show('[data-keys-group="eng"]', document.querySelector('.etabs'));`} {
+		if !strings.Contains(js, w) {
+			t.Errorf("keys.js lacks %s", w)
+		}
 	}
 }
 
@@ -810,7 +847,8 @@ func TestBranchReviewNits(t *testing.T) {
 		}
 	}
 	d := between(e.do(t, "alice", "GET", "/", nil, nil).Body.String(), `id="keys"`, "</dialog>")
-	for _, k := range []string{"I", "F", "B", "N", "E", "Shift+S", "Shift+O", "Shift+A", "Shift+P", "Shift+R", "Shift+W", "Shift+U", "Shift+C", "Shift+H"} {
+	// t b, o, r, s and e are the Engagement group's, shown where the tabs are
+	for _, k := range []string{"I", "F", "N", "E", "Shift+S", "Shift+O", "Shift+A", "Shift+P", "Shift+R", "Shift+W", "Shift+U", "Shift+C", "Shift+H"} {
 		if !strings.Contains(d, `data-keys-for="`+k+`"`) {
 			t.Errorf("the list's %s row is not tied to its key", k)
 		}

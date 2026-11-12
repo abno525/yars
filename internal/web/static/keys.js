@@ -288,6 +288,7 @@ function yarsKeysList() {
   show('[data-keys-group="finding"]', document.querySelector('[data-kpanel]'));
   show('[data-keys-group="lists"]', document.querySelector('[data-nav]'));
   show('[data-keys-group="chat"]', document.getElementById('chat-text'));
+  show('[data-keys-group="eng"]', document.querySelector('.etabs'));
   d.querySelectorAll('[data-keys-for]').forEach(function (row) {
     row.hidden = !document.querySelector('[aria-keyshortcuts~="' + row.getAttribute('data-keys-for') + '"]');
   });
@@ -499,7 +500,8 @@ document.addEventListener('keydown', function (evt) {
   if (yarsNav(key) || yarsListNav(key)) { evt.preventDefault(); return; }
   if (key === '/') { if (yarsSlash()) evt.preventDefault(); return; }
   if (key === '?') { if (yarsKeysList()) evt.preventDefault(); return; }
-  if (key === 'E') { if (yarsEdit()) evt.preventDefault(); return; }
+  // e edits the selected panel; on a page without panels it is Export's
+  if (key === 'E') { if (yarsEdit() || (!document.querySelector('[data-kpanel]') && yarsFire('E'))) evt.preventDefault(); return; }
   if (key === 'Enter') { if (yarsEnter()) evt.preventDefault(); return; }
   if (key === 'C') { if (yarsCommentKey()) evt.preventDefault(); return; }
   if (yarsFire(key) || yarsBulkFire(key)) evt.preventDefault();

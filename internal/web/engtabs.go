@@ -85,12 +85,13 @@ func (s *Server) tabsFor(p *page, tab string) error {
 		if err != nil {
 			return err
 		}
-		p.ETab.Items = append(p.ETab.Items, link{Key: "board", Label: "Team board", URL: base + "/board", Active: tab == "board", Count: n})
+		p.ETab.Items = append(p.ETab.Items, link{Key: "board", Label: "Team board", URL: base + "/board", Active: tab == "board", Count: n, Keys: "T B"})
 	}
-	for _, t := range []struct{ key, label, url string }{
-		{"overview", "Overview", base + "/overview"}, {"report", "Report", base + "/report"}, {"settings", "Settings", base + "/settings"},
+	// the keys open the tabs (keys.js yarsFire); e is Export's, in the head
+	for _, t := range []struct{ key, label, url, keys string }{
+		{"overview", "Overview", base + "/overview", "O"}, {"report", "Report", base + "/report", "R"}, {"settings", "Settings", base + "/settings", "S"},
 	} {
-		p.ETab.Items = append(p.ETab.Items, link{Key: t.key, Label: t.label, URL: t.url, Active: t.key == tab})
+		p.ETab.Items = append(p.ETab.Items, link{Key: t.key, Label: t.label, URL: t.url, Active: t.key == tab, Keys: t.keys})
 	}
 	return nil
 }
