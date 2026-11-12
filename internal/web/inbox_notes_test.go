@@ -125,7 +125,7 @@ func TestInboxNotifications(t *testing.T) {
 	if sec := notesSection(t, e.do(t, "alice", "GET", "/inbox", nil, nil).Body.String()); !strings.Contains(sec, `<span class="qcnt zero">0</span>`) {
 		t.Fatalf("after read all:\n%s", sec)
 	}
-	if got := bell(t, e, "alice"); got != "1" {
+	if got := unread(t, e, "alice"); got != "1" {
 		t.Fatalf("unread after the section's read all: %s", got)
 	}
 	// the notifications page is the inbox's

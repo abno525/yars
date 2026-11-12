@@ -223,18 +223,15 @@ function yarsRowBox() {
   return cb && !cb.disabled ? cb : null;
 }
 // yarsListNav handles the list keys on pages without panels; true when used.
-// ↓ ↑ move as j k do (the page does not scroll instead). x ticks the focused
-// row; Shift+Space ticks the range from the row last clicked to it (app.js
-// yarsRange; bulk lists only). The digits are the state filters' own
-// (aria-keyshortcuts, yarsFire).
+// x ticks the focused row; Shift+Space ticks the range from the row last
+// clicked to it (app.js yarsRange; bulk lists only). The digits are the
+// state filters' own (aria-keyshortcuts, yarsFire); ↓ ↑ are yarsArrowKey's.
 function yarsListNav(key) {
   if (document.querySelector('[data-kpanel]')) return false;
   var cb;
   switch (key) {
   case 'J': return yarsRowStep(1);
   case 'K': return yarsRowStep(-1);
-  case 'ArrowDown': return yarsRowStep(1);
-  case 'ArrowUp': return yarsRowStep(-1);
   case 'X':
     if (!(cb = yarsRowBox())) return false;
     cb.click();
@@ -245,6 +242,18 @@ function yarsListNav(key) {
     return true;
   }
   return false;
+}
+// yarsArrowKey: on the findings and engagements lists ([data-arrows]) ↓ ↑
+// move the row focus as j k do, held down too, and the page does not scroll
+// instead; never in a field, an open menu or under a dialog. True when used.
+function yarsArrowKey(evt, key) {
+  if ((key !== 'ArrowDown' && key !== 'ArrowUp') || !document.querySelector('[data-arrows]')) return false;
+  if (yarsKeysOff() || evt.isComposing || evt.defaultPrevented || document.querySelector('dialog[open]')) return false;
+  var t = evt.target;
+  if ((yarsTyping(t) && !yarsPick(t)) || (t.closest && t.closest('.bmenu, [role=menu]'))) return false;
+  if (!yarsRowStep(key === 'ArrowDown' ? 1 : -1)) return false; // no rows: the page scrolls
+  evt.preventDefault();
+  return true;
 }
 // After Load more (the row tr.more swaps itself for the next rows), focus
 // goes to the first new row: only when it was on Load more and is lost in the
@@ -481,6 +490,7 @@ document.addEventListener('keydown', function (evt) {
     if (row && row.tagName === 'A') row.click();
     return;
   }
+  if (yarsArrowKey(evt, key)) return;
   // single keys and Shift+key: never into a field, during composition, on
   // repeat, under a modal dialog, or with shortcuts off
   if (yarsKeysOff() || evt.isComposing || evt.repeat || evt.altKey || evt.defaultPrevented ||

@@ -16,9 +16,9 @@ import (
 	"yars/internal/workflow"
 )
 
-// bell returns the notifications page's unread count as shown ("0" black,
+// unread returns the notifications page's unread count as shown ("0" black,
 // other numbers orange).
-func bell(t *testing.T, e *env, user string) string {
+func unread(t *testing.T, e *env, user string) string {
 	t.Helper()
 	b := e.do(t, user, "GET", "/notifications", nil, nil).Body.String()
 	m := regexp.MustCompile(`<span class="(qcnt|qcnt zero)">(\d+)</span>\s*<button class="btn secondary w152"[^>]*>Mark all read</button>`).FindStringSubmatch(b)
@@ -47,7 +47,7 @@ func returnToAlice(t *testing.T, e *env) {
 	}
 }
 
-// A token about to expire: the daily run tells its owner once, the bell
+// A token about to expire: the daily run tells its owner once, the unread
 // counts it, the notifications page names the token, and opening the
 // notice leads to the token list, where the token is tagged.
 func TestTokenExpiryNotice(t *testing.T) {
@@ -59,8 +59,8 @@ func TestTokenExpiryNotice(t *testing.T) {
 	}
 	e.srv.daily(d)
 	e.srv.daily(d)
-	if got := bell(t, e, "alice"); got != "1" {
-		t.Fatalf("alice's bell %s", got)
+	if got := unread(t, e, "alice"); got != "1" {
+		t.Fatalf("alice's unread %s", got)
 	}
 	b := e.do(t, "alice", "GET", "/notifications", nil, nil).Body.String()
 	for _, want := range []string{">Token expiring<", `<span class="fid">Token</span> laptop`, "MCP · …abcd · expires " + day(exp), ">yars<"} {
@@ -83,24 +83,24 @@ func TestTokenExpiryNotice(t *testing.T) {
 
 func TestNotificationsFlow(t *testing.T) {
 	e := setup(t)
-	if got := bell(t, e, "alice"); got != "0" {
-		t.Fatalf("bell before %s", got)
+	if got := unread(t, e, "alice"); got != "0" {
+		t.Fatalf("unread before %s", got)
 	}
 	returnToAlice(t, e)
 	// bob was asked to review once: assigned on the draft, asked on submit
-	if got := bell(t, e, "bob"); got != "1" {
-		t.Fatalf("bob's bell %s", got)
+	if got := unread(t, e, "bob"); got != "1" {
+		t.Fatalf("bob's unread %s", got)
 	}
 	// a mention through the web chat
 	rec := e.do(t, "bob", "POST", "/e/acme/f/001/chat", url.Values{"text": {"@alice which roles? @carol"}}, map[string]string{"HX-Request": "true"})
 	if rec.Code >= 300 {
 		t.Fatalf("chat %d %s", rec.Code, rec.Body)
 	}
-	if got := bell(t, e, "alice"); got != "2" {
-		t.Fatalf("alice's bell %s", got)
+	if got := unread(t, e, "alice"); got != "2" {
+		t.Fatalf("alice's unread %s", got)
 	}
-	if got := bell(t, e, "carol"); got != "1" {
-		t.Fatalf("carol's bell %s", got)
+	if got := unread(t, e, "carol"); got != "1" {
+		t.Fatalf("carol's unread %s", got)
 	}
 	b := e.do(t, "alice", "GET", "/notifications", nil, nil).Body.String()
 	for _, want := range []string{"Returned to me", "Mentioned", "add a PoC", "@alice which roles?", "F-001", "<thead>", `<a class="on" href="/inbox"`} {
@@ -125,14 +125,14 @@ func TestNotificationsFlow(t *testing.T) {
 	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/e/acme/f/001" {
 		t.Fatalf("get %d %s", rec.Code, rec.Header().Get("Location"))
 	}
-	if got := bell(t, e, "alice"); got != "2" {
+	if got := unread(t, e, "alice"); got != "2" {
 		t.Fatalf("GET marked read: %s", got)
 	}
 	rec = e.do(t, "alice", "POST", "/notifications/"+id[1], url.Values{}, nil)
 	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/e/acme/f/001" {
 		t.Fatalf("open %d %s", rec.Code, rec.Header().Get("Location"))
 	}
-	if got := bell(t, e, "alice"); got != "1" {
+	if got := unread(t, e, "alice"); got != "1" {
 		t.Fatalf("after open %s", got)
 	}
 	// someone else's notification is not found
@@ -144,7 +144,7 @@ func TestNotificationsFlow(t *testing.T) {
 	if rec := e.do(t, "alice", "POST", "/notifications/read", url.Values{}, nil); rec.Code != http.StatusSeeOther {
 		t.Fatalf("read all %d", rec.Code)
 	}
-	if got := bell(t, e, "alice"); got != "0" {
+	if got := unread(t, e, "alice"); got != "0" {
 		t.Fatalf("after read all %s", got)
 	}
 }
@@ -160,9 +160,9 @@ func TestNotificationsHideUnseenEngagements(t *testing.T) {
 	if !strings.Contains(b, "visible one") || strings.Contains(b, "secret title") {
 		t.Fatal("listed a notification of an engagement alice cannot see")
 	}
-	// the bell doesn't count it either
-	if got := bell(t, e, "alice"); got != "1" {
-		t.Fatalf("bell %s", got)
+	// the unread count leaves it out too
+	if got := unread(t, e, "alice"); got != "1" {
+		t.Fatalf("unread %s", got)
 	}
 	// many newer hidden ones don't push the visible one off the page
 	for range 210 {
@@ -174,12 +174,12 @@ func TestNotificationsHideUnseenEngagements(t *testing.T) {
 }
 
 // Taking alice off the team removes her notifications of that engagement:
-// gone from the bell and the page, and not back when she rejoins.
+// gone from the unread count and the page, and not back when she rejoins.
 func TestNotificationsGoneAfterTeamRemoval(t *testing.T) {
 	e := setup(t)
 	returnToAlice(t, e)
-	if got := bell(t, e, "alice"); got != "1" {
-		t.Fatalf("bell before %s", got)
+	if got := unread(t, e, "alice"); got != "1" {
+		t.Fatalf("unread before %s", got)
 	}
 	st := e.srv.Store
 	dora := config.User{Username: "dora", Role: "director"}
@@ -189,8 +189,8 @@ func TestNotificationsGoneAfterTeamRemoval(t *testing.T) {
 	if err := st.AddMembers("acme", []string{"alice"}, dora); err != nil {
 		t.Fatal(err)
 	}
-	if got := bell(t, e, "alice"); got != "0" {
-		t.Fatalf("bell after removal %s", got)
+	if got := unread(t, e, "alice"); got != "0" {
+		t.Fatalf("unread after removal %s", got)
 	}
 	if b := e.do(t, "alice", "GET", "/notifications", nil, nil).Body.String(); strings.Contains(b, "Returned to me") {
 		t.Fatal("listed after removal")
@@ -215,7 +215,7 @@ func TestNotificationSettingsChannels(t *testing.T) {
 		t.Fatal("saved choice")
 	}
 	returnToAlice(t, e)
-	if got := bell(t, e, "alice"); got != "0" {
+	if got := unread(t, e, "alice"); got != "0" {
 		t.Fatalf("notified against the choice: %s", got)
 	}
 	// with SMTP configured the column is there
@@ -263,8 +263,8 @@ func TestNotificationCheckFinished(t *testing.T) {
 	ref, _ := e.srv.Store.Finding("acme", "001")
 	e.srv.Store.Emit(store.Event{Kind: store.EventCheck, Eng: ref.EngID, Dir: ref.Dir, Fid: ref.F.Meta.ID, Author: ref.F.Meta.Author,
 		Actor: "bob", State: "done", Errors: 1})
-	if got := bell(t, e, "alice"); got != "1" {
-		t.Fatalf("bell %s", got)
+	if got := unread(t, e, "alice"); got != "1" {
+		t.Fatalf("unread %s", got)
 	}
 	if b := e.do(t, "alice", "GET", "/notifications", nil, nil).Body.String(); !strings.Contains(b, "Check finished") || !strings.Contains(b, "1 error · 0 warnings") {
 		t.Fatal("check notification not listed")

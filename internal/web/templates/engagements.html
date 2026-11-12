@@ -7,7 +7,7 @@
 </div>
 <section class="englistsec">
   <nav class="seg small nocap" aria-label="Show">{{range .StatusFilters}}<a{{if .Active}} class="on"{{end}}{{with .Keys}} aria-keyshortcuts="{{.}}"{{end}} href="{{.URL}}">{{.Label}} · {{.Count}}</a>{{end}}</nav>
-  <table class="table englist">
+  <table class="table englist" data-arrows>
     <thead><tr>
       <th>Name</th>
       <th class="col-tag">Type</th>

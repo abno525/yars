@@ -441,20 +441,41 @@ func TestListFilterDigitsAndArrows(t *testing.T) {
 			t.Errorf("engagements filter lacks %s:\n%s", w, home)
 		}
 	}
-	js := e.do(t, "alice", "GET", "/static/keys.js", nil, nil).Body.String()
-	nav := js[strings.Index(js, "function yarsListNav(key)"):]
-	nav = nav[:strings.Index(nav, "\n}\n")]
-	for _, w := range []string{"case 'ArrowDown': return yarsRowStep(1);", "case 'ArrowUp': return yarsRowStep(-1);"} {
-		if !strings.Contains(nav, w) {
-			t.Errorf("yarsListNav lacks %s:\n%s", w, nav)
+	// the arrows are the two lists' only (data-arrows), not History's or
+	// Export's; held down they go on stepping; never in an open menu
+	if !strings.Contains(b, `<table class="table findings" data-arrows>`) {
+		t.Error("the findings table lacks data-arrows")
+	}
+	if !strings.Contains(e.do(t, "alice", "GET", "/", nil, nil).Body.String(), `<table class="table englist" data-arrows>`) {
+		t.Error("the engagements table lacks data-arrows")
+	}
+	for _, f := range []string{"history.html", "export.html", "inbox.html", "notifications.html"} {
+		if src, _ := templateFS.ReadFile("templates/" + f); strings.Contains(string(src), "data-arrows") {
+			t.Errorf("%s takes the arrows", f)
 		}
 	}
-	d := between(e.do(t, "alice", "GET", "/", nil, nil).Body.String(), `data-keys-group="lists"`, "</section>")
-	for _, w := range []string{`<dt><kbd>j</kbd><kbd>k</kbd><kbd>↓</kbd><kbd>↑</kbd></dt><dd>Next or previous row</dd>`,
-		`<div class="krow" data-keys-for="1"><dt><kbd>1</kbd>–<kbd>9</kbd></dt><dd>State filter</dd></div>`} {
-		if !strings.Contains(d, w) {
-			t.Errorf("the Lists group lacks %s:\n%s", w, d)
+	js := e.do(t, "alice", "GET", "/static/keys.js", nil, nil).Body.String()
+	fn := js[strings.Index(js, "function yarsArrowKey(evt, key)"):]
+	fn = fn[:strings.Index(fn, "\n}\n")]
+	for _, w := range []string{"document.querySelector('[data-arrows]')", "t.closest('.bmenu, [role=menu]')", "yarsRowStep(key === 'ArrowDown' ? 1 : -1)", "evt.preventDefault();"} {
+		if !strings.Contains(fn, w) {
+			t.Errorf("yarsArrowKey lacks %s:\n%s", w, fn)
 		}
+	}
+	if strings.Contains(fn, "evt.repeat") {
+		t.Error("a held arrow does not step")
+	}
+	if a, r := strings.Index(js, "if (yarsArrowKey(evt, key)) return;"), strings.Index(js, "evt.isComposing || evt.repeat || evt.altKey"); a < 0 || a > r {
+		t.Error("the arrows are not handled before the repeat check")
+	}
+	page := e.do(t, "alice", "GET", "/", nil, nil).Body.String()
+	if d := between(page, `data-keys-group="lists"`, "</section>"); !strings.Contains(d, `<dt><kbd>j</kbd><kbd>k</kbd><kbd>↓</kbd><kbd>↑</kbd></dt><dd>Next or previous row</dd>`) {
+		t.Errorf("the Lists group lacks the arrows:\n%s", d)
+	}
+	// the digits work on an empty list too, so their row is not in Lists
+	// (hidden without rows)
+	if d := between(page, `<h3 class="gh">Global</h3>`, "</section>"); !strings.Contains(d, `<div class="krow" data-keys-for="1"><dt><kbd>1</kbd>–<kbd>9</kbd></dt><dd>State filter</dd></div>`) {
+		t.Errorf("the Global group lacks the digits:\n%s", d)
 	}
 }
 

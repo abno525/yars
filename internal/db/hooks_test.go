@@ -161,7 +161,8 @@ func TestNotifications(t *testing.T) {
 }
 
 // The inbox's notices: unread only, without the skipped events and
-// engagements, the team filter as the bell's; the total is not capped.
+// engagements, the team filter as the notifications page's; the total is
+// not capped.
 func TestUnreadNotes(t *testing.T) {
 	d := openTest(t)
 	d.AddUser(config.User{Username: "pen", Role: "pentester"})

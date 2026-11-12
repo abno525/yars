@@ -16,7 +16,7 @@
   <form class="fbulkform" hx-post="{{.Bulk.URL}}" hx-target="#findings" hx-swap="outerHTML" hx-disabled-elt="find button">
   {{template "bulkbar" .Bulk}}
   {{end}}
-  <table class="table findings">
+  <table class="table findings" data-arrows>
     <thead><tr>
       {{if .Bulk.On}}<th class="col-pick"><input type="checkbox" data-pick-all aria-label="Select all"></th>{{end}}
       {{range .Columns}}
