@@ -162,9 +162,6 @@ func TestMigrate(t *testing.T) {
 	}
 }
 
-// If the migration commit fails, the working tree is left exactly as it was
-// (a dirty tree would make every push fail), and a re-run finishes the job
-// without duplicating chat.
 // A file the main repository ignored stays out of the engagement's own
 // repository when the migration makes it (its import commit took every
 // file) (backlog, M11).
@@ -181,6 +178,53 @@ func TestMigrateKeepsIgnoredFilesOut(t *testing.T) {
 	tracked, err := gitIn(filepath.Join(dir, "engagements", "acme"), "ls-files")
 	if err != nil || strings.Contains(tracked, "scratch.tmp") || !strings.Contains(tracked, "loose.md") {
 		t.Fatalf("tracked:\n%s", tracked)
+	}
+}
+
+// The import keeps what the main repository tracked even where an ignore
+// rule matches it (an attachment YARS added with -f), takes file names as
+// they are (a leading space, brackets), and leaves out ignored files and
+// folders as patterns that match only them; on the split path and on the
+// fallback (no git subtree) alike (M34 review).
+func TestMigrateImportNames(t *testing.T) {
+	for _, fallback := range []bool{false, true} {
+		dir := legacyRepo(t)
+		os.WriteFile(filepath.Join(dir, ".gitignore"), []byte(".yars/users.yaml\n.yars/tokens.yaml\n*.log\n*.tmp\nnode_modules/\n"), 0o644)
+		fdir := filepath.Join(dir, "engagements", "acme", "findings", "F-001-sqli")
+		os.MkdirAll(filepath.Join(fdir, "attachments"), 0o755)
+		os.WriteFile(filepath.Join(fdir, "attachments", "burp.log"), []byte("request"), 0o644)
+		gitT(t, dir, "add", "-f", "engagements/acme/findings/F-001-sqli/attachments/burp.log")
+		gitT(t, dir, "commit", "-qam", "attachment under an ignore rule")
+		os.WriteFile(filepath.Join(dir, "engagements", "acme", " lead.md"), []byte("leading space"), 0o644)
+		os.WriteFile(filepath.Join(dir, "engagements", "acme", "a[1].tmp"), []byte("ignored"), 0o644)
+		os.WriteFile(filepath.Join(dir, "engagements", "acme", "a1.md"), []byte("not ignored"), 0o644)
+		os.MkdirAll(filepath.Join(dir, "engagements", "acme", "node_modules", "x"), 0o755)
+		os.WriteFile(filepath.Join(dir, "engagements", "acme", "node_modules", "x", "i.js"), []byte("ignored"), 0o644)
+		if fallback {
+			bin := t.TempDir()
+			real, err := exec.LookPath("git")
+			if err != nil {
+				t.Fatal(err)
+			}
+			os.WriteFile(filepath.Join(bin, "git"), []byte("#!/bin/sh\nfor a in \"$@\"; do [ \"$a\" = subtree ] && exit 1; done\nexec "+real+" \"$@\"\n"), 0o755)
+			t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+		}
+		var out bytes.Buffer
+		if err := cmdMigrate([]string{"--data", dir}, &out); err != nil {
+			t.Fatalf("fallback %v: %v\n%s", fallback, err, out.String())
+		}
+		names, _ := gitNames(filepath.Join(dir, "engagements", "acme"), "ls-files", "-z")
+		tracked := "\n" + strings.Join(names, "\n") + "\n"
+		for _, want := range []string{"/burp.log\n", "\n lead.md\n", "\na1.md\n"} {
+			if !strings.Contains(tracked, want) {
+				t.Errorf("fallback %v: %q not tracked:%s", fallback, want, tracked)
+			}
+		}
+		for _, bad := range []string{"a[1].tmp", "node_modules"} {
+			if strings.Contains(tracked, bad) {
+				t.Errorf("fallback %v: %q tracked", fallback, bad)
+			}
+		}
 	}
 }
 
@@ -228,6 +272,9 @@ func TestMigrateSkipsTokenOfMissingUser(t *testing.T) {
 	}
 }
 
+// If the migration commit fails, the working tree is left exactly as it was
+// (a dirty tree would make every push fail), and a re-run finishes the job
+// without duplicating chat.
 func TestMigrateInterrupted(t *testing.T) {
 	dir := legacyRepo(t)
 	hook := filepath.Join(dir, ".git", "hooks", "pre-commit")
