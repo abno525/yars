@@ -51,6 +51,21 @@ func TestExportCLIMarkFailureExits1(t *testing.T) {
 	}
 }
 
+// Named findings leave YARS only when finished, as on the website (R10): a
+// draft named on the command line is refused (found in the M34 triage).
+func TestExportCLINamedDraftRefused(t *testing.T) {
+	dir := exportFixture(t)
+	out := filepath.Join(t.TempDir(), "r.html")
+	var log bytes.Buffer
+	code, err := cmdExport([]string{"--data", dir, "--exporter", "confluence", "--out", out, "acme", "F-001", "F-002"}, &log)
+	if code != 2 || err == nil || err.Error() != "F-002 is draft: only complete and reported findings are exported" {
+		t.Fatalf("code %d err %v", code, err)
+	}
+	if _, err := os.Stat(out); err == nil {
+		t.Fatal("exported anyway")
+	}
+}
+
 // An exporter whose file does not load says why, not "unknown exporter"
 // (backlog, M8).
 func TestExportCLIBrokenExporter(t *testing.T) {

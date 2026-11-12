@@ -191,10 +191,15 @@ func TestExportCLI(t *testing.T) {
 		}
 	}
 	r, _ := gitrepo.Open(dir)
-	st := store.New(r, config.Default(), openDB(t, dir))
+	d := openDB(t, dir)
+	st := store.New(r, config.Default(), d)
 	a := gitrepo.Author{Name: "t", Email: "t@t"}
 	st.CreateEngagement(store.Engagement{ID: "acme", Name: "ACME"}, a)
 	st.CreateFinding("acme", "SQL injection", a)
+	// only finished findings are exported (R10)
+	if err := d.TxFor("acme", func(tx *db.Tx) error { return tx.PutState("acme", "F-001", db.State{Status: "complete"}) }); err != nil {
+		t.Fatal(err)
+	}
 	out := filepath.Join(t.TempDir(), "r.html")
 	var log bytes.Buffer
 	if code, err := cmdExport([]string{"--data", dir, "--exporter", "confluence", "--out", out, "acme", "F-001-sql-injection"}, &log); err != nil || code != 0 {
@@ -207,7 +212,7 @@ func TestExportCLI(t *testing.T) {
 		t.Fatal("unknown exporter accepted")
 	}
 	// a withdrawn finding is never exported, even when named
-	if err := st.Transition("acme", "F-001-sql-injection", workflow.Withdraw, "duplicate", config.User{Username: "t", Role: "pentester"}); err != nil {
+	if err := d.TxFor("acme", func(tx *db.Tx) error { return tx.PutState("acme", "F-001", db.State{Status: workflow.Withdrawn}) }); err != nil {
 		t.Fatal(err)
 	}
 	if code, err := cmdExport([]string{"--data", dir, "--exporter", "confluence", "--out", out, "acme", "F-001-sql-injection"}, &log); code == 0 || err == nil {

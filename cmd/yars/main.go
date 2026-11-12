@@ -150,6 +150,10 @@ func cmdExport(args []string, out io.Writer) (int, error) {
 		} else if err != nil {
 			return 2, err
 		}
+		// only finished findings leave YARS, as on the website (R10)
+		if s := ref.F.Meta.Status; s != "complete" && s != "reported" {
+			return 2, fmt.Errorf("%s is %s: only complete and reported findings are exported", ref.F.Meta.ID, s)
+		}
 		named[ref.Dir] = true
 	}
 	if len(missing) > 0 {
