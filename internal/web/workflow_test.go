@@ -3,6 +3,7 @@ package web
 import (
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 
@@ -417,5 +418,27 @@ func TestReviewersRejectUnknown(t *testing.T) {
 	}
 	if rec := e.do(t, "bob", "POST", fpath+"/reviewers", url.Values{"reviewer": {"carol"}}, nil); rec.Code != http.StatusSeeOther {
 		t.Fatalf("reviewer assign code %d", rec.Code)
+	}
+}
+
+// A disabled account is no reviewer: not in the list, not added by "all",
+// refused when posted or bulk assigned.
+func TestDisabledNotReviewer(t *testing.T) {
+	e := setup(t)
+	e.srv.Store.DB().SetDisabled("carol", true)
+	if b := e.do(t, "alice", "GET", fpath+"/workflow", nil, nil).Body.String(); strings.Contains(b, "carol") {
+		t.Fatal("reviewer list offers a disabled account")
+	}
+	if rec := e.do(t, "alice", "POST", fpath+"/reviewers", url.Values{"reviewer": {"carol"}}, nil); rec.Code != http.StatusBadRequest {
+		t.Fatalf("assigned a disabled account: %d", rec.Code)
+	}
+	e.do(t, "alice", "POST", fpath+"/reviewers", url.Values{"all": {"1"}}, nil)
+	ref, _ := e.srv.Store.Finding("acme", fdir)
+	if slices.Contains(ref.F.Meta.Reviewers, "carol") || !slices.Contains(ref.F.Meta.Reviewers, "bob") {
+		t.Fatalf("all: %v", ref.F.Meta.Reviewers)
+	}
+	e.do(t, "dora", "POST", "/e/acme/bulk", url.Values{"action": {"reviewers"}, "id": {"001"}, "reviewer": {"carol"}}, nil)
+	if ref, _ := e.srv.Store.Finding("acme", fdir); slices.Contains(ref.F.Meta.Reviewers, "carol") {
+		t.Fatalf("bulk added a disabled account: %v", ref.F.Meta.Reviewers)
 	}
 }

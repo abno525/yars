@@ -122,3 +122,30 @@ func TestAdminUsers(t *testing.T) {
 		t.Fatalf("unknown user %d", rec.Code)
 	}
 }
+
+// Admin activity: disabling and enabling an account carry no "on"/"off"
+// detail, which read backwards next to the action.
+func TestAuditDisableEnableDetail(t *testing.T) {
+	e := setup(t)
+	e.do(t, "dora", "POST", "/admin/users/alice/disabled", url.Values{"on": {"1"}}, nil)
+	e.do(t, "dora", "POST", "/admin/users/alice/disabled", url.Values{}, nil)
+	l, _ := e.srv.Store.DB().AuditLog(10)
+	seen := map[string]bool{}
+	for _, a := range l {
+		if a.Action == "user.disable" || a.Action == "user.enable" {
+			seen[a.Action] = true
+			if a.Detail != "" {
+				t.Errorf("%s detail %q", a.Action, a.Detail)
+			}
+		}
+	}
+	if !seen["user.disable"] || !seen["user.enable"] {
+		t.Fatalf("audit %+v", l)
+	}
+	// a row stored the old way reads right on the page too
+	e.srv.Store.DB().Audit("dora", "user.disable", "bob", "on")
+	b := e.do(t, "dora", "GET", "/admin/activity", nil, nil).Body.String()
+	if row := between(b, ">user.disable<", "</tr>"); strings.Contains(row, ">on<") || strings.Contains(row, ">off<") {
+		t.Fatalf("activity row: %s", row)
+	}
+}

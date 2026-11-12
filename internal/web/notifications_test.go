@@ -234,3 +234,23 @@ func TestNotificationCheckFinished(t *testing.T) {
 		t.Fatal("check notification not listed")
 	}
 }
+
+// Notifications show the finding's title as it is now.
+func TestNotificationsCurrentTitle(t *testing.T) {
+	e := setup(t)
+	returnToAlice(t, e)
+	if err := e.srv.Store.UpdateTitle("acme", "F-001-sql-injection", "Blind SQL injection in login", e.authorOf(config.User{Username: "dora", Role: "director"})); err != nil {
+		t.Fatal(err)
+	}
+	b := e.do(t, "alice", "GET", "/notifications", nil, nil).Body.String()
+	if !strings.Contains(b, "Blind SQL injection in login") {
+		t.Fatalf("notifications keep the old title:\n%s", between(b, "<tbody", "</tbody>"))
+	}
+	// a withdrawn finding is left off the board but keeps its current title here
+	if err := e.srv.Store.Transition("acme", "F-001-sql-injection", workflow.Withdraw, "dup", config.User{Username: "alice", Role: "pentester"}); err != nil {
+		t.Fatal(err)
+	}
+	if b := e.do(t, "alice", "GET", "/notifications", nil, nil).Body.String(); !strings.Contains(b, "Blind SQL injection in login") {
+		t.Fatalf("withdrawn finding shows the old title:\n%s", between(b, "<tbody", "</tbody>"))
+	}
+}

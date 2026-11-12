@@ -597,3 +597,142 @@ func TestExportFailureMarksNothing(t *testing.T) {
 		t.Fatalf("history %+v", h)
 	}
 }
+
+// host is the stub's host as its destination names it.
+func (j *jiraStub) host() string {
+	u, _ := url.Parse(strings.Replace(j.srv.URL, "127.0.0.1", "localhost", 1))
+	return u.Host
+}
+
+func (j *jiraStub) lastUser() string {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if len(j.users) == 0 {
+		return ""
+	}
+	return j.users[len(j.users)-1]
+}
+
+// A personal key is kept for one service host and sent only there: another
+// destination of the same service gets the server's key, and a key bound to
+// no host (stored before keys had hosts) is never sent.
+func TestExportKeyBoundToHost(t *testing.T) {
+	e := setupSerial(t)
+	e.toComplete(t)
+	e.exporters(t, fakePandoc)
+	client := e.jira(t, false)
+	if err := os.Rename(filepath.Join(e.srv.Export.Dir, "jira.yaml"), filepath.Join(e.srv.Export.Dir, "client.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	firm := e.jira(t, false)
+	send := func(dest string) {
+		t.Helper()
+		e.follow(t, "dora", e.do(t, "dora", "POST", "/e/acme/export", url.Values{"dest": {dest}, "finding": {fdir}}, nil))
+	}
+	// a key stored for the service alone
+	box, err := e.srv.secrets()
+	if err != nil {
+		t.Fatal(err)
+	}
+	enc, _ := box.Encrypt("alice@acme:legacy")
+	if err := e.srv.Store.DB().SetConnection("alice", "jira", enc); err != nil {
+		t.Fatal(err)
+	}
+	send("jira")
+	if u := firm.lastUser(); u != "bot:srvkey5c2e" {
+		t.Fatalf("unbound key sent: %s", u)
+	}
+	// a key for the firm's Jira
+	svc := "jira@" + firm.host()
+	if rec := e.do(t, "alice", "POST", "/settings/connections", url.Values{"service": {svc}, "key": {"alice@acme:ownkey"}}, nil); rec.Code != http.StatusSeeOther {
+		t.Fatalf("key %d:\n%s", rec.Code, rec.Body.String())
+	}
+	if b := e.do(t, "alice", "GET", "/settings", nil, nil).Body.String(); !strings.Contains(b, `id="conn-`+svc+`"`) || !strings.Contains(b, firm.host()) || !strings.Contains(b, client.host()) {
+		t.Fatalf("settings:\n%s", b)
+	}
+	send("client")
+	if u := client.lastUser(); u != "bot:srvkey5c2e" {
+		t.Fatalf("firm key sent to the client's Jira: %s", u)
+	}
+	send("jira")
+	if u := firm.lastUser(); u != "alice@acme:ownkey" {
+		t.Fatalf("own key not used at its host: %s", u)
+	}
+	// keys only for the hosts of destinations
+	if rec := e.do(t, "alice", "POST", "/settings/connections", url.Values{"service": {"jira@evil.example"}, "key": {"x"}}, nil); rec.Code != http.StatusBadRequest {
+		t.Fatalf("unknown host %d", rec.Code)
+	}
+	// the unbound key can still be removed
+	if rec := e.do(t, "alice", "POST", "/settings/connections/jira/remove", url.Values{}, nil); rec.Code != http.StatusSeeOther {
+		t.Fatalf("remove %d", rec.Code)
+	}
+	if _, ok, _ := e.srv.Store.DB().Connection("alice", "jira"); ok {
+		t.Fatal("unbound key not removed")
+	}
+}
+
+// A failed send is retried once: after its retry the old row offers no
+// Retry and refuses one, so its findings are never sent twice.
+func TestExportRetryOnce(t *testing.T) {
+	e := setupSerial(t)
+	e.toComplete(t)
+	e.exporters(t, fakePandoc)
+	j := e.jira(t, false)
+	j.fail = true
+	e.follow(t, "alice", e.do(t, "alice", "POST", "/e/acme/export", url.Values{"dest": {"jira"}, "finding": {fdir}}, nil))
+	h, _ := e.srv.Store.DB().Exports("acme", 1)
+	first := itoa(h[0].ID)
+	retry := "/e/acme/export/history/" + first + "/retry"
+	j.fail = false
+	e.follow(t, "alice", e.do(t, "alice", "POST", retry, url.Values{}, nil))
+	if rec := e.do(t, "alice", "POST", retry, url.Values{}, nil); rec.Code != http.StatusBadRequest {
+		t.Fatalf("second retry %d", rec.Code)
+	}
+	if strings.Join(j.writes, " ") != "POST" {
+		t.Fatalf("sent again: %v", j.writes)
+	}
+	b := e.do(t, "alice", "GET", "/e/acme/export?sent="+first, nil, nil).Body.String()
+	if strings.Contains(b, `action="`+retry+`"`) || strings.Contains(b, `formaction="`+retry+`"`) {
+		t.Fatalf("old row still retries:\n%s", b)
+	}
+}
+
+// What the team wrote in the Report tab is in the exported report.
+func TestExportIncludesReportTab(t *testing.T) {
+	e := setupSerial(t)
+	e.toComplete(t)
+	e.exporters(t, fakePandoc)
+	if err := e.srv.Store.UpdateReportSection("acme", "Executive summary", "Two **critical** issues.", "", e.authorOf(wAlice)); err != nil {
+		t.Fatal(err)
+	}
+	b := e.do(t, "alice", "GET", "/e/acme/export/preview?finding="+fdir, nil, nil).Body.String()
+	if !strings.Contains(b, "Two <strong>critical</strong> issues.") {
+		t.Fatalf("preview lacks the executive summary:\n%s", b)
+	}
+}
+
+// The export Findings panel has its head before its table (reading and
+// keyboard order), with the ticked count rendered by the server.
+func TestExportPickHeadFirst(t *testing.T) {
+	e := setup(t)
+	b := e.do(t, "dora", "GET", "/e/acme/export", nil, nil).Body.String()
+	panel := between(b, `<section class="panel compact pickpanel">`, "</section>")
+	head, table := strings.Index(panel, `class="panelhead"`), strings.Index(panel, "<table")
+	if head < 0 || table < 0 || head > table {
+		t.Fatalf("pick panel order:\n%s", panel)
+	}
+	if !regexp.MustCompile(`class="mono selof" data-of="\d+">\d+ of \d+</span>`).MatchString(panel) {
+		t.Fatalf("no count in the head:\n%s", panel)
+	}
+	css := e.do(t, "dora", "GET", staticPrefix()+"/style.css", nil, nil).Body.String()
+	if strings.Contains(css, "order: -1") && strings.Contains(between(css, ".pickpanel > .panelhead", "}"), "order") {
+		t.Fatal("the head is still moved by CSS order")
+	}
+	// boxes restored by the browser (reload, back/forward) are recounted
+	js := e.do(t, "dora", "GET", staticPrefix()+"/app.js", nil, nil).Body.String()
+	for _, want := range []string{"addEventListener('DOMContentLoaded', yarsPickCountAll)", "addEventListener('pageshow', yarsPickCountAll)", "addEventListener('htmx:afterSettle', yarsPickCountAll)"} {
+		if !strings.Contains(js, want) {
+			t.Errorf("app.js lacks %s", want)
+		}
+	}
+}

@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -244,5 +245,107 @@ func TestMarkdownNoRawHTML(t *testing.T) {
 	rec := e.do(t, "alice", "GET", "/e/acme/f/F-001-sql-injection", nil, nil)
 	if strings.Contains(rec.Body.String(), "<script>alert(1)") {
 		t.Fatal("raw HTML rendered")
+	}
+}
+
+// The findings board refreshes itself on the engagement's events (a push,
+// an edit, a state change elsewhere) with its filters kept, and brings the
+// progress panel along; it holds off while rows are picked or more loaded.
+func TestFindingsBoardLive(t *testing.T) {
+	e := setup(t)
+	b := e.do(t, "alice", "GET", "/e/acme?sort=title", nil, nil).Body.String()
+	head := between(b, `<div id="findings"`, ">")
+	for _, want := range []string{`data-sse-url="/events?eng=acme"`, `hx-get="/e/acme?sort=title"`, "sse:content", "sse:workflow", "sse:resync", "data-sse"} {
+		if !strings.Contains(head, want) {
+			t.Errorf("findings head lacks %q: %s", want, head)
+		}
+	}
+	rec := e.do(t, "alice", "GET", "/e/acme?sort=title", nil, map[string]string{"HX-Request": "true", "HX-Trigger": "findings"})
+	if body := rec.Body.String(); !strings.Contains(body, `id="findings"`) || !strings.Contains(body, `id="engbars" hx-swap-oob="true"`) {
+		t.Fatalf("live refresh:\n%s", body)
+	}
+	if body := e.do(t, "alice", "GET", "/e/acme?sort=title", nil, map[string]string{"HX-Request": "true"}).Body.String(); strings.Contains(body, "hx-swap-oob") {
+		t.Fatal("a filter click sends the bars out of band")
+	}
+	// the hold-off is in app.js (htmx evaluates no trigger filter)
+	if js := e.do(t, "alice", "GET", staticPrefix()+"/app.js", nil, nil).Body.String(); !strings.Contains(js, "yarsListIdle") || !strings.Contains(js, "htmx:beforeRequest") {
+		t.Fatal("app.js lacks the list's hold-off (yarsListIdle on htmx:beforeRequest)")
+	}
+}
+
+// The editor's attachment strip has a bounded height and scrolls: a finding
+// with thousands of attachments made the editor 327,680 px tall.
+func TestAttachStripBounded(t *testing.T) {
+	e := setup(t)
+	css := e.do(t, "alice", "GET", staticPrefix()+"/style.css", nil, nil).Body.String()
+	rule := between(css, ".attstrip {", "}")
+	if !strings.Contains(rule, "max-height: 440px") || !strings.Contains(rule, "overflow-y: auto") {
+		t.Fatalf(".attstrip rule: %s", rule)
+	}
+}
+
+// The page keeps room for a scrollbar, so the top bar and right-aligned
+// buttons stay put between short and long pages.
+func TestRootScrollbarGutter(t *testing.T) {
+	e := setup(t)
+	css := e.do(t, "alice", "GET", staticPrefix()+"/style.css", nil, nil).Body.String()
+	if rule := between(css, "\nhtml {", "}"); !strings.Contains(rule, "scrollbar-gutter: stable") {
+		t.Fatalf("html rule: %q", rule)
+	}
+}
+
+// A failed login keeps the username (never the password) and focuses the
+// password field.
+func TestLoginKeepsUsername(t *testing.T) {
+	e := setup(t)
+	rec := e.do(t, "", "POST", "/login", url.Values{"username": {"alice"}, "password": {"wrong-secret"}}, nil)
+	b := rec.Body.String()
+	if rec.Code != http.StatusUnauthorized || !strings.Contains(b, `name="username" value="alice"`) || strings.Contains(b, "wrong-secret") {
+		t.Fatalf("%d:\n%s", rec.Code, b)
+	}
+	if !regexp.MustCompile(`name="password"[^>]*autofocus`).MatchString(b) || regexp.MustCompile(`name="username"[^>]*autofocus`).MatchString(b) {
+		t.Fatalf("focus:\n%s", b)
+	}
+	if b := e.do(t, "", "GET", "/login", nil, nil).Body.String(); !regexp.MustCompile(`name="username" value=""[^>]*autofocus`).MatchString(b) {
+		t.Fatalf("empty login form:\n%s", b)
+	}
+}
+
+// A finding's tab and its history's tab name the finding; the site has a
+// favicon (no 404 on every first load).
+func TestTabTitlesAndFavicon(t *testing.T) {
+	e := setup(t)
+	for p, want := range map[string]string{
+		"/e/acme/f/001":         "<title>F-001 SQL injection · YARS</title>",
+		"/e/acme/f/001/history": "<title>F-001 history · YARS</title>",
+	} {
+		if b := e.do(t, "alice", "GET", p, nil, nil).Body.String(); !strings.Contains(b, want) {
+			t.Errorf("%s: no %s", p, want)
+		}
+	}
+	b := e.do(t, "alice", "GET", "/e/acme/f/001", nil, nil).Body.String()
+	if !strings.Contains(b, `<link rel="icon" type="image/svg+xml" href="`+staticPrefix()+`/favicon.svg">`) {
+		t.Error("no icon link")
+	}
+	if rec := e.do(t, "alice", "GET", staticPrefix()+"/favicon.svg", nil, nil); rec.Code != 200 || !strings.Contains(rec.Body.String(), "<svg") {
+		t.Errorf("favicon.svg %d", rec.Code)
+	}
+	if rec := e.do(t, "", "GET", "/favicon.ico", nil, nil); rec.Code != http.StatusMovedPermanently || rec.Header().Get("Location") != staticPrefix()+"/favicon.svg" {
+		t.Errorf("favicon.ico %d %q", rec.Code, rec.Header().Get("Location"))
+	}
+}
+
+// A finding ID (F-001, as MCP, chat and reports name it) opens the finding
+// like its number or folder does.
+func TestFindingByID(t *testing.T) {
+	e := setup(t)
+	for _, p := range []string{"/e/acme/f/F-001", "/e/acme/f/F-1", "/e/acme/f/F-001/history"} {
+		rec := e.do(t, "alice", "GET", p, nil, nil)
+		if rec.Code != 200 || !strings.Contains(rec.Body.String(), "SQL injection") {
+			t.Errorf("%s: %d", p, rec.Code)
+		}
+	}
+	if rec := e.do(t, "alice", "GET", "/e/acme/f/F-099", nil, nil); rec.Code != 404 {
+		t.Errorf("unknown ID: %d", rec.Code)
 	}
 }

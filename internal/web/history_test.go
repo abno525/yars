@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"yars/internal/config"
 	"yars/internal/gitrepo"
 	"yars/internal/store"
 	"yars/internal/workflow"
@@ -117,5 +118,28 @@ func TestHistoryCachedPerHead(t *testing.T) {
 	n = gitrepo.Spawned()
 	if b := e.do(t, "alice", "GET", fshort+"/history", nil, nil).Body.String(); gitrepo.Spawned() == n || !strings.Contains(b, "edited Impact") {
 		t.Fatalf("new commit not read:\n%s", b)
+	}
+}
+
+// History names the front matter part a version changed: a title edit is
+// "edited the title", not "edited details".
+func TestHistoryNamesFrontMatterPart(t *testing.T) {
+	e := setup(t)
+	st := e.srv.Store
+	alice := e.authorOf(config.User{Username: "alice", Role: "pentester"})
+	if err := st.UpdateTitle("acme", "F-001-sql-injection", "Blind SQL injection", alice); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.UpdateSeverity("acme", "F-001-sql-injection", "high", "", alice); err != nil {
+		t.Fatal(err)
+	}
+	b := e.do(t, "alice", "GET", "/e/acme/f/001/history", nil, nil).Body.String()
+	for _, want := range []string{"edited the title", "edited severity"} {
+		if !strings.Contains(b, want) {
+			t.Errorf("history lacks %q", want)
+		}
+	}
+	if strings.Contains(b, "edited details") {
+		t.Error("a title or severity edit labelled \"edited details\"")
 	}
 }

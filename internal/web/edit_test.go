@@ -5,10 +5,14 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
+	"yars/internal/config"
 	"yars/internal/gitrepo"
+	"yars/internal/store"
 )
 
 func TestCreateFindingFlow(t *testing.T) {
@@ -149,5 +153,125 @@ func TestPreview(t *testing.T) {
 	rec := e.do(t, "alice", "POST", "/e/acme/preview", url.Values{"body": {"# Hi\n<script>x</script>"}}, nil)
 	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "<h1") || strings.Contains(rec.Body.String(), "<script>") {
 		t.Fatalf("code %d body %s", rec.Code, rec.Body.String())
+	}
+}
+
+// /engagements/new puts the ticked people and the creator on the team, so a
+// director without the admin flag doesn't make an engagement nobody sees.
+func TestNewEngagementTeam(t *testing.T) {
+	e := setup(t)
+	b := e.do(t, "dora", "GET", "/engagements/new", nil, nil).Body.String()
+	for _, n := range []string{"alice", "bob", "carol"} {
+		if !strings.Contains(b, `name="member" value="`+n+`"`) {
+			t.Fatalf("no checkbox for %s:\n%s", n, b)
+		}
+	}
+	form := url.Values{"id": {"beta"}, "name": {"Beta"}, "member": {"alice", "bob", "nobody"}}
+	if rec := e.do(t, "dora", "POST", "/engagements/new", form, nil); rec.Code != http.StatusSeeOther {
+		t.Fatalf("create %d %s", rec.Code, rec.Body.String())
+	}
+	got, err := e.srv.Store.Members("beta")
+	if err != nil {
+		t.Fatal(err)
+	}
+	slices.Sort(got)
+	if strings.Join(got, ",") != "alice,bob,dora" {
+		t.Fatalf("team %v", got)
+	}
+	if rec := e.do(t, "alice", "GET", "/e/beta", nil, nil); rec.Code != http.StatusOK {
+		t.Fatalf("team member can't open it: %d", rec.Code)
+	}
+	if rec := e.do(t, "carol", "GET", "/e/beta", nil, nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("non-member opens it: %d", rec.Code)
+	}
+}
+
+// Searching the picker keeps the picked template when it still matches,
+// else picks the first match, and the preview always follows the pick.
+func TestTemplateSearchKeepsPreviewInStep(t *testing.T) {
+	e := setup(t)
+	e.addTemplate(t, "missing-hsts", "Missing HSTS header")
+	e.addTemplate(t, "verbose-errors", "Verbose error pages")
+	hx := map[string]string{"HX-Request": "true"}
+	b := e.do(t, "alice", "GET", "/e/acme/findings/new", nil, nil).Body.String()
+	if !strings.Contains(b, `hx-include="#tpllist input[name=template]:checked"`) {
+		t.Fatalf("search does not send the pick:\n%s", b)
+	}
+	// the pick still matches: kept
+	frag := e.do(t, "alice", "GET", "/e/acme/findings/new/templates?q=e&template=verbose-errors", nil, hx).Body.String()
+	if !strings.Contains(frag, `value="verbose-errors" checked`) || strings.Contains(frag, `value="missing-hsts" checked`) ||
+		!strings.Contains(frag, `id="tplpreview" hx-swap-oob="true"`) || !strings.Contains(frag, "Verbose error pages.") {
+		t.Fatalf("kept pick:\n%s", frag)
+	}
+	// the pick is filtered out: the first match is picked and previewed
+	frag = e.do(t, "alice", "GET", "/e/acme/findings/new/templates?q=hsts&template=verbose-errors", nil, hx).Body.String()
+	if !strings.Contains(frag, `value="missing-hsts" checked`) || strings.Contains(frag, "Verbose error pages.") || !strings.Contains(frag, "Missing HSTS header.") {
+		t.Fatalf("first match:\n%s", frag)
+	}
+	// nothing matches: the preview empties
+	frag = e.do(t, "alice", "GET", "/e/acme/findings/new/templates?q=zzz&template=verbose-errors", nil, hx).Body.String()
+	if !strings.Contains(frag, `id="tplpreview" hx-swap-oob="true"`) || strings.Contains(frag, "Verbose error pages.") || strings.Contains(frag, "<h3>") {
+		t.Fatalf("no match:\n%s", frag)
+	}
+	// Template without a pick is refused, not made blank
+	rec := e.do(t, "alice", "POST", "/e/acme/findings/new", url.Values{"title": {"x"}, "mode": {"template"}, "q": {"zzz"}}, nil)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("no pick %d", rec.Code)
+	}
+	if _, err := e.srv.Store.Finding("acme", "2"); err == nil {
+		t.Fatal("finding made without a template")
+	}
+}
+
+// R6 (Q6): on the website the author can still edit a finding in
+// Verification (git refuses it: TestPolicyEditDuringReview).
+func TestAuthorEditsInVerificationOnWebsite(t *testing.T) {
+	e := setup(t)
+	e.toVerification(t)
+	rec := e.do(t, "alice", "POST", fpath+"/s/Impact", url.Values{"body": {"Fixed what the reviewer asked."}}, nil)
+	if rec.Code != 200 || e.lastCommit(t) != "alice|F-001: edit Impact" {
+		t.Fatalf("author's edit in verification: %d %q\n%s", rec.Code, e.lastCommit(t), rec.Body.String())
+	}
+}
+
+// The conflict view shows each side against the text both started from:
+// the base line removed, each side's own line added.
+func TestConflictDiffAgainstBase(t *testing.T) {
+	e := setup(t)
+	st := e.srv.Store
+	alice := config.User{Username: "alice", Role: "pentester"}
+	if err := st.UpdateSection("acme", "F-001-sql-injection", "Impact", "base line", "", alice); err != nil {
+		t.Fatal(err)
+	}
+	ref, _ := st.Finding("acme", "F-001-sql-injection")
+	body, _ := ref.F.Section("Impact")
+	base := store.BodyHash(body)
+	if err := st.UpdateSection("acme", "F-001-sql-injection", "Impact", "their line", "", alice); err != nil {
+		t.Fatal(err)
+	}
+	rec := e.do(t, "alice", "POST", "/e/acme/f/F-001-sql-injection/s/Impact", url.Values{"body": {"my line"}, "base": {base}}, nil)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("code %d", rec.Code)
+	}
+	diff := between(rec.Body.String(), `class="cdiff`, "</section>")
+	cols := strings.SplitN(diff, `class="ccol"`, 3)
+	if len(cols) != 3 {
+		t.Fatalf("diff:\n%s", diff)
+	}
+	for i, want := range []string{"my line", "their line"} {
+		col := cols[i+1]
+		if !regexp.MustCompile(`class="ln del">.*?base line`).MatchString(col) || !regexp.MustCompile(`class="ln add">.*?`+want).MatchString(col) {
+			t.Errorf("column %d lacks the base removed and %q added:\n%s", i, want, col)
+		}
+	}
+}
+
+// A title made only of bidi controls is empty once cleaned: the form says
+// so (400 with the form), not a bare error from the store.
+func TestNewFindingBidiOnlyTitle(t *testing.T) {
+	e := setup(t)
+	rec := e.do(t, "alice", "POST", "/e/acme/findings/new", url.Values{"title": {"\u202e\u2066"}}, nil)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "Title is required.") {
+		t.Fatalf("%d:\n%s", rec.Code, rec.Body)
 	}
 }
