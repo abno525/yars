@@ -478,6 +478,10 @@ func (ix *Index) apply(c store.Change) {
 	ix.gen++
 }
 
+// resultOrder is the retest results as the board lists them; none sorts
+// after them.
+var resultOrder = []string{"fixed", "partially_fixed", "not_fixed"}
+
 func rank(order []string, v string) int {
 	for i, x := range order {
 		if strings.EqualFold(x, v) {
@@ -677,7 +681,7 @@ func (ix *Index) Rows(q Query) ([]Row, error) {
 		case "chat":
 			return cmp.Compare(a.OpenThreads, b.OpenThreads)
 		case "result":
-			return strings.Compare(a.RetestResult, b.RetestResult)
+			return rank(resultOrder, a.RetestResult) - rank(resultOrder, b.RetestResult)
 		}
 		return strings.Compare(a.Dir, b.Dir)
 	}

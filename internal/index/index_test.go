@@ -364,6 +364,39 @@ func TestSortIDDesc(t *testing.T) {
 	}
 }
 
+// Retest results sort in the board's order (fixed, partially fixed, not
+// fixed, then none), not alphabetically (backlog, M7).
+func TestSortResultOrder(t *testing.T) {
+	ix, s := fixture(t)
+	dora := config.User{Username: "dora", Role: "director"}
+	refs, _ := s.ListFindings("acme")
+	var dirs []string
+	for _, r := range refs {
+		dirs = append(dirs, r.Dir)
+	}
+	if err := s.CreateRetest(store.Engagement{ID: "rt", Name: "RT"}, "acme", dirs, "", dora); err != nil {
+		t.Fatal(err)
+	}
+	rts, _ := s.ListFindings("rt")
+	result := map[string]string{"A": "not_fixed", "B": "partially_fixed", "C": "fixed"}
+	for _, r := range rts {
+		if err := s.SetRetestResult("rt", r.Dir, result[r.F.Meta.Title], dora); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if f, err := s.CreateFinding("rt", "D", alice); err != nil || f.Dir == "" {
+		t.Fatal(err)
+	}
+	rows, _ := ix.Rows(Query{EngID: "rt", Sort: "result"})
+	if titles(rows) != "C,B,A,D" {
+		t.Fatalf("got %q", titles(rows))
+	}
+	rows, _ = ix.Rows(Query{EngID: "rt", Sort: "result", Desc: true})
+	if titles(rows) != "D,A,B,C" {
+		t.Fatalf("desc got %q", titles(rows))
+	}
+}
+
 func TestSortSeverityOrder(t *testing.T) {
 	ix, _ := fixture(t)
 	rows, _ := ix.Rows(Query{EngID: "acme", Sort: "severity"})
