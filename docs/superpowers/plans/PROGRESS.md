@@ -95,4 +95,5 @@ M27 branch  reviewed fixes 0a3c0a5 (the author's revert over MCP; inbox row in i
 M27 PR      opened   #21
 M28 task 1  done     bdac2ae..0ce9144 (nine moves; store.go 268 lines; the 1190 test names unchanged)
 M28 task 2  done     914487f..01aa7d1 (three moves; checks.go 61 lines; test names unchanged)
+M28 task 3  done     874ca24..d8e8d03 (one commit per package: web, store, mcp, export, rules, yars; the fifteen files gone; the 1190 test names unchanged)
 ```
