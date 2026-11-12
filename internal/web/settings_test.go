@@ -258,11 +258,11 @@ func TestAccountPagesStyled(t *testing.T) {
 	}
 }
 
-// The theme can also be chosen on the settings page, "system" included.
+// The theme is chosen on the settings page, "system" included.
 func TestSettingsTheme(t *testing.T) {
 	e := setup(t)
-	e.do(t, "alice", "POST", "/settings/theme", url.Values{"theme": {"dark"}}, nil)
-	if rec := e.do(t, "alice", "POST", "/settings/theme", url.Values{"theme": {"system"}}, nil); rec.Code != http.StatusNoContent {
+	e.do(t, "alice", "POST", "/settings/prefs", url.Values{"theme": {"dark"}}, nil)
+	if rec := e.do(t, "alice", "POST", "/settings/prefs", url.Values{"theme": {"system"}}, nil); rec.Code != http.StatusSeeOther {
 		t.Fatalf("system %d", rec.Code)
 	}
 	if u, _ := e.srv.Auth.Lookup("alice"); u.Theme != "" {

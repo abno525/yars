@@ -246,6 +246,7 @@ func TestWithdrawRightMost(t *testing.T) {
 	e.toVerification(t)
 	check("verification", "dora", []string{"return", "clear", "approve", "withdraw"})
 	check("verification", "bob", []string{"return", "clear"})
+	check("verification", "alice", []string{"withdraw"}) // the author: no empty slots before it
 	e = setup(t)
 	e.toComplete(t)
 	check("complete", "dora", []string{"reopen", "report", "withdraw"})

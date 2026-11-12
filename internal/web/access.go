@@ -3,11 +3,9 @@ package web
 import (
 	"net/http"
 	"net/url"
-	"slices"
 	"strings"
 
 	"yars/internal/auth"
-	"yars/internal/db"
 	"yars/internal/store"
 )
 
@@ -38,22 +36,4 @@ func (s *Server) teamGate(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
-}
-
-// saveTheme stores the theme toggle's choice for the user (the browser
-// applies it at once; this makes it follow the account).
-func (s *Server) saveTheme(w http.ResponseWriter, r *http.Request) {
-	u := auth.UserFrom(r.Context())
-	t := r.FormValue("theme")
-	if t == "system" {
-		t = "" // follow the system again
-	} else if t == "" || !slices.Contains(db.Themes, t) {
-		http.Error(w, "theme must be light, dark or system", http.StatusBadRequest)
-		return
-	}
-	if err := s.Store.DB().SetTheme(u.Username, t); err != nil {
-		s.fail(w, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
 }

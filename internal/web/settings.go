@@ -76,7 +76,6 @@ func (s *Server) routesSettings(mux *http.ServeMux) {
 	mux.HandleFunc("GET /settings", s.settingsPage)
 	mux.HandleFunc("POST /settings/account", s.settingsAccount)
 	mux.HandleFunc("POST /settings/password", s.settingsPassword)
-	mux.HandleFunc("POST /settings/theme", s.saveTheme)
 	mux.HandleFunc("POST /settings/prefs", s.settingsPrefs)
 	mux.HandleFunc("GET /settings/tokens/new", s.tokenNewPage)
 	mux.HandleFunc("POST /settings/tokens/new", s.tokenCreate)

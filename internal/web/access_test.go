@@ -174,23 +174,30 @@ func TestAdminFlag(t *testing.T) {
 	}
 }
 
-// The theme toggle stores the choice; the server's value is on <html>.
+// The theme is chosen in Settings › Preferences; the server's value is on
+// <html>. The top bar's toggle and its endpoint are gone.
 func TestThemeSaved(t *testing.T) {
 	e := setup(t)
 	if b := e.do(t, "alice", "GET", "/", nil, nil).Body.String(); strings.Contains(b, `<html lang="en" data-theme=`) {
 		t.Fatal("theme set before any choice")
 	}
-	if rec := e.do(t, "alice", "POST", "/settings/theme", url.Values{"theme": {"dark"}}, nil); rec.Code != http.StatusNoContent {
+	if rec := e.do(t, "alice", "POST", "/settings/prefs", url.Values{"theme": {"dark"}}, nil); rec.Code != http.StatusSeeOther {
 		t.Fatalf("save: %d", rec.Code)
 	}
 	if b := e.do(t, "alice", "GET", "/", nil, nil).Body.String(); !strings.Contains(b, `<html lang="en" data-theme="dark"`) {
 		t.Fatalf("theme not applied:\n%.400s", b)
 	}
-	if rec := e.do(t, "alice", "POST", "/settings/theme", url.Values{"theme": {"pink"}}, nil); rec.Code != http.StatusBadRequest {
+	if rec := e.do(t, "alice", "POST", "/settings/prefs", url.Values{"theme": {"pink"}}, nil); rec.Code != http.StatusBadRequest {
 		t.Fatalf("bad theme: %d", rec.Code)
 	}
-	if rec := e.do(t, "", "POST", "/settings/theme", url.Values{"theme": {"dark"}}, nil); rec.Code != http.StatusSeeOther {
-		t.Fatalf("logged out: %d", rec.Code)
+	if rec := e.do(t, "", "POST", "/settings/prefs", url.Values{"theme": {"dark"}}, nil); rec.Code != http.StatusSeeOther || !strings.HasPrefix(rec.Header().Get("Location"), "/login") {
+		t.Fatalf("logged out: %d %s", rec.Code, rec.Header().Get("Location"))
+	}
+	if rec := e.do(t, "alice", "POST", "/settings/theme", url.Values{"theme": {"light"}}, nil); rec.Code != http.StatusNotFound && rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("the old theme endpoint answers: %d", rec.Code)
+	}
+	if u, _ := e.srv.Auth.Lookup("alice"); u.Theme != "dark" {
+		t.Fatalf("theme changed by the old endpoint: %q", u.Theme)
 	}
 	if b := e.do(t, "", "GET", "/login", nil, nil).Body.String(); strings.Contains(b, "data-theme-save") {
 		t.Fatal("login page saves the theme")
