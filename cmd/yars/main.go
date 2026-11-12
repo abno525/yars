@@ -318,7 +318,7 @@ func cmdToken(args []string, out io.Writer) (int, error) {
 			return 2, fmt.Errorf("usage: yars token %s --data <dir> [flags] <user>", args[0])
 		}
 		user := fs.Arg(0)
-		if _, ok, _ := d.User(user); !ok && args[0] == "add" {
+		if _, ok, _ := d.User(user); !ok { // a typo in revoke must not look like success
 			return 1, fmt.Errorf("unknown user %s", user)
 		}
 		if args[0] == "revoke" {

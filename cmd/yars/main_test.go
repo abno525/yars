@@ -125,6 +125,25 @@ func TestTokenCommandScopes(t *testing.T) {
 	}
 }
 
+// Revoking the tokens of an account that does not exist is an error (a
+// typo would otherwise look like success), and writes no audit entry
+// (backlog, M9).
+func TestTokenRevokeUnknownUser(t *testing.T) {
+	dir := t.TempDir()
+	if err := cmdInit([]string{dir}); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	for _, args := range [][]string{{"revoke", "--data", dir, "bobb"}, {"revoke", "--data", dir, "--id", "7", "bobb"}} {
+		if code, err := cmdToken(args, &out); code != 1 || err == nil || err.Error() != "unknown user bobb" {
+			t.Errorf("%v: code %d err %v", args, code, err)
+		}
+	}
+	if log, _ := openDB(t, dir).AuditLog(10); len(log) != 0 {
+		t.Fatalf("audit %+v", log)
+	}
+}
+
 func openDB(t *testing.T, dir string) *db.DB {
 	t.Helper()
 	d, err := db.Open(db.Path(dir))
