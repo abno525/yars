@@ -55,7 +55,7 @@ func TestAmbiguousIDRefused(t *testing.T) {
 func TestUnknownStatusListsValid(t *testing.T) {
 	f := newFx(t)
 	text, isErr := f.call(alice, "list_findings", map[string]any{"engagement": "acme", "status": "open"})
-	if !isErr || !strings.Contains(text, `"open"`) || !strings.Contains(text, "draft, verification, complete, reported, withdrawn") {
+	if text = message(t, text); !isErr || !strings.Contains(text, `"open"`) || !strings.Contains(text, "draft, verification, complete, reported, withdrawn") {
 		t.Fatalf("%s", text)
 	}
 	f.ok(alice, "list_findings", map[string]any{"engagement": "acme", "status": "draft"})
@@ -64,7 +64,7 @@ func TestUnknownStatusListsValid(t *testing.T) {
 func TestUnknownSeverityListsValid(t *testing.T) {
 	f := newFx(t)
 	text, isErr := f.call(alice, "list_findings", map[string]any{"engagement": "acme", "severity": "severe"})
-	if !isErr || !strings.Contains(text, `"severe"`) || !strings.Contains(text, "critical, high, medium, low, info") {
+	if text = message(t, text); !isErr || !strings.Contains(text, `"severe"`) || !strings.Contains(text, "critical, high, medium, low, info") {
 		t.Fatalf("%s", text)
 	}
 	f.ok(alice, "list_findings", map[string]any{"engagement": "acme", "severity": "high"})

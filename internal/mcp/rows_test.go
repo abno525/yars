@@ -47,8 +47,8 @@ func TestMCPReasonAfterVectorEdit(t *testing.T) {
 	}
 	json.Unmarshal([]byte(f.ok(alice, "read_finding", map[string]any{"engagement": "acme", "finding": "F-001"})), &rd)
 	out := f.ok(alice, "set_field", args("cvss", "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:N", rd.CVSSBase))
-	_, nb, _ := strings.Cut(out, "new base ")
-	if nb == "" {
+	nb, _ := object(t, "set_field", out)["base"].(string)
+	if _, inMsg, _ := strings.Cut(message(t, out), "new base "); nb == "" || inMsg != nb {
 		t.Fatalf("no new base in %q", out)
 	}
 	f.ok(alice, "set_field", args("cvss_reason.AC", "needs a race", nb))
@@ -94,7 +94,7 @@ func TestMCPRowEditsOneAfterAnother(t *testing.T) {
 		t.Fatalf("stale row: %v %s", isErr, text)
 	}
 	// with the base the first edit returned: fine
-	_, nb, _ := strings.Cut(first, "new base ")
+	nb, _ := object(t, "set_field", first)["base"].(string)
 	if nb == "" {
 		t.Fatalf("no new base in %q", first)
 	}

@@ -136,17 +136,19 @@ func (s *Server) Handle(ctx context.Context, u config.User, msg []byte) []byte {
 		if !ok {
 			return reply(req.ID, nil, &rpcErr{-32602, "unknown tool " + p.Name})
 		}
-		msg := t.badType(args(p.Arguments))
-		if msg == "" {
-			msg = s.gate(ctx, u, t, args(p.Arguments))
+		var text string
+		var err error
+		if msg := t.badType(args(p.Arguments)); msg != "" {
+			err = refuse("invalid", msg)
+		} else {
+			err = s.gate(ctx, u, t, args(p.Arguments))
 		}
-		if msg != "" {
-			return reply(req.ID, map[string]any{"content": []map[string]any{{"type": "text", "text": msg}}, "isError": true}, nil)
+		if err == nil {
+			text, err = t.run(s, ctx, u, args(p.Arguments))
 		}
-		text, err := t.run(s, ctx, u, args(p.Arguments))
 		res := map[string]any{"content": []map[string]any{{"type": "text", "text": text}}}
 		if err != nil {
-			res["content"] = []map[string]any{{"type": "text", "text": explain(err)}}
+			res["content"] = []map[string]any{{"type": "text", "text": fail(err)}}
 			res["isError"] = true
 		}
 		return reply(req.ID, res, nil)
@@ -156,21 +158,21 @@ func (s *Server) Handle(ctx context.Context, u config.User, msg []byte) []byte {
 
 // gate checks a tool call before it runs: the API token's scope and
 // engagements (over HTTP), and that u is on the engagement's team. It
-// returns the refusal, or "".
-func (s *Server) gate(ctx context.Context, u config.User, t tool, a args) string {
+// returns the refusal, or nil.
+func (s *Server) gate(ctx context.Context, u config.User, t tool, a args) error {
 	eng := a.str("engagement")
 	if tk, ok := tokenFrom(ctx); ok {
 		if act := actionOf(t, a); !tk.Allows(act) {
-			return "not allowed: this token may not " + actionLabel[act]
+			return refuse("not_allowed", "not allowed: this token may not "+actionLabel[act])
 		}
 		if eng != "" && !tk.AllowsEng(eng) {
-			return "not allowed: this token is not valid for engagement " + eng
+			return refuse("not_allowed", "not allowed: this token is not valid for engagement "+eng)
 		}
 	}
 	if eng != "" && !s.Store.CanSee(u, eng) {
-		return "not found" // as for an engagement that doesn't exist
+		return refuse("not_found", "not found") // as for an engagement that doesn't exist
 	}
-	return ""
+	return nil
 }
 
 // maxLine is the longest stdio message read; a longer one is a parse error

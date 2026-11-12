@@ -57,9 +57,9 @@ Findings can be referred to by ID (`F-001`, also `f-1` or `1`) or directory name
 
 ## Errors
 
-Tool errors come back as a result with `isError: true` and one text item:
+Every answer is one JSON object: `{"ok": true, …}` on success (a list: `{"ok": true, "items": […], "next": ""}`; a plain outcome: `{"ok": true, "message": "updated Impact"}`). A refusal comes back as a result with `isError: true` and the text `{"ok": false, "code": "<code>", "message": "<what to do>"}`; the code is one of `not_found`, `not_allowed`, `conflict`, `invalid`, `archived`, `busy`, `no_database`. Some messages:
 
-| Text | Cause |
+| Message | Cause |
 |---|---|
 | `missing argument "finding"` | A required parameter is empty |
 | `not found` | Unknown engagement or finding, or one you are not on the team of |

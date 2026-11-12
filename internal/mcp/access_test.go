@@ -37,9 +37,7 @@ func engIDs(t *testing.T, out string) string {
 		ID       string `json:"id"`
 		Archived bool   `json:"archived"`
 	}
-	if err := json.Unmarshal([]byte(out), &es); err != nil {
-		t.Fatal(out, err)
-	}
+	itemsOf(t, out, &es)
 	var ids []string
 	for _, e := range es {
 		id := e.ID
@@ -62,7 +60,7 @@ func TestMCPTeamVisibility(t *testing.T) {
 	}
 	for _, tool := range []string{"list_findings", "create_finding", "read_finding"} {
 		out, isErr := f.call(alice, tool, map[string]any{"engagement": "beta", "finding": "F-001", "title": "x"})
-		if !isErr || out != "not found" {
+		if !isErr || message(t, out) != "not found" {
 			t.Errorf("%s on another team's engagement: %s", tool, out)
 		}
 	}

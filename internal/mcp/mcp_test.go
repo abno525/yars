@@ -527,9 +527,7 @@ func TestMCPLintMarksDismissed(t *testing.T) {
 		t.Fatal(err)
 	}
 	var vs []map[string]any
-	if err := json.Unmarshal([]byte(f.ok(alice, "lint_finding", map[string]any{"engagement": "acme", "finding": "F-001"})), &vs); err != nil {
-		t.Fatal(err)
-	}
+	itemsOf(t, f.ok(alice, "lint_finding", map[string]any{"engagement": "acme", "finding": "F-001"}), &vs)
 	if len(vs) != 2 {
 		t.Fatalf("got %+v", vs)
 	}

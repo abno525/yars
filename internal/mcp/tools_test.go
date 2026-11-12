@@ -23,8 +23,8 @@ func TestMCPTemplates(t *testing.T) {
 		Title string `json:"title"`
 		Uses  int    `json:"uses"`
 	}
-	if err := json.Unmarshal([]byte(out), &ts); err != nil || len(ts) != 1 || ts[0].Slug != "sqli" || ts[0].Title != "SQL injection" {
-		t.Fatalf("%s %v", out, err)
+	if itemsOf(t, out, &ts); len(ts) != 1 || ts[0].Slug != "sqli" || ts[0].Title != "SQL injection" {
+		t.Fatalf("%s", out)
 	}
 	out = f.ok(alice, "create_finding", map[string]any{"engagement": "acme", "title": "SQLi in search", "template": "sqli"})
 	var c struct{ ID, Dir string }
@@ -36,10 +36,10 @@ func TestMCPTemplates(t *testing.T) {
 	if body, _ := ref.F.Section("Impact"); !strings.Contains(body, "Attackers read every row.") || ref.F.Meta.Author != "alice" {
 		t.Fatalf("not from the template: %q", body)
 	}
-	if out, isErr := f.call(alice, "create_finding", map[string]any{"engagement": "acme", "title": "x", "template": "nope"}); !isErr || !strings.HasPrefix(out, `unknown template "nope"`) {
+	if out, isErr := f.call(alice, "create_finding", map[string]any{"engagement": "acme", "title": "x", "template": "nope"}); !isErr || !strings.HasPrefix(message(t, out), `unknown template "nope"`) {
 		t.Fatalf("unknown template: %s", out)
 	}
-	if n := f.ok(alice, "list_templates", nil); !strings.Contains(n, `"uses": 1`) {
+	if n := f.ok(alice, "list_templates", nil); !strings.Contains(n, `"uses":1`) {
 		t.Fatalf("uses %s", n)
 	}
 }
@@ -93,7 +93,7 @@ func TestMCPChecks(t *testing.T) {
 	if out, isErr := f.callTok(alice, read, "start_check", a); !isErr || !strings.Contains(out, "token") {
 		t.Fatalf("start_check with a read token: %s", out)
 	}
-	if out := f.ok(alice, "get_check_results", a); !strings.Contains(out, `"has_run": false`) {
+	if out := f.ok(alice, "get_check_results", a); !strings.Contains(out, `"has_run":false`) {
 		t.Fatalf("before %s", out)
 	}
 	out := f.ok(alice, "start_check", a)
@@ -135,7 +135,7 @@ func TestMCPNotifications(t *testing.T) {
 	id, _ := d.AddNotification(db.Notification{User: "bob", Event: "review", Eng: "acme", Fid: "F-001"})
 	d.MarkRead("bob", id)
 	out := f.ok(alice, "list_notifications", nil)
-	if !strings.Contains(out, "add a PoC") || !strings.Contains(out, `"event": "mentioned"`) || strings.Contains(out, `"review"`) || strings.Contains(out, "off the team") {
+	if !strings.Contains(out, "add a PoC") || !strings.Contains(out, `"event":"mentioned"`) || strings.Contains(out, `"review"`) || strings.Contains(out, "off the team") {
 		t.Fatalf("%s", out)
 	}
 	// a token limited to acme sees only acme's
@@ -143,8 +143,10 @@ func TestMCPNotifications(t *testing.T) {
 	if out, _ := f.callTok(alice, only, "list_notifications", nil); strings.Contains(out, "beta") || !strings.Contains(out, "acme") {
 		t.Fatalf("token engagements %s", out)
 	}
-	if out := f.ok(bob, "list_notifications", map[string]any{"unread": true}); out != "[]" {
-		t.Fatalf("unread %s", out)
+	var unread []any
+	itemsOf(t, f.ok(bob, "list_notifications", map[string]any{"unread": true}), &unread)
+	if len(unread) != 0 {
+		t.Fatalf("unread %v", unread)
 	}
 }
 
@@ -289,7 +291,7 @@ func TestMCPArgumentTypes(t *testing.T) {
 		{"update_section", map[string]any{"engagement": "acme", "finding": "F-001", "section": "Impact"}, `missing argument "body"`},
 		{"set_field", map[string]any{"engagement": "acme", "finding": "F-001", "field": "reviewers"}, `missing argument "value"`},
 	} {
-		if out, isErr := f.call(alice, c.tool, c.args); !isErr || out != c.want {
+		if out, isErr := f.call(alice, c.tool, c.args); !isErr || message(t, out) != c.want {
 			t.Errorf("%s %v: %v %q, want %q", c.tool, c.args, isErr, out, c.want)
 		}
 	}
@@ -352,7 +354,7 @@ func TestMCPNotificationsCurrentTitle(t *testing.T) {
 	f.s.Store.DB().AddUser(alice)
 	f.s.Store.DB().AddNotification(db.Notification{User: "alice", Event: "mentioned", Eng: "acme", Fid: "F-001", Title: "old name", Actor: "bob"})
 	out := f.ok(alice, "list_notifications", map[string]any{})
-	if !strings.Contains(out, `"title": "SQL injection"`) || strings.Contains(out, "old name") {
+	if !strings.Contains(out, `"title":"SQL injection"`) || strings.Contains(out, "old name") {
 		t.Fatalf("notifications:\n%s", out)
 	}
 }
@@ -363,11 +365,11 @@ func TestMCPUnknownTemplate(t *testing.T) {
 	f := newFx(t)
 	for _, slug := range []string{"nope", "../../etc"} {
 		out, isErr := f.call(alice, "create_finding", map[string]any{"engagement": "acme", "title": "x", "template": slug})
-		if want := `unknown template "` + slug + `"; see list_templates`; !isErr || out != want {
+		if want := `unknown template "` + slug + `"; see list_templates`; !isErr || message(t, out) != want {
 			t.Errorf("%s: %v %q, want %q", slug, isErr, out, want)
 		}
 	}
-	if out, _ := f.call(alice, "create_finding", map[string]any{"engagement": "nope", "title": "x", "template": "nope"}); out != "not found" {
+	if out, _ := f.call(alice, "create_finding", map[string]any{"engagement": "nope", "title": "x", "template": "nope"}); message(t, out) != "not found" {
 		t.Errorf("unknown engagement: %q", out)
 	}
 }

@@ -168,15 +168,13 @@ var (
 	pFinding = param{"finding", "finding ID (F-001) or directory name (F-001-sql-injection)"}
 )
 
-func asJSON(v any) (string, error) {
-	b, err := json.MarshalIndent(v, "", "  ")
-	return string(b), err
-}
-
 // explain turns store/workflow errors into messages for the assistant.
 func explain(err error) string {
 	var d *workflow.Denied
+	var r refusal
 	switch {
+	case errors.As(err, &r):
+		return r.msg
 	case errors.As(err, &d):
 		return "not allowed: " + d.Reason
 	case errors.Is(err, store.ErrConflict):
@@ -302,7 +300,7 @@ var tools = []tool{
 				}
 				out = append(out, eng{e.ID, e.Name, e.Client, e.Type, e.Source, e.Archived})
 			}
-			return asJSON(out)
+			return list(out, "")
 		}},
 	{name: "list_findings", desc: "List the findings of an engagement, optionally filtered by status or severity.",
 		required: []param{pEng}, optional: []param{{"status", "one of draft, verification, complete, reported, withdrawn (withdrawn findings are listed only with this filter)"}, {"severity", "one of the configured severities (by default critical, high, medium, low, info)"}},
@@ -341,7 +339,7 @@ var tools = []tool{
 			for _, r := range rows {
 				out = append(out, row{r.ID, r.Dir, r.Title, r.Status, r.Severity, r.Score, r.Author, r.Reviewers, r.OpenThreads, r.RetestResult})
 			}
-			return asJSON(out)
+			return list(out, "")
 		}},
 	{name: "read_finding", desc: "Read one finding: its workflow state (status, reviewers, clearances, return reason, retest), the raw finding.md content (YAML front matter + ## sections; workflow state is not in the file), section names with base hashes for safe edits, open chat threads and style-rule violations.",
 		required: []param{pEng, pFinding},
@@ -420,7 +418,7 @@ var tools = []tool{
 			if s.Rules != nil {
 				out.Violations = append(out.Violations, s.Rules.Lint(ctx, ref.F, rules.Fast)...)
 			}
-			return asJSON(out)
+			return ok(out)
 		}},
 	{name: "list_templates", desc: "List the finding templates (.yars/templates): slug, title, severity and how many findings were made from each. Pass a slug to create_finding as template.",
 		run: func(s *Server, ctx context.Context, u config.User, a args) (string, error) {
@@ -444,7 +442,7 @@ var tools = []tool{
 				m := t.F.Meta
 				out = append(out, tpl{t.Slug, m.Title, m.Severity, m.CVSS, uses[t.Slug]})
 			}
-			return asJSON(out)
+			return list(out, "")
 		}},
 	{name: "create_finding", action: "create", desc: "Create a new draft finding in an engagement, empty or from a template (its sections, severity, CVSS and details).",
 		required: []param{pEng, {"title", "finding title"}}, optional: []param{{"template", "template slug from list_templates"}},
@@ -467,7 +465,10 @@ var tools = []tool{
 			if err != nil {
 				return "", err
 			}
-			return asJSON(map[string]string{"id": ref.F.Meta.ID, "dir": ref.Dir})
+			return ok(struct {
+				ID  string `json:"id"`
+				Dir string `json:"dir"`
+			}{ref.F.Meta.ID, ref.Dir})
 		}},
 	{name: "update_section", action: "edit", desc: "Replace the Markdown body of one ## section. Pass base (from read_finding) to refuse the edit if the section changed since you read it. Use ### or deeper headings inside the body.",
 		required: []param{pEng, pFinding, {"section", "section name, e.g. Impact"}, {"body", "new Markdown body"}},
@@ -493,7 +494,7 @@ var tools = []tool{
 			if err := s.Store.UpdateSection(ref.EngID, ref.Dir, a.str("section"), a.str("body"), a.str("base"), u); err != nil {
 				return "", err
 			}
-			return "updated " + a.str("section"), nil
+			return okMsg("updated " + a.str("section"))
 		}},
 	{name: "set_field", action: "edit", desc: "Set a field: title, severity (no CVSS vector), cvss (vector or empty to clear), cvss_reason.<METRIC> (explanation for a non-standard value, e.g. cvss_reason.AC), details.<Row> (details table, e.g. details.Location), reviewers (comma-separated usernames; replaces the whole list, so a reviewer who is not the author or a director must include the current names and cannot add themselves), retest_result (fixed | not_fixed | partially_fixed), assets (the whole affected-asset list as JSON: [{\"host\":\"app.example\",\"url\":\"https://app.example/x\",\"port\":\"443\",\"note\":\"…\"}], [] to clear). Use transition for status.",
 		required: []param{pEng, pFinding, {"field", "field name"}, {"value", "new value"}},
@@ -527,7 +528,7 @@ var tools = []tool{
 				return "", err
 			}
 			_, to := workflow.Target(act)
-			return string(act) + " done; status is now " + to, nil
+			return okMsg(string(act) + " done; status is now " + to)
 		}},
 	{name: "add_chat_message", action: "comment", serverOnly: true, desc: "Post a message in the finding's chat, optionally about a section or as a reply to a thread. @name mentions notify that person.",
 		required: []param{pEng, pFinding, {"text", "Markdown message"}},
@@ -541,7 +542,9 @@ var tools = []tool{
 			if err != nil {
 				return "", err
 			}
-			return asJSON(map[string]string{"id": m.ID})
+			return ok(struct {
+				ID string `json:"id"`
+			}{m.ID})
 		}},
 	{name: "resolve_thread", action: "comment", serverOnly: true, desc: "Mark a chat thread as resolved.",
 		required: []param{pEng, pFinding, {"thread", "thread ID"}},
@@ -556,7 +559,7 @@ var tools = []tool{
 			if _, err := s.Store.PostChat(ref.EngID, ref.Dir, chat.Message{Resolves: a.str("thread")}, u); err != nil {
 				return "", err
 			}
-			return "resolved", nil
+			return okMsg("resolved")
 		}},
 	{name: "lint_finding", desc: "Check a finding against the team's style rules (regex and built-in checks; with all=true also script and AI rules). Violations a reviewer dismissed are marked dismissed and do not block submit or approve.",
 		required: []param{pEng, pFinding}, boolArgs: []param{{"all", "also run script and AI rules (slower)"}},
@@ -566,7 +569,11 @@ var tools = []tool{
 				return "", err
 			}
 			if s.Rules == nil {
-				return "[] (no rules configured)", nil
+				return ok(struct {
+					Items   []any  `json:"items"`
+					Next    string `json:"next"`
+					Message string `json:"message"`
+				}{[]any{}, "", "no rules configured"})
 			}
 			kinds := rules.Fast
 			if all, _ := a["all"].(bool); all {
@@ -591,7 +598,7 @@ var tools = []tool{
 				}
 				out = append(out, m)
 			}
-			return asJSON(out)
+			return list(out, "")
 		}},
 	{name: "start_check", action: "checks", serverOnly: true, desc: "Start a stored check run of every rule (fast, script and AI) on a finding, as the Check button does. It runs in the background; each new violation is posted as a chat comment. Read the outcome with get_check_results.",
 		required: []param{pEng, pFinding},
@@ -604,7 +611,12 @@ var tools = []tool{
 			if err != nil {
 				return "", err
 			}
-			return asJSON(map[string]any{"run_id": run.ID, "state": run.State, "done": run.Done, "total": run.Total})
+			return ok(struct {
+				RunID int64  `json:"run_id"`
+				State string `json:"state"`
+				Done  int    `json:"done"`
+				Total int    `json:"total"`
+			}{run.ID, run.State, run.Done, run.Total})
 		}},
 	{name: "get_check_results", serverOnly: true, desc: "The finding's latest check run: state (running, done, failed), progress, whether the finding changed since (stale), and its results with dismissals.",
 		required: []param{pEng, pFinding},
@@ -648,7 +660,7 @@ var tools = []tool{
 				_, dis := db.Lookup(st.Dismissed, x.Rule, x.Target, x.Quote)
 				out.Results = append(out.Results, result{x.Rule, x.Level, x.Message, x.Target, x.Quote, x.Thread, dis})
 			}
-			return asJSON(out)
+			return ok(out)
 		}},
 	{name: "list_notifications", serverOnly: true, desc: "Your notifications, newest first (at most 50): returned to you, review requested, replies, approvals, mentions, finished checks.",
 		boolArgs: []param{{"unread", "only unread ones"}},
@@ -682,7 +694,7 @@ var tools = []tool{
 				}
 				out = append(out, note{n.ID, n.Event, n.Eng, n.Fid, n.Dir, title(n.Eng, n.Fid, n.Title), n.Actor, n.Text, n.TS, n.Read})
 			}
-			return asJSON(out)
+			return list(out, "")
 		}},
 }
 
@@ -795,7 +807,7 @@ func setField(s *Server, ctx context.Context, u config.User, a args) (string, er
 		if err == nil {
 			// a reason's base covers its metric's value: the vector's edit
 			// changes them, so the answer carries every CVSS row's base
-			return "set cvss; new base " + rowsToken(cvssBases(nb), "cvss"), nil
+			return okBase("set cvss", rowsToken(cvssBases(nb), "cvss"))
 		}
 	case strings.HasPrefix(field, "cvss_reason."):
 		key := strings.ToUpper(strings.TrimPrefix(field, "cvss_reason."))
@@ -809,7 +821,7 @@ func setField(s *Server, ctx context.Context, u config.User, a args) (string, er
 		var nb map[string]string
 		nb, err = st.UpdateCVSSRows(eng, dir, cvssChange(base, "cvss_reason."+key, key, nil, map[string]string{key: value}), u)
 		if err == nil {
-			return "set cvss_reason." + key + "; new base " + nb[key], nil
+			return okBase("set cvss_reason."+key, nb[key])
 		}
 	case strings.HasPrefix(field, "details."):
 		row := strings.TrimPrefix(field, "details.")
@@ -824,7 +836,7 @@ func setField(s *Server, ctx context.Context, u config.User, a args) (string, er
 			nb, err = st.UpdateDetailsRows(eng, dir, map[string]string{row: value}, map[string]string{row: rb}, u)
 		}
 		if err == nil {
-			return "set " + field + "; new base " + nb[row], nil
+			return okBase("set "+field, nb[row])
 		}
 	case field == "reviewers":
 		var names []string
@@ -858,5 +870,14 @@ func setField(s *Server, ctx context.Context, u config.User, a args) (string, er
 	if err != nil {
 		return "", err
 	}
-	return "set " + field, nil
+	return okMsg("set " + field)
+}
+
+// okBase answers a set_field that gives a row's new base: the sentence of
+// before ("set cvss; new base …") and the base on its own.
+func okBase(what, base string) (string, error) {
+	return ok(struct {
+		Message string `json:"message"`
+		Base    string `json:"base"`
+	}{what + "; new base " + base, base})
 }
