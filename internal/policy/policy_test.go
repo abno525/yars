@@ -775,6 +775,23 @@ func TestPolicyDirectorEditCarriesApproval(t *testing.T) {
 	}
 }
 
+// The carry is recorded when the state cannot be read too: moving it is a
+// no-op unless the finding was approved for the old content, and leaving it
+// out would drop an approval without a word (M34 review).
+func TestPolicyCarryWhenStateUnreadable(t *testing.T) {
+	f := newFx(t)
+	f.reclone()
+	if _, err := f.st.DB().Exec("ALTER TABLE finding_state RENAME TO finding_state_away"); err != nil {
+		t.Fatal(err)
+	}
+	f.push("dora", func(d string) {
+		editMeta(d, func(fd *finding.Finding) { fd.SetSection("Impact", "director polish") })
+	})
+	if len(f.c.Carry) != 1 || f.c.Carry[0].Fid != "F-001" {
+		t.Fatalf("carry %+v", f.c.Carry)
+	}
+}
+
 func chatMsg(text string) chat.Message { return chat.Message{Text: text} }
 
 // short is the 7-hex name of rev in dir.

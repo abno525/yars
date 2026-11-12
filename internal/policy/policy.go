@@ -412,6 +412,9 @@ func (c *Checker) checkRules(old, new string) []string {
 			status = c.status(c.Eng, f.Meta.ID, ob)
 		}
 		f.Meta.Status = status
+		if status == unreadable {
+			f.Meta.Status = "complete" // rules see a known status: the strictest
+		}
 		var dismissed map[string]db.Dismissal
 		if c.DB != nil {
 			if dismissed, err = c.DB.Dismissals(c.Eng, f.Meta.ID); err != nil {
@@ -467,7 +470,8 @@ func (c *Checker) carry(u config.User, old, new string) {
 		if err1 != nil || err2 != nil || err3 != nil {
 			continue
 		}
-		if st := c.status(c.Eng, of.Meta.ID, ob); st == "complete" || st == "reported" {
+		// unreadable too: the carry moves an approval only where there was one
+		if st := c.status(c.Eng, of.Meta.ID, ob); st == "complete" || st == "reported" || st == unreadable {
 			c.Carry = append(c.Carry, Carry{c.Eng, of.Meta.ID, store.ContentHash(ob), store.ContentHash(nb)})
 		}
 	}
