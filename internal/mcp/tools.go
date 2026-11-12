@@ -275,6 +275,7 @@ func (s *Server) ref(a args) (store.FindingRef, error) {
 
 var tools = []tool{
 	{name: "list_engagements", desc: "List the engagements you work on (pentests and retests). Archived engagements are read only.",
+		optional: []param{pLimit, pCursor},
 		run: func(s *Server, ctx context.Context, u config.User, a args) (string, error) {
 			es, err := s.Store.ListEngagements()
 			if err != nil {
@@ -300,10 +301,11 @@ var tools = []tool{
 				}
 				out = append(out, eng{e.ID, e.Name, e.Client, e.Type, e.Source, e.Archived})
 			}
-			return list(out, "")
+			return listPage(a, out)
 		}},
-	{name: "list_findings", desc: "List the findings of an engagement, optionally filtered by status or severity.",
-		required: []param{pEng}, optional: []param{{"status", "one of draft, verification, complete, reported, withdrawn (withdrawn findings are listed only with this filter)"}, {"severity", "one of the configured severities (by default critical, high, medium, low, info)"}},
+	{name: "list_findings", desc: "List the findings of an engagement, optionally filtered by status or severity or searched (q), most severe first, a page at a time.",
+		required: []param{pEng}, optional: []param{{"status", "one of draft, verification, complete, reported, withdrawn (withdrawn findings are listed only with this filter)"}, {"severity", "one of the configured severities (by default critical, high, medium, low, info)"},
+			{"q", "search: the findings whose ID, title or an asset's host or URL holds this text, in any case"}, pLimit, pCursor},
 		run: func(s *Server, ctx context.Context, u config.User, a args) (string, error) {
 			if err := a.need("engagement"); err != nil {
 				return "", err
@@ -319,7 +321,7 @@ var tools = []tool{
 			if _, err := s.Store.Engagement(a.str("engagement")); err != nil {
 				return "", err
 			}
-			rows, err := s.Index.Rows(index.Query{EngID: a.str("engagement"), Status: a.str("status"), Severity: a.str("severity"), Sort: "severity"})
+			rows, err := s.Index.Rows(index.Query{EngID: a.str("engagement"), Status: a.str("status"), Severity: a.str("severity"), Text: strings.TrimSpace(a.str("q")), Sort: "severity"})
 			if err != nil {
 				return "", err
 			}
@@ -339,7 +341,7 @@ var tools = []tool{
 			for _, r := range rows {
 				out = append(out, row{r.ID, r.Dir, r.Title, r.Status, r.Severity, r.Score, r.Author, r.Reviewers, r.OpenThreads, r.RetestResult})
 			}
-			return list(out, "")
+			return listPage(a, out)
 		}},
 	{name: "read_finding", desc: "Read one finding: its workflow state (status, reviewers, clearances, return reason, retest), the raw finding.md content (YAML front matter + ## sections; workflow state is not in the file), section names with base hashes for safe edits, open chat threads and style-rule violations.",
 		required: []param{pEng, pFinding},
@@ -421,6 +423,7 @@ var tools = []tool{
 			return ok(out)
 		}},
 	{name: "list_templates", desc: "List the finding templates (.yars/templates): slug, title, severity and how many findings were made from each. Pass a slug to create_finding as template.",
+		optional: []param{pLimit, pCursor},
 		run: func(s *Server, ctx context.Context, u config.User, a args) (string, error) {
 			ts, err := s.Store.Templates()
 			if err != nil {
@@ -442,7 +445,7 @@ var tools = []tool{
 				m := t.F.Meta
 				out = append(out, tpl{t.Slug, m.Title, m.Severity, m.CVSS, uses[t.Slug]})
 			}
-			return list(out, "")
+			return listPage(a, out)
 		}},
 	{name: "create_finding", action: "create", desc: "Create a new draft finding in an engagement, empty or from a template (its sections, severity, CVSS and details).",
 		required: []param{pEng, {"title", "finding title"}}, optional: []param{{"template", "template slug from list_templates"}},
@@ -662,11 +665,11 @@ var tools = []tool{
 			}
 			return ok(out)
 		}},
-	{name: "list_notifications", serverOnly: true, desc: "Your notifications, newest first (at most 50): returned to you, review requested, replies, approvals, mentions, finished checks.",
-		boolArgs: []param{{"unread", "only unread ones"}},
+	{name: "list_notifications", serverOnly: true, desc: "Your notifications, newest first, a page at a time: returned to you, review requested, replies, approvals, mentions, finished checks.",
+		optional: []param{pLimit, pCursor}, boolArgs: []param{{"unread", "only unread ones"}},
 		run: func(s *Server, ctx context.Context, u config.User, a args) (string, error) {
 			unread, _ := a["unread"].(bool)
-			l, err := s.Store.Notifications(u, unread, 50)
+			l, err := s.Store.Notifications(u, unread, maxNotes)
 			if err != nil {
 				return "", err
 			}
@@ -694,9 +697,13 @@ var tools = []tool{
 				}
 				out = append(out, note{n.ID, n.Event, n.Eng, n.Fid, n.Dir, title(n.Eng, n.Fid, n.Title), n.Actor, n.Text, n.TS, n.Read})
 			}
-			return list(out, "")
+			return listPage(a, out)
 		}},
 }
+
+// maxNotes is how many of a user's newest notifications list_notifications
+// pages through (the retention prune keeps far fewer).
+const maxNotes = 5000
 
 var toolByName = func() map[string]tool {
 	m := map[string]tool{}

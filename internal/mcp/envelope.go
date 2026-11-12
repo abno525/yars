@@ -3,6 +3,8 @@ package mcp
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strconv"
 
 	"yars/internal/store"
 	"yars/internal/workflow"
@@ -44,6 +46,57 @@ func list[T any](items []T, next string) (string, error) {
 		Items []T    `json:"items"`
 		Next  string `json:"next"`
 	}{items, next})
+}
+
+// Paging of the list tools: limit (default 50, at most 200) and cursor (the
+// next of the previous answer: an offset, as text).
+const (
+	defaultLimit = 50
+	maxLimit     = 200
+)
+
+var (
+	pLimit  = param{"limit", "how many to return, 1 to 200 (default 50)"}
+	pCursor = param{"cursor", "the next of the previous answer, to read on from there"}
+)
+
+// page cuts items to the caller's limit and cursor and returns the next
+// cursor ("" at the end). A limit outside 1–200 or a cursor that is not a
+// whole number from 0 is invalid; a cursor past the end gives an empty page.
+func page[T any](a args, items []T) (out []T, next string, err error) {
+	limit := defaultLimit
+	if s := a.str("limit"); s != "" {
+		n, err := strconv.Atoi(s)
+		if err != nil || n < 1 || n > maxLimit {
+			return nil, "", refuse("invalid", fmt.Sprintf("limit must be a whole number from 1 to %d", maxLimit))
+		}
+		limit = n
+	}
+	off := 0
+	if s := a.str("cursor"); s != "" {
+		n, err := strconv.Atoi(s)
+		if err != nil || n < 0 {
+			return nil, "", refuse("invalid", "cursor must be the next of an earlier answer (a whole number from 0)")
+		}
+		off = n
+	}
+	if off >= len(items) {
+		return []T{}, "", nil
+	}
+	end := min(off+limit, len(items))
+	if end < len(items) {
+		next = strconv.Itoa(end)
+	}
+	return items[off:end], next, nil
+}
+
+// listPage renders the page of items a asks for.
+func listPage[T any](a args, items []T) (string, error) {
+	out, next, err := page(a, items)
+	if err != nil {
+		return "", err
+	}
+	return list(out, next)
 }
 
 // refusal is an error a tool or the gate made with its code.

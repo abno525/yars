@@ -40,7 +40,7 @@ A clone holds **content only**. Workflow state (status, reviewers, clearances), 
 | Tool | Token action | Runs on | What it does |
 |---|---|---|---|
 | `list_engagements` | read | local + server | The engagements you work on (pentests and retests); archived ones are read only |
-| `list_findings` | read | local + server | Findings of an engagement; filter by status or severity |
+| `list_findings` | read | local + server | Findings of an engagement, most severe first; filter by status or severity, search with `q` (ID, title, an asset's host or URL) |
 | `read_finding` | read | local + server | Workflow state, the raw `finding.md`, section base hashes, assets, open chat threads, rule violations |
 | `list_templates` | read | local + server | Finding templates (`.yars/templates`) with how often each was used |
 | `create_finding` | create | local + server | New draft in an engagement; `template` starts it from a template |
@@ -52,6 +52,8 @@ A clone holds **content only**. Workflow state (status, reviewers, clearances), 
 | `start_check` | checks | server only | Start a stored check run (every rule); results arrive as chat comments |
 | `get_check_results` | read | server only | The latest check run: state, progress, results, whether it is stale |
 | `list_notifications` | read | server only | Your notifications (newest first); `unread: true` for unread ones only |
+
+The list tools (`list_engagements`, `list_findings`, `list_templates`, `list_notifications`) answer a page at a time: `limit` (1 to 200, default 50) and `cursor` (the `next` of the previous answer; empty `next` means the end).
 
 Findings can be referred to by ID (`F-001`, also `f-1` or `1`) or directory name (`F-001-sql-injection`); an ID that two folders share is refused, and the folder name is needed. A token restricted to some engagements sees and changes only those; a write to an archived engagement is refused.
 
