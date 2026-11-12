@@ -12,8 +12,10 @@ import (
 	"encoding/json"
 	"io"
 	"slices"
+	"sync"
 
 	"yars/internal/config"
+	"yars/internal/history"
 	"yars/internal/index"
 	"yars/internal/rules"
 	"yars/internal/store"
@@ -27,6 +29,9 @@ type Server struct {
 	// Users lists accounts for reviewer validation (nil in stdio mode,
 	// where the server-side push policy validates instead).
 	Users func() []config.User
+
+	histOnce sync.Once
+	hist     *history.Cache // list_history, per engagement HEAD
 }
 
 // conf is the current configuration: the store's, which Admin › Structure

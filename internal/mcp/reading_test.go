@@ -10,6 +10,9 @@ import (
 	"yars/internal/chat"
 	"yars/internal/config"
 	"yars/internal/db"
+	"yars/internal/gitrepo"
+	"yars/internal/index"
+	"yars/internal/store"
 	"yars/internal/workflow"
 )
 
@@ -126,31 +129,112 @@ func stateFx(t *testing.T, state string) *fx {
 	return f
 }
 
+// cloneOf is a server on f's folder without the database (yars mcp on a
+// clone).
+func cloneOf(t *testing.T, f *fx) *fx {
+	t.Helper()
+	r, err := gitrepo.Open(f.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := store.New(r, config.Default(), nil)
+	return &fx{t: t, dir: f.dir, s: &Server{Store: st, Index: index.New(st, r), Cfg: config.Default()}}
+}
+
+// matchMode is how a state is looked at: as it is, with style rules (an
+// error on the title, a warning on Impact; Require Check on), archived,
+// through a token, or on a clone.
+type matchMode struct {
+	name string
+	prep func(t *testing.T, f *fx) *fx
+	tok  *db.TokenInfo
+}
+
+var matchModes = []matchMode{
+	{name: "plain", prep: func(_ *testing.T, f *fx) *fx { return f }},
+	{name: "rules", prep: func(t *testing.T, f *fx) *fx { withRules(t, f); return f }},
+	{name: "archived", prep: func(t *testing.T, f *fx) *fx {
+		if err := f.s.Store.Archive("acme", dora); err != nil {
+			t.Fatal(err)
+		}
+		return f
+	}},
+	{name: "read token", prep: func(_ *testing.T, f *fx) *fx { return f }, tok: &db.TokenInfo{Kind: db.TokenMCP, Scopes: []string{db.ScopeRead}}},
+	{name: "status token", prep: func(_ *testing.T, f *fx) *fx { return f }, tok: &db.TokenInfo{Kind: db.TokenMCP, Scopes: []string{"status"}}},
+	{name: "clone", prep: cloneOf},
+}
+
 // Review focus 3: each action read_finding lists as enabled goes through
 // transition; each one listed as disabled is refused with its reason.
 func TestAllowedActionsMatchTransition(t *testing.T) {
-	for _, state := range []string{"draft", "ready", "verification", "cleared", "complete", "reported", "withdrawn"} {
-		for _, u := range []config.User{alice, pen2, bob, dora} {
-			var rd struct {
-				Allowed []workflow.Allowed `json:"allowed_actions"`
-			}
-			json.Unmarshal([]byte(stateFx(t, state).ok(u, "read_finding", map[string]any{"engagement": "acme", "finding": "F-001"})), &rd)
-			if len(rd.Allowed) == 0 {
-				t.Fatalf("%s/%s: no actions", state, u.Username)
-			}
-			for _, al := range rd.Allowed {
-				f := stateFx(t, state)
-				text, isErr := f.call(u, "transition", map[string]any{"engagement": "acme", "finding": "F-001", "action": al.Action, "reason": "because"})
-				switch {
-				case al.Enabled && isErr:
-					t.Errorf("%s/%s %s listed enabled, refused: %s", state, u.Username, al.Action, text)
-				case !al.Enabled && !isErr:
-					t.Errorf("%s/%s %s listed disabled (%s), done", state, u.Username, al.Action, al.Reason)
-				case !al.Enabled && (al.Reason == "" || !strings.Contains(message(t, text), al.Reason)):
-					t.Errorf("%s/%s %s: listed %q, refused %q", state, u.Username, al.Action, al.Reason, message(t, text))
+	for _, mode := range matchModes {
+		states := []string{"draft", "ready", "verification", "cleared", "complete", "reported", "withdrawn"}
+		users := []config.User{alice, pen2, bob, dora}
+		if mode.name != "plain" {
+			states, users = []string{"ready", "verification", "cleared", "complete"}, []config.User{alice, bob, dora}
+		}
+		for _, state := range states {
+			for _, u := range users {
+				call := func(f *fx, tool string, a map[string]any) (string, bool) {
+					if mode.tok != nil {
+						return f.callTok(u, *mode.tok, tool, a)
+					}
+					return f.call(u, tool, a)
+				}
+				var rd struct {
+					Allowed []workflow.Allowed `json:"allowed_actions"`
+				}
+				text, isErr := call(mode.prep(t, stateFx(t, state)), "read_finding", map[string]any{"engagement": "acme", "finding": "F-001"})
+				if isErr {
+					t.Fatalf("%s %s/%s: %s", mode.name, state, u.Username, text)
+				}
+				json.Unmarshal([]byte(text), &rd)
+				if len(rd.Allowed) == 0 {
+					t.Fatalf("%s %s/%s: no actions", mode.name, state, u.Username)
+				}
+				for _, al := range rd.Allowed {
+					f := mode.prep(t, stateFx(t, state))
+					text, isErr := call(f, "transition", map[string]any{"engagement": "acme", "finding": "F-001", "action": al.Action, "reason": "because"})
+					switch {
+					case al.Enabled && isErr:
+						t.Errorf("%s %s/%s %s listed enabled, refused: %s", mode.name, state, u.Username, al.Action, text)
+					case !al.Enabled && !isErr:
+						t.Errorf("%s %s/%s %s listed disabled (%s), done", mode.name, state, u.Username, al.Action, al.Reason)
+					case !al.Enabled && (al.Reason == "" || !strings.Contains(message(t, text), al.Reason)):
+						t.Errorf("%s %s/%s %s: listed %q, refused %q", mode.name, state, u.Username, al.Action, al.Reason, message(t, text))
+					}
 				}
 			}
 		}
+	}
+}
+
+// On a clone the chat is the server's: read_chat says so instead of an
+// empty list; list_attachments leaves out whether an earlier version is in
+// the history (the server's database knows it).
+func TestReadingToolsOnClone(t *testing.T) {
+	f := newFx(t)
+	if _, err := f.s.Store.AddAttachment("acme", "F-001-sql-injection", "notes.txt", []byte("hello"), alice); err != nil {
+		t.Fatal(err)
+	}
+	c := cloneOf(t, f)
+	text, isErr := c.call(alice, "read_chat", map[string]any{"engagement": "acme", "finding": "F-001"})
+	if !isErr || object(t, "read_chat", text)["code"] != "no_database" {
+		t.Fatalf("read_chat on a clone: %s", text)
+	}
+	text = c.ok(alice, "list_attachments", map[string]any{"engagement": "acme", "finding": "F-001"})
+	if strings.Contains(text, "earlier_version_in_history") || !strings.Contains(text, "notes.txt") {
+		t.Fatalf("list_attachments on a clone: %s", text)
+	}
+}
+
+// list_team on an engagement that does not exist is not_found, for a
+// director too (who sees every engagement).
+func TestListTeamUnknownEngagement(t *testing.T) {
+	f := newFx(t)
+	text, isErr := f.call(dora, "list_team", map[string]any{"engagement": "nope"})
+	if !isErr || object(t, "list_team", text)["code"] != "not_found" {
+		t.Fatalf("%s", text)
 	}
 }
 

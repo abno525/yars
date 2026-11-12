@@ -437,7 +437,7 @@ var coreTools = []tool{
 			for _, sct := range ref.F.Sections {
 				out.Sections = append(out.Sections, sec{sct.Name, store.BodyHash(sct.Body), sct.Body})
 			}
-			out.Allowed = s.allowedActions(u, ref)
+			out.Allowed = s.allowedActions(ctx, u, ref)
 			msgs, _ := s.Store.Chat(ref.EngID, ref.Dir)
 			for _, it := range chat.Timeline(msgs) {
 				if it.Thread != nil && !it.Thread.Resolved {

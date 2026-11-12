@@ -81,6 +81,9 @@ func listTeam(s *Server, ctx context.Context, u config.User, a args) (string, er
 	if err := a.need("engagement"); err != nil {
 		return "", err
 	}
+	if _, err := s.Store.Engagement(a.str("engagement")); err != nil {
+		return "", err // a director sees every engagement: an unknown one is still not found
+	}
 	members, err := s.Store.Members(a.str("engagement"))
 	if err != nil {
 		return "", err
@@ -103,15 +106,23 @@ func listTeam(s *Server, ctx context.Context, u config.User, a args) (string, er
 	return listPage(a, out)
 }
 
-// stamp is a time as the answers give it (RFC 3339, UTC).
-func stamp(t time.Time) string { return t.UTC().Format(time.RFC3339) }
+// stamp is a time as the answers give it (RFC 3339, UTC); "" for none.
+func stamp(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339)
+}
 
 func readChat(s *Server, ctx context.Context, u config.User, a args) (string, error) {
 	ref, err := s.ref(a)
 	if err != nil {
 		return "", err
 	}
-	msgs, err := s.Store.Chat(ref.EngID, ref.Dir)
+	if s.Store.DB() == nil {
+		return "", store.ErrNoDB // the chat is the server's, not empty
+	}
+	msgs, err := s.Store.ChatOf(ref)
 	if err != nil {
 		return "", err
 	}
@@ -161,7 +172,21 @@ func listHistory(s *Server, ctx context.Context, u config.User, a args) (string,
 	if err != nil {
 		return "", err
 	}
-	vs, err := history.Versions(repo, path.Join("findings", ref.Dir, "finding.md"))
+	head, err := s.Store.EngHead(ref.EngID)
+	if err != nil {
+		return "", err
+	}
+	// cached per engagement HEAD, as the history page does: paging does not
+	// start git again
+	vs, err := s.historyCache().Versions(repo, ref.EngID+"/"+ref.Dir, head, path.Join("findings", ref.Dir, "finding.md"))
+	if err != nil {
+		return "", err
+	}
+	idx := make([]int, len(vs))
+	for i := range idx {
+		idx[i] = i
+	}
+	pg, next, err := page(a, idx)
 	if err != nil {
 		return "", err
 	}
@@ -174,7 +199,8 @@ func listHistory(s *Server, ctx context.Context, u config.User, a args) (string,
 		Changed []string `json:"changed"`
 	}
 	out := []version{}
-	for i, v := range vs {
+	for _, i := range pg { // what changed: worked out for the page only
+		v := vs[i]
 		changed := []string{"created"}
 		if i+1 < len(vs) {
 			if changed = history.Parts(vs[i+1].Raw, v.Raw); len(changed) == 0 {
@@ -184,7 +210,14 @@ func listHistory(s *Server, ctx context.Context, u config.User, a args) (string,
 		who, ai := history.Who(v.Author)
 		out = append(out, version{v.Hash, who, ai, stamp(v.Time), v.Subject, changed})
 	}
-	return listPage(a, out)
+	return list(out, next)
+}
+
+// historyCache keeps findings' versions per engagement HEAD (as the web's
+// history page does).
+func (s *Server) historyCache() *history.Cache {
+	s.histOnce.Do(func() { s.hist = history.NewCache(256) })
+	return s.hist
 }
 
 func listAttachments(s *Server, ctx context.Context, u config.User, a args) (string, error) {
@@ -197,11 +230,12 @@ func listAttachments(s *Server, ctx context.Context, u config.User, a args) (str
 		return "", err
 	}
 	type att struct {
-		Name      string `json:"name"`
-		Size      int64  `json:"size"`
-		Type      string `json:"type"` // image | file
-		Modified  string `json:"modified"`
-		InHistory bool   `json:"earlier_version_in_history"`
+		Name     string `json:"name"`
+		Size     int64  `json:"size"`
+		Type     string `json:"type"` // image | file
+		Modified string `json:"modified,omitempty"`
+		// left out on a clone: the server's database knows it
+		InHistory *bool `json:"earlier_version_in_history,omitempty"`
 	}
 	out := []att{}
 	for _, x := range as {
@@ -209,7 +243,11 @@ func listAttachments(s *Server, ctx context.Context, u config.User, a args) (str
 		if x.Image {
 			kind = "image"
 		}
-		out = append(out, att{x.Name, x.Size, kind, stamp(x.ModTime), x.HasOriginal})
+		var in *bool
+		if s.Store.DB() != nil {
+			in = &x.HasOriginal
+		}
+		out = append(out, att{x.Name, x.Size, kind, stamp(x.ModTime), in})
 	}
 	return listPage(a, out)
 }
@@ -303,13 +341,19 @@ func fixChecks(s *Server, ctx context.Context, u config.User, a args) (string, e
 // clone), the archive, the role, status and content gate, and for submit,
 // approve and sign off the store's own blocks with the fast rules (script
 // and AI rules run at the transition itself).
-func (s *Server) allowedActions(u config.User, ref store.FindingRef) []workflow.Allowed {
+func (s *Server) allowedActions(ctx context.Context, u config.User, ref store.FindingRef) []workflow.Allowed {
 	out := workflow.AllowedActions(u, ref.F.Meta, s.conf())
+	tk, hasTok := tokenFrom(ctx)
+	// the transition tool as the gate sees it (its own entry would make an
+	// initialization cycle: read_finding is in the same table)
+	transition := tool{name: "transition", action: "status"}
 	for i := range out {
 		al := &out[i]
 		act := workflow.Action(al.Action)
 		why := ""
-		switch {
+		switch need := actionOf(transition, args{"action": al.Action}); {
+		case hasTok && !tk.Allows(need):
+			why = "this token may not " + actionLabel[need] // the gate's, before the tool runs
 		case act == workflow.Report && !workflow.AtLeast(u, "director"):
 			why = "only a director can mark reported"
 		case s.Store.DB() == nil:
@@ -317,7 +361,10 @@ func (s *Server) allowedActions(u config.User, ref store.FindingRef) []workflow.
 		case s.Store.Archived(ref.EngID):
 			why = store.ErrArchived.Error()
 		case al.Enabled:
-			why, _ = s.Store.BlockingNow(ref.EngID, ref.Dir, act, u)
+			var err error
+			if why, err = s.Store.BlockingNow(ref.EngID, ref.Dir, act, u); err != nil {
+				why = err.Error() // the transition would fail the same way
+			}
 		}
 		if why != "" {
 			al.Enabled, al.Reason = false, why

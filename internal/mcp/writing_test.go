@@ -11,8 +11,6 @@ import (
 
 	"yars/internal/config"
 	"yars/internal/db"
-	"yars/internal/gitrepo"
-	"yars/internal/index"
 	"yars/internal/rules"
 	"yars/internal/store"
 )
@@ -141,13 +139,7 @@ func TestNewToolsRespectScopes(t *testing.T) {
 
 // On a clone (stdio, no database) the server-only tools say so.
 func TestServerOnlyToolsOnClone(t *testing.T) {
-	f := newFx(t)
-	r, err := gitrepo.Open(f.dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	st := store.New(r, config.Default(), nil)
-	clone := &fx{t: t, dir: f.dir, s: &Server{Store: st, Index: index.New(st, r), Cfg: config.Default()}}
+	clone := cloneOf(t, newFx(t))
 	for tool, args := range map[string]map[string]any{
 		"fix_checks":              {"engagement": "acme", "finding": "F-001"},
 		"mark_notifications_read": {"all": true},
