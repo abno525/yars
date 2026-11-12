@@ -105,6 +105,8 @@ M29 task 3  done     d44cf68 (browser check passed: j j e opened Details with fo
 M29 task 4  done     9e37132 (browser check passed: disabled Submit, Approve and Sign off keys send nothing; Shift+R opens Return with focus in the reason, Ctrl+Enter sends; focus stays on Submit across a live refresh; Shift+S submits at once; bulk Shift+S posts only with a ticked row, from its checkbox)
 M29 task 5  done     e48fdbb (browser check passed: j j Enter opens the second finding; j x j j Shift+Space ticks three rows; Shift+click ranges; / focuses Search, or opens Go to on the inbox; i opens the inbox; a filter keeps focus after its swap)
 M29 task 6  done     35c37dd (schema v22; browser check passed: with shortcuts off j e ? i do nothing, Ctrl+K, Esc, Ctrl+S and Ctrl+Enter work; ? opens the list within the window, Esc closes it, the Finding page group hidden without panels)
-M29 tasks 1–3 review fix (Ctrl+Enter presses its forms' marked button only; Ctrl+S needs a field and the form's own button; a click never scrolls; outlines; h/← and arrows; Esc closes CVSS and returns focus)
+M29 tasks 1–3 review fix 4c9a535 (Ctrl+Enter presses its forms' marked button only; Ctrl+S needs a field and the form's own button; a click never scrolls; outlines; h/← and arrows; Esc closes CVSS and returns focus)
 M29 task 4  review   passed; nits in the same fix (row checkboxes only; no Shift+T in the list; no id on the running Check)
+M29 task 5  review   fix (Enter on a list checkbox never submits, opens the row; j/k skip disabled rows; x in lists only; Load more focus only from its button)
+M29 task 6  review   passed; nits in the same fix (no selection with shortcuts off; Chat group only with a chat; Redact Ctrl+Z noted)
 ```

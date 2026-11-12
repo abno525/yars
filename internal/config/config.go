@@ -134,7 +134,8 @@ type User struct {
 	// Reset password); the user sets a new one before anything else.
 	MustChange bool `yaml:"-"`
 	// KeysOff: the account switched the keyboard shortcuts off (Settings ›
-	// Preferences); Ctrl+S, Ctrl+Enter, Ctrl+K and Esc still work.
+	// Preferences); Ctrl+S, Ctrl+Enter, Ctrl+K and Esc still work, as does
+	// the Redact dialog's own Ctrl+Z.
 	KeysOff bool `yaml:"-"`
 }
 

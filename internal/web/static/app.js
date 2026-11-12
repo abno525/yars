@@ -548,6 +548,12 @@ document.addEventListener('keydown', function (evt) {
   yarsBulkCloseMenus(null);
   document.querySelectorAll('.fbulkform').forEach(function (f) { yarsBulkReason(f, null); });
 });
+// Enter on a checkbox of a list (a bulk row, Select all, the bulk picker, an
+// export pick) never submits its form: the browser's implicit submission
+// would press the form's first enabled button, the first Set state entry.
+document.addEventListener('keydown', function (evt) {
+  if (evt.key === 'Enter' && evt.target.matches && evt.target.matches('.fbulkform input[type=checkbox], input[type=checkbox][data-nav]')) evt.preventDefault();
+});
 // While a run is out every bar button is disabled (hx-disabled-elt), so a
 // double click sends one request; a refused run (403, 422: a toast, no swap)
 // gets the bar's own enabling back.

@@ -252,10 +252,7 @@ func TestCommentAndEditAreSkippedByEnter(t *testing.T) {
 func TestKeysSaveMarkers(t *testing.T) {
 	e := setup(t)
 	js := e.do(t, "alice", "GET", "/static/keys.js", nil, nil).Body.String()
-	for _, want := range []string{"data-nosave", ".conflict", "data-redact-save", "data-redact-undo", "data-kskip", "function yarsComment"} {
-		if want == "function yarsComment" {
-			want = "yarsComment("
-		}
+	for _, want := range []string{"data-nosave", ".conflict", ".cbar button", "data-redact-save", "data-redact-undo", "data-kskip", "yarsComment("} {
 		if !strings.Contains(js, want) {
 			t.Errorf("keys.js lacks %s", want)
 		}
@@ -630,6 +627,33 @@ func TestSaveReviewFixes(t *testing.T) {
 		if !strings.Contains(js, w) {
 			t.Errorf("keys.js lacks %s", w)
 		}
+	}
+}
+
+// K7 (after review): Enter on a list's checkbox never submits its form (the
+// browser would press the first bulk entry); with shortcuts on it opens the
+// row. j/k skip disabled rows, x ticks only in a declared list, and Load
+// more takes focus only from its own button.
+func TestListReviewFixes(t *testing.T) {
+	e := setup(t)
+	app := e.do(t, "alice", "GET", "/static/app.js", nil, nil).Body.String()
+	if !strings.Contains(app, `evt.key === 'Enter' && evt.target.matches && evt.target.matches('.fbulkform input[type=checkbox], input[type=checkbox][data-nav]')`) {
+		t.Error("app.js does not stop Enter on a list checkbox")
+	}
+	js := e.do(t, "alice", "GET", "/static/keys.js", nil, nil).Body.String()
+	rows := js[strings.Index(js, "function yarsRows()"):]
+	if rows = rows[:strings.Index(rows, "\n}\n")]; !strings.Contains(rows, "!el.disabled") {
+		t.Errorf("yarsRows keeps disabled rows:\n%s", rows)
+	}
+	for _, w := range []string{"key === 'Enter' && yarsPick(evt.target)", "if (!yarsRowOf(a)) return null;",
+		"evt.detail.shouldSwap && t.contains(document.activeElement)", "a && a !== document.body) return;", "if (yarsKeysOff()) return;", `[data-keys-group="chat"]`} {
+		if !strings.Contains(js, w) {
+			t.Errorf("keys.js lacks %s", w)
+		}
+	}
+	// the Chat group hides where there is no chat
+	if d := between(e.do(t, "alice", "GET", "/", nil, nil).Body.String(), `id="keys"`, "</dialog>"); !strings.Contains(d, `<section class="kgroup" data-keys-group="chat">`) {
+		t.Error("the Chat group is not marked")
 	}
 }
 

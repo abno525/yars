@@ -196,10 +196,11 @@ function yarsPick(t) {
 
 /* ---------- lists (K7): j/k move the row focus, x ticks, / searches ---------- */
 
-// yarsRows: the rendered [data-nav] controls (one per row) in document order.
+// yarsRows: the rendered, enabled [data-nav] controls (one per row) in
+// document order (a disabled export pick cannot take focus).
 function yarsRows() {
   return Array.prototype.filter.call(document.querySelectorAll('[data-nav]'), function (el) {
-    return el.getClientRects().length > 0;
+    return !el.disabled && el.getClientRects().length > 0;
   });
 }
 // yarsRowOf: the [data-nav] control of the row holding el.
@@ -221,9 +222,10 @@ function yarsRowStep(d) {
   if (to.scrollIntoView) to.scrollIntoView({block: 'nearest'});
   return true;
 }
-// yarsRowBox: the checkbox of the focused row.
+// yarsRowBox: the checkbox of the focused row of a list (one with data-nav).
 function yarsRowBox() {
   var a = document.activeElement;
+  if (!yarsRowOf(a)) return null;
   var tr = a && a.closest ? a.closest('tr') : null;
   var cb = tr ? tr.querySelector('input[type=checkbox]') : null;
   return cb && !cb.disabled ? cb : null;
@@ -249,28 +251,36 @@ function yarsListNav(key) {
   return false;
 }
 // After Load more (the row tr.more swaps itself for the next rows), focus
-// goes to the first new row.
+// goes to the first new row: only when it was on Load more and is lost in the
+// swap (not when the user went on to Search meanwhile).
 var yarsMoreAt = null;
 document.addEventListener('htmx:beforeSwap', function (evt) {
   var t = evt.detail.target;
-  if (t && t.matches && t.matches('tr.more')) yarsMoreAt = {prev: t.previousElementSibling, body: t.parentNode};
+  if (t && t.matches && t.matches('tr.more') && evt.detail.shouldSwap && t.contains(document.activeElement)) {
+    yarsMoreAt = {prev: t.previousElementSibling, body: t.parentNode};
+  }
 });
 document.addEventListener('htmx:afterSettle', function () {
   var m = yarsMoreAt;
   if (!m) return;
   yarsMoreAt = null;
+  var a = document.activeElement;
+  if (a && a !== document.body) return;
   var first = m.prev ? m.prev.nextElementSibling : m.body.firstElementChild;
   var nav = first && !first.matches('tr.more') ? first.querySelector('[data-nav]') : null;
   if (nav) nav.focus();
 });
 
 // ? (K8): the shortcut list; its Finding page group only where there are
-// panels. Esc closes it (the browser's own), as does a click outside it.
+// panels, its Chat group only where there is a chat. Esc closes it (the
+// browser's own), as does a click outside it.
 function yarsKeysList() {
   var d = document.getElementById('keys');
   if (!d || !d.showModal || d.open) return false;
   var g = d.querySelector('[data-keys-group="finding"]');
   if (g) g.hidden = !document.querySelector('[data-kpanel]');
+  var c = d.querySelector('[data-keys-group="chat"]');
+  if (c) c.hidden = !document.getElementById('chat-text');
   d.showModal();
   return true;
 }
@@ -317,6 +327,7 @@ function yarsSelect(el, scroll) {
 }
 
 document.addEventListener('pointerdown', function (evt) {
+  if (yarsKeysOff()) return; // with shortcuts off nothing uses a selection
   var p = evt.target.closest && evt.target.closest('[data-kpanel]');
   if (p) yarsSelect(p, false);
 }, true);
@@ -448,6 +459,14 @@ document.addEventListener('keydown', function (evt) {
   }
   // Esc during IME composition cancels the composition only
   if (key === 'Escape') { if (!evt.isComposing) yarsEscape(); return; }
+  // Enter on a list's checkbox (app.js keeps it from submitting the form)
+  // opens the row, with shortcuts on
+  if (key === 'Enter' && yarsPick(evt.target)) {
+    if (yarsKeysOff() || evt.repeat || evt.isComposing) return;
+    var row = yarsRowOf(evt.target);
+    if (row && row.tagName === 'A') row.click();
+    return;
+  }
   // single keys and Shift+key: never into a field, during composition, on
   // repeat, under a modal dialog, or with shortcuts off
   if (yarsKeysOff() || evt.isComposing || evt.repeat || evt.altKey || evt.defaultPrevented ||
