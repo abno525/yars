@@ -150,4 +150,5 @@ M32 task 6  review   fix d40a67d (fix_checks needs edit too; ids once each, at m
 M32 manual  done     (an MCP session over HTTP: list drafts, read, edit with base, submit; every answer parsed)
 M32 branch  review   fixes 4990b7c (can_edit follows the token; template not_found; real refusal before a missing reason; docs table; clone history)
 M32 branch  fix check passed
+M32 PR      opened   #27
 ```
