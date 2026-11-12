@@ -206,7 +206,7 @@ func (s *Server) cvssEdit(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) cvssCalc(w http.ResponseWriter, r *http.Request) {
-	ref, ok := s.cvssRef(w, r)
+	ref, ok := s.editRef(w, r) // the editor's: refused where the editor is
 	if !ok {
 		return
 	}

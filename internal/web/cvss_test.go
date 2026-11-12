@@ -49,6 +49,21 @@ func TestCVSSCalcLive(t *testing.T) {
 	}
 }
 
+// The calculator belongs to the editor: on a finding the user may not edit
+// it is refused as the editor is, instead of drawing an editor that cannot
+// save (backlog, M3).
+func TestCVSSCalcLocked(t *testing.T) {
+	e := setup(t)
+	e.toComplete(t)
+	for _, path := range []string{"/cvss/edit", "/cvss/calc"} {
+		method := map[string]string{"/cvss/edit": "GET", "/cvss/calc": "POST"}[path]
+		rec := e.do(t, "alice", method, fpath+path, vecForm(nil), nil)
+		if rec.Code != http.StatusForbidden || strings.Contains(rec.Body.String(), `name="reason_AC"`) {
+			t.Errorf("%s on a complete finding: %d", path, rec.Code)
+		}
+	}
+}
+
 func TestCVSSSave(t *testing.T) {
 	e := setup(t)
 	edit := e.do(t, "alice", "GET", fpath+"/cvss/edit", nil, nil)
