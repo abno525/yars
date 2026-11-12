@@ -9,12 +9,12 @@ import (
 )
 
 // A complete finding waits for a director to mark it reported; an own
-// draft that was not returned is one of the author's drafts.
+// draft that was not returned waits for no one (no inbox queue).
 func TestPendingReportAndDrafts(t *testing.T) {
 	if Pending(dora, meta("complete")) != InboxReport || Pending(alice, meta("complete")) != InboxNone || Pending(bob, meta("complete")) != InboxNone {
 		t.Error("report")
 	}
-	if Pending(alice, meta("draft")) != InboxDraft || Pending(pen2, meta("draft")) != InboxNone {
+	if Pending(alice, meta("draft")) != InboxNone || Pending(pen2, meta("draft")) != InboxNone {
 		t.Error("draft")
 	}
 	m := meta("draft")
@@ -44,11 +44,11 @@ func TestQueues(t *testing.T) {
 		u    config.User
 		want []Inbox
 	}{
-		{alice, []Inbox{InboxReturned, InboxThreads, InboxBoard, InboxNotes, InboxDraft}},
-		{bob, []Inbox{InboxReview, InboxThreads, InboxBoard, InboxNotes}},
-		{dora, []Inbox{InboxApprove, InboxReport, InboxBoard, InboxNotes}},
-		{config.User{Username: "root", Role: "pentester", IsAdmin: true}, []Inbox{InboxReturned, InboxThreads, InboxBoard, InboxNotes, InboxDraft}},
-		{config.User{Username: "x", Role: "nobody"}, []Inbox{InboxBoard, InboxNotes}},
+		{alice, []Inbox{InboxNotes, InboxReturned, InboxThreads, InboxBoard}},
+		{bob, []Inbox{InboxNotes, InboxReview, InboxThreads, InboxBoard}},
+		{dora, []Inbox{InboxNotes, InboxApprove, InboxReport, InboxBoard}},
+		{config.User{Username: "root", Role: "pentester", IsAdmin: true}, []Inbox{InboxNotes, InboxReturned, InboxThreads, InboxBoard}},
+		{config.User{Username: "x", Role: "nobody"}, []Inbox{InboxNotes, InboxBoard}},
 	}
 	for _, c := range cases {
 		if got := Queues(c.u); !slices.Equal(got, c.want) {
@@ -66,7 +66,7 @@ func TestQueues(t *testing.T) {
 			last = i
 		}
 	}
-	if len(QueueOrder) != 8 {
+	if len(QueueOrder) != 7 || QueueOrder[0] != InboxNotes {
 		t.Errorf("%d queues", len(QueueOrder))
 	}
 }

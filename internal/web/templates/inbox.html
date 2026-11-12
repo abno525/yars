@@ -3,6 +3,7 @@
 <section class="q q-{{.Name}}">
   <div class="qh"><h2>{{.Heading}} <span class="qcnt{{if not .Total}} zero{{end}}">{{.Total}}</span></h2>
     {{- if eq .Name "notes"}}<div class="qacts"><a class="btn secondary sm w104" href="/notifications">History</a><button class="btn secondary sm w152" form="notes" formaction="/notifications/read"{{if not .Total}} disabled{{end}}>Mark all read</button></div>{{end -}}
+    {{- if eq .Name "board"}}<div class="qacts"><button class="btn secondary sm w152" form="notes" formaction="/inbox/board/read"{{if not .Total}} disabled{{end}}>Mark all read</button></div>{{end -}}
   </div>
   <table class="table inboxt{{if .Bulk}} picks{{end}}">
     <thead>
@@ -32,7 +33,7 @@
       <td class="title">{{if .NoteID}}<button class="noteopen" form="notes" formaction="/notifications/{{.NoteID}}" title="{{.Title}}" data-nav id="row-notes-{{.NoteID}}">{{.Title}}</button>{{else}}<a href="{{.URL}}" title="{{.Title}}" data-nav id="row-{{$.Name}}-{{.EngID}}-{{.ID}}">{{.Title}}</a>{{end}}</td>
       <td class="c-tag">{{if .Tag}}<span class="tag {{.TagClass}}">{{.Tag}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
       {{if .EngID}}<td class="c-eng mono" title="{{.EngName}} · {{.ID}}"><span class="engid">{{.EngID}}</span> · <span class="fid">{{.ID}}</span></td>{{else}}<td class="c-eng mono"><span class="muted">—</span></td>{{end}}
-      <td class="c-what{{with .WhatClass}} {{.}}{{end}}" title="{{with .Who}}{{.}} · {{end}}{{.What}}">{{with .Who}}<strong>{{.}}</strong> · {{end}}{{.What}}</td>
+      <td class="c-what" title="{{with .Who}}{{.}} · {{end}}{{.What}}">{{with .Who}}<strong>{{.}}</strong> · {{end}}{{.What}}</td>
       <td class="c-age mono">{{age .At}}</td>
       {{/* a notice: Open marks it read, a POST through the page's one form (the director's queues are a form already) */}}
       <td class="c-go">{{with .NoteID}}<button class="btn secondary sm w104" form="notes" formaction="/notifications/{{.}}">Open</button>{{else}}<a class="btn {{if .Primary}}primary{{else}}secondary{{end}} sm w104" href="{{.ActURL}}">{{.Act}}</a>{{end}}</td>

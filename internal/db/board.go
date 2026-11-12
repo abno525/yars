@@ -459,6 +459,25 @@ func (d *DB) UnseenIn(user string, engs []string, limit int) ([]Unseen, int, err
 	return out, total, rows.Err()
 }
 
+// SeeUnseenIn marks seen, up to its newest entry, every note UnseenIn lists
+// for user in engs.
+func (d *DB) SeeUnseenIn(user string, engs []string) error {
+	if len(engs) == 0 {
+		return nil
+	}
+	args := []any{user}
+	ph := make([]string, len(engs))
+	for i, e := range engs {
+		args = append(args, e)
+		ph[i] = "?" + strconv.Itoa(i+2)
+	}
+	q := unseenQuery + " AND n.eng IN (" + strings.Join(ph, ", ") + ")"
+	_, err := d.Exec(`INSERT INTO board_seen(username, eng, num, seq)
+		SELECT ?1, u.eng, u.num, (SELECT MAX(x.seq) FROM board_messages x WHERE x.eng = u.eng AND x.num = u.num) FROM (`+q+`) u WHERE true
+		ON CONFLICT(username, eng, num) DO UPDATE SET seq = max(seq, excluded.seq)`, args...)
+	return err
+}
+
 // UnseenCount is how many of eng's notes have something new to user.
 func (d *DB) UnseenCount(user, eng string) (int, error) {
 	var n int

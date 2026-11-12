@@ -289,6 +289,7 @@ func (s *Server) Handler() http.Handler {
 	private.HandleFunc("GET /events", s.events)
 	private.HandleFunc("GET /go", s.goEngagement)
 	private.HandleFunc("GET /inbox", s.inbox)
+	private.HandleFunc("POST /inbox/board/read", s.boardInboxRead)
 	private.HandleFunc("POST /logout", s.logout)
 	private.HandleFunc("GET /e/{eng}", s.engagement)
 	private.HandleFunc("GET /e/{eng}/f/{fid}", s.finding)

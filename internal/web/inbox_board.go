@@ -1,8 +1,10 @@
 package web
 
 import (
+	"net/http"
 	"time"
 
+	"yars/internal/auth"
 	"yars/internal/config"
 	"yars/internal/db"
 	"yars/internal/store"
@@ -11,7 +13,8 @@ import (
 // Inbox queue "New on team board": the notes with an entry by someone else
 // that the user has not seen (team members since they joined; others the
 // notes they opened). It is read per request, not with the cached lists:
-// board writes do not move the index generation.
+// board writes do not move the index generation. Opening a note takes it
+// off; Mark all read takes them all off, until a new entry.
 
 // boardInboxRows caps the queue.
 const boardInboxRows = 50
@@ -24,9 +27,9 @@ type boardInboxRow struct {
 	At                       time.Time
 }
 
-// boardInbox lists the queue for u, of the open engagements among engs (the
-// ones u sees), and how many notes it has in all.
-func (s *Server) boardInbox(u config.User, engs []store.Engagement) ([]inboxRow, int, error) {
+// openIDs are the engagements among engs that are not archived, by id, and
+// their names.
+func openIDs(engs []store.Engagement) ([]string, map[string]string) {
 	names := map[string]string{}
 	var ids []string
 	for _, e := range engs {
@@ -35,6 +38,35 @@ func (s *Server) boardInbox(u config.User, engs []store.Engagement) ([]inboxRow,
 			ids = append(ids, e.ID)
 		}
 	}
+	return ids, names
+}
+
+// boardInboxRead is the queue's Mark all read: every note it lists is seen,
+// up to its newest entry; back to the inbox.
+func (s *Server) boardInboxRead(w http.ResponseWriter, r *http.Request) {
+	u := auth.UserFrom(r.Context())
+	vis, err := s.Store.Visible(u)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	engs, err := s.Index.EngagementsFor(vis)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	ids, _ := openIDs(engs)
+	if err := s.Store.SeeQueue(u, ids); err != nil {
+		s.fail(w, err)
+		return
+	}
+	http.Redirect(w, r, "/inbox", http.StatusSeeOther)
+}
+
+// boardInbox lists the queue for u, of the open engagements among engs (the
+// ones u sees), and how many notes it has in all.
+func (s *Server) boardInbox(u config.User, engs []store.Engagement) ([]inboxRow, int, error) {
+	ids, names := openIDs(engs)
 	notes, total, err := s.Store.UnseenQueue(u, ids, boardInboxRows)
 	if err != nil || len(notes) == 0 {
 		return nil, 0, err

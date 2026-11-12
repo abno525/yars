@@ -1,6 +1,7 @@
 package web
 
 import (
+	"net/http"
 	"net/url"
 	"strings"
 	"testing"
@@ -40,6 +41,34 @@ func TestInboxNewOnTeamBoard(t *testing.T) {
 	e.do(t, "carol", "POST", "/e/acme/board/n/L-001/post", url.Values{"text": {"Cached by the CDN?"}}, nil)
 	if b := e.do(t, "bob", "GET", "/inbox", nil, nil).Body.String(); !strings.Contains(b, "Cached by the CDN?") || !strings.Contains(b, "<strong>carol</strong>") {
 		t.Fatal("reply not listed")
+	}
+}
+
+// New on team board clears by opening a note, or all at once with Mark all
+// read (back to the inbox); a later entry brings a note back.
+func TestInboxBoardMarkAllRead(t *testing.T) {
+	e := setup(t)
+	e.lead(t, "alice", "JWT none", "api.acme.test", "open")
+	e.lead(t, "alice", "Open redirect", "", "open")
+	sec := queue(e.do(t, "bob", "GET", "/inbox", nil, nil).Body.String(), "board")
+	if !strings.Contains(sec, `<span class="qcnt">2</span>`) || !strings.Contains(sec, `<button class="btn secondary sm w152" form="notes" formaction="/inbox/board/read">Mark all read</button>`) {
+		t.Fatalf("before:\n%s", sec)
+	}
+	rec := e.do(t, "bob", "POST", "/inbox/board/read", url.Values{}, nil)
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/inbox" {
+		t.Fatalf("read all %d %s", rec.Code, rec.Header().Get("Location"))
+	}
+	sec = queue(e.do(t, "bob", "GET", "/inbox", nil, nil).Body.String(), "board")
+	if !strings.Contains(sec, `<span class="qcnt zero">0</span>`) || !strings.Contains(sec, `formaction="/inbox/board/read" disabled>Mark all read</button>`) {
+		t.Fatalf("after:\n%s", sec)
+	}
+	// carol's own queue is hers
+	if !strings.Contains(queue(e.do(t, "carol", "GET", "/inbox", nil, nil).Body.String(), "board"), `<span class="qcnt">2</span>`) {
+		t.Fatal("bob's read all cleared carol's")
+	}
+	e.do(t, "carol", "POST", "/e/acme/board/n/L-001/post", url.Values{"text": {"Cached by the CDN?"}}, nil)
+	if sec := queue(e.do(t, "bob", "GET", "/inbox", nil, nil).Body.String(), "board"); !strings.Contains(sec, "Cached by the CDN?") || !strings.Contains(sec, `<span class="qcnt">1</span>`) {
+		t.Fatalf("a new entry:\n%s", sec)
 	}
 }
 

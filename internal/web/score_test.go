@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"yars/internal/chat"
 	"yars/internal/finding"
 )
 
@@ -28,6 +29,8 @@ func TestNoSeverityIsADash(t *testing.T) {
 // R5 (P3): the inbox queues' Severity column shows the same "—".
 func TestInboxNoSeverityIsADash(t *testing.T) {
 	e := setup(t)
+	// an open thread puts alice's draft (no severity yet) in her inbox
+	e.srv.Store.PostChat("acme", fdir, chat.Message{Text: "why?"}, wBob)
 	b := e.do(t, "alice", "GET", "/inbox", nil, nil).Body.String()
 	cells := regexp.MustCompile(`<td class="c-tag">(.*?)</td>\s*<td class="c-eng mono"[^>]*><span class="engid">acme</span> · <span class="fid">F-001</span>`).FindAllStringSubmatch(b, -1)
 	if len(cells) == 0 {

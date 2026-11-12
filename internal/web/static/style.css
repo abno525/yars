@@ -888,8 +888,6 @@ summary.panelhead::-webkit-details-marker { display: none; }
 .inboxt td.title a { color: var(--text); font-weight: 600; }
 .c-eng .engid { display: inline-block; max-width: 96px; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
 .inboxt td.c-what { font-size: 14px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.inboxt td.c-what.bad { color: var(--red); font-weight: 600; }
-.inboxt td.c-what.good { color: var(--green-text); font-weight: 600; }
 .inboxt .c-pick input { width: 20px; height: 20px; accent-color: var(--ink); vertical-align: middle; cursor: pointer; }
 .table.inboxt tbody tr.sel td { background: var(--pick-bg); }
 .table.inboxt tbody tr.skip td { background: var(--panel); }

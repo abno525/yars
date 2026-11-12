@@ -2,12 +2,9 @@ package web
 
 import (
 	"net/url"
-	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
-	"time"
 
 	"yars/internal/chat"
 	"yars/internal/db"
@@ -41,9 +38,9 @@ func queue(b, name string) string {
 func TestInboxQueuesPerRole(t *testing.T) {
 	e := setup(t)
 	for u, want := range map[string]string{
-		"alice": "Returned to me,Open threads on my findings,New on team board,Notifications,My drafts",
-		"bob":   "Awaiting my review,Open threads on my findings,New on team board,Notifications",
-		"dora":  "Ready to approve,Ready to mark reported,New on team board,Notifications",
+		"alice": "Notifications,Returned to me,Open threads on my findings,New on team board",
+		"bob":   "Notifications,Awaiting my review,Open threads on my findings,New on team board",
+		"dora":  "Notifications,Ready to approve,Ready to mark reported,New on team board",
 	} {
 		b := e.do(t, u, "GET", "/inbox", nil, nil).Body.String()
 		names, _ := queues(b)
@@ -74,7 +71,7 @@ func TestInboxQueuesPerRole(t *testing.T) {
 		t.Fatal(err)
 	}
 	names, _ := queues(e.do(t, "bob", "GET", "/inbox", nil, nil).Body.String())
-	if got := strings.Join(names, ","); got != "Returned to me,Awaiting my review,Open threads on my findings,New on team board,Notifications" {
+	if got := strings.Join(names, ","); got != "Notifications,Returned to me,Awaiting my review,Open threads on my findings,New on team board" {
 		t.Errorf("bob with a returned finding: %s", got)
 	}
 }
@@ -83,8 +80,7 @@ func TestInboxQueuesPerRole(t *testing.T) {
 // column; the director's pick column counts too.
 func TestInboxEmptyQueues(t *testing.T) {
 	e := setup(t)
-	e.srv.Store.Archive("acme", wDora) // alice's draft leaves her queues
-	for u, want := range map[string]int{"alice": 5, "bob": 4, "dora": 4} {
+	for u, want := range map[string]int{"alice": 4, "bob": 4, "dora": 4} {
 		b := e.do(t, u, "GET", "/inbox", nil, nil).Body.String()
 		_, counts := queues(b)
 		if len(counts) != want || strings.Count(b, `<span class="qcnt zero">0</span>`) != want {
@@ -111,16 +107,10 @@ func TestInboxEmptyQueues(t *testing.T) {
 func TestInboxRowsSayWhoDidWhat(t *testing.T) {
 	e := setup(t)
 	st := e.srv.Store
-	// My drafts: alice's draft, not checked yet
+	// an own draft waits for no one: not in the inbox, not in the badge
 	b := e.do(t, "alice", "GET", "/inbox", nil, nil).Body.String()
-	q := queue(b, "drafts")
-	for _, want := range []string{"SQL injection", `<span class="engid">acme</span> · <span class="fid">F-001</span>`, "Not checked", `>Continue</a>`, "btn secondary sm w104"} {
-		if !strings.Contains(q, want) {
-			t.Errorf("drafts lack %q:\n%s", want, q)
-		}
-	}
-	if !strings.Contains(b, `Inbox <span class="badge">1</span>`) {
-		t.Error("the drafts are not in the badge")
+	if strings.Contains(b, "SQL injection") || strings.Contains(b, "q-drafts") || strings.Contains(b, `Inbox <span class="badge">`) {
+		t.Errorf("alice's draft in the inbox:\n%s", b)
 	}
 	e.toVerification(t)
 	b = e.do(t, "bob", "GET", "/inbox", nil, nil).Body.String()
@@ -131,12 +121,9 @@ func TestInboxRowsSayWhoDidWhat(t *testing.T) {
 	if err := st.Transition("acme", fdir, workflow.Return, "add a PoC", wBob); err != nil {
 		t.Fatal(err)
 	}
-	q = queue(e.do(t, "alice", "GET", "/inbox", nil, nil).Body.String(), "returned")
+	q := queue(e.do(t, "alice", "GET", "/inbox", nil, nil).Body.String(), "returned")
 	if !strings.Contains(q, "<strong>bob</strong> · add a PoC") || !strings.Contains(q, `btn primary sm w104" href="`+fshort+`">Fix</a>`) {
 		t.Errorf("returned row:\n%s", q)
-	}
-	if q := queue(e.do(t, "alice", "GET", "/inbox", nil, nil).Body.String(), "drafts"); strings.Contains(q, "SQL injection") {
-		t.Error("a returned draft is in My drafts too")
 	}
 	if err := st.Transition("acme", fdir, workflow.Submit, "", wAlice); err != nil {
 		t.Fatal(err)
@@ -208,71 +195,6 @@ func TestInboxOpenThreads(t *testing.T) {
 	st.Invalidate("acme")
 	if q := queue(e.do(t, "bob", "GET", "/inbox", nil, nil).Body.String(), "threads"); strings.Contains(q, "Not fixed") || strings.Count(q, "<tr data-key") != 1 {
 		t.Fatalf("bob sees the AI's answer:\n%s", q)
-	}
-}
-
-// My drafts says how the last check went; Submit only when it passed on
-// this content and the draft is ready, Continue otherwise. Both are links.
-func TestInboxDraftChecks(t *testing.T) {
-	e := setup(t)
-	st := e.srv.Store
-	ref, _ := st.Finding("acme", fdir)
-	run := func(hash string, res ...db.CheckResult) {
-		id, err := st.DB().StartRun("acme", "F-001", hash, "alice", "")
-		if err != nil {
-			t.Fatal(err)
-		}
-		st.DB().TxFor("acme", func(tx *db.Tx) error { return tx.FinishRun(id, db.RunDone, "", res) })
-	}
-	draft := func() string { return queue(e.do(t, "alice", "GET", "/inbox", nil, nil).Body.String(), "drafts") }
-	run(ref.Hash, db.CheckResult{Rule: "a", Level: "error", QuoteHash: "1"}, db.CheckResult{Rule: "b", Level: "warning", QuoteHash: "2"})
-	if q := draft(); !strings.Contains(q, `class="c-what bad"`) || !strings.Contains(q, "1 error · 1 warning") || !strings.Contains(q, ">Continue</a>") {
-		t.Fatalf("errors:\n%s", q)
-	}
-	run(ref.Hash)
-	if q := draft(); !strings.Contains(q, `class="c-what good"`) || !strings.Contains(q, "Checks pass") || !strings.Contains(q, ">Continue</a>") {
-		t.Fatalf("pass but no reviewer yet:\n%s", q)
-	}
-	st.SetReviewers("acme", fdir, []string{"bob"}, wAlice)
-	st.UpdateSeverity("acme", fdir, "high", "", e.authorOf(wAlice))
-	// the severity edit changed the file: the run is stale
-	if q := draft(); !strings.Contains(q, "Edited since the check") || !strings.Contains(q, ">Continue</a>") {
-		t.Fatalf("stale:\n%s", q)
-	}
-	ref, _ = st.Finding("acme", fdir)
-	run(ref.Hash, db.CheckResult{Rule: "b", Level: "warning", QuoteHash: "2"}, db.CheckResult{Rule: "c", Level: "warning", QuoteHash: "3"})
-	if q := draft(); !strings.Contains(q, "2 warnings") || !strings.Contains(q, `btn primary sm w104" href="`+fshort+`">Submit</a>`) {
-		t.Fatalf("ready:\n%s", q)
-	}
-	if strings.Contains(draft(), "<form") {
-		t.Fatal("a row action posts")
-	}
-}
-
-// Q13: after a rule change a draft's last check is out of date, as on its
-// page: no "Checks pass", no Submit.
-func TestInboxDraftAfterRuleChange(t *testing.T) {
-	e := setup(t)
-	e.rules(t, "- id: none\n  target: title\n  regex_forbid: 'zzz'\n", nil)
-	st := e.srv.Store
-	st.SetReviewers("acme", fdir, []string{"bob"}, wAlice)
-	st.UpdateSeverity("acme", fdir, "high", "", e.authorOf(wAlice))
-	ref, _ := st.Finding("acme", fdir)
-	id, err := st.DB().StartRun("acme", "F-001", ref.Hash, "alice", e.srv.Rules.Version())
-	if err != nil {
-		t.Fatal(err)
-	}
-	st.DB().TxFor("acme", func(tx *db.Tx) error { return tx.FinishRun(id, db.RunDone, "", nil) })
-	draft := func() string { return queue(e.do(t, "alice", "GET", "/inbox", nil, nil).Body.String(), "drafts") }
-	if q := draft(); !strings.Contains(q, "Checks pass") || !strings.Contains(q, ">Submit</a>") {
-		t.Fatalf("before the rule change:\n%s", q)
-	}
-	p := filepath.Join(e.dir, ".yars", "rules", "style.yaml")
-	os.WriteFile(p, []byte("- id: none\n  target: title\n  regex_forbid: 'qqqq'\n"), 0o644)
-	later := time.Now().Add(time.Minute)
-	os.Chtimes(p, later, later)
-	if q := draft(); !strings.Contains(q, "Rules changed since the check") || strings.Contains(q, "Checks pass") || strings.Contains(q, ">Submit</a>") || !strings.Contains(q, ">Continue</a>") {
-		t.Fatalf("after the rule change:\n%s", q)
 	}
 }
 

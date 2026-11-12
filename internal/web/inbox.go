@@ -13,7 +13,6 @@ import (
 
 	"yars/internal/chat"
 	"yars/internal/config"
-	"yars/internal/db"
 	"yars/internal/index"
 	"yars/internal/rules"
 	"yars/internal/store"
@@ -33,7 +32,6 @@ type inboxRow struct {
 	TagClass, Tag      string // severity or note state; "" = an empty slot
 	EngID, EngName, ID string
 	Who, What          string
-	WhatClass          string // bad | good | ""
 	At                 time.Time
 	Act, ActURL        string
 	Primary            bool
@@ -73,14 +71,14 @@ type inboxCache struct {
 var inboxHeadings = map[workflow.Inbox]string{
 	workflow.InboxReturned: "Returned to me", workflow.InboxReview: "Awaiting my review", workflow.InboxApprove: "Ready to approve",
 	workflow.InboxReport: "Ready to mark reported", workflow.InboxThreads: "Open threads on my findings",
-	workflow.InboxBoard: "New on team board", workflow.InboxNotes: "Notifications", workflow.InboxDraft: "My drafts",
+	workflow.InboxBoard: "New on team board", workflow.InboxNotes: "Notifications",
 }
 
 // inboxWho heads the who · what column of each queue.
 var inboxWho = map[workflow.Inbox]string{
 	workflow.InboxReturned: "Returned by", workflow.InboxReview: "Author", workflow.InboxApprove: "Signed off by",
 	workflow.InboxReport: "Approved by", workflow.InboxThreads: "Last message", workflow.InboxBoard: "Latest",
-	workflow.InboxNotes: "By", workflow.InboxDraft: "Checks",
+	workflow.InboxNotes: "By",
 }
 
 // inboxFor classifies every finding across the open engagements u sees,
@@ -208,12 +206,6 @@ func findingRow(k workflow.Inbox, u config.User, r index.Row, engName string) in
 			// approver is not recorded anywhere else
 			ir.What = "—"
 		}
-	case workflow.InboxDraft:
-		// the last edit or chat line, whichever came last
-		ir.Act, ir.At = "Continue", r.Updated
-		if r.Modified.After(ir.At) {
-			ir.At = r.Modified
-		}
 	}
 	// no event to date it: the last chat line, else the last edit
 	if ir.At.IsZero() {
@@ -248,61 +240,6 @@ func threadRows(u config.User, r index.Row, engName string) []inboxRow {
 		out = append(out, ir)
 	}
 	return out
-}
-
-// draftChecks fills in how the last check of each draft went (read now:
-// runs do not wait for the index) and offers Submit when it passed on this
-// content and nothing else blocks the draft. rows are copied, never changed.
-func (s *Server) draftChecks(rows []inboxRow) ([]inboxRow, error) {
-	if len(rows) == 0 {
-		return rows, nil
-	}
-	out := slices.Clone(rows)
-	runs := map[string]db.RunCount{}
-	if d := s.Store.DB(); d != nil {
-		keys := make([][2]string, len(out))
-		for i, r := range out {
-			keys[i] = [2]string{r.EngID, r.ID}
-		}
-		var err error
-		if runs, err = d.LatestRuns(keys); err != nil {
-			return nil, err
-		}
-	}
-	cfg := s.Store.Config()
-	nowRules := s.Store.RulesVersion()
-	for i := range out {
-		r := &out[i]
-		run, ok := runs[r.EngID+"/"+r.ID]
-		pass := false
-		switch {
-		case !ok:
-			r.What = "Not checked"
-		case run.State == db.RunRunning && s.Store.CheckRunning(r.EngID, r.ID):
-			r.What = "Checking"
-		case run.State == db.RunRunning: // cut off by a stop
-			r.What, r.WhatClass = "Check failed", "bad"
-		case run.ContentHash != r.row.Hash:
-			r.What = "Edited since the check"
-		case store.RulesChanged(run.Rules, nowRules): // Q13, as the page's Stale
-			r.What = "Rules changed since the check"
-		case run.State == db.RunFailed:
-			r.What, r.WhatClass = "Check failed", "bad"
-		case run.Errors > 0:
-			r.What, r.WhatClass = plural(run.Errors, "error"), "bad"
-			if run.Warnings > 0 {
-				r.What += " · " + plural(run.Warnings, "warning")
-			}
-		case run.Warnings > 0:
-			r.What, pass = plural(run.Warnings, "warning"), true
-		default:
-			r.What, r.WhatClass, pass = "Checks pass", "good", true
-		}
-		if pass && len(workflow.Gate(*r.row.Meta, cfg)) == 0 {
-			r.Act, r.Primary = "Submit", true
-		}
-	}
-	return out, nil
 }
 
 // openCache remembers which findings have open checks (Store.OpenChecks),
@@ -505,17 +442,15 @@ func shownQueues(u config.User, v inboxView) []workflow.Inbox {
 	return out
 }
 
-// queueRows are the rows of queue k, the drafts with their checks.
-func (s *Server) queueRows(v inboxView, k workflow.Inbox) ([]inboxRow, error) {
+// queueRows are the rows of queue k.
+func queueRows(v inboxView, k workflow.Inbox) []inboxRow {
 	switch k {
 	case workflow.InboxBoard:
-		return v.Board, nil
+		return v.Board
 	case workflow.InboxNotes:
-		return v.Notes, nil
-	case workflow.InboxDraft:
-		return s.draftChecks(v.Lists[k])
+		return v.Notes
 	}
-	return v.Lists[k], nil
+	return v.Lists[k]
 }
 
 // inboxListsOf lays v out for u: each queue's first page, and for a
@@ -537,11 +472,7 @@ func (s *Server) inboxListsOf(u config.User, v inboxView, upTo map[workflow.Inbo
 		out.Bulk = &b
 	}
 	for _, k := range shownQueues(u, v) {
-		rows, err := s.queueRows(v, k)
-		if err != nil {
-			return inboxLists{}, err
-		}
-		l := s.inboxPage(k, rows, 0, upTo[k], moved)
+		l := s.inboxPage(k, queueRows(v, k), 0, upTo[k], moved)
 		// the lists are capped, the counts are not
 		switch k {
 		case workflow.InboxBoard:
@@ -593,11 +524,7 @@ func (s *Server) inbox(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	if k := workflow.Inbox(q.Get("list")); slices.Contains(workflow.QueueOrder, k) && r.Header.Get("HX-Request") == "true" {
 		off, _ := strconv.Atoi(q.Get("offset"))
-		rows, err := s.queueRows(p.Inbox, k)
-		if err != nil {
-			s.fail(w, err)
-			return
-		}
+		rows := queueRows(p.Inbox, k)
 		// after a run: the rows it touched are on the first page already
 		not := q["not"]
 		moved := map[string]bool{}
@@ -683,7 +610,7 @@ func (s *Server) inboxAfterBulk(u config.User, before inboxView, v bulkView) (in
 			continue
 		}
 		k := workflow.Pending(u, *f.Meta)
-		if k == workflow.InboxNone || k == workflow.InboxDraft || !slices.Contains(workflow.Queues(u), k) {
+		if k == workflow.InboxNone || !slices.Contains(workflow.Queues(u), k) {
 			continue
 		}
 		if now == nil {
@@ -736,7 +663,7 @@ func (s *Server) inboxAfterBulk(u config.User, before inboxView, v bulkView) (in
 // now, or (in none) who moved it and its new state.
 func movedRow(u config.User, r index.Row, engName string) inboxRow {
 	if r.Meta != nil {
-		if k := workflow.Pending(u, *r.Meta); k != workflow.InboxNone && k != workflow.InboxDraft {
+		if k := workflow.Pending(u, *r.Meta); k != workflow.InboxNone {
 			return findingRow(k, u, r, engName)
 		}
 	}

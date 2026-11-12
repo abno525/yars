@@ -140,7 +140,7 @@ func TestInboxLoadMoreQueues(t *testing.T) {
 	if !strings.Contains(next, `<input type="checkbox" name="id" value="acme/F-002`) || !strings.Contains(next, `data-acts="take_back approve withdraw"`) {
 		t.Fatalf("loaded row has no pick:\n%s", next)
 	}
-	// threads and drafts page too
+	// threads page too
 	e.srv.Store.PostChat("acme", fdir, chat.Message{Text: "one"}, wBob)
 	e.srv.Store.PostChat("acme", fdir, chat.Message{Text: "two"}, wBob)
 	b = e.do(t, "alice", "GET", "/inbox", nil, nil).Body.String()
@@ -200,27 +200,13 @@ func TestInboxBoardTotal(t *testing.T) {
 	}
 }
 
-// A run another server left "running" is no check in progress: the draft
-// says the check failed instead of "Checking" for ever.
-func TestInboxDraftStaleRunning(t *testing.T) {
-	e := setup(t)
-	ref, _ := e.srv.Store.Finding("acme", fdir)
-	if _, err := e.srv.Store.DB().StartRun("acme", "F-001", ref.Hash, "alice", ""); err != nil {
-		t.Fatal(err)
-	}
-	q := queue(e.do(t, "alice", "GET", "/inbox", nil, nil).Body.String(), "drafts")
-	if !strings.Contains(q, "Check failed") || strings.Contains(q, "Checking") {
-		t.Fatalf("draft:\n%s", q)
-	}
-}
-
-// Off the team: the engagement's drafts and threads leave the user's inbox
-// on the next request (the cached queues follow team changes).
+// Off the team: the engagement's threads leave the user's inbox on the next
+// request (the cached queues follow team changes).
 func TestInboxFollowsTeam(t *testing.T) {
 	e := setup(t)
 	e.srv.Store.PostChat("acme", fdir, chat.Message{Text: "why?"}, wBob)
 	b := e.do(t, "alice", "GET", "/inbox", nil, nil).Body.String()
-	if !strings.Contains(queue(b, "drafts"), "SQL injection") || !strings.Contains(queue(b, "threads"), "SQL injection") {
+	if !strings.Contains(queue(b, "threads"), "SQL injection") {
 		t.Fatalf("before:\n%s", b)
 	}
 	if err := e.srv.Store.RemoveMember("acme", "alice", wDora); err != nil {
@@ -239,14 +225,5 @@ func TestInboxRowWithoutEvents(t *testing.T) {
 	r := findingRow(workflow.InboxApprove, wDora, index.Row{EngID: "acme", Dir: "F-001-t", ID: "F-001", Meta: m, Modified: mod}, "ACME")
 	if r.Who != "bob" || !r.At.Equal(mod) {
 		t.Fatalf("row %+v", r)
-	}
-}
-
-// A brand-new draft with no chat line shows when its file last changed.
-func TestInboxNewDraftTime(t *testing.T) {
-	e := setup(t)
-	q := queue(e.do(t, "alice", "GET", "/inbox", nil, nil).Body.String(), "drafts")
-	if !strings.Contains(q, "SQL injection") || strings.Contains(q, `<td class="c-age mono">—</td>`) {
-		t.Fatalf("draft time:\n%s", q)
 	}
 }

@@ -401,9 +401,31 @@ func (s *Store) UnseenQueue(u config.User, engs []string, limit int) ([]Unseen, 
 	if s.db == nil {
 		return nil, 0, nil
 	}
-	vis, err := s.Visible(u)
+	keep, err := s.seenEngs(u, engs)
 	if err != nil {
 		return nil, 0, err
+	}
+	return s.db.UnseenIn(u.Username, keep, limit)
+}
+
+// SeeQueue marks seen every note UnseenQueue lists for the same engs (the
+// inbox's Mark all read).
+func (s *Store) SeeQueue(u config.User, engs []string) error {
+	if s.db == nil {
+		return ErrNoDB
+	}
+	keep, err := s.seenEngs(u, engs)
+	if err != nil {
+		return err
+	}
+	return s.db.SeeUnseenIn(u.Username, keep)
+}
+
+// seenEngs are those of engs that u may see.
+func (s *Store) seenEngs(u config.User, engs []string) ([]string, error) {
+	vis, err := s.Visible(u)
+	if err != nil {
+		return nil, err
 	}
 	var keep []string
 	for _, e := range engs {
@@ -411,7 +433,7 @@ func (s *Store) UnseenQueue(u config.User, engs []string, limit int) ([]Unseen, 
 			keep = append(keep, e)
 		}
 	}
-	return s.db.UnseenIn(u.Username, keep, limit)
+	return keep, nil
 }
 
 // UnseenCount is how many of eng's notes have something new to u.

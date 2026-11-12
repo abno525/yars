@@ -342,36 +342,36 @@ type Inbox string
 
 const (
 	InboxNone     Inbox = ""
-	InboxReturned Inbox = "returned" // 1 Returned to me
-	InboxReview   Inbox = "review"   // 2 Awaiting my review
-	InboxApprove  Inbox = "approve"  // 3 Ready to approve
-	InboxReport   Inbox = "report"   // 4 Ready to mark reported
-	InboxThreads  Inbox = "threads"  // 5 Open threads on my findings
-	InboxBoard    Inbox = "board"    // 6 New on team board
-	InboxNotes    Inbox = "notes"    // 7 Notifications
-	InboxDraft    Inbox = "drafts"   // 8 My drafts
+	InboxNotes    Inbox = "notes"    // 1 Notifications
+	InboxReturned Inbox = "returned" // 2 Returned to me
+	InboxReview   Inbox = "review"   // 3 Awaiting my review
+	InboxApprove  Inbox = "approve"  // 4 Ready to approve
+	InboxReport   Inbox = "report"   // 5 Ready to mark reported
+	InboxThreads  Inbox = "threads"  // 6 Open threads on my findings
+	InboxBoard    Inbox = "board"    // 7 New on team board
 )
 
 // QueueOrder is the one order the inbox shows its queues in.
-var QueueOrder = []Inbox{InboxReturned, InboxReview, InboxApprove, InboxReport, InboxThreads, InboxBoard, InboxNotes, InboxDraft}
+var QueueOrder = []Inbox{InboxNotes, InboxReturned, InboxReview, InboxApprove, InboxReport, InboxThreads, InboxBoard}
 
 var roleQueues = map[string][]Inbox{
-	"pentester": {InboxReturned, InboxThreads, InboxBoard, InboxNotes, InboxDraft},
-	"reviewer":  {InboxReview, InboxThreads, InboxBoard, InboxNotes},
-	"director":  {InboxApprove, InboxReport, InboxBoard, InboxNotes},
+	"pentester": {InboxNotes, InboxReturned, InboxThreads, InboxBoard},
+	"reviewer":  {InboxNotes, InboxReview, InboxThreads, InboxBoard},
+	"director":  {InboxNotes, InboxApprove, InboxReport, InboxBoard},
 }
 
-// Queues are the inbox queues of u's role, in QueueOrder; everyone has New
-// on team board and Notifications.
+// Queues are the inbox queues of u's role, in QueueOrder; everyone has
+// Notifications and New on team board.
 func Queues(u config.User) []Inbox {
 	if q, ok := roleQueues[u.Role]; ok {
 		return q
 	}
-	return []Inbox{InboxBoard, InboxNotes}
+	return []Inbox{InboxNotes, InboxBoard}
 }
 
 // Pending classifies whether a finding needs u's attention, and in which
-// finding queue (threads and the board are classified elsewhere).
+// finding queue (threads and the board are classified elsewhere). An own
+// draft that was not returned waits for no one: the findings list has it.
 func Pending(u config.User, m finding.Meta) Inbox {
 	switch {
 	// a director who also reviews it approves it once someone else signed off
@@ -383,8 +383,6 @@ func Pending(u config.User, m finding.Meta) Inbox {
 		return InboxReport
 	case m.Status == "draft" && m.Author == u.Username && m.Returned != nil:
 		return InboxReturned
-	case m.Status == "draft" && m.Author == u.Username:
-		return InboxDraft
 	}
 	return InboxNone
 }
