@@ -162,7 +162,7 @@ func (s *Store) CreateRetest(e Engagement, source string, dirs []string, assigne
 	type copyOf struct {
 		dir     string
 		f       *finding.Finding
-		attachs map[string][]byte // its attachments, by name (as they are now)
+		attachs []string // its attachments' names (each read as it is written)
 	}
 	var copies []copyOf
 	for _, d := range dirs {
@@ -183,11 +183,9 @@ func (s *Store) CreateRetest(e Engagement, source string, dirs []string, assigne
 		if err != nil {
 			return err
 		}
-		c := copyOf{d, f, map[string][]byte{}}
+		c := copyOf{d, f, nil}
 		for _, a := range as {
-			if c.attachs[a.Name], err = s.ReadAttachment(source, d, "attachments/"+a.Name); err != nil {
-				return err
-			}
+			c.attachs = append(c.attachs, a.Name)
 		}
 		copies = append(copies, c)
 	}
@@ -227,7 +225,11 @@ func (s *Store) CreateRetest(e Engagement, source string, dirs []string, assigne
 		if err := write(path.Join("findings", c.dir, "finding.md"), c.f.Bytes()); err != nil {
 			return fail(err)
 		}
-		for name, data := range c.attachs {
+		for _, name := range c.attachs { // one in memory at a time
+			data, err := s.ReadAttachment(source, c.dir, "attachments/"+name)
+			if err != nil {
+				return fail(err)
+			}
 			if err := write(path.Join("findings", c.dir, "attachments", name), data); err != nil {
 				return fail(err)
 			}
