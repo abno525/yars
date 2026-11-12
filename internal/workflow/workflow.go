@@ -28,9 +28,24 @@ const (
 	// TakeBack is the author (or a director) pulling a finding in
 	// verification back to draft, without a reason.
 	TakeBack Action = "take_back"
+	// Unreport takes a reported finding back to complete (reason required);
+	// with Reopen (complete back to verification) it is labelled Revert.
+	Unreport Action = "unreport"
 )
 
-var Actions = []Action{Submit, Return, Clear, Approve, Reopen, Report, Withdraw, Revise, TakeBack}
+var Actions = []Action{Submit, Return, Clear, Approve, Reopen, Report, Unreport, Withdraw, Revise, TakeBack}
+
+// RevertOf is the action that takes a finding in status back one step:
+// complete to verification (Reopen), reported to complete (Unreport).
+func RevertOf(status string) (Action, bool) {
+	switch status {
+	case "complete":
+		return Reopen, true
+	case "reported":
+		return Unreport, true
+	}
+	return "", false
+}
 
 // aliases are other accepted names of actions.
 var aliases = map[string]Action{"sign_off": Clear}
@@ -59,8 +74,9 @@ var AllStatuses = append(slices.Clone(Statuses), Withdrawn)
 // (every status except withdrawn).
 func Active(status string) bool { return status != Withdrawn }
 
-// NeedsReason reports whether an action requires a reason.
-func NeedsReason(a Action) bool { return a == Return || a == Withdraw }
+// NeedsReason reports whether an action requires a reason: Return,
+// Withdraw and both reverts.
+func NeedsReason(a Action) bool { return a == Return || a == Withdraw || a == Reopen || a == Unreport }
 
 // Denied explains why an action is not allowed.
 type Denied struct{ Reason string }
@@ -85,6 +101,8 @@ func Target(a Action) (from []string, to string) {
 		return []string{"complete"}, "verification"
 	case Report:
 		return []string{"complete"}, "reported"
+	case Unreport:
+		return []string{"reported"}, "complete"
 	case Withdraw:
 		return []string{"draft", "verification", "complete", "reported"}, Withdrawn
 	case Revise:
@@ -97,7 +115,7 @@ func Target(a Action) (from []string, to string) {
 
 func Label(a Action) string {
 	return map[Action]string{Submit: "Submit for verification", Return: "Return to draft", Clear: "Sign off",
-		Approve: "Approve", Reopen: "Reopen", Report: "Mark reported", Withdraw: "Withdraw", Revise: "Restore",
+		Approve: "Approve", Reopen: "Revert", Report: "Mark reported", Unreport: "Revert", Withdraw: "Withdraw", Revise: "Restore",
 		TakeBack: "Take back"}[a]
 }
 
@@ -147,9 +165,11 @@ func Check(u config.User, m finding.Meta, a Action) error {
 		if !reviewedByOther(u, m) {
 			return deny("at least one assigned reviewer other than you must clear the finding first")
 		}
-	case Reopen:
-		if !manager(u) {
-			return deny("only a director can %s", strings.ToLower(Label(a)))
+	case Reopen, Unreport:
+		// a director can do everything; the author can always move their
+		// finding backwards (the user's answer of 2026-11-11)
+		if u.Username != m.Author && !manager(u) {
+			return deny("only the author or a director can revert a finding")
 		}
 	case Report:
 		if u.Username != m.Author && !manager(u) {

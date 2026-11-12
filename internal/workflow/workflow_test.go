@@ -59,7 +59,7 @@ func TestCheckMatrix(t *testing.T) {
 		{adm, meta("verification", "bob"), Approve, true},
 
 		{dora, meta("complete"), Reopen, true},
-		{alice, meta("complete"), Reopen, false},
+		{alice, meta("complete"), Reopen, true}, // R4: the author reverts their own finding
 		{dora, meta("verification"), Reopen, false},
 
 		{dora, meta("complete"), Report, true},
@@ -155,6 +155,70 @@ func TestWithdrawRevise(t *testing.T) {
 	}
 	if !slices.Contains(AllStatuses, "withdrawn") || slices.Contains(Statuses, "withdrawn") {
 		t.Error("withdrawn is a status but not a workflow step")
+	}
+}
+
+// R4: reported goes back to complete, by the author or a director.
+func TestUnreportTargetAndWho(t *testing.T) {
+	if from, to := Target(Unreport); to != "complete" || !slices.Equal(from, []string{"reported"}) {
+		t.Fatalf("unreport %v -> %q", from, to)
+	}
+	for _, c := range []struct {
+		u    config.User
+		want bool
+	}{{alice, true}, {dora, true}, {adm, true}, {bob, false}, {pen2, false}} {
+		if err := Check(c.u, meta("reported"), Unreport); (err == nil) != c.want {
+			t.Errorf("%s: %v", c.u.Username, err)
+		}
+	}
+	if err := Check(bob, meta("reported"), Unreport); err == nil || err.Error() != "only the author or a director can revert a finding" {
+		t.Errorf("reviewer: %v", err)
+	}
+	for _, st := range []string{"draft", "verification", "complete", "withdrawn"} {
+		if err := Check(dora, meta(st), Unreport); err == nil || !strings.Contains(err.Error(), "only possible in reported") {
+			t.Errorf("unreport on %s: %v", st, err)
+		}
+	}
+	if !slices.Contains(Actions, Unreport) || slices.Index(Actions, Unreport) != slices.Index(Actions, Report)+1 {
+		t.Errorf("Actions %v", Actions)
+	}
+}
+
+// R4: the author may revert their own complete finding to verification;
+// another pentester and a reviewer may not.
+func TestReopenByAuthor(t *testing.T) {
+	if err := Check(alice, meta("complete"), Reopen); err != nil {
+		t.Fatalf("author: %v", err)
+	}
+	for _, u := range []config.User{pen2, bob} {
+		if err := Check(u, meta("complete"), Reopen); err == nil || err.Error() != "only the author or a director can revert a finding" {
+			t.Errorf("%s: %v", u.Username, err)
+		}
+	}
+}
+
+func TestRevertNeedsReason(t *testing.T) {
+	if !NeedsReason(Reopen) || !NeedsReason(Unreport) {
+		t.Fatal("a revert needs a reason")
+	}
+}
+
+func TestRevertOf(t *testing.T) {
+	for st, want := range map[string]Action{"complete": Reopen, "reported": Unreport} {
+		if a, ok := RevertOf(st); !ok || a != want {
+			t.Errorf("RevertOf(%s) = %q, %v", st, a, ok)
+		}
+	}
+	for _, st := range []string{"draft", "verification", "withdrawn"} {
+		if _, ok := RevertOf(st); ok {
+			t.Errorf("RevertOf(%s) is ok", st)
+		}
+	}
+}
+
+func TestRevertLabel(t *testing.T) {
+	if Label(Reopen) != "Revert" || Label(Unreport) != "Revert" {
+		t.Fatalf("labels %q %q", Label(Reopen), Label(Unreport))
 	}
 }
 

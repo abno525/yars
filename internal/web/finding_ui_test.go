@@ -145,10 +145,10 @@ func TestWorkflowSlotsComplete(t *testing.T) {
 			t.Fatalf("dora on complete lacks %s:\n%s", want, dora)
 		}
 	}
-	// the author marks it reported; Reopen keeps its empty slot, Withdraw
-	// (after her last button) is left out
+	// the author marks it reported or reverts it (R4); Withdraw (after her
+	// last button) is left out
 	alice := actionsOf(t, e.do(t, "alice", "GET", fpath, nil, nil).Body.String())
-	if strings.Count(alice, "data-action=") != 1 || !strings.Contains(alice, `data-action="report"`) || strings.Count(alice, `class="slot w136"`) != 1 || strings.Contains(alice, `data-slot="withdraw"`) {
+	if strings.Count(alice, "data-action=") != 2 || !strings.Contains(alice, `data-action="report"`) || !strings.Contains(alice, `data-action="reopen"`) || strings.Contains(alice, `data-slot="withdraw"`) {
 		t.Fatalf("alice on complete:\n%s", alice)
 	}
 	e.pen2(t)

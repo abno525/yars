@@ -79,5 +79,8 @@ M26 task 4  review   fix be5e0af (deadlines lifted; header row; archived named; 
 M26 task 2  review 2 fix 6e49d5e (old versions out at every path; copy in the current files redacted first; gc retried; reflogs kept on refusal)
 M26 browser check 2  fix cc7ecf4 (confirm table's value column)
 M26 branch  reviewed fixes 1a691dd (renames followed; an interrupted purge finished; history-only paths a server error)
-M26 branch  fix check    fix 6edc7fc (versions history holds again; exact earlier folder names); its check passed; nits
+M26 branch  fix check    fix 6edc7fc (versions history holds again; exact earlier folder names); its check passed; nits c8218ad
+M26 browser check    passed (1440: marks and the Purge slot, clipped long name, confirm page within its panel, purge removes the original from git and the mark, a copy refuses with 409, a redacted copy lets both purges through)
+M26 PR      opened   #20
+M27 task 1  done
 ```
