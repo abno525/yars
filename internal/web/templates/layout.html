@@ -102,7 +102,7 @@ keys.js hides the Finding page group where there are no panels */}}
     <div class="kcol">
       <section class="kgroup" data-keys-group="eng"><h3 class="gh">Engagement</h3>
         <dl>
-          <div class="krow"><dt><kbd>t</kbd><kbd>b</kbd></dt><dd>Team board</dd></div>
+          <div class="krow" data-keys-for="T"><dt><kbd>t</kbd><kbd>b</kbd></dt><dd>Team board</dd></div>
           <div class="krow"><dt><kbd>o</kbd></dt><dd>Overview</dd></div>
           <div class="krow"><dt><kbd>r</kbd></dt><dd>Report</dd></div>
           <div class="krow"><dt><kbd>s</kbd></dt><dd>Settings</dd></div>
@@ -114,7 +114,7 @@ keys.js hides the Finding page group where there are no panels */}}
           <div class="krow"><dt><kbd>j</kbd><kbd>k</kbd><kbd>↓</kbd><kbd>↑</kbd></dt><dd>Next or previous panel</dd></div>
           <div class="krow" data-keys-if="#chat"><dt><kbd>l</kbd><kbd>→</kbd></dt><dd>Chat panel</dd></div>
           <div class="krow" data-keys-if="#chat"><dt><kbd>h</kbd><kbd>←</kbd></dt><dd>Back to the panel</dd></div>
-          <div class="krow" data-keys-for="E"><dt><kbd>e</kbd></dt><dd>Edit the panel</dd></div>
+          <div class="krow" data-keys-if="[data-kpanel] [aria-keyshortcuts~=E]"><dt><kbd>e</kbd></dt><dd>Edit the panel</dd></div>
           <div class="krow"><dt><kbd>Enter</kbd></dt><dd>The panel's button</dd></div>
           <div class="krow" data-keys-for="Shift+S"><dt><kbd>Shift+S</kbd></dt><dd>Submit</dd></div>
           <div class="krow" data-keys-for="Shift+O"><dt><kbd>Shift+O</kbd></dt><dd>Sign off</dd></div>

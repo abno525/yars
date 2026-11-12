@@ -505,6 +505,16 @@ func TestListFilterDigitsAndArrows(t *testing.T) {
 	if a, r := strings.Index(js, "if (yarsArrowKey(evt, key)) return;"), strings.Index(js, "evt.isComposing || evt.repeat || evt.altKey"); a < 0 || a > r {
 		t.Error("the arrows are not handled before the repeat check")
 	}
+	// the row the keys moved to is tinted whole; its title is not boxed
+	css := e.do(t, "alice", "GET", "/static/style.css", nil, nil).Body.String()
+	for _, w := range []string{".table tbody tr:has([data-nav]:focus-visible) > td { background: var(--mark-bg); }", ".table [data-nav]:focus-visible { outline: none; }"} {
+		if !strings.Contains(css, w) {
+			t.Errorf("style.css lacks %s", w)
+		}
+	}
+	if strings.Index(css, ".table tbody tr:has([data-nav]:focus-visible)") < strings.Index(css, ".table.findings tbody tr.sel td") {
+		t.Error("a ticked row's tint wins over the focused row's")
+	}
 	page := e.do(t, "alice", "GET", "/", nil, nil).Body.String()
 	if d := between(page, `data-keys-group="lists"`, "</section>"); !strings.Contains(d, `<dt><kbd>j</kbd><kbd>k</kbd><kbd>↓</kbd><kbd>↑</kbd></dt><dd>Next or previous row</dd>`) {
 		t.Errorf("the Lists group lacks the arrows:\n%s", d)
@@ -847,8 +857,16 @@ func TestBranchReviewNits(t *testing.T) {
 		}
 	}
 	d := between(e.do(t, "alice", "GET", "/", nil, nil).Body.String(), `id="keys"`, "</dialog>")
-	// t b, o, r, s and e are the Engagement group's, shown where the tabs are
-	for _, k := range []string{"I", "F", "N", "E", "Shift+S", "Shift+O", "Shift+A", "Shift+P", "Shift+R", "Shift+W", "Shift+U", "Shift+C", "Shift+H"} {
+	// o, r, s and e are the Engagement group's, shown where the tabs are; t b
+	// only where there is a board (it needs the database); e edits only
+	// where a panel has an Edit (the head's Export carries E too)
+	for _, w := range []string{`<div class="krow" data-keys-for="T"><dt><kbd>t</kbd><kbd>b</kbd></dt><dd>Team board</dd></div>`,
+		`<div class="krow" data-keys-if="[data-kpanel] [aria-keyshortcuts~=E]"><dt><kbd>e</kbd></dt><dd>Edit the panel</dd></div>`} {
+		if !strings.Contains(d, w) {
+			t.Errorf("the list lacks %s", w)
+		}
+	}
+	for _, k := range []string{"I", "F", "N", "Shift+S", "Shift+O", "Shift+A", "Shift+P", "Shift+R", "Shift+W", "Shift+U", "Shift+C", "Shift+H"} {
 		if !strings.Contains(d, `data-keys-for="`+k+`"`) {
 			t.Errorf("the list's %s row is not tied to its key", k)
 		}

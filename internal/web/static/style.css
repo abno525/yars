@@ -1927,3 +1927,8 @@ code.plain { font: 500 13px var(--mono); color: var(--text); background: transpa
 .tbfields .seg { width: fit-content; }
 .tbfields .seg > label { position: relative; } /* keeps the hidden radio inside, no page scroll */
 .tbnew > .tbcrow { padding: 12px 20px; border-top: 1px solid var(--line); }
+
+/* the row the keys moved to (j k ↓ ↑) is tinted whole, its title not boxed;
+   last, so it wins over a ticked or an archived row's tint */
+.table tbody tr:has([data-nav]:focus-visible) > td { background: var(--mark-bg); }
+.table [data-nav]:focus-visible { outline: none; }
