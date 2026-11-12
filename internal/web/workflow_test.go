@@ -3,6 +3,7 @@ package web
 import (
 	"net/http"
 	"net/url"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -315,6 +316,39 @@ func TestReturnRequiresReason(t *testing.T) {
 	b := e.do(t, "alice", "GET", fpath, nil, nil).Body.String()
 	if !strings.Contains(b, "Steps are incomplete") || !strings.Contains(b, "Returned by") {
 		t.Fatalf("no returned banner:\n%s", b)
+	}
+}
+
+// Sign off and Approve are for the version the page showed: the bar sends
+// its content hash, and a finding changed since is refused with what to do
+// (backlog, M10).
+func TestSignOffBindsToViewedVersion(t *testing.T) {
+	e := setup(t)
+	e.toVerification(t)
+	seenOf := func(user string) string {
+		t.Helper()
+		m := regexp.MustCompile(`<input type="hidden" name="seen" value="([0-9a-f]+)">`).FindStringSubmatch(e.do(t, user, "GET", fshort, nil, nil).Body.String())
+		if m == nil {
+			t.Fatalf("%s's bar sends no viewed version", user)
+		}
+		return m[1]
+	}
+	seen := seenOf("bob")
+	if err := e.srv.Store.UpdateSection("acme", fdir, "Impact", "Changed while bob read.", "", wAlice); err != nil {
+		t.Fatal(err)
+	}
+	b := e.denied(t, "bob", fshort+"/action/clear", url.Values{"seen": {seen}})
+	if !strings.Contains(b, "the finding changed since you opened it; read it again") {
+		t.Fatal("no refusal on the page")
+	}
+	if ref, _ := e.srv.Store.Finding("acme", fdir); len(ref.F.Meta.ClearedBy) != 0 {
+		t.Fatal("bob signed off a version he did not see")
+	}
+	if rec := e.do(t, "bob", "POST", fshort+"/action/clear", url.Values{"seen": {seenOf("bob")}}, nil); rec.Code != http.StatusSeeOther {
+		t.Fatalf("sign off on the current version: %d", rec.Code)
+	}
+	if ref, _ := e.srv.Store.Finding("acme", fdir); len(ref.F.Meta.ClearedBy) != 1 {
+		t.Fatal("bob's sign-off on the current version did not count")
 	}
 }
 

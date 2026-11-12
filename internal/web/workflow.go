@@ -53,6 +53,7 @@ type wfView struct {
 	HasGated     bool
 	ReviewersURL string
 	URL          string // the bar alone (live refresh)
+	Seen         string // the content hash of the version shown: Sign off and Approve are for it
 	Returned     *finding.Returned
 	Withdrawn    *finding.Returned // who withdrew the finding and why
 	IsWithdrawn  bool              // no step is current or done
@@ -287,7 +288,7 @@ func (s *Server) wfFor(ref store.FindingRef, r *http.Request) wfView {
 	base := findingURL(ref.EngID, ref.Dir)
 	archived := s.Store.Archived(ref.EngID)
 	v := wfView{Status: m.Status, Shown: workflow.Shown(m), Steps: workflow.ShownSteps, CanAssign: workflow.CanAssign(u, m) && !archived,
-		ReviewersURL: base + "/reviewers", URL: base + "/workflow", Returned: m.Returned, Withdrawn: m.Withdrawn,
+		ReviewersURL: base + "/reviewers", URL: base + "/workflow", Seen: ref.Hash, Returned: m.Returned, Withdrawn: m.Withdrawn,
 		IsWithdrawn: m.Status == workflow.Withdrawn, ReadOnly: archived}
 	if v.IsWithdrawn {
 		v.Returned = nil // the withdrawal is what counts now
@@ -419,7 +420,8 @@ func (s *Server) wfAction(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	err := s.Store.Transition(ref.EngID, ref.Dir, act, r.FormValue("reason"), auth.UserFrom(r.Context()))
+	// Sign off and Approve are for the version the page showed (its hash)
+	err := s.Store.TransitionSeen(ref.EngID, ref.Dir, act, r.FormValue("reason"), r.FormValue("seen"), auth.UserFrom(r.Context()))
 	s.wfDone(w, r, err)
 }
 

@@ -117,6 +117,20 @@ func (s *Store) Transition(engID, dir string, act workflow.Action, reason string
 // TransitionChecked is Transition with a further rule of the caller (the
 // bulk bar's own limits), checked on the finding as it is inside the change.
 func (s *Store) TransitionChecked(engID, dir string, act workflow.Action, reason string, u config.User, check func(finding.Meta) error) error {
+	return s.transition(engID, dir, act, reason, "", u, check)
+}
+
+// TransitionSeen is Transition for a page that showed the content with hash
+// seen: a sign-off or an approval of content changed since is refused
+// (ErrConflict). seen "" or another action: Transition.
+func (s *Store) TransitionSeen(engID, dir string, act workflow.Action, reason, seen string, u config.User) error {
+	if !SignsOff(act) {
+		seen = ""
+	}
+	return s.transition(engID, dir, act, reason, seen, u, nil)
+}
+
+func (s *Store) transition(engID, dir string, act workflow.Action, reason, seen string, u config.User, check func(finding.Meta) error) error {
 	if check == nil {
 		check = func(finding.Meta) error { return nil }
 	}
@@ -156,6 +170,9 @@ func (s *Store) TransitionChecked(engID, dir string, act workflow.Action, reason
 	err := s.changeState(engID, dir, func(ref FindingRef, st *db.State, hash string) ([]chat.Message, error) {
 		done = findingEvent(EventStatus, u.Username, ref)
 		done.Action, done.From, done.Reason = string(act), ref.F.Meta.Status, strings.TrimSpace(reason)
+		if seen != "" && hash != seen {
+			return nil, &workflow.Denied{Reason: "the finding changed since you opened it; read it again", Err: ErrConflict}
+		}
 		if linted != "" && hash != linted {
 			return nil, &workflow.Denied{Reason: "the finding changed while its checks ran; try again", Err: ErrConflict}
 		}
