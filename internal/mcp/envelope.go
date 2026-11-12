@@ -15,7 +15,8 @@ import (
 // result has isError) {"ok":false,"code":"…","message":"…"}.
 
 // ok renders a success object: {"ok":true, …fields}. fields must marshal
-// to a JSON object; its keys keep their order.
+// to a JSON object (anything else is an error) without an "ok" key of its
+// own; its keys keep their order.
 func ok(fields any) (string, error) {
 	b, err := json.Marshal(fields)
 	if err != nil {
@@ -64,21 +65,9 @@ var (
 // cursor ("" at the end). A limit outside 1–200 or a cursor that is not a
 // whole number from 0 is invalid; a cursor past the end gives an empty page.
 func page[T any](a args, items []T) (out []T, next string, err error) {
-	limit := defaultLimit
-	if s := a.str("limit"); s != "" {
-		n, err := strconv.Atoi(s)
-		if err != nil || n < 1 || n > maxLimit {
-			return nil, "", refuse("invalid", fmt.Sprintf("limit must be a whole number from 1 to %d", maxLimit))
-		}
-		limit = n
-	}
-	off := 0
-	if s := a.str("cursor"); s != "" {
-		n, err := strconv.Atoi(s)
-		if err != nil || n < 0 {
-			return nil, "", refuse("invalid", "cursor must be the next of an earlier answer (a whole number from 0)")
-		}
-		off = n
+	limit, off, err := pageArgs(a)
+	if err != nil {
+		return nil, "", err
 	}
 	if off >= len(items) {
 		return []T{}, "", nil
@@ -88,6 +77,27 @@ func page[T any](a args, items []T) (out []T, next string, err error) {
 		next = strconv.Itoa(end)
 	}
 	return items[off:end], next, nil
+}
+
+// pageArgs reads limit (1–200, default 50) and cursor (a whole number from
+// 0, default 0); anything else is invalid.
+func pageArgs(a args) (limit, cursor int, err error) {
+	limit = defaultLimit
+	if s := a.str("limit"); s != "" {
+		n, err := strconv.Atoi(s)
+		if err != nil || n < 1 || n > maxLimit {
+			return 0, 0, refuse("invalid", fmt.Sprintf("limit must be a whole number from 1 to %d", maxLimit))
+		}
+		limit = n
+	}
+	if s := a.str("cursor"); s != "" {
+		n, err := strconv.Atoi(s)
+		if err != nil || n < 0 {
+			return 0, 0, refuse("invalid", "cursor must be the next of an earlier answer (a whole number from 0)")
+		}
+		cursor = n
+	}
+	return limit, cursor, nil
 }
 
 // listPage renders the page of items a asks for.
@@ -115,10 +125,10 @@ func codeOf(err error) string {
 	switch {
 	case errors.As(err, &r):
 		return r.code
+	case errors.Is(err, store.ErrConflict): // a Denied that raced a change too
+		return "conflict"
 	case errors.As(err, &d):
 		return "not_allowed"
-	case errors.Is(err, store.ErrConflict):
-		return "conflict"
 	case errors.Is(err, store.ErrNotFound):
 		return "not_found"
 	case errors.Is(err, store.ErrArchived):

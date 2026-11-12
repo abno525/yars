@@ -68,20 +68,25 @@ Findings can be referred to by ID (`F-001`, also `f-1` or `1`) or directory name
 
 Every answer is one JSON object: `{"ok": true, …}` on success (a list: `{"ok": true, "items": […], "next": ""}`; a plain outcome: `{"ok": true, "message": "updated Impact"}`). A refusal comes back as a result with `isError: true` and the text `{"ok": false, "code": "<code>", "message": "<what to do>"}`; the code is one of `not_found`, `not_allowed`, `conflict`, `invalid`, `archived`, `busy`, `no_database`. Some messages:
 
-| Message | Cause |
-|---|---|
-| `missing argument "finding"` | A required parameter is empty |
-| `not found` | Unknown engagement or finding, or one you are not on the team of |
-| `not allowed: <reason>` | Your role or the finding's status forbids it |
-| `not allowed: this token may not <action>` | The token's actions don't include it |
-| `not allowed: the engagement is archived (read only)` | Writes to an archived engagement |
-| `workflow state and chat are kept on the YARS server; use its web UI or its /mcp endpoint` | A server-only tool on a local clone |
-| `the finding changed meanwhile (someone else edited it); read_finding again and retry` | Stale `base` |
-| `unknown section "Summary"; valid sections: …` | `update_section` with a section the finding doesn't have |
-| `use the transition tool to change the status` | `set_field status` |
-| `nothing to revert: the finding is draft` | `transition revert` on a finding that is not complete or reported |
-| `unknown status "open"; valid statuses: draft, verification, complete, reported, withdrawn` | `list_findings` with a status (or severity) that does not exist |
-| `F-001 names more than one finding folder (…); use the folder name` | An ID two folders share |
+| Code | Message | Cause |
+|---|---|---|
+| `invalid` | `missing argument "finding"` | A required parameter is empty |
+| `not_found` | `not found` | Unknown engagement or finding, or one you are not on the team of |
+| `not_allowed` | `not allowed: <reason>` | Your role or the finding's status forbids it |
+| `not_allowed` | `not allowed: this token may not <action>` | The token's actions don't include it |
+| `archived` | `not allowed: the engagement is archived (read only)` | Writes to an archived engagement |
+| `no_database` | `workflow state and chat are kept on the YARS server; use its web UI or its /mcp endpoint` | A server-only tool on a local clone |
+| `conflict` | `the finding changed since you read it; read_finding again and retry` | Stale `base` |
+| `conflict` | `not allowed: the finding changed while its checks ran; try again` | A submit or sign-off raced an edit: retry |
+| `busy` | `a check or a fix of this finding is running` | `start_check` or `fix_checks` while one runs |
+| `invalid` | `a reason is required to withdraw a finding` | `transition` return, withdraw or revert without `reason` |
+| `invalid` | `unknown section "Summary"; valid sections: …` | `update_section` with a section the finding doesn't have |
+| `invalid` | `use the transition tool to change the status` | `set_field status` |
+| `not_allowed` | `nothing to revert: the finding is draft` | `transition revert` on a finding that is not complete or reported |
+| `invalid` | `unknown status "open"; valid statuses: draft, verification, complete, reported, withdrawn` | `list_findings` with a status (or severity) that does not exist |
+| `invalid` | `F-001 names more than one finding folder (…); use the folder name` | An ID two folders share |
+
+A failure of the server itself (its disk, its database) also comes back as `invalid` with the error's words: the seven codes have none of their own.
 
 ## Safety notes
 

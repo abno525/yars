@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"yars/internal/db"
+	"yars/internal/store"
 )
 
 // pageOf calls a list tool and returns its ids and next.
@@ -84,6 +87,55 @@ func TestPagingBadLimit(t *testing.T) {
 			}
 		}
 		f.ok(alice, tool, map[string]any{"engagement": "acme", "limit": "200"})
+	}
+}
+
+// Notifications page by id: marking a page read before asking for the
+// next (unread) skips none, and a token's engagements are filtered before
+// the page is cut, so every page is full.
+func TestNotificationsPageByID(t *testing.T) {
+	f := newFx(t)
+	d := f.s.Store.DB()
+	d.AddUser(alice)
+	f.s.Store.CreateEngagement(store.Engagement{ID: "beta", Name: "Beta"}, dora.GitAuthor())
+	d.AddMembers("beta", "alice")
+	for i := range 120 {
+		d.AddNotification(db.Notification{User: "alice", Event: "mentioned", Eng: "acme", Fid: "F-001", Actor: "bob", Text: fmt.Sprint("acme ", i)})
+		d.AddNotification(db.Notification{User: "alice", Event: "mentioned", Eng: "beta", Fid: "F-001", Actor: "bob", Text: fmt.Sprint("beta ", i)})
+	}
+	only := db.TokenInfo{Kind: db.TokenMCP, Scopes: []string{db.ScopeAll}, Engagements: []string{"acme"}}
+	type note struct {
+		ID         int64  `json:"id"`
+		Engagement string `json:"engagement"`
+	}
+	seen := map[int64]bool{}
+	var sizes []int
+	cursor := ""
+	for range 5 {
+		a := map[string]any{"unread": true}
+		if cursor != "" {
+			a["cursor"] = cursor
+		}
+		text, isErr := f.callTok(alice, only, "list_notifications", a)
+		if isErr {
+			t.Fatal(text)
+		}
+		var page []note
+		itemsOf(t, text, &page)
+		sizes = append(sizes, len(page))
+		for _, n := range page {
+			if n.Engagement != "acme" || seen[n.ID] {
+				t.Fatalf("note %+v (seen %v)", n, seen[n.ID])
+			}
+			seen[n.ID] = true
+			d.MarkRead("alice", n.ID) // read as it is shown
+		}
+		if cursor, _ = object(t, "page", text)["next"].(string); cursor == "" {
+			break
+		}
+	}
+	if fmt.Sprint(sizes) != "[50 50 20]" || len(seen) != 120 {
+		t.Fatalf("pages %v, %d notes", sizes, len(seen))
 	}
 }
 

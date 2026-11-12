@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"yars/internal/config"
+	"yars/internal/db"
 	"yars/internal/rules"
 	"yars/internal/store"
 	"yars/internal/workflow"
@@ -145,6 +147,9 @@ func TestErrorCodes(t *testing.T) {
 		{fmt.Errorf("%w: bad", store.ErrInvalidValue), "invalid"},
 		{errors.New(`missing argument "finding"`), "invalid"},
 		{ambiguous{id: "F-001", dirs: []string{"a", "b"}}, "invalid"},
+		// a refusal the caller can retry: the finding changed while its
+		// checks ran (a Denied for the web, a conflict here)
+		{&workflow.Denied{Reason: "the finding changed while its checks ran; try again", Err: store.ErrConflict}, "conflict"},
 	}
 	for _, c := range cases {
 		if got := codeOf(c.err); got != c.code {
@@ -164,6 +169,68 @@ func TestErrorCodes(t *testing.T) {
 	text, isErr = f.call(alice, "read_finding", map[string]any{"engagement": "acme"})
 	if m := object(t, "read_finding", text); !isErr || m["code"] != "invalid" || m["message"] != `missing argument "finding"` {
 		t.Fatalf("%v %s", isErr, text)
+	}
+	// the gate: a token's action and engagements, the team
+	f.s.Store.CreateEngagement(store.Engagement{ID: "beta", Name: "Beta"}, dora.GitAuthor())
+	edit := map[string]any{"engagement": "acme", "finding": "F-001", "section": "Impact", "body": "x"}
+	read := db.TokenInfo{Kind: db.TokenMCP, Scopes: []string{db.ScopeRead}}
+	acme := db.TokenInfo{Kind: db.TokenMCP, Scopes: []string{db.ScopeAll}, Engagements: []string{"acme"}}
+	for _, c := range []struct {
+		u    config.User
+		tok  *db.TokenInfo
+		tool string
+		args map[string]any
+		code string
+	}{
+		{alice, &read, "update_section", edit, "not_allowed"},
+		{dora, &acme, "list_findings", map[string]any{"engagement": "beta"}, "not_allowed"},
+		{alice, nil, "list_findings", map[string]any{"engagement": "beta"}, "not_found"},
+	} {
+		var text string
+		if c.tok != nil {
+			text, _ = f.callTok(c.u, *c.tok, c.tool, c.args)
+		} else {
+			text, _ = f.call(c.u, c.tool, c.args)
+		}
+		if m := object(t, c.tool, text); m["code"] != c.code {
+			t.Errorf("%s as %s: %s, want %s", c.tool, c.u.Username, text, c.code)
+		}
+	}
+}
+
+// A revert with nothing to revert is refused as reopen and unreport are
+// (not_allowed); a missing reason is a missing argument (invalid), once the
+// role and status allow the action.
+func TestTransitionRefusalCodes(t *testing.T) {
+	f := newFx(t)
+	tr := func(u config.User, act, reason string) map[string]any {
+		text, _ := f.call(u, "transition", map[string]any{"engagement": "acme", "finding": "F-001", "action": act, "reason": reason})
+		return object(t, act, text)
+	}
+	for _, act := range []string{"revert", "reopen"} {
+		if m := tr(alice, act, "x"); m["code"] != "not_allowed" {
+			t.Errorf("%s on a draft: %v", act, m)
+		}
+	}
+	if m := tr(alice, "withdraw", ""); m["code"] != "invalid" || m["message"] != "a reason is required to withdraw a finding" {
+		t.Errorf("withdraw without a reason: %v", m)
+	}
+	// not allowed at all comes first
+	if m := tr(pen2, "withdraw", ""); m["code"] != "not_allowed" {
+		t.Errorf("withdraw by another pentester: %v", m)
+	}
+}
+
+// ok splices into an object only: {} is {"ok":true}; a list or a value is
+// an error.
+func TestOKOnlyObjects(t *testing.T) {
+	if got, err := ok(struct{}{}); err != nil || got != `{"ok":true}` {
+		t.Fatalf("%q %v", got, err)
+	}
+	for _, v := range []any{[]int{}, 3, "x"} {
+		if _, err := ok(v); err == nil {
+			t.Errorf("ok(%v) accepted", v)
+		}
 	}
 }
 

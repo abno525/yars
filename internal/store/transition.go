@@ -143,7 +143,7 @@ func (s *Store) TransitionChecked(engID, dir string, act workflow.Action, reason
 		done = findingEvent(EventStatus, u.Username, ref)
 		done.Action, done.From, done.Reason = string(act), ref.F.Meta.Status, strings.TrimSpace(reason)
 		if linted != "" && hash != linted {
-			return nil, &workflow.Denied{Reason: "the finding changed while its checks ran; try again"}
+			return nil, &workflow.Denied{Reason: "the finding changed while its checks ran; try again", Err: ErrConflict}
 		}
 		if linted != "" && SignsOff(act) {
 			// a run started since the read above: the content it covers now

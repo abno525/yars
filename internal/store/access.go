@@ -51,6 +51,16 @@ func (s *Store) Notifications(u config.User, unread bool, limit int) ([]db.Notif
 	return s.db.NotificationsFor(u.Username, SeesAll(u), unread, limit)
 }
 
+// NotificationPage is a page of u's notifications newest first, as
+// Notifications filters them, of the engagements engs when given, older
+// than the id before (0: from the newest).
+func (s *Store) NotificationPage(u config.User, unread bool, engs []string, before int64, limit int) ([]db.Notification, error) {
+	if s.db == nil {
+		return nil, ErrNoDB
+	}
+	return s.db.NotificationPage(u.Username, SeesAll(u), unread, engs, before, limit)
+}
+
 // UnreadCount is how many of u's notifications of engagements u can see
 // are unread (the bell).
 func (s *Store) UnreadCount(u config.User) (int, error) {

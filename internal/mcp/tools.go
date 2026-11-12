@@ -9,6 +9,7 @@ import (
 	"maps"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"yars/internal/chat"
@@ -332,7 +333,7 @@ var coreTools = []tool{
 		}},
 	{name: "list_findings", desc: "List the findings of an engagement, optionally filtered by status or severity or searched (q), most severe first, a page at a time.",
 		required: []param{pEng}, optional: []param{{"status", "one of draft, verification, complete, reported, withdrawn (withdrawn findings are listed only with this filter)"}, {"severity", "one of the configured severities (by default critical, high, medium, low, info)"},
-			{"q", "search: the findings whose ID, title or an asset's host or URL holds this text, in any case"}, pLimit, pCursor},
+			{"q", "search: the findings whose ID (as written: F-002), title or an asset's host or URL holds this text, in any case"}, pLimit, pCursor},
 		run: func(s *Server, ctx context.Context, u config.User, a args) (string, error) {
 			if err := a.need("engagement"); err != nil {
 				return "", err
@@ -546,7 +547,8 @@ var coreTools = []tool{
 			if !ok && strings.EqualFold(strings.TrimSpace(a.str("action")), "revert") {
 				// R4: the step back from the finding's status
 				if act, ok = workflow.RevertOf(ref.F.Meta.Status); !ok {
-					return "", errors.New("nothing to revert: the finding is " + ref.F.Meta.Status)
+					// as reopen or unreport on that status: not allowed
+					return "", refuse("not_allowed", "nothing to revert: the finding is "+ref.F.Meta.Status)
 				}
 			}
 			if !ok {
@@ -557,6 +559,15 @@ var coreTools = []tool{
 			// the website (R4)
 			if act == workflow.Report && !workflow.AtLeast(u, "director") {
 				return "", &workflow.Denied{Reason: "only a director can mark reported"}
+			}
+			// a missing reason is a missing argument, once the role and the
+			// status allow the action (the store's own words)
+			if workflow.NeedsReason(act) && strings.TrimSpace(a.str("reason")) == "" && workflow.Check(u, ref.F.Meta, act) == nil {
+				what := map[workflow.Action]string{workflow.Return: "return", workflow.Withdraw: "withdraw"}[act]
+				if what == "" {
+					what = "revert"
+				}
+				return "", refuse("invalid", "a reason is required to "+what+" a finding")
 			}
 			if err := s.Store.Transition(ref.EngID, ref.Dir, act, a.str("reason"), u); err != nil {
 				return "", err
@@ -696,15 +707,31 @@ var coreTools = []tool{
 			}
 			return ok(out)
 		}},
-	{name: "list_notifications", serverOnly: true, desc: "Your notifications, newest first, a page at a time: returned to you, review requested, replies, approvals, mentions, finished checks.",
+	{name: "list_notifications", serverOnly: true, desc: "Your notifications, newest first, a page at a time (the cursor is the id of the last one given, so marking some read between pages skips none): returned to you, review requested, replies, approvals, mentions, finished checks.",
 		optional: []param{pLimit, pCursor}, boolArgs: []param{{"unread", "only unread ones"}},
 		run: func(s *Server, ctx context.Context, u config.User, a args) (string, error) {
 			unread, _ := a["unread"].(bool)
-			l, err := s.Store.Notifications(u, unread, maxNotes)
+			limit, before, err := pageArgs(a)
 			if err != nil {
 				return "", err
 			}
+			// paged by id in the query (the cursor is the last id given), with
+			// the token's engagements: marking some read, or new ones
+			// arriving, between two calls neither skips nor repeats any
 			tk, hasTok := tokenFrom(ctx)
+			var engs []string
+			if hasTok {
+				engs = tk.Engagements
+			}
+			l, err := s.Store.NotificationPage(u, unread, engs, int64(before), limit+1)
+			if err != nil {
+				return "", err
+			}
+			next := ""
+			if len(l) > limit {
+				l = l[:limit]
+				next = strconv.FormatInt(l[limit-1].ID, 10)
+			}
 			type note struct {
 				ID         int64  `json:"id"`
 				Event      string `json:"event"`
@@ -723,18 +750,11 @@ var coreTools = []tool{
 				title = s.Index.CurrentTitles() // the title now, as the web shows it
 			}
 			for _, n := range l {
-				if hasTok && !tk.AllowsEng(n.Eng) {
-					continue
-				}
 				out = append(out, note{n.ID, n.Event, n.Eng, n.Fid, n.Dir, title(n.Eng, n.Fid, n.Title), n.Actor, n.Text, n.TS, n.Read})
 			}
-			return listPage(a, out)
+			return list(out, next)
 		}},
 }
-
-// maxNotes is how many of a user's newest notifications list_notifications
-// pages through (the retention prune keeps far fewer).
-const maxNotes = 5000
 
 var toolByName = func() map[string]tool {
 	m := map[string]tool{}

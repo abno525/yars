@@ -78,10 +78,17 @@ func Active(status string) bool { return status != Withdrawn }
 // Withdraw and both reverts.
 func NeedsReason(a Action) bool { return a == Return || a == Withdraw || a == Reopen || a == Unreport }
 
-// Denied explains why an action is not allowed.
-type Denied struct{ Reason string }
+// Denied explains why an action is not allowed. Err, when set, says what
+// kind of refusal it also is (a change that raced it is store.ErrConflict:
+// the caller may retry).
+type Denied struct {
+	Reason string
+	Err    error
+}
 
 func (d *Denied) Error() string { return d.Reason }
+
+func (d *Denied) Unwrap() error { return d.Err }
 
 func deny(format string, a ...any) error { return &Denied{Reason: fmt.Sprintf(format, a...)} }
 

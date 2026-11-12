@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -285,6 +286,45 @@ func (d *DB) NotificationsFor(user string, all, unread bool, limit int) ([]Notif
 		cond += " AND read = 0"
 	}
 	return d.notes(cond, user, limit)
+}
+
+// NotificationPage lists user's notifications newest first as
+// NotificationsFor does, limited to the engagements engs when given (then
+// none about no engagement), older than the id before (0: from the newest),
+// at most limit: a page that marking or adding notifications between two
+// calls neither skips nor repeats (MCP list_notifications).
+func (d *DB) NotificationPage(user string, all, unread bool, engs []string, before int64, limit int) ([]Notification, error) {
+	cond, args := "", []any{user}
+	if !all {
+		cond += onTeams
+	}
+	if unread {
+		cond += " AND read = 0"
+	}
+	if len(engs) > 0 {
+		cond += " AND eng IN (?" + strings.Repeat(",?", len(engs)-1) + ")"
+		for _, e := range engs {
+			args = append(args, e)
+		}
+	}
+	if before > 0 {
+		cond += " AND id < ?"
+		args = append(args, before)
+	}
+	rows, err := d.Query("SELECT "+noteCols+" FROM notifications WHERE username = ?"+cond+" ORDER BY id DESC LIMIT ?", append(args, limit)...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Notification
+	for rows.Next() {
+		n, err := scanNote(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, n)
+	}
+	return out, rows.Err()
 }
 
 // UnreadCountFor is UnreadCount limited like NotificationsFor.
