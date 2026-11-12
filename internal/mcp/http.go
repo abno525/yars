@@ -27,6 +27,16 @@ func tokenFrom(ctx context.Context) (db.TokenInfo, bool) {
 	return t, ok
 }
 
+// bearer is the token of an Authorization value: the scheme word "Bearer"
+// in any case (R2), one or more spaces, then the token.
+func bearer(h string) (string, bool) {
+	scheme, rest, ok := strings.Cut(h, " ")
+	if !ok || !strings.EqualFold(scheme, "Bearer") {
+		return "", false
+	}
+	return strings.TrimLeft(rest, " "), true
+}
+
 // HTTPHandler serves MCP over HTTP (POST, JSON responses) for holders of a
 // YARS MCP token of an active account. No cookies are accepted, so it is not
 // exposed to CSRF.
@@ -37,7 +47,7 @@ func (s *Server) HTTPHandler(tokens *auth.Tokens) http.Handler {
 			http.Error(w, "use POST", http.StatusMethodNotAllowed)
 			return
 		}
-		tok, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+		tok, ok := bearer(r.Header.Get("Authorization"))
 		var user config.User
 		var info db.TokenInfo
 		err := auth.ErrRefused

@@ -7,6 +7,7 @@ package mcp
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -39,7 +40,9 @@ func (s *Server) conf() config.Config {
 
 const latestProtocol = "2025-06-18"
 
-var protocols = []string{"2025-06-18", "2025-03-26", "2024-11-05"}
+// protocols are the MCP versions offered, newest first. 2025-03-26 is not:
+// it requires request batches, which are not supported.
+var protocols = []string{"2025-06-18", "2024-11-05"}
 
 const instructions = "YARS manages pentest findings. Use list_engagements and list_findings to navigate, " +
 	"read_finding before editing (pass the returned base hashes to avoid overwriting others), " +
@@ -77,14 +80,24 @@ func reply(id json.RawMessage, result any, e *rpcErr) []byte {
 }
 
 // Handle processes one JSON-RPC message as user u. It returns nil for
-// notifications (no response).
+// notifications (no response). It follows the standard strictly (R2): no
+// batches, jsonrpc "2.0", no null id.
 func (s *Server) Handle(ctx context.Context, u config.User, msg []byte) []byte {
+	if t := bytes.TrimLeft(msg, " \t\r\n"); len(t) > 0 && t[0] == '[' {
+		return reply(nil, nil, &rpcErr{-32600, "batches are not supported"})
+	}
 	var req rpcReq
 	if err := json.Unmarshal(msg, &req); err != nil {
 		return reply(nil, nil, &rpcErr{-32700, "parse error"})
 	}
 	if req.ID == nil { // notification
 		return nil
+	}
+	if string(req.ID) == "null" {
+		return reply(nil, nil, &rpcErr{-32600, "id must not be null"})
+	}
+	if req.JSONRPC != "2.0" {
+		return reply(req.ID, nil, &rpcErr{-32600, "jsonrpc must be 2.0"})
 	}
 	switch req.Method {
 	case "initialize":
@@ -159,23 +172,52 @@ func (s *Server) gate(ctx context.Context, u config.User, t tool, a args) string
 	return ""
 }
 
+// maxLine is the longest stdio message read; a longer one is a parse error
+// and the session goes on.
+const maxLine = 8 << 20
+
 // ServeStdio reads newline-delimited JSON-RPC messages until EOF.
 func (s *Server) ServeStdio(ctx context.Context, u config.User, in io.Reader, out io.Writer) error {
-	sc := bufio.NewScanner(in)
-	sc.Buffer(make([]byte, 64<<10), 8<<20)
+	r := bufio.NewReaderSize(in, 64<<10)
 	w := bufio.NewWriter(out)
-	for sc.Scan() {
-		line := sc.Bytes()
-		if len(line) == 0 {
-			continue
+	for {
+		line, tooLong, err := readLine(r)
+		var resp []byte
+		switch {
+		case tooLong:
+			resp = reply(nil, nil, &rpcErr{-32700, "parse error: the message is longer than 8 MiB"})
+		case len(bytes.TrimSpace(line)) > 0:
+			resp = s.Handle(ctx, u, line)
 		}
-		if resp := s.Handle(ctx, u, line); resp != nil {
+		if resp != nil {
 			w.Write(resp)
 			w.WriteByte('\n')
 			if err := w.Flush(); err != nil {
 				return err
 			}
 		}
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
 	}
-	return sc.Err()
+}
+
+// readLine reads one line without its line break; a line over maxLine is
+// read to its end and dropped (tooLong).
+func readLine(r *bufio.Reader) (line []byte, tooLong bool, err error) {
+	for {
+		chunk, err := r.ReadSlice('\n')
+		if !tooLong && len(line)+len(chunk) <= maxLine+1 {
+			line = append(line, chunk...)
+		} else {
+			tooLong, line = true, nil
+		}
+		if err == bufio.ErrBufferFull {
+			continue
+		}
+		return bytes.TrimRight(line, "\r\n"), tooLong, err
+	}
 }

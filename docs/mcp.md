@@ -17,7 +17,7 @@ claude mcp add --transport http yars https://yars.example.com/mcp \
   --header "Authorization: Bearer yars_…"
 ```
 
-The endpoint speaks JSON-RPC 2.0 (`initialize`, `ping`, `tools/list`, `tools/call`), protocol versions 2025-06-18, 2025-03-26 and 2024-11-05.
+The endpoint speaks JSON-RPC 2.0 (`initialize`, `ping`, `tools/list`, `tools/call`), protocol versions 2025-06-18 and 2024-11-05. It follows the standard strictly: `jsonrpc` must be `"2.0"`, an `id` must not be `null`, and request batches are refused (`-32600`). The `Authorization` scheme word may be in any case (`Bearer`, `bearer`).
 
 Content changes are committed on the server immediately, authored by you; workflow changes and chat go into the server's database. Revoke a token in Settings (or `yars token revoke --data … alice`); it stops working at once. Tokens are stored hashed in the server's database (`.yars/yars.db`), which is never committed.
 

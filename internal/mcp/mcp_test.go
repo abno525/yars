@@ -100,9 +100,9 @@ func (f *fx) lastCommit() string {
 
 func TestMCPInitializeAndList(t *testing.T) {
 	f := newFx(t)
-	r := f.rpc(alice, "initialize", map[string]any{"protocolVersion": "2025-03-26", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "t"}})
+	r := f.rpc(alice, "initialize", map[string]any{"protocolVersion": "2024-11-05", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "t"}})
 	res := r["result"].(map[string]any)
-	if res["protocolVersion"] != "2025-03-26" || res["capabilities"].(map[string]any)["tools"] == nil || res["serverInfo"].(map[string]any)["name"] != "yars" {
+	if res["protocolVersion"] != "2024-11-05" || res["capabilities"].(map[string]any)["tools"] == nil || res["serverInfo"].(map[string]any)["name"] != "yars" {
 		t.Fatalf("initialize: %v", r)
 	}
 	if out := f.s.Handle(context.Background(), alice, []byte(`{"jsonrpc":"2.0","method":"notifications/initialized"}`)); out != nil {
