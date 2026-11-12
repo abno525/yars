@@ -199,4 +199,5 @@ M35 after   review   fix b24e2ea (a hidden chat takes no keys; j k h r never wri
 M35 after   done     64e1a56 (asked after the run: the board's severity beside Set state, no Analysis, no Duplicate of; Ctrl+S searches)
 M35 after   done     e390eb5 (asked after the run: Possible duplicates on the keyboard; Enter opens Merge)
 M35 after   fix      ec94719 (the board's action row fits its 518 px; the message on its own line)
+M35 after   review   fix (the first step starts in the selected side panel; l drops a picked duplicate; Ctrl+S search follows the key setting)
 ```
