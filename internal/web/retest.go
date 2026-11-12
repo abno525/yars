@@ -3,6 +3,7 @@ package web
 import (
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"slices"
 	"strings"
@@ -168,14 +169,22 @@ func (s *Server) retestCreate(w http.ResponseWriter, r *http.Request) {
 	} else {
 		err = s.Store.CreateRetest(e, p.Eng.ID, r.PostForm["finding"], assignee, p.User)
 	}
-	if errors.Is(err, store.ErrInvalidValue) {
-		p.Error = strings.TrimPrefix(err.Error(), store.ErrInvalidValue.Error()+": ")
-		p.Users = s.Auth.Users()
-		s.renderStatus(w, http.StatusBadRequest, "new_retest.html", p)
-		return
-	}
 	if err != nil {
-		s.fail(w, err)
+		// the form again, with what was typed and why it did not go through
+		status, msg := http.StatusInternalServerError, "the retest could not be created; try again"
+		var d *workflow.Denied
+		switch {
+		case errors.Is(err, store.ErrInvalidValue):
+			status, msg = http.StatusBadRequest, strings.TrimPrefix(err.Error(), store.ErrInvalidValue.Error()+": ")
+		case errors.As(err, &d):
+			status, msg = http.StatusForbidden, d.Reason
+		case errors.Is(err, store.ErrBusy):
+			status, msg = http.StatusConflict, store.ErrBusy.Error()
+		default:
+			log.Printf("retest of %s: %v", p.Eng.ID, err)
+		}
+		p.Error, p.Users = msg, s.Auth.Users()
+		s.renderStatus(w, status, "new_retest.html", p)
 		return
 	}
 	http.Redirect(w, r, "/e/"+e.ID, http.StatusSeeOther)

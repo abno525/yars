@@ -3,6 +3,8 @@ package web
 import (
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -124,6 +126,27 @@ func TestRetestResultBase(t *testing.T) {
 	}
 	if rec := e.do(t, "bob", "POST", p+"/retest", url.Values{"result": {"not_fixed"}, "was": {"fixed"}}, nil); rec.Code != http.StatusOK {
 		t.Fatalf("a choice on the current page: %d", rec.Code)
+	}
+}
+
+// A retest that fails for a reason other than the form's (here the disk)
+// answers the form again with what was typed and a line saying so, not a
+// bare "internal error" (backlog, M7).
+func TestRetestCreateFailureKeepsForm(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root writes into read-only folders")
+	}
+	e := setup(t)
+	engs := filepath.Join(e.dir, "engagements")
+	if err := os.Chmod(engs, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(engs, 0o755) })
+	form := url.Values{"id": {"acme-rt2"}, "name": {"Second look"}, "finding": {"F-001-sql-injection"}}
+	rec := e.do(t, "dora", "POST", "/e/acme/retest/new", form, nil)
+	b := rec.Body.String()
+	if rec.Code != http.StatusInternalServerError || !strings.Contains(b, "<html") || !strings.Contains(b, "the retest could not be created; try again") || !strings.Contains(b, `value="Second look"`) {
+		t.Fatalf("code %d:\n%s", rec.Code, b)
 	}
 }
 
