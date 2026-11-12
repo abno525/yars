@@ -105,7 +105,7 @@ func (s *Server) bulk(w http.ResponseWriter, r *http.Request) {
 		bulkBad(w, r, "select at most "+strconv.Itoa(maxBulkIDs)+" findings")
 		return
 	}
-	// one reason for every selected finding (Return, Withdraw)
+	// one reason for every selected finding (Return, Withdraw, the reverts)
 	reason := strings.TrimSpace(r.PostForm.Get("reason"))
 	switch {
 	case act != "" && workflow.NeedsReason(act) && reason == "":

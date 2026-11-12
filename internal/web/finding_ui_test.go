@@ -198,6 +198,13 @@ func TestWithdrawRightMost(t *testing.T) {
 	if strings.LastIndex(a, `data-action="withdraw"`) < strings.LastIndex(a, `data-action="report"`) {
 		t.Fatalf("withdraw before report:\n%s", a)
 	}
+	// R4: reported reverts in its first slot, Withdraw still last
+	if err := e.srv.Store.Transition("acme", fdir, workflow.Report, "", wDora); err != nil {
+		t.Fatal(err)
+	}
+	check("reported", "dora", []string{"unreport", "withdraw"})
+	check("reported", "alice", []string{"unreport"})
+	check("reported", "bob", nil)
 }
 
 func TestWorkflowDraftAndWithdrawn(t *testing.T) {

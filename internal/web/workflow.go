@@ -115,7 +115,7 @@ type wfSlot struct {
 	Slot, Width, Class string
 	Present            bool
 	DescribedBy        string // the id of the state text saying why it is disabled
-	PanelID, PanelHead string // a reason form under the bar (Return, Withdraw)
+	PanelID, PanelHead string // a reason form under the bar (Return, Withdraw, the reverts)
 }
 
 type wfSlotSpec struct {

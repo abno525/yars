@@ -244,7 +244,10 @@ func TestBulkRevertOneReason(t *testing.T) {
 func TestAppJSBulkVerbs(t *testing.T) {
 	e := setup(t)
 	js := e.do(t, "alice", "GET", "/static/app.js", nil, nil).Body.String()
-	for _, want := range []string{`'return': 'Return'`, `'withdraw': 'Withdraw'`, `'reopen': 'Revert'`, `'unreport': 'Revert'`} {
+	// and its go button is red for Return and Withdraw, secondary for a
+	// Revert, as on the bar
+	for _, want := range []string{`'return': 'Return'`, `'withdraw': 'Withdraw'`, `'reopen': 'Revert'`, `'unreport': 'Revert'`,
+		`go.classList.toggle('danger', red);`, `go.classList.toggle('secondary', !red);`} {
 		if !strings.Contains(js, want) {
 			t.Errorf("app.js lacks %s", want)
 		}

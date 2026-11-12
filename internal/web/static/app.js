@@ -476,7 +476,13 @@ function yarsBulkReason(form, item) {
   }
   var verb = yarsBulkVerbs[item.getAttribute('data-act')] || 'Return';
   dlg.setAttribute('data-verb', verb);
-  if (go) { go.value = item.getAttribute('data-act'); go.textContent = verb; }
+  if (go) {
+    go.value = item.getAttribute('data-act'); go.textContent = verb;
+    // red for Return and Withdraw, secondary for a Revert (as on the bar)
+    var red = verb !== 'Revert';
+    go.classList.toggle('danger', red);
+    go.classList.toggle('secondary', !red);
+  }
   yarsBulkHead(form);
   dlg.hidden = false;
   if (ta) { ta.disabled = false; ta.focus(); }
@@ -591,8 +597,8 @@ document.addEventListener('close', function (evt) {
 
 /* ---------- finding page ---------- */
 
-// Workflow bar: Return and Withdraw open their reason form under the bar
-// (one at a time); Cancel closes it. A popover (details.pop) closes when
+// Workflow bar: Return, Withdraw and Revert open their reason form under
+// the bar (one at a time); Cancel closes it. A popover (details.pop) closes when
 // another opens or on a click outside it.
 document.addEventListener('click', function (evt) {
   if (!evt.target.closest) return;

@@ -290,9 +290,11 @@ func TestRevertPostNeedsReason(t *testing.T) {
 	if err := e.srv.Store.Transition("acme", fdir, workflow.Report, "", wDora); err != nil {
 		t.Fatal(err)
 	}
-	rec := e.do(t, "dora", "POST", fpath+"/action/unreport", url.Values{}, nil)
-	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "a reason is required") || !strings.Contains(rec.Body.String(), `id="wf-unreport"`) || e.status(t) != "reported" {
-		t.Fatalf("without a reason: code %d status %s:\n%s", rec.Code, e.status(t), rec.Body.String())
+	for _, blank := range []url.Values{{}, {"reason": {"  "}}} {
+		rec := e.do(t, "dora", "POST", fpath+"/action/unreport", blank, nil)
+		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "a reason is required") || !strings.Contains(rec.Body.String(), `id="wf-unreport"`) || e.status(t) != "reported" {
+			t.Fatalf("without a reason %v: code %d status %s:\n%s", blank, rec.Code, e.status(t), rec.Body.String())
+		}
 	}
 	if rec := e.do(t, "dora", "POST", fpath+"/action/unreport", url.Values{"reason": {"sent too early"}}, nil); rec.Code != http.StatusSeeOther || e.status(t) != "complete" {
 		t.Fatalf("with a reason: code %d status %s", rec.Code, e.status(t))

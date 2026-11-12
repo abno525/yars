@@ -638,10 +638,12 @@ func (s *Server) inboxAfterBulk(u config.User, before inboxView, v bulkView) (in
 	}
 	after := inboxView{Lists: map[workflow.Inbox][]inboxRow{}, Board: before.Board, BoardTotal: before.BoardTotal}
 	upTo := map[workflow.Inbox]int{}
+	placed := map[string]bool{}
 	for k, rows := range before.Lists {
 		out := make([]inboxRow, len(rows))
 		for i, ir := range rows {
 			out[i] = ir
+			placed[ir.Key] = true
 			if !touched[ir.Key] {
 				continue
 			}
@@ -651,6 +653,26 @@ func (s *Server) inboxAfterBulk(u config.User, before inboxView, v bulkView) (in
 			}
 		}
 		after.Lists[k] = out
+	}
+	// a row the page showed in place after an earlier run (marked reported)
+	// is in no queue of the server's: one this run brought back to a queue
+	// (reverted) goes at that queue's end, so no other row moves
+	keys := slices.Sorted(maps.Keys(touched))
+	for _, key := range keys {
+		f, ok := fresh[key]
+		if placed[key] || !ok || f.Meta == nil {
+			continue
+		}
+		k := workflow.Pending(u, *f.Meta)
+		if k == workflow.InboxNone || k == workflow.InboxDraft || !slices.Contains(workflow.Queues(u), k) {
+			continue
+		}
+		name := f.EngID
+		if e, err := s.Store.Engagement(f.EngID); err == nil {
+			name = e.Name
+		}
+		after.Lists[k] = append(after.Lists[k], movedRow(u, f, name))
+		upTo[k] = len(after.Lists[k]) - 1
 	}
 	l, err := s.inboxListsOf(u, after, upTo, touched)
 	if err != nil {

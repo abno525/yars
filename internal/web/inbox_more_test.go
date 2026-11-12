@@ -77,6 +77,27 @@ func TestInboxSameIDTwoEngagements(t *testing.T) {
 	}
 }
 
+// R4: a director who marks a row reported in the inbox and reverts it at
+// once keeps the row: back in Ready to mark reported, ticked, the bar saying
+// it moved.
+func TestInboxRevertKeepsRow(t *testing.T) {
+	e := setup(t)
+	e.toComplete(t)
+	hx := map[string]string{"HX-Request": "true"}
+	key := "acme/" + fdir
+	b := e.do(t, "dora", "POST", "/inbox/bulk", url.Values{"action": {"report"}, "id": {key}}, hx).Body.String()
+	if r := row(b, key); r == "" || !strings.Contains(r, " checked") {
+		t.Fatalf("after report the row is %q:\n%s", r, b)
+	}
+	b = e.do(t, "dora", "POST", "/inbox/bulk", url.Values{"action": {"unreport"}, "id": {key}, "reason": {"sent too early"}}, hx).Body.String()
+	if e.status(t) != "complete" {
+		t.Fatalf("status %s", e.status(t))
+	}
+	if r := row(queue(b, "report"), key); r == "" || !strings.Contains(r, " checked") || !strings.Contains(b, "1 moved") {
+		t.Fatalf("after the revert the row is %q:\n%s", r, b)
+	}
+}
+
 var titleCell = regexp.MustCompile(`<td class="title"><a href="[^"]*" title="([^"]*)"`)
 
 func titlesIn(b string) []string {
