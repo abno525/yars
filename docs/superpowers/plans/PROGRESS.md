@@ -194,4 +194,5 @@ M35 after   done     5114e21 (asked after the run: t Team board, o Overview, r R
 M35 after   done     7040895 (asked after the run: status, CVSS, author under the title; Not Defined until a CVSS is set)
 M35 after   review   fix bf9b94b (the ? list's t b and e rows only where they act; with the row tint asked after the run)
 M35 after   done     68c48f5 (asked after the run: pages outside an engagement keep the one opened last; f always goes to Findings)
+M35 after   done     a8f5e1b (asked after the run: the page's own confirm dialog; comments picked, resolved and answered from the keyboard; Ctrl+H)
 ```
