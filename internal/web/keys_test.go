@@ -399,8 +399,9 @@ func TestNavKeysDeclared(t *testing.T) {
 			t.Errorf("nav lacks %s:\n%s", w, nav)
 		}
 	}
-	if home := between(e.do(t, "alice", "GET", "/", nil, nil).Body.String(), `<nav class="nav">`, "</nav>"); strings.Contains(home, `aria-keyshortcuts="F"`) {
-		t.Errorf("F outside an engagement:\n%s", home)
+	// outside an engagement f goes to the engagement last opened, else to the list
+	if home := between(e.do(t, "alice", "GET", "/", nil, nil).Body.String(), `<nav class="nav">`, "</nav>"); !strings.Contains(home, `href="/" aria-keyshortcuts="F"`) {
+		t.Errorf("no F outside an engagement:\n%s", home)
 	}
 	if !regexp.MustCompile(`href="/e/acme/findings/new" aria-keyshortcuts="N">New finding<`).MatchString(eng) {
 		t.Error("New finding lacks N")

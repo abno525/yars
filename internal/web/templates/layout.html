@@ -24,17 +24,19 @@
 <header class="topbar">
   <a class="logo" href="/">YARS</a>
   {{if .User.Username}}
+  {{/* the engagement: the page's, else the one opened last in this browser */}}
+  {{$cur := .Eng.ID}}{{if not $cur}}{{$cur = .LastEng}}{{end}}
   <form class="engpick" method="get" action="/go">
     {{if .Engagements}}
     <select name="eng" data-choose aria-label="Engagement">
-      {{if not .Eng.ID}}<option value="">Engagement</option>{{end}}
-      {{range .Engagements}}<option value="{{.ID}}" {{if eq .ID $.Eng.ID}}selected{{end}}>{{.Name}}{{if eq .Type "retest"}} (retest){{end}}</option>{{end}}
+      {{if not $cur}}<option value="">Engagement</option>{{end}}
+      {{range .Engagements}}<option value="{{.ID}}" {{if eq .ID $cur}}selected{{end}}>{{.Name}}{{if eq .Type "retest"}} (retest){{end}}</option>{{end}}
     </select>
     <noscript><button class="btn ghost">Go</button></noscript>
     {{end}}
   </form>
   <nav class="nav">
-    <a class="{{if eq .Nav ""}}on{{end}}" href="{{if .Eng.ID}}/e/{{.Eng.ID}}{{else}}/{{end}}"{{if .Eng.ID}} aria-keyshortcuts="F"{{end}}>Findings</a>
+    <a class="{{if eq .Nav ""}}on{{end}}" href="{{if $cur}}/e/{{$cur}}{{else}}/{{end}}" aria-keyshortcuts="F">Findings</a>
     <a class="{{if eq .Nav "inbox"}}on{{end}}" href="/inbox" aria-keyshortcuts="I">Inbox {{with .Inbox.Count}}<span class="badge">{{.}}</span>{{else}}<span class="badge0">0</span>{{end}}</a>
     {{if .CanAdmin}}<a class="{{if eq .Nav "admin"}}on{{end}}" href="/admin">Admin</a>{{end}}
   </nav>

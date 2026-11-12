@@ -210,6 +210,7 @@ type page struct {
 	Purge       purgeView  // the Purge from history confirm page (D28)
 	CanMerge    bool       // the finding page: Merge into
 	Unread      int        // the notifications page: unread notifications
+	LastEng     string     // a page outside an engagement: the engagement opened last in this browser ("" = none)
 	Notes       notesView  // the notifications page
 	Docs        docsView   // the developer docs
 	TeamBoard   teamBoardView
@@ -395,11 +396,28 @@ func ownBodyLimit(r *http.Request) bool {
 }
 
 func (s *Server) render(w http.ResponseWriter, name string, p *page) {
-	s.execStatus(w, http.StatusOK, name, "layout", p)
+	s.renderStatus(w, http.StatusOK, name, p)
 }
 
 func (s *Server) renderStatus(w http.ResponseWriter, status int, name string, p *page) {
+	s.keepEng(w, p, status)
 	s.execStatus(w, status, name, "layout", p)
+}
+
+// lastEngCookie keeps, in the browser, the engagement whose page was shown
+// last: a page outside any engagement shows it in the picker and sends
+// Findings (f) to its list (base reads it back as page.LastEng).
+const lastEngCookie = "yars_eng"
+
+// keepEng remembers p's engagement when p is a signed-in engagement page
+// that opened (not an error page).
+func (s *Server) keepEng(w http.ResponseWriter, p *page, status int) {
+	if p.Eng.ID == "" || p.User.Username == "" || status >= 400 || !store.ValidID(p.Eng.ID) {
+		return
+	}
+	secure := s.Auth != nil && s.Auth.Secure
+	http.SetCookie(w, &http.Cookie{Name: lastEngCookie, Value: p.Eng.ID, Path: "/", MaxAge: 365 * 24 * 3600, HttpOnly: true,
+		SameSite: http.SameSiteLaxMode, Secure: secure})
 }
 
 func (s *Server) exec(w http.ResponseWriter, name, tmpl string, data any) {
@@ -497,6 +515,10 @@ func (s *Server) base(r *http.Request, eng string) (*page, error) {
 			p.Inbox, p.inboxErr = inboxView{}, err
 		}
 	}
+	// outside an engagement: the one last opened here, if the user still sees it
+	if c, err := r.Cookie(lastEngCookie); eng == "" && err == nil && slices.ContainsFunc(engs, func(e store.Engagement) bool { return e.ID == c.Value }) {
+		p.LastEng = c.Value
+	}
 	if eng != "" {
 		i := slices.IndexFunc(engs, func(e store.Engagement) bool { return e.ID == eng })
 		if i >= 0 {
@@ -566,6 +588,7 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 		s.Auth.Logout(c.Value)
 	}
 	s.Auth.ClearCookie(w)
+	http.SetCookie(w, &http.Cookie{Name: lastEngCookie, Value: "", Path: "/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: s.Auth.Secure})
 	http.Redirect(w, r, "/login", http.StatusSeeOther)
 }
 

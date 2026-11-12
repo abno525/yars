@@ -1,6 +1,8 @@
 package web
 
 import (
+	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -75,6 +77,53 @@ func TestShellHeaderOrder(t *testing.T) {
 	}
 	if js := e.do(t, "alice", "GET", "/static/app.js", nil, nil).Body.String(); strings.Contains(js, "yarsTheme") || strings.Contains(js, "data-theme-toggle") {
 		t.Error("app.js keeps the theme button's code")
+	}
+}
+
+// A page outside any engagement (the inbox, Settings, Admin) keeps the
+// engagement last opened in this browser: the picker shows it and Findings
+// (f) goes to its list. One the user cannot see is not kept; logging out
+// forgets it.
+func TestLastEngagementKept(t *testing.T) {
+	e := setup(t)
+	e.outsider(t)
+	rec := e.do(t, "alice", "GET", "/e/acme", nil, nil)
+	var kc *http.Cookie
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == "yars_eng" {
+			kc = c
+		}
+	}
+	if kc == nil || kc.Value != "acme" || !kc.HttpOnly || kc.SameSite != http.SameSiteLaxMode || kc.Path != "/" {
+		t.Fatalf("no engagement cookie: %+v", kc)
+	}
+	kept := map[string]string{"Cookie": "yars_eng=acme"}
+	for _, p := range []string{"/inbox", "/settings", "/"} {
+		b := e.do(t, "alice", "GET", p, nil, kept).Body.String()
+		head := between(b, `<header class="topbar">`, "</header>")
+		for _, w := range []string{`<option value="acme" selected>`, `<a class="`, `href="/e/acme" aria-keyshortcuts="F">Findings</a>`} {
+			if !strings.Contains(head, w) {
+				t.Errorf("%s: header lacks %s:\n%s", p, w, head)
+			}
+		}
+		if strings.Contains(head, `<option value="">Engagement</option>`) {
+			t.Errorf("%s: the picker shows no engagement", p)
+		}
+	}
+	// the inbox is still the inbox's page, not the engagement's
+	if b := e.do(t, "alice", "GET", "/inbox", nil, kept).Body.String(); !strings.Contains(b, "<title>YARS</title>") {
+		t.Error("the kept engagement names the inbox's tab")
+	}
+	// none kept: the placeholder, and f still goes to Findings
+	if head := between(e.do(t, "alice", "GET", "/inbox", nil, nil).Body.String(), `<header class="topbar">`, "</header>"); !strings.Contains(head, `<option value="">Engagement</option>`) || !strings.Contains(head, `href="/" aria-keyshortcuts="F">Findings</a>`) {
+		t.Errorf("no kept engagement:\n%s", head)
+	}
+	// eve is not on acme's team: nothing kept for her
+	if head := between(e.do(t, "eve", "GET", "/inbox", nil, kept).Body.String(), `<header class="topbar">`, "</header>"); strings.Contains(head, "/e/acme") {
+		t.Errorf("an engagement eve cannot see:\n%s", head)
+	}
+	if c := e.do(t, "alice", "POST", "/logout", url.Values{}, kept).Header().Values("Set-Cookie"); !strings.Contains(strings.Join(c, "\n"), "yars_eng=; Path=/; Max-Age=0") {
+		t.Errorf("logout keeps the engagement: %q", c)
 	}
 }
 
