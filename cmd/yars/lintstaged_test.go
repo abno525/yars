@@ -22,8 +22,9 @@ import (
 type lintServer struct {
 	*httptest.Server
 	mu     sync.Mutex
-	bodies []string
+	bodies []string // the POSTs
 	auths  []string
+	probes int // the GETs that check the login first
 	code   int
 	body   string
 	sleep  time.Duration
@@ -36,6 +37,19 @@ func newLintServer(t *testing.T, code int, body string) *lintServer {
 		b, _ := io.ReadAll(r.Body)
 		u, p, _ := r.BasicAuth()
 		ls.mu.Lock()
+		if r.Method == http.MethodGet {
+			// the login check: the real server answers 405 after the
+			// login, team and token checks; a refused login is 401
+			ls.probes++
+			code := ls.code
+			ls.mu.Unlock()
+			if code == http.StatusUnauthorized {
+				w.WriteHeader(code)
+			} else {
+				w.WriteHeader(http.StatusMethodNotAllowed)
+			}
+			return
+		}
 		ls.bodies = append(ls.bodies, r.Method+" "+r.URL.Path+"\n"+string(b))
 		ls.auths = append(ls.auths, u+":"+p)
 		code, body, sleep := ls.code, ls.body, ls.sleep
@@ -320,8 +334,11 @@ func TestLintStagedRefusedLoginOnce(t *testing.T) {
 	if _, _, err := lintStaged(context.Background(), dir, &out, false); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "login refused") || len(ls.requests()) != 1 {
-		t.Fatalf("%d requests:\n%s", len(ls.requests()), out.String())
+	ls.mu.Lock()
+	probes := ls.probes
+	ls.mu.Unlock()
+	if !strings.Contains(out.String(), "login refused") || len(ls.requests()) != 0 || probes != 1 {
+		t.Fatalf("%d posts, %d login checks:\n%s", len(ls.requests()), probes, out.String())
 	}
 	if b, _ := os.ReadFile(cred); strings.Contains(string(b), "alice:old") {
 		t.Fatalf("the refused login is still saved: %q", b)
@@ -330,8 +347,11 @@ func TestLintStagedRefusedLoginOnce(t *testing.T) {
 	if _, _, err := lintStaged(context.Background(), dir, &out, false); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "no saved login") || len(ls.requests()) != 1 {
-		t.Fatalf("again: %d requests:\n%s", len(ls.requests()), out.String())
+	ls.mu.Lock()
+	probes = ls.probes
+	ls.mu.Unlock()
+	if !strings.Contains(out.String(), "no saved login") || len(ls.requests()) != 0 || probes != 1 {
+		t.Fatalf("again: %d posts, %d login checks:\n%s", len(ls.requests()), probes, out.String())
 	}
 }
 
@@ -458,7 +478,7 @@ func TestLintStagedAsksInParallel(t *testing.T) {
 	}
 	gitT(t, dir, "add", "-A")
 	old := lintTimeout
-	lintTimeout = 1200 * time.Millisecond // four one after another would not fit
+	lintTimeout = 700 * time.Millisecond // one round fits, two do not
 	defer func() { lintTimeout = old }()
 	var out bytes.Buffer
 	if code, err := cmdLint([]string{"--staged", "--data", dir}, &out); err != nil || code != 0 || !strings.HasSuffix(out.String(), "yars: 0 errors, 0 warnings in 4 findings\n") {

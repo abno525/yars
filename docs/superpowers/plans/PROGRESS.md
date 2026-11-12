@@ -119,5 +119,6 @@ M30 task 4  done     f3b7ec0 (docs/git.md "Check before you commit", README line
 M30 task 1  review   passed; nits 1fd86af (a read deadline on the posted body; 404 for any method without the endpoint; only a finding id recorded with AI usage; three tests)
 M30 task 2  review   fix 09a3c1b (a waiting credential helper bounded by the run's time; moved findings checked; 4 asked at a time; git's TLS and proxy settings)
 M30 task 3  review   fix e4ed169 (core.hooksPath left alone; a hook that never stops a commit and says when its binary is gone; the PATH name; tests isolated from the user's git config)
-M30 branch  review   fixes (one failed login per commit, a refused helper login forgotten; the workflow state applied as Check does; how to save a login; could-not-run rules not counted; docs)
+M30 branch  review   fixes d6d308e (one failed login per commit, a refused helper login forgotten; the workflow state applied as Check does; how to save a login; could-not-run rules not counted; docs)
+M30 branch  fix check one regression (the first finding asked alone took two rounds), fixed in the next commit: the login checked first with a GET, then all findings at once
 ```

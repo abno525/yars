@@ -190,18 +190,17 @@ func lintStaged(ctx context.Context, dir string, out io.Writer, warnOnly bool) (
 		code int
 	}
 	results := make([]result, len(paths))
-	// the first finding alone: a login that is refused costs one failed
-	// attempt (the lockout counts git and website logins alike), and a
-	// login from git's helper is forgotten, as git does after a 401
-	a, code, reason := askLint(ctx, client, endpoint, user, pass, raws[0])
-	if reason != "" {
+	// the login first, with one cheap request: a refused one costs one
+	// failed attempt (the lockout counts git and website logins alike), not
+	// one per finding, and a login from git's helper is forgotten, as git
+	// does after a 401; a good one is then cached by the server
+	if code, reason := probeLogin(ctx, client, endpoint, user, pass); reason != "" {
 		if code == http.StatusUnauthorized && !loginInURL(origin) {
 			rejectCredential(ctx, dir, origin, user, pass)
 		}
 		fmt.Fprintf(out, "yars: could not ask %s: %s; nothing checked\n", host, reason)
 		return 0, 0, nil
 	}
-	results[0] = result{paths[0], a, code}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	var (
@@ -211,9 +210,6 @@ func lintStaged(ctx context.Context, dir string, out io.Writer, warnOnly bool) (
 	)
 	sem := make(chan struct{}, lintParallel)
 	for i, p := range paths {
-		if i == 0 {
-			continue // asked above
-		}
 		wg.Add(1)
 		go func(i int, p string) {
 			defer wg.Done()
@@ -330,6 +326,53 @@ func gitHTTPClient(ctx context.Context, dir, origin string) (*http.Client, error
 	return &http.Client{Transport: tr}, nil
 }
 
+// probeLogin checks the login with a GET to the lint URL, which the server
+// answers 405 only after the login, the team and the token's engagements
+// passed (nothing runs). reason is set when the findings cannot be asked:
+// a refused login (401), not on the team (403), no such endpoint or
+// engagement (404), a server error.
+func probeLogin(ctx context.Context, client *http.Client, endpoint, user, pass string) (code int, reason string) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return 0, err.Error()
+	}
+	req.SetBasicAuth(user, pass)
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, requestReason(ctx, err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+	switch c := resp.StatusCode; {
+	case c == http.StatusUnauthorized:
+		return c, "login refused"
+	case c == http.StatusForbidden || c == http.StatusNotFound || c >= 500:
+		return c, statusReason(resp.Status, body)
+	}
+	return resp.StatusCode, ""
+}
+
+// requestReason is the line's reason for a request that got no answer.
+func requestReason(ctx context.Context, err error) string {
+	if ctx.Err() != nil {
+		return fmt.Sprintf("no answer within %s", lintTimeout)
+	}
+	var ue *url.Error
+	if errors.As(err, &ue) {
+		err = ue.Err
+	}
+	return err.Error()
+}
+
+// statusReason is the line's reason for an answer that is not a result:
+// its status and the first line of its body.
+func statusReason(status string, body []byte) string {
+	if first, _, _ := strings.Cut(strings.TrimSpace(string(body)), "\n"); first != "" && len(first) <= 200 {
+		return status + ": " + first
+	}
+	return status
+}
+
 // askLint posts one finding; reason is set when the server could not be
 // asked (it is the line's reason).
 func askLint(ctx context.Context, client *http.Client, endpoint, user, pass string, raw []byte) (a lintAnswer, code int, reason string) {
@@ -341,22 +384,12 @@ func askLint(ctx context.Context, client *http.Client, endpoint, user, pass stri
 	req.Header.Set("Content-Type", "text/markdown; charset=utf-8")
 	resp, err := client.Do(req)
 	if err != nil {
-		if ctx.Err() != nil {
-			return a, 0, fmt.Sprintf("no answer within %s", lintTimeout)
-		}
-		var ue *url.Error
-		if errors.As(err, &ue) {
-			err = ue.Err
-		}
-		return a, 0, err.Error()
+		return a, 0, requestReason(ctx, err)
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if err != nil {
-		if ctx.Err() != nil {
-			return a, 0, fmt.Sprintf("no answer within %s", lintTimeout)
-		}
-		return a, 0, err.Error()
+		return a, 0, requestReason(ctx, err)
 	}
 	switch resp.StatusCode {
 	case http.StatusOK, http.StatusUnprocessableEntity:
@@ -370,9 +403,5 @@ func askLint(ctx context.Context, client *http.Client, endpoint, user, pass stri
 	case http.StatusUnauthorized:
 		return a, resp.StatusCode, "login refused"
 	}
-	msg := resp.Status
-	if first, _, _ := strings.Cut(strings.TrimSpace(string(body)), "\n"); first != "" && len(first) <= 200 {
-		msg += ": " + first
-	}
-	return a, 0, msg
+	return a, 0, statusReason(resp.Status, body)
 }
