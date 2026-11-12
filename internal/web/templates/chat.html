@@ -82,6 +82,6 @@
 {{define "chat_msg"}}
 <div class="msg">
   <div class="md">{{.HTML}}</div>
-  <div class="msg-head"><strong>{{.User}}</strong>{{if .Section}}<a class="ref" href="#s-{{.Anchor}}" title="{{.Section}}">{{.Section}}</a>{{end}}<span class="muted time">{{.Time}}</span></div>
+  <div class="msg-head"><strong>{{.User}}</strong>{{if .AI}}<span class="tag ai">AI</span>{{end}}{{if .Section}}<a class="ref" href="#s-{{.Anchor}}" title="{{.Section}}">{{.Section}}</a>{{end}}<span class="muted time">{{.Time}}</span></div>
 </div>
 {{end}}

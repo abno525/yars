@@ -19,7 +19,7 @@
       {{range $h.Events}}
       <a class="ev{{if .On}} on{{end}}" href="{{.URL}}" data-nav>
         <span class="dot {{.Class}}"></span>
-        <span class="evwhat"><span class="evline"><strong>{{.Who}}</strong> <span class="evact">{{.Act}}</span></span>{{if .Short}}<span class="mono">{{.Short}}</span>{{else if .Text}}<span class="mono" title="{{.Text}}">{{.Text}}</span>{{end}}</span>
+        <span class="evwhat"><span class="evline"><strong>{{.Who}}</strong>{{if .AI}}<span class="tag ai">AI</span>{{end}} <span class="evact">{{.Act}}</span></span>{{if .Short}}<span class="mono">{{.Short}}</span>{{else if .Text}}<span class="mono" title="{{.Text}}">{{.Text}}</span>{{end}}</span>
         <span class="mono evtime">{{.Time}}</span>
       </a>
       {{else}}
@@ -30,7 +30,7 @@
   <section class="panel hdiff">
     {{with $h.Sel}}
     <div class="panelhead">
-      <div class="panelname"><h2>{{.Who}}</h2><span class="mono clip">{{.Time}}{{if .Short}} · {{.Short}}{{end}}</span>{{if eq .Kind "content"}}<span class="mono"><span class="minus">−{{$h.Removed}}</span> <span class="plus">+{{$h.Added}}</span></span>{{end}}</div>
+      <div class="panelname"><h2>{{.Who}}</h2>{{if .AI}}<span class="tag ai">AI</span>{{end}}<span class="mono clip">{{.Time}}{{if .Short}} · {{.Short}}{{end}}</span>{{if eq .Kind "content"}}<span class="mono"><span class="minus">−{{$h.Removed}}</span> <span class="plus">+{{$h.Added}}</span></span>{{end}}</div>
       {{if eq .Kind "content"}}<nav class="seg dmode" aria-label="View"><a class="{{if not $h.Full}}on{{end}}" href="{{$h.DiffURL}}">Diff</a><a class="{{if $h.Full}}on{{end}}" href="{{$h.FullURL}}">Full text</a></nav>{{end}}
     </div>
     {{if eq .Kind "status"}}

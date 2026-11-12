@@ -884,6 +884,7 @@ a.atab:hover { color: var(--ink); background: var(--panel); }
 .tag.kind-pattern, .tag.kind-builtin { background: transparent; color: var(--text); border-color: var(--field-line); }
 .tag.kind-script { background: var(--panel); color: var(--text); border-color: var(--line); }
 .tag.kind-ai { background: var(--navy); color: #FFFFFF; border-color: var(--navy); }
+.tag.ai { background: var(--off-bg); color: var(--ink); }
 .cbx {
   width: 20px; height: 20px; padding: 0; flex: none; display: inline-flex; align-items: center; justify-content: center;
   border: 2px solid var(--off-fg); background: transparent; color: var(--bg); cursor: pointer;

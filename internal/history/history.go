@@ -19,6 +19,19 @@ type Version struct {
 	Raw                   []byte
 }
 
+// AIFor starts the git author name of a commit the AI made for a user (Fix
+// with AI, M31): "AI for alice".
+const AIFor = "AI for "
+
+// Who is the user a commit author name stands for, and whether the AI made
+// the commit for them.
+func Who(author string) (user string, ai bool) {
+	if u, ok := strings.CutPrefix(author, AIFor); ok && u != "" {
+		return u, true
+	}
+	return author, false
+}
+
 // Versions lists every version of path in r, newest first, following
 // renames.
 func Versions(r *gitrepo.Repo, path string) ([]Version, error) {

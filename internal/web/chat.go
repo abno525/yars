@@ -18,6 +18,7 @@ type chatMsg struct {
 	Excerpt                 string // one-line plain text, shown on collapsed threads
 	Anchor                  string // the section panel's id suffix, for jumping to it
 	HTML                    template.HTML
+	AI                      bool // the AI wrote it for User (Fix with AI)
 }
 
 const excerptLen = 140
@@ -143,7 +144,7 @@ func (s *Server) loadChat(ref store.FindingRef) ([]chat.Message, error) {
 }
 
 func (s *Server) chatMsg(m chat.Message) chatMsg {
-	return chatMsg{ID: m.ID, User: m.User, Time: m.TS.Local().Format("2006-01-02 15:04"), Section: m.Section, Anchor: anchor(m.Section), Excerpt: excerpt(m.Text), HTML: s.renderMD(m.Text)}
+	return chatMsg{ID: m.ID, User: m.User, Time: m.TS.Local().Format("2006-01-02 15:04"), Section: m.Section, Anchor: anchor(m.Section), Excerpt: excerpt(m.Text), HTML: s.renderMD(m.Text), AI: m.Kind == chat.KindAI}
 }
 
 // hiddenFor returns the resolved threads of the finding the request's user

@@ -14,6 +14,7 @@ import (
 	"yars/internal/db"
 	"yars/internal/finding"
 	"yars/internal/gitrepo"
+	"yars/internal/history"
 	"yars/internal/rules"
 	"yars/internal/workflow"
 )
@@ -304,7 +305,7 @@ func (s *Store) acceptFix(ctx context.Context, ref FindingRef, section, old, bod
 // section is still at base and u may still edit the finding (both checked
 // under the engagement's lock, at the commit).
 func (s *Store) fixSection(engID, dir, section, body, base string, u config.User) error {
-	author := gitrepo.Author{Name: "AI for " + u.Username, Email: u.GitAuthor().Email}
+	author := gitrepo.Author{Name: history.AIFor + u.Username, Email: u.GitAuthor().Email}
 	return s.mutateContent(engID, dir, author, func(f *finding.Finding) (string, error) {
 		if !workflow.CanEdit(u, f.Meta) {
 			return "", &workflow.Denied{Reason: "this finding is " + f.Meta.Status + " now; " + u.Username + " cannot edit it"}

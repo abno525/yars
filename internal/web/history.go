@@ -25,6 +25,7 @@ type histEvent struct {
 	Key, Kind     string // Kind: content | status
 	Class         string // the marker colour
 	Who, Act      string // "alice", "edited Impact"
+	AI            bool   // the AI made the commit for Who (Fix with AI)
 	Text, Short   string // a reason; the short commit hash
 	Time, URL     string
 	On            bool
@@ -198,7 +199,8 @@ func (s *Server) historyOf(r *http.Request, ref store.FindingRef) (historyView, 
 		if act == "created" {
 			cls = "ev-create"
 		}
-		all = append(all, histEvent{Key: ver.Hash, Kind: "content", Class: cls, Who: ver.Author, Act: act, Short: ver.Hash[:7],
+		who, ai := history.Who(ver.Author)
+		all = append(all, histEvent{Key: ver.Hash, Kind: "content", Class: cls, Who: who, AI: ai, Act: act, Short: ver.Hash[:7],
 			at: ver.Time, before: before, after: ver.Raw})
 	}
 	for _, m := range msgs {
