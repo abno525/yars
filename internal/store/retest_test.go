@@ -102,6 +102,41 @@ func TestCreateRetest(t *testing.T) {
 	}
 }
 
+// The copies' links and the team are written before the repository, and
+// taken back when it fails: a retest is made whole or not at all, never
+// copies that look like plain drafts. Here the links fail (the database
+// refuses them) (backlog, M10).
+func TestCreateRetestWholeOrNothing(t *testing.T) {
+	s, dir := srcFixture(t)
+	if _, err := s.db.Exec("CREATE TRIGGER boom BEFORE INSERT ON finding_state WHEN NEW.eng = 'rt' BEGIN SELECT RAISE(ABORT, 'disk full'); END"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateRetest(Engagement{ID: "rt", Name: "RT"}, eng, []string{"F-001-sql-injection"}, "", uDora); err == nil || !strings.Contains(err.Error(), "disk full") {
+		t.Fatalf("err %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "engagements", "rt")); err == nil {
+		t.Fatal("the copies were written")
+	}
+	if _, err := s.Engagement("rt"); err == nil {
+		t.Fatal("the retest engagement exists")
+	}
+	// the repository fails (no room for it): the links go again
+	engs := filepath.Join(dir, "engagements")
+	os.Chmod(engs, 0o555)
+	defer os.Chmod(engs, 0o755)
+	if os.Geteuid() != 0 {
+		if err := s.CreateRetest(Engagement{ID: "rt2", Name: "RT"}, eng, []string{"F-001-sql-injection"}, "", uDora); err == nil {
+			t.Fatal("created in a read-only folder")
+		}
+		if st, _ := s.db.State("rt2", "F-001"); st.RetestSource != "" {
+			t.Fatalf("a link was left: %+v", st)
+		}
+		if m, _ := s.db.Members("rt2"); len(m) != 0 {
+			t.Fatalf("a team was left: %v", m)
+		}
+	}
+}
+
 // A retest needs the database (its links and team live there): without
 // one (a clone) it is refused before anything is written (backlog, M10).
 func TestCreateRetestNeedsDB(t *testing.T) {

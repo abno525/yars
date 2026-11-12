@@ -196,6 +196,21 @@ func (s *Store) CreateRetest(e Engagement, source string, dirs []string, assigne
 	if err != nil {
 		return err
 	}
+	// The links and the team first, the repository after, the links taken
+	// back if it fails: a retest is whole or not there, never copies that
+	// look like plain drafts.
+	links := make([][2]string, len(copies)) // each copy's finding ID and folder
+	for i, c := range copies {
+		links[i] = [2]string{c.f.Meta.ID, c.dir}
+	}
+	if err := s.retestLinks(e.ID, source, assignee, links); err != nil {
+		return err
+	}
+	fail := func(err error) error {
+		s.root.RemoveAll(dir)
+		s.db.TxFor(e.ID, func(tx *db.Tx) error { return tx.Purge(e.ID) })
+		return err
+	}
 	var files []string // relative to the new engagement repo
 	write := func(rel string, data []byte) error {
 		p := path.Join(dir, rel)
@@ -206,28 +221,32 @@ func (s *Store) CreateRetest(e Engagement, source string, dirs []string, assigne
 		return s.writeFile(p, data)
 	}
 	if err := write("engagement.yaml", b); err != nil {
-		s.root.RemoveAll(dir)
-		return err
+		return fail(err)
 	}
 	for _, c := range copies {
 		if err := write(path.Join("findings", c.dir, "finding.md"), c.f.Bytes()); err != nil {
-			s.root.RemoveAll(dir)
-			return err
+			return fail(err)
 		}
 		for name, data := range c.attachs {
 			if err := write(path.Join("findings", c.dir, "attachments", name), data); err != nil {
-				s.root.RemoveAll(dir)
-				return err
+				return fail(err)
 			}
 		}
 	}
 	msg := fmt.Sprintf("engagement %s: retest of %s (%d findings)", e.ID, source, len(copies))
 	if err := s.newEngagementRepo(e.ID, files, msg, u.GitAuthor()); err != nil {
+		s.db.TxFor(e.ID, func(tx *db.Tx) error { return tx.Purge(e.ID) })
 		return err
 	}
-	// each copy starts as a fresh draft that links to the original
-	return s.db.TxFor(e.ID, func(tx *db.Tx) error {
-		if err := tx.Purge(e.ID); err != nil {
+	return nil
+}
+
+// retestLinks writes a retest's team (the source's, with the retester) and
+// each copy's state (its finding ID and source folder): a fresh draft that
+// links to its original.
+func (s *Store) retestLinks(id, source, assignee string, copies [][2]string) error {
+	return s.db.TxFor(id, func(tx *db.Tx) error {
+		if err := tx.Purge(id); err != nil {
 			return err
 		}
 		// the source's team works on the retest, with the retester
@@ -238,11 +257,11 @@ func (s *Store) CreateRetest(e Engagement, source string, dirs []string, assigne
 		if assignee != "" {
 			team = append(team, assignee)
 		}
-		if err := tx.AddMembers(e.ID, team...); err != nil {
+		if err := tx.AddMembers(id, team...); err != nil {
 			return err
 		}
 		for _, c := range copies {
-			if err := tx.PutState(e.ID, c.f.Meta.ID, db.State{Status: "draft", RetestSource: source + "/" + c.dir}); err != nil {
+			if err := tx.PutState(id, c[0], db.State{Status: "draft", RetestSource: source + "/" + c[1]}); err != nil {
 				return err
 			}
 		}
