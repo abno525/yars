@@ -186,4 +186,7 @@ M35 after   done     a2e8f5f (asked after the run: the state beside the reviewer
 M35 after   review   fix 19448f7 (the state keeps its width; no empty slots before the first action; no empty action box)
 M35 after   done     b43fbab (asked after the run: the theme is chosen in Settings only)
 M35 after   review   fix ff93d36 (the unused theme endpoint removed; its tests save through Settings)
+M35 after   done     5075f25 (asked after the run: the notices in the inbox's Notifications section, review fixes in; no bell; user name, Go to, Log out)
+M35 after   done     28d9bc7 (asked after the run: digits pick the state filter, ↓ ↑ move the row focus on lists)
+M35 after   review   fix 3ddf906 (arrows on the findings and engagements lists only, held down too, never in an open menu)
 ```
