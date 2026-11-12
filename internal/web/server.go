@@ -705,6 +705,9 @@ func (s *Server) engPage(r *http.Request, eng string, keep map[string]bool) (*pa
 		c := c
 		active := c.Key == query.Sort || (query.Sort == "" && c.Key == "id")
 		desc := active && !query.Desc
+		if c.Key == "chat" && !active {
+			desc = true // most open threads first
+		}
 		p.Columns = append(p.Columns, link{Key: c.Key, Label: c.Label, Active: active, Desc: query.Desc,
 			URL: mk(func(v url.Values) {
 				v.Set("sort", c.Key)
