@@ -359,6 +359,10 @@ func (s *Server) fail(w http.ResponseWriter, err error) {
 		http.Error(w, store.ErrArchived.Error(), http.StatusForbidden)
 		return
 	}
+	if errors.Is(err, store.ErrBusy) {
+		http.Error(w, store.ErrBusy.Error(), http.StatusConflict)
+		return
+	}
 	log.Printf("error: %v", err)
 	http.Error(w, "internal error", http.StatusInternalServerError)
 }

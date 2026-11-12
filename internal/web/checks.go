@@ -59,6 +59,13 @@ type checksView struct {
 	// Withdrawn: no strip, only its hidden place, which keeps listening so
 	// a restore brings the strip back (and a withdraw takes it away) live
 	Withdrawn bool
+	// Fix with AI (M31): the button's slot is drawn for a viewer who may
+	// edit (FixShow); it is enabled with a provider, something to fix and
+	// nothing running; Fixing while a fix runs
+	FixURL         string
+	FixShow        bool
+	CanFix, Fixing bool
+	Fixable        int // open results the AI can work on
 }
 
 // kindTag is a rule kind's short tag on a step row.
@@ -123,6 +130,7 @@ func (s *Server) routesChecks(mux *http.ServeMux) {
 	mux.HandleFunc("GET /e/{eng}/f/{fid}/checks", s.checksGet)
 	mux.HandleFunc("POST /e/{eng}/f/{fid}/checks", s.checksRun)
 	mux.HandleFunc("POST /e/{eng}/f/{fid}/checks/retry", s.checksRetry)
+	mux.HandleFunc("POST /e/{eng}/f/{fid}/checks/fix", s.checksFix)
 	mux.HandleFunc("POST /e/{eng}/f/{fid}/checks/dismiss", s.checksDismiss(true))
 	mux.HandleFunc("POST /e/{eng}/f/{fid}/checks/undismiss", s.checksDismiss(false))
 }
@@ -267,7 +275,15 @@ func (s *Server) checksFor(r *http.Request, ref store.FindingRef) checksView {
 	v.Rows = append(gate, v.Rows...)
 	v.Empty = len(v.Rows) == 0 && len(v.Dismissed) == 0
 	m := ref.F.Meta
-	v.Open = v.Running || (m.Status == "draft" && u.Username == m.Author && v.Errors > 0)
+	v.FixURL = base + "/fix"
+	v.Fixing = s.Store.FixRunning(ref.EngID, m.ID)
+	if v.FixShow = !v.ReadOnly && workflow.CanEdit(u, m); v.FixShow {
+		if n, err := s.Store.Fixable(ref.EngID, ref.Dir); err == nil {
+			v.Fixable = n
+		}
+		v.CanFix = s.Store.AICanFix() && v.Fixable > 0 && !v.Running && !v.Fixing
+	}
+	v.Open = v.Running || v.Fixing || (m.Status == "draft" && u.Username == m.Author && v.Errors > 0)
 	return v
 }
 

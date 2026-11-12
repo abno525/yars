@@ -123,5 +123,6 @@ M30 branch  review   fixes d6d308e (one failed login per commit, a refused helpe
 M30 branch  fix check one regression (the first finding asked alone took two rounds), fixed 63117c1: the login checked first with a GET, then all findings at once
 M30 PR      opened   #25
 M31 task 1  done     59b9d8b (Runner.Fix and Engine.Fix: the whole section back, purpose fix, never cached)
-M31 task 2  done     (StartFix: each open check result fixed only when nothing else changed and the rule no longer fires, committed as AI for <user>, answered in its thread; a check run follows)
+M31 task 2  done     7c1bf33 (StartFix: each open check result fixed only when nothing else changed and the rule no longer fires, committed as AI for <user>, answered in its thread; a check run follows)
+M31 task 3  done     (Fix with AI in the Checks strip's head; Fixing while it runs, the strip open, Check disabled; 409 while busy)
 ```

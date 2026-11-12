@@ -78,6 +78,7 @@ type wfCheck struct {
 	On, Show        bool // checks configured; the button is shown (not archived)
 	URL             string
 	Running         bool
+	Busy            bool // a fix runs: Check waits (disabled)
 	Done, Total     int
 	Class           string // secondary, or primary when stale
 	Flag, FlagClass string // slot text and its look ("" = empty slot)
@@ -87,7 +88,7 @@ type wfCheck struct {
 
 // checkOf is the bar's Check button for the checks panel v.
 func checkOf(v checksView) wfCheck {
-	c := wfCheck{On: v.Enabled, Show: v.Enabled && !v.ReadOnly, URL: v.URL, Running: v.Running, Done: v.Done, Total: v.Total, Class: "secondary"}
+	c := wfCheck{On: v.Enabled, Show: v.Enabled && !v.ReadOnly, URL: v.URL, Running: v.Running, Busy: v.Fixing, Done: v.Done, Total: v.Total, Class: "secondary"}
 	failed := 0
 	for _, x := range v.Steps {
 		if x.State == "failed" {
