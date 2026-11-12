@@ -148,6 +148,30 @@ func TestTakeBackNotifiesReviewers(t *testing.T) {
 	}
 }
 
+// R4: a revert tells the author and the reviewers (not who reverted it),
+// with its reason.
+func TestNotifyRevert(t *testing.T) {
+	n, d, _ := newNotifier(t)
+	e := ev(store.EventStatus)
+	e.Actor, e.Action, e.Reason = "dir1", "unreport", "sent too early"
+	n.Handle(e)
+	e.Actor, e.Action, e.Reason = "pen1", "reopen", "wrong host"
+	n.Handle(e)
+	n.Wait()
+	if got := list(t, d, "pen1"); got != "reverted:dir1:sent too early" {
+		t.Errorf("author: %q", got)
+	}
+	if got := list(t, d, "rev1"); got != "reverted:dir1:sent too early,reverted:pen1:wrong host" {
+		t.Errorf("reviewer: %q", got)
+	}
+	if got := list(t, d, "dir1"); got != "" {
+		t.Errorf("the actor heard of it: %q", got)
+	}
+	if Label(Reverted) != "Reverted" {
+		t.Errorf("label %q", Label(Reverted))
+	}
+}
+
 func TestPrefsAndEmail(t *testing.T) {
 	n, d, m := newNotifier(t)
 	// pen1: returned by email only; rev1 keeps the default (in app)

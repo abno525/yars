@@ -29,6 +29,7 @@ const (
 	Check     = "check"
 	Token     = "token"
 	TakenBack = "taken_back" // the author took a finding I review back to draft
+	Reverted  = "reverted"   // a finding I wrote or review went back a step (R4)
 )
 
 // Event is one choosable notification event.
@@ -36,7 +37,7 @@ type Event struct{ Key, Label string }
 
 // Events in the order the settings list them.
 var Events = []Event{{Returned, "Returned to me"}, {Review, "Review requested"}, {TakenBack, "Taken back"}, {Reply, "Reply in my thread"},
-	{Approved, "Approved"}, {Mentioned, "Mentioned"}, {Check, "Check finished"}, {Token, "Token expiring"}}
+	{Approved, "Approved"}, {Reverted, "Reverted"}, {Mentioned, "Mentioned"}, {Check, "Check finished"}, {Token, "Token expiring"}}
 
 // Label is an event's name for people.
 func Label(key string) string {
@@ -123,6 +124,12 @@ func recipients(e store.Event) map[string]string {
 			// it left their queue, and any sign-off they gave is gone
 			for _, u := range e.Reviewers {
 				add(u, TakenBack)
+			}
+		case "reopen", "unreport":
+			// R4: back a step, with a reason, for its author and reviewers
+			add(e.Author, Reverted)
+			for _, u := range e.Reviewers {
+				add(u, Reverted)
 			}
 		}
 	case store.EventChat:

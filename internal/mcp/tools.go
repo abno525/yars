@@ -435,20 +435,31 @@ var tools = []tool{
 		required: []param{pEng, pFinding, {"field", "field name"}, {"value", "new value"}},
 		optional: []param{{"base", "the field's entry in field_bases from read_finding (details.*, cvss, cvss_reason.*: refused only if that one row changed since; each set_field answer gives the row's new base; after cvss, one base for the vector and every reason), or cvss_base, details_base or assets_base (assets); refuses the edit if it changed since you read it"}},
 		run:      setField},
-	{name: "transition", action: "status", serverOnly: true, desc: "Move a finding through the workflow: submit (draft→verification), return (verification→draft, needs reason), clear or sign_off (reviewer sign-off), approve (director: verification→complete), reopen (complete→verification), report (director: complete→reported), withdraw (author while draft or verification, director also when complete or reported; needs reason; takes it out of the report), revise (author or director: withdrawn→draft), take_back (author or director: verification→draft, no reason; sign-offs start over).",
-		required: []param{pEng, pFinding, {"action", "submit | return | clear | sign_off | approve | reopen | report | withdraw | revise | take_back"}},
-		optional: []param{{"reason", "required for return and withdraw"}},
+	{name: "transition", action: "status", serverOnly: true, desc: "Move a finding through the workflow: submit (draft→verification), return (verification→draft, needs reason), clear or sign_off (reviewer sign-off), approve (director: verification→complete), reopen (author or director: complete→verification, needs reason), report (director: complete→reported), unreport (director: reported→complete, needs reason; the approval stays), revert (the step back from where the finding is: reopen or unreport), withdraw (author while draft or verification, director also when complete or reported; needs reason; takes it out of the report), revise (author or director: withdrawn→draft), take_back (author or director: verification→draft, no reason; sign-offs start over).",
+		required: []param{pEng, pFinding, {"action", "submit | return | clear | sign_off | approve | reopen | report | unreport | revert | withdraw | revise | take_back"}},
+		optional: []param{{"reason", "required for return, withdraw, reopen, unreport and revert"}},
 		run: func(s *Server, ctx context.Context, u config.User, a args) (string, error) {
 			ref, err := s.ref(a)
 			if err != nil {
 				return "", err
 			}
 			act, ok := workflow.ParseAction(a.str("action"))
-			if !ok {
-				return "", errors.New("unknown action (submit, return, clear or sign_off, approve, reopen, report, withdraw, revise, take_back)")
+			if !ok && strings.EqualFold(strings.TrimSpace(a.str("action")), "revert") {
+				// R4: the step back from the finding's status
+				if act, ok = workflow.RevertOf(ref.F.Meta.Status); !ok {
+					return "", errors.New("nothing to revert: the finding is " + ref.F.Meta.Status)
+				}
 			}
+			if !ok {
+				return "", errors.New("unknown action (submit, return, clear or sign_off, approve, reopen, report, withdraw, revise, take_back, unreport, revert)")
+			}
+			// marking reported is a director's over MCP (the delivery to the
+			// client), and so is taking it back (whoever marks reported reverts)
 			if act == workflow.Report && !workflow.AtLeast(u, "director") {
 				return "", &workflow.Denied{Reason: "only a director can mark reported"}
+			}
+			if act == workflow.Unreport && !workflow.AtLeast(u, "director") {
+				return "", &workflow.Denied{Reason: "only a director can revert a reported finding over MCP"}
 			}
 			if err := s.Store.Transition(ref.EngID, ref.Dir, act, a.str("reason"), u); err != nil {
 				return "", err

@@ -389,6 +389,65 @@ func TestMCPPermissions(t *testing.T) {
 	f.ok(dora, "transition", map[string]any{"engagement": "acme", "finding": "F-001", "action": "report"})
 }
 
+// R4: revert takes the finding back one step from where it is, with a
+// reason; nothing to revert on a draft. Over MCP, as marking reported, the
+// reported step is a director's to revert.
+func TestMCPRevertResolvesByStatus(t *testing.T) {
+	f := newFx(t)
+	tr := func(u config.User, action, reason string) (string, bool) {
+		return f.call(u, "transition", map[string]any{"engagement": "acme", "finding": "F-001", "action": action, "reason": reason})
+	}
+	if text, isErr := tr(dora, "revert", "x"); !isErr || !strings.Contains(text, "nothing to revert: the finding is draft") {
+		t.Fatalf("revert on a draft: %s", text)
+	}
+	f.ok(alice, "set_field", map[string]any{"engagement": "acme", "finding": "F-001", "field": "reviewers", "value": "bob"})
+	f.ok(alice, "set_field", map[string]any{"engagement": "acme", "finding": "F-001", "field": "severity", "value": "high"})
+	tr(alice, "submit", "")
+	tr(bob, "clear", "")
+	tr(dora, "approve", "")
+	tr(dora, "report", "")
+	if text, isErr := tr(alice, "revert", "sent too early"); !isErr || !strings.Contains(text, "director") {
+		t.Fatalf("author unreported via MCP: %s", text)
+	}
+	if text, isErr := tr(dora, "revert", "sent too early"); isErr || !strings.Contains(text, "status is now complete") {
+		t.Fatalf("revert of reported: %s", text)
+	}
+	// the author reverts her complete finding to verification
+	if text, isErr := tr(alice, "revert", "wrong host"); isErr || !strings.Contains(text, "status is now verification") {
+		t.Fatalf("revert of complete: %s", text)
+	}
+}
+
+// R4, Review focus 4: an older client calling reopen without a reason is
+// told what to send.
+func TestMCPReopenWithoutReasonExplains(t *testing.T) {
+	f := newFx(t)
+	f.ok(alice, "set_field", map[string]any{"engagement": "acme", "finding": "F-001", "field": "reviewers", "value": "bob"})
+	f.ok(alice, "set_field", map[string]any{"engagement": "acme", "finding": "F-001", "field": "severity", "value": "high"})
+	for _, step := range []struct {
+		u config.User
+		a string
+	}{{alice, "submit"}, {bob, "clear"}, {dora, "approve"}} {
+		f.ok(step.u, "transition", map[string]any{"engagement": "acme", "finding": "F-001", "action": step.a})
+	}
+	text, isErr := f.call(dora, "transition", map[string]any{"engagement": "acme", "finding": "F-001", "action": "reopen"})
+	if !isErr || !strings.Contains(text, "a reason is required") {
+		t.Fatalf("reopen without a reason: %s", text)
+	}
+	// the tool says which actions need one, and lists the new ones
+	tr := toolByName["transition"]
+	if !strings.Contains(tr.optional[0].desc, "required for return, withdraw, reopen, unreport and revert") ||
+		!strings.Contains(tr.required[2].desc, "unreport | revert") || !strings.Contains(tr.desc, "unreport (") || !strings.Contains(tr.desc, "revert (") {
+		t.Fatalf("transition tool: %+v", tr)
+	}
+	if text, _ := f.call(dora, "transition", map[string]any{"engagement": "acme", "finding": "F-001", "action": "bogus"}); !strings.Contains(text, "unreport, revert") {
+		t.Fatalf("unknown action: %s", text)
+	}
+	if !strings.Contains(instructions, "return, withdraw, report, revert)") {
+		t.Fatal("instructions do not ask to confirm a revert")
+	}
+}
+
 func TestMCPProtocolErrors(t *testing.T) {
 	f := newFx(t)
 	code := func(msg string) float64 {
