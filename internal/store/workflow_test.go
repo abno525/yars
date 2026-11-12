@@ -405,6 +405,28 @@ func TestSetReviewersDropsClearance(t *testing.T) {
 	}
 }
 
+// A finding in verification keeps at least one reviewer, or nobody could
+// sign it off: emptying the list is refused, for the author and a director
+// alike; in draft the list may be empty (backlog, M3).
+func TestReviewersNotEmptiedInVerification(t *testing.T) {
+	s, _, fd := ready(t)
+	if err := s.SetReviewers(eng, fd, nil, uAlice); err != nil {
+		t.Fatalf("draft: %v", err)
+	}
+	s.SetReviewers(eng, fd, []string{"bob"}, uAlice)
+	if err := s.Transition(eng, fd, workflow.Submit, "", uAlice); err != nil {
+		t.Fatal(err)
+	}
+	for _, u := range []config.User{uAlice, uDora} {
+		if err := s.SetReviewers(eng, fd, nil, u); !denied(err) || !strings.Contains(err.Error(), "at least one reviewer") {
+			t.Fatalf("%s emptied the list: %v", u.Username, err)
+		}
+	}
+	if r := load(t, s, fd).F.Meta.Reviewers; !reflect.DeepEqual(r, []string{"bob"}) {
+		t.Fatalf("reviewers %v", r)
+	}
+}
+
 func TestSetReviewersDropsAuthor(t *testing.T) {
 	s, _, fd := newFinding(t)
 	if err := s.SetReviewers(eng, fd, []string{"carol", "alice", "bob", "bob"}, uAlice); err != nil {

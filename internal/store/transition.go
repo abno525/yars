@@ -293,6 +293,10 @@ func (s *Store) SetReviewers(engID, dir string, names []string, u config.User) e
 				}
 			}
 		}
+		if len(list) == 0 && m.Status == "verification" {
+			// nobody could sign it off: it would wait for ever
+			return nil, &workflow.Denied{Reason: "a finding in verification keeps at least one reviewer"}
+		}
 		sort.Strings(list)
 		var next []db.Reviewer
 		done.Reviewers, done.Added = list, nil
