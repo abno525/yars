@@ -4,11 +4,13 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"yars/internal/config"
 	"yars/internal/finding"
+	"yars/internal/workflow"
 )
 
 // The shared content rules, as the website and git pushes use them.
@@ -105,5 +107,43 @@ func TestWebEditOfGrandfatheredFinding(t *testing.T) {
 	s.Invalidate("acme")
 	if err := s.UpdateSection("acme", ref.Dir, "Impact", "Full read.", "", bob); err != nil {
 		t.Fatalf("edit refused: %v", err)
+	}
+}
+
+// A file pushed in its own layout (no blank lines around a body, spaces
+// after a heading) stays as it is when a section is saved with the text it
+// already has: no commit, and the sign-offs given for it still count
+// (backlog, M10).
+func TestUnchangedSaveKeepsPushedFile(t *testing.T) {
+	s, dir, fd := ready(t)
+	repo := filepath.Join(dir, "engagements", eng)
+	p := filepath.Join(repo, "findings", fd, "finding.md")
+	b, _ := os.ReadFile(p)
+	raw := strings.Replace(string(b), "## Impact\n\n", "## Impact  \n", 1)
+	raw = strings.TrimRight(raw, "\n") + "\nDB read.\n"
+	os.WriteFile(p, []byte(raw), 0o644)
+	git(t, repo, "commit", "-qam", "push in another layout")
+	s.Invalidate(eng)
+	s.SetReviewers(eng, fd, []string{"bob"}, uAlice)
+	if err := s.Transition(eng, fd, workflow.Submit, "", uAlice); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Transition(eng, fd, workflow.Clear, "", uBob); err != nil {
+		t.Fatal(err)
+	}
+	ref, _ := s.Finding(eng, fd)
+	body, _ := ref.F.Section("Impact")
+	head := last(t, dir, "%H")
+	if err := s.UpdateSection(eng, fd, "Impact", "\r\n"+strings.TrimSpace(body)+"\r\n", "", uAlice); err != nil {
+		t.Fatal(err)
+	}
+	if last(t, dir, "%H") != head {
+		t.Fatal("an unchanged save made a commit")
+	}
+	if got, _ := os.ReadFile(p); string(got) != raw {
+		t.Fatalf("the file was rewritten:\n%s", got)
+	}
+	if ref, _ := s.Finding(eng, fd); !slices.Contains(ref.F.Meta.ClearedBy, "bob") {
+		t.Fatal("bob's sign-off was dropped")
 	}
 }

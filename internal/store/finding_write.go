@@ -165,13 +165,15 @@ func (s *Store) UpdateSection(engID, dir, section, body, base string, a Actor) e
 		return fmt.Errorf("%w: %v", ErrInvalidBody, err)
 	}
 	return s.mutateContent(engID, dir, a, func(f *finding.Finding) (string, error) {
-		if base != "" {
-			cur, _ := f.Section(section)
-			if BodyHash(cur) != base {
-				return "", ErrConflict
-			}
+		cur, ok := f.Section(section)
+		if base != "" && BodyHash(cur) != base {
+			return "", ErrConflict
 		}
-		f.SetSection(section, body)
+		// the text it has, in another layout (a pushed file): nothing to write
+		norm := func(t string) string { return strings.Trim(strings.ReplaceAll(t, "\r\n", "\n"), "\n") }
+		if !ok || norm(cur) != norm(body) {
+			f.SetSection(section, body)
+		}
 		return "edit " + section, nil
 	})
 }
@@ -222,7 +224,9 @@ func (s *Store) mutateLockedIn(engID, dir string, a gitrepo.Author, fn func(f *f
 		return Event{}, err
 	}
 	after := ref.F.Bytes()
-	if string(before) == string(after) {
+	// unchanged, or changed only into the canonical layout of what it was
+	// (a pushed file's own spacing): no write, and its sign-offs still count
+	if string(before) == string(after) || (old != nil && string(old.Bytes()) == string(after)) {
 		return Event{}, nil
 	}
 	if err := s.unmoved(engID, head0); err != nil {
