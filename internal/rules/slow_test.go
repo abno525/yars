@@ -1,10 +1,12 @@
 package rules
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -260,6 +262,24 @@ func TestAIErrorShowsStatusOnly(t *testing.T) {
 	vs := aiRunner(t, "anthropic", srv.URL).AI(context.Background(), acr, "title", "x")
 	if len(vs) != 1 || vs[0].Message != "AI check failed: HTTP 401" {
 		t.Fatalf("got %+v", vs)
+	}
+}
+
+// The server log gets the error body without the key the provider echoed,
+// on one line however the body is written (M34 review).
+func TestAIErrorLogHidesKey(t *testing.T) {
+	var logged bytes.Buffer
+	log.SetOutput(&logged)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	for _, provider := range []string{"anthropic", "openai"} {
+		f := &fakeAI{status: 401, body: func(map[string]any) string {
+			return "invalid key: secret\nfake log line"
+		}}
+		srv := f.server(t)
+		aiRunner(t, provider, srv.URL).AI(context.Background(), acr, "title", "x")
+	}
+	if out := logged.String(); strings.Contains(out, "secret") || strings.Count(out, "\n") != 2 || !strings.Contains(out, "[key]") {
+		t.Fatalf("log:\n%s", out)
 	}
 }
 

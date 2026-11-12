@@ -191,8 +191,14 @@ func (rn *Runner) post(ctx context.Context, url string, body any, hdr map[string
 	if resp.StatusCode/100 != 2 {
 		// the body can echo the key or the account: the server log has it,
 		// users get the status only
-		body := []rune(strings.TrimSpace(string(data)))
-		log.Printf("ai: HTTP %d from %s: %s", resp.StatusCode, req.URL.Host, string(body[:min(len(body), 500)]))
+		text := strings.TrimSpace(string(data))
+		for _, h := range []string{"x-api-key", "Authorization"} { // the key, wherever echoed
+			if key := strings.TrimPrefix(hdr[h], "Bearer "); key != "" {
+				text = strings.ReplaceAll(text, key, "[key]")
+			}
+		}
+		body := []rune(text)
+		log.Printf("ai: HTTP %d from %s: %q", resp.StatusCode, req.URL.Host, string(body[:min(len(body), 500)]))
 		return fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 	return json.Unmarshal(data, out)

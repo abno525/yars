@@ -587,7 +587,7 @@ var coreTools = []tool{
 		}},
 	{name: "add_chat_message", action: "comment", serverOnly: true, desc: "Post a message in the finding's chat, optionally about a section or as a reply to a thread. @name mentions notify that person.",
 		required: []param{pEng, pFinding, {"text", "Markdown message"}},
-		optional: []param{{"section", "section the message is about"}, {"reply", "thread ID to reply to"}},
+		optional: []param{{"section", "section the message is about (ignored with reply: the thread carries it)"}, {"reply", "thread ID to reply to"}},
 		run: func(s *Server, ctx context.Context, u config.User, a args) (string, error) {
 			ref, err := s.ref(a)
 			if err != nil {
