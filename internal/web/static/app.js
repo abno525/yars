@@ -458,8 +458,12 @@ function yarsBulkHead(form) {
   var head = dlg.querySelector('[data-bulk-head]');
   if (head) head.textContent = (dlg.getAttribute('data-verb') || 'Return') + ' ' + n + (n === 1 ? ' finding' : ' findings');
 }
-// yarsBulkReason opens the reason panel for a Return or Withdraw entry (or
-// closes it, item null); the reason only goes with the form while it is open.
+// yarsBulkVerbs name the reason panel's action for each entry that needs a
+// reason.
+var yarsBulkVerbs = {'return': 'Return', 'withdraw': 'Withdraw', 'reopen': 'Revert', 'unreport': 'Revert'};
+// yarsBulkReason opens the reason panel for a Return, Withdraw or Revert
+// entry (or closes it, item null); the reason only goes with the form while
+// it is open.
 function yarsBulkReason(form, item) {
   var dlg = form.querySelector('.bdlg');
   if (!dlg) return;
@@ -470,7 +474,7 @@ function yarsBulkReason(form, item) {
     if (ta) ta.disabled = true;
     return;
   }
-  var verb = item.getAttribute('data-act') === 'withdraw' ? 'Withdraw' : 'Return';
+  var verb = yarsBulkVerbs[item.getAttribute('data-act')] || 'Return';
   dlg.setAttribute('data-verb', verb);
   if (go) { go.value = item.getAttribute('data-act'); go.textContent = verb; }
   yarsBulkHead(form);

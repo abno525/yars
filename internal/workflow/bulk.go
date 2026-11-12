@@ -25,10 +25,12 @@ func bulkOpt(a Action, label, verb string) BulkOption {
 // signs off and returns findings they review; a director moves any finding.
 var bulkMenus = map[string][]BulkOption{
 	"pentester": {bulkOpt(Submit, "Verification", "submit"), bulkOpt(TakeBack, "Draft", "take back"),
-		bulkOpt(Report, "Reported", "mark reported"), bulkOpt(Withdraw, "Withdrawn", "")},
+		bulkOpt(Report, "Reported", "mark reported"), bulkOpt(Reopen, "Verification", "revert"), bulkOpt(Unreport, "Complete", "revert"),
+		bulkOpt(Withdraw, "Withdrawn", "")},
 	"reviewer": {bulkOpt(Clear, "Signed off", "sign off"), bulkOpt(Return, "Draft", "return")},
 	"director": {bulkOpt(TakeBack, "Draft", "take back"), bulkOpt(Submit, "Verification", "submit"),
-		bulkOpt(Approve, "Complete", "approve"), bulkOpt(Report, "Reported", "mark reported"), bulkOpt(Withdraw, "Withdrawn", "")},
+		bulkOpt(Approve, "Complete", "approve"), bulkOpt(Report, "Reported", "mark reported"),
+		bulkOpt(Reopen, "Verification", "revert"), bulkOpt(Unreport, "Complete", "revert"), bulkOpt(Withdraw, "Withdrawn", "")},
 }
 
 // BulkOptions is u's bulk Set state menu (nil for an unknown role).

@@ -129,7 +129,7 @@ var wfLayout = map[string][]wfSlotSpec{
 	"draft":            {{workflow.Submit, "w112"}, {workflow.Withdraw, "w136"}},
 	"verification":     {{workflow.Return, "w112"}, {workflow.Clear, "w112"}, {workflow.Approve, "w112"}, {workflow.Withdraw, "w136"}},
 	"complete":         {{workflow.Reopen, "w136"}, {workflow.Report, "w136"}, {workflow.Withdraw, "w136"}},
-	"reported":         {{workflow.Withdraw, "w136"}},
+	"reported":         {{workflow.Unreport, "w136"}, {workflow.Withdraw, "w136"}},
 	workflow.Withdrawn: {{workflow.Revise, "w136"}},
 }
 
@@ -184,15 +184,19 @@ func (v *wfView) arrange(u config.User, m finding.Meta) {
 			sl.Title = sl.Label
 			sl.Label = barLabel(sp.act)
 			switch {
-			case workflow.NeedsReason(sp.act):
+			case sp.act == workflow.Return || sp.act == workflow.Withdraw:
 				sl.Class = "danger"
-				sl.PanelID = "wf-" + name
-				sl.PanelHead = map[workflow.Action]string{workflow.Return: "Return to draft", workflow.Withdraw: "Withdraw finding"}[sp.act]
-				v.Panels = append(v.Panels, sl)
-			case sp.act == workflow.Reopen || sp.act == workflow.Revise:
+			case sp.act == workflow.Reopen || sp.act == workflow.Unreport || sp.act == workflow.Revise:
 				sl.Class = "secondary"
 			default:
 				sl.Class = "primary"
+			}
+			if workflow.NeedsReason(sp.act) {
+				// a reason panel under the bar; its button takes the slot's class
+				sl.PanelID = "wf-" + name
+				sl.PanelHead = map[workflow.Action]string{workflow.Return: "Return to draft", workflow.Withdraw: "Withdraw finding",
+					workflow.Reopen: "Revert to verification", workflow.Unreport: "Revert to complete"}[sp.act]
+				v.Panels = append(v.Panels, sl)
 			}
 		}
 		v.Slots = append(v.Slots, sl)

@@ -83,5 +83,6 @@ M26 branch  fix check    fix 6edc7fc (versions history holds again; exact earlie
 M26 browser check    passed (1440: marks and the Purge slot, clipped long name, confirm page within its panel, purge removes the original from git and the mark, a copy refuses with 409, a redacted copy lets both purges through)
 M26 PR      opened   #20
 M27 task 1  done     17592fc
-M27 task 2  done
+M27 task 2  done     397a37c
+M27 task 3  done
 ```

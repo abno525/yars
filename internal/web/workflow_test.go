@@ -252,6 +252,53 @@ func TestAuthorMarksReported(t *testing.T) {
 	}
 }
 
+// R4: Revert sits in Complete's and Reported's first slot, for the author
+// and a director: a secondary button that opens its reason panel.
+func TestWorkflowBarRevertSlots(t *testing.T) {
+	e := setup(t)
+	e.toComplete(t)
+	check := func(user, act, head string, want bool) {
+		t.Helper()
+		wf := wfSection(t, e.do(t, user, "GET", fpath, nil, nil).Body.String())
+		btn := `<button type="button" class="btn w136 secondary" data-slot="` + act + `" data-action="` + act + `" title="Revert" aria-controls="wf-` + act + `" aria-expanded="false" data-reason-toggle>Revert</button>`
+		panel := `<form method="post" action="/e/acme/f/001/action/` + act + `" class="wfpanel ` + act + `" id="wf-` + act + `" hidden>
+    <div class="panelhead"><h2>` + head + `</h2></div>`
+		has := strings.Contains(wf, btn) && strings.Contains(wf, panel) && strings.Contains(wf, `<button class="btn secondary sm w96">Revert</button>`)
+		if has != want || (!want && strings.Contains(wf, `data-action="`+act+`"`)) {
+			t.Errorf("%s on %s: Revert %v, want %v:\n%s", user, act, has, want, wf)
+		}
+	}
+	for u, want := range map[string]bool{"dora": true, "alice": true, "bob": false} {
+		check(u, "reopen", "Revert to verification", want)
+	}
+	if err := e.srv.Store.Transition("acme", fdir, workflow.Report, "", wDora); err != nil {
+		t.Fatal(err)
+	}
+	for u, want := range map[string]bool{"dora": true, "alice": true, "bob": false} {
+		check(u, "unreport", "Revert to complete", want)
+	}
+	// Return and Withdraw stay red
+	if wf := wfSection(t, e.do(t, "dora", "GET", fpath, nil, nil).Body.String()); !strings.Contains(wf, `<button class="btn danger sm w96">Withdraw</button>`) {
+		t.Fatalf("withdraw panel:\n%s", wf)
+	}
+}
+
+// R4: the revert's reason is required on the page too.
+func TestRevertPostNeedsReason(t *testing.T) {
+	e := setup(t)
+	e.toComplete(t)
+	if err := e.srv.Store.Transition("acme", fdir, workflow.Report, "", wDora); err != nil {
+		t.Fatal(err)
+	}
+	rec := e.do(t, "dora", "POST", fpath+"/action/unreport", url.Values{}, nil)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "a reason is required") || !strings.Contains(rec.Body.String(), `id="wf-unreport"`) || e.status(t) != "reported" {
+		t.Fatalf("without a reason: code %d status %s:\n%s", rec.Code, e.status(t), rec.Body.String())
+	}
+	if rec := e.do(t, "dora", "POST", fpath+"/action/unreport", url.Values{"reason": {"sent too early"}}, nil); rec.Code != http.StatusSeeOther || e.status(t) != "complete" {
+		t.Fatalf("with a reason: code %d status %s", rec.Code, e.status(t))
+	}
+}
+
 func TestReturnRequiresReason(t *testing.T) {
 	e := setup(t)
 	e.toVerification(t)

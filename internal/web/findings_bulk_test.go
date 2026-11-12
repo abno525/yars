@@ -35,9 +35,9 @@ func TestFindingsBulkBar(t *testing.T) {
 	e := setup(t)
 	d2 := e.second(t, "bob")
 	cases := map[string][]string{
-		"alice": {"submit", "take_back", "report", "withdraw"},
+		"alice": {"submit", "take_back", "report", "reopen", "unreport", "withdraw"},
 		"bob":   {"clear", "return"},
-		"dora":  {"take_back", "submit", "approve", "report", "withdraw"},
+		"dora":  {"take_back", "submit", "approve", "report", "reopen", "unreport", "withdraw"},
 	}
 	pages := map[string]string{}
 	for u, want := range cases {
@@ -202,6 +202,52 @@ func TestFindingsBulkRun(t *testing.T) {
 	}
 	if post("alice", url.Values{"action": {"report"}, "id": {fdir}}); e.status(t) != "reported" {
 		t.Fatalf("after report: %s", e.status(t))
+	}
+}
+
+// R4: the director's and the pentester's Set state menus revert too, each
+// entry opening the reason panel.
+func TestBulkMenuHasRevert(t *testing.T) {
+	e := setup(t)
+	for _, u := range []string{"dora", "alice"} {
+		bar := toolbarOf(e.do(t, u, "GET", "/e/acme", nil, nil).Body.String())
+		for _, want := range []string{`data-bulk-reason="Complete" role="menuitem" data-act="unreport"`, `>Complete <span class="v">· revert</span>`,
+			`data-bulk-reason="Verification" role="menuitem" data-act="reopen"`, `>Verification <span class="v">· revert</span>`} {
+			if !strings.Contains(bar, want) {
+				t.Fatalf("%s menu lacks %s:\n%s", u, want, bar)
+			}
+		}
+	}
+}
+
+// R4: one reason reverts several reported findings; none is refused.
+func TestBulkRevertOneReason(t *testing.T) {
+	e := setup(t)
+	e.toComplete(t)
+	d2 := e.secondComplete(t)
+	for _, d := range []string{fdir, d2} {
+		if err := e.srv.Store.Transition("acme", d, workflow.Report, "", wDora); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rec := e.do(t, "dora", "POST", "/e/acme/bulk", url.Values{"action": {"unreport"}, "id": {fdir, d2}}, nil)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "give a reason") {
+		t.Fatalf("without a reason %d:\n%s", rec.Code, rec.Body.String())
+	}
+	e.do(t, "dora", "POST", "/e/acme/bulk", url.Values{"action": {"unreport"}, "id": {fdir, d2}, "reason": {"sent too early"}}, hxReq)
+	if e.status(t) != "complete" || e.statusOf(t, "acme", d2) != "complete" {
+		t.Fatalf("statuses %s %s", e.status(t), e.statusOf(t, "acme", d2))
+	}
+}
+
+// R4: the bulk reason panel names the revert's verb.
+func TestAppJSBulkVerbs(t *testing.T) {
+	e := setup(t)
+	js := e.do(t, "alice", "GET", "/static/app.js", nil, nil).Body.String()
+	for _, want := range []string{`'return': 'Return'`, `'withdraw': 'Withdraw'`, `'reopen': 'Revert'`, `'unreport': 'Revert'`} {
+		if !strings.Contains(js, want) {
+			t.Errorf("app.js lacks %s", want)
+		}
 	}
 }
 

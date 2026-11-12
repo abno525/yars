@@ -11,9 +11,9 @@ import (
 // The bulk Set state menu of each role, in board order.
 func TestBulkOptions(t *testing.T) {
 	cases := map[string][]Action{
-		"pentester": {Submit, TakeBack, Report, Withdraw},
+		"pentester": {Submit, TakeBack, Report, Reopen, Unreport, Withdraw},
 		"reviewer":  {Clear, Return},
-		"director":  {TakeBack, Submit, Approve, Report, Withdraw},
+		"director":  {TakeBack, Submit, Approve, Report, Reopen, Unreport, Withdraw},
 	}
 	for role, want := range cases {
 		var got []Action
@@ -33,8 +33,15 @@ func TestBulkOptions(t *testing.T) {
 	if o := BulkOptions(bob)[0]; o.Label != "Signed off" || o.Verb != "sign off" {
 		t.Errorf("reviewer first option %+v", o)
 	}
-	if o := BulkOptions(alice)[3]; o.Label != "Withdrawn" || o.Verb != "" {
+	if o := BulkOptions(alice)[5]; o.Label != "Withdrawn" || o.Verb != "" {
 		t.Errorf("pentester withdraw option %+v", o)
+	}
+	// R4: the reverts, after Reported
+	if o := BulkOptions(alice)[3]; o.Label != "Verification" || o.Verb != "revert" || o.To != "verification" {
+		t.Errorf("pentester revert option %+v", o)
+	}
+	if o := BulkOptions(dora)[5]; o.Label != "Complete" || o.Verb != "revert" || o.To != "complete" {
+		t.Errorf("director revert option %+v", o)
 	}
 	if BulkOptions(config.User{Username: "x", Role: "bogus"}) != nil {
 		t.Error("unknown role has a menu")
