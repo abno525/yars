@@ -542,6 +542,11 @@ func TestPrefsKeysOffSaves(t *testing.T) {
 	if tag := htmlTagRe.FindString(e.do(t, "alice", "GET", "/", nil, nil).Body.String()); strings.Contains(tag, "data-keys") {
 		t.Errorf("on again: %s", tag)
 	}
+	// and a form without theme leaves the theme, as one without keys leaves those
+	e.do(t, "alice", "POST", "/settings/prefs", url.Values{"keys": {"off"}}, nil)
+	if u, _, _ := e.srv.Store.DB().User("alice"); !u.KeysOff || u.Theme != "dark" {
+		t.Errorf("keys only: keys off %v, theme %q", u.KeysOff, u.Theme)
+	}
 }
 
 // K9: shortcuts are on for a new account.

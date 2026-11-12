@@ -76,6 +76,38 @@ func TestKeysOff(t *testing.T) {
 	if err := d.SetKeysOff("ghost", true); err == nil {
 		t.Fatal("set for an unknown account")
 	}
+	// AddUser stores it too
+	if err := d.AddUser(config.User{Username: "bea", Role: "reviewer", KeysOff: true}); err != nil {
+		t.Fatal(err)
+	}
+	if u, _, _ := d.User("bea"); !u.KeysOff {
+		t.Fatal("AddUser dropped KeysOff")
+	}
+}
+
+// v22: an account from a v21 database has shortcuts on after the upgrade.
+func TestKeysOffMigration(t *testing.T) {
+	p := openAtVersion(t, 21)
+	raw, err := sql.Open("sqlite", "file:"+p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := raw.Exec("INSERT INTO users(username, role, password_hash, created) VALUES ('ann', 'pentester', 'x', '2026-11-12T00:00:00Z')"); err != nil {
+		t.Fatal(err)
+	}
+	raw.Close()
+	d, err := Open(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	u, ok, err := d.User("ann")
+	if err != nil || !ok || u.KeysOff {
+		t.Fatalf("ann after v22: %+v %v %v", u, ok, err)
+	}
+	if err := d.SetKeysOff("ann", true); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestScopedTokens(t *testing.T) {

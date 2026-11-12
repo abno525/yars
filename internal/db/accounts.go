@@ -42,8 +42,8 @@ func (d *DB) AddUser(u config.User) error {
 		if err := emailFree(tx, u.Username, u.Email); err != nil {
 			return err
 		}
-		_, err := tx.Exec("INSERT INTO users(username, email, role, password_hash, created, is_admin, disabled, theme, must_change) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-			u.Username, u.Email, u.Role, u.PasswordHash, d.stamp(), b2i(u.IsAdmin), b2i(u.Disabled), u.Theme, b2i(u.MustChange))
+		_, err := tx.Exec("INSERT INTO users(username, email, role, password_hash, created, is_admin, disabled, theme, must_change, keys_off) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+			u.Username, u.Email, u.Role, u.PasswordHash, d.stamp(), b2i(u.IsAdmin), b2i(u.Disabled), u.Theme, b2i(u.MustChange), b2i(u.KeysOff))
 		return err
 	})
 }

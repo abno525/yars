@@ -290,15 +290,15 @@ func (s *Server) settingsPassword(w http.ResponseWriter, r *http.Request) {
 }
 
 // settingsPrefs saves the Preferences panel: the theme and the keyboard
-// shortcuts (a form without keys leaves them as they are). Both are checked
-// before either is stored.
+// shortcuts (a form without one of them leaves it as it is). Both are
+// checked before either is stored.
 func (s *Server) settingsPrefs(w http.ResponseWriter, r *http.Request) {
 	u := auth.UserFrom(r.Context())
-	t := r.FormValue("theme")
+	t, setTheme := r.FormValue("theme"), r.Form.Has("theme")
 	if t == "system" {
 		t = ""
 	}
-	if !slices.Contains(db.Themes, t) {
+	if setTheme && !slices.Contains(db.Themes, t) {
 		http.Error(w, "theme must be light, dark or system", http.StatusBadRequest)
 		return
 	}
@@ -307,9 +307,11 @@ func (s *Server) settingsPrefs(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "keyboard shortcuts must be on or off", http.StatusBadRequest)
 		return
 	}
-	if err := s.Store.DB().SetTheme(u.Username, t); err != nil {
-		s.fail(w, err)
-		return
+	if setTheme {
+		if err := s.Store.DB().SetTheme(u.Username, t); err != nil {
+			s.fail(w, err)
+			return
+		}
 	}
 	if setKeys {
 		if err := s.Store.DB().SetKeysOff(u.Username, keys == "off"); err != nil {
