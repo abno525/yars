@@ -453,6 +453,18 @@ func TestExportPreview(t *testing.T) {
 	}
 }
 
+// A finding named twice in the request (by folder or by ID) is in the
+// report once (backlog, M8).
+func TestExportPickedOnce(t *testing.T) {
+	e := setupSerial(t)
+	e.toComplete(t)
+	e.exporters(t, fakePandoc)
+	b := e.do(t, "alice", "GET", "/e/acme/export/preview?finding="+fdir+"&finding="+fdir+"&finding=F-001", nil, nil).Body.String()
+	if n := strings.Count(b, `id="rp-F-001"`); n != 1 || !strings.Contains(b, `<h2>Contents</h2><span class="badge">1</span>`) {
+		t.Fatalf("the finding is in the report %d times", n)
+	}
+}
+
 // The preview shows the report as it is exported, so it is light whatever
 // the user's theme is: its container sets the light tokens for its subtree.
 func TestExportPreviewIsLight(t *testing.T) {

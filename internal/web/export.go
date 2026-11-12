@@ -409,7 +409,9 @@ func (s *Server) picked(eng string, dirs []string, statuses []string) ([]store.F
 		if !slices.Contains(exportable, st) || (statuses != nil && !slices.Contains(statuses, st)) {
 			return nil, ref.F.Meta.ID + " is " + st
 		}
-		refs = append(refs, ref)
+		if !slices.ContainsFunc(refs, func(r store.FindingRef) bool { return r.Dir == ref.Dir }) { // named twice: once
+			refs = append(refs, ref)
+		}
 	}
 	return refs, ""
 }
