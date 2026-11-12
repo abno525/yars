@@ -17,6 +17,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode"
 
 	"yars/internal/auth"
 	"yars/internal/config"
@@ -668,7 +669,27 @@ func setOrDel(v url.Values, k, val string) {
 	}
 }
 
-func anchor(name string) string { return store.Slug(name) }
+// anchor is a section's id suffix: its name in lower case, letters and
+// digits of any script kept, every other run of characters one dash, with
+// no length cut (store.Slug, which names folders, keeps ASCII only and cuts
+// at 40, so names in other scripts and long names shared an anchor).
+func anchor(name string) string {
+	var b strings.Builder
+	dash := false
+	for _, r := range strings.ToLower(name) {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			b.WriteRune(r)
+			dash = false
+		} else if !dash && b.Len() > 0 {
+			b.WriteByte('-')
+			dash = true
+		}
+	}
+	if out := strings.TrimSuffix(b.String(), "-"); out != "" {
+		return out
+	}
+	return "section"
+}
 
 // renderMD renders Markdown through the shared cache (sections, chat and
 // preview).
