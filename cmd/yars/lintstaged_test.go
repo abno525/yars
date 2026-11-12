@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/pem"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -58,6 +59,21 @@ func (ls *lintServer) requests() []string {
 	ls.mu.Lock()
 	defer ls.mu.Unlock()
 	return append([]string(nil), ls.bodies...)
+}
+
+func (ls *lintServer) logins() []string {
+	ls.mu.Lock()
+	defer ls.mu.Unlock()
+	return append([]string(nil), ls.auths...)
+}
+
+// noUserGit keeps the developer's own git settings and stored logins out.
+func noUserGit(t *testing.T) {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("GIT_CONFIG_GLOBAL", "/dev/null")
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 }
 
 // lintClone is an engagement clone whose origin is the server's /git/e/acme
@@ -223,8 +239,8 @@ func TestLintStagedSendsBasicAuth(t *testing.T) {
 	if _, _, err := lintStaged(context.Background(), dir, &out, false); err != nil {
 		t.Fatal(err)
 	}
-	if ls.auths[0] != "alice:s3cret:pw" {
-		t.Fatalf("auth %q", ls.auths)
+	if a := ls.logins(); len(a) != 1 || a[0] != "alice:s3cret:pw" {
+		t.Fatalf("auth %q", a)
 	}
 	if strings.Contains(out.String(), "s3cret") {
 		t.Fatalf("the password is printed:\n%s", out.String())
@@ -292,14 +308,53 @@ func TestLintStagedUnparseable(t *testing.T) {
 	}
 }
 
+// Review focus 2: a credential helper that waits (a keyring dialog nobody
+// answers) does not hold the commit past the time limit.
+func TestLintStagedSlowHelper(t *testing.T) {
+	ls := newLintServer(t, 200, `{"violations":[]}`)
+	dir := lintClone(t, ls.URL+"/git/e/acme")
+	noUserGit(t)
+	helper := filepath.Join(t.TempDir(), "slow-helper")
+	write(t, helper, "#!/bin/sh\nsleep 30\n")
+	os.Chmod(helper, 0o755)
+	gitT(t, dir, "config", "credential.helper", helper)
+	old := lintTimeout
+	lintTimeout = 200 * time.Millisecond
+	defer func() { lintTimeout = old }()
+	var out bytes.Buffer
+	start := time.Now()
+	code, err := cmdLint([]string{"--staged", "--data", dir}, &out)
+	host := strings.TrimPrefix(ls.URL, "http://")
+	if took := time.Since(start); took > 3*time.Second || err != nil || code != 0 ||
+		out.String() != "yars: could not ask "+host+": no answer within 200ms; nothing checked\n" || len(ls.requests()) != 0 {
+		t.Fatalf("took %v, exit %d %v:\n%s", took, code, err, out.String())
+	}
+}
+
+// A finding whose folder moved in the commit is checked as the new file
+// (rename detection would hide it from the list).
+func TestLintStagedRenamedFinding(t *testing.T) {
+	ls := newLintServer(t, 200, `{"violations":[]}`)
+	dir := lintClone(t, withLogin(t, ls.URL, "alice", "pw")+"/git/e/acme")
+	gitT(t, dir, "commit", "-q", "-m", "first")
+	gitT(t, dir, "mv", "findings/F-001-sqli", "findings/F-001-sql-injection")
+	write(t, filepath.Join(dir, "findings", "F-001-sql-injection", "finding.md"), "---\nid: F-001\ntitle: SQL injection.\n---\n## Description\nstaged\n")
+	gitT(t, dir, "add", "-A")
+	var out bytes.Buffer
+	if _, _, err := lintStaged(context.Background(), dir, &out, false); err != nil {
+		t.Fatal(err)
+	}
+	if reqs := ls.requests(); len(reqs) != 1 || !strings.Contains(reqs[0], "title: SQL injection.") {
+		t.Fatalf("requests %q", reqs)
+	}
+}
+
 // Without a login in the URL, git's credential helper gives it; with none
 // saved, the user is told what to do and nothing is posted.
 func TestLintStagedNoSavedLogin(t *testing.T) {
 	ls := newLintServer(t, 200, `{"violations":[]}`)
 	dir := lintClone(t, ls.URL+"/git/e/acme")
-	t.Setenv("HOME", t.TempDir()) // no user config, no stored credentials
-	t.Setenv("XDG_CONFIG_HOME", "")
-	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	noUserGit(t) // no user config, no stored credentials
 	var out bytes.Buffer
 	if _, _, err := lintStaged(context.Background(), dir, &out, false); err != nil {
 		t.Fatal(err)
@@ -317,7 +372,84 @@ func TestLintStagedNoSavedLogin(t *testing.T) {
 	if _, _, err := lintStaged(context.Background(), dir, &out, false); err != nil {
 		t.Fatal(err)
 	}
-	if len(ls.auths) != 1 || ls.auths[0] != "bob:pw2" {
-		t.Fatalf("auth %q, output %q", ls.auths, out.String())
+	if a := ls.logins(); len(a) != 1 || a[0] != "bob:pw2" {
+		t.Fatalf("auth %q, output %q", a, out.String())
 	}
+}
+
+// The login is never asked for: an askpass program set in git's config is
+// not run (a window nobody answers would hold the commit).
+func TestLintStagedNeverPrompts(t *testing.T) {
+	ls := newLintServer(t, 200, `{"violations":[]}`)
+	dir := lintClone(t, ls.URL+"/git/e/acme")
+	noUserGit(t)
+	marker := filepath.Join(t.TempDir(), "asked")
+	askpass := filepath.Join(t.TempDir(), "askpass")
+	write(t, askpass, "#!/bin/sh\ntouch "+marker+"\necho pw\n")
+	os.Chmod(askpass, 0o755)
+	gitT(t, dir, "config", "core.askPass", askpass)
+	t.Setenv("SSH_ASKPASS", askpass)
+	var out bytes.Buffer
+	if _, _, err := lintStaged(context.Background(), dir, &out, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(marker); err == nil || !strings.Contains(out.String(), "no saved login") || len(ls.requests()) != 0 {
+		t.Fatalf("asked: %v; output %q", err == nil, out.String())
+	}
+}
+
+// Several findings are asked about at the same time, so slow AI rules on
+// two of them do not use up the run's time.
+func TestLintStagedAsksInParallel(t *testing.T) {
+	ls := newLintServer(t, 200, `{"violations":[]}`)
+	ls.sleep = 400 * time.Millisecond
+	dir := lintClone(t, withLogin(t, ls.URL, "alice", "pw")+"/git/e/acme")
+	for _, id := range []string{"F-002-a", "F-003-b", "F-004-c"} {
+		write(t, filepath.Join(dir, "findings", id, "finding.md"), "---\nid: "+id[:5]+"\ntitle: x\n---\n")
+	}
+	gitT(t, dir, "add", "-A")
+	old := lintTimeout
+	lintTimeout = 1200 * time.Millisecond // four one after another would not fit
+	defer func() { lintTimeout = old }()
+	var out bytes.Buffer
+	if code, err := cmdLint([]string{"--staged", "--data", dir}, &out); err != nil || code != 0 || !strings.HasSuffix(out.String(), "yars: 0 errors, 0 warnings in 4 findings\n") {
+		t.Fatalf("exit %d %v:\n%s", code, err, out.String())
+	}
+}
+
+// git's own TLS settings for the server apply: a private CA (http.sslCAInfo)
+// or http.sslVerify=false; without them a self-signed server is refused.
+func TestLintStagedUsesGitTLSSettings(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.Copy(io.Discard, r.Body)
+		io.WriteString(w, `{"violations":[]}`)
+	}))
+	defer srv.Close()
+	noUserGit(t)
+	dir := lintClone(t, withLogin(t, srv.URL, "alice", "pw")+"/git/e/acme")
+	run := func() string {
+		var out bytes.Buffer
+		if _, _, err := lintStaged(context.Background(), dir, &out, false); err != nil {
+			t.Fatal(err)
+		}
+		return out.String()
+	}
+	if got := run(); !strings.Contains(got, "could not ask") || !strings.Contains(got, "certificate") {
+		t.Fatalf("an unknown CA: %q", got)
+	}
+	ca := filepath.Join(t.TempDir(), "ca.pem")
+	write(t, ca, string(pemOf(srv.Certificate().Raw)))
+	gitT(t, dir, "config", "http.sslCAInfo", ca)
+	if got := run(); !strings.Contains(got, "in 1 findings") {
+		t.Fatalf("http.sslCAInfo: %q", got)
+	}
+	gitT(t, dir, "config", "--unset", "http.sslCAInfo")
+	gitT(t, dir, "config", "http.sslVerify", "false")
+	if got := run(); !strings.Contains(got, "in 1 findings") {
+		t.Fatalf("http.sslVerify=false: %q", got)
+	}
+}
+
+func pemOf(der []byte) []byte {
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
 }

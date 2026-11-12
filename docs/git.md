@@ -93,7 +93,7 @@ Errors and warnings dismissed on the finding's Checks panel don't count. The res
 yars hook install --data <clone>
 ```
 
-Run it once in each clone (a main clone or an engagement clone), and again after a new engagement arrives in a main clone (`git submodule update --init`): it puts a `pre-commit` hook in every engagement repository. Each commit then sends the findings it holds (`finding.md` as staged, not the work tree) to the server, which checks them with the same rules as the Check button, AI rules included, so a commit can take as long as a Check does (at most two minutes). Nothing is stored on the server: no commit, no check run. The hook signs in with the login git already saved for the clone (the clone URL, or git's credential helper); without one it says so and checks nothing.
+Run it once in each clone (a main clone or an engagement clone), and again after a new engagement arrives in a main clone (`git submodule update --init`): it puts a `pre-commit` hook in every engagement repository. Each commit then sends the findings it holds (`finding.md` as staged, not the work tree) to the server, which checks them with the same rules as the Check button, AI rules included, so a commit can take as long as a Check does (at most two minutes). Nothing is stored on the server: no commit, no check run. The hook signs in with the login git already saved for the clone (the clone URL, or git's credential helper, never asking), and reaches the server as git does (`http.sslCAInfo`, `http.sslVerify`, `http.proxy`); without a saved login it says so and checks nothing.
 
 | Output | When |
 |---|---|

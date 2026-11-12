@@ -116,5 +116,6 @@ M30 task 1  done     a4a4851 (POST /git/e/<id>/lint: every rule, nothing stored,
 M30 task 2  done     025dc8b (yars lint --staged: the index, git's saved login, one line and exit 0 when the server cannot be asked)
 M30 task 3  done     1f80bde (yars hook install: every engagement of a clone, a hand-written hook kept; end to end, a commit breaking a rule goes in with the server's lines, and with the server down)
 M30 task 4  done     f3b7ec0 (docs/git.md "Check before you commit", README line)
-M30 task 1  review   passed; nits in the next commit (a read deadline on the posted body; 404 for any method without the endpoint; only a finding id recorded with AI usage; three tests)
+M30 task 1  review   passed; nits 1fd86af (a read deadline on the posted body; 404 for any method without the endpoint; only a finding id recorded with AI usage; three tests)
+M30 task 2  review   fix (a waiting credential helper bounded by the run's time; moved findings checked; 4 asked at a time; git's TLS and proxy settings)
 ```
