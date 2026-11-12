@@ -3,6 +3,9 @@ package store
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -36,8 +39,19 @@ func (f *fakeFixer) AIConfigured() bool { return true }
 // check tests' rules (and extra), with a fake fixer answering fn.
 func fixReady(t *testing.T, impact, extra string, fn func(v rules.Violation, section, body string) (string, error)) (*Store, string, string, *fakeFixer) {
 	t.Helper()
+	return fixReadyWith(t, impact, extra, nil, fn)
+}
+
+// fixReadyWith is fixReady with scripts in the rules folder (name: body).
+func fixReadyWith(t *testing.T, impact, extra string, scripts map[string]string, fn func(v rules.Violation, section, body string) (string, error)) (*Store, string, string, *fakeFixer) {
+	t.Helper()
 	s, dir, fd := ready(t)
 	withRules(t, s, dir, checkRules+extra)
+	for name, body := range scripts {
+		if err := os.WriteFile(filepath.Join(dir, ".yars", "rules", name), []byte(body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if err := s.UpdateSection(eng, fd, "Impact", impact, "", alice); err != nil {
 		t.Fatal(err)
 	}
@@ -93,22 +107,17 @@ func TestFixCommitsAsAIForUser(t *testing.T) {
 
 func TestFixRepliesInThread(t *testing.T) {
 	s, _, fd, _ := fixReady(t, "a foo here", "", removeFoo)
-	count := func() int {
-		var n int
-		if err := s.DB().QueryRow("SELECT count(*) FROM notifications").Scan(&n); err != nil {
-			t.Fatal(err)
-		}
-		return n
-	}
-	notes := count()
+	rec := &recorder{}
+	s.OnEvent(rec.add)
 	thread := checkThreads(t, s, fd)["Impact"]
 	fixed(t, s, fd)
 	got := aiReplies(t, s, fd)
 	if len(got) != 1 || got[0].Reply != thread.Root.ID || got[0].Text != "Fixed." || got[0].User != "alice" {
 		t.Fatalf("replies %+v", got)
 	}
-	if count() != notes {
-		t.Fatal("the AI's reply made a notification")
+	// no chat event: nobody is notified of the AI's reply
+	if slices.Contains(rec.kinds(), EventChat) {
+		t.Fatalf("events %v", rec.kinds())
 	}
 	// the check after the fix resolved the thread
 	if th := checkThreads(t, s, fd)["Impact"]; th == nil || !th.Resolved {
@@ -311,6 +320,203 @@ func TestFixNothingToFix(t *testing.T) {
 	}
 	if err := s.StartFix(eng, fd, uAlice); !errors.Is(err, ErrInvalidValue) || !strings.Contains(err.Error(), "run Check first") {
 		t.Fatalf("stale run: %v", err)
+	}
+}
+
+// notFixed runs a fix and returns the one AI reply, checking nothing was
+// committed.
+func notFixed(t *testing.T, s *Store, dir, fd string) string {
+	t.Helper()
+	before := last(t, dir, "%H")
+	fixed(t, s, fd)
+	if last(t, dir, "%H") != before {
+		t.Fatalf("committed: %s", last(t, dir, "%an|%s"))
+	}
+	got := aiReplies(t, s, fd)
+	if len(got) != 1 || !strings.HasPrefix(got[0].Text, "Not fixed: ") {
+		t.Fatalf("replies %+v", got)
+	}
+	return got[0].Text
+}
+
+// Review 2/1: a short quote is found as words, not inside other words: "we"
+// does not open a paragraph that only says "however".
+func TestFixQuoteAsWords(t *testing.T) {
+	extra := "- id: no-we\n  target: section:Impact\n  regex_forbid: '\\bwe\\b'\n  level: warning\n  message: Avoid we\n"
+	s, dir, fd, _ := fixReady(t, "however it works\n\nwe read it", extra, func(_ rules.Violation, _, body string) (string, error) {
+		return "INJECTED\n\none reads it", nil
+	})
+	if got := notFixed(t, s, dir, fd); !strings.Contains(got, "paragraph 1") {
+		t.Fatalf("reply %q", got)
+	}
+}
+
+// A quote in two paragraphs does not say which one is meant: the AI is not
+// asked.
+func TestFixQuoteInTwoParagraphs(t *testing.T) {
+	s, dir, fd, ff := fixReady(t, "a foo here\n\nanother foo there", "", removeFoo)
+	if got := notFixed(t, s, dir, fd); !strings.Contains(got, "more than one paragraph") {
+		t.Fatalf("reply %q", got)
+	}
+	if ff.calls != 0 {
+		t.Fatal("the AI was asked")
+	}
+}
+
+// Review 2/2: raw HTML, a code fence or a link definition added in the
+// changed paragraph would change how the paragraphs after it render.
+func TestFixRefusesBlocksThatReachFurther(t *testing.T) {
+	for _, add := range []string{"<!--", "<pre>", "```", "~~~", "[ref]: https://evil.example"} {
+		s, dir, fd, _ := fixReady(t, "a foo here\n\nsecond paragraph", "", func(_ rules.Violation, _, body string) (string, error) {
+			return "a bar here\n" + add + "\n\nsecond paragraph", nil
+		})
+		if got := notFixed(t, s, dir, fd); !strings.Contains(got, "raw HTML, a code fence or a link definition") {
+			t.Fatalf("%s: reply %q", add, got)
+		}
+	}
+}
+
+// qux.sh reports qux in Impact and fails when there is none.
+const quxScript = "#!/bin/sh\nif grep -q qux; then echo '[{\"message\":\"no qux\",\"quote\":\"qux\",\"target\":\"section:Impact\"}]'; else echo boom >&2; exit 3; fi\n"
+
+// Review 2/3: a rule that could not run on the new text did not say the
+// problem is gone.
+func TestFixRuleCouldNotRun(t *testing.T) {
+	extra := "- id: qux\n  script: qux.sh\n  level: warning\n"
+	s, dir, fd, _ := fixReadyWith(t, "a qux here", extra, map[string]string{"qux.sh": quxScript}, func(_ rules.Violation, _, body string) (string, error) {
+		return strings.ReplaceAll(body, "qux", "quz"), nil
+	})
+	if got := notFixed(t, s, dir, fd); !strings.Contains(got, "could not run") {
+		t.Fatalf("reply %q", got)
+	}
+}
+
+// Review 2/4: the rule finding the same kind of problem with other words
+// is no fix, whatever its level.
+func TestFixRefusesNewQuoteOfTheRule(t *testing.T) {
+	extra := "- id: no-zz\n  target: section:Impact\n  regex_forbid: 'z+'\n  level: warning\n  message: Avoid z\n"
+	s, dir, fd, _ := fixReady(t, "a zz here", extra, func(_ rules.Violation, _, body string) (string, error) {
+		return strings.ReplaceAll(body, "zz", "zzz"), nil
+	})
+	if got := notFixed(t, s, dir, fd); !strings.Contains(got, "new problem") {
+		t.Fatalf("reply %q", got)
+	}
+}
+
+// Review 2/5: an approved finding is not fixed, not even by a director
+// (the approval would carry over to text nobody read), and a finding
+// approved while the AI works is left alone.
+func TestFixNotOnApprovedFinding(t *testing.T) {
+	s, _, fd, ff := fixReady(t, "a foo here", "", removeFoo)
+	if err := s.DB().Tx(func(tx *db.Tx) error {
+		return tx.PutState(eng, "F-001", db.State{Status: "complete"})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var d *workflow.Denied
+	if err := s.StartFix(eng, fd, m17Dir); !errors.As(err, &d) {
+		t.Fatalf("director: %v", err)
+	}
+	if ff.calls != 0 {
+		t.Fatal("the AI was asked")
+	}
+	var s2 *Store
+	s2, dir, fd2, _ := fixReady(t, "a foo here", "", func(v rules.Violation, section, body string) (string, error) {
+		if err := s2.DB().Tx(func(tx *db.Tx) error {
+			return tx.PutState(eng, "F-001", db.State{Status: "complete"})
+		}); err != nil {
+			return "", err
+		}
+		return removeFoo(v, section, body)
+	})
+	before := last(t, dir, "%H")
+	if err := s2.StartFix(eng, fd2, m17Dir); err != nil {
+		t.Fatal(err)
+	}
+	s2.WaitChecks()
+	if last(t, dir, "%H") != before {
+		t.Fatal("committed to an approved finding")
+	}
+}
+
+// Review 2/6: a quote cut short ("…") is found by what it keeps.
+func TestFixLongQuote(t *testing.T) {
+	extra := "- id: no-x\n  target: section:Impact\n  regex_forbid: 'x.*'\n  level: warning\n  message: No x lines\n"
+	long := "x" + strings.Repeat(" long words", 12)
+	s, dir, fd, _ := fixReady(t, long+"\n\nsecond paragraph", extra, func(_ rules.Violation, _, body string) (string, error) {
+		return strings.Replace(body, "x long", "a long", 1), nil
+	})
+	fixed(t, s, fd)
+	if got := aiReplies(t, s, fd); len(got) != 1 || got[0].Text != "Fixed." {
+		t.Fatalf("replies %+v", got)
+	}
+	if got := last(t, dir, "%an"); got != "AI for alice" {
+		t.Fatalf("last commit by %q", got)
+	}
+}
+
+// A quote the section does not hold (a script's own words) is not fixable:
+// the AI is not asked.
+func TestFixQuoteNotInSection(t *testing.T) {
+	script := "#!/bin/sh\ncat >/dev/null\necho '[{\"message\":\"odd\",\"quote\":\"nowhere\",\"target\":\"section:Impact\"}]'\n"
+	s, dir, fd, ff := fixReadyWith(t, "a plain text", "- id: odd\n  script: odd.sh\n  level: warning\n", map[string]string{"odd.sh": script}, removeFoo)
+	if got := notFixed(t, s, dir, fd); !strings.Contains(got, "not in the section") {
+		t.Fatalf("reply %q", got)
+	}
+	if ff.calls != 0 {
+		t.Fatal("the AI was asked")
+	}
+}
+
+// Review 2/7: CRLF line breaks count as line breaks for the paragraphs.
+func TestFixCRLFParagraphs(t *testing.T) {
+	s, dir, fd, _ := fixReady(t, "a foo here\n\nsecond paragraph", "", func(_ rules.Violation, _, body string) (string, error) {
+		return "a bar here\r\n\r\nINJECTED\n\nsecond paragraph", nil
+	})
+	if got := notFixed(t, s, dir, fd); !strings.Contains(got, "number of paragraphs") {
+		t.Fatalf("reply %q", got)
+	}
+}
+
+// Review 2/10: a problem an earlier fix of the run already took away costs
+// no AI call; an answer that changes nothing is no fix.
+func TestFixSkipsWhatIsGone(t *testing.T) {
+	extra := "- id: no-zz\n  target: section:Impact\n  regex_forbid: 'zz'\n  level: warning\n  message: Avoid zz\n"
+	s, _, fd, ff := fixReady(t, "a foo and zz here", extra, func(_ rules.Violation, _, body string) (string, error) {
+		return strings.NewReplacer("foo", "bar", "zz", "yy").Replace(body), nil
+	})
+	fixed(t, s, fd)
+	got := aiReplies(t, s, fd)
+	if ff.calls != 1 || len(got) != 2 {
+		t.Fatalf("%d calls, replies %+v", ff.calls, got)
+	}
+	texts := []string{got[0].Text, got[1].Text}
+	if !slices.Contains(texts, "Fixed.") || !slices.ContainsFunc(texts, func(s string) bool { return strings.Contains(s, "not in the section") }) {
+		t.Fatalf("replies %q", texts)
+	}
+	s2, dir2, fd2, _ := fixReady(t, "a foo here", "", func(_ rules.Violation, _, body string) (string, error) { return body, nil })
+	if got := notFixed(t, s2, dir2, fd2); !strings.Contains(got, "changed nothing") {
+		t.Fatalf("reply %q", got)
+	}
+}
+
+// Review 2/11: one item's crash does not end the job.
+func TestFixCrashIsOneItem(t *testing.T) {
+	extra := "- id: no-zz\n  target: section:Impact\n  regex_forbid: 'zz'\n  level: warning\n  message: Avoid zz\n"
+	s, _, fd, _ := fixReady(t, "a foo here\n\nsome zz there", extra, func(v rules.Violation, _, body string) (string, error) {
+		if v.Rule == "no-foo" {
+			panic("boom")
+		}
+		return strings.ReplaceAll(body, "zz", "yy"), nil
+	})
+	fixed(t, s, fd)
+	got := aiReplies(t, s, fd)
+	if len(got) != 2 {
+		t.Fatalf("replies %+v", got)
+	}
+	texts := []string{got[0].Text, got[1].Text}
+	if !slices.Contains(texts, "Fixed.") || !slices.ContainsFunc(texts, func(s string) bool { return strings.Contains(s, "crashed") }) {
+		t.Fatalf("replies %q", texts)
 	}
 }
 

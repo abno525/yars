@@ -6,8 +6,11 @@ import (
 	"fmt"
 	"log"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"yars/internal/chat"
 	"yars/internal/config"
@@ -56,16 +59,8 @@ func fixable(r db.CheckResult, dismissed map[string]db.Dismissal) bool {
 // latest run, finished on the current content); 0 without such a run.
 func FixCount(st CheckStatus) int { return len(fixResults(st)) }
 
-// fixList is the work list: the fixable results of the latest check run
-// that finished on the current content.
-func (s *Store) fixList(engID, dir string) ([]db.CheckResult, error) {
-	st, err := s.CheckStatus(engID, dir)
-	if err != nil {
-		return nil, err
-	}
-	return fixResults(st), nil
-}
-
+// fixResults is the work list: the fixable results of the latest check run
+// in st, when it finished on the current content.
 func fixResults(st CheckStatus) []db.CheckResult {
 	if !st.HasRun || st.Running || st.Stale {
 		return nil
@@ -106,16 +101,20 @@ func (s *Store) StartFix(engID, dir string, u config.User) error {
 	if !workflow.CanEdit(u, ref.F.Meta) {
 		return &workflow.Denied{Reason: "this finding is " + ref.F.Meta.Status + "; " + u.Username + " cannot edit it"}
 	}
+	if !FixOpen(ref.F.Meta.Status) {
+		return &workflow.Denied{Reason: "this finding is " + ref.F.Meta.Status + "; Fix with AI works on drafts and findings in verification"}
+	}
 	if !s.AICanFix() {
 		return fmt.Errorf("%w: no AI provider configured", ErrInvalidValue)
 	}
 	if s.CheckRunning(engID, ref.F.Meta.ID) {
 		return ErrBusy // checked again under the lock below
 	}
-	list, err := s.fixList(engID, dir)
+	st, err := s.CheckStatus(engID, dir)
 	if err != nil {
 		return err
 	}
+	list := fixResults(st)
 	if len(list) == 0 {
 		return fmt.Errorf("%w: nothing to fix: run Check first", ErrInvalidValue)
 	}
@@ -133,13 +132,19 @@ func (s *Store) StartFix(engID, dir string, u config.User) error {
 	s.checkWG.Add(1)
 	s.checksMu.Unlock()
 	s.notify(Change{Eng: engID, Fid: fid, Kind: ChangeCheck})
-	go s.runFix(engID, dir, fid, list, u)
+	go s.runFix(engID, dir, fid, list, st.Results, u)
 	return nil
 }
 
-// runFix works through list for u, then clears the busy mark, audits the
-// outcome and starts a check run (which resolves the fixed threads).
-func (s *Store) runFix(engID, dir, fid string, list []db.CheckResult, u config.User) {
+// FixOpen reports whether a finding in status may be fixed: a draft or one
+// in verification. An approved finding may not (its approval would carry
+// over to text nobody read), nor a withdrawn one.
+func FixOpen(status string) bool { return status == "draft" || status == "verification" }
+
+// runFix works through list for u (all: every result of the run, what the
+// rules found before), then clears the busy mark, audits the outcome and
+// starts a check run (which resolves the fixed threads).
+func (s *Store) runFix(engID, dir, fid string, list, all []db.CheckResult, u config.User) {
 	defer s.checkWG.Done()
 	key := checkKey(engID, fid)
 	cleared := false
@@ -155,7 +160,7 @@ func (s *Store) runFix(engID, dir, fid string, list []db.CheckResult, u config.U
 	ctx := rules.WithCaller(context.Background(), rules.Caller{User: u.Username, Eng: engID, Fid: fid})
 	nFixed, nSkipped := 0, 0
 	for _, r := range list {
-		row := s.fixOne(ctx, engID, dir, r, u)
+		row := s.fixItem(ctx, engID, dir, r, all, u)
 		text := "Fixed."
 		if row.Fixed {
 			nFixed++
@@ -188,8 +193,22 @@ func (s *Store) replyAI(engID, fid, thread string, u config.User, text string) {
 	s.notify(Change{Eng: engID, Fid: fid, Kind: ChangeChat, Seq: seq})
 }
 
-// fixOne asks for a fix of r and commits it when it passes every check.
-func (s *Store) fixOne(ctx context.Context, engID, dir string, r db.CheckResult, u config.User) FixRow {
+// fixItem is fixOne with a crash turned into its outcome: one item's panic
+// does not end the job (the others are answered, the check still follows).
+func (s *Store) fixItem(ctx context.Context, engID, dir string, r db.CheckResult, all []db.CheckResult, u config.User) (row FixRow) {
+	defer func() {
+		if p := recover(); p != nil {
+			log.Printf("fix of %s on %s/%s crashed: %v", r.Rule, engID, dir, p)
+			row = FixRow{Rule: r.Rule, Target: r.Target, Quote: r.Quote, Outcome: "not fixed: the fix crashed"}
+		}
+	}()
+	return s.fixOne(ctx, engID, dir, r, all, u)
+}
+
+// fixOne asks for a fix of r and commits it when it passes every check. The
+// AI is asked only when the quote is in exactly one paragraph of the
+// section and (a fast rule) the rule still finds it.
+func (s *Store) fixOne(ctx context.Context, engID, dir string, r db.CheckResult, all []db.CheckResult, u config.User) FixRow {
 	row := FixRow{Rule: r.Rule, Target: r.Target, Quote: r.Quote}
 	not := func(reason string) FixRow {
 		row.Outcome = "not fixed: " + reason
@@ -198,6 +217,10 @@ func (s *Store) fixOne(ctx context.Context, engID, dir string, r db.CheckResult,
 	fx, ok := s.Linter.(Fixer)
 	if !ok {
 		return not(rules.ErrNoAI.Error())
+	}
+	kind := s.ruleKind(r.Rule)
+	if kind == "" {
+		return not("the rule " + r.Rule + " is gone")
 	}
 	section := sectionOf(r.Target)
 	ref, _, err := s.read(engID, dir, nil)
@@ -209,15 +232,28 @@ func (s *Store) fixOne(ctx context.Context, engID, dir string, r db.CheckResult,
 		return not("the section " + section + " is gone")
 	}
 	v := rules.Violation{Rule: r.Rule, Level: r.Level, Message: r.Message, Target: r.Target, Quote: r.Quote}
+	at, why := quotePara(old, r.Quote)
+	if why != "" {
+		return not(why)
+	}
+	if fastKind(kind) && !slices.ContainsFunc(s.Linter.Lint(ctx, ref.F, rules.Fast), sameAs(v)) {
+		return not("the rule no longer finds the problem")
+	}
 	body, err := fx.Fix(ctx, v, section, old)
 	if err != nil {
 		return not(err.Error())
 	}
-	// the AI's text keeps the section's own leading and trailing line breaks
+	// CRLF is a line break for the paragraphs too (the section is saved with
+	// LF), and the AI's text keeps the section's own leading and trailing
+	// line breaks
+	body = strings.ReplaceAll(body, "\r\n", "\n")
 	lead := old[:len(old)-len(strings.TrimLeft(old, "\n"))]
 	trail := old[len(strings.TrimRight(old, "\n")):]
 	body = lead + strings.Trim(body, "\n") + trail
-	if reason := s.acceptFix(ctx, ref, section, old, body, v); reason != "" {
+	if body == old {
+		return not("the AI changed nothing")
+	}
+	if reason := s.acceptFix(ctx, ref, section, old, body, v, at, kind, all); reason != "" {
 		return not(reason)
 	}
 	err = s.fixSection(engID, dir, section, body, BodyHash(old), u)
@@ -240,25 +276,118 @@ var paragraphs = regexp.MustCompile("\n[ \t]*\n+")
 // squash collapses white space, so a quote is found across line breaks.
 func squash(s string) string { return strings.Join(strings.Fields(s), " ") }
 
-// acceptFix checks the AI's body for the problem v in section of ref (old
-// is the section now): it is a valid section; it changed nothing outside the
-// paragraph(s) holding the quote (Review focus 1: the text is other people's
-// and may hold instructions); the rule no longer finds the problem (focus
-// 2); it brings no new error into the section. "" when it passes, else why
-// not, in words.
-func (s *Store) acceptFix(ctx context.Context, ref FindingRef, section, old, body string, v rules.Violation) string {
-	if err := finding.ValidateBody(body); err != nil {
-		return "the AI's text is not a valid section (" + err.Error() + ")"
+// ruleKind is the kind of the rule id as the checks run it ("pattern",
+// "builtin", "script", "ai"); "" when no such rule runs now.
+func (s *Store) ruleKind(id string) string {
+	sc, ok := s.Linter.(StepChecker)
+	if !ok {
+		return ""
 	}
+	for _, r := range sc.CheckRules() {
+		if r.ID == id {
+			return r.KindName()
+		}
+	}
+	return ""
+}
+
+// fastKind: the rule runs with the fast rules (Lint), not on its own.
+func fastKind(kind string) bool { return kind == "pattern" || kind == "builtin" }
+
+// sameAs matches a violation of v's rule in v's place with v's quote.
+func sameAs(v rules.Violation) func(rules.Violation) bool {
+	q := squash(v.Quote)
+	return func(x rules.Violation) bool {
+		return x.Rule == v.Rule && x.Target == v.Target && squash(x.Quote) == q
+	}
+}
+
+// quotePara finds the one paragraph of body that holds quote as words ("we"
+// is not in "however"; a quote cut short, "…", by what it keeps): its index,
+// or why there is none.
+func quotePara(body, quote string) (int, string) {
+	q := strings.TrimSpace(quote)
+	cut := strings.HasSuffix(q, "…")
+	q = squash(strings.TrimSuffix(q, "…"))
+	if q == "" {
+		return -1, "the quoted text is empty"
+	}
+	word := func(r rune) bool { return r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r) }
+	first, _ := utf8.DecodeRuneInString(q)
+	lastR, _ := utf8.DecodeLastRuneInString(q)
+	pat := regexp.QuoteMeta(q)
+	if word(first) {
+		pat = `(?:^|[^\pL\pN_])` + pat
+	}
+	if word(lastR) && !cut {
+		pat += `(?:$|[^\pL\pN_])`
+	}
+	re := regexp.MustCompile(pat)
+	at := -1
+	for i, p := range paragraphs.Split(body, -1) {
+		if re.MatchString(squash(p)) {
+			if at >= 0 {
+				return -1, "the quoted text is in more than one paragraph"
+			}
+			at = i
+		}
+	}
+	if at < 0 {
+		return -1, "the quoted text is not in the section"
+	}
+	return at, ""
+}
+
+// reaching starts a line that opens a block running past its paragraph:
+// raw HTML (a comment, <pre>, <script> … run to their end marker, across
+// blank lines), a code fence, or a link definition (used by any paragraph).
+var reaching = regexp.MustCompile("^ {0,3}(<|```|~~~|\\[[^\\]]*\\]:)")
+
+// addsReaching reports whether the new paragraph has such a line the old
+// one did not.
+func addsReaching(old, new string) bool {
+	had := map[string]int{}
+	for _, l := range strings.Split(old, "\n") {
+		if reaching.MatchString(l) {
+			had[strings.TrimSpace(l)]++
+		}
+	}
+	for _, l := range strings.Split(new, "\n") {
+		if !reaching.MatchString(l) {
+			continue
+		}
+		k := strings.TrimSpace(l)
+		if had[k] == 0 {
+			return true
+		}
+		had[k]--
+	}
+	return false
+}
+
+// acceptFix checks the AI's body for the problem v in section of ref (old
+// is the section now; at its paragraph holding the quote; kind the rule's;
+// all the run's results). Review focus 1 (the text is other people's and
+// may hold instructions): only paragraph at changed, with no raw HTML, code
+// fence or link definition added that would reach the other paragraphs.
+// Focus 2: the rule ran on the new text and finds neither the problem nor
+// any new one; no new error from another rule in the section. "" when it
+// passes, else why not, in words.
+func (s *Store) acceptFix(ctx context.Context, ref FindingRef, section, old, body string, v rules.Violation, at int, kind string, all []db.CheckResult) string {
 	po, pn := paragraphs.Split(old, -1), paragraphs.Split(body, -1)
 	if len(po) != len(pn) {
 		return fmt.Sprintf("the AI changed the number of paragraphs (%d to %d)", len(po), len(pn))
 	}
-	q := squash(v.Quote)
 	for i := range po {
-		if !strings.Contains(squash(po[i]), q) && po[i] != pn[i] {
+		if i != at && po[i] != pn[i] {
 			return fmt.Sprintf("the AI changed paragraph %d, which does not hold the quoted text", i+1)
 		}
+	}
+	if addsReaching(po[at], pn[at]) {
+		return "the AI's text adds raw HTML, a code fence or a link definition"
+	}
+	if err := finding.ValidateBody(body); err != nil {
+		return "the AI's text is not a valid section (" + err.Error() + ")"
 	}
 	after, err := finding.Parse(ref.F.Bytes())
 	if err != nil {
@@ -266,36 +395,50 @@ func (s *Store) acceptFix(ctx context.Context, ref FindingRef, section, old, bod
 	}
 	after.Meta = ref.F.Meta
 	after.SetSection(section, body)
-	same := func(x rules.Violation) bool {
-		return x.Rule == v.Rule && x.Target == v.Target && squash(x.Quote) == q
-	}
-	fastAfter := s.Linter.Lint(ctx, after, rules.Fast)
-	for _, x := range fastAfter {
-		if same(x) {
-			return "the rule still finds the problem"
-		}
-	}
-	// a script or AI rule runs on its own for the new text
-	if sc, ok := s.Linter.(StepChecker); ok {
-		for _, rule := range sc.CheckRules() {
-			if rule.ID != v.Rule || (rule.KindName() != "script" && rule.KindName() != "ai") {
-				continue
-			}
-			for _, x := range sc.CheckWith(ctx, after, rules.Hooks{Only: rule.ID}) {
-				if same(x) {
-					return "the rule still finds the problem"
-				}
-			}
-		}
-	}
+	same := sameAs(v)
+	mine := func(x rules.Violation) bool { return x.Rule == v.Rule && x.Target == v.Target }
+	fastBefore, fastAfter := s.Linter.Lint(ctx, ref.F, rules.Fast), s.Linter.Lint(ctx, after, rules.Fast)
+	// what the rule finds in the section, before and after
 	before := map[string]bool{}
-	for _, x := range s.Linter.Lint(ctx, ref.F, rules.Fast) {
+	var found []rules.Violation
+	if fastKind(kind) {
+		for _, x := range fastBefore {
+			if mine(x) {
+				before[squash(x.Quote)] = true
+			}
+		}
+		found = fastAfter
+	} else {
+		for _, r := range all {
+			if r.Rule == v.Rule && r.Target == v.Target {
+				before[squash(r.Quote)] = true
+			}
+		}
+		sc, ok := s.Linter.(StepChecker)
+		if !ok {
+			return "the rule could not run on the new text"
+		}
+		found = sc.CheckWith(ctx, after, rules.Hooks{Only: v.Rule})
+	}
+	for _, x := range found {
+		switch {
+		case x.Rule != v.Rule:
+		case notice(x) || x.Fail != "":
+			return "the rule could not run on the new text"
+		case same(x):
+			return "the rule still finds the problem"
+		case x.Target == v.Target && !before[squash(x.Quote)]:
+			return "the rule finds a new problem (" + x.Quote + ")"
+		}
+	}
+	errs := map[string]bool{}
+	for _, x := range fastBefore {
 		if x.Level == "error" && x.Target == v.Target {
-			before[x.Rule+"\x00"+squash(x.Quote)] = true
+			errs[x.Rule+"\x00"+squash(x.Quote)] = true
 		}
 	}
 	for _, x := range fastAfter {
-		if x.Level == "error" && x.Target == v.Target && !before[x.Rule+"\x00"+squash(x.Quote)] {
+		if x.Level == "error" && x.Target == v.Target && !errs[x.Rule+"\x00"+squash(x.Quote)] {
 			return "the change brings a new error (" + x.Rule + ": " + x.Message + ")"
 		}
 	}
@@ -303,13 +446,17 @@ func (s *Store) acceptFix(ctx context.Context, ref FindingRef, section, old, bod
 }
 
 // fixSection writes the AI's section body as "AI for <user>", if the
-// section is still at base and u may still edit the finding (both checked
-// under the engagement's lock, at the commit).
+// section is still at base, the finding still open (not approved meanwhile)
+// and u may still edit it (all checked under the engagement's lock, at the
+// commit).
 func (s *Store) fixSection(engID, dir, section, body, base string, u config.User) error {
 	author := gitrepo.Author{Name: history.AIFor + u.Username, Email: u.GitAuthor().Email}
 	return s.mutateContent(engID, dir, author, func(f *finding.Finding) (string, error) {
 		if !workflow.CanEdit(u, f.Meta) {
 			return "", &workflow.Denied{Reason: "this finding is " + f.Meta.Status + " now; " + u.Username + " cannot edit it"}
+		}
+		if !FixOpen(f.Meta.Status) {
+			return "", &workflow.Denied{Reason: "this finding is " + f.Meta.Status + " now"}
 		}
 		cur, _ := f.Section(section)
 		if BodyHash(cur) != base {

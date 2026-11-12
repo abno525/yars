@@ -277,7 +277,8 @@ func (s *Server) checksFor(r *http.Request, ref store.FindingRef) checksView {
 	v.Empty = len(v.Rows) == 0 && len(v.Dismissed) == 0
 	m := ref.F.Meta
 	v.FixURL = base + "/fix"
-	if v.FixShow = !v.ReadOnly && workflow.CanEdit(u, m); v.FixShow {
+	// an approved or withdrawn finding is not fixed, not even by a director
+	if v.FixShow = !v.ReadOnly && workflow.CanEdit(u, m) && store.FixOpen(m.Status); v.FixShow {
 		v.Fixable = store.FixCount(st)
 		v.CanFix = s.Store.AICanFix() && v.Fixable > 0 && !v.Running && !v.Fixing
 	}
@@ -374,7 +375,9 @@ func (s *Server) checksRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := s.Store.StartCheck(ref.EngID, ref.Dir, auth.UserFrom(r.Context())); err != nil {
-		s.fail(w, err)
+		if !checksRefused(w, r, err) {
+			s.fail(w, err)
+		}
 		return
 	}
 	s.checksStarted(w, r, ref)
@@ -404,8 +407,7 @@ func (s *Server) checksRetry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, err := s.Store.RetryCheck(ref.EngID, ref.Dir, r.FormValue("rule"), auth.UserFrom(r.Context()))
-	if errors.Is(err, store.ErrInvalidValue) {
-		http.Error(w, strings.TrimPrefix(err.Error(), store.ErrInvalidValue.Error()+": "), http.StatusBadRequest)
+	if checksRefused(w, r, err) {
 		return
 	}
 	if err != nil {

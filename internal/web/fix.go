@@ -24,8 +24,7 @@ func (s *Server) checksFix(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	err := s.Store.StartFix(ref.EngID, ref.Dir, auth.UserFrom(r.Context()))
-	if errors.Is(err, store.ErrInvalidValue) {
-		http.Error(w, strings.TrimPrefix(err.Error(), store.ErrInvalidValue.Error()+": "), http.StatusBadRequest)
+	if checksRefused(w, r, err) {
 		return
 	}
 	if err != nil {
@@ -33,4 +32,25 @@ func (s *Server) checksFix(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.checksStarted(w, r, ref)
+}
+
+// checksRefused answers a Check, Retry or Fix the store refused as busy
+// (409) or invalid (400, with the store's words), and reports whether it
+// did. htmx swaps 400 and 409 answers into the bar's place, so an htmx press
+// gets 422: the message is a toast and the bar stays (as bulkBad does).
+func checksRefused(w http.ResponseWriter, r *http.Request, err error) bool {
+	var code int
+	switch {
+	case errors.Is(err, store.ErrBusy):
+		code = http.StatusConflict
+	case errors.Is(err, store.ErrInvalidValue):
+		code = http.StatusBadRequest
+	default:
+		return false
+	}
+	if r.Header.Get("HX-Request") == "true" {
+		code = http.StatusUnprocessableEntity
+	}
+	http.Error(w, strings.TrimPrefix(err.Error(), store.ErrInvalidValue.Error()+": "), code)
+	return true
 }

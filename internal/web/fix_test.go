@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"net/url"
 	"regexp"
 	"strings"
 	"sync"
@@ -130,6 +131,10 @@ func TestFixButtonStates(t *testing.T) {
 	if fixBtnRe.FindString(pb) != "" || !strings.Contains(between(pb, "<summary", "</summary>"), `<span class="slot w152"></span>`) {
 		t.Fatalf("may not edit:\n%s", between(pb, "<summary", "</summary>"))
 	}
+	// a director may edit it, but an approved finding is not fixed
+	if pd := checksPanel(t, e.do(t, "dora", "GET", fpath, nil, nil).Body.String()); fixBtnRe.FindString(pd) != "" {
+		t.Fatalf("director on a complete finding:\n%s", between(pd, "<summary", "</summary>"))
+	}
 }
 
 // The strip's head has room for Fix with AI in the left column: the run's
@@ -168,9 +173,13 @@ func TestFixRouteStartsFix(t *testing.T) {
 	if calls != 1 {
 		t.Fatalf("Fix called %d times", calls)
 	}
-	// nothing left: 400 with the store's message
-	if rec := e.do(t, "alice", "POST", fpath+"/checks/fix", nil, hxReq); rec.Code != 400 || !strings.Contains(rec.Body.String(), "run Check first") {
+	// nothing left: the store's message, as a toast (htmx swaps a 400 into
+	// the bar's place, so an htmx press gets 422); 400 otherwise
+	if rec := e.do(t, "alice", "POST", fpath+"/checks/fix", nil, hxReq); rec.Code != 422 || !strings.Contains(rec.Body.String(), "run Check first") {
 		t.Fatalf("again: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := e.do(t, "alice", "POST", fpath+"/checks/fix", nil, nil); rec.Code != 400 {
+		t.Fatalf("again, not htmx: %d %s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -198,7 +207,7 @@ func TestNoRetryWhileFixing(t *testing.T) {
 // Without a provider the route answers 400 with the store's words.
 func TestFixRouteNoProvider(t *testing.T) {
 	e, f := fixEnv(t, false)
-	if rec := e.do(t, "alice", "POST", fpath+"/checks/fix", nil, hxReq); rec.Code != 400 || !strings.Contains(rec.Body.String(), "no AI provider configured") {
+	if rec := e.do(t, "alice", "POST", fpath+"/checks/fix", nil, hxReq); rec.Code != 422 || !strings.Contains(rec.Body.String(), "no AI provider configured") {
 		t.Fatalf("%d %s", rec.Code, rec.Body.String())
 	}
 	if f.calls != 0 {
@@ -217,12 +226,18 @@ func TestCheckBusyWhileFixing(t *testing.T) {
 	check := regexp.MustCompile(`<button[^>]*id="wf-check"[^>]*>`).FindString(wf)
 	rec := e.do(t, "alice", "POST", fpath+"/checks", nil, hxReq)
 	again := e.do(t, "alice", "POST", fpath+"/checks/fix", nil, hxReq)
+	retry := e.do(t, "alice", "POST", fpath+"/checks/retry", url.Values{"rule": {"no-foo"}}, hxReq)
+	plain := e.do(t, "alice", "POST", fpath+"/checks", nil, nil)
 	close(f.block)
 	e.srv.Store.WaitChecks()
 	if !strings.Contains(check, " disabled") {
 		t.Errorf("Check while fixing: %q", check)
 	}
-	if rec.Code != 409 || again.Code != 409 {
-		t.Errorf("check %d, second fix %d", rec.Code, again.Code)
+	// a toast (422) for htmx presses, the bar stays; 409 otherwise
+	if rec.Code != 422 || again.Code != 422 || retry.Code != 422 || plain.Code != 409 {
+		t.Errorf("check %d, second fix %d, retry %d, not htmx %d", rec.Code, again.Code, retry.Code, plain.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "running") {
+		t.Errorf("check's message %q", rec.Body.String())
 	}
 }

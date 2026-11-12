@@ -29,10 +29,11 @@
     }
   }
 
-  // once the answer is in, the element now holding that id gets them
-  // (afterSwap reaches the page from the new element; afterRequest is fired
-  // on the replaced one, out of the page)
-  document.addEventListener('htmx:afterSwap', function (e) {
+  // once the answer is in and wired, the element now holding that id gets
+  // them: afterRequest is fired on the replaced element, out of the page,
+  // and at afterSwap the new one has no listeners yet (htmx wires its
+  // hx-trigger when the swap settles)
+  document.addEventListener('htmx:afterSettle', function (e) {
     var id = e.detail && e.detail.elt && e.detail.elt.id;
     if (!id || !missed[id]) return;
     var names = missed[id];

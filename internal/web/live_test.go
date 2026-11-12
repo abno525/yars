@@ -404,9 +404,10 @@ func TestSSERefiresEventMissedInFlight(t *testing.T) {
 	if !strings.Contains(fire, "classList.contains('htmx-request')") || !strings.Contains(fire, "missed[") {
 		t.Fatalf("fire does not keep events for elements in flight:\n%s", fire)
 	}
-	// afterSwap: htmx fires afterRequest on the element the answer replaced,
-	// which is out of the page by then, so it never reaches a listener there
-	j := strings.Index(js, "addEventListener('htmx:afterSwap'")
+	// afterSettle: htmx fires afterRequest on the element the answer
+	// replaced, out of the page by then; and at afterSwap the new element
+	// has no listeners yet (htmx wires its hx-trigger when the swap settles)
+	j := strings.Index(js, "addEventListener('htmx:afterSettle'")
 	if j < 0 {
 		t.Fatal("sse.js does not fire kept events after the answer")
 	}
@@ -414,7 +415,7 @@ func TestSSERefiresEventMissedInFlight(t *testing.T) {
 	after = after[:strings.Index(after, "\n  });\n")]
 	for _, want := range []string{"document.getElementById(", "htmx.trigger(", "delete missed["} {
 		if !strings.Contains(after, want) {
-			t.Fatalf("afterSwap lacks %q:\n%s", want, after)
+			t.Fatalf("afterSettle lacks %q:\n%s", want, after)
 		}
 	}
 }
