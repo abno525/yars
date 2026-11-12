@@ -231,7 +231,8 @@ func (rn *Runner) openai(ctx context.Context, c config.AIConfig, key, system, us
 // anthropic asks Anthropic's Messages API; in and out are the tokens it
 // reported (usage.input_tokens, usage.output_tokens).
 func (rn *Runner) anthropic(ctx context.Context, c config.AIConfig, key, system, user string, maxTokens int) (content string, in, out int, err error) {
-	base := strings.TrimRight(c.BaseURL, "/")
+	// a base written with its /v1, as OpenAI's is, gets no second one
+	base := strings.TrimSuffix(strings.TrimRight(c.BaseURL, "/"), "/v1")
 	if base == "" {
 		base = "https://api.anthropic.com"
 	}

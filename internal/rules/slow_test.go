@@ -203,6 +203,25 @@ func TestAIAnthropic(t *testing.T) {
 	}
 }
 
+// An Anthropic base URL written with its /v1 (as OpenAI's is) still reaches
+// /v1/messages, not /v1/v1/messages (backlog, M5).
+func TestAIAnthropicBaseWithV1(t *testing.T) {
+	for _, suffix := range []string{"/v1", "/v1/"} {
+		f := &fakeAI{body: func(map[string]any) string {
+			return `{"content":[{"type":"text","text":"{\"violations\":[]}"}]}`
+		}}
+		f.check = func(r *http.Request) {
+			if r.URL.Path != "/v1/messages" {
+				t.Errorf("%s: path %s", suffix, r.URL.Path)
+			}
+		}
+		srv := f.server(t)
+		if vs := aiRunner(t, "anthropic", srv.URL+suffix).AI(context.Background(), acr, "title", "x"); len(vs) != 0 {
+			t.Errorf("%s: %+v", suffix, vs)
+		}
+	}
+}
+
 func TestAICache(t *testing.T) {
 	f := &fakeAI{body: func(map[string]any) string {
 		return `{"choices":[{"message":{"content":"{\"violations\":[]}"}}]}`
