@@ -5,6 +5,21 @@ import (
 	"testing"
 )
 
+// The git guide tells the holder of a clone from before engagements had
+// repositories of their own what to do with commits not pushed yet
+// (backlog, M11).
+func TestGitGuideOldClones(t *testing.T) {
+	g, err := Page("git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"### A clone from before engagements had their own repositories", "push them before the server is upgraded", "modify/delete conflicts", "clone again"} {
+		if !strings.Contains(g, want) {
+			t.Errorf("the guide lacks %q", want)
+		}
+	}
+}
+
 // The git guide says what a pull with submodules does to the engagement
 // repositories and how to put them back on main (backlog, M11).
 func TestGitGuidePullSubmodules(t *testing.T) {

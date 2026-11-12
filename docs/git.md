@@ -33,6 +33,10 @@ git -C findings submodule foreach git switch -q main
 
 Git checks submodules out on a detached HEAD: a commit made there is on no branch, and the push of `main` leaves it out. The second line puts every engagement on `main`. `git pull --recurse-submodules` (and `git submodule update`) detaches them again: run the same `git submodule foreach git switch -q main` after it, or pull inside an engagement (`git -C engagements/<id> pull`), which keeps it on `main`.
 
+### A clone from before engagements had their own repositories
+
+Before version M11 every engagement was a folder of the main repository. A clone from then with commits not pushed yet: push them before the server is upgraded (`yars migrate` makes each engagement a repository of its own). After the upgrade such a clone's next pull meets modify/delete conflicts, since the engagement folders left the main repository. Then clone again (as above), copy the files you changed from the old clone into the new one's `engagements/<id>/`, and commit and push them there.
+
 ## Push rules
 
 Only `refs/heads/main` can be pushed, and every commit in the push is checked on its own, as if it were made on the website: a commit the website could not have made is refused even when a later commit repairs it, since history keeps both. Each refusal of a file reads `commit <hash> <file>: <rule>` (the author check and a purged original read `commit <hash>: …`); the hash is the commit to fix, with `git commit --amend` for the last one or `git rebase -i <hash>~1` (mark it `edit`) for an earlier one. Only the parts a commit changes are checked, so a finding that already broke a rule on the server can still have its other parts edited. Up to 50 problems are listed, then their count.
