@@ -64,6 +64,29 @@ func TestScriptTimeoutAndEscape(t *testing.T) {
 	}
 }
 
+// A symlink in the rules folder that points outside it is not run, nor is
+// one inside a linked folder that leaves it; a link that stays inside is
+// (backlog, M5).
+func TestScriptSymlinkOutsideRefused(t *testing.T) {
+	dir, outside := t.TempDir(), t.TempDir()
+	script(t, outside, "evil.sh", "echo '[{\"message\":\"ran\"}]'\n")
+	script(t, dir, "real.sh", "echo '[]'\n")
+	for link, target := range map[string]string{"evil.sh": filepath.Join(outside, "evil.sh"), "ok.sh": "real.sh", "sub": outside} {
+		if err := os.Symlink(target, filepath.Join(dir, link)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r := NewRunner(dir, config.AIConfig{})
+	for _, path := range []string{"evil.sh", "sub/evil.sh"} {
+		if vs := r.Script(context.Background(), Rule{ID: "s", Level: "error", Script: path}, doc()); len(vs) != 1 || !strings.Contains(vs[0].Message, "outside") {
+			t.Errorf("%s: %+v", path, vs)
+		}
+	}
+	if vs := r.Script(context.Background(), Rule{ID: "s", Level: "error", Script: "ok.sh"}, doc()); len(vs) != 0 {
+		t.Errorf("a link inside the folder: %+v", vs)
+	}
+}
+
 // A script that started a background process does not leave it running
 // after its timeout: the whole process group is killed.
 func TestScriptTimeoutKillsChildren(t *testing.T) {

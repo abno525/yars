@@ -385,17 +385,26 @@ func TestConfluencePushErrors(t *testing.T) {
 	}
 }
 
+// Templates and scripts outside the exporters folder are refused as such,
+// though the files exist: by a relative path, an absolute one and a
+// symlink (backlog, M8: the test used /etc/hostname and missing files).
 func TestExporterPathEscape(t *testing.T) {
 	pb, _ := fakePandoc(t, recordingPandoc)
 	r, edir := runner(t, pb)
-	os.Symlink("/etc/hostname", filepath.Join(edir, "link.docx"))
-	for _, tpl := range []string{"../x.docx", "/etc/hostname", "link.docx"} {
+	outside := filepath.Join(t.TempDir(), "secret.docx")
+	writeFile(t, filepath.Dir(outside), "secret.docx", "x", 0o644)
+	writeFile(t, filepath.Dir(edir), "x.docx", "x", 0o644)
+	writeFile(t, filepath.Dir(edir), "s.sh", "#!/bin/sh\necho hi\n", 0o755)
+	if err := os.Symlink(outside, filepath.Join(edir, "link.docx")); err != nil {
+		t.Fatal(err)
+	}
+	for _, tpl := range []string{"../x.docx", outside, "link.docx"} {
 		if _, err := r.Run(context.Background(), Exporter{ID: "x", Type: "pandoc", Format: "docx", Template: tpl}, input(t)); err == nil || !strings.Contains(err.Error(), "outside") {
 			t.Errorf("%s: %v", tpl, err)
 		}
 	}
-	if _, err := r.Run(context.Background(), Exporter{ID: "s", Type: "script", Script: "../s.sh", Extension: "txt"}, input(t)); err == nil {
-		t.Error("script escape accepted")
+	if _, err := r.Run(context.Background(), Exporter{ID: "s", Type: "script", Script: "../s.sh", Extension: "txt"}, input(t)); err == nil || !strings.Contains(err.Error(), "outside") {
+		t.Errorf("script escape: %v", err)
 	}
 }
 

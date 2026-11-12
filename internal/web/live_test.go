@@ -18,6 +18,7 @@ import (
 	"yars/internal/chat"
 	"yars/internal/config"
 	"yars/internal/events"
+	"yars/internal/workflow"
 )
 
 // --- gzip ---
@@ -388,6 +389,27 @@ func TestFindingPageLive(t *testing.T) {
 		if !strings.Contains(js, want) {
 			t.Fatalf("sse.js lacks %q", want)
 		}
+	}
+}
+
+// A save that drops sign-offs changes the bar: the bar listens for content
+// events, which a section save publishes (TestSSEFilteredAndContent), and
+// draws the sign-offs as they are now (backlog, M3).
+func TestWorkflowBarFollowsContent(t *testing.T) {
+	e := setup(t)
+	b := e.do(t, "alice", "GET", fpath, nil, nil).Body.String()
+	wf := b[strings.Index(b, `id="workflow"`):]
+	if wf = wf[:strings.Index(wf, ">")]; !strings.Contains(wf, "sse:content") {
+		t.Fatalf("the bar does not listen for content changes: %s", wf)
+	}
+	e.toVerification(t)
+	if err := e.srv.Store.Transition("acme", fdir, workflow.Clear, "", wBob); err != nil {
+		t.Fatal(err)
+	}
+	signed := e.do(t, "alice", "GET", "/e/acme/f/001/workflow", nil, nil).Body.String()
+	e.do(t, "alice", "POST", fpath+"/s/Impact", url.Values{"body": {"Changed after the sign-off."}}, nil)
+	if after := e.do(t, "alice", "GET", "/e/acme/f/001/workflow", nil, nil).Body.String(); after == signed {
+		t.Fatal("the bar is the same after a save that dropped the sign-off")
 	}
 }
 

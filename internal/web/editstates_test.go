@@ -109,6 +109,27 @@ func TestPresence(t *testing.T) {
 	}
 }
 
+// A finding locked while its editor is open: the save answers 403 with the
+// reason as text, htmx does not swap it (the editor keeps the text) but
+// raises an error, and app.js shows the text as a toast (backlog, M3).
+func TestLockedSaveShowsWhy(t *testing.T) {
+	e := setup(t)
+	e.toComplete(t)
+	rec := e.do(t, "alice", "POST", fpath+"/s/Impact", url.Values{"body": {"late"}}, map[string]string{"HX-Request": "true"})
+	if rec.Code != http.StatusForbidden || strings.TrimSpace(rec.Body.String()) == "" || strings.Contains(rec.Body.String(), "<html") {
+		t.Fatalf("locked save %d %q", rec.Code, rec.Body.String())
+	}
+	page := e.do(t, "alice", "GET", fpath, nil, nil).Body.String()
+	if !strings.Contains(page, `{"code":"[45]..","swap":false,"error":true}`) {
+		t.Fatal("htmx would swap a 403 into the editor")
+	}
+	js := e.do(t, "alice", "GET", "/static/app.js", nil, nil).Body.String()
+	i := strings.Index(js, "'htmx:responseError'")
+	if i < 0 || !strings.Contains(js[i:i+800], "xhr.responseText") || !strings.Contains(js[i:i+800], "yarsToast(") {
+		t.Fatal("app.js does not show an unswapped error's text")
+	}
+}
+
 // An expired session answers htmx requests with 401 (the page keeps the
 // text as a draft); full pages still go to the login.
 func TestSessionExpiredHX(t *testing.T) {

@@ -109,6 +109,14 @@ func TestTokenCommandScopes(t *testing.T) {
 	if len(ts) != 1 || ts[0].Kind != "git" || !ts[0].ReadOnly() || ts[0].Expires == "" || ts[0].Engagements[0] != "acme" {
 		t.Fatalf("tokens %+v", ts)
 	}
+	// list names each token by the id revoke --id takes (backlog, M9)
+	var list bytes.Buffer
+	if code, err := cmdToken([]string{"list", "--data", dir}, &list); code != 0 {
+		t.Fatal(code, err)
+	}
+	if !strings.HasPrefix(list.String(), strconv.FormatInt(ts[0].ID, 10)+"\tbob\tgit\t") {
+		t.Fatalf("list does not start with the token's id:\n%s", list.String())
+	}
 	if code, err := cmdToken([]string{"revoke", "--data", dir, "--id", strconv.FormatInt(ts[0].ID, 10), "bob"}, &out); code != 0 {
 		t.Fatal(code, err)
 	}

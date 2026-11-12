@@ -131,7 +131,11 @@ func TestFullZip(t *testing.T) {
 	writeFile(t, repo, ".git/HEAD", "ref: refs/heads/main\n", 0o644)
 	os.MkdirAll(filepath.Join(repo, "findings", "F-001-x"), 0o755)
 	writeFile(t, filepath.Join(repo, "findings", "F-001-x"), "finding.md", "# x", 0o644)
-	os.Symlink("/etc/hostname", filepath.Join(repo, "link"))
+	secret := filepath.Join(t.TempDir(), "secret")
+	writeFile(t, filepath.Dir(secret), "secret", "not in the zip", 0o644)
+	if err := os.Symlink(secret, filepath.Join(repo, "link")); err != nil {
+		t.Fatal(err)
+	}
 	res, err := FullZip(input(t), repo)
 	if err != nil {
 		t.Fatal(err)

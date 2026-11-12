@@ -597,7 +597,23 @@ func TestPushForceRejected(t *testing.T) {
 	}
 	p.git("reset", "-q", "--hard", "HEAD~1")
 	p.editFinding(func(f *finding.Finding) { f.SetSection("Impact", "rewritten") })
-	if out, err := p.git("push", "--force", "origin", "HEAD"); err == nil {
-		t.Fatalf("force push accepted:\n%s", out)
+	// refused for what it is (backlog, M6)
+	if out, err := p.git("push", "--force", "origin", "HEAD"); err == nil || !strings.Contains(out, "non-fast-forward") {
+		t.Fatalf("force push: %v\n%s", err, out)
+	}
+}
+
+// Deleting the branch and pushing a tag are refused end to end, each with
+// its reason (backlog, M6).
+func TestPushDeleteAndTagRefused(t *testing.T) {
+	p := newPushEnv(t)
+	if out, err := p.git("push", "origin", ":main"); err == nil || !strings.Contains(out, "deleting the branch is not allowed") {
+		t.Fatalf("branch delete: %v\n%s", err, out)
+	}
+	if out, err := p.git("tag", "v1"); err != nil {
+		t.Fatalf("%v %s", err, out)
+	}
+	if out, err := p.git("push", "origin", "v1"); err == nil || !strings.Contains(out, "refs/tags/v1: only refs/heads/main can be pushed") {
+		t.Fatalf("tag push: %v\n%s", err, out)
 	}
 }

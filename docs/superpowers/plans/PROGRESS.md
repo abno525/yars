@@ -158,4 +158,5 @@ M33 task 2  review   fix 052bafd (the preview's text colour and selector placeme
 M33 branch  review   fixes f5d1fc0 (one scanner for strings, escapes, comments and url(); theme-only rules refused; nested rules and data: URLs refused; fewer false positives; cover bar, head bar and PDF palette tied)
 M33 branch  fix check passed bb7f48d (eight fixed; then data: URLs in any string and more made-up-name properties)
 M33 PR      opened   #28
+M34 task 1  done     (every backlog line marked: 37 fixed, 11 of them by a new test; 6 won't; 63 do; 12 ask)
 ```

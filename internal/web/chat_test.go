@@ -138,6 +138,10 @@ func TestChatPoll204(t *testing.T) {
 	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "second") {
 		t.Fatalf("changed poll code %d", rec.Code)
 	}
+	// a poll swaps the list only, never the composer and its draft (backlog, M4)
+	if b := rec.Body.String(); strings.Contains(b, `id="chat-text"`) || strings.Contains(b, `class="composer"`) {
+		t.Fatalf("the poll answer carries the composer:\n%s", b)
+	}
 }
 
 func TestChatBadRef400(t *testing.T) {
@@ -145,6 +149,11 @@ func TestChatBadRef400(t *testing.T) {
 	rec := e.do(t, "alice", "POST", fpath+"/chat", url.Values{"text": {"kept text"}, "reply": {"nope"}}, nil)
 	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "unknown thread") {
 		t.Fatalf("code %d body:\n%s", rec.Code, rec.Body.String())
+	}
+	// a failed reply answers with the list only: its text never lands in
+	// the main composer (backlog, M4)
+	if b := rec.Body.String(); !strings.HasPrefix(strings.TrimSpace(b), `<div id="chat-list"`) || strings.Contains(b, `id="chat-text"`) {
+		t.Fatalf("a failed reply's answer is not the list alone:\n%s", b)
 	}
 }
 

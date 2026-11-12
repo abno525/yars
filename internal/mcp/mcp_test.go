@@ -31,10 +31,11 @@ var (
 )
 
 type fx struct {
-	t   *testing.T
-	s   *Server
-	dir string
-	id  int
+	t      *testing.T
+	s      *Server
+	dir    string
+	dbPath string
+	id     int
 }
 
 func newFx(t *testing.T) *fx {
@@ -44,7 +45,8 @@ func newFx(t *testing.T) *fx {
 		t.Fatal(err)
 	}
 	cfg := config.Default()
-	d, err := db.Open(filepath.Join(t.TempDir(), "yars.db"))
+	dbPath := filepath.Join(t.TempDir(), "yars.db")
+	d, err := db.Open(dbPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +56,7 @@ func newFx(t *testing.T) *fx {
 	st.CreateFinding("acme", "SQL injection", alice.GitAuthor())
 	d.AddMembers("acme", "alice", "pen2", "bob") // the team; dora directs
 	users := []config.User{alice, pen2, bob, dora}
-	return &fx{t: t, dir: r.Dir, s: &Server{Store: st, Index: index.New(st, r), Cfg: cfg, Users: func() []config.User { return users }}}
+	return &fx{t: t, dir: r.Dir, dbPath: dbPath, s: &Server{Store: st, Index: index.New(st, r), Cfg: cfg, Users: func() []config.User { return users }}}
 }
 
 // rpc sends one request and returns the decoded response.
@@ -369,6 +371,14 @@ func TestMCPPermissions(t *testing.T) {
 		t.Fatalf("take back: %s", out)
 	}
 	f.ok(alice, "transition", map[string]any{"engagement": "acme", "finding": "F-001", "action": "submit"})
+	// another pentester on the team may neither change the reviewers nor
+	// sign off (backlog, M9)
+	if text, isErr := f.call(pen2, "set_field", map[string]any{"engagement": "acme", "finding": "F-001", "field": "reviewers", "value": "pen2"}); !isErr {
+		t.Fatalf("a pentester who is not the author set the reviewers: %s", text)
+	}
+	if text, isErr := f.call(pen2, "transition", map[string]any{"engagement": "acme", "finding": "F-001", "action": "clear"}); !isErr {
+		t.Fatalf("a pentester who is not a reviewer signed off: %s", text)
+	}
 	if text, isErr := f.call(alice, "transition", map[string]any{"engagement": "acme", "finding": "F-001", "action": "approve"}); !isErr || !strings.Contains(text, "director") {
 		t.Fatalf("pentester approved: %s", text)
 	}
@@ -591,6 +601,29 @@ func TestMCPHTTPAuth(t *testing.T) {
 	}
 	if c, _ := post(t, srv.URL, tok, `{"jsonrpc":"2.0","id":1,"method":"ping","params":"`+strings.Repeat("x", 3<<20)+`"}`); c != 401 && c != 413 {
 		t.Errorf("huge body: %d", c)
+	}
+}
+
+// `yars token revoke` runs as its own process with its own database
+// connection while the server runs: the next request with that token is
+// refused, since tokens are looked up in the database each time (backlog, M9).
+func TestMCPRevokeFromAnotherProcess(t *testing.T) {
+	f := newFx(t)
+	srv, _, tok := f.httpServer(t)
+	list := `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`
+	if c, _ := post(t, srv.URL, tok, list); c != 200 {
+		t.Fatalf("good token: %d", c)
+	}
+	other, err := db.Open(f.dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer other.Close()
+	if err := auth.NewTokens(other).Revoke("cli", "bob"); err != nil {
+		t.Fatal(err)
+	}
+	if c, _ := post(t, srv.URL, tok, list); c != 401 {
+		t.Fatalf("a token revoked by another process still works: %d", c)
 	}
 }
 
