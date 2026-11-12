@@ -178,21 +178,6 @@ func (s *Store) notify(c Change) {
 	}
 }
 
-// engLock returns the lock of an engagement's repo.
-func (s *Store) engLock(id string) *sync.Mutex {
-	s.locksMu.Lock()
-	defer s.locksMu.Unlock()
-	if s.engLocks == nil {
-		s.engLocks = map[string]*sync.Mutex{}
-	}
-	l, ok := s.engLocks[id]
-	if !ok {
-		l = &sync.Mutex{}
-		s.engLocks[id] = l
-	}
-	return l
-}
-
 // errMoved is returned when HEAD moved (e.g. a git push landed) between
 // reading a finding and writing it; the caller should reload and retry.
 var errMoved = fmt.Errorf("%w: the repository changed meanwhile (a push arrived); reload and try again", ErrConflict)
@@ -753,15 +738,6 @@ func (s *Store) purge(engID string) error {
 		return nil
 	}
 	return s.db.TxFor(engID, func(tx *db.Tx) error { return tx.Purge(engID) })
-}
-
-// lockNew takes the locks for creating engagement id: its own repo's and
-// the main repo's (which records it).
-func (s *Store) lockNew(id string) (unlock func()) {
-	l := s.engLock(id)
-	l.Lock()
-	s.mainMu.Lock()
-	return func() { s.mainMu.Unlock(); l.Unlock() }
 }
 
 // CreateRetest creates engagement e (type retest) from source, copying the
