@@ -313,6 +313,16 @@ func (s *Server) sectionRef(w http.ResponseWriter, r *http.Request) (store.Findi
 	return ref, "", false
 }
 
+// openIn counts the open threads on a section of ref.
+func (s *Server) openIn(ref store.FindingRef, section string) int {
+	msgs, err := s.Store.Chat(ref.EngID, ref.Dir)
+	if err != nil {
+		return 0
+	}
+	_, by := chat.OpenCount(msgs)
+	return by[section]
+}
+
 func (s *Server) sectionView(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Query().Get("live") != "" {
 		// a live refresh: 204 while current, a reload once the finding is gone
@@ -328,10 +338,7 @@ func (s *Server) sectionView(w http.ResponseWriter, r *http.Request) {
 		}
 		p := s.panelFor(ref, name)
 		p.ReadOnly = s.Store.Archived(ref.EngID)
-		if msgs, err := s.Store.Chat(ref.EngID, ref.Dir); err == nil {
-			_, by := chat.OpenCount(msgs)
-			p.Open = by[name]
-		}
+		p.setOpen(s.openIn(ref, name))
 		p.Presence = s.presenceFor(r, ref, name)
 		if s.locked(r, ref) {
 			p.EditURL = ""

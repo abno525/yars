@@ -800,13 +800,28 @@ func (s *Server) liveKey(ref store.FindingRef) string {
 	return store.BodyHash(ref.Hash + "\x00" + ref.F.Meta.Status + "\x00" + workflow.Shown(ref.F.Meta) + "\x00" + strconv.FormatBool(s.Store.Archived(ref.EngID)))
 }
 
-// unchanged answers 204 to a live refresh whose panel is still current.
+// unchanged answers 204 to a live refresh whose panel is still current. A
+// section panel's key also holds its open-thread count (o), which a chat
+// message changes without changing the file.
 func (s *Server) unchanged(w http.ResponseWriter, r *http.Request, ref store.FindingRef) bool {
-	if h := r.URL.Query().Get("h"); h != "" && h == s.liveKey(ref) {
-		w.WriteHeader(http.StatusNoContent)
-		return true
+	q := r.URL.Query()
+	if h := q.Get("h"); h == "" || h != s.liveKey(ref) {
+		return false
 	}
-	return false
+	if o := q.Get("o"); o != "" && o != strconv.Itoa(s.openIn(ref, r.PathValue("section"))) {
+		return false
+	}
+	w.WriteHeader(http.StatusNoContent)
+	return true
+}
+
+// setOpen sets a section panel's open-thread count, which its live
+// refresh compares too.
+func (p *panel) setOpen(n int) {
+	p.Open = n
+	if p.LiveURL != "" {
+		p.LiveURL += "&o=" + strconv.Itoa(n)
+	}
 }
 
 // liveURL is a read panel's refresh URL, with the key it is drawn for.
@@ -889,7 +904,7 @@ func (s *Server) renderFindingDenied(w http.ResponseWriter, r *http.Request, sta
 	for _, n := range s.sectionNames(p.Finding) {
 		pn := s.panelFor(p.Finding, n)
 		pn.Presence = s.presenceFor(r, p.Finding, n)
-		pn.Open = p.Chat.BySection[n]
+		pn.setOpen(p.Chat.BySection[n])
 		pn.ReadOnly = p.Archive.On
 		if locked {
 			pn.EditURL = ""
