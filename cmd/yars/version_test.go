@@ -25,7 +25,9 @@ func TestVersionCommand(t *testing.T) {
 	defer func() { version = old }()
 	version = "v1.0.0"
 	b.Reset()
-	cmdVersion(nil, &b)
+	if err := cmdVersion(nil, &b); err != nil {
+		t.Fatal(err)
+	}
 	want := "yars v1.0.0 (schema " + strconv.Itoa(db.SchemaVersion) + ", " + runtime.Version() + ")\n"
 	if b.String() != want {
 		t.Fatalf("%q, want %q", b.String(), want)
@@ -48,6 +50,9 @@ func TestBuildVersionFallback(t *testing.T) {
 	}
 	if v := revision("0123456789abcdef0123", true); v != "0123456789ab+dirty" {
 		t.Fatalf("modified: %q", v)
+	}
+	if v := revision("abc", false); v != "abc" {
+		t.Fatalf("a short revision: %q", v)
 	}
 	if v := revision("", false); v != "dev" {
 		t.Fatalf("none: %q", v)
