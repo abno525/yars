@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"yars/internal/config"
+	"yars/internal/db"
 	"yars/internal/gitrepo"
 	"yars/internal/workflow"
 )
@@ -114,15 +115,110 @@ func TestTransitionFlow(t *testing.T) {
 	if m.Status != "complete" || !reflect.DeepEqual(m.ClearedBy, []string{"bob"}) {
 		t.Fatalf("meta %+v", m)
 	}
-	if err := s.Transition(eng, fd, workflow.Reopen, "", uDora); err != nil {
+	if err := s.Transition(eng, fd, workflow.Reopen, "wrong host", uDora); err != nil {
 		t.Fatal(err)
 	}
 	if m := load(t, s, fd).F.Meta; m.Status != "verification" || len(m.ClearedBy) != 0 {
 		t.Fatalf("reopen %+v", m)
 	}
-	want := []string{"alice:submit:", "bob:clear:", "dora:approve:", "dora:reopen:"}
+	want := []string{"alice:submit:", "bob:clear:", "dora:approve:", "dora:reopen:wrong host"}
 	if got := events(t, s, fd); !reflect.DeepEqual(got, want) {
 		t.Fatalf("events %v", got)
+	}
+}
+
+// completed returns a finding by alice that bob signed off and dora
+// approved.
+func completed(t *testing.T) (*Store, string) {
+	t.Helper()
+	s, _, fd := ready(t)
+	for _, step := range []struct {
+		a workflow.Action
+		u config.User
+	}{{workflow.Submit, uAlice}, {workflow.Clear, uBob}, {workflow.Approve, uDora}} {
+		if err := s.Transition(eng, fd, step.a, "", step.u); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return s, fd
+}
+
+// R4: reverting Reported asks for no new approval: the approval and the
+// sign-offs stay.
+func TestUnreportKeepsApproval(t *testing.T) {
+	s, fd := completed(t)
+	before, _ := s.DB().State(eng, "F-001")
+	if err := s.Transition(eng, fd, workflow.Report, "", uDora); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Transition(eng, fd, workflow.Unreport, "sent too early", uDora); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := s.DB().State(eng, "F-001")
+	if after.Status != "complete" || after.ApprovedHash == "" || after.ApprovedHash != before.ApprovedHash || !reflect.DeepEqual(after.Reviewers, before.Reviewers) {
+		t.Fatalf("after unreport %+v, before %+v", after, before)
+	}
+	if m := load(t, s, fd).F.Meta; m.Status != "complete" {
+		t.Fatalf("shown as %s", m.Status)
+	}
+}
+
+// R4, Review focus 1: a finding sent to Confluence or Jira keeps its page
+// through a revert, so the next send updates the same page.
+func TestUnreportKeepsRemoteLink(t *testing.T) {
+	s, fd := completed(t)
+	if err := s.DB().SetExportRemote(db.ExportRemote{Destination: "wiki", Eng: eng, Finding: "F-001", Target: "SPACE", RemoteID: "42", Version: 3, URL: "https://wiki.example/42"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Transition(eng, fd, workflow.Report, "", uDora); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Transition(eng, fd, workflow.Unreport, "sent too early", uDora); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Transition(eng, fd, workflow.Reopen, "wrong host", uDora); err != nil {
+		t.Fatal(err)
+	}
+	if r, ok, err := s.DB().ExportRemote("wiki", eng, "F-001"); err != nil || !ok || r.RemoteID != "42" || r.Version != 3 {
+		t.Fatalf("remote link %+v %v %v", r, ok, err)
+	}
+}
+
+// R4, Review focus 3: a blank reason is refused for both reverts.
+func TestRevertNeedsReasonInStore(t *testing.T) {
+	s, fd := completed(t)
+	if err := s.Transition(eng, fd, workflow.Reopen, "  ", uDora); !denied(err) || !strings.Contains(err.Error(), "a reason is required") {
+		t.Fatalf("reopen without a reason: %v", err)
+	}
+	if err := s.Transition(eng, fd, workflow.Report, "", uDora); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Transition(eng, fd, workflow.Unreport, "", uDora); !denied(err) || !strings.Contains(err.Error(), "a reason is required") {
+		t.Fatalf("unreport without a reason: %v", err)
+	}
+	if m := load(t, s, fd).F.Meta; m.Status != "reported" {
+		t.Fatalf("a refused revert moved it to %s", m.Status)
+	}
+}
+
+// R4: the revert is in the history with its reason: the chat's event and
+// the domain event.
+func TestRevertEventCarriesReason(t *testing.T) {
+	s, fd := completed(t)
+	rec := &recorder{}
+	s.OnEvent(rec.add)
+	if err := s.Transition(eng, fd, workflow.Report, "", uDora); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Transition(eng, fd, workflow.Unreport, " sent too early ", uAlice); err != nil {
+		t.Fatal(err)
+	}
+	got := events(t, s, fd)
+	if got[len(got)-1] != "alice:unreport:sent too early" {
+		t.Fatalf("events %v", got)
+	}
+	if e := rec.last(EventStatus); e.Action != "unreport" || e.From != "reported" || e.To != "complete" || e.Reason != "sent too early" {
+		t.Fatalf("event %+v", e)
 	}
 }
 

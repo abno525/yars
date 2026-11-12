@@ -106,7 +106,7 @@ type chatView struct {
 
 var eventText = map[string]string{
 	"submit": "submitted it for verification", "return": "returned it to draft", "clear": "signed it off",
-	"approve": "approved it", "reopen": "reopened it", "report": "marked it reported", "retest": "set the retest result",
+	"approve": "approved it", "reopen": "reverted it to verification", "report": "marked it reported", "unreport": "reverted it to complete", "retest": "set the retest result",
 	"withdraw": "withdrew it", "revise": "restored it", "take_back": "took it back to draft", store.EventCheckFixed: "found a check fixed", store.EventMerge: "merged in",
 }
 

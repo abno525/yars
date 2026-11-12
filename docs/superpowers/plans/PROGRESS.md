@@ -82,5 +82,6 @@ M26 branch  reviewed fixes 1a691dd (renames followed; an interrupted purge finis
 M26 branch  fix check    fix 6edc7fc (versions history holds again; exact earlier folder names); its check passed; nits c8218ad
 M26 browser check    passed (1440: marks and the Purge slot, clipped long name, confirm page within its panel, purge removes the original from git and the mark, a copy refuses with 409, a redacted copy lets both purges through)
 M26 PR      opened   #20
-M27 task 1  done
+M27 task 1  done     17592fc
+M27 task 2  done
 ```

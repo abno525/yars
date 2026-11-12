@@ -379,7 +379,7 @@ table.kv { width: 100%; border-collapse: collapse; }
 .chatev.ev-return::before, .chatev.ev-withdraw::before { background: var(--red); }
 .chatev.ev-clear::before, .chatev.ev-approve::before { background: var(--green); }
 .chatev.ev-report::before { background: var(--ink); }
-.chatev.ev-reopen::before, .chatev.ev-revise::before { background: var(--accent); }
+.chatev.ev-reopen::before, .chatev.ev-unreport::before, .chatev.ev-revise::before { background: var(--accent); }
 .chatev.ev-take_back::before { background: var(--bar-draft); }
 .chatev .what { min-width: 0; overflow-wrap: anywhere; }
 .chatev .text { white-space: pre-wrap; }
@@ -1372,7 +1372,7 @@ input.bigin { height: 48px; font: 600 18px var(--sans); border: 2px solid var(--
 .dot.ev-return, .dot.ev-withdraw { background: var(--red); }
 .dot.ev-clear, .dot.ev-approve { background: var(--green); }
 .dot.ev-report { background: var(--navy-600); }
-.dot.ev-reopen, .dot.ev-revise, .dot.ev-retest { background: var(--accent); }
+.dot.ev-reopen, .dot.ev-unreport, .dot.ev-revise, .dot.ev-retest { background: var(--accent); }
 .dot.ev-take_back { background: var(--bar-draft); }
 .hdiff .panelname .mono { font-size: 13px; }
 .seg.dmode > a { --seg-w: 88px; height: 30px; text-transform: none; }

@@ -1525,7 +1525,7 @@ func (s *Store) TransitionChecked(engID, dir string, act workflow.Action, reason
 		check = func(finding.Meta) error { return nil }
 	}
 	if !workflow.NeedsReason(act) {
-		reason = "" // only Return and Withdraw carry one
+		reason = "" // only Return, Withdraw and the reverts carry one
 	}
 	if s.db == nil {
 		return ErrNoDB
@@ -1617,8 +1617,21 @@ func (s *Store) TransitionChecked(engID, dir string, act workflow.Action, reason
 			}
 			st.Reviewers[i].ClearedHash = hash
 		case workflow.Reopen:
+			r := strings.TrimSpace(reason)
+			if r == "" {
+				return nil, &workflow.Denied{Reason: "a reason is required to revert a finding"}
+			}
 			uncleared()
 			st.ApprovedHash = ""
+			ev.Text = r
+		case workflow.Unreport:
+			// back to complete: the approval, the sign-offs and the remote
+			// pages of earlier exports stay (R4)
+			r := strings.TrimSpace(reason)
+			if r == "" {
+				return nil, &workflow.Denied{Reason: "a reason is required to revert a finding"}
+			}
+			ev.Text = r
 		case workflow.TakeBack:
 			uncleared() // the author changes it again: sign-offs start over
 			st.ReturnedBy, st.ReturnedReason = "", ""

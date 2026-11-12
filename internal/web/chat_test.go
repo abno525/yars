@@ -10,6 +10,7 @@ import (
 
 	"yars/internal/chat"
 	"yars/internal/db"
+	"yars/internal/workflow"
 )
 
 func (e *env) chatIDs(t *testing.T) []string {
@@ -235,6 +236,45 @@ func TestReturnReasonShownInChat(t *testing.T) {
 	row := between(list, `<div class="chatev ev-return">`, "</div>")
 	if !strings.Contains(row, "<strong>bob</strong> returned it to draft: <span class=\"text\">Add a screenshot</span>") || !strings.Contains(row, `<span class="time">`) {
 		t.Fatalf("return row:\n%s", list)
+	}
+}
+
+// R4: a revert reads as one in the chat, with its reason, and in the
+// history.
+func TestRevertWordsInChatAndHistory(t *testing.T) {
+	e := setup(t)
+	e.toComplete(t)
+	st := e.srv.Store
+	for _, step := range []struct {
+		a      workflow.Action
+		reason string
+	}{{workflow.Report, ""}, {workflow.Unreport, "sent too early"}, {workflow.Reopen, "wrong host"}} {
+		if err := st.Transition("acme", fdir, step.a, step.reason, wDora); err != nil {
+			t.Fatal(err)
+		}
+	}
+	list := chatList(t, e.do(t, "alice", "GET", fpath, nil, nil).Body.String())
+	for kind, want := range map[string]string{
+		"unreport": `<strong>dora</strong> reverted it to complete: <span class="text">sent too early</span>`,
+		"reopen":   `<strong>dora</strong> reverted it to verification: <span class="text">wrong host</span>`,
+	} {
+		if row := between(list, `<div class="chatev ev-`+kind+`">`, "</div>"); !strings.Contains(row, want) {
+			t.Errorf("%s row:\n%s", kind, list)
+		}
+	}
+	h := e.do(t, "alice", "GET", "/e/acme/f/001/history", nil, nil).Body.String()
+	for _, want := range []string{"reverted to complete", "reverted to verification"} {
+		if !strings.Contains(h, want) {
+			t.Errorf("history lacks %q", want)
+		}
+	}
+	// both reverts get the reopen marker colour
+	css := e.do(t, "alice", "GET", "/static/style.css", nil, nil).Body.String()
+	for _, want := range []string{".chatev.ev-reopen::before, .chatev.ev-unreport::before, .chatev.ev-revise::before { background: var(--accent); }",
+		".dot.ev-reopen, .dot.ev-unreport, .dot.ev-revise, .dot.ev-retest { background: var(--accent); }"} {
+		if !strings.Contains(css, want) {
+			t.Errorf("style.css lacks %s", want)
+		}
 	}
 }
 
