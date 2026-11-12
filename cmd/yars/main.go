@@ -108,6 +108,18 @@ func cmdExport(args []string, out io.Writer) (int, error) {
 	if d != nil {
 		defer d.Close()
 	}
+	// --mark's account is checked before anything is exported
+	var marker config.User
+	if *mark && ex.Marks() {
+		if d == nil {
+			return 2, fmt.Errorf("--mark needs the server's data directory (workflow state is in its database)")
+		}
+		u, ok, _ := d.User(*as)
+		if !ok {
+			return 2, fmt.Errorf("--mark needs --as <director account>")
+		}
+		marker = u
+	}
 	st := store.New(r, cfg, d)
 	e, err := st.Engagement(fs.Arg(0))
 	if err != nil {
@@ -165,16 +177,9 @@ func cmdExport(args []string, out io.Writer) (int, error) {
 		d.Audit("cli", "export", e.ID, fmt.Sprintf("%s, %d findings", ex.ID, len(picked)))
 	}
 	if *mark && ex.Marks() {
-		if d == nil {
-			return 1, fmt.Errorf("--mark needs the server's data directory (workflow state is in its database)")
-		}
-		u, ok, _ := d.User(*as)
-		if !ok {
-			return 1, fmt.Errorf("--mark needs --as <director account>")
-		}
 		for _, p := range picked {
 			if p.F.Meta.Status == "complete" {
-				if err := st.Transition(e.ID, p.Dir, workflow.Report, "", u); err != nil {
+				if err := st.Transition(e.ID, p.Dir, workflow.Report, "", marker); err != nil {
 					fmt.Fprintln(out, "not marked", p.F.Meta.ID+":", err)
 				} else {
 					fmt.Fprintln(out, "marked reported", p.F.Meta.ID)
