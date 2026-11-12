@@ -10,7 +10,7 @@
 //	yars migrate --data <dir>   (move state and chat from files into the database)
 //	yars backup --data <dir> [--key] --out <file.zip>   (works while the server runs)
 //	yars restore --from <file.zip> --data <new dir>   (--data is required: never the default)
-//	yars lint --data <dir> [--all] [<engagement>[/<finding-dir>]]
+//	yars lint --data <dir> [--all] [<engagement>[/<finding>]]   (a finding by folder, ID or number)
 //	yars seed --data <new dir> --engagements N --findings M --messages K   (development data)
 //
 // Flags come before the other arguments. Without --data, a command works
@@ -24,6 +24,7 @@ import (
 	"bufio"
 	"context"
 	_ "embed"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -557,14 +558,20 @@ func cmdLint(args []string, out io.Writer) (int, error) {
 		if scopeEng != "" && e.ID != scopeEng {
 			continue
 		}
-		refs, err := st.ListFindings(e.ID)
-		if err != nil {
+		var refs []store.FindingRef
+		if scopeDir != "" {
+			// named as the website names it: folder, ID or number
+			ref, err := st.Finding(e.ID, scopeDir)
+			if err != nil && !errors.Is(err, store.ErrNotFound) {
+				return 2, err
+			}
+			if err == nil {
+				refs = append(refs, ref)
+			}
+		} else if refs, err = st.ListFindings(e.ID); err != nil {
 			return 2, err
 		}
 		for _, ref := range refs {
-			if scopeDir != "" && ref.Dir != scopeDir {
-				continue
-			}
 			checked++
 			for _, v := range eng.Lint(context.Background(), ref.F, kinds) {
 				line := fmt.Sprintf("%s/%s %s %s: %s", e.ID, ref.F.Meta.ID, v.Level, v.Rule, v.Message)

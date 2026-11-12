@@ -243,6 +243,14 @@ func TestLintCommand(t *testing.T) {
 	if code != 0 || strings.Contains(out.String(), "F-001") {
 		t.Fatalf("scoped lint code %d:\n%s", code, out.String())
 	}
+	// the finding in a scope is named as the website names it: its folder,
+	// its ID or its number (backlog, M5)
+	for _, scope := range []string{"acme/F-001", "acme/1", "acme/F-001-bad-title"} {
+		out.Reset()
+		if code, err := cmdLint([]string{"--data", dir, scope}, &out); code != 1 || err != nil || !strings.Contains(out.String(), "acme/F-001 error") || !strings.Contains(out.String(), "1 finding(s) checked") {
+			t.Errorf("%s: code %d err %v:\n%s", scope, code, err, out.String())
+		}
+	}
 	// flags go before the scope: anything after it is refused, never
 	// ignored (backlog, M5)
 	out.Reset()
