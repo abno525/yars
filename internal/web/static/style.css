@@ -1937,3 +1937,4 @@ code.plain { font: 500 13px var(--mono); color: var(--text); background: transpa
 .table [data-nav]:focus-visible { outline: none; }
 /* the comment the keys picked in the chat, tinted the same way */
 #chat-list .thread[data-tsel] { background: var(--mark-bg); }
+#dups tr[data-tsel] > td { background: var(--mark-bg); }

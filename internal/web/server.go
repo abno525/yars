@@ -970,6 +970,7 @@ func (s *Server) renderFindingDenied(w http.ResponseWriter, r *http.Request, sta
 		s.fail(w, err)
 		return
 	}
+	p.Dups.Side = true
 	p.Retest = s.retestFor(r, p.Finding)
 	if p.Attach, err = s.attachFor(r, p.Finding); err != nil {
 		s.fail(w, err)

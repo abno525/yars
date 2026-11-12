@@ -48,6 +48,40 @@ func TestConfirmIsInApp(t *testing.T) {
 	}
 }
 
+// Possible duplicates on the keyboard (the finding page's side column): the
+// arrows step through its rows and the comments, top to bottom, and Enter on
+// a picked duplicate opens its Merge; l still goes to the chat. The new
+// finding page's list takes no keys.
+func TestDupsKeys(t *testing.T) {
+	e := setup(t)
+	if _, err := e.srv.Store.CreateFinding("acme", "SQL injection", e.authorOf(wAlice)); err != nil {
+		t.Fatal(err)
+	}
+	b := e.do(t, "dora", "GET", fpath, nil, nil).Body.String()
+	d := between(b, `<section class="panel compact dups" id="dups"`, "</section>")
+	for _, w := range []string{` data-kpanel="side">`, `<tr id="dup-F-002" data-pick>`, `data-merge>Merge</a>`} {
+		if !strings.Contains(d, w) {
+			t.Errorf("the duplicates lack %s:\n%s", w, d)
+		}
+	}
+	if nb := between(e.do(t, "alice", "GET", "/e/acme/findings/new?title=SQL+injection", nil, nil).Body.String(), "<main>", "</main>"); strings.Contains(nb, "data-kpanel") || strings.Contains(nb, "data-pick") {
+		t.Error("the new finding page's duplicates take keys")
+	}
+	js := e.do(t, "alice", "GET", "/static/keys.js", nil, nil).Body.String()
+	for _, w := range []string{"'#chat-list .thread[data-thread], #dups tr[data-pick]'", "var mg = t ? t.querySelector('[data-merge]') : null;",
+		"document.querySelector('#chat[data-kpanel=\"side\"]')", "function yarsThreadPick(t)"} {
+		if !strings.Contains(js, w) {
+			t.Errorf("keys.js lacks %s", w)
+		}
+	}
+	if css := e.do(t, "alice", "GET", "/static/style.css", nil, nil).Body.String(); !strings.Contains(css, "#dups tr[data-tsel] > td { background: var(--mark-bg); }") {
+		t.Error("a picked duplicate is not tinted")
+	}
+	if !strings.Contains(b, `<div class="krow" data-keys-if="#dups [data-merge]"><dt><kbd>Enter</kbd></dt><dd>Merge into the picked duplicate</dd></div>`) {
+		t.Error("the ? list lacks Enter on a duplicate")
+	}
+}
+
 // The chat on the keyboard: with the chat selected, j k ↓ ↑ pick a comment
 // (a thread, tinted as a list row), r resolves it, and any key no shortcut
 // takes starts its reply (a new message with none picked); ↓ ↑ with nothing
@@ -82,7 +116,7 @@ func TestChatKeys(t *testing.T) {
 		t.Error("a picked comment is not tinted")
 	}
 	g := between(b, `data-keys-group="chat"`, "</section>")
-	for _, w := range []string{`<div class="krow" data-keys-if="#chat-list .thread"><dt><kbd>j</kbd><kbd>k</kbd><kbd>↓</kbd><kbd>↑</kbd></dt><dd>Next or previous comment</dd></div>`,
+	for _, w := range []string{`<div class="krow" data-keys-if="#chat-list .thread, #dups [data-pick]"><dt><kbd>j</kbd><kbd>k</kbd><kbd>↓</kbd><kbd>↑</kbd></dt><dd>Next or previous comment or duplicate</dd></div>`,
 		`<div class="krow" data-keys-if="#chat-list .thread-tools [name=resolves]"><dt><kbd>r</kbd></dt><dd>Resolve the comment</dd></div>`,
 		`<div class="krow" data-keys-if="#chat-text"><dt><kbd>Other keys</kbd></dt><dd>Write a reply</dd></div>`,
 		`<div class="krow" data-keys-for="Control+H"><dt><kbd>Ctrl+H</kbd></dt><dd>Hide or show the chat</dd></div>`} {

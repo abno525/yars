@@ -465,7 +465,7 @@ func TestDuplicatesInSideColumn(t *testing.T) {
 	}
 	b := e.do(t, "alice", "GET", fpath, nil, nil).Body.String()
 	side, dups, chat := strings.Index(b, `class="side"`), strings.Index(b, `id="dups"`), strings.Index(b, `id="chat"`)
-	if side < 0 || dups < side || chat < dups || !strings.Contains(b, `<section class="panel compact dups" id="dups">`) {
+	if side < 0 || dups < side || chat < dups || !strings.Contains(b, `<section class="panel compact dups" id="dups" data-kpanel="side">`) {
 		t.Fatalf("side %d, dups %d, chat %d", side, dups, chat)
 	}
 	// in the 560 px column the title keeps room (similarity and status go)

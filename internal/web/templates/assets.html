@@ -55,7 +55,7 @@
 {{end}}
 
 {{define "dups_panel"}}
-<section class="panel compact dups" id="dups">
+<section class="panel compact dups" id="dups"{{if .Side}} data-kpanel="side"{{end}}>
   <div class="panelhead">
     <div class="panelname"><h2>Possible duplicates</h2>{{template "assets_count" .Rows}}</div>
   </div>
@@ -64,13 +64,13 @@
       <thead><tr><th class="c-id">ID</th><th>Title</th><th class="c-tag">Status</th><th class="c-tag">Severity</th><th class="c-pct">Similarity</th><th class="c-go"><span class="sr">Merge</span></th></tr></thead>
       <tbody>
       {{range .Rows}}
-        <tr>
+        <tr{{if $.Side}} id="dup-{{.ID}}" data-pick{{end}}>
           <td class="fid"><a href="{{.URL}}">{{.ID}}</a></td>
           <td class="title"><a href="{{.URL}}" title="{{.Title}}">{{.Title}}</a></td>
           <td><span class="tag status-{{.Shown}}">{{statusLabel .Shown}}</span></td>
           <td>{{if .Severity}}<span class="tag sev-{{.Severity}}">{{.Severity}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
           <td class="num">{{.Pct}}%</td>
-          <td>{{if .MergeURL}}<a class="btn secondary sm w96" href="{{.MergeURL}}">Merge</a>{{else}}<span class="slot w96"></span>{{end}}</td>
+          <td>{{if .MergeURL}}<a class="btn secondary sm w96" href="{{.MergeURL}}" data-merge>Merge</a>{{else}}<span class="slot w96"></span>{{end}}</td>
         </tr>
       {{else}}{{template "empty_row" 6}}
       {{end}}

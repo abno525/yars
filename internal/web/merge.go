@@ -15,6 +15,7 @@ import (
 // dupView lists possible duplicates of a finding or of a title being typed.
 type dupView struct {
 	Rows []dupRow
+	Side bool // the finding page's side column: the keys pick its rows (keys.js)
 }
 
 type dupRow struct {

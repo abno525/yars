@@ -140,7 +140,8 @@ keys.js hides the Finding page group where there are no panels */}}
       <section class="kgroup" data-keys-group="chat"><h3 class="gh">Chat</h3>
         <dl>
           <div class="krow"><dt><kbd>c</kbd></dt><dd>Comment on the panel</dd></div>
-          <div class="krow" data-keys-if="#chat-list .thread"><dt><kbd>j</kbd><kbd>k</kbd><kbd>↓</kbd><kbd>↑</kbd></dt><dd>Next or previous comment</dd></div>
+          <div class="krow" data-keys-if="#chat-list .thread, #dups [data-pick]"><dt><kbd>j</kbd><kbd>k</kbd><kbd>↓</kbd><kbd>↑</kbd></dt><dd>Next or previous comment or duplicate</dd></div>
+          <div class="krow" data-keys-if="#dups [data-merge]"><dt><kbd>Enter</kbd></dt><dd>Merge into the picked duplicate</dd></div>
           <div class="krow" data-keys-if="#chat-list .thread-tools [name=resolves]"><dt><kbd>r</kbd></dt><dd>Resolve the comment</dd></div>
           <div class="krow" data-keys-if="#chat-text"><dt><kbd>Other keys</kbd></dt><dd>Write a reply</dd></div>
           <div class="krow"><dt><kbd>Ctrl+Enter</kbd></dt><dd>Send</dd></div>

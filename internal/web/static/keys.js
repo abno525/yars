@@ -92,10 +92,12 @@ function yarsEnter() {
   if (!p) return false;
   var a = document.activeElement;
   if (a && a !== document.body && a !== p && a.closest && a.closest('a, button, summary, input, select, textarea, [contenteditable]')) return false;
-  // a picked comment: its reply box
+  // a picked comment: its reply box; a picked duplicate: its Merge
   var t = yarsThread();
   var r = t ? t.querySelector('input[name=text]') : null;
   if (r) { r.focus(); return true; }
+  var mg = t ? t.querySelector('[data-merge]') : null;
+  if (mg) { mg.click(); return true; }
   var bs = Array.prototype.filter.call(p.querySelectorAll('button:not(:disabled):not([data-kskip]), a.btn:not([data-kskip])'), function (b) {
     return b.getClientRects().length > 0;
   });
@@ -375,7 +377,7 @@ document.addEventListener('pointerdown', function (evt) {
   var p = evt.target.closest && evt.target.closest('[data-kpanel]');
   if (p) yarsSelect(p, false);
   // a click in the chat picks the comment it is in (or none)
-  if (p && p.getAttribute('data-kpanel') === 'side') yarsThreadMark(evt.target.closest('#chat-list .thread[data-thread]'), false);
+  if (p && p.getAttribute('data-kpanel') === 'side') yarsThreadMark(evt.target.closest(yarsSideItems), false);
 }, true);
 // a swapped panel (live refresh, editor) keeps its mark: put back on the
 // swap, before htmx's settle delay, so it does not blink
@@ -407,7 +409,8 @@ function yarsStep(d) {
 // yarsSide selects the side panel (l, →); yarsBack, from there, returns to
 // the main panel selected last (h, ←).
 function yarsSide() {
-  var s = document.querySelector('[data-kpanel="side"]');
+  // the chat, though Possible duplicates sit above it in the same column
+  var s = document.querySelector('#chat[data-kpanel="side"]') || document.querySelector('[data-kpanel="side"]');
   if (!s) return false;
   if (yarsChatHidden()) yarsChat(true); // l shows a hidden chat
   yarsSelect(s, true);
@@ -422,44 +425,54 @@ function yarsBack() {
   return true;
 }
 
-/* ---------- the chat: j k ↓ ↑ pick a comment, r resolves it, keys write ---------- */
+/* ---------- the side column: j k ↓ ↑ pick a duplicate or a comment ---------- */
 
-// yarsThreadSel is the picked comment's id (its thread's root message; the
-// list is swapped by live refreshes, the id stays). A comment is picked only
-// while the chat (the side panel) is selected.
+// yarsThreadSel is the picked item's element id: a possible duplicate's row
+// (dup-<ID>) or a comment (t-<its thread's root message>; the chat list is
+// swapped by live refreshes, the id stays). An item is picked only while a
+// side panel (Possible duplicates, the chat) is selected.
 var yarsThreadSel = '';
+var yarsSideItems = '#chat-list .thread[data-thread], #dups tr[data-pick]';
 
-// yarsThreads: the chat's rendered comments, in order.
+// yarsThreads: the side column's rendered items, top to bottom (the
+// duplicates, then the comments).
 function yarsThreads() {
-  return Array.prototype.filter.call(document.querySelectorAll('#chat-list .thread[data-thread]'), function (t) {
+  return Array.prototype.filter.call(document.querySelectorAll(yarsSideItems), function (t) {
     return t.getClientRects().length > 0;
   });
 }
-// yarsThread: the picked comment, while the chat is selected.
+// yarsThread: the picked item, while a side panel is selected.
 function yarsThread() {
   var s = yarsSelected();
   if (!yarsThreadSel || !s || s.getAttribute('data-kpanel') !== 'side') return null;
-  return document.getElementById('t-' + yarsThreadSel);
+  return document.getElementById(yarsThreadSel);
 }
 // yarsThreadMark picks t (null: none): tinted as a list row; a key also
 // keeps it in view.
 function yarsThreadMark(t, scroll) {
-  document.querySelectorAll('#chat-list .thread[data-tsel]').forEach(function (x) {
+  document.querySelectorAll('[data-tsel]').forEach(function (x) {
     if (x !== t) x.removeAttribute('data-tsel');
   });
-  yarsThreadSel = t ? t.getAttribute('data-thread') : '';
+  yarsThreadSel = t ? t.id : '';
   if (!t) return;
   t.setAttribute('data-tsel', '');
   if (scroll && t.scrollIntoView) t.scrollIntoView({block: 'nearest'});
 }
-// yarsThreadStep picks the next (d = 1) or previous (d = -1) comment; with
+// yarsThreadPick picks t and selects the panel it is in (a step from the
+// last duplicate to the first comment moves into the chat).
+function yarsThreadPick(t) {
+  var p = t.closest('[data-kpanel]');
+  if (p && p !== yarsSelected()) yarsSelect(p, false);
+  yarsThreadMark(t, true);
+}
+// yarsThreadStep picks the next (d = 1) or previous (d = -1) item; with
 // none picked, the first (↓) or the last (↑).
 function yarsThreadStep(d) {
   var list = yarsThreads();
   if (!list.length) return false;
   var i = list.indexOf(yarsThread());
-  if (i < 0) yarsThreadMark(d > 0 ? list[0] : list[list.length - 1], true);
-  else yarsThreadMark(list[Math.max(0, Math.min(list.length - 1, i + d))], true);
+  if (i < 0) yarsThreadPick(d > 0 ? list[0] : list[list.length - 1]);
+  else yarsThreadPick(list[Math.max(0, Math.min(list.length - 1, i + d))]);
   return true;
 }
 // yarsResolveKey: r resolves the picked comment (its Resolve button).
@@ -488,7 +501,7 @@ function yarsWrite(evt) {
 // a refreshed list keeps the picked comment (gone: none)
 document.addEventListener('htmx:afterSwap', function () {
   if (!yarsThreadSel) return;
-  var t = document.getElementById('t-' + yarsThreadSel);
+  var t = document.getElementById(yarsThreadSel);
   if (t) t.setAttribute('data-tsel', '');
   else yarsThreadSel = '';
 });
