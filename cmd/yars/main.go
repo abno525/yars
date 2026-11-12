@@ -82,6 +82,11 @@ func cmdExport(args []string, out io.Writer) (int, error) {
 	if fs.NArg() < 1 {
 		return 2, fmt.Errorf("usage: yars export --exporter <id> <engagement> [<finding-dir>…]")
 	}
+	for _, a := range fs.Args()[1:] { // the flag package stops at the engagement
+		if strings.HasPrefix(a, "-") {
+			return 2, fmt.Errorf("usage: yars export [flags] <engagement> [<finding>…]: flags go before the engagement; %q is after it", a)
+		}
+	}
 	r, err := openData(fs, *data)
 	if err != nil {
 		return 2, err

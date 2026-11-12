@@ -51,6 +51,17 @@ func TestExportCLIMarkFailureExits1(t *testing.T) {
 	}
 }
 
+// Flags go before the engagement: one after it is refused, not taken for
+// a finding (backlog, M8).
+func TestExportCLIFlagAfterEngagement(t *testing.T) {
+	dir := exportFixture(t)
+	var log bytes.Buffer
+	code, err := cmdExport([]string{"--data", dir, "--exporter", "confluence", "acme", "F-001-sql-injection", "--out", "x.html"}, &log)
+	if code != 2 || err == nil || !strings.Contains(err.Error(), `flags go before the engagement; "--out" is after it`) {
+		t.Fatalf("code %d err %v", code, err)
+	}
+}
+
 // --mark and --as are checked before anything is exported: a mistake in
 // them writes nothing (backlog, M8).
 func TestExportCLIMarkCheckedFirst(t *testing.T) {
