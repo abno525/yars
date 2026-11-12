@@ -37,40 +37,68 @@ function yarsFirstField(p) {
   if (f) f.focus();
 }
 
-// E: the focused section, else the one last selected, else the first text
-// section. An already open editor gets focus back instead.
+// E (K3): the selected panel only. Its open editor gets focus back; else its
+// Edit button is pressed. Nothing selected: nothing.
 function yarsEdit() {
-  var cands = [yarsPanelOf(document.activeElement), yarsLastPanel ? document.getElementById(yarsLastPanel) : null];
-  for (var i = 0; i < cands.length; i++) {
-    var p = cands[i];
-    if (!p) continue;
-    if (p.classList.contains('editing')) { yarsFirstField(p); return true; }
-    var b = p.querySelector('button[aria-keyshortcuts~="E"]:not(:disabled)');
-    if (b) { yarsFocusAfter = p.id; b.click(); return true; }
-  }
-  var first = document.querySelector('section.panel[id^="s-"] button[aria-keyshortcuts~="E"]:not(:disabled)');
-  if (!first) return false;
-  yarsFocusAfter = yarsPanelOf(first).id;
-  first.click();
+  var p = yarsSelected();
+  if (!p) return false;
+  if (p.classList.contains('editing')) { yarsFirstField(p); return true; }
+  var b = p.querySelector('button[aria-keyshortcuts~="E"]:not(:disabled)');
+  if (!b) return false;
+  yarsFocusAfter = p.id;
+  b.click();
   return true;
 }
 
-// Ctrl+S: the open editor holding focus, else the one last selected, else
-// the only one open. It presses that editor's own Save button (never a
-// first submit button such as Clear vector); a disabled Save does nothing.
+// Ctrl+S (K3): saves the form holding focus, never one marked data-nosave
+// (login, setup, set password). In a save conflict it only moves focus to
+// Keep mine. The button is the form's Control+S one (never a first submit
+// button such as Clear vector), else its first submit button; a disabled
+// one does nothing. In the Redact dialog it presses the dialog's Save.
 function yarsSave() {
-  var open = Array.prototype.filter.call(document.querySelectorAll('section.panel.editing[id]'), function (p) {
-    return !!p.querySelector('button[aria-keyshortcuts~="Control+S"]');
+  var rd = document.querySelector('dialog[open] [data-redact-save]');
+  if (rd) { if (!rd.disabled) rd.click(); return; }
+  if (document.querySelector('dialog[open]')) return;
+  var a = document.activeElement;
+  var form = a && a.closest ? a.closest('form') : null;
+  if (!form || form.hasAttribute('data-nosave')) return;
+  var conflict = form.closest('.conflict');
+  if (conflict) {
+    var keep = conflict.querySelector('.cbar button:not([type=button])');
+    if (keep) keep.focus();
+    return;
+  }
+  var btn = form.querySelector('[aria-keyshortcuts~="Control+S"]') || form.querySelector('button:not([type=button])');
+  if (!btn || btn.disabled) return;
+  var p = yarsPanelOf(form);
+  if (p) yarsLastPanel = yarsFocusAfter = p.id;
+  form.requestSubmit(btn);
+}
+
+// Enter (K3) on a selected panel with no field or control focused presses
+// the panel's one button besides Comment and Edit (data-kskip); with none
+// or several, nothing.
+function yarsEnter() {
+  var p = yarsSelected();
+  if (!p) return false;
+  var a = document.activeElement;
+  if (a && a !== document.body && a !== p && a.closest && a.closest('a, button, summary, input, select, textarea, [contenteditable]')) return false;
+  var bs = Array.prototype.filter.call(p.querySelectorAll('button:not(:disabled):not([data-kskip]), a.btn:not([data-kskip])'), function (b) {
+    return b.getClientRects().length > 0;
   });
-  var a = yarsPanelOf(document.activeElement);
-  var l = yarsLastPanel ? document.getElementById(yarsLastPanel) : null;
-  var p = open.indexOf(a) >= 0 ? a : open.indexOf(l) >= 0 ? l : open.length === 1 ? open[0] : null;
-  if (!p) return;
-  var btn = p.querySelector('button[aria-keyshortcuts~="Control+S"]');
-  var form = btn.form;
-  if (!form || btn.disabled) return;
-  yarsLastPanel = yarsFocusAfter = p.id;
-  if (form.requestSubmit) form.requestSubmit(btn); else btn.click();
+  if (bs.length !== 1) return false;
+  bs[0].click();
+  return true;
+}
+
+// c (K3): a comment on the selected panel (its Comment button's section),
+// General when it has none or nothing is selected; finding page only.
+function yarsCommentKey() {
+  if (!document.getElementById('chat-text')) return false;
+  var p = yarsSelected();
+  var b = p ? p.querySelector('[data-comment]') : null;
+  yarsComment(b ? b.getAttribute('data-comment') : '');
+  return true;
 }
 
 // yarsKeyOf names a key the way aria-keyshortcuts does: "Shift+A",
@@ -226,7 +254,13 @@ document.addEventListener('keydown', function (evt) {
   if (key === 'Control+S') {
     // never the browser's "Save page" dialog on a YARS page
     evt.preventDefault();
-    if (!evt.repeat && !document.querySelector('dialog[open]')) yarsSave();
+    if (!evt.repeat) yarsSave();
+    return;
+  }
+  if (key === 'Control+Z') {
+    // the Redact dialog's Undo; elsewhere the browser's own
+    var undo = document.querySelector('dialog[open] [data-redact-undo]');
+    if (undo) { evt.preventDefault(); undo.click(); }
     return;
   }
   if (key === 'Control+Enter') {
@@ -242,6 +276,8 @@ document.addEventListener('keydown', function (evt) {
   if (evt.ctrlKey || evt.metaKey) return; // the browser's own (Ctrl+K is app.js's)
   if (yarsNav(key)) { evt.preventDefault(); return; }
   if (key === 'E') { if (yarsEdit()) evt.preventDefault(); return; }
+  if (key === 'Enter') { if (yarsEnter()) evt.preventDefault(); return; }
+  if (key === 'C') { if (yarsCommentKey()) evt.preventDefault(); return; }
   if (yarsFire(key)) evt.preventDefault();
 });
 

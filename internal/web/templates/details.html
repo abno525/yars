@@ -3,8 +3,8 @@
   <div class="panelhead">
     <h2 id="s-details">Details</h2>
     <div class="panel-tools">
-      {{if .ReadOnly}}<span class="slot w96"></span>{{else}}<button class="btn ghost sm w96" type="button" data-comment="Details">Comment</button>{{end}}
-      {{if .Locked}}<span class="slot w96 lockslot">{{template "lock"}}</span>{{else}}<button class="btn ghost sm w96" aria-keyshortcuts="E" hx-get="{{.EditURL}}" hx-target="#details" hx-swap="outerHTML">Edit</button>{{end}}
+      {{if .ReadOnly}}<span class="slot w96"></span>{{else}}<button class="btn ghost sm w96" type="button" data-comment="Details" data-kskip>Comment</button>{{end}}
+      {{if .Locked}}<span class="slot w96 lockslot">{{template "lock"}}</span>{{else}}<button class="btn ghost sm w96" aria-keyshortcuts="E" data-kskip hx-get="{{.EditURL}}" hx-target="#details" hx-swap="outerHTML">Edit</button>{{end}}
     </div>
   </div>
   <table class="kv details">

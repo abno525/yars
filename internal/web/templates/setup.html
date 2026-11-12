@@ -1,5 +1,5 @@
 {{define "content"}}
-<form class="barecard" method="post" action="/setup">
+<form class="barecard" method="post" action="/setup" data-nosave>
   <div class="barefields">
     <div class="barehead"><h1>Set up YARS</h1><span class="tag role">director</span><span class="tag adminflag">admin</span></div>
     <label>Username<input name="username" value="{{.Form.Get "username"}}" autocomplete="username" pattern="[A-Za-z0-9._\-]+" required autofocus></label>

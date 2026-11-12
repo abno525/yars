@@ -209,8 +209,8 @@ the table's column count. */}}
     <div class="panelname"><h2>{{.Name}}</h2>{{if .Open}}<span class="open-count">{{.Open}}</span>{{end}}</div>
     <span class="panel-tools">
       {{if .Presence.URL}}{{template "presence" .Presence}}{{end}}
-      {{if .ReadOnly}}<span class="slot w96"></span>{{else}}<button class="btn ghost sm w96" type="button" data-comment="{{.Name}}">Comment</button>{{end}}
-      {{if .EditURL}}<button class="btn ghost sm w96" aria-keyshortcuts="E" hx-get="{{.EditURL}}" hx-target="#s-{{.Anchor}}" hx-swap="outerHTML">Edit</button>{{else}}<span class="slot w96 lockslot">{{template "lock"}}</span>{{end}}
+      {{if .ReadOnly}}<span class="slot w96"></span>{{else}}<button class="btn ghost sm w96" type="button" data-comment="{{.Name}}" data-kskip>Comment</button>{{end}}
+      {{if .EditURL}}<button class="btn ghost sm w96" aria-keyshortcuts="E" data-kskip hx-get="{{.EditURL}}" hx-target="#s-{{.Anchor}}" hx-swap="outerHTML">Edit</button>{{else}}<span class="slot w96 lockslot">{{template "lock"}}</span>{{end}}
     </span>
   </div>
   <div class="md">{{if .HTML}}{{.HTML}}{{else}}<p class="muted">Empty</p>{{end}}</div>

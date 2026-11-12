@@ -99,6 +99,7 @@ M28 task 3  done     874ca24 to d8e8d03 (one commit per package: web, store, mcp
 M28 tasks   review   passed (1, 2, 3: byte-for-byte moves checked; placements as recorded); wording nits 9da5d61
 M28 branch  reviewed passed but for size: split into pr/22a-store-split (to a2160ff) and pr/22b-test-names 44885ee
 M28 PRs     opened   #22 (pr/22a-store-split), #23 (pr/22b-test-names)
-M29 task 2  done     (browser check passed: j through the eleven main panels of a finding in order, k back, l to the chat, h back; every box the same at the same scroll, the chat's sticky column aside; Esc closed the More popover, then the Withdraw form, then the Details editor, then cleared the selection)
 M29 task 1  done     782b2c2 (browser check 1 passed: "ecinjk?/" typed into a Details textarea, an Assets input, the CVSS paste and reason, a section body, a chat reply, the composer; a CVSS radio and the section select unchanged; the page, its five open editors and its panels unchanged; Ctrl+K and Esc work from the composer)
+M29 task 2  done     38b80c4 (browser check passed: j through the eleven main panels of a finding in order, k back, l to the chat, h back; every box the same at the same scroll, the chat's sticky column aside; Esc closed the More popover, then the Withdraw form, then the Details editor, then cleared the selection)
+M29 task 3  done     (browser check passed: j j e opened Details with focus in Location, typed, Ctrl+S saved it and put focus on its Edit button, page unchanged; Ctrl+S in Settings › Account posted /settings/account only; Ctrl+S on the login page posted nothing; in the CVSS editor Ctrl+S from a reason field posted Save and the vector stayed; the seed config never disables Save for a missing reason)
 ```

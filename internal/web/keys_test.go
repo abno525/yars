@@ -150,6 +150,79 @@ func TestKeysSelectionMarkers(t *testing.T) {
 	}
 }
 
+// K3: each editor has exactly one Ctrl+S button, its Save.
+func TestEditorSaveHasCtrlS(t *testing.T) {
+	e := setup(t)
+	for name, u := range map[string]string{"section": fpath + "/s/Impact/edit", "details": fpath + "/details/edit", "assets": fpath + "/assets/edit", "cvss": fpath + "/cvss/edit"} {
+		if got := keyed(e.do(t, "alice", "GET", u, nil, nil).Body.String(), "Control+S"); len(got) != 1 || !strings.HasSuffix(got[0], ">Save") {
+			t.Errorf("%s editor: %q", name, got)
+		}
+	}
+}
+
+// Review focus 5: Ctrl+S in the CVSS editor never presses Clear vector.
+func TestCVSSClearHasNoCtrlS(t *testing.T) {
+	e := setup(t)
+	e.do(t, "alice", "POST", fpath+"/cvss", vecForm(map[string]string{"reason_AC": "a", "reason_C": "b", "reason_I": "c"}), nil)
+	b := e.do(t, "alice", "GET", fpath+"/cvss/edit", nil, nil).Body.String()
+	clear := regexp.MustCompile(`<button[^>]*>Clear vector</button>`).FindString(b)
+	if clear == "" || strings.Contains(clear, "aria-keyshortcuts") {
+		t.Fatalf("Clear vector: %q", clear)
+	}
+}
+
+// K3: Ctrl+S never submits the login, setup or set-password forms.
+func TestLoginSetupPasswordHaveNoSave(t *testing.T) {
+	for _, f := range []string{"login.html", "setup.html", "password.html"} {
+		b, err := templateFS.ReadFile("templates/" + f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if form := regexp.MustCompile(`<form[^>]*>`).FindString(string(b)); !strings.Contains(form, " data-nosave") {
+			t.Errorf("%s: %q", f, form)
+		}
+	}
+	e := setup(t)
+	if b := e.do(t, "", "GET", "/login", nil, nil).Body.String(); !strings.Contains(b, `action="/login" data-nosave`) {
+		t.Fatalf("login page:\n%s", b)
+	}
+}
+
+// K3: Enter presses a panel's one button besides Comment and Edit, so both
+// are marked to be skipped.
+func TestCommentAndEditAreSkippedByEnter(t *testing.T) {
+	e := setup(t)
+	b := e.do(t, "alice", "GET", fpath, nil, nil).Body.String()
+	for _, id := range []string{"s-impact", "details", "assets", "cvss"} {
+		p := between(b, `id="`+id+`"`, "</section>")
+		for _, label := range []string{">Comment</button>", ">Edit</button>"} {
+			if id == "cvss" && label == ">Edit</button>" {
+				label = ">Calculate</button>"
+			}
+			btn := regexp.MustCompile(`<button[^>]*` + regexp.QuoteMeta(label)).FindString(p)
+			if !strings.Contains(btn, " data-kskip") {
+				t.Errorf("%s %s: %q", id, label, btn)
+			}
+		}
+	}
+}
+
+// K3: keys.js saves the focused form (never one marked data-nosave), and in
+// a conflict only moves focus to Keep mine; Ctrl+S and Ctrl+Z serve the
+// Redact dialog.
+func TestKeysSaveMarkers(t *testing.T) {
+	e := setup(t)
+	js := e.do(t, "alice", "GET", "/static/keys.js", nil, nil).Body.String()
+	for _, want := range []string{"data-nosave", ".conflict", "data-redact-save", "data-redact-undo", "data-kskip", "function yarsComment"} {
+		if want == "function yarsComment" {
+			want = "yarsComment("
+		}
+		if !strings.Contains(js, want) {
+			t.Errorf("keys.js lacks %s", want)
+		}
+	}
+}
+
 // The key block left app.js for keys.js.
 func TestAppJSHasNoKeyBlock(t *testing.T) {
 	e := setup(t)
