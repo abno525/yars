@@ -21,7 +21,7 @@ What the polish backlog left open (it was `docs/superpowers/deferred-minors.md` 
 | Text in a finding can talk an AI rule into passing it (prompt injection) | Mark the finding's text as data in the prompt, and keep AI rules at warning level where they gate Submit. |
 | Old repositories still hold password hashes in their git history (`users.yaml` is untracked since M6) | An opt-in history purge of `.yars/users.yaml` for directors, never automatic: a rewrite breaks every clone (D28's reasoning). |
 | The Confluence push embeds images as data URIs, which Confluence may not show | Upload them through Confluence's attachments API after the page is made (about 100 lines with a fake-server test). |
-| Some pandoc builds cannot write docx under `--sandbox`; the fallback runs without it | Say in `docs/deploy.md` that a static pandoc release keeps the sandbox, and show the fallback under Admin › System. |
+| Some pandoc builds cannot write docx under `--sandbox`; the fallback runs without it | Show the fallback under Admin › System (`docs/deploy.md` says since M35 that a static pandoc release keeps the sandbox). |
 | MCP over HTTP has no OAuth protected-resource metadata | Don't: YARS has no authorization server to name; the bearer token is documented in `docs/mcp.md`. |
 | Attachments are not covered by a sign-off (the clearance hash is `finding.md`'s) | Drop sign-offs when an attachment of a finding in verification changes, as a text change does. It changes what a sign-off covers, so it is the user's call. |
 | A director's push to an approved finding moves the approval before the push lands; if it then fails, the finding falls back to verification | Record the move in the hook and apply it after the push lands (about 65 lines). |

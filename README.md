@@ -13,7 +13,7 @@ echo 'change-me' | ./yars useradd --data data --role director --admin alice
 ./yars serve --data data
 ```
 
-Open <http://localhost:8080>. Further documentation is in [docs](docs).
+Open <http://localhost:8080>. Further documentation is in [docs](docs); running it for a team (a service, HTTPS, backups, upgrades) is in [docs/deploy.md](docs/deploy.md).
 In a git clone, `yars hook install` has every commit checked by the server ([Check before you commit](docs/git.md#check-before-you-commit)).
 
 ## Default data folder
