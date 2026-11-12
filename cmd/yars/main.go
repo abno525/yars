@@ -389,6 +389,15 @@ func engOfGitDir(dataDir, gitDir string) string {
 // cmdHook implements "yars hook pre-receive": reads "<old> <new> <ref>"
 // lines from git, checks them against the server's rules and prints one
 // "yars: <problem>" line per rejection reason. Exit 1 rejects the push.
+// objectID reports whether s is a git object name: 40 hex digits (SHA-1)
+// or 64 (SHA-256), lower case as git writes them.
+func objectID(s string) bool {
+	if len(s) != 40 && len(s) != 64 {
+		return false
+	}
+	return strings.Trim(s, "0123456789abcdef") == ""
+}
+
 func cmdHook(args []string, in io.Reader, errOut io.Writer) int {
 	if len(args) == 0 || args[0] != "pre-receive" {
 		fmt.Fprintln(errOut, "yars: usage: yars hook pre-receive --data <dir> | yars hook install [--data <clone>]")
@@ -432,12 +441,20 @@ func cmdHook(args []string, in io.Reader, errOut io.Writer) int {
 	if err != nil {
 		return fail(err.Error())
 	}
+	// every line is "<old> <new> <ref>": anything else, or input that cannot
+	// be read whole, refuses the push (a skipped line's update would land
+	// unchecked)
 	var ups []policy.Update
 	sc := bufio.NewScanner(in)
 	for sc.Scan() {
-		if f := strings.Fields(sc.Text()); len(f) == 3 {
-			ups = append(ups, policy.Update{Old: f[0], New: f[1], Ref: f[2]})
+		f := strings.Fields(sc.Text())
+		if len(f) != 3 || !objectID(f[0]) || !objectID(f[1]) {
+			return fail(fmt.Sprintf("unreadable hook input %.80q; push refused", sc.Text()))
 		}
+		ups = append(ups, policy.Update{Old: f[0], New: f[1], Ref: f[2]})
+	}
+	if err := sc.Err(); err != nil {
+		return fail("unreadable hook input (" + err.Error() + "); push refused")
 	}
 	// which repository is being pushed to: the main repo or engagements/<id>
 	c := &policy.Checker{Repo: r, Cfg: cfg, Users: users, DB: d, ConfigErr: cfgErr}
