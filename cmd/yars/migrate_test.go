@@ -165,6 +165,25 @@ func TestMigrate(t *testing.T) {
 // If the migration commit fails, the working tree is left exactly as it was
 // (a dirty tree would make every push fail), and a re-run finishes the job
 // without duplicating chat.
+// A file the main repository ignored stays out of the engagement's own
+// repository when the migration makes it (its import commit took every
+// file) (backlog, M11).
+func TestMigrateKeepsIgnoredFilesOut(t *testing.T) {
+	dir := legacyRepo(t)
+	os.WriteFile(filepath.Join(dir, ".gitignore"), []byte(".yars/users.yaml\n.yars/tokens.yaml\n*.tmp\n"), 0o644)
+	gitT(t, dir, "commit", "-qam", "ignore scratch files")
+	os.WriteFile(filepath.Join(dir, "engagements", "acme", "findings", "F-001-sqli", "scratch.tmp"), []byte("local notes"), 0o644)
+	os.WriteFile(filepath.Join(dir, "engagements", "acme", "loose.md"), []byte("not ignored"), 0o644)
+	var out bytes.Buffer
+	if err := cmdMigrate([]string{"--data", dir}, &out); err != nil {
+		t.Fatalf("%v\n%s", err, out.String())
+	}
+	tracked, err := gitIn(filepath.Join(dir, "engagements", "acme"), "ls-files")
+	if err != nil || strings.Contains(tracked, "scratch.tmp") || !strings.Contains(tracked, "loose.md") {
+		t.Fatalf("tracked:\n%s", tracked)
+	}
+}
+
 // A finding folder copied by hand with its chat.jsonl holds messages whose
 // ids another finding's chat already has: ids are unique, so they are not
 // copied, and the migration says so instead of dropping them silently

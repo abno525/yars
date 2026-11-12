@@ -376,8 +376,21 @@ func splitEngagements(r *gitrepo.Repo, out io.Writer) error {
 				return err
 			}
 		}
+		// what the main repository ignored there stays out of the new one
+		ignored, _ := gitIn(r.Dir, "ls-files", "-z", "-o", "-i", "--exclude-standard", "--", p)
 		if _, err := gitIn(abs, "init", "-q", "-b", "main"); err != nil {
 			return err
+		}
+		var exclude []string
+		for _, f := range strings.Split(ignored, "\x00") {
+			if f != "" {
+				exclude = append(exclude, "/"+strings.TrimPrefix(f, p+"/"))
+			}
+		}
+		if len(exclude) > 0 {
+			if err := os.WriteFile(filepath.Join(abs, ".git", "info", "exclude"), []byte(strings.Join(exclude, "\n")+"\n"), 0o644); err != nil {
+				return err
+			}
 		}
 		if split {
 			if _, err := gitIn(abs, "fetch", "-q", r.Dir, branch); err != nil {
@@ -388,14 +401,22 @@ func splitEngagements(r *gitrepo.Repo, out io.Writer) error {
 			}
 			gitIn(r.Dir, "branch", "-q", "-D", branch)
 		}
-		// anything not in the split history (or everything, without it)
+		// anything not in the split history (or everything, without it), but
+		// what is excluded: named, since the commit adds what it is given
 		if st, _ := gitIn(abs, "status", "--porcelain"); st != "" {
 			er, err := gitrepo.Open(abs)
 			if err != nil {
 				return err
 			}
-			if err := er.Commit([]string{"."}, "engagement "+id+": import", system); err != nil {
+			list, err := gitIn(abs, "ls-files", "-z", "-o", "-m", "-d", "--exclude-standard")
+			if err != nil {
 				return err
+			}
+			files := slices.Compact(slices.Sorted(slices.Values(slices.DeleteFunc(strings.Split(list, "\x00"), func(f string) bool { return f == "" }))))
+			if len(files) > 0 {
+				if err := er.Commit(files, "engagement "+id+": import", system); err != nil {
+					return err
+				}
 			}
 		}
 		fmt.Fprintln(out, "engagement", id, "is now its own repository")
