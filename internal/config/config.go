@@ -133,6 +133,9 @@ type User struct {
 	// MustChange: the password is a temporary one an admin gave (Add user,
 	// Reset password); the user sets a new one before anything else.
 	MustChange bool `yaml:"-"`
+	// KeysOff: the account switched the keyboard shortcuts off (Settings ›
+	// Preferences); Ctrl+S, Ctrl+Enter, Ctrl+K and Esc still work.
+	KeysOff bool `yaml:"-"`
 }
 
 // GitAuthor is the account's git identity.

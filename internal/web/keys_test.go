@@ -472,6 +472,96 @@ func TestRangeSelectMarkers(t *testing.T) {
 	}
 }
 
+var htmlTagRe = regexp.MustCompile(`<html[^>]*>`)
+
+// K9: Preferences › Keyboard shortcuts Off is stored and puts data-keys="off"
+// on <html>, which keys.js reads; a bad value is refused, a form without the
+// field leaves it as it is.
+func TestPrefsKeysOffSaves(t *testing.T) {
+	e := setup(t)
+	if rec := e.do(t, "alice", "POST", "/settings/prefs", url.Values{"theme": {"system"}, "keys": {"off"}}, nil); rec.Code != 303 {
+		t.Fatalf("save %d %s", rec.Code, rec.Body.String())
+	}
+	if u, _, _ := e.srv.Store.DB().User("alice"); !u.KeysOff {
+		t.Fatal("not stored")
+	}
+	b := e.do(t, "alice", "GET", "/settings", nil, nil).Body.String()
+	if tag := htmlTagRe.FindString(b); !strings.Contains(tag, ` data-keys="off"`) {
+		t.Errorf("<html>: %s", tag)
+	}
+	if !strings.Contains(b, `name="keys" value="off" checked`) || strings.Contains(b, `name="keys" value="on" checked`) {
+		t.Errorf("Preferences:\n%s", between(b, `id="prefs"`, "</form>"))
+	}
+	if rec := e.do(t, "alice", "POST", "/settings/prefs", url.Values{"theme": {"dark"}, "keys": {"maybe"}}, nil); rec.Code != 400 {
+		t.Errorf("keys=maybe: %d", rec.Code)
+	}
+	if u, _, _ := e.srv.Store.DB().User("alice"); !u.KeysOff || u.Theme != "" {
+		t.Errorf("a refused save changed something: keys off %v, theme %q", u.KeysOff, u.Theme)
+	}
+	e.do(t, "alice", "POST", "/settings/prefs", url.Values{"theme": {"dark"}}, nil)
+	if u, _, _ := e.srv.Store.DB().User("alice"); !u.KeysOff || u.Theme != "dark" {
+		t.Errorf("theme only: keys off %v, theme %q", u.KeysOff, u.Theme)
+	}
+	e.do(t, "alice", "POST", "/settings/prefs", url.Values{"theme": {"dark"}, "keys": {"on"}}, nil)
+	if tag := htmlTagRe.FindString(e.do(t, "alice", "GET", "/", nil, nil).Body.String()); strings.Contains(tag, "data-keys") {
+		t.Errorf("on again: %s", tag)
+	}
+}
+
+// K9: shortcuts are on for a new account.
+func TestKeysOnByDefault(t *testing.T) {
+	e := setup(t)
+	b := e.do(t, "bob", "GET", "/settings", nil, nil).Body.String()
+	if tag := htmlTagRe.FindString(b); strings.Contains(tag, "data-keys") {
+		t.Errorf("<html>: %s", tag)
+	}
+	p := between(b, `id="prefs"`, "</form>")
+	for _, w := range []string{`<span class="flabel">Keyboard shortcuts</span>`, `name="keys" value="on" checked`, `name="keys" value="off">`, ">On<", ">Off<"} {
+		if !strings.Contains(p, w) {
+			t.Errorf("Preferences lacks %s:\n%s", w, p)
+		}
+	}
+	if n := strings.Count(p, "<button"); n != 1 {
+		t.Errorf("%d buttons in Preferences, want its one Save", n)
+	}
+}
+
+// K8: the shortcut list is there for a signed-in account only.
+func TestOverlayOnlyWhenSignedIn(t *testing.T) {
+	e := setup(t)
+	if tag := tagOf(e.do(t, "alice", "GET", "/", nil, nil).Body.String(), "keys"); !strings.HasPrefix(tag, `<dialog `) || !strings.Contains(tag, ` class="gotodlg keysdlg"`) {
+		t.Errorf("signed in: %q", tag)
+	}
+	if b := e.do(t, "", "GET", "/login", nil, nil).Body.String(); strings.Contains(b, `id="keys"`) {
+		t.Error("the login page has the list")
+	}
+}
+
+// K8: the list names every key of the key map, in four groups; ? opens it.
+func TestOverlayListsEveryKey(t *testing.T) {
+	e := setup(t)
+	b := e.do(t, "alice", "GET", "/", nil, nil).Body.String()
+	d := between(b, `id="keys"`, "</dialog>")
+	for _, k := range []string{"?", "/", "Ctrl+K", "Esc", "Ctrl+S", "Ctrl+Enter", "Ctrl+Z", "i", "f", "b", "n",
+		"j", "k", "↓", "↑", "l", "h", "→", "←", "e", "Enter", "c", "x", "Shift+Space",
+		"Shift+S", "Shift+O", "Shift+A", "Shift+P", "Shift+R", "Shift+W", "Shift+U", "Shift+T", "Shift+C", "Shift+H"} {
+		if !strings.Contains(d, "<kbd>"+k+"</kbd>") {
+			t.Errorf("the list lacks %s", k)
+		}
+	}
+	for _, g := range []string{">Global<", ">Finding page<", ">Lists<", ">Chat<", `data-keys-group="finding"`} {
+		if !strings.Contains(d, g) {
+			t.Errorf("the list lacks %s", g)
+		}
+	}
+	js := e.do(t, "alice", "GET", "/static/keys.js", nil, nil).Body.String()
+	for _, w := range []string{"key === '?'", "showModal()", `[data-keys-group="finding"]`} {
+		if !strings.Contains(js, w) {
+			t.Errorf("keys.js lacks %s", w)
+		}
+	}
+}
+
 // The key block left app.js for keys.js.
 func TestAppJSHasNoKeyBlock(t *testing.T) {
 	e := setup(t)

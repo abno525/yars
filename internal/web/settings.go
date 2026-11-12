@@ -21,6 +21,7 @@ type settingsView struct {
 	Notify   []notifyRow
 	Channels []option
 	Themes   []option
+	Keys     []option // keyboard shortcuts On / Off
 	// what failed, per panel ("" = nothing)
 	AccountErr, PasswordErr, ConnErr, NotifyErr string
 	Token                                       tokenForm // the New token page
@@ -197,6 +198,7 @@ func (s *Server) settingsBase(r *http.Request) (*page, error) {
 		th.On = th.Value == u.Theme || (th.Value == "system" && u.Theme == "")
 		p.Settings.Themes = append(p.Settings.Themes, th)
 	}
+	p.Settings.Keys = []option{{Value: "on", Label: "On", On: !u.KeysOff}, {Value: "off", Label: "Off", On: u.KeysOff}}
 	return p, nil
 }
 
@@ -287,7 +289,9 @@ func (s *Server) settingsPassword(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/settings#password", http.StatusSeeOther)
 }
 
-// settingsPrefs saves the Preferences panel (the theme).
+// settingsPrefs saves the Preferences panel: the theme and the keyboard
+// shortcuts (a form without keys leaves them as they are). Both are checked
+// before either is stored.
 func (s *Server) settingsPrefs(w http.ResponseWriter, r *http.Request) {
 	u := auth.UserFrom(r.Context())
 	t := r.FormValue("theme")
@@ -298,9 +302,20 @@ func (s *Server) settingsPrefs(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "theme must be light, dark or system", http.StatusBadRequest)
 		return
 	}
+	keys, setKeys := r.FormValue("keys"), r.Form.Has("keys")
+	if setKeys && keys != "on" && keys != "off" {
+		http.Error(w, "keyboard shortcuts must be on or off", http.StatusBadRequest)
+		return
+	}
 	if err := s.Store.DB().SetTheme(u.Username, t); err != nil {
 		s.fail(w, err)
 		return
+	}
+	if setKeys {
+		if err := s.Store.DB().SetKeysOff(u.Username, keys == "off"); err != nil {
+			s.fail(w, err)
+			return
+		}
 	}
 	http.Redirect(w, r, "/settings#prefs", http.StatusSeeOther)
 }

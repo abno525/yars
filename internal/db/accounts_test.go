@@ -48,6 +48,36 @@ func TestUserFlags(t *testing.T) {
 	}
 }
 
+// K9 (schema v22): shortcuts are on for a new account; SetKeysOff stores
+// the preference, and refuses an unknown account.
+func TestKeysOff(t *testing.T) {
+	d, _ := open(t)
+	if err := d.AddUser(config.User{Username: "ann", Role: "pentester"}); err != nil {
+		t.Fatal(err)
+	}
+	if u, _, _ := d.User("ann"); u.KeysOff {
+		t.Fatal("off for a new account")
+	}
+	if err := d.SetKeysOff("ann", true); err != nil {
+		t.Fatal(err)
+	}
+	if u, _, _ := d.User("ann"); !u.KeysOff {
+		t.Fatal("not stored")
+	}
+	if us, _ := d.Users(); len(us) != 1 || !us[0].KeysOff {
+		t.Fatalf("users %+v", us)
+	}
+	if err := d.SetKeysOff("ann", false); err != nil {
+		t.Fatal(err)
+	}
+	if u, _, _ := d.User("ann"); u.KeysOff {
+		t.Fatal("still off")
+	}
+	if err := d.SetKeysOff("ghost", true); err == nil {
+		t.Fatal("set for an unknown account")
+	}
+}
+
 func TestScopedTokens(t *testing.T) {
 	d, _ := open(t)
 	now := time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)

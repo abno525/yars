@@ -26,6 +26,9 @@
         <div class="frow"><span class="flabel">Theme</span>
           <div class="seg n3" role="radiogroup" aria-label="Theme">{{range .Settings.Themes}}<label><input type="radio" name="theme" value="{{.Value}}"{{if .On}} checked{{end}}><span>{{.Label}}</span></label>{{end}}</div>
         </div>
+        <div class="frow"><span class="flabel">Keyboard shortcuts</span>
+          <div class="seg n2" role="radiogroup" aria-label="Keyboard shortcuts">{{range .Settings.Keys}}<label><input type="radio" name="keys" value="{{.Value}}"{{if .On}} checked{{end}}><span>{{.Label}}</span></label>{{end}}</div>
+        </div>
       </div>
     </form>
 

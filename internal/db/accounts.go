@@ -48,11 +48,11 @@ func (d *DB) AddUser(u config.User) error {
 	})
 }
 
-const userCols = "username, email, role, password_hash, is_admin, disabled, theme, created, must_change"
+const userCols = "username, email, role, password_hash, is_admin, disabled, theme, created, must_change, keys_off"
 
 func scanUser(sc interface{ Scan(...any) error }) (config.User, error) {
 	var u config.User
-	err := sc.Scan(&u.Username, &u.Email, &u.Role, &u.PasswordHash, &u.IsAdmin, &u.Disabled, &u.Theme, &u.Created, &u.MustChange)
+	err := sc.Scan(&u.Username, &u.Email, &u.Role, &u.PasswordHash, &u.IsAdmin, &u.Disabled, &u.Theme, &u.Created, &u.MustChange, &u.KeysOff)
 	return u, err
 }
 
@@ -283,6 +283,19 @@ func (d *DB) SetTheme(name, theme string) error {
 	// a preference, not content: no change counter
 	_, err = d.Exec("UPDATE users SET theme = ? WHERE username = ?", theme, name)
 	return err
+}
+
+// SetKeysOff stores whether the account's keyboard shortcuts are off.
+func (d *DB) SetKeysOff(name string, off bool) error {
+	// a preference, not content: no change counter
+	res, err := d.Exec("UPDATE users SET keys_off = ? WHERE username = ?", b2i(off), name)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		return fmt.Errorf("no user %s", name)
+	}
+	return nil
 }
 
 // Token kinds: where a token is accepted.

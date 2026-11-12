@@ -1,5 +1,5 @@
 {{define "layout"}}<!doctype html>
-<html lang="en"{{with .User.Theme}} data-theme="{{.}}"{{end}}{{if .User.Username}} data-theme-save{{end}}>
+<html lang="en"{{with .User.Theme}} data-theme="{{.}}"{{end}}{{if .User.Username}} data-theme-save{{end}}{{if .User.KeysOff}} data-keys="off"{{end}}>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -67,7 +67,73 @@
   <div id="goto-results" class="gotores" role="listbox"></div>
   <div class="gotofoot"><span><kbd>↑</kbd><kbd>↓</kbd>Select</span><span><kbd>Enter</kbd>Open</span><span><kbd>Esc</kbd>Close</span></div>
 </dialog>
+{{template "keys_dialog"}}
 {{end}}
 </body>
 {{end}}
 </html>{{end}}
+
+{{/* keys_dialog is the shortcut list (?, K8): the key map in four groups;
+keys.js hides the Finding page group where there are no panels */}}
+{{define "keys_dialog"}}
+<dialog id="keys" class="gotodlg keysdlg" aria-labelledby="keys-head">
+  <div class="gotohead"><h2 id="keys-head">Keyboard shortcuts</h2><kbd>Esc</kbd></div>
+  <div class="keysbody">
+    <div class="kcol">
+      <section class="kgroup"><h3 class="gh">Global</h3>
+        <dl>
+          <div class="krow"><dt><kbd>?</kbd></dt><dd>Shortcut list</dd></div>
+          <div class="krow"><dt><kbd>/</kbd></dt><dd>Search or Go to</dd></div>
+          <div class="krow"><dt><kbd>Ctrl+K</kbd></dt><dd>Go to</dd></div>
+          <div class="krow"><dt><kbd>i</kbd></dt><dd>Inbox</dd></div>
+          <div class="krow"><dt><kbd>f</kbd></dt><dd>Findings</dd></div>
+          <div class="krow"><dt><kbd>b</kbd></dt><dd>Team board</dd></div>
+          <div class="krow"><dt><kbd>n</kbd></dt><dd>New finding</dd></div>
+          <div class="krow"><dt><kbd>Esc</kbd></dt><dd>Close</dd></div>
+          <div class="krow"><dt><kbd>Ctrl+S</kbd></dt><dd>Save the form</dd></div>
+          <div class="krow"><dt><kbd>Ctrl+Enter</kbd></dt><dd>Send the form</dd></div>
+        </dl>
+      </section>
+      <section class="kgroup"><h3 class="gh">Lists</h3>
+        <dl>
+          <div class="krow"><dt><kbd>j</kbd><kbd>k</kbd></dt><dd>Next or previous row</dd></div>
+          <div class="krow"><dt><kbd>Enter</kbd></dt><dd>Open the row</dd></div>
+          <div class="krow"><dt><kbd>x</kbd></dt><dd>Tick the row</dd></div>
+          <div class="krow"><dt><kbd>Shift+Space</kbd></dt><dd>Tick the range</dd></div>
+          <div class="krow"><dt><kbd>Shift+S</kbd></dt><dd>Submit the ticked</dd></div>
+          <div class="krow"><dt><kbd>Shift+A</kbd></dt><dd>Approve the ticked</dd></div>
+          <div class="krow"><dt><kbd>Shift+P</kbd></dt><dd>Mark the ticked reported</dd></div>
+        </dl>
+      </section>
+    </div>
+    <div class="kcol">
+      <section class="kgroup" data-keys-group="finding"><h3 class="gh">Finding page</h3>
+        <dl>
+          <div class="krow"><dt><kbd>j</kbd><kbd>k</kbd><kbd>↓</kbd><kbd>↑</kbd></dt><dd>Next or previous panel</dd></div>
+          <div class="krow"><dt><kbd>l</kbd><kbd>→</kbd></dt><dd>Chat panel</dd></div>
+          <div class="krow"><dt><kbd>h</kbd><kbd>←</kbd></dt><dd>Back to the panel</dd></div>
+          <div class="krow"><dt><kbd>e</kbd></dt><dd>Edit the panel</dd></div>
+          <div class="krow"><dt><kbd>Enter</kbd></dt><dd>The panel's button</dd></div>
+          <div class="krow"><dt><kbd>Shift+S</kbd></dt><dd>Submit</dd></div>
+          <div class="krow"><dt><kbd>Shift+O</kbd></dt><dd>Sign off</dd></div>
+          <div class="krow"><dt><kbd>Shift+A</kbd></dt><dd>Approve</dd></div>
+          <div class="krow"><dt><kbd>Shift+P</kbd></dt><dd>Mark reported</dd></div>
+          <div class="krow"><dt><kbd>Shift+R</kbd></dt><dd>Return</dd></div>
+          <div class="krow"><dt><kbd>Shift+W</kbd></dt><dd>Withdraw</dd></div>
+          <div class="krow"><dt><kbd>Shift+U</kbd></dt><dd>Revert or restore</dd></div>
+          <div class="krow"><dt><kbd>Shift+T</kbd></dt><dd>Take back</dd></div>
+          <div class="krow"><dt><kbd>Shift+C</kbd></dt><dd>Check</dd></div>
+          <div class="krow"><dt><kbd>Shift+H</kbd></dt><dd>History</dd></div>
+          <div class="krow"><dt><kbd>Ctrl+S</kbd><kbd>Ctrl+Z</kbd></dt><dd>Redact: save, undo</dd></div>
+        </dl>
+      </section>
+      <section class="kgroup"><h3 class="gh">Chat</h3>
+        <dl>
+          <div class="krow"><dt><kbd>c</kbd></dt><dd>Comment on the panel</dd></div>
+          <div class="krow"><dt><kbd>Ctrl+Enter</kbd></dt><dd>Send</dd></div>
+        </dl>
+      </section>
+    </div>
+  </div>
+</dialog>
+{{end}}

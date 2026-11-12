@@ -235,6 +235,21 @@ document.addEventListener('htmx:afterSettle', function () {
   if (nav) nav.focus();
 });
 
+// ? (K8): the shortcut list; its Finding page group only where there are
+// panels. Esc closes it (the browser's own), as does a click outside it.
+function yarsKeysList() {
+  var d = document.getElementById('keys');
+  if (!d || !d.showModal || d.open) return false;
+  var g = d.querySelector('[data-keys-group="finding"]');
+  if (g) g.hidden = !document.querySelector('[data-kpanel]');
+  d.showModal();
+  return true;
+}
+document.addEventListener('click', function (evt) {
+  var d = document.getElementById('keys');
+  if (d && d.open && evt.target === d) d.close();
+});
+
 // / (K6): the page's search box; without one, Go to.
 function yarsSlash() {
   var s = Array.prototype.filter.call(document.querySelectorAll('input[type=search]'), function (el) {
@@ -388,6 +403,7 @@ document.addEventListener('keydown', function (evt) {
   if (evt.ctrlKey || evt.metaKey) return; // the browser's own (Ctrl+K is app.js's)
   if (yarsNav(key) || yarsListNav(key)) { evt.preventDefault(); return; }
   if (key === '/') { if (yarsSlash()) evt.preventDefault(); return; }
+  if (key === '?') { if (yarsKeysList()) evt.preventDefault(); return; }
   if (key === 'E') { if (yarsEdit()) evt.preventDefault(); return; }
   if (key === 'Enter') { if (yarsEnter()) evt.preventDefault(); return; }
   if (key === 'C') { if (yarsCommentKey()) evt.preventDefault(); return; }

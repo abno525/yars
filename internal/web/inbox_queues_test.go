@@ -50,7 +50,7 @@ func TestInboxQueuesPerRole(t *testing.T) {
 		if got := strings.Join(names, ","); got != want {
 			t.Errorf("%s: %s, want %s", u, got, want)
 		}
-		for _, gone := range []string{"New finding", `class="side`, "Status</th>", "Result</th>", `class="bulkbar"`, `class="bulkform"`} {
+		for _, gone := range []string{">New finding</a>", `class="side`, "Status</th>", "Result</th>", `class="bulkbar"`, `class="bulkform"`} {
 			if strings.Contains(b, gone) {
 				t.Errorf("%s: page has %q", u, gone)
 			}

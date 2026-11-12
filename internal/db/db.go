@@ -20,7 +20,7 @@ import (
 // Path is where the database lives inside a data directory (git-ignored).
 func Path(dataDir string) string { return filepath.Join(dataDir, ".yars", "yars.db") }
 
-const schemaVersion = 21
+const schemaVersion = 22
 
 // SchemaVersion is the database schema this build writes.
 const SchemaVersion = schemaVersion
@@ -389,22 +389,36 @@ var migrations = []string{
 		at   TEXT NOT NULL,
 		PRIMARY KEY (eng, blob)
 	) WITHOUT ROWID;`,
+	// v22: the account switched the keyboard shortcuts off (K9; addKeysOff,
+	// in Go: the column is added once, even when the step runs again)
+	`SELECT 1;`,
 }
 
 // goMigrations are the steps written in Go, by the index of their entry in
 // migrations; each runs after that entry's SQL, in its transaction.
-var goMigrations = map[int]func(*sql.Tx) error{13: perRowDismissals, 16: endCopiedLegacy, 18: addRulesVersion}
+var goMigrations = map[int]func(*sql.Tx) error{13: perRowDismissals, 16: endCopiedLegacy, 18: addRulesVersion, 21: addKeysOff}
 
 // addRulesVersion adds check_runs.rules_version unless it is there.
 func addRulesVersion(tx *sql.Tx) error {
+	return addColumn(tx, "check_runs", "rules_version", "TEXT NOT NULL DEFAULT ''")
+}
+
+// addKeysOff adds users.keys_off unless it is there.
+func addKeysOff(tx *sql.Tx) error {
+	return addColumn(tx, "users", "keys_off", "INTEGER NOT NULL DEFAULT 0")
+}
+
+// addColumn adds the column to table unless it is there (the names are
+// constants of this file).
+func addColumn(tx *sql.Tx, table, col, decl string) error {
 	var n int
-	if err := tx.QueryRow("SELECT count(*) FROM pragma_table_info('check_runs') WHERE name = 'rules_version'").Scan(&n); err != nil {
+	if err := tx.QueryRow("SELECT count(*) FROM pragma_table_info(?) WHERE name = ?", table, col).Scan(&n); err != nil {
 		return err
 	}
 	if n > 0 {
 		return nil
 	}
-	_, err := tx.Exec("ALTER TABLE check_runs ADD COLUMN rules_version TEXT NOT NULL DEFAULT ''")
+	_, err := tx.Exec("ALTER TABLE " + table + " ADD COLUMN " + col + " " + decl)
 	return err
 }
 

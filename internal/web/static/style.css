@@ -1617,6 +1617,21 @@ dialog.gotodlg::backdrop { background: var(--scrim); }
   background: var(--panel); font-size: 13px; color: var(--muted);
 }
 .gotofoot > span { display: inline-flex; align-items: center; gap: 6px; }
+/* the shortcut list (?, K8): Go to's box, the groups in two columns */
+dialog.keysdlg { width: 880px; margin-top: 48px; }
+.keysdlg .gotohead h2 { flex: 1; min-width: 0; margin: 0; font: 600 18px var(--sans); }
+.keysbody { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); max-height: calc(100vh - 160px); overflow-y: auto; }
+.kcol { min-width: 0; }
+.kcol + .kcol { border-left: 1px solid var(--line-soft); }
+.kgroup h3.gh { margin: 0; }
+.kgroup dl { margin: 0; }
+.krow {
+  height: 32px; padding: 0 20px; display: grid; grid-template-columns: 168px minmax(0, 1fr); gap: 12px; align-items: center;
+  border-bottom: 1px solid var(--line-soft);
+}
+.krow dt { display: flex; gap: 4px; min-width: 0; }
+.krow kbd { height: 22px; }
+.krow dd { margin: 0; min-width: 0; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .notetable th.c-ev { width: 168px; }
 .notetable th.c-fnd { width: 400px; }
