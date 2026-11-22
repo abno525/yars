@@ -64,6 +64,17 @@ func (s *Server) assetsEdit(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// assetsDirty: the editor drawn again (Add row, Remove, a refusal with
+// message msg) holds rows other than the saved ones, so leaving it asks
+// first. Both lists are compared cleaned (a push may keep an empty row).
+func assetsDirty(rows, saved []finding.Asset, msg string) bool {
+	clean, err := store.CleanAssets(rows)
+	if s, err := store.CleanAssets(saved); err == nil {
+		saved = s
+	}
+	return msg != "" || err != nil || !slices.Equal(clean, saved)
+}
+
 // postedAssets reads rows host_i, url_i, port_i, note_i for i < n.
 func postedAssets(r *http.Request) []finding.Asset {
 	n, _ := strconv.Atoi(r.PostForm.Get("n"))
@@ -89,10 +100,7 @@ func (s *Server) assetsPost(w http.ResponseWriter, r *http.Request) {
 	editor := func(status int, rows []finding.Asset, msg string) {
 		v := s.assetsFor(ref, editorRows(rows))
 		v.Error = msg
-		// drawn again (Add row, Remove, a refusal): rows other than the
-		// saved ones count as unsaved, so leaving them asks first
-		clean, err := store.CleanAssets(rows)
-		v.Dirty = msg != "" || err != nil || !slices.Equal(clean, ref.F.Meta.Assets)
+		v.Dirty = assetsDirty(rows, ref.F.Meta.Assets, msg)
 		if status != http.StatusConflict {
 			v.Base = r.PostForm.Get("base") // still editing against what was shown
 		}

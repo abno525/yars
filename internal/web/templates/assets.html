@@ -24,7 +24,7 @@
 
 {{define "assets_editor"}}
 <section class="panel editing" id="assets" data-kpanel>
-  <form class="flush" hx-post="{{.SaveURL}}" hx-target="#assets" hx-swap="outerHTML" data-guard>
+  <form class="flush" hx-post="{{.SaveURL}}" hx-target="#assets" hx-swap="outerHTML" data-guard{{if .Dirty}} data-unsaved{{end}}>
     <div class="panelhead">
       <div class="panelname"><h2>Affected assets</h2>{{template "assets_count" .Rows}}</div>
       <button type="button" class="btn ghost sm w112" name="op" value="add" hx-post="{{.SaveURL}}" hx-target="#assets" hx-swap="outerHTML">Add row</button>

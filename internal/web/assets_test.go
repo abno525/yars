@@ -148,8 +148,23 @@ func TestAssetsAddRemoveKeepUnsaved(t *testing.T) {
 		t.Fatalf("removal not unsaved:\n%s", b)
 	}
 	// the saved rows and an empty one added: no change
-	if b := post(url.Values{"base": {e.assetsBase(t)}, "n": {"2"}, "host_0": {"a.example"}, "host_1": {"b.example"}, "op": {"add"}}); strings.Contains(b, "data-dirty") {
+	if b := post(url.Values{"base": {e.assetsBase(t)}, "n": {"2"}, "host_0": {"a.example"}, "host_1": {"b.example"}, "op": {"add"}}); strings.Contains(b, "data-dirty") || strings.Contains(b, "data-unsaved") {
 		t.Fatalf("saved rows marked:\n%s", b)
+	}
+	// every saved row removed: the fields are empty, the form says unsaved
+	// (app.js counts it so, whatever the fields hold)
+	b = post(url.Values{"base": {e.assetsBase(t)}, "n": {"2"}, "host_0": {"a.example"}, "host_1": {"b.example"}, "op": {"del-0"}})
+	b = post(url.Values{"base": {e.assetsBase(t)}, "n": {"1"}, "host_0": {"b.example"}, "op": {"del-0"}})
+	if !strings.Contains(b, `data-guard data-unsaved>`) {
+		t.Fatalf("all rows removed, the form is not unsaved:\n%s", b)
+	}
+	if js := e.do(t, "alice", "GET", "/static/app.js", nil, nil).Body.String(); !strings.Contains(js, "form[data-guard][data-unsaved]") {
+		t.Fatal("app.js does not count a form marked unsaved")
+	}
+	// a saved list not in its cleaned form (a push may keep an empty or
+	// spaced row): the same rows drawn again are no change
+	if assetsDirty([]finding.Asset{{Host: "a.example"}, {}}, []finding.Asset{{Host: "a.example"}, {Note: " "}}, "") {
+		t.Fatal("a saved list with an empty row counts as changed")
 	}
 }
 

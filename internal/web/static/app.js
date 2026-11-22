@@ -821,8 +821,10 @@ document.addEventListener('htmx:load', function (evt) {
 
 // Unsaved-changes guard for editors (form[data-guard]): a text box differs
 // from what the server sent (defaultValue), or the server returned the
-// user's own text after a conflict (data-dirty).
+// user's own text after a conflict (data-dirty), or the server says the
+// form as drawn is not what is saved (data-unsaved: rows removed).
 function yarsDirty(scope) {
+  if ((scope.matches && scope.matches('form[data-guard][data-unsaved]')) || scope.querySelector('form[data-guard][data-unsaved]')) return true;
   // an input with no type is a text box too (the team board's new lead)
   return Array.prototype.some.call(scope.querySelectorAll('form[data-guard] textarea, form[data-guard] input[type=text], form[data-guard] input:not([type])'), function (i) {
     return yarsChanged(i);
