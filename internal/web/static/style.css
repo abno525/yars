@@ -1179,7 +1179,10 @@ code.block { display: block; padding: 8px 10px; background: var(--code-bg); font
 .vfields input:not([type=checkbox]):not([type=radio]) { width: 100%; }
 .vfields .rgrid label { display: flex; flex-direction: column; gap: 6px; }
 .rfhead { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.addrow { padding: 12px 20px; border-top: 1px solid var(--line); background: var(--panel); }
+/* an engagement's Team: the select starts at the User column's text and ends
+   at the Role column's, Add stands under Remove (16 in the 144 Action column) */
+form.addrow { padding: 12px 32px 12px 16px; gap: 32px; border-top: 1px solid var(--line); background: var(--panel); }
+.addrow select:disabled { border-color: var(--line-soft); color: var(--off-fg); }
 .keyrow { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .keyend { width: 64px; flex: none; }
 .twogrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: stretch; }

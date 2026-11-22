@@ -106,7 +106,7 @@ func TestAdminRulesWebhooksKeys(t *testing.T) {
 func TestEngSettingsKeys(t *testing.T) {
 	e := setup(t)
 	wantAll(t, "/e/acme/settings", e.do(t, "dora", "GET", "/e/acme/settings", nil, nil).Body.String(),
-		`<select class="grow" name="user" aria-label="Add person" aria-keyshortcuts="A">`,
+		`<select class="grow flush" name="user" aria-label="Add person" aria-keyshortcuts="A">`,
 		`<button class="btn danger sm w96" aria-label="Remove alice" data-confirm="Remove alice from the team?">Remove</button>`)
 }
 

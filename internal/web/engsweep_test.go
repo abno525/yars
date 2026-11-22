@@ -1,6 +1,7 @@
 package web
 
 import (
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -101,5 +102,44 @@ func TestTeamBoardFitsWindow(t *testing.T) {
 	}
 	if strings.Contains(css, ".tbthread.empty {") {
 		t.Error("style.css: the empty thread pane is still padded and centred")
+	}
+}
+
+// The Team panel's add row lines up with the table above it: the select
+// starts where the User column's text does and ends where the Role
+// column's does, Add stands under Remove. The select and Add took the
+// generic margin of a panel's form children (.panel > form > *, 16 px 24
+// px), so both sat inward and the row was 88 px high. With everyone on the
+// team the select is disabled and shows the muted "—", not an empty box.
+func TestTeamAddRowLinesUp(t *testing.T) {
+	e := setup(t)
+	rowOf := func() string {
+		b := e.do(t, "dora", "GET", "/e/acme/settings", nil, nil).Body.String()
+		return between(b, `<form class="inline flush addrow"`, "</form>")
+	}
+	r := rowOf()
+	if !strings.Contains(r, `<select class="grow flush" name="user" aria-label="Add person" aria-keyshortcuts="A"><option value=`) || !strings.Contains(r, `<button class="btn primary sm w96 flush">Add</button>`) {
+		t.Fatalf("add row with people to add:\n%s", r)
+	}
+	for _, u := range []string{"alice", "bob", "carol", "dora"} {
+		e.do(t, "dora", "POST", "/e/acme/settings/team", url.Values{"user": {u}}, nil)
+	}
+	r = rowOf()
+	if !strings.Contains(r, `<select class="grow flush" name="user" aria-label="Add person" aria-keyshortcuts="A" disabled><option>—</option></select>`) || !strings.Contains(r, `<button class="btn primary sm w96 flush" disabled>Add</button>`) {
+		t.Fatalf("add row with everyone on the team:\n%s", r)
+	}
+	css := e.do(t, "dora", "GET", "/static/style.css", nil, nil).Body.String()
+	for _, want := range []string{
+		".table td { height: 52px; padding: 0 16px;",
+		".table th.c-role, .table th.c-state, .table th.c-check, .table th.c-svc { width: 152px; }",
+		".table th.c-act, .table th.c-act2 { width: 144px; }",
+		// 16: the User column's padding; 32 right: Add (96) ends 128 - 96 from
+		// the Action column's start (16 in); 32 gap: Role's padding and Action's
+		"form.addrow { padding: 12px 32px 12px 16px; gap: 32px; border-top: 1px solid var(--line); background: var(--panel); }",
+		".addrow select:disabled { border-color: var(--line-soft); color: var(--off-fg); }",
+	} {
+		if !strings.Contains(css, want) {
+			t.Errorf("style.css lacks %s", want)
+		}
 	}
 }
