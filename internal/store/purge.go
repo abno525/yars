@@ -113,7 +113,11 @@ func (s *Store) PurgeFromHistory(engID, dir, name string, u config.User) error {
 	if err == nil {
 		errs = append(errs, s.db.MarkPurged(engID, fid, name, nil))
 	}
-	errs = append(errs, s.db.Audit(u.Username, "attachment.purge", engID+"/"+fid+"/"+name, fmt.Sprintf("%d earlier versions", len(old))))
+	versions := fmt.Sprintf("%d earlier versions", len(old))
+	if len(old) == 1 {
+		versions = "1 earlier version"
+	}
+	errs = append(errs, s.db.Audit(u.Username, "attachment.purge", engID+"/"+fid+"/"+name, versions))
 	// the main repo's pointer follows the new history (engagement, then main)
 	errs = append(errs, s.SyncPointers())
 	s.notify(Change{Eng: engID, Fid: fid, Kind: ChangeContent})

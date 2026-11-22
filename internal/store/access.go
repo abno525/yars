@@ -119,7 +119,7 @@ func (s *Store) AddMembers(eng string, users []string, actor config.User) error 
 	if err := s.db.AddMembers(eng, users...); err != nil {
 		return err
 	}
-	return s.db.Audit(actor.Username, "eng.member.add", eng, strings.Join(users, ","))
+	return s.db.Audit(actor.Username, "eng.member.add", eng, strings.Join(users, ", "))
 }
 
 // RemoveMember takes user off eng's team as actor (directors and admins).

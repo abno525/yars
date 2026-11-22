@@ -1,6 +1,8 @@
 package web
 
 import (
+	"net/http"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -180,6 +182,30 @@ func TestActivityPagerFilled(t *testing.T) {
 	}
 	if f := foot("/admin/activity?offset=50"); !strings.Contains(f, `<a class="btn secondary sm w112" href="/admin/activity">Previous</a>`) || !strings.Contains(f, nextOff) {
 		t.Errorf("last page:\n%s", f)
+	}
+}
+
+// Activity's details read as the rest of the app's copy: a list of people
+// is separated by a comma and a space ("dora, alice, bob", not
+// "dora,alice,bob"), and one earlier version is "1 earlier version".
+func TestActivityDetailCopy(t *testing.T) {
+	e := setup(t)
+	if rec := e.do(t, "dora", "POST", "/engagements/new", url.Values{"id": {"beta"}, "name": {"Beta"}, "member": {"alice", "bob"}}, nil); rec.Code != http.StatusSeeOther {
+		t.Fatalf("new engagement %d:\n%s", rec.Code, rec.Body)
+	}
+	redacted(t, e)
+	if rec := e.do(t, "dora", "POST", fpath+"/attachments/shot.png/purge", url.Values{}, nil); rec.Code != http.StatusSeeOther {
+		t.Fatalf("purge %d:\n%s", rec.Code, rec.Body)
+	}
+	b := e.do(t, "dora", "GET", "/admin/activity", nil, nil).Body.String()
+	for _, want := range []string{
+		`<td class="mono clip">eng.create</td><td class="clip" title="beta">beta</td><td class="clip" title="dora, alice, bob">dora, alice, bob</td>`,
+		`<td class="mono clip">eng.member.add</td><td class="clip" title="beta">beta</td><td class="clip" title="dora, alice, bob">dora, alice, bob</td>`,
+		`<td class="mono clip">attachment.purge</td><td class="clip" title="acme/F-001/shot.png">acme/F-001/shot.png</td><td class="clip" title="1 earlier version">1 earlier version</td>`,
+	} {
+		if !strings.Contains(b, want) {
+			t.Errorf("Activity lacks %s:\n%s", want, between(b, `<tbody>`, `</tbody>`))
+		}
 	}
 }
 

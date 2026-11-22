@@ -222,7 +222,7 @@ func (s *Server) newEngagement(w http.ResponseWriter, r *http.Request) {
 				s.fail(w, err)
 				return
 			}
-			s.Store.DB().Audit(p.User.Username, "eng.create", e.ID, strings.Join(team, ","))
+			s.Store.DB().Audit(p.User.Username, "eng.create", e.ID, strings.Join(team, ", "))
 			http.Redirect(w, r, "/e/"+e.ID, http.StatusSeeOther)
 			return
 		}
