@@ -168,6 +168,9 @@
 /* ---------- base ---------- */
 *, *::before, *::after { box-sizing: border-box; border-radius: 0; }
 html { scroll-behavior: smooth; scrollbar-gutter: stable; } /* nothing moves when a page gets a scrollbar */
+/* that gutter shows the root's background: the top bar's colours across its
+   64px (tiled into the gutter), the page's below */
+html:has(.topbar) { background: var(--bg) linear-gradient(var(--head-bg) 63px, var(--head-line) 63px) 0 0 / 100% 64px repeat-x; }
 body { margin: 0; min-width: 1024px; background: var(--bg); color: var(--text); font: 400 15px/1.5 var(--sans); }
 a { color: var(--accent-text); text-decoration: none; }
 a:hover { color: var(--ink); }

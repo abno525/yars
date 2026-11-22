@@ -294,6 +294,29 @@ func TestRootScrollbarGutter(t *testing.T) {
 	}
 }
 
+// The gutter kept for the scrollbar shows the canvas, which takes the
+// root's background: on a page too short to scroll it stood as a 17px strip
+// of page colour beside the top bar. Where there is a top bar, the root
+// paints the bar's colours (63px and its 1px line) across its top 64px,
+// tiled across so the gutter gets them too; the login page has no bar.
+func TestGutterBesideTopBar(t *testing.T) {
+	e := setup(t)
+	css := e.do(t, "alice", "GET", staticPrefix()+"/style.css", nil, nil).Body.String()
+	rule := between(css, "\nhtml:has(.topbar) {", "}")
+	if !strings.Contains(rule, "background: var(--bg) linear-gradient(var(--head-bg) 63px, var(--head-line) 63px) 0 0 / 100% 64px repeat-x;") {
+		t.Fatalf("html:has(.topbar) rule: %q", rule)
+	}
+	if bar := between(css, "\n.topbar {", "}"); !strings.Contains(bar, "height: 64px;") || !strings.Contains(bar, "border-bottom: 1px solid var(--head-line);") {
+		t.Fatalf("the bar no longer matches the tile: %q", bar)
+	}
+	if b := e.do(t, "alice", "GET", "/notifications", nil, nil).Body.String(); !strings.Contains(b, `<header class="topbar">`) {
+		t.Fatal("no top bar on a signed-in page")
+	}
+	if b := e.do(t, "", "GET", "/login", nil, nil).Body.String(); strings.Contains(b, `class="topbar"`) {
+		t.Fatal("the login page has a top bar")
+	}
+}
+
 // A failed login keeps the username (never the password) and focuses the
 // password field.
 func TestLoginKeepsUsername(t *testing.T) {
