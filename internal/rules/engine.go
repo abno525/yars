@@ -124,9 +124,12 @@ func (e *Engine) signature() string {
 // version is a SHA-256 over every file under the rules folder (path and
 // contents, in path order), 16 hex characters; a folder without files has
 // one too, so a run with no rules is out of date once rules are added.
-func (e *Engine) version() string {
+func (e *Engine) version() string { return dirVersion(e.Dir) }
+
+// dirVersion is the version of the rules folder dir (Engine.version).
+func dirVersion(dir string) string {
 	var paths []string
-	filepath.WalkDir(e.Dir, func(p string, d fs.DirEntry, err error) error {
+	filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
 		if err == nil && d.Type().IsRegular() {
 			paths = append(paths, p)
 		}
@@ -139,7 +142,7 @@ func (e *Engine) version() string {
 		if err != nil {
 			continue
 		}
-		rel, _ := filepath.Rel(e.Dir, p)
+		rel, _ := filepath.Rel(dir, p)
 		fmt.Fprintf(h, "%s\x00%d\x00", filepath.ToSlash(rel), len(b))
 		h.Write(b)
 	}
@@ -148,10 +151,33 @@ func (e *Engine) version() string {
 
 // Rules returns the current rule set, reloading it if files changed.
 func (e *Engine) Rules() *Set {
+	s, _ := e.current()
+	return s
+}
+
+// current returns the rule set and its version, reloading them if files
+// changed.
+func (e *Engine) current() (*Set, string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.reload()
-	return e.set
+	return e.set, e.ver
+}
+
+type versionKey struct{}
+
+// withVersion tells the runner the version of the rules a run uses (the
+// script results' key).
+func withVersion(ctx context.Context, ver string) context.Context {
+	return context.WithValue(ctx, versionKey{}, ver)
+}
+
+// rulesVersion is the version withVersion gave ctx, or that of dir now.
+func rulesVersion(ctx context.Context, dir string) string {
+	if v, ok := ctx.Value(versionKey{}).(string); ok {
+		return v
+	}
+	return dirVersion(dir)
 }
 
 // reload loads the rules again when the files changed (e.mu held).
@@ -167,10 +193,8 @@ func (e *Engine) reload() {
 // the rules folder (names and contents, in path order), 16 hex characters
 // (Q13: a check run with other rules is out of date).
 func (e *Engine) Version() string {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	e.reload()
-	return e.ver
+	_, v := e.current()
+	return v
 }
 
 // Lint checks a finding with the given rule kinds.
@@ -185,7 +209,8 @@ func (e *Engine) LintDoc(ctx context.Context, d Doc, kinds Kind) []Violation {
 		ctx, cancel = context.WithTimeout(ctx, e.Budget)
 		defer cancel()
 	}
-	return e.Rules().Run(ctx, d, e.conf(), kinds, e.Runner)
+	s, ver := e.current()
+	return s.Run(withVersion(ctx, ver), d, e.conf(), kinds, e.Runner)
 }
 
 // Check runs every rule kind on a finding within the time budget, telling
@@ -216,7 +241,8 @@ func (e *Engine) CheckWith(ctx context.Context, f *finding.Finding, h Hooks) []V
 		ctx, cancel = context.WithTimeout(ctx, e.Budget)
 		defer cancel()
 	}
-	return e.Rules().RunWith(ctx, DocOf(f), e.conf(), All, e.Runner, h)
+	s, ver := e.current()
+	return s.RunWith(withVersion(ctx, ver), DocOf(f), e.conf(), All, e.Runner, h)
 }
 
 // CheckDoc is Check on a finding document.
@@ -226,7 +252,8 @@ func (e *Engine) CheckDoc(ctx context.Context, d Doc, progress func(done, total 
 		ctx, cancel = context.WithTimeout(ctx, e.Budget)
 		defer cancel()
 	}
-	return e.Rules().RunProgress(ctx, d, e.conf(), All, e.Runner, progress)
+	s, ver := e.current()
+	return s.RunProgress(withVersion(ctx, ver), d, e.conf(), All, e.Runner, progress)
 }
 
 // LintSection returns fast-rule hints for a section body being edited.

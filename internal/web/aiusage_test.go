@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -120,5 +122,38 @@ func TestAIUsageWired(t *testing.T) {
 	got, err := e.srv.Store.DB().AITotals(time.Now().Add(-time.Hour))
 	if err != nil || len(got) != 2 || got[0] != (db.AITotal{Calls: 1, In: 12, Out: 3}) || got[1].User != "dora" {
 		t.Fatalf("totals %+v %v", got, err)
+	}
+}
+
+// Q1, Q16: the server keeps script and AI results in its database, so a
+// check after a restart (a new engine) does not run the script again on
+// the same finding.
+func TestRuleResultsStoredInDatabase(t *testing.T) {
+	e := setupSerial(t)
+	log := filepath.Join(t.TempDir(), "runs")
+	scripts := map[string]string{"check.sh": "cat >/dev/null; echo x >> " + log + "; echo '[{\"message\":\"script says hi\",\"quote\":\"q1\",\"target\":\"section:Impact\"}]'\n"}
+	check := func() {
+		t.Helper()
+		e.rules(t, styleRules, scripts) // a new engine and runner: a restart
+		e.srv.wireAI()
+		if rn := e.srv.runner(); rn == nil || rn.Results == nil {
+			t.Fatal("the runner keeps its results in memory only")
+		}
+		if rec := e.do(t, "alice", "POST", fpath+"/checks", url.Values{}, nil); rec.Code != 200 {
+			t.Fatalf("check %d", rec.Code)
+		}
+		e.srv.Store.WaitChecks()
+		if b := e.do(t, "alice", "GET", fpath+"/checks", nil, nil).Body.String(); !strings.Contains(b, "script says hi") {
+			t.Fatalf("panel:\n%s", b)
+		}
+	}
+	check()
+	check()
+	if b, _ := os.ReadFile(log); strings.Count(string(b), "x") != 1 {
+		t.Fatalf("the script ran %d times", strings.Count(string(b), "x"))
+	}
+	var n int
+	if err := e.srv.Store.DB().QueryRow("SELECT count(*) FROM rule_cache WHERE kind = 'script'").Scan(&n); err != nil || n != 1 {
+		t.Fatalf("stored %d %v", n, err)
 	}
 }

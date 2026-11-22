@@ -20,7 +20,7 @@ import (
 // Path is where the database lives inside a data directory (git-ignored).
 func Path(dataDir string) string { return filepath.Join(dataDir, ".yars", "yars.db") }
 
-const schemaVersion = 23
+const schemaVersion = 24
 
 // SchemaVersion is the database schema this build writes.
 const SchemaVersion = schemaVersion
@@ -395,6 +395,15 @@ var migrations = []string{
 	// v23: when the token's owner was told it expires soon (addExpiryNoted,
 	// in Go as v22)
 	`SELECT 1;`,
+	// v24: the results of script and AI rules by key (PutRuleResult: a text
+	// checked before is not sent to the AI provider again after a restart,
+	// Q1, Q16); created is Unix seconds; IF NOT EXISTS, as v20
+	`CREATE TABLE IF NOT EXISTS rule_cache (
+		key     TEXT PRIMARY KEY,
+		kind    TEXT NOT NULL,
+		result  TEXT NOT NULL,
+		created INTEGER NOT NULL
+	);`,
 }
 
 // goMigrations are the steps written in Go, by the index of their entry in

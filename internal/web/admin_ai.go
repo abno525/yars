@@ -63,8 +63,9 @@ func (s *Server) runner() *rules.Runner {
 	return rn
 }
 
-// wireAI lets the AI rules use the settings saved on the admin page, and
-// records every call to the provider (Admin › System, AI usage).
+// wireAI lets the AI rules use the settings saved on the admin page,
+// records every call to the provider (Admin › System, AI usage) and keeps
+// the results of script and AI rules in the database (Q1, Q16).
 func (s *Server) wireAI() {
 	rn := s.runner()
 	if rn == nil || s.Store == nil || s.Store.DB() == nil {
@@ -75,6 +76,9 @@ func (s *Server) wireAI() {
 	}
 	if rn.OnUsage == nil {
 		rn.OnUsage = recordAI(s.Store.DB())
+	}
+	if rn.Results == nil {
+		rn.Results = s.Store.DB()
 	}
 }
 

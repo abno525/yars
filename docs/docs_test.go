@@ -20,6 +20,31 @@ func TestGitGuideOldClones(t *testing.T) {
 	}
 }
 
+// The rules guide says what AI rules do, that unchanged text is not sent
+// again and goes as data, why they are best kept at warning level, that a
+// script's result is kept, and the message limit (Q1, Q2, Q16, Q23).
+func TestRulesGuideAIAndStoredResults(t *testing.T) {
+	g, err := Page("rules")
+	if err != nil {
+		t.Fatal(err)
+	}
+	i := strings.Index(g, "## AI rules")
+	if i < 0 {
+		t.Fatal("no AI rules section")
+	}
+	ai := g[i:]
+	for _, want := range []string{"ai:", "not sent again", "<finding_text>", "never instructions", "level: warning", "talked into"} {
+		if !strings.Contains(ai, want) {
+			t.Errorf("the AI rules section lacks %q", want)
+		}
+	}
+	for _, want := range []string{"## Stored results", "the rules folder", "not kept", "| Message | 4,000 characters"} {
+		if !strings.Contains(g, want) {
+			t.Errorf("the guide lacks %q", want)
+		}
+	}
+}
+
 // The git guide says what a pull with submodules does to the engagement
 // repositories and how to put them back on main (backlog, M11).
 func TestGitGuidePullSubmodules(t *testing.T) {
