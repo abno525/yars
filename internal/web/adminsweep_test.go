@@ -166,3 +166,46 @@ func TestRuleBenchLikeTheRuleForm(t *testing.T) {
 		}
 	}
 }
+
+// Admin › Structure. Its four lists stood in a grid of three columns, so
+// Report sections sat alone in a second row, two thirds of it empty; two
+// columns hold the four, in their order, with no empty place (four to a
+// row would leave an item 137 px, too narrow for "Executive summary").
+// Each list's add row had its input 56 px wider than the items' above
+// (and, in Severities, 20 px wider on the left too): after an item's input
+// come the count (40) and ↑ ↓ × (32 each), 6 px apart, 160 px; after the
+// add row's, Add (96) 8 px on, 104. Add is 152, so 8 + 152 makes 160 and
+// it stands under the count and the three buttons; where items show a
+// colour swatch (14, 6 on), the add row keeps its place empty.
+func TestStructureListsFillTheGrid(t *testing.T) {
+	e := setup(t)
+	b := e.do(t, "dora", "GET", "/admin/structure", nil, nil).Body.String()
+	grid := between(b, `<div class="structgrid">`, `<section class="panel">`)
+	if n := strings.Count(grid, `<section class="panel compact slist">`); n != 4 {
+		t.Fatalf("%d lists:\n%s", n, grid)
+	}
+	for _, key := range []string{"section", "detail", "severity", "report"} {
+		if !strings.Contains(grid, `<button class="btn secondary sm w152" name="op" value="add:`+key+`">Add</button>`) {
+			t.Errorf("%s add row:\n%s", key, between(grid, `<input class="grow" name="new_`+key+`"`, "</div>"))
+		}
+	}
+	if !strings.Contains(between(grid, "Severities", "</section>"), `<span class="sw seg-critical"></span>`) {
+		t.Fatalf("severities show no swatch:\n%s", between(grid, "Severities", "</section>"))
+	}
+	css := stylesheet(t)
+	for _, want := range []string{
+		".structgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }",
+		".sitem { min-height: 52px; padding: 0 12px 0 16px; display: flex; align-items: center; gap: 6px;",
+		".sitem .sw { width: 14px; height: 14px;",
+		".sused { width: 40px; flex: none;",
+		".btn.icon.sm { width: 32px; }",
+		".lock { width: 32px; height: 32px; flex: none;",
+		".sadd { min-height: 56px; padding: 0 12px 0 16px; display: flex; align-items: center; gap: 8px;",
+		".w152 { width: 152px; }",
+		".slist:has(.sitem .sw) .sadd { padding-left: 36px; }",
+	} {
+		if !strings.Contains(css, want) {
+			t.Errorf("style.css lacks %s", want)
+		}
+	}
+}

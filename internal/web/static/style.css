@@ -1493,7 +1493,8 @@ input.bigin { height: 48px; font: 600 18px var(--sans); border: 2px solid var(--
 .structhead { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
 .structhead .pstate { flex: 1; text-align: left; font-size: 14px; }
 .chgslot { width: 120px; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.structgrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: start; }
+/* the four lists, two to a row (three left Report sections alone) */
+.structgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
 .sitems { display: flex; flex-direction: column; }
 .sitem { min-height: 52px; padding: 0 12px 0 16px; display: flex; align-items: center; gap: 6px; border-bottom: 1px solid var(--line-soft); }
 .sitem input { flex: 1; min-width: 0; height: 32px; font-weight: 600; font-size: 14px; }
@@ -1504,6 +1505,9 @@ input.bigin { height: 48px; font: 600 18px var(--sans); border: 2px solid var(--
 .btn.icon.rm { color: var(--red); }
 .sadd { min-height: 56px; padding: 0 12px 0 16px; display: flex; align-items: center; gap: 8px; background: var(--panel); }
 .sadd input { height: 32px; font-size: 14px; }
+/* the add row's input is as wide as the items': Add (152, 8 on) takes the
+   count and ↑ ↓ × (40 + 3 × 32, 6 apart); a swatch's place (14, 6 on) stays */
+.slist:has(.sitem .sw) .sadd { padding-left: 36px; }
 .verpick { display: flex; align-items: center; gap: 10px; }
 .verpick select { width: 120px; height: 32px; font: 500 14px var(--mono); }
 .seg.stdseg > label > span { --seg-w: 44px; height: 30px; font: 500 13px var(--mono); text-transform: none; }
