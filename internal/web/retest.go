@@ -139,7 +139,12 @@ func (s *Server) retestForm(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "only a director can start a retest", http.StatusForbidden)
 		return
 	}
-	p.Form = map[string][]string{"id": {p.Eng.ID + "-retest"}, "name": {p.Eng.Name + " — retest"}, "client": {p.Eng.Client}}
+	id, err := s.freeEngID(p.Eng.ID + "-retest")
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	p.Form = map[string][]string{"id": {id}, "name": {p.Eng.Name + " — retest"}, "client": {p.Eng.Client}}
 	for _, row := range p.Rows {
 		if row.Status == "complete" || row.Status == "reported" {
 			p.Form["finding"] = append(p.Form["finding"], row.Dir)
@@ -147,6 +152,21 @@ func (s *Server) retestForm(w http.ResponseWriter, r *http.Request) {
 	}
 	p.Users = s.Auth.Users()
 	s.render(w, "new_retest.html", p)
+}
+
+// freeEngID is id, else id-2, id-3 …: the first no engagement folder has
+// (CreateRetest refuses an ID whose folder exists), as freeSlug is for a
+// template's name.
+func (s *Server) freeEngID(id string) (string, error) {
+	ids, err := s.Store.EngagementIDs()
+	if err != nil {
+		return "", err
+	}
+	free := id
+	for i := 2; slices.Contains(ids, free); i++ {
+		free = fmt.Sprintf("%s-%d", id, i)
+	}
+	return free, nil
 }
 
 func (s *Server) retestCreate(w http.ResponseWriter, r *http.Request) {

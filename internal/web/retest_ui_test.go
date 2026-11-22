@@ -12,12 +12,37 @@ func TestNewRetestLayout(t *testing.T) {
 	e := setup(t)
 	e.toComplete(t)
 	b := e.do(t, "dora", "GET", "/e/acme/retest/new", nil, nil).Body.String()
-	for _, want := range []string{"<h2>Retest</h2>", "<h2>Findings to retest</h2>", "<th", ">Original status<", `class="btn primary w160"`, `class="btn secondary w112"`, `id="pick-F-001-sql-injection" checked`} {
+	for _, want := range []string{"<h2>Retest</h2>", "<h2>Findings to retest</h2>", "<th", ">Original status<", `id="pick-F-001-sql-injection" checked`} {
 		if !strings.Contains(b, want) {
 			t.Fatalf("missing %q:\n%s", want, b)
 		}
 	}
+	// Cancel then Create retest in the title row, as New engagement and
+	// Merge have them, not under the list
+	head := between(b, `<div class="titlerow">`, `<div class="errslot">`)
+	if !strings.Contains(head, `<div class="actions"><a class="btn secondary w128" href="/e/acme">Cancel</a><button class="btn primary w128">Create retest</button></div>`) {
+		t.Fatalf("title row:\n%s", head)
+	}
+	if strings.Count(b, ">Create retest<") != 1 || strings.Count(b, ">Cancel</a>") != 1 {
+		t.Fatalf("buttons drawn twice:\n%s", b)
+	}
 	noInline(t, "new retest", b)
+}
+
+// The new retest's ID is free: <eng>-retest, else -2, -3 … after it, as a
+// new template's name is (freeSlug), so the form goes through as it opens.
+func TestNewRetestFreeID(t *testing.T) {
+	e := setup(t)
+	st := e.srv.Store
+	for i, want := range []string{"acme-retest", "acme-retest-2", "acme-retest-3"} {
+		b := e.do(t, "dora", "GET", "/e/acme/retest/new", nil, nil).Body.String()
+		if !strings.Contains(b, `name="id" value="`+want+`"`) {
+			t.Fatalf("%d: want ID %s:\n%s", i, want, between(b, `name="id"`, ">"))
+		}
+		if err := st.CreateRetest(store.Engagement{ID: want, Name: "RT"}, "acme", []string{fdir}, "", wDora); err != nil {
+			t.Fatal(err)
+		}
+	}
 }
 
 // D4: on a retest the Original starts collapsed; its head keeps Open.
