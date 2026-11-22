@@ -4,6 +4,8 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	"yars/internal/export"
 )
 
 // The Overview's By severity tiles stand in one row. They shared the
@@ -141,5 +143,26 @@ func TestTeamAddRowLinesUp(t *testing.T) {
 		if !strings.Contains(css, want) {
 			t.Errorf("style.css lacks %s", want)
 		}
+	}
+}
+
+// Export's title row: Preview and Destinations are the title row's
+// secondary buttons, both 128 px, as every other page's (Export, New
+// retest, Cancel, Back). Preview was the only full-size ghost button of
+// any page (pale border) and Destinations 152 px. Who may not set up
+// destinations keeps a 128 px slot.
+func TestExportHeadButtonsAlike(t *testing.T) {
+	e := setup(t)
+	e.srv.Export = &export.Runner{Dir: t.TempDir()} // exporting on, no destinations yet
+	b := e.do(t, "dora", "GET", "/e/acme/export", nil, nil).Body.String()
+	h := between(b, `<div class="actions">`, "</div>")
+	if !strings.Contains(h, `<button class="btn secondary w128" formaction="/e/acme/export/preview" formmethod="get" aria-keyshortcuts="P">Preview</button>
+      <a class="btn secondary w128" href="/e/acme/export/setup">Destinations</a>`) {
+		t.Fatalf("director's export head:\n%s", h)
+	}
+	b = e.do(t, "alice", "GET", "/e/acme/export", nil, nil).Body.String()
+	if h := between(b, `<div class="actions">`, "</div>"); !strings.Contains(h, `aria-keyshortcuts="P">Preview</button>
+      <span class="slot w128"></span>`) {
+		t.Fatalf("pentester's export head:\n%s", h)
 	}
 }

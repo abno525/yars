@@ -177,7 +177,7 @@ func TestExportPage(t *testing.T) {
 	}
 	// pentesters may send; the Destinations link keeps its slot
 	b = e.do(t, "alice", "GET", "/e/acme/export", nil, nil).Body.String()
-	if strings.Contains(b, `href="/e/acme/export/setup"`) || !strings.Contains(b, `<span class="slot w152"></span>`) || regexp.MustCompile(`value="docx"[^>]*disabled`).MatchString(b) {
+	if strings.Contains(b, `href="/e/acme/export/setup"`) || !strings.Contains(b, `<span class="slot w128"></span>`) || regexp.MustCompile(`value="docx"[^>]*disabled`).MatchString(b) {
 		t.Fatalf("pentester page:\n%s", b)
 	}
 	if strings.Contains(b, "style=") {

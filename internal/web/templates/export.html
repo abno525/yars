@@ -6,8 +6,8 @@
       <h1>Export</h1>
     </div>
     <div class="actions">
-      <button class="btn ghost w128" formaction="/e/{{.Eng.ID}}/export/preview" formmethod="get" aria-keyshortcuts="P">Preview</button>
-      {{if .ExportV.CanSetup}}<a class="btn secondary w152" href="/e/{{.Eng.ID}}/export/setup">Destinations</a>{{else}}<span class="slot w152"></span>{{end}}
+      <button class="btn secondary w128" formaction="/e/{{.Eng.ID}}/export/preview" formmethod="get" aria-keyshortcuts="P">Preview</button>
+      {{if .ExportV.CanSetup}}<a class="btn secondary w128" href="/e/{{.Eng.ID}}/export/setup">Destinations</a>{{else}}<span class="slot w128"></span>{{end}}
     </div>
   </div>
   <div class="alertslot">{{with .Error}}<p class="alert" role="alert" title="{{.}}">{{.}}</p>{{end}}</div>
