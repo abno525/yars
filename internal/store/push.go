@@ -262,8 +262,9 @@ func (s *Store) pushedFindings(eng, before, after string) ([]pushedFinding, erro
 // pushState moves the workflow state a landed push by u calls for, as the
 // same changes through YARS would: a director's edit of an approved
 // finding's finding.md moves its approval to the new content (a renamed
-// folder's does not). It runs under the engagement's lock, before the push
-// is announced; a failure is logged (the push stands).
+// folder's does not), and a changed attachment drops the sign-offs of a
+// finding in verification. It runs under the engagement's lock, before the
+// push is announced; a failure is logged (the push stands).
 func (s *Store) pushState(eng string, u config.User, ps []pushedFinding) {
 	if s.db == nil {
 		return
@@ -284,6 +285,11 @@ func (s *Store) pushState(eng string, u config.User, ps []pushedFinding) {
 						log.Printf("push to %s: approval of %s: %v", eng, of.Meta.ID, err)
 					}
 				}
+			}
+		}
+		if pf.files && may(pf.cur.Meta.ID, signedOff) {
+			if err := dropSignOffs(s.db, eng, pf.cur.Meta.ID); err != nil {
+				log.Printf("push to %s: sign-offs of %s: %v", eng, pf.cur.Meta.ID, err)
 			}
 		}
 	}

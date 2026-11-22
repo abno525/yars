@@ -24,6 +24,8 @@ findings/                    /git/yars
 
 Workflow state (status, reviewers, sign-offs), chat, check runs and notifications are not in git: they live in the server's database.
 
+A sign-off covers a finding's text and its attachments. A push that changes either while the finding is in verification drops its sign-offs, as an edit on the website does.
+
 ## Cloning and pulling
 
 ```sh

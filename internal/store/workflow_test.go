@@ -2,6 +2,7 @@ package store
 
 import (
 	"errors"
+	"image/color"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -359,6 +360,48 @@ func TestEditVoidsClearances(t *testing.T) {
 	}
 	if err := s.Transition(eng, fd, workflow.Approve, "", uDora); !denied(err) {
 		t.Fatalf("approved content nobody reviewed: %v", err)
+	}
+}
+
+// A sign-off covers the attachments too: an upload or a redaction while the
+// finding is in verification drops the sign-offs, as a text change does. An
+// approved finding keeps its sign-offs (and its approval) when a director
+// adds one.
+func TestAttachmentChangeVoidsClearances(t *testing.T) {
+	s, _, fd := ready(t)
+	s.Transition(eng, fd, workflow.Submit, "", uAlice)
+	signed := func(before string) {
+		t.Helper()
+		if err := s.Transition(eng, fd, workflow.Clear, "", uBob); err != nil {
+			t.Fatal(err)
+		}
+		if c := load(t, s, fd).F.Meta.ClearedBy; !reflect.DeepEqual(c, []string{"bob"}) {
+			t.Fatalf("before %s: cleared %v", before, c)
+		}
+	}
+	signed("an upload")
+	if _, err := s.AddAttachment(eng, fd, "shot.png", pngBytes(t, color.White), uAlice); err != nil {
+		t.Fatal(err)
+	}
+	if m := load(t, s, fd).F.Meta; m.Status != "verification" || len(m.ClearedBy) != 0 {
+		t.Fatalf("after an upload: %s, cleared %v", m.Status, m.ClearedBy)
+	}
+	signed("a redaction")
+	if err := s.ReplaceAttachment(eng, fd, "shot.png", pngBytes(t, color.Black), uBob); err != nil {
+		t.Fatal(err)
+	}
+	if m := load(t, s, fd).F.Meta; m.Status != "verification" || len(m.ClearedBy) != 0 {
+		t.Fatalf("after a redaction: %s, cleared %v", m.Status, m.ClearedBy)
+	}
+	signed("the approval")
+	if err := s.Transition(eng, fd, workflow.Approve, "", uDora); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddAttachment(eng, fd, "more.png", pngBytes(t, color.White), uDora); err != nil {
+		t.Fatal(err)
+	}
+	if m := load(t, s, fd).F.Meta; m.Status != "complete" || !reflect.DeepEqual(m.ClearedBy, []string{"bob"}) {
+		t.Fatalf("approved finding after an upload: %s, cleared %v", m.Status, m.ClearedBy)
 	}
 }
 

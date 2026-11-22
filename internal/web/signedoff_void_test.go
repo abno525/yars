@@ -1,6 +1,7 @@
 package web
 
 import (
+	"image/color"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -85,6 +86,28 @@ func TestSignedOffVoided(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.wantVerification(t, "a second reviewer")
+}
+
+// A sign-off covers the attachments too: an upload or a redaction on the
+// finding page takes a signed-off finding back to verification on the list.
+func TestSignedOffVoidedByAttachments(t *testing.T) {
+	e := setup(t)
+	e.toVerification(t)
+	clear := func() {
+		t.Helper()
+		e.do(t, "bob", "POST", fpath+"/action/clear", url.Values{}, nil)
+		e.wantSignedOff(t)
+	}
+	clear()
+	if rec := e.sendFile(t, "alice", fpath+"/attachments", "shot.png", testPNG(t, color.White)); rec.Code != 200 {
+		t.Fatalf("upload %d:\n%s", rec.Code, rec.Body.String())
+	}
+	e.wantVerification(t, "an upload")
+	clear()
+	if rec := e.sendFile(t, "bob", fpath+"/attachments/shot.png/redact", "blob", testPNG(t, color.Black)); rec.Code != 200 {
+		t.Fatalf("redact %d:\n%s", rec.Code, rec.Body.String())
+	}
+	e.wantVerification(t, "a redaction")
 }
 
 // A director who signs off unassigned joins the reviewers: the finding stays

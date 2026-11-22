@@ -10,7 +10,8 @@ import (
 
 // Reviewer is an assigned reviewer; ClearedHash is the hash of finding.md
 // when they cleared it ("" = not cleared). A clearance counts only while the
-// file still has that hash, so any content change voids it.
+// file still has that hash, so any change of the text voids it; a change of
+// the attachments in verification clears it (store).
 type Reviewer struct{ Name, ClearedHash string }
 
 // State is a finding's workflow state. A finding with no stored state is a

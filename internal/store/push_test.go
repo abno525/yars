@@ -139,6 +139,35 @@ func TestReceivePushCarriesApproval(t *testing.T) {
 	}
 }
 
+// A pushed attachment change drops the sign-offs of a finding in
+// verification, as one through YARS does; a push that only renames the
+// folder (the files move along, unchanged) keeps them.
+func TestReceivePushAttachmentVoidsClearances(t *testing.T) {
+	s, dir, fd := ready(t)
+	s.Transition(eng, fd, workflow.Submit, "", uAlice)
+	if err := s.Transition(eng, fd, workflow.Clear, "", uBob); err != nil {
+		t.Fatal(err)
+	}
+	ed := filepath.Join(dir, "engagements", eng)
+	cleared := func() []string { t.Helper(); return load(t, s, "F-001-renamed").F.Meta.ClearedBy }
+	s.ReceivePush(eng, uDora, func() {
+		git(t, ed, "mv", "findings/"+fd, "findings/F-001-renamed")
+		git(t, ed, "commit", "-qm", "rename")
+	})
+	if c := cleared(); !slices.Equal(c, []string{"bob"}) {
+		t.Fatalf("a rename dropped the sign-offs: %v", c)
+	}
+	s.ReceivePush(eng, uBob, func() {
+		os.MkdirAll(filepath.Join(ed, "findings", "F-001-renamed", "attachments"), 0o755)
+		os.WriteFile(filepath.Join(ed, "findings", "F-001-renamed", "attachments", "req.txt"), []byte("GET / HTTP/1.1\n"), 0o644)
+		git(t, ed, "add", "-A")
+		git(t, ed, "commit", "-qm", "attach")
+	})
+	if c := cleared(); len(c) != 0 {
+		t.Fatalf("a pushed attachment kept the sign-offs: %v", c)
+	}
+}
+
 // A title edit rewrites only the title line: a file without severity or
 // cvss keys (pushed over git) gets no empty ones added.
 func TestTitleEditOnlyTitle(t *testing.T) {

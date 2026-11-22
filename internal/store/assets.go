@@ -313,13 +313,23 @@ func (s *Store) changeFilesLocked(engID, dir string, who Actor, fn func(ref Find
 			log.Printf("after %s %s: %v", engID, ref.F.Meta.ID, err)
 		}
 	}
-	s.notify(Change{Eng: engID, Fid: ref.F.Meta.ID, Kind: ChangeContent})
-	*ev = filesEvent(who.GitAuthor().Name, ref, findingPath(engID, ref.Dir), prev, files)
-	// a director's edit of a complete or reported finding keeps its approval
-	if fp := findingPath(engID, ref.Dir); files[fp] != nil {
-		return ref, s.carryApproval(ref, contentHash(prev[fp]), contentHash(files[fp]))
+	fp := findingPath(engID, ref.Dir)
+	var serr error
+	for p := range files {
+		if p != fp && ref.F.Meta.Status == "verification" {
+			// an attachment changed: the sign-offs go, as a text change's do
+			// (before the page hears of the change)
+			serr = dropSignOffs(s.db, engID, ref.F.Meta.ID)
+			break
+		}
 	}
-	return ref, nil
+	s.notify(Change{Eng: engID, Fid: ref.F.Meta.ID, Kind: ChangeContent})
+	*ev = filesEvent(who.GitAuthor().Name, ref, fp, prev, files)
+	// a director's edit of a complete or reported finding keeps its approval
+	if files[fp] != nil {
+		serr = errors.Join(serr, s.carryApproval(ref, contentHash(prev[fp]), contentHash(files[fp])))
+	}
+	return ref, serr
 }
 
 // restore puts back files written before a failure (nil = did not exist)

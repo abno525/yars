@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode"
@@ -249,7 +250,7 @@ func (s *Store) mutateLockedIn(engID, dir string, a gitrepo.Author, fn func(f *f
 
 // mutateContent is mutate for content edits by u, refused once the finding
 // is locked. Clearances need no reset: they are bound to the content hash,
-// so any change voids them.
+// so any change of the text voids them (attachments: dropSignOffs).
 func (s *Store) mutateContent(engID, dir string, who Actor, fn func(f *finding.Finding) (string, error)) error {
 	// the status as read: a front-matter edit (SetMeta) parses the meta
 	// again from the file, which holds no workflow state
@@ -291,6 +292,31 @@ func CarryApproval(d *db.DB, eng, fid, oldHash, newHash string) error {
 			return err
 		}
 		st.ApprovedHash = newHash
+		return tx.PutState(eng, fid, st)
+	})
+}
+
+// signedOff reports whether st is in verification with a sign-off given.
+func signedOff(st db.State) bool {
+	return st.Status == "verification" && slices.ContainsFunc(st.Reviewers, func(r db.Reviewer) bool { return r.ClearedHash != "" })
+}
+
+// dropSignOffs drops the sign-offs of eng/fid while it is in verification
+// (used after a change to its attachments, through YARS or by push): a
+// sign-off covers them too, but is bound to finding.md's hash, which they
+// leave as it is. A complete or reported finding keeps its own.
+func dropSignOffs(d *db.DB, eng, fid string) error {
+	if d == nil {
+		return nil
+	}
+	return d.TxFor(eng, func(tx *db.Tx) error {
+		st, err := tx.State(eng, fid)
+		if err != nil || !signedOff(st) {
+			return err
+		}
+		for i := range st.Reviewers {
+			st.Reviewers[i].ClearedHash = ""
+		}
 		return tx.PutState(eng, fid, st)
 	})
 }
