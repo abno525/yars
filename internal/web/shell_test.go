@@ -176,6 +176,27 @@ func TestLongNamesFit(t *testing.T) {
 	}
 }
 
+// The user name is a tab like the nav's: as wide as the name with 12px on
+// each side, so when lit (Settings, Developers) its underline is under the
+// name, not under a 120px slot with the name at its right end. Up to 120px
+// of name shows; a longer one still ends in "…".
+func TestUserTabFitsName(t *testing.T) {
+	e := setup(t)
+	css := e.do(t, "alice", "GET", staticPrefix()+"/style.css", nil, nil).Body.String()
+	rule := between(css, "\n.who {", "}")
+	for _, want := range []string{"max-width: 144px;", "padding: 0 12px;", "flex: none;", "overflow: hidden; text-overflow: ellipsis;"} {
+		if !strings.Contains(rule, want) {
+			t.Errorf(".who lacks %q: %q", want, rule)
+		}
+	}
+	if strings.Contains(rule, " width: 120px") || strings.Contains(rule, "text-align: right") {
+		t.Errorf(".who keeps its 120px right-aligned slot: %q", rule)
+	}
+	if nav := between(css, "\n.nav a { padding:", "}"); !strings.Contains(nav, "0 12px") {
+		t.Errorf("the nav tabs' padding changed: %q", nav)
+	}
+}
+
 // Status and severity render as fixed-size tags; empty chat counts show 0.
 func TestShellTags(t *testing.T) {
 	e := setup(t)
