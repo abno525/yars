@@ -35,8 +35,8 @@
         <tr>
           <td><span class="tag lvl-{{.Level}}">{{.Level}}</span></td>
           <td title="{{.Message}} · {{.Rule}}">{{.Message}}</td>
-          <td title="{{.Quote}}">{{if .Quote}}<code>{{.Quote}}</code>{{end}}</td>
-          <td title="{{.Where}}">{{.Where}}</td>
+          <td title="{{.Quote}}">{{if .Quote}}<code>{{.Quote}}</code>{{else}}<span class="muted">—</span>{{end}}</td>
+          <td title="{{.Where}}">{{with .Where}}{{.}}{{else}}<span class="muted">—</span>{{end}}</td>
           <td>{{if .CanDismiss}}<button type="button" class="btn ghost sm w96" aria-controls="dismiss-{{.N}}" aria-expanded="false" data-dismiss-toggle>Dismiss</button>{{else}}<span class="slot w96"></span>{{end}}</td>
         </tr>
         {{if .CanDismiss}}

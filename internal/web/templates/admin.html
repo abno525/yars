@@ -487,6 +487,8 @@
         </td>
         <td>{{if .Editing}}<span class="btn save sm w96" aria-current="true" tabindex="0" data-nav id="row-rule-{{.ID}}">Editing</span>{{else}}<a class="btn ghost sm w96" href="/admin/rules?edit={{.ID}}" data-nav id="row-rule-{{.ID}}" aria-keyshortcuts="E">Edit</a>{{end}}</td>
       </tr>
+      {{else}}
+      {{template "empty_row" 6}}
       {{end}}
     </tbody>
   </table>
@@ -617,8 +619,8 @@
       <tr>
         <td><span class="tag lvl-{{.Level}}">{{.Level}}</span></td>
         <td title="{{.Message}}">{{.Message}}</td>
-        <td title="{{.Quote}}">{{if .Quote}}<code>{{.Quote}}</code>{{end}}</td>
-        <td title="{{.Where}}">{{.Where}}</td>
+        <td title="{{.Quote}}">{{if .Quote}}<code>{{.Quote}}</code>{{else}}<span class="muted">—</span>{{end}}</td>
+        <td title="{{.Where}}">{{with .Where}}{{.}}{{else}}<span class="muted">—</span>{{end}}</td>
       </tr>
       {{else}}
       {{template "empty_row" 4}}

@@ -128,6 +128,33 @@ func TestSystemWideStatsFillTheirRow(t *testing.T) {
 // is 176 too. The Hits table showed only its header before a run and after
 // one with no hits; it shows the one empty row ("—"), as every table, and
 // so does Run on engagement's.
+// Review of the sweep fix: an empty value shows the muted dash, and a table
+// with no rows its "—" row. The Rules table filtered to a level with no
+// rules had only its head; the bench's Hits and the Checks table left an
+// empty quote and section blank, where Run on engagement shows "—".
+func TestRuleTablesEmptyValues(t *testing.T) {
+	e := setup(t)
+	e.rules(t, "- id: only-error\n  level: error\n  target: title\n  regex_forbid: zzz\n", nil)
+	b := e.do(t, "dora", "GET", "/admin/rules?level=warning", nil, nil).Body.String()
+	if rules := between(b, `<table class="table ruletable" data-arrows="focus">`, "</table>"); !strings.Contains(rules, `<tr class="emptyrow"><td colspan="6">—</td></tr>`) {
+		t.Errorf("Rules filtered to none:\n%s", rules)
+	}
+	quote := `{{if .Quote}}<code>{{.Quote}}</code>{{else}}<span class="muted">—</span>{{end}}`
+	where := `<td title="{{.Where}}">{{with .Where}}{{.}}{{else}}<span class="muted">—</span>{{end}}</td>`
+	for file, n := range map[string]int{"admin.html": 2, "checks.html": 1} {
+		src, err := templateFS.ReadFile("templates/" + file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := strings.Count(string(src), quote); got != n {
+			t.Errorf("%s: %d quote cells with the dash, want %d", file, got, n)
+		}
+		if !strings.Contains(string(src), where) {
+			t.Errorf("%s: the section cell has no dash", file)
+		}
+	}
+}
+
 func TestRuleBenchLikeTheRuleForm(t *testing.T) {
 	e := setup(t)
 	e.rules(t, styleRules, nil)
