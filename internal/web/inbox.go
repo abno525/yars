@@ -203,8 +203,9 @@ func findingRow(k workflow.Inbox, u config.User, r index.Row, engName string) in
 			ir.Who, ir.At = ev.User, ev.TS
 		} else {
 			// approved without an event (a migration, a seed): the
-			// approver is not recorded anywhere else
-			ir.What = "—"
+			// approver is not recorded anywhere else; the cell shows the
+			// muted dash of an empty value
+			ir.What = ""
 		}
 	}
 	// no event to date it: the last chat line, else the last edit
