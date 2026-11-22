@@ -117,17 +117,6 @@ func TestSystemWideStatsFillTheirRow(t *testing.T) {
 	}
 }
 
-// Admin › Rules' test bench. Its fields stood 44 px in from the panel's
-// side where the New rule panel beside it has them at 20: the bench's form
-// is the panel's child (12 px 20 px, a compact panel's), and its own
-// children took the generic margin of a panel's form children too (.panel
-// > form > *, 16 px 24 px), as the Team add row's did; they are flush now,
-// as there, and the form's 12 px gap stands between them, as between the
-// rule's fields. Try (96 px) stood beside Run on engagement (176 px); side
-// by side buttons share a width (Cancel and Save, the title rows), so Try
-// is 176 too. The Hits table showed only its header before a run and after
-// one with no hits; it shows the one empty row ("—"), as every table, and
-// so does Run on engagement's.
 // Review of the sweep fix: an empty value shows the muted dash, and a table
 // with no rows its "—" row. The Rules table filtered to a level with no
 // rules had only its head; the bench's Hits and the Checks table left an
@@ -155,6 +144,17 @@ func TestRuleTablesEmptyValues(t *testing.T) {
 	}
 }
 
+// Admin › Rules' test bench. Its fields stood 44 px in from the panel's
+// side where the New rule panel beside it has them at 20: the bench's form
+// is the panel's child (12 px 20 px, a compact panel's), and its own
+// children took the generic margin of a panel's form children too (.panel
+// > form > *, 16 px 24 px), as the Team add row's did; they are flush now,
+// as there, and the form's 12 px gap stands between them, as between the
+// rule's fields. Try (96 px) stood beside Run on engagement (176 px); side
+// by side buttons share a width (Cancel and Save, the title rows), so Try
+// is 176 too. The Hits table showed only its header before a run and after
+// one with no hits; it shows the one empty row ("—"), as every table, and
+// so does Run on engagement's.
 func TestRuleBenchLikeTheRuleForm(t *testing.T) {
 	e := setup(t)
 	e.rules(t, styleRules, nil)

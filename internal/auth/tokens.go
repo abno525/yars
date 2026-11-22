@@ -39,7 +39,7 @@ func (t *Tokens) Create(actor, user string, spec db.TokenSpec) (string, db.Token
 	if err != nil {
 		return "", db.TokenInfo{}, err
 	}
-	t.db.Audit(actor, "token.create", user, fmt.Sprintf("#%d %s %s %s", info.ID, info.Kind, strings.Join(info.Scopes, ", "), info.Name))
+	t.db.Audit(actor, "token.create", user, fmt.Sprintf("#%d · %s · %s · %s", info.ID, info.Kind, strings.Join(info.Scopes, ", "), info.Name))
 	return tok, info, nil
 }
 
