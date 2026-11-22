@@ -126,26 +126,38 @@ func dirSignature(dir string) string {
 	return strings.Join(parts, "\n")
 }
 
-// SameSignature reports whether two signatures of a rules folder describe
-// the same files: the same paths, sizes and times, and the same content
-// where both carry a file's hash. A hash that one has and the other not is
-// a file that stopped (or started) being fresh, not a change. Signatures
-// not in that form are compared whole.
-func SameSignature(a, b string) bool {
-	if a == b {
+// signatureHolds reports whether the rules folder dir is still as its
+// signature stamp describes: the same paths, sizes and times, and the same
+// content wherever stamp carries a file's hash. A file that was fresh then
+// and is not now has no hash now: its content is hashed again, since a
+// rewrite of the same size in the same time tick keeps size and time.
+func signatureHolds(dir, stamp string) bool {
+	now := dirSignature(dir)
+	if now == stamp {
 		return true
 	}
-	la, lb := strings.Split(a, "\n"), strings.Split(b, "\n")
-	if len(la) != len(lb) {
+	then, cur := strings.Split(stamp, "\n"), strings.Split(now, "\n")
+	if len(then) != len(cur) {
 		return false
 	}
-	for i := range la {
-		fa, fb := strings.Split(la[i], "\x00"), strings.Split(lb[i], "\x00")
-		if len(fa) < 3 || len(fb) < 3 || len(fa) > 4 || len(fb) > 4 {
+	for i := range then {
+		ft, fc := strings.Split(then[i], "\x00"), strings.Split(cur[i], "\x00")
+		if len(ft) < 3 || len(fc) < 3 || len(ft) > 4 || len(fc) > 4 || !slices.Equal(ft[:3], fc[:3]) {
 			return false
 		}
-		if !slices.Equal(fa[:3], fb[:3]) || (len(fa) == 4 && len(fb) == 4 && fa[3] != fb[3]) {
-			return false
+		switch {
+		case len(ft) == 4 && len(fc) == 4:
+			if ft[3] != fc[3] {
+				return false
+			}
+		case len(ft) == 4: // fresh then, not now
+			b, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(ft[0])))
+			if err != nil {
+				return false
+			}
+			if sum := sha256.Sum256(b); hex.EncodeToString(sum[:8]) != ft[3] {
+				return false
+			}
 		}
 	}
 	return true
@@ -233,11 +245,15 @@ func (e *Engine) reload() {
 
 // Loaded is the rules' version and the folder's signature as loaded, taken
 // together: the signature moves on any change, also one undone, which the
-// version does not (compare two with SameSignature).
+// version does not (Holds tells whether one still holds).
 func (e *Engine) Loaded() (version, stamp string) {
 	_, at := e.currentAt()
 	return at.ver, at.stamp
 }
+
+// Holds reports whether the rules folder is still as the signature stamp
+// (from Loaded) describes it.
+func (e *Engine) Holds(stamp string) bool { return signatureHolds(e.Dir, stamp) }
 
 // Version identifies the rules as loaded: a SHA-256 over every file under
 // the rules folder (names and contents, in path order), 16 hex characters

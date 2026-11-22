@@ -316,7 +316,7 @@ func (s *Store) runCheck(j checkJob) {
 		vs = s.Linter.Lint(ctx, ref.F, rules.All)
 		progress(1, 1)
 	}
-	if _, now := s.rulesNow(); !rules.SameSignature(stamp, now) {
+	if !s.rulesHold(stamp) {
 		s.db.SetRunRules(id, began+"+changed")
 	}
 	seq, err := s.db.TxForSeq(eng, func(tx *db.Tx) error { return finishCheck(tx, id, eng, fid, vs) })

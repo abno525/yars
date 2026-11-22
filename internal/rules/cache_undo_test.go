@@ -25,33 +25,46 @@ func TestEngineStampMovesOnChangeUndone(t *testing.T) {
 	os.WriteFile(p, []byte("- id: a\n  regex_forbid: zzz\n"), 0o644)
 	t1 := t0.Add(5 * time.Second)
 	os.Chtimes(p, t1, t1)
-	ver2, stamp2 := e.Loaded()
-	if ver2 != ver || SameSignature(stamp, stamp2) {
-		t.Fatalf("version %s→%s, stamp %q→%q", ver, ver2, stamp, stamp2)
+	ver2, _ := e.Loaded()
+	if ver2 != ver || e.Holds(stamp) {
+		t.Fatalf("version %s→%s, the stamp still holds", ver, ver2)
 	}
 }
 
-// Review of 421b1c9: a file's content hash is in the signature only while
-// the file is fresh (written within freshFor); its dropping out is no change.
-func TestSignatureFreshHashIsNoChange(t *testing.T) {
-	dir := t.TempDir()
-	p := filepath.Join(dir, "r.yaml")
-	os.WriteFile(p, []byte("- id: a\n  regex_forbid: zzz\n"), 0o644)
-	fresh := time.Now().Add(-freshFor + 150*time.Millisecond)
-	os.Chtimes(p, fresh, fresh)
-	a := dirSignature(dir)
-	time.Sleep(300 * time.Millisecond) // no longer fresh: the hash drops out
-	b := dirSignature(dir)
-	if a == b {
-		t.Fatalf("the test needs the hash to drop out: %q", a)
+// Reviews of 421b1c9 and 42df0a1: a file's content hash is in the signature
+// only while the file is fresh (written within freshFor). Its dropping out
+// is no change; but a rewrite of the same size in the same time tick, seen
+// only after the file stopped being fresh, is one (the content is hashed
+// again then).
+func TestSignatureHoldsAcrossFreshness(t *testing.T) {
+	fresh := time.Now().Add(-freshFor + time.Second) // fresh for one more second
+	stamped := func(body string) (string, string) {
+		dir := t.TempDir()
+		p := filepath.Join(dir, "r.yaml")
+		os.WriteFile(p, []byte(body), 0o644)
+		os.Chtimes(p, fresh, fresh)
+		return dir, dirSignature(dir)
 	}
-	if !SameSignature(a, b) || !SameSignature(b, a) {
-		t.Fatalf("a hash dropping out counts as a change: %q %q", a, b)
+	same, sameAt := stamped("- id: a\n  regex_forbid: zzz\n")
+	rewritten, rewrittenAt := stamped("- id: a\n  regex_forbid: zzz\n")
+	p := filepath.Join(rewritten, "r.yaml")
+	os.WriteFile(p, []byte("- id: a\n  regex_forbid: yyy\n"), 0o644) // same size
+	os.Chtimes(p, fresh, fresh)                                      // same tick
+	resized, resizedAt := stamped("- id: a\n  regex_forbid: zzz\n")
+	os.WriteFile(filepath.Join(resized, "r.yaml"), []byte("- id: a\n  regex_forbid: zzzz\n"), 0o644)
+	os.Chtimes(filepath.Join(resized, "r.yaml"), fresh, fresh)
+	time.Sleep(1200 * time.Millisecond) // no longer fresh: the hashes drop out
+	if dirSignature(same) == sameAt {
+		t.Fatalf("the test needs the hash to drop out: %q", sameAt)
 	}
-	os.WriteFile(p, []byte("- id: a\n  regex_forbid: zzzz\n"), 0o644)
-	os.Chtimes(p, fresh, fresh)
-	if SameSignature(b, dirSignature(dir)) {
-		t.Fatal("a size change counts as none")
+	if !signatureHolds(same, sameAt) {
+		t.Error("a hash dropping out counts as a change")
+	}
+	if signatureHolds(rewritten, rewrittenAt) {
+		t.Error("a same-size rewrite in the same tick counts as none")
+	}
+	if signatureHolds(resized, resizedAt) {
+		t.Error("a size change counts as none")
 	}
 }
 

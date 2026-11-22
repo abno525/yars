@@ -446,6 +446,11 @@ func (l *verStamp) Loaded() (string, string) {
 	defer l.mu.Unlock()
 	return l.ver, fmt.Sprint(l.stamp)
 }
+func (l *verStamp) Holds(stamp string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return stamp == fmt.Sprint(l.stamp)
+}
 func (l *verStamp) Version() string {
 	l.mu.Lock()
 	defer l.mu.Unlock()
