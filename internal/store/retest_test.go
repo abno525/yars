@@ -204,6 +204,33 @@ func TestRetestCopiesAttachments(t *testing.T) {
 	}
 }
 
+// Q13: an attachment over the 20 MB read limit (only a hand edit makes
+// one) is refused before anything is written, naming the finding, the
+// file and the limit.
+func TestRetestOversizeAttachment(t *testing.T) {
+	s, dir := srcFixture(t)
+	big := filepath.Join(dir, "engagements", eng, "findings", "F-003-csrf", "attachments", "dump.png")
+	if err := os.MkdirAll(filepath.Dir(big), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Create(big)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Truncate(20<<20 + 1) // sparse: 20 MB and one byte
+	f.Close()
+	err = s.CreateRetest(Engagement{ID: "rt", Name: "RT"}, eng, []string{"F-001-sql-injection", "F-003-csrf"}, "", uDora)
+	if !errors.Is(err, ErrInvalidValue) || !strings.Contains(err.Error(), "finding F-003-csrf: attachment dump.png is larger than 20 MB") {
+		t.Fatalf("err %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "engagements", "rt")); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatal("the retest was written")
+	}
+	if st, _ := s.db.State("rt", "F-001"); st.RetestSource != "" {
+		t.Fatalf("a link was left: %+v", st)
+	}
+}
+
 // Copies keep the original author by default, so the tester can submit
 // them; an explicit retester overrides it.
 func TestCreateRetestAuthorship(t *testing.T) {

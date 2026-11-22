@@ -209,10 +209,14 @@ func (s *Store) read(engID, dir string, states map[string]db.State) (FindingRef,
 // a name ("shot..png") is part of the name and can't leave the folder.
 var attachmentRe = regexp.MustCompile(`^attachments/[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
+// maxRead is the largest attachment ReadAttachment reads (an upload is at
+// most MaxAttachment; only a hand edit makes a larger one).
+const maxRead = 20 << 20
+
 // ReadAttachment returns a file from the finding's attachments/ folder
 // (one level, no dot-files; max 20 MB). Reads go through os.Root.
 func (s *Store) ReadAttachment(engID, dir, rel string) ([]byte, error) {
-	return s.readAttachment(engID, dir, rel, 20<<20)
+	return s.readAttachment(engID, dir, rel, maxRead)
 }
 
 // readAttachment is ReadAttachment with a size cap (0: none).

@@ -185,6 +185,9 @@ func (s *Store) CreateRetest(e Engagement, source string, dirs []string, assigne
 		}
 		c := copyOf{d, f, nil}
 		for _, a := range as {
+			if a.Size > maxRead { // ReadAttachment would not read it
+				return fmt.Errorf("%w: finding %s: attachment %s is larger than %d MB", ErrInvalidValue, d, a.Name, maxRead>>20)
+			}
 			c.attachs = append(c.attachs, a.Name)
 		}
 		copies = append(copies, c)

@@ -155,6 +155,28 @@ func TestRetestCreateFailureKeepsForm(t *testing.T) {
 	}
 }
 
+// Q13: an attachment over the read limit (written into the repository by
+// hand) is named in the New retest form with the limit, not "try again".
+func TestRetestOversizeAttachmentForm(t *testing.T) {
+	e := setup(t)
+	big := filepath.Join(e.dir, "engagements", "acme", "findings", fdir, "attachments", "dump.png")
+	if err := os.MkdirAll(filepath.Dir(big), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Create(big)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Truncate(20<<20 + 1)
+	f.Close()
+	form := url.Values{"id": {"acme-rt"}, "name": {"Second look"}, "finding": {fdir}}
+	rec := e.do(t, "dora", "POST", "/e/acme/retest/new", form, nil)
+	b := rec.Body.String()
+	if rec.Code != http.StatusBadRequest || !strings.Contains(between(b, `<div class="errslot">`, "</div>"), ">finding F-001-sql-injection: attachment dump.png is larger than 20 MB</p>") || !strings.Contains(b, `value="Second look"`) {
+		t.Fatalf("code %d:\n%s", rec.Code, b)
+	}
+}
+
 // A retest engagement with no source (only a hand edit on the server makes
 // one: the website and pushes refuse it) names none in its head, instead of
 // linking to /e/ (backlog, M7).
