@@ -37,7 +37,7 @@
     </table>
     </div>
   </div>
-  {{with .New}}{{template "lead_new" $}}{{else}}{{with .Sel}}{{template "lead_thread" .}}{{else}}<section class="tbthread empty" aria-label="Thread"></section>{{end}}{{end}}
+  {{with .New}}{{template "lead_new" $}}{{else}}{{with .Sel}}{{template "lead_thread" .}}{{else}}<section class="tbthread empty" aria-label="Thread"><div class="tbhead"><div class="tbtitle"><h2 class="muted">—</h2></div></div></section>{{end}}{{end}}
 </div>
 {{end}}
 

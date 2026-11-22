@@ -65,3 +65,41 @@ func TestEngHeadButtonsKeepTheirPlace(t *testing.T) {
 		t.Errorf("archived board head:\n%s", h)
 	}
 }
+
+// The team board fits the window: only its lists scroll. Both panes were
+// 760 px, so at 1440 x 900 the page scrolled 152 px. The board is the
+// window less what stands above and below it: the 64 px top bar, main's
+// 24 px top padding, the title (28 px heading at 1.2, 8 gap, 21 px line:
+// 62.6), a 24 px gap, the 44 px tabs and their 1 px line, a 24 px gap, and
+// main's 48 px bottom padding: 291.6 px; an archived engagement's 48 px bar
+// and its 24 px gap take 72 more. With no lead open the thread pane shows
+// a head with the muted "—" (as History's empty change panel), not a blank
+// box.
+func TestTeamBoardFitsWindow(t *testing.T) {
+	e := setup(t)
+	b := e.do(t, "alice", "GET", "/e/acme/board", nil, nil).Body.String()
+	if !strings.Contains(b, `<section class="tbthread empty" aria-label="Thread"><div class="tbhead"><div class="tbtitle"><h2 class="muted">—</h2></div></div></section>`) {
+		t.Fatalf("empty thread pane:\n%s", between(b, `<div id="board"`, "</main>"))
+	}
+	css := e.do(t, "alice", "GET", "/static/style.css", nil, nil).Body.String()
+	for _, want := range []string{
+		"position: sticky; top: 0; z-index: 10; height: 64px;",
+		"main { max-width: 1760px; margin: 0 auto; padding: 24px 32px 48px; display: flex; flex-direction: column; gap: 24px; }",
+		"h1 { margin: 0; font-size: 28px; font-weight: 700; line-height: 1.2; }",
+		".titlecol { display: flex; flex-direction: column; gap: 8px;",
+		"min-height: 21px; }",
+		".etabs { display: flex; border-bottom: 1px solid var(--line); }",
+		"width: 160px; height: 44px;",
+		"min-height: 48px; padding: 0 16px; display: flex; align-items: center; gap: 12px;",
+		".tboard { --tb-h: calc(100vh - 292px); height: var(--tb-h);",
+		".archbar ~ .tboard { --tb-h: calc(100vh - 364px); }",
+		".tbthread { height: var(--tb-h);",
+	} {
+		if !strings.Contains(css, want) {
+			t.Errorf("style.css lacks %s", want)
+		}
+	}
+	if strings.Contains(css, ".tbthread.empty {") {
+		t.Error("style.css: the empty thread pane is still padded and centred")
+	}
+}
