@@ -17,14 +17,13 @@ func TestNewRetestLayout(t *testing.T) {
 			t.Fatalf("missing %q:\n%s", want, b)
 		}
 	}
-	// Cancel then Create retest at the bottom right, as on New finding (the
-	// sibling page in the engagement), at one width
-	if head := between(b, `<div class="titlerow">`, `<div class="errslot">`); strings.Contains(head, "Create retest") {
-		t.Fatalf("buttons in the title row:\n%s", head)
-	}
-	tail := between(b, `<section class="panel pickpanel">`, "</form>")
-	if !strings.Contains(tail, `<div class="actions endrow"><a class="btn secondary w128" href="/e/acme">Cancel</a><button class="btn primary w128">Create retest</button></div>`) {
-		t.Fatalf("no bottom row:\n%s", tail)
+	// Cancel then Create retest in the title row, as New engagement, Merge
+	// and Purge have them. Under the list they stood lower with every
+	// finding (56 px a row, no cap); New finding's bottom row sits under a
+	// preview of fixed height, so it never moves, and these do not either.
+	head := between(b, `<div class="titlerow">`, `<div class="errslot">`)
+	if !strings.Contains(head, `<div class="actions"><a class="btn secondary w128" href="/e/acme">Cancel</a><button class="btn primary w128">Create retest</button></div>`) {
+		t.Fatalf("title row:\n%s", head)
 	}
 	if strings.Count(b, ">Create retest<") != 1 || strings.Count(b, ">Cancel</a>") != 1 {
 		t.Fatalf("buttons drawn twice:\n%s", b)
