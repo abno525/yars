@@ -189,6 +189,12 @@ func (d *DB) StartRun(eng, fid, contentHash, user, rules string) (int64, error) 
 	return res.LastInsertId()
 }
 
+// SetRunRules records the version of the rules a check run ran with.
+func (d *DB) SetRunRules(id int64, rules string) error {
+	_, err := d.Exec("UPDATE check_runs SET rules_version = ? WHERE id = ?", rules, id)
+	return err
+}
+
 // RunProgress records that done of total rules of a running check ran.
 func (d *DB) RunProgress(id int64, done, total int) error {
 	_, err := d.Exec("UPDATE check_runs SET done_count = ?, total = ? WHERE id = ? AND state = ?", done, total, id, RunRunning)

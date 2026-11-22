@@ -392,6 +392,46 @@ func TestQueuedRunOfArchivedEngagement(t *testing.T) {
 	}
 }
 
+// verGate is stepGate with a rules version that can change.
+type verGate struct {
+	stepGate
+	ver string // under mu
+}
+
+func (l *verGate) setVer(v string) { l.mu.Lock(); l.ver = v; l.mu.Unlock() }
+func (l *verGate) Version() string { l.mu.Lock(); defer l.mu.Unlock(); return l.ver }
+
+// Final review: a run records the rules it ran, those of when it began (it
+// may have waited since it was asked for), and when they changed while it
+// ran, a version that is never current: a change undone later does not
+// make either run current again.
+func TestRunRecordsRulesItRan(t *testing.T) {
+	s, _, fd := newFinding(t)
+	withLimit(s, 1)
+	l := &verGate{stepGate: stepGate{gateLinter: gateLinter{release: make(chan struct{})}}}
+	l.setRules(rules.Rule{ID: "keep", RegexForbid: "zzz"})
+	l.setVer("v1")
+	s.Linter = l
+	fds := moreFindings(t, s, fd, 1)
+	if _, err := s.StartCheck(eng, fds[1], uAlice); err != nil { // runs, at v1
+		t.Fatal(err)
+	}
+	l.waitIn(t, 1)
+	if run, err := s.StartCheck(eng, fd, uAlice); err != nil || run.State != RunQueued { // waits, asked for at v1
+		t.Fatalf("%+v %v", run, err)
+	}
+	l.setVer("v2")
+	close(l.release)
+	waitAll(t, s)
+	l.setVer("v1") // the change undone
+	for _, f := range []string{fds[1], fd} {
+		st, err := s.CheckStatus(eng, f)
+		if err != nil || st.Run.State != db.RunDone || !RulesChanged(st.Run.Rules, "v1") {
+			t.Fatalf("%s: rules %q %+v %v", f, st.Run.Rules, st.Run, err)
+		}
+	}
+}
+
 // Review: a run that waited while the rules changed runs every rule as it
 // is when the run starts, and its steps follow: no step left queued for a
 // rule gone, none missing for a new one.

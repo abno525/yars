@@ -277,6 +277,11 @@ func (s *Store) runCheck(j checkJob) {
 		s.notify(Change{Eng: eng, Fid: fid, Kind: ChangeCheck})
 		s.emitCheck(id, ref)
 	}()
+	// it runs the rules of now, not of when it was asked for (it may have
+	// waited); changed while it runs, some rules ran as they were and some
+	// as they are, so it records a version that is never current
+	began := s.RulesVersion()
+	s.db.SetRunRules(id, began)
 	progress := func(done, total int) {
 		if s.db.RunProgress(id, done, total) == nil {
 			s.notify(Change{Eng: eng, Fid: fid, Kind: ChangeCheck})
@@ -307,6 +312,9 @@ func (s *Store) runCheck(j checkJob) {
 		progress(0, 1)
 		vs = s.Linter.Lint(ctx, ref.F, rules.All)
 		progress(1, 1)
+	}
+	if now := s.RulesVersion(); now != began {
+		s.db.SetRunRules(id, began+"+changed")
 	}
 	seq, err := s.db.TxForSeq(eng, func(tx *db.Tx) error { return finishCheck(tx, id, eng, fid, vs) })
 	if err != nil {
