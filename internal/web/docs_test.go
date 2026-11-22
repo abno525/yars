@@ -127,6 +127,12 @@ func TestDocsParamRowsWrap(t *testing.T) {
 	if rule := between(css, "\n.prow {", "}"); !strings.Contains(rule, "white-space: normal;") {
 		t.Errorf(".prow rule: %q", rule)
 	}
+	// a tool's description wraps too, and breaks inside text with no
+	// spaces: set_field's JSON example was cut at the cell's edge (the final
+	// test's browser check)
+	if rule := between(css, "\n.toolcell .td {", "}"); !strings.Contains(rule, "white-space: normal; overflow-wrap: anywhere;") {
+		t.Errorf(".toolcell .td rule: %q", rule)
+	}
 }
 
 // A command line (Remote, Local, the git clones) wraps at its spaces, so

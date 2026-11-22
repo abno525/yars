@@ -117,6 +117,24 @@ func TestSystemWideStatsFillTheirRow(t *testing.T) {
 	}
 }
 
+// The final test's browser check: the bench's output keeps its scrollbar's
+// room (scrollbar-gutter: stable), and its head's line and its table's
+// header band stopped short of the panel's edge there, as New finding's
+// lists' did. The box paints them into that room: the head's 1 px line
+// under its 40 px, then the 44 px header (43 px band, 1 px line).
+func TestBenchHeadRunsIntoScrollbarRoom(t *testing.T) {
+	want := ".benchout { background: linear-gradient(transparent 39px, var(--line) 39px, var(--line) 40px, var(--panel) 40px, var(--panel) 83px, var(--line) 83px, var(--line) 84px, transparent 84px) no-repeat; }"
+	css := stylesheet(t)
+	if !strings.Contains(css, want) {
+		t.Errorf("style.css lacks %s", want)
+	}
+	for _, rule := range []string{".benchhead { height: 40px;", ".table th {\n  height: 44px;"} {
+		if !strings.Contains(css, rule) {
+			t.Errorf("the band no longer matches %q", rule)
+		}
+	}
+}
+
 // Review of the sweep fix: an empty value shows the muted dash, and a table
 // with no rows its "—" row. The Rules table filtered to a level with no
 // rules had only its head; the bench's Hits and the Checks table left an

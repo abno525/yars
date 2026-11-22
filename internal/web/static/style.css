@@ -172,9 +172,10 @@
 /* ---------- base ---------- */
 *, *::before, *::after { box-sizing: border-box; border-radius: 0; }
 html { scroll-behavior: smooth; scrollbar-gutter: stable; } /* nothing moves when a page gets a scrollbar */
-/* that gutter shows the root's background: the top bar's colours across its
-   64px (tiled into the gutter), the page's below */
-html:has(.topbar) { background: var(--bg) linear-gradient(var(--head-bg) 63px, var(--head-line) 63px) 0 0 / 100% 64px repeat-x; }
+/* an empty gutter shows only the root's background colour (no gradient
+   reaches it), a strip beside the top bar: with a bar, the scrollbar is
+   always there, so a short page has the same track there as a long one */
+html:has(.topbar) { overflow-y: scroll; }
 body { margin: 0; min-width: 1024px; background: var(--bg); color: var(--text); font: 400 15px/1.5 var(--sans); }
 a { color: var(--accent-text); text-decoration: none; }
 a:hover { color: var(--ink); }
@@ -1013,6 +1014,8 @@ a.atab:hover { color: var(--ink); background: var(--panel); }
 .benchrun { display: flex; justify-content: flex-end; }
 .benchout { border-top: 1px solid var(--line); height: 320px; overflow-y: auto; scrollbar-gutter: stable; }
 .benchhead { height: 40px; padding: 0 20px; display: flex; align-items: center; border-bottom: 1px solid var(--line); }
+/* the head's line and the header band run on into the scrollbar's room */
+.benchout { background: linear-gradient(transparent 39px, var(--line) 39px, var(--line) 40px, var(--panel) 40px, var(--panel) 83px, var(--line) 83px, var(--line) 84px, transparent 84px) no-repeat; }
 .benchhead .cnt { display: inline-flex; align-items: center; gap: 6px; font: 600 13px var(--sans); color: var(--muted); }
 .hits { min-width: 22px; display: inline-flex; }
 .benchtable { table-layout: fixed; border: 0; font-size: 14px; }
@@ -1756,7 +1759,7 @@ code.plain { font: 500 13px var(--mono); color: var(--text); background: transpa
 .tooltable th.c-scope, .acttable th.c-scope { width: 152px; }
 .tooltable td { vertical-align: top; height: auto; padding-top: 14px; padding-bottom: 14px; white-space: normal; }
 .toolcell .tn { display: block; font: 500 14px/24px var(--mono); color: var(--text); }
-.toolcell .td { display: block; margin-top: 4px; font-size: 13px; line-height: 1.45; color: var(--muted); white-space: normal; }
+.toolcell .td { display: block; margin-top: 4px; font-size: 13px; line-height: 1.45; color: var(--muted); white-space: normal; overflow-wrap: anywhere; }
 .plist { display: flex; flex-direction: column; gap: 4px; }
 /* the table's cells keep to one line (.table.stable td); a parameter's name
    and description wrap */
