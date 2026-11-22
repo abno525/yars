@@ -135,25 +135,14 @@ func versionPaths(p, fid, name string) func(string) bool {
 	}
 }
 
-// RetestHolders lists the retest copies of the finding (those a redaction
-// reaches) whose repository holds an earlier version of its attachment
-// name, in its files or its history: one a Purge from history removes
-// here, or removed. A purge is per engagement; a director purges there
-// too (Q12).
-func (s *Store) RetestHolders(engID, dir, name string) ([]FindingRef, error) {
-	if !ValidID(engID) || !ValidID(dir) || !attachmentRe.MatchString("attachments/"+name) {
-		return nil, ErrNotFound
-	}
-	ref, err := s.Finding(engID, dir)
-	if err != nil {
-		return nil, err
-	}
-	fid := ref.F.Meta.ID
+// earlierVersions is the set of blob ids the attachment at p (finding
+// fid's name) had before the one at HEAD: in its engagement's history
+// (versionPaths), and those a purge there took out already.
+func (s *Store) earlierVersions(engID, p, fid, name string) (map[string]bool, error) {
 	r, err := s.EngRepo(engID)
 	if err != nil {
 		return nil, err
 	}
-	p := "findings/" + ref.Dir + "/attachments/" + name
 	keep, err := r.BlobAt("HEAD", p)
 	if err != nil {
 		return nil, err
@@ -166,7 +155,7 @@ func (s *Store) RetestHolders(engID, dir, name string) ([]FindingRef, error) {
 	for _, b := range all {
 		old[b] = true
 	}
-	if s.db != nil { // the ones a purge here took out already
+	if s.db != nil {
 		purged, err := s.db.PurgedBlobs(engID)
 		if err != nil {
 			return nil, err
@@ -178,25 +167,48 @@ func (s *Store) RetestHolders(engID, dir, name string) ([]FindingRef, error) {
 		}
 	}
 	delete(old, keep)
-	if len(old) == 0 {
-		return nil, nil
+	return old, nil
+}
+
+// RetestHolders lists the retests made from the finding's engagement (and
+// theirs) whose repository holds an earlier version of its attachment
+// name, in its files or its history: one a Purge from history removes
+// here, or removed. Each is its copy of the finding, or only the
+// engagement (Dir "") when the copy is gone. A purge is per engagement; a
+// director purges there too (Q12).
+func (s *Store) RetestHolders(engID, dir, name string) ([]FindingRef, error) {
+	if !ValidID(engID) || !ValidID(dir) || !attachmentRe.MatchString("attachments/"+name) {
+		return nil, ErrNotFound
 	}
-	copies, err := s.retestCopies(engID, fid)
+	ref, err := s.Finding(engID, dir)
+	if err != nil {
+		return nil, err
+	}
+	fid := ref.F.Meta.ID
+	old, err := s.earlierVersions(engID, "findings/"+ref.Dir+"/attachments/"+name, fid, name)
+	if err != nil || len(old) == 0 {
+		return nil, err
+	}
+	rts, err := s.retestsOf(engID)
 	if err != nil {
 		return nil, err
 	}
 	var out []FindingRef
-	for _, c := range copies {
-		cr, err := s.EngRepo(c.EngID)
+	for _, e := range rts {
+		h, cp := FindingRef{EngID: e.ID}, ""
+		if c, ok := s.copyIn(e, fid); ok {
+			h, cp = c, "findings/"+c.Dir+"/attachments/"+name
+		}
+		cr, err := s.EngRepo(e.ID)
 		if err != nil {
 			return nil, err
 		}
-		held, err := cr.BlobsWhere(versionPaths("findings/"+c.Dir+"/attachments/"+name, fid, name))
+		held, err := cr.BlobsWhere(versionPaths(cp, fid, name))
 		if err != nil {
 			return nil, err
 		}
 		if slices.ContainsFunc(held, func(b string) bool { return old[b] }) {
-			out = append(out, c)
+			out = append(out, h)
 		}
 	}
 	return out, nil

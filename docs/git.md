@@ -93,7 +93,7 @@ Settings pushed to the main repository take effect on the website as soon as the
 
 A director's Purge from history (an attachment's Purge on the finding page) rewrites the engagement's history: every commit from the first one that held an earlier version gets a new id, so existing clones must be cloned again, and the main repository's older commits point at engagement commits that no longer exist. Backups made before the purge still hold the original. When the same image is uploaded again later, the server holds those bytes again, and a pre-purge clone's old commits are no longer refused.
 
-A redaction also reaches the retests made from the engagement, and their retests: each copy of the image that is still the original gets the redacted image, in a commit of its own there. A copy changed since is left as it is, and so is one in an archived retest (the redaction says which). A purge is per engagement: its page lists the retests whose files or history still hold the original, to purge there too.
+A redaction also reaches the retests made from the engagement, and their retests: each copy of the image that still holds an earlier version of it (the original, or one an earlier redaction did not reach) gets the redacted image, in a commit of its own there, as the redactor's change. A copy changed since is left as it is. So is a copy in an archived retest, one that only a director may edit there (complete or reported), and one in a retest the redactor is not on the team of. The redaction names the first two, and a copy it could not change, and counts the last. A purge is per engagement: its page lists the retests whose files or history still hold the original, to purge there too, also a retest whose copy was deleted since.
 
 ## Check rules on push
 

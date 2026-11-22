@@ -400,18 +400,20 @@ func (s *Store) ReplaceAttachment(engID, dir, name string, data []byte, a Actor)
 
 // Redaction is what a redaction did in the retests made from the
 // finding's engagement and in theirs (Q12), as engagement IDs: the copies
-// it redacted too, and those still holding the original: in an archived
-// retest, or the change failed there (logged). A copy changed since the
-// retest was made is in none.
+// it redacted too, and those it left holding an earlier version: in an
+// archived retest, one locked to the redactor (CanEdit), one the redactor
+// cannot see (Hidden: not to be named to them), or the change failed
+// there (logged). A copy changed since the retest was made is in none.
 type Redaction struct {
-	Redacted, Archived, Failed []string
+	Redacted, Archived, Locked, Hidden, Failed []string
 }
 
 // RedactAttachment overwrites an image attachment with another image (a
 // redacted copy) in a new commit; the original stays in the git history,
 // which is noted (D28: the mark, Purge from history). Then every retest
-// copy of the finding whose image is still that original gets the
-// redacted copy as well, with a commit and a note of its own.
+// copy of the finding that still holds an earlier version gets the
+// redacted copy as well, with a commit and a note of its own, as a's
+// change there.
 func (s *Store) RedactAttachment(engID, dir, name string, data []byte, a Actor) (Redaction, error) {
 	if err := checkAttachment(data); err != nil {
 		return Redaction{}, err
@@ -422,30 +424,40 @@ func (s *Store) RedactAttachment(engID, dir, name string, data []byte, a Actor) 
 	if !attachmentRe.MatchString("attachments/" + name) {
 		return Redaction{}, ErrNotFound
 	}
-	orig, fid, _, err := s.redact(engID, dir, name, data, nil, a)
+	ref, orig, _, err := s.redact(engID, dir, name, data, nil, a)
 	if err != nil {
 		return Redaction{}, err
 	}
-	return s.redactRetests(engID, fid, name, orig, data, a), nil
+	if bytes.Equal(orig, data) {
+		return Redaction{}, nil
+	}
+	return s.redactRetests(ref, name, data, a), nil
 }
 
 // redact writes data over the finding's image name in one commit and
-// notes the redaction. was, when set, is the image the file must still
-// be: otherwise (or with no such file) nothing is written and done is
-// false. It returns the image replaced and the finding's ID.
-func (s *Store) redact(engID, dir, name string, data, was []byte, a Actor) (old []byte, fid string, done bool, err error) {
-	_, err = s.changeFilesThen(engID, dir, a, func(ref FindingRef) (map[string][]byte, string, error) {
+// notes the redaction. vers, when set (a retest's copy), are the versions
+// (blob ids) the file may hold: otherwise (or with no such file) nothing
+// is written and done is false. It returns the finding and, without vers,
+// the image replaced.
+func (s *Store) redact(engID, dir, name string, data []byte, vers map[string]bool, a Actor) (ref FindingRef, old []byte, done bool, err error) {
+	ref, err = s.changeFilesThen(engID, dir, a, func(ref FindingRef) (map[string][]byte, string, error) {
+		p := path.Join(attachDir(engID, ref.Dir), name)
+		if vers != nil { // a retest's copy
+			if b, err := s.attachBlob(engID, ref.Dir, name); err != nil || !vers[b] {
+				return nil, "", err // none, changed since, or redacted already: left alone
+			}
+			done = true
+			return map[string][]byte{p: data}, "redact " + name, nil
+		}
 		cur, err := s.ReadAttachment(engID, ref.Dir, "attachments/"+name)
-		switch {
-		case was != nil && (err != nil || !bytes.Equal(cur, was)):
-			return nil, "", nil // no copy, or one changed since: left alone
-		case err != nil:
+		if err != nil {
 			return nil, "", ErrNotFound
-		case !strings.HasPrefix(AttachmentType(cur), "image/"):
+		}
+		if !strings.HasPrefix(AttachmentType(cur), "image/") {
 			return nil, "", fmt.Errorf("%w: only an image can be redacted", ErrInvalidValue)
 		}
-		old, fid, done = cur, ref.F.Meta.ID, true
-		return map[string][]byte{path.Join(attachDir(engID, ref.Dir), name): data}, "redact " + name, nil
+		old, done = cur, true
+		return map[string][]byte{p: data}, "redact " + name, nil
 	}, func(ref FindingRef) error {
 		// noted under the lock, before the page hears of the change: a purge
 		// waits for it, and the live refresh shows the mark
@@ -454,34 +466,59 @@ func (s *Store) redact(engID, dir, name string, data, was []byte, a Actor) (old 
 		}
 		return s.db.NoteRedaction(engID, ref.F.Meta.ID, name, a.GitAuthor().Name)
 	})
-	return old, fid, done && err == nil, err
+	return ref, old, done && err == nil, err
 }
 
-// redactRetests gives every retest copy of finding fid whose image name is
-// still orig the redacted image data. The copy's edit lock does not hold
-// it back (this is the source's redaction, made as its git author); an
-// archived retest is left as it is.
-func (s *Store) redactRetests(engID, fid, name string, orig, data []byte, a Actor) Redaction {
+// attachBlob is the blob id of the finding's attachment name at its
+// engagement's HEAD ("" when there is none).
+func (s *Store) attachBlob(engID, dir, name string) (string, error) {
+	r, err := s.EngRepo(engID)
+	if err != nil {
+		return "", err
+	}
+	return r.BlobAt("HEAD", "findings/"+dir+"/attachments/"+name)
+}
+
+// redactRetests gives every retest copy of src's image name that still
+// holds a version src had before the redaction the redacted image data,
+// as a's change there (a config.User needs CanEdit, and is not told of a
+// retest they cannot see). An archived retest is left as it is.
+func (s *Store) redactRetests(src FindingRef, name string, data []byte, a Actor) Redaction {
 	var rd Redaction
-	if bytes.Equal(orig, data) {
+	fid := src.F.Meta.ID
+	vers, err := s.earlierVersions(src.EngID, "findings/"+src.Dir+"/attachments/"+name, fid, name)
+	if err != nil {
+		log.Printf("redact %s/%s/%s in its retests: %v", src.EngID, fid, name, err)
 		return rd
 	}
-	copies, err := s.retestCopies(engID, fid)
+	copies, err := s.retestCopies(src.EngID, fid)
 	if err != nil {
-		log.Printf("redact %s/%s/%s in its retests: %v", engID, fid, name, err)
+		log.Printf("redact %s/%s/%s in its retests: %v", src.EngID, fid, name, err)
 	}
-	by := a.GitAuthor()
+	u, isUser := a.(config.User)
 	for _, c := range copies {
-		if s.Archived(c.EngID) {
-			if cur, err := s.ReadAttachment(c.EngID, c.Dir, "attachments/"+name); err == nil && bytes.Equal(cur, orig) {
-				rd.Archived = append(rd.Archived, c.EngID)
-			}
+		b, err := s.attachBlob(c.EngID, c.Dir, name)
+		switch {
+		case err != nil:
+			log.Printf("redact %s/%s/%s: %v", c.EngID, c.Dir, name, err)
+			rd.Failed = append(rd.Failed, c.EngID)
+			continue
+		case !vers[b]: // none, changed since, or redacted already
+			continue
+		case isUser && !s.CanSee(u, c.EngID):
+			rd.Hidden = append(rd.Hidden, c.EngID)
+			continue
+		case s.Archived(c.EngID):
+			rd.Archived = append(rd.Archived, c.EngID)
 			continue
 		}
-		_, _, done, err := s.redact(c.EngID, c.Dir, name, data, orig, by)
+		_, _, done, err := s.redact(c.EngID, c.Dir, name, data, vers, a)
+		var d *workflow.Denied
 		switch {
 		case errors.Is(err, ErrArchived): // archived meanwhile
 			rd.Archived = append(rd.Archived, c.EngID)
+		case errors.As(err, &d): // locked: only a director edits it
+			rd.Locked = append(rd.Locked, c.EngID)
 		case err != nil:
 			log.Printf("redact %s/%s/%s: %v", c.EngID, c.Dir, name, err)
 			rd.Failed = append(rd.Failed, c.EngID)

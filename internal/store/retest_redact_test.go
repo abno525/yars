@@ -3,6 +3,7 @@ package store
 import (
 	"bytes"
 	"image/color"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
@@ -14,11 +15,15 @@ import (
 	"yars/internal/workflow"
 )
 
-// shotFixture: srcFixture with a white shot.png on F-003-csrf.
+// shotFixture: srcFixture with a white shot.png on F-003-csrf; alice and
+// bob are on the team (and so on its retests').
 func shotFixture(t *testing.T) (*Store, string) {
 	t.Helper()
 	s, dir := srcFixture(t)
 	if _, err := s.AddAttachment(eng, "F-003-csrf", "shot.png", pngBytes(t, color.White), alice); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DB().AddMembers(eng, "alice", "bob"); err != nil {
 		t.Fatal(err)
 	}
 	return s, dir
@@ -104,9 +109,11 @@ func TestRedactLeavesArchivedRetest(t *testing.T) {
 	}
 }
 
-// Q12: a copy the retest has signed off and approved is redacted too (the
-// source's redaction, not the redactor's edit there), and stays complete.
-func TestRedactReachesLockedCopy(t *testing.T) {
+// Q12: a copy is written as the redactor, under the retest's own rules: a
+// pentester's redaction leaves a copy approved there (locked to directors)
+// and reports it; a director's next redaction reaches it, and the copy
+// stays complete.
+func TestRedactLeavesLockedCopy(t *testing.T) {
 	s, _ := shotFixture(t)
 	retestOf(t, s, "rt", eng)
 	d := "F-003-csrf"
@@ -122,16 +129,91 @@ func TestRedactReachesLockedCopy(t *testing.T) {
 		}
 	}
 	// the source is still a draft: its author, a pentester, redacts it
-	black := pngBytes(t, color.Black)
-	rd, err := s.RedactAttachment(eng, d, "shot.png", black, uAlice)
-	if err != nil || !reflect.DeepEqual(rd.Redacted, []string{"rt"}) {
+	rd, err := s.RedactAttachment(eng, d, "shot.png", pngBytes(t, color.Black), uAlice)
+	if err != nil || !reflect.DeepEqual(rd.Locked, []string{"rt"}) || len(rd.Redacted) != 0 {
 		t.Fatalf("report %+v %v", rd, err)
 	}
-	if !bytes.Equal(shotIn(t, s, "rt"), black) {
-		t.Fatal("the complete copy was not redacted")
+	if !bytes.Equal(shotIn(t, s, "rt"), pngBytes(t, color.White)) {
+		t.Fatal("a pentester's redaction changed the complete copy")
+	}
+	gray := pngBytes(t, color.Gray{Y: 64})
+	rd, err = s.RedactAttachment(eng, d, "shot.png", gray, uDora)
+	if err != nil || !reflect.DeepEqual(rd.Redacted, []string{"rt"}) {
+		t.Fatalf("director's report %+v %v", rd, err)
+	}
+	if !bytes.Equal(shotIn(t, s, "rt"), gray) {
+		t.Fatal("the director's redaction did not reach the complete copy")
 	}
 	if ref, _ := s.Finding("rt", d); ref.F.Meta.Status != "complete" {
 		t.Fatalf("the copy is %s", ref.F.Meta.Status)
+	}
+}
+
+// Q12: a redactor not on a retest's team leaves its copy as it is; the
+// report keeps it apart (the redactor is not told its ID).
+func TestRedactLeavesRetestNotSeen(t *testing.T) {
+	s, _ := shotFixture(t)
+	retestOf(t, s, "rt1", eng)
+	retestOf(t, s, "rt2", eng)
+	if err := s.RemoveMember("rt2", "alice", uDora); err != nil {
+		t.Fatal(err)
+	}
+	rd, err := s.RedactAttachment(eng, "F-003-csrf", "shot.png", pngBytes(t, color.Black), uAlice)
+	if err != nil || !reflect.DeepEqual(rd.Redacted, []string{"rt1"}) || !reflect.DeepEqual(rd.Hidden, []string{"rt2"}) {
+		t.Fatalf("report %+v %v", rd, err)
+	}
+	if !bytes.Equal(shotIn(t, s, "rt2"), pngBytes(t, color.White)) {
+		t.Fatal("a retest the redactor cannot see was changed")
+	}
+}
+
+// Q12: a copy an earlier redaction left (its retest archived then) still
+// holds a version the source had, so it has not changed since: a later
+// redaction reports it while archived and reaches it once it is open
+// again, also after the source purged those versions.
+func TestRedactReachesCopyLeftBefore(t *testing.T) {
+	s, _ := shotFixture(t)
+	retestOf(t, s, "rt1", eng)
+	if err := s.Archive("rt1", uDora); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []color.Color{color.Black, color.Gray{Y: 64}} {
+		rd, err := s.RedactAttachment(eng, "F-003-csrf", "shot.png", pngBytes(t, c), uAlice)
+		if err != nil || !reflect.DeepEqual(rd.Archived, []string{"rt1"}) {
+			t.Fatalf("report %+v %v", rd, err)
+		}
+	}
+	if err := s.PurgeFromHistory(eng, "F-003-csrf", "shot.png", uDora); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Unarchive("rt1", uDora); err != nil {
+		t.Fatal(err)
+	}
+	dark := pngBytes(t, color.Gray{Y: 32})
+	rd, err := s.RedactAttachment(eng, "F-003-csrf", "shot.png", dark, uAlice)
+	if err != nil || !reflect.DeepEqual(rd.Redacted, []string{"rt1"}) {
+		t.Fatalf("report %+v %v", rd, err)
+	}
+	if !bytes.Equal(shotIn(t, s, "rt1"), dark) {
+		t.Fatal("the copy left before was not redacted")
+	}
+}
+
+// Q12: a copy whose write fails is reported, and the others go on.
+func TestRedactReportsFailedCopy(t *testing.T) {
+	s, dir := shotFixture(t)
+	retestOf(t, s, "rt1", eng)
+	retestOf(t, s, "rt2", eng)
+	lock := filepath.Join(dir, "engagements", "rt1", ".git", "index.lock")
+	if err := os.WriteFile(lock, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rd, err := s.RedactAttachment(eng, "F-003-csrf", "shot.png", pngBytes(t, color.Black), uAlice)
+	if err != nil || !reflect.DeepEqual(rd.Failed, []string{"rt1"}) || !reflect.DeepEqual(rd.Redacted, []string{"rt2"}) {
+		t.Fatalf("report %+v %v", rd, err)
+	}
+	if !bytes.Equal(shotIn(t, s, "rt1"), pngBytes(t, color.White)) {
+		t.Fatal("the failed copy was not put back")
 	}
 }
 
@@ -173,6 +255,24 @@ func TestRetestHolders(t *testing.T) {
 	}
 	if got, err := s.RetestHolders(eng, "F-003-csrf", "shot.png"); err != nil || !slices.Equal(idsOf(got), []string{"rt3", "rt2"}) {
 		t.Fatalf("after the purges %v %v", idsOf(got), err)
+	}
+}
+
+// Q12: a retest whose copy was deleted since (a director's push) still
+// holds the original in its history: listed, with no finding to link.
+func TestRetestHoldersCopyGone(t *testing.T) {
+	s, dir := shotFixture(t)
+	retestOf(t, s, "rt1", eng)
+	repo := filepath.Join(dir, "engagements", "rt1")
+	gitOut(t, repo, "rm", "-rq", "findings/F-003-csrf")
+	gitOut(t, repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "delete F-003")
+	s.Invalidate("rt1")
+	if err := s.ReplaceAttachment(eng, "F-003-csrf", "shot.png", pngBytes(t, color.Black), uAlice); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.RetestHolders(eng, "F-003-csrf", "shot.png")
+	if err != nil || !slices.Equal(idsOf(got), []string{"rt1"}) || got[0].Dir != "" {
+		t.Fatalf("holders %+v %v", got, err)
 	}
 }
 

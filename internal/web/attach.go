@@ -6,6 +6,7 @@ import (
 	"html/template"
 	"io"
 	"net/http"
+	"net/url"
 	"path"
 	"strconv"
 	"strings"
@@ -239,21 +240,33 @@ func (s *Server) attachmentRedact(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	if left := unredacted(rd); left != "" {
-		w.Header().Set("X-Yars-Unredacted", left) // a toast after the save
+	if left := s.unredacted(rd); left != "" {
+		// a toast after the save; escaped, as a name may not be ASCII
+		w.Header().Set("X-Yars-Unredacted", url.PathEscape(left))
 	}
 	s.exec(w, "finding.html", "attach_strip", v)
 }
 
-// unredacted names the retests whose copy a redaction left holding the
-// original (Q12): "not redacted in rt2 (archived), rt3 (failed)".
-func unredacted(rd store.Redaction) string {
+// unredacted names the retests whose copy a redaction left holding an
+// earlier version (Q12), by engagement name as the purge page does, and
+// counts those the redactor cannot see: "not redacted in Retest 2
+// (archived), rt3 (failed), 1 retest (no access)".
+func (s *Server) unredacted(rd store.Redaction) string {
 	var l []string
-	for _, e := range rd.Archived {
-		l = append(l, e+" (archived)")
+	for _, g := range []struct {
+		ids []string
+		why string
+	}{{rd.Archived, "archived"}, {rd.Locked, "locked"}, {rd.Failed, "failed"}} {
+		for _, id := range g.ids {
+			n := id
+			if e, err := s.Store.Engagement(id); err == nil && e.Name != "" {
+				n = e.Name
+			}
+			l = append(l, n+" ("+g.why+")")
+		}
 	}
-	for _, e := range rd.Failed {
-		l = append(l, e+" (failed)")
+	if len(rd.Hidden) > 0 {
+		l = append(l, plural(len(rd.Hidden), "retest")+" (no access)")
 	}
 	if len(l) == 0 {
 		return ""

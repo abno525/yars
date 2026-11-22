@@ -246,35 +246,55 @@ func (s *Store) CreateRetest(e Engagement, source string, dirs []string, assigne
 	return nil
 }
 
-// retestCopies lists the copies of finding fid of engID in the retests
-// made from engID and in the retests of those, nearest first: in each, the
-// finding with that ID whose retest link names the engagement it was made
-// from. A retest whose copy is gone is passed over, not its own retests.
-func (s *Store) retestCopies(engID, fid string) ([]FindingRef, error) {
+// retestsOf lists the retests made from engID and the retests of those,
+// nearest first (engagement.yaml's source).
+func (s *Store) retestsOf(engID string) ([]Engagement, error) {
 	engs, err := s.ListEngagements()
 	if err != nil {
 		return nil, err
 	}
-	var out []FindingRef
+	var out []Engagement
 	seen := map[string]bool{engID: true}
 	for queue := []string{engID}; len(queue) > 0; queue = queue[1:] {
-		src := queue[0]
 		for _, e := range engs {
-			if e.Type != "retest" || e.Source != src || seen[e.ID] {
+			if e.Type != "retest" || e.Source != queue[0] || seen[e.ID] {
 				continue
 			}
 			seen[e.ID] = true
 			queue = append(queue, e.ID)
-			ref, err := s.Finding(e.ID, fid)
-			if err != nil {
-				if !errors.Is(err, ErrNotFound) {
-					log.Printf("retest copy %s/%s: %v", e.ID, fid, err)
-				}
-				continue
-			}
-			if rt := ref.F.Meta.Retest; ref.F.Meta.ID == fid && rt != nil && strings.HasPrefix(rt.Source, src+"/") {
-				out = append(out, ref)
-			}
+			out = append(out, e)
+		}
+	}
+	return out, nil
+}
+
+// copyIn is retest e's copy of finding fid: the finding with that ID whose
+// retest link names the engagement e was made from. ok is false when there
+// is none (deleted since, say).
+func (s *Store) copyIn(e Engagement, fid string) (ref FindingRef, ok bool) {
+	ref, err := s.Finding(e.ID, fid)
+	if err != nil {
+		if !errors.Is(err, ErrNotFound) {
+			log.Printf("retest copy %s/%s: %v", e.ID, fid, err)
+		}
+		return FindingRef{}, false
+	}
+	rt := ref.F.Meta.Retest
+	return ref, ref.F.Meta.ID == fid && rt != nil && strings.HasPrefix(rt.Source, e.Source+"/")
+}
+
+// retestCopies lists the copies of finding fid of engID in the retests
+// made from engID and in the retests of those, nearest first (copyIn). A
+// retest whose copy is gone is passed over, not its own retests.
+func (s *Store) retestCopies(engID, fid string) ([]FindingRef, error) {
+	rts, err := s.retestsOf(engID)
+	if err != nil {
+		return nil, err
+	}
+	var out []FindingRef
+	for _, e := range rts {
+		if ref, ok := s.copyIn(e, fid); ok {
+			out = append(out, ref)
 		}
 	}
 	return out, nil

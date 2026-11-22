@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -225,24 +226,56 @@ func retests(t *testing.T, e *env) {
 }
 
 // Q12: a redaction reaches the retests' copies; one it leaves (archived)
-// is named for a toast after the save.
+// is named for a toast after the save, by its name, each time while it
+// holds an earlier version; open again, the next redaction reaches it.
 func TestRedactNamesRetestLeft(t *testing.T) {
 	e := setup(t)
 	retests(t, e)
-	rec := e.sendFile(t, "alice", fpath+"/attachments/shot.png/redact", "blob", testPNG(t, color.Black))
-	if rec.Code != 200 || rec.Header().Get("X-Yars-Unredacted") != "not redacted in rt2 (archived)" {
-		t.Fatalf("redact %d %q", rec.Code, rec.Header().Get("X-Yars-Unredacted"))
+	left := func(c color.Color) string {
+		t.Helper()
+		rec := e.sendFile(t, "alice", fpath+"/attachments/shot.png/redact", "blob", testPNG(t, c))
+		got, err := url.PathUnescape(rec.Header().Get("X-Yars-Unredacted"))
+		if rec.Code != 200 || err != nil {
+			t.Fatalf("redact %d %v", rec.Code, err)
+		}
+		return got
+	}
+	if got := left(color.Black); got != "not redacted in Retest rt2 (archived)" {
+		t.Fatalf("left %q", got)
 	}
 	if b, _ := e.srv.Store.ReadAttachment("rt1", fdir, "attachments/shot.png"); string(b) != string(testPNG(t, color.Black)) {
 		t.Fatal("rt1's copy was not redacted")
 	}
 	if js := e.do(t, "alice", "GET", "/static/app.js", nil, nil).Body.String(); !strings.Contains(js, "var left = r.headers.get('X-Yars-Unredacted');") ||
-		!strings.Contains(js, "if (left) yarsToast(name + ': ' + left, true);") {
+		!strings.Contains(js, "if (left) yarsToast(name + ': ' + decodeURIComponent(left), true);") {
 		t.Fatal("app.js does not show what the redaction left")
 	}
+	if got := left(color.Gray{Y: 32}); got != "not redacted in Retest rt2 (archived)" {
+		t.Fatalf("second redaction left %q", got)
+	}
 	// none left: no header
-	if rec := e.sendFile(t, "alice", fpath+"/attachments/shot.png/redact", "blob", testPNG(t, color.Gray{Y: 32})); rec.Code != 200 || rec.Header().Get("X-Yars-Unredacted") != "" {
-		t.Fatalf("second redact %d %q", rec.Code, rec.Header().Get("X-Yars-Unredacted"))
+	if err := e.srv.Store.Unarchive("rt2", wDora); err != nil {
+		t.Fatal(err)
+	}
+	if got := left(color.Gray{Y: 64}); got != "" {
+		t.Fatalf("third redaction left %q", got)
+	}
+	if b, _ := e.srv.Store.ReadAttachment("rt2", fdir, "attachments/shot.png"); string(b) != string(testPNG(t, color.Gray{Y: 64})) {
+		t.Fatal("rt2's copy was not redacted once open")
+	}
+}
+
+// Q12: the toast names each retest a redaction left by its name (the ID
+// when it has none), and only counts the ones the redactor cannot see.
+func TestUnredactedText(t *testing.T) {
+	e := setup(t)
+	retests(t, e)
+	got := e.srv.unredacted(store.Redaction{Archived: []string{"rt2"}, Locked: []string{"rt1"}, Failed: []string{"gone"}, Hidden: []string{"x", "y"}})
+	if want := "not redacted in Retest rt2 (archived), Retest rt1 (locked), gone (failed), 2 retests (no access)"; got != want {
+		t.Fatalf("got %q", got)
+	}
+	if got := e.srv.unredacted(store.Redaction{Redacted: []string{"rt1"}}); got != "" {
+		t.Fatalf("none left: %q", got)
 	}
 }
 
@@ -257,6 +290,18 @@ func TestPurgePageListsRetests(t *testing.T) {
 	b := e.do(t, "dora", "GET", fpath+"/attachments/shot.png/purge", nil, nil).Body.String()
 	if !strings.Contains(b, `<tr><th>Retests</th><td title="Retest rt1, Retest rt2"><a href="/e/rt1/f/001#attachments">Retest rt1</a>, <a href="/e/rt2/f/001#attachments">Retest rt2</a></td></tr>`) {
 		t.Fatalf("no retests row:\n%s", b)
+	}
+	// a copy deleted since: its history still holds the original; the
+	// link goes to the retest
+	repo := filepath.Join(e.dir, "engagements", "rt1")
+	for _, args := range [][]string{{"rm", "-rq", "findings/" + fdir}, {"-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "delete"}} {
+		if out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("%v %s", err, out)
+		}
+	}
+	e.srv.Store.Invalidate("rt1")
+	if b := e.do(t, "dora", "GET", fpath+"/attachments/shot.png/purge", nil, nil).Body.String(); !strings.Contains(b, `<a href="/e/rt1">Retest rt1</a>, <a href="/e/rt2/f/001#attachments">Retest rt2</a>`) {
+		t.Fatalf("no link to the retest whose copy is gone:\n%s", b)
 	}
 	e2 := setup(t)
 	redacted(t, e2)
