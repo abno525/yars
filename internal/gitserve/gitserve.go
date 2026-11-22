@@ -77,9 +77,10 @@ type Server struct {
 	// (yars lint --staged).
 	Lint func(ctx context.Context, eng string, raw []byte) ([]rules.Violation, error)
 
-	mu    sync.Mutex
-	cache map[string]cached
-	ready map[string]string // repos already configured for pushes: the hook each got ("" = none)
+	mu      sync.Mutex
+	cache   map[string]cached
+	flights map[string]*flight // credential checks running, keyed as cache
+	ready   map[string]string  // repos already configured for pushes: the hook each got ("" = none)
 
 	setupMu     sync.Mutex       // one repository setup at a time (git's config lock)
 	beforeSetup func(dir string) // tests: called as a repository's setup starts
@@ -113,6 +114,14 @@ func (s *Server) ensureSetup(r *gitrepo.Repo) error {
 type cached struct {
 	user config.User
 	exp  time.Time
+}
+
+// flight is one credential check in progress; done closes when u and err
+// are set.
+type flight struct {
+	done chan struct{}
+	u    config.User
+	err  error
 }
 
 // Setup configures the main repo and every engagement repo for pushes and
@@ -245,13 +254,49 @@ func (s *Server) check(user, pw string) (config.User, error) {
 		}
 	}
 	s.mu.Unlock()
-	u, err := s.Auth.CheckErr(user, pw)
-	if err == nil {
-		s.mu.Lock()
-		s.cache[key] = cached{u, time.Now().Add(10 * time.Minute)}
+	return s.checkOnce(key, user, pw)
+}
+
+// checkOnce checks credentials once for all the requests that bring the
+// same ones (key) while the check runs, and caches a success: git's first
+// requests of a clone come at once, and as many login attempts in flight
+// would pass the lockout's limit (D27) and be refused. Only a pass is
+// shared: a refused request checks again on its own, so wrong passwords
+// count as before.
+func (s *Server) checkOnce(key, user, pw string) (config.User, error) {
+	s.mu.Lock()
+	if f, ok := s.flights[key]; ok {
 		s.mu.Unlock()
+		<-f.done
+		if f.err != auth.ErrRefused {
+			return f.u, f.err
+		}
+		u, err := s.Auth.CheckErr(user, pw)
+		if err == nil {
+			s.mu.Lock()
+			s.cache[key] = cached{u, time.Now().Add(10 * time.Minute)}
+			s.mu.Unlock()
+		}
+		return u, err
 	}
-	return u, err
+	if s.flights == nil {
+		s.flights = map[string]*flight{}
+	}
+	// refused until the check says otherwise (a panic in it too)
+	f := &flight{done: make(chan struct{}), err: auth.ErrRefused}
+	s.flights[key] = f
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		if f.err == nil {
+			s.cache[key] = cached{f.u, time.Now().Add(10 * time.Minute)}
+		}
+		delete(s.flights, key)
+		s.mu.Unlock()
+		close(f.done)
+	}()
+	f.u, f.err = s.Auth.CheckErr(user, pw)
+	return f.u, f.err
 }
 
 // mainServicePath accepts only git's own request paths under the main

@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/crypto/bcrypt"
+
 	"yars/internal/auth"
 	"yars/internal/config"
 	"yars/internal/db"
@@ -179,6 +181,59 @@ func TestGitLoginLockout(t *testing.T) {
 	}
 	if c := get("pw"); c != 401 {
 		t.Fatalf("the right password after five failures: %d", c)
+	}
+}
+
+// Many first requests of one login at once (a clone) all get through: the
+// same credentials are checked once while that check runs, instead of each
+// counting as a login attempt in flight, past the lockout's limit refused.
+// Wrong passwords at once still count one attempt each: they lock the name
+// out, and even the right password is refused after them.
+func TestParallelFirstLogins(t *testing.T) {
+	srv, _, d := setupDB(t)
+	// a hash slow enough that the checks overlap
+	h, err := bcrypt.GenerateFromPassword([]byte("pw"), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.AddUser(config.User{Username: "carl", Role: "pentester", PasswordHash: string(h)})
+	d.AddUser(config.User{Username: "dave", Role: "pentester", PasswordHash: string(h)})
+	get := func(user, pw string) int {
+		req, _ := http.NewRequest("GET", srv.URL+"/git/yars/info/refs?service=git-upload-pack", nil)
+		req.SetBasicAuth(user, pw)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return 0
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+	atOnce := func(user, pw string) []int {
+		var wg sync.WaitGroup
+		codes := make([]int, 24)
+		for i := range codes {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				codes[i] = get(user, pw)
+			}()
+		}
+		wg.Wait()
+		return codes
+	}
+	codes := atOnce("carl", "pw")
+	for _, c := range codes {
+		if c != 200 {
+			t.Fatalf("parallel first logins with the right password: %v", codes)
+		}
+	}
+	for _, c := range atOnce("dave", "wrong") {
+		if c != 401 {
+			t.Fatalf("a wrong password: %d", c)
+		}
+	}
+	if c := get("dave", "pw"); c != 401 {
+		t.Fatalf("the right password after wrong ones at once: %d", c)
 	}
 }
 
