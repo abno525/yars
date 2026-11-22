@@ -204,6 +204,13 @@ func (e *Engine) reload() {
 	}
 }
 
+// Stamp is the rules folder's signature as loaded (sizes and times): it
+// moves on any change, also one undone, which Version does not.
+func (e *Engine) Stamp() string {
+	_, at := e.currentAt()
+	return at.stamp
+}
+
 // Version identifies the rules as loaded: a SHA-256 over every file under
 // the rules folder (names and contents, in path order), 16 hex characters
 // (Q13: a check run with other rules is out of date).

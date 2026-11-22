@@ -97,6 +97,16 @@ func (s *Store) RulesVersion() string {
 	return ""
 }
 
+// rulesStamp tells whether the rules folder changed since: the linter's
+// signature (sizes and times: a change undone moves it too), else the
+// version.
+func (s *Store) rulesStamp() string {
+	if l, ok := s.Linter.(interface{ Stamp() string }); ok {
+		return l.Stamp()
+	}
+	return s.RulesVersion()
+}
+
 // RulesChanged reports whether a run with the rules at version runRules is
 // out of date against the rules at nowRules (both known and different).
 func RulesChanged(runRules, nowRules string) bool {
@@ -173,8 +183,8 @@ func (s *Store) CheckGates(keys []GateKey) (map[string]string, error) {
 	// each run's state as it is now first (a run may finish meanwhile), then
 	// its AI steps, so both are read after the run ended
 	type judged struct {
-		state, runHash string
-		running        bool
+		state, runHash, rules string
+		running               bool
 	}
 	now := map[string]judged{}
 	ids := make([]int64, 0, len(runs))
@@ -184,14 +194,14 @@ func (s *Store) CheckGates(keys []GateKey) (map[string]string, error) {
 		if !ok {
 			continue
 		}
-		j := judged{state: r.State, runHash: r.ContentHash}
+		j := judged{state: r.State, runHash: r.ContentHash, rules: r.Rules}
 		j.running = j.state == db.RunRunning && s.inProgress(checkKey(k.Eng, k.Fid), r.ID)
 		if j.state == db.RunRunning && !j.running {
 			run, err := s.db.Run(r.ID) // finished meanwhile, or left by an earlier server
 			if err != nil {
 				return nil, err
 			}
-			j.state, j.runHash = run.State, run.ContentHash
+			j.state, j.runHash, j.rules = run.State, run.ContentHash, run.Rules // its end may mark the rules changed
 		}
 		now[name] = j
 		ids = append(ids, r.ID)
@@ -209,7 +219,7 @@ func (s *Store) CheckGates(keys []GateKey) (map[string]string, error) {
 			continue
 		}
 		j := now[name]
-		if g := gateOf(j.state, j.runHash, k.Hash, j.running, aiFailed[r.ID], r.Rules, nowRules); g != "" {
+		if g := gateOf(j.state, j.runHash, k.Hash, j.running, aiFailed[r.ID], j.rules, nowRules); g != "" {
 			out[name] = g
 		}
 	}

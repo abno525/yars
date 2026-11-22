@@ -97,7 +97,8 @@ func (s *Store) startCheck(engID, dir, only string, u config.User) (db.CheckRun,
 	// marked before the run exists: a gate that sees the new run as the
 	// latest counts it as running, not as cut off
 	s.setRunning(key, pendingRun, false)
-	id, err = s.db.StartRun(engID, fid, hash, u.Username, s.RulesVersion())
+	asked := s.RulesVersion()
+	id, err = s.db.StartRun(engID, fid, hash, u.Username, asked)
 	if err != nil {
 		s.setRunning(key, 0, true)
 		s.checksMu.Unlock()
@@ -115,7 +116,7 @@ func (s *Store) startCheck(engID, dir, only string, u config.User) (db.CheckRun,
 	}
 	s.db.RunProgress(id, 0, total) // "0/6" from the start
 	s.checkWG.Add(1)
-	j := checkJob{id: id, ref: ref, only: only, keep: keep, by: u.Username, stepRules: ruleList}
+	j := checkJob{id: id, ref: ref, only: only, keep: keep, by: u.Username, stepRules: ruleList, rules: asked}
 	queued := s.enqueue(j) // under checksMu: in the order of the starts
 	s.checksMu.Unlock()
 	s.admit(j, queued)
@@ -278,9 +279,10 @@ func (s *Store) runCheck(j checkJob) {
 		s.emitCheck(id, ref)
 	}()
 	// it runs the rules of now, not of when it was asked for (it may have
-	// waited); changed while it runs, some rules ran as they were and some
-	// as they are, so it records a version that is never current
-	began := s.RulesVersion()
+	// waited); changed while it runs (also changed and changed back: the
+	// signature moves), some rules ran as they were and some as they are,
+	// so it records a version that is never current
+	began, stamp := s.RulesVersion(), s.rulesStamp()
 	s.db.SetRunRules(id, began)
 	progress := func(done, total int) {
 		if s.db.RunProgress(id, done, total) == nil {
@@ -290,8 +292,9 @@ func (s *Store) runCheck(j checkJob) {
 	var vs []rules.Violation
 	if c, ok := s.Linter.(StepChecker); ok {
 		// the rules changed since it was asked for (it waited): every rule
-		// as it is now, with steps to match (stale by its rules version)
-		if now := c.CheckRules(); !sameRules(now, j.stepRules) {
+		// as it is now, with steps to match; a retry keeps nothing (what it
+		// would keep is of the rules it was asked with)
+		if now := c.CheckRules(); !sameRules(now, j.stepRules) || began != j.rules {
 			only, keep = "", nil
 			s.db.SetSteps(id, runSteps(id, now, "", nil))
 		}
@@ -313,7 +316,7 @@ func (s *Store) runCheck(j checkJob) {
 		vs = s.Linter.Lint(ctx, ref.F, rules.All)
 		progress(1, 1)
 	}
-	if now := s.RulesVersion(); now != began {
+	if s.rulesStamp() != stamp {
 		s.db.SetRunRules(id, began+"+changed")
 	}
 	seq, err := s.db.TxForSeq(eng, func(tx *db.Tx) error { return finishCheck(tx, id, eng, fid, vs) })

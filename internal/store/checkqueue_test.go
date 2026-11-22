@@ -432,6 +432,71 @@ func TestRunRecordsRulesItRan(t *testing.T) {
 	}
 }
 
+// verStamp is verGate with a signature (Stamp) that moves on every change,
+// as the engine's does, also when a change is undone.
+type verStamp struct {
+	verGate
+	stamp int // under mu
+}
+
+func (l *verStamp) setVer(v string) { l.mu.Lock(); l.ver = v; l.stamp++; l.mu.Unlock() }
+func (l *verStamp) Stamp() string   { l.mu.Lock(); defer l.mu.Unlock(); return fmt.Sprint(l.stamp) }
+
+// Review of c88181f: a retry that waited while a rule was edited (same
+// rules, other version) keeps nothing from the run before: every rule runs
+// at the new version.
+func TestQueuedRetryOfEditedRules(t *testing.T) {
+	s, _, fd := newFinding(t)
+	withLimit(s, 1)
+	l := &verStamp{verGate: verGate{stepGate: stepGate{gateLinter: gateLinter{release: make(chan struct{})}}}}
+	l.setRules(rules.Rule{ID: "a", RegexForbid: "zzz"}, rules.Rule{ID: "b", RegexForbid: "yyy"})
+	l.setVer("v1")
+	s.Linter = l
+	close(l.release) // a whole run at v1 first
+	if _, err := s.StartCheck(eng, fd, uAlice); err != nil {
+		t.Fatal(err)
+	}
+	waitAll(t, s)
+	l.release = make(chan struct{})
+	fds := moreFindings(t, s, fd, 1)
+	if _, err := s.StartCheck(eng, fds[1], uAlice); err != nil { // holds the slot
+		t.Fatal(err)
+	}
+	l.waitIn(t, 1)
+	if run, err := s.RetryCheck(eng, fd, "a", uAlice); err != nil || run.State != RunQueued {
+		t.Fatalf("%+v %v", run, err)
+	}
+	l.setVer("v2") // rule b edited: same ids and kinds
+	close(l.release)
+	waitAll(t, s)
+	st, err := s.CheckStatus(eng, fd)
+	if err != nil || st.Run.Rules != "v2" || st.Run.Total != 2 {
+		t.Fatalf("rules %q total %d (want every rule at v2) %v", st.Run.Rules, st.Run.Total, err)
+	}
+}
+
+// Review of c88181f: rules changed and changed back while a run ran leave
+// it out of date (its signature moved), though the version is as before.
+func TestRunWithRulesChangedAndBack(t *testing.T) {
+	s, _, fd := newFinding(t)
+	l := &verStamp{verGate: verGate{stepGate: stepGate{gateLinter: gateLinter{release: make(chan struct{})}}}}
+	l.setRules(rules.Rule{ID: "a", RegexForbid: "zzz"})
+	l.setVer("v1")
+	s.Linter = l
+	if _, err := s.StartCheck(eng, fd, uAlice); err != nil {
+		t.Fatal(err)
+	}
+	l.waitIn(t, 1)
+	l.setVer("v2")
+	l.setVer("v1") // undone
+	close(l.release)
+	waitAll(t, s)
+	st, err := s.CheckStatus(eng, fd)
+	if err != nil || !RulesChanged(st.Run.Rules, "v1") {
+		t.Fatalf("rules %q: current after a change undone %v", st.Run.Rules, err)
+	}
+}
+
 // Review: a run that waited while the rules changed runs every rule as it
 // is when the run starts, and its steps follow: no step left queued for a
 // rule gone, none missing for a new one.

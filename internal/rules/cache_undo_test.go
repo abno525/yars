@@ -9,6 +9,22 @@ import (
 	"yars/internal/config"
 )
 
+// Stamp moves on a change undone (the same bytes written again), which the
+// version does not: a check run uses it to tell rules that changed while it
+// ran.
+func TestEngineStampMovesOnChangeUndone(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "r.yaml")
+	os.WriteFile(p, []byte("- id: a\n  regex_forbid: zzz\n"), 0o644)
+	e := NewEngine(dir, config.Default())
+	ver, stamp := e.Version(), e.Stamp()
+	os.WriteFile(p, []byte("- id: a\n  regex_forbid: yyy\n"), 0o644)
+	os.WriteFile(p, []byte("- id: a\n  regex_forbid: zzz\n"), 0o644)
+	if e.Version() != ver || e.Stamp() == stamp {
+		t.Fatalf("version %s→%s, stamp %s→%s", ver, e.Version(), stamp, e.Stamp())
+	}
+}
+
 // Review of 02ae98e: a script changed and changed back while it runs (here
 // the changed script puts the old one back itself, as a push and its revert
 // would) leaves the folder at the old version, but what ran was the change:

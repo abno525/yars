@@ -22,6 +22,7 @@ type checkJob struct {
 	keep      *carried
 	by        string
 	stepRules []rules.Rule
+	rules     string // the rules version it was asked with (its keep is of those)
 }
 
 // checkLimit is how many check runs run at once (checks.max_running).
