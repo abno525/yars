@@ -276,13 +276,14 @@ func (s *Store) carryApproval(ref FindingRef, oldHash, newHash string) error {
 	if st := ref.F.Meta.Status; st != "complete" && st != "reported" {
 		return nil
 	}
-	return CarryApproval(s.db, ref.EngID, ref.F.Meta.ID, oldHash, newHash)
+	return carryApprovalDB(s.db, ref.EngID, ref.F.Meta.ID, oldHash, newHash)
 }
 
-// CarryApproval moves the approval of eng/fid from oldHash to newHash when
-// the finding was approved for oldHash (used after a director's edit,
-// through YARS or by push).
-func CarryApproval(d *db.DB, eng, fid, oldHash, newHash string) error {
+// carryApprovalDB moves the approval of eng/fid from oldHash to newHash when
+// the finding was approved for oldHash. Only after the change is in: a
+// director's commit through YARS, or a push once it landed (ReceivePush),
+// never from the hook.
+func carryApprovalDB(d *db.DB, eng, fid, oldHash, newHash string) error {
 	if d == nil {
 		return nil
 	}

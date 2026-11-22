@@ -117,20 +117,21 @@ func (s *Store) Transition(engID, dir string, act workflow.Action, reason string
 // TransitionChecked is Transition with a further rule of the caller (the
 // bulk bar's own limits), checked on the finding as it is inside the change.
 func (s *Store) TransitionChecked(engID, dir string, act workflow.Action, reason string, u config.User, check func(finding.Meta) error) error {
-	return s.transition(engID, dir, act, reason, "", u, check)
+	return s.transition(engID, dir, act, reason, "", "", u, check)
 }
 
 // TransitionSeen is Transition for a page that showed the content with hash
-// seen: a sign-off or an approval of content changed since is refused
-// (ErrConflict). seen "" or another action: Transition.
-func (s *Store) TransitionSeen(engID, dir string, act workflow.Action, reason, seen string, u config.User) error {
+// seen and the attachments with AttachmentsHash files: a sign-off or an
+// approval of a finding changed since is refused (ErrConflict). seen or
+// files "" is not checked; another action: Transition.
+func (s *Store) TransitionSeen(engID, dir string, act workflow.Action, reason, seen, files string, u config.User) error {
 	if !SignsOff(act) {
-		seen = ""
+		seen, files = "", ""
 	}
-	return s.transition(engID, dir, act, reason, seen, u, nil)
+	return s.transition(engID, dir, act, reason, seen, files, u, nil)
 }
 
-func (s *Store) transition(engID, dir string, act workflow.Action, reason, seen string, u config.User, check func(finding.Meta) error) error {
+func (s *Store) transition(engID, dir string, act workflow.Action, reason, seen, files string, u config.User, check func(finding.Meta) error) error {
 	if check == nil {
 		check = func(finding.Meta) error { return nil }
 	}
@@ -170,7 +171,18 @@ func (s *Store) transition(engID, dir string, act workflow.Action, reason, seen 
 	err := s.changeState(engID, dir, func(ref FindingRef, st *db.State, hash string) ([]chat.Message, error) {
 		done = findingEvent(EventStatus, u.Username, ref)
 		done.Action, done.From, done.Reason = string(act), ref.F.Meta.Status, strings.TrimSpace(reason)
-		if seen != "" && hash != seen {
+		changed := seen != "" && hash != seen
+		if files != "" && !changed {
+			// read inside the transaction: a file written before it is seen
+			// here; one written after clears a sign-off given here
+			// (dropSignOffs, in verification)
+			now, err := s.AttachmentsHash(engID, ref.Dir)
+			if err != nil {
+				return nil, err
+			}
+			changed = now != files
+		}
+		if changed {
 			return nil, &workflow.Denied{Reason: "the finding changed since you opened it; read it again", Err: ErrConflict}
 		}
 		if linted != "" && hash != linted {

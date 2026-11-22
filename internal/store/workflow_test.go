@@ -405,6 +405,38 @@ func TestAttachmentChangeVoidsClearances(t *testing.T) {
 	}
 }
 
+// A sign-off is for the attachments the page showed too: one sent with the
+// attachments as they were before an upload is refused, as one after a text
+// edit is; with them as they are now it counts.
+func TestSignOffBindsToViewedAttachments(t *testing.T) {
+	s, _, fd := ready(t)
+	s.Transition(eng, fd, workflow.Submit, "", uAlice)
+	seen := load(t, s, fd).Hash
+	files, err := s.AttachmentsHash(eng, fd)
+	if err != nil || files == "" {
+		t.Fatalf("attachments hash %q: %v", files, err)
+	}
+	if _, err := s.AddAttachment(eng, fd, "shot.png", pngBytes(t, color.White), uAlice); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.TransitionSeen(eng, fd, workflow.Clear, "", seen, files, uBob); !errors.Is(err, ErrConflict) {
+		t.Fatalf("a sign-off for the attachments before the upload: %v", err)
+	}
+	if c := load(t, s, fd).F.Meta.ClearedBy; len(c) != 0 {
+		t.Fatalf("bob signed off attachments he did not see: %v", c)
+	}
+	now, err := s.AttachmentsHash(eng, fd)
+	if err != nil || now == files {
+		t.Fatalf("the upload left the attachments hash %q: %v", now, err)
+	}
+	if err := s.TransitionSeen(eng, fd, workflow.Clear, "", seen, now, uBob); err != nil {
+		t.Fatal(err)
+	}
+	if c := load(t, s, fd).F.Meta.ClearedBy; !reflect.DeepEqual(c, []string{"bob"}) {
+		t.Fatalf("a sign-off on the current attachments: %v", c)
+	}
+}
+
 // The edit lock is enforced inside the store (against freshly loaded state),
 // not only by the web layer.
 func TestContentEditDeniedWhenLocked(t *testing.T) {

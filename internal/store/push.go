@@ -281,7 +281,7 @@ func (s *Store) pushState(eng string, u config.User, ps []pushedFinding) {
 			if of, err := finding.Parse(pf.prev); err == nil {
 				old := contentHash(pf.prev)
 				if may(of.Meta.ID, func(st db.State) bool { return Approved(st, old) && st.ApprovedHash != "" }) {
-					if err := CarryApproval(s.db, eng, of.Meta.ID, old, contentHash(pf.raw)); err != nil {
+					if err := carryApprovalDB(s.db, eng, of.Meta.ID, old, contentHash(pf.raw)); err != nil {
 						log.Printf("push to %s: approval of %s: %v", eng, of.Meta.ID, err)
 					}
 				}

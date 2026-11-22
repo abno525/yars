@@ -127,6 +127,22 @@ func (s *Store) AttachmentsOf(ref FindingRef) ([]Attachment, error) {
 	return s.attachments(ref.EngID, ref.Dir, fid)
 }
 
+// AttachmentsHash identifies dir's attachments as they are on disk (names,
+// sizes and times; a replaced file gets a new time): a sign-off is for the
+// files the page showed too (TransitionSeen). It reads no database, so it
+// runs inside a transaction.
+func (s *Store) AttachmentsHash(engID, dir string) (string, error) {
+	as, err := s.attachments(engID, dir, "")
+	if err != nil {
+		return "", err
+	}
+	var b strings.Builder
+	for _, a := range as {
+		b.WriteString(a.Name + "\x00" + strconv.FormatInt(a.Size, 10) + "\x00" + strconv.FormatInt(a.ModTime.UnixNano(), 10) + "\x01")
+	}
+	return BodyHash(b.String()), nil
+}
+
 // attachments lists dir's attachments; fid ("" = unknown) finds the ones
 // whose original is still in history.
 func (s *Store) attachments(engID, dir, fid string) ([]Attachment, error) {

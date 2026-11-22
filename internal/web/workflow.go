@@ -54,6 +54,7 @@ type wfView struct {
 	ReviewersURL string
 	URL          string // the bar alone (live refresh)
 	Seen         string // the content hash of the version shown: Sign off and Approve are for it
+	SeenFiles    string // and the attachments shown (store.AttachmentsHash)
 	Returned     *finding.Returned
 	Withdrawn    *finding.Returned // who withdrew the finding and why
 	IsWithdrawn  bool              // no step is current or done
@@ -356,8 +357,14 @@ func (s *Server) wfGated(r *http.Request, ref store.FindingRef) (wfView, checksV
 			log.Printf("check gate of %s/%s: %v", ref.EngID, ref.Dir, gerr)
 		}
 		wf.NeedsCheck = gate != "" || gerr != nil
+		// a sign-off covers the attachments shown too
+		files, ferr := s.Store.AttachmentsHash(ref.EngID, ref.Dir)
+		if ferr != nil {
+			log.Printf("attachments of %s/%s: %v", ref.EngID, ref.Dir, ferr)
+		}
+		wf.SeenFiles = files
 		for i, a := range wf.Actions {
-			if act, _ := workflow.ParseAction(a.Name); store.SignsOff(act) && (len(open) > 0 || err != nil || wf.NeedsCheck) {
+			if act, _ := workflow.ParseAction(a.Name); store.SignsOff(act) && (len(open) > 0 || err != nil || wf.NeedsCheck || ferr != nil) {
 				wf.Actions[i].Disabled = true
 			}
 		}
@@ -424,8 +431,9 @@ func (s *Server) wfAction(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	// Sign off and Approve are for the version the page showed (its hash)
-	err := s.Store.TransitionSeen(ref.EngID, ref.Dir, act, r.FormValue("reason"), r.FormValue("seen"), auth.UserFrom(r.Context()))
+	// Sign off and Approve are for the version the page showed (its hash and
+	// its attachments)
+	err := s.Store.TransitionSeen(ref.EngID, ref.Dir, act, r.FormValue("reason"), r.FormValue("seen"), r.FormValue("seenfiles"), auth.UserFrom(r.Context()))
 	s.wfDone(w, r, err)
 }
 

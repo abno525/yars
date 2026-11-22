@@ -1,6 +1,7 @@
 package web
 
 import (
+	"image/color"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -349,6 +350,38 @@ func TestSignOffBindsToViewedVersion(t *testing.T) {
 	}
 	if ref, _ := e.srv.Store.Finding("acme", fdir); len(ref.F.Meta.ClearedBy) != 1 {
 		t.Fatal("bob's sign-off on the current version did not count")
+	}
+}
+
+// A sign-off is for the attachments the page showed too: the bar sends
+// them, and an upload since is refused as a text edit is.
+func TestSignOffBindsToViewedAttachments(t *testing.T) {
+	e := setup(t)
+	e.toVerification(t)
+	formOf := func(user string) url.Values {
+		t.Helper()
+		m := regexp.MustCompile(`<input type="hidden" name="seen" value="([0-9a-f]+)"><input type="hidden" name="seenfiles" value="([0-9a-f]+)">`).FindStringSubmatch(e.do(t, user, "GET", fshort, nil, nil).Body.String())
+		if m == nil {
+			t.Fatalf("%s's bar sends no viewed attachments", user)
+		}
+		return url.Values{"seen": {m[1]}, "seenfiles": {m[2]}}
+	}
+	form := formOf("bob")
+	if _, err := e.srv.Store.AddAttachment("acme", fdir, "shot.png", testPNG(t, color.White), wAlice); err != nil {
+		t.Fatal(err)
+	}
+	b := e.denied(t, "bob", fshort+"/action/clear", form)
+	if !strings.Contains(b, "the finding changed since you opened it; read it again") {
+		t.Fatal("no refusal on the page")
+	}
+	if ref, _ := e.srv.Store.Finding("acme", fdir); len(ref.F.Meta.ClearedBy) != 0 {
+		t.Fatal("bob signed off attachments he did not see")
+	}
+	if rec := e.do(t, "bob", "POST", fshort+"/action/clear", formOf("bob"), nil); rec.Code != http.StatusSeeOther {
+		t.Fatalf("sign off on the current version: %d", rec.Code)
+	}
+	if ref, _ := e.srv.Store.Finding("acme", fdir); len(ref.F.Meta.ClearedBy) != 1 {
+		t.Fatal("bob's sign-off on the current attachments did not count")
 	}
 }
 
