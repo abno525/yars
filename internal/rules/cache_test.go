@@ -362,6 +362,35 @@ func TestEngineScriptCacheFollowsRules(t *testing.T) {
 	}
 }
 
+// Final review: a script changed during a check (a push in the middle of
+// it) runs as it is on disk; its result is not kept under the version the
+// check began with, so after a revert to that version the old script runs
+// again rather than the new one's result coming back.
+func TestScriptResultNotKeptAcrossRulesChange(t *testing.T) {
+	dir := t.TempDir()
+	log := filepath.Join(t.TempDir(), "runs")
+	os.WriteFile(filepath.Join(dir, "r.yaml"), []byte("- id: first\n  script: first.sh\n- id: s\n  script: c.sh\n"), 0o644)
+	script(t, dir, "first.sh", "cat >/dev/null\necho '[]'\n")
+	v1 := "cat >/dev/null\necho one >> " + log + "\necho '[]'\n"
+	v2 := "cat >/dev/null\necho two >> " + log + "\necho '[{\"message\":\"v2 says bad\"}]'\n"
+	script(t, dir, "c.sh", v1)
+	store := newMemResults()
+	e := NewEngine(dir, config.Default())
+	e.Runner.(*Runner).Results = store
+	e.CheckDoc(context.Background(), doc(), func(done, total int) {
+		if done == 1 { // after the first rule, c.sh is changed
+			script(t, dir, "c.sh", v2)
+		}
+	})
+	script(t, dir, "c.sh", v1) // reverted: the folder as the check began
+	later := NewEngine(dir, config.Default())
+	later.Runner.(*Runner).Results = store
+	if vs := later.CheckDoc(context.Background(), doc(), nil); len(vs) != 0 {
+		b, _ := os.ReadFile(log)
+		t.Fatalf("v1 of c.sh prints [] but the check gives %+v; runs: %q", vs, b)
+	}
+}
+
 // versionRunner records the rules version each script call is given.
 type versionRunner struct{ got []string }
 

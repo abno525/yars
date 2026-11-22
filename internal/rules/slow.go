@@ -127,7 +127,8 @@ const scriptFormat = "1"
 
 // Script runs a script rule on d, or returns what the same run gave before
 // (Q16): one with the same rules folder (every file in it), script file,
-// rule and input. Only a run that worked is kept. It returns at most
+// rule and input. Only a run that worked is kept, and only when the rules
+// folder did not change since the check began. It returns at most
 // MaxPerRule violations.
 func (rn *Runner) Script(ctx context.Context, r Rule, d Doc) []Violation {
 	path, err := rn.scriptPath(r.Script)
@@ -142,7 +143,8 @@ func (rn *Runner) Script(ctx context.Context, r Rule, d Doc) []Violation {
 	kr := r
 	kr.Enabled = nil
 	def, _ := json.Marshal(kr) // plain fields: it cannot fail
-	ck := resultKey("script", scriptFormat, rulesVersion(ctx, rn.Dir), path, r.ID, string(def), string(input))
+	ver := rulesVersion(ctx, rn.Dir)
+	ck := resultKey("script", scriptFormat, ver, path, r.ID, string(def), string(input))
 	if vs, ok := rn.scriptCache().Get(ck); ok {
 		return slices.Clone(vs)
 	}
@@ -152,7 +154,9 @@ func (rn *Runner) Script(ctx context.Context, r Rule, d Doc) []Violation {
 		return slices.Clone(vs)
 	}
 	vs, ok := rn.runScript(ctx, r, path, input)
-	if ok {
+	// kept only while the folder is still the version of the key: one
+	// changed during the check ran as it is now, not as the key says
+	if ok && dirVersion(rn.Dir) == ver {
 		rn.scriptCache().Add(ck, vs)
 		rn.keep(ck, "script", vs)
 	}
