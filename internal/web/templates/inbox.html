@@ -34,7 +34,7 @@
       <td class="title">{{if .NoteID}}<button class="noteopen" form="notes" formaction="/notifications/{{.NoteID}}" title="{{.Title}}" data-nav id="row-notes-{{.NoteID}}">{{.Title}}</button>{{else}}<a href="{{.URL}}" title="{{.Title}}" data-nav id="row-{{$.Name}}-{{.EngID}}-{{.ID}}">{{.Title}}</a>{{end}}</td>
       <td class="c-tag">{{if .Tag}}<span class="tag {{.TagClass}}">{{.Tag}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
       {{if .EngID}}<td class="c-eng mono" title="{{.EngName}} · {{.ID}}"><span class="engid">{{.EngID}}</span> · <span class="fid">{{.ID}}</span></td>{{else}}<td class="c-eng mono"><span class="muted">—</span></td>{{end}}
-      <td class="c-what" title="{{with .Who}}{{.}} · {{end}}{{.What}}">{{with .Who}}<strong>{{.}}</strong> · {{end}}{{.What}}</td>
+      <td class="c-what" title="{{.Who}}{{if and .Who .What}} · {{end}}{{.What}}">{{with .Who}}<strong>{{.}}</strong>{{end}}{{if and .Who .What}} · {{end}}{{.What}}</td>
       <td class="c-age mono">{{age .At}}</td>
       {{/* a notice: Open marks it read, a POST through the page's one form (the director's queues are a form already) */}}
       <td class="c-go">{{with .NoteID}}<button class="btn secondary sm w128" form="notes" formaction="/notifications/{{.}}">Open</button>{{else}}<a class="btn {{if .Primary}}primary{{else}}secondary{{end}} sm w128" href="{{.ActURL}}">{{.Act}}</a>{{end}}</td>

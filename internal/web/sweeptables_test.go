@@ -3,6 +3,7 @@ package web
 import (
 	"regexp"
 	"strconv"
+	"strings"
 	"testing"
 
 	"yars/internal/db"
@@ -57,5 +58,21 @@ func TestInboxActionFitsMarkReported(t *testing.T) {
 	}
 	if col := cssWidth(t, css, ".table.inboxt .c-go"); col != w+8+20 {
 		t.Errorf("action column %dpx for a %dpx button", col, w)
+	}
+}
+
+// An inbox row's who · what has its dot only between the two: a notice
+// without text (Approved) shows who did it, not "dora · ".
+func TestInboxWhoWithoutWhat(t *testing.T) {
+	e := setup(t)
+	d := e.srv.Store.DB()
+	d.AddNotification(db.Notification{User: "alice", Event: "approved", Eng: "acme", Fid: "F-001", Title: "SQL injection", Actor: "dora"})
+	d.AddNotification(db.Notification{User: "alice", Event: "mentioned", Eng: "acme", Fid: "F-001", Title: "SQL injection", Actor: "bob", Text: "a look?"})
+	sec := notesSection(t, e.do(t, "alice", "GET", "/inbox", nil, nil).Body.String())
+	for _, want := range []string{`<td class="c-what" title="dora"><strong>dora</strong></td>`,
+		`<td class="c-what" title="bob · a look?"><strong>bob</strong> · a look?</td>`} {
+		if !strings.Contains(sec, want) {
+			t.Errorf("section lacks %s:\n%s", want, sec)
+		}
 	}
 }
