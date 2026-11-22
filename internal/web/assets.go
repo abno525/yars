@@ -3,6 +3,7 @@ package web
 import (
 	"errors"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -16,6 +17,7 @@ type assetsView struct {
 	Rows                      []finding.Asset
 	Base, Error               string
 	Locked, ReadOnly          bool
+	Dirty                     bool // the editor's fields are unsaved: not what is saved, or refused
 	ViewURL, EditURL, SaveURL string
 	LiveURL                   string // the read panel's live refresh
 }
@@ -87,6 +89,10 @@ func (s *Server) assetsPost(w http.ResponseWriter, r *http.Request) {
 	editor := func(status int, rows []finding.Asset, msg string) {
 		v := s.assetsFor(ref, editorRows(rows))
 		v.Error = msg
+		// drawn again (Add row, Remove, a refusal): rows other than the
+		// saved ones count as unsaved, so leaving them asks first
+		clean, err := store.CleanAssets(rows)
+		v.Dirty = msg != "" || err != nil || !slices.Equal(clean, ref.F.Meta.Assets)
 		if status != http.StatusConflict {
 			v.Base = r.PostForm.Get("base") // still editing against what was shown
 		}

@@ -113,6 +113,46 @@ func TestAssetsRefusedMarksEveryField(t *testing.T) {
 	}
 }
 
+// Add row and Remove row draw the editor again: rows that are not what is
+// saved stay unsaved (marked), so Cancel, Esc and leaving still ask; an
+// empty row added to the saved list is no change.
+func TestAssetsAddRemoveKeepUnsaved(t *testing.T) {
+	e := setup(t)
+	marked := func(b, f string) bool {
+		i := strings.Index(b, `name="`+f+`"`)
+		return i >= 0 && strings.Contains(b[i:i+strings.Index(b[i:], ">")], "data-dirty")
+	}
+	post := func(form url.Values) string {
+		t.Helper()
+		rec := e.do(t, "alice", "POST", fpath+"/assets", form, nil)
+		if rec.Code != 200 {
+			t.Fatalf("%v: %d", form, rec.Code)
+		}
+		return rec.Body.String()
+	}
+	// a URL typed, then Add row
+	b := post(url.Values{"base": {e.assetsBase(t)}, "n": {"1"}, "url_0": {"https://app.example/login"}, "op": {"add"}})
+	if !marked(b, "url_0") || !marked(b, "host_1") {
+		t.Fatalf("typed row not unsaved after Add row:\n%s", b)
+	}
+	// nothing typed, Add row: no change
+	if b := post(url.Values{"base": {e.assetsBase(t)}, "n": {"1"}, "op": {"add"}}); strings.Contains(b, "data-dirty") {
+		t.Fatalf("an empty row marked:\n%s", b)
+	}
+	// a saved row removed: the one left is unsaved
+	if err := e.srv.Store.UpdateAssets("acme", "F-001-sql-injection", []finding.Asset{{Host: "a.example"}, {Host: "b.example"}}, "", wDora); err != nil {
+		t.Fatal(err)
+	}
+	b = post(url.Values{"base": {e.assetsBase(t)}, "n": {"2"}, "host_0": {"a.example"}, "host_1": {"b.example"}, "op": {"del-0"}})
+	if !marked(b, "host_0") || !strings.Contains(b, `value="b.example"`) {
+		t.Fatalf("removal not unsaved:\n%s", b)
+	}
+	// the saved rows and an empty one added: no change
+	if b := post(url.Values{"base": {e.assetsBase(t)}, "n": {"2"}, "host_0": {"a.example"}, "host_1": {"b.example"}, "op": {"add"}}); strings.Contains(b, "data-dirty") {
+		t.Fatalf("saved rows marked:\n%s", b)
+	}
+}
+
 func TestDuplicates(t *testing.T) {
 	e := setup(t)
 	nf := e.do(t, "alice", "GET", "/e/acme/findings/new", nil, nil).Body.String()
