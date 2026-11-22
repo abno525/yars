@@ -4,19 +4,19 @@
   <div class="actions">
     {{if .Tpl.CanEdit}}
     <form class="newtpl" method="post" action="/templates/new">
-      <input class="w360" name="title" placeholder="Title" aria-label="New template title" required>
+      <input class="w360" name="title" placeholder="Title" aria-label="New template title" required aria-keyshortcuts="N">
       <button class="btn primary w152">New template</button>
     </form>
     {{else}}<span class="slot w152"></span>{{end}}
   </div>
 </div>
 <form class="filterbar" method="get" action="/templates">
-  <input type="search" class="w360" name="q" value="{{.Tpl.Q}}" placeholder="Search templates" aria-label="Search templates">
+  <input type="search" id="tpl-q" class="w360" name="q" value="{{.Tpl.Q}}" placeholder="Search templates" aria-label="Search templates">
   <button class="btn secondary w96">Search</button>
   <span class="mono">{{len .Tpl.Rows}} of {{.Tpl.Total}}</span>
 </form>
 <section class="panel">
-  <table class="table stable tpltable">
+  <table class="table stable tpltable" data-arrows>
     <thead><tr><th>Title</th><th class="c-sev">Severity</th><th class="c-num">CVSS</th><th class="c-num">Used</th><th class="c-edited">Last edited</th><th class="c-owner">Owner</th><th class="c-act">Action</th></tr></thead>
     <tbody>
     {{range .Tpl.Rows}}

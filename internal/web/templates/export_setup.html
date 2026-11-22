@@ -4,12 +4,12 @@
     <nav class="crumbs"><a href="/e/{{.Eng.ID}}">{{.Eng.Name}}</a><span class="sep" aria-hidden="true">/</span><a href="/e/{{.Eng.ID}}/export">Export</a><span class="sep" aria-hidden="true">/</span><span class="muted">Destinations</span></nav>
     <h1>Destinations</h1>
   </div>
-  <div class="actions"><a class="btn primary w160" href="/e/{{.Eng.ID}}/export/setup">New destination</a></div>
+  <div class="actions"><a class="btn primary w160" href="/e/{{.Eng.ID}}/export/setup" aria-keyshortcuts="N">New destination</a></div>
 </div>
 {{range .ExportV.LoadErrors}}<p class="checkerr" title="{{.}}">{{.}}</p>{{end}}
 <div class="destsetup">
   <section class="panel compact">
-    <table class="table stable desttable flush">
+    <table class="table stable desttable flush" data-arrows>
       <thead><tr><th>Destination</th><th class="c-kind">Kind</th><th class="c-key">Server key</th><th class="c-mark">Marks reported</th><th class="c-act">Action</th></tr></thead>
       <tbody>
         {{range .ExportV.Setup.Rows}}
@@ -18,7 +18,8 @@
           <td><span class="tag kind-{{.Kind}}">{{.Kind}}</span></td>
           <td class="mono">{{.Key}}</td>
           <td class="c-ch"><span class="cbx ro{{if .Marks}} on{{end}}" role="img" aria-label="{{if .Marks}}marks reported{{else}}does not mark{{end}}">{{if .Marks}}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>{{end}}</span></td>
-          <td>{{if .Editing}}<span class="btn save sm w96" aria-current="true">Editing</span>{{else}}<a class="btn ghost sm w96" href="/e/{{$.Eng.ID}}/export/setup?edit={{.ID}}">Edit</a>{{end}}</td>
+          {{/* the row the keys move to: Enter edits it */}}
+          <td>{{if .Editing}}<span class="btn save sm w96" aria-current="true" tabindex="0" data-nav>Editing</span>{{else}}<a class="btn ghost sm w96" href="/e/{{$.Eng.ID}}/export/setup?edit={{.ID}}" data-nav>Edit</a>{{end}}</td>
         </tr>
         {{else}}
         {{template "empty_row" 5}}

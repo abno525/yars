@@ -51,11 +51,11 @@ function yarsSave() {
   var a = document.activeElement;
   var form = a && a !== document.body && a.closest ? a.closest('form') || a.form : null;
   // nothing being filled in (a focused button, link or row checkbox is not):
-  // the findings list's or the team board's search box (no other page's);
-  // never from a focused button of a form that saves (nothing, as before),
-  // nor with the shortcuts off
+  // the findings list's, the team board's or the templates list's search box
+  // (no other page's); never from a focused button of a form that saves
+  // (nothing, as before), nor with the shortcuts off
   if (!yarsTyping(a) || yarsPick(a)) {
-    if (!yarsKeysOff() && !(form && !yarsPick(a) && yarsSaveButton(form))) yarsSearchFocus('#fq, #tb-q');
+    if (!yarsKeysOff() && !(form && !yarsPick(a) && yarsSaveButton(form))) yarsSearchFocus('#fq, #tb-q, #tpl-q');
     return;
   }
   if (!form || form.hasAttribute('data-nosave')) return;
@@ -691,7 +691,7 @@ document.addEventListener('keydown', function (evt) {
   if (key === '?') { if (yarsKeysList()) evt.preventDefault(); return; }
   // e edits the selected panel; on a page without panels it is Export's; in
   // the chat it writes
-  if (key === 'E') { if (yarsEdit() || (!document.querySelector('[data-kpanel]') && yarsFire('E')) || yarsWrite(evt)) evt.preventDefault(); return; }
+  if (key === 'E') { if (yarsEdit() || yarsRowFire('E') || (!document.querySelector('[data-kpanel]') && yarsFire('E')) || yarsWrite(evt)) evt.preventDefault(); return; }
   if (key === 'Enter') { if (yarsEnter()) evt.preventDefault(); return; }
   // c comments on the finding page; elsewhere it copies the clone command
   if (key === 'C') { if (yarsCommentKey() || yarsFire('C')) evt.preventDefault(); return; }

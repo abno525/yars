@@ -36,7 +36,7 @@
       {{$eng := .Eng.ID}}
       {{range $v.Members}}
         <tr><td class="strong clip">{{.Value}}</td><td class="muted">{{.Label}}</td>
-          <td>{{if $v.CanTeam}}<form method="post" action="/e/{{$eng}}/settings/team/remove"><input type="hidden" name="user" value="{{.Value}}"><button class="btn danger sm w96" aria-label="Remove {{.Value}}">Remove</button></form>{{else}}<span class="slot w96"></span>{{end}}</td></tr>
+          <td>{{if $v.CanTeam}}<form method="post" action="/e/{{$eng}}/settings/team/remove"><input type="hidden" name="user" value="{{.Value}}"><button class="btn danger sm w96" aria-label="Remove {{.Value}}" data-confirm="Remove {{.Value}} from the team?">Remove</button></form>{{else}}<span class="slot w96"></span>{{end}}</td></tr>
       {{else}}
         {{template "empty_row" 3}}
       {{end}}
@@ -44,7 +44,7 @@
     </table>
     {{if $v.CanTeam}}
     <form class="inline flush addrow" method="post" action="/e/{{.Eng.ID}}/settings/team">
-      <select class="grow" name="user" aria-label="Add person">{{range $v.Others}}<option value="{{.Value}}">{{.Value}} · {{.Label}}</option>{{end}}</select>
+      <select class="grow" name="user" aria-label="Add person" aria-keyshortcuts="A">{{range $v.Others}}<option value="{{.Value}}">{{.Value}} · {{.Label}}</option>{{end}}</select>
       <button class="btn primary sm w96"{{if not $v.Others}} disabled{{end}}>Add</button>
     </form>
     {{end}}

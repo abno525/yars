@@ -256,7 +256,7 @@ func TestAdminRuleToggle(t *testing.T) {
 		t.Fatal("still on")
 	}
 	b := e.do(t, "dora", "GET", "/admin/rules", nil, nil).Body.String()
-	if !strings.Contains(b, `<tr class="off">`) || !strings.Contains(b, `aria-pressed="false"`) {
+	if !strings.Contains(b, `<tr class="off" data-rowkeys>`) || !strings.Contains(b, `aria-pressed="false"`) {
 		t.Fatalf("row:\n%s", b)
 	}
 	// the finding's gate no longer sees the disabled rule

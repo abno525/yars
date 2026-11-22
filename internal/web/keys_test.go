@@ -485,7 +485,7 @@ func TestCtrlSSearches(t *testing.T) {
 	// nor with the shortcuts off
 	// the findings list's and the team board's search only (not the new
 	// finding page's template search, nor any other page's)
-	for _, w := range []string{"if (!yarsTyping(a) || yarsPick(a)) {", "if (!yarsKeysOff() && !(form && !yarsPick(a) && yarsSaveButton(form))) yarsSearchFocus('#fq, #tb-q');"} {
+	for _, w := range []string{"if (!yarsTyping(a) || yarsPick(a)) {", "if (!yarsKeysOff() && !(form && !yarsPick(a) && yarsSaveButton(form))) yarsSearchFocus('#fq, #tb-q, #tpl-q');"} {
 		if !strings.Contains(save, w) {
 			t.Errorf("yarsSave lacks %s:\n%s", w, save)
 		}
@@ -535,7 +535,7 @@ func TestEngagementTabKeys(t *testing.T) {
 		t.Error("tab keys on the finding page")
 	}
 	js := e.do(t, "alice", "GET", "/static/keys.js", nil, nil).Body.String()
-	for _, w := range []string{"if (key === 'E') { if (yarsEdit() || (!document.querySelector('[data-kpanel]') && yarsFire('E')) || yarsWrite(evt)) evt.preventDefault(); return; }",
+	for _, w := range []string{"if (key === 'E') { if (yarsEdit() || yarsRowFire('E') || (!document.querySelector('[data-kpanel]') && yarsFire('E')) || yarsWrite(evt)) evt.preventDefault(); return; }",
 		`show('[data-keys-group="eng"]', document.querySelector('.etabs'));`} {
 		if !strings.Contains(js, w) {
 			t.Errorf("keys.js lacks %s", w)
@@ -587,7 +587,7 @@ func TestListFilterDigitsAndArrows(t *testing.T) {
 	if !strings.Contains(e.do(t, "alice", "GET", "/", nil, nil).Body.String(), `<table class="table englist" data-arrows>`) {
 		t.Error("the engagements table lacks data-arrows")
 	}
-	for _, f := range []string{"history.html", "export.html", "notifications.html"} {
+	for _, f := range []string{"history.html", "export.html"} {
 		if src, _ := templateFS.ReadFile("templates/" + f); strings.Contains(string(src), "data-arrows") {
 			t.Errorf("%s takes the arrows", f)
 		}

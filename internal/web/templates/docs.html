@@ -3,7 +3,7 @@
 <div class="titlerow">
   <h1>Developers</h1>
   <div class="actions">
-    {{if eq $d.Page "mcp"}}<a class="btn primary w128" href="/settings/tokens/new">New token</a>
+    {{if eq $d.Page "mcp"}}<a class="btn primary w128" href="/settings/tokens/new" aria-keyshortcuts="N">New token</a>
     {{else if and (eq $d.Page "webhooks") .CanAdmin}}<a class="btn secondary w128" href="/admin/webhooks">Webhooks</a>
     {{else}}<span class="slot w128"></span>{{end}}
   </div>

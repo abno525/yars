@@ -45,7 +45,7 @@ func TestTeamBoardKeys(t *testing.T) {
 		}
 	}
 	d := between(b, `id="keys"`, "</dialog>")
-	for _, w := range []string{`<div class="krow" data-keys-if="a[aria-keyshortcuts~=N][href$='?new=1']"><dt><kbd>n</kbd></dt><dd>New lead</dd></div>`,
+	for _, w := range []string{`<div class="krow" data-keys-if="a[aria-keyshortcuts~=N][href$='/board?new=1']"><dt><kbd>n</kbd></dt><dd>New lead</dd></div>`,
 		`<div class="krow" data-keys-if=".tbacts [aria-keyshortcuts~=M]"><dt><kbd>m</kbd></dt><dd>Make finding</dd></div>`,
 		`<div class="krow" data-keys-if=".tbacts [aria-keyshortcuts~=D]"><dt><kbd>d</kbd></dt><dd>Dismiss</dd></div>`} {
 		if !strings.Contains(d, w) {
@@ -72,7 +72,7 @@ func TestInboxKeys(t *testing.T) {
 	if !strings.Contains(js, "var scope = el.closest('[data-keys-scope]');") {
 		t.Error("keys.js does not keep a key to the focused row's section")
 	}
-	if d := between(b, `id="keys"`, "</dialog>"); !strings.Contains(d, `<div class="krow" data-keys-if=".qacts [aria-keyshortcuts~=M]"><dt><kbd>m</kbd></dt><dd>Mark all read</dd></div>`) {
+	if d := between(b, `id="keys"`, "</dialog>"); !strings.Contains(d, `<div class="krow" data-keys-if=".qacts [aria-keyshortcuts~=M], form[action='/notifications/read'] [aria-keyshortcuts~=M]"><dt><kbd>m</kbd></dt><dd>Mark all read</dd></div>`) {
 		t.Error("the ? list lacks m Mark all read")
 	}
 }
@@ -101,10 +101,10 @@ func TestAdminUsersKeys(t *testing.T) {
 		t.Error("a key on a field does not focus it")
 	}
 	d := between(b, `id="keys"`, "</dialog>")
-	for _, w := range []string{`<div class="krow" data-keys-if="input[aria-keyshortcuts~=N]"><dt><kbd>n</kbd></dt><dd>Add user</dd></div>`,
+	for _, w := range []string{`<div class="krow" data-keys-if="input[name=username][aria-keyshortcuts~=N]"><dt><kbd>n</kbd></dt><dd>Add user</dd></div>`,
 		`<div class="krow" data-keys-if="form[action$='/unlock'] [aria-keyshortcuts~=U]"><dt><kbd>u</kbd></dt><dd>Unlock the row</dd></div>`,
 		`<div class="krow" data-keys-if="form[action$='/reset'] [aria-keyshortcuts~=R]"><dt><kbd>r</kbd></dt><dd>Reset the row's password</dd></div>`,
-		`<div class="krow" data-keys-if="form[action$='/disabled'] [aria-keyshortcuts~=D]"><dt><kbd>d</kbd></dt><dd>Disable or enable the row</dd></div>`,
+		`<div class="krow" data-keys-if="form[action$='/disabled'] [aria-keyshortcuts~=D], form[action$='/toggle'] [aria-keyshortcuts~=D]"><dt><kbd>d</kbd></dt><dd>Disable or enable the row</dd></div>`,
 		`<div class="krow" data-keys-if="form[action$='/archive'] [aria-keyshortcuts~=A]"><dt><kbd>a</kbd></dt><dd>Archive the row</dd></div>`,
 		`<div class="krow" data-keys-if="form[action$='/reopen'] [aria-keyshortcuts~=R]"><dt><kbd>r</kbd></dt><dd>Reopen the row</dd></div>`} {
 		if !strings.Contains(d, w) {

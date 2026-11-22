@@ -27,16 +27,17 @@
 {{end}}
 <section class="panel">
   <div class="panelhead"><h2>Webhooks <span class="{{if .Rows}}qcnt{{else}}qcnt zero{{end}}">{{len .Rows}}</span></h2><a class="strong" href="/docs/webhooks">docs/webhooks.md</a></div>
-  <table class="table stable hooktable">
+  <table class="table stable hooktable" data-arrows>
     <thead><tr><th>URL</th><th class="c-events">Events</th><th class="c-last">Last delivery</th><th class="c-flag">Enabled</th><th class="c-acts">Action</th></tr></thead>
     <tbody>
       {{range .Rows}}
-      <tr class="{{if eq .ID $.Selected}}editing{{end}}{{if not .Enabled}} off{{end}}">
-        <td class="stack"><a href="/admin/webhooks?hook={{.ID}}" title="{{.URL}}">{{.URL}}</a><span class="mono">{{.Ending}}</span></td>
+      {{/* the URL is the row the keys move to (Enter shows its deliveries); e edits it, d turns it on or off */}}
+      <tr class="{{if eq .ID $.Selected}}editing{{end}}{{if not .Enabled}} off{{end}}" data-rowkeys>
+        <td class="stack"><a href="/admin/webhooks?hook={{.ID}}" title="{{.URL}}" data-nav>{{.URL}}</a><span class="mono">{{.Ending}}</span></td>
         <td class="stack"><span class="mono" title="{{.Events}}">{{.Events}}</span></td>
         <td class="stack">{{if .LastState}}<span class="tag dl-{{.LastState}}">{{.Last}}</span><span class="mono">{{.LastAt}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
-        <td><form method="post" action="/admin/webhooks/{{.ID}}/toggle"><button class="toggle{{if .Enabled}} on{{end}}" role="switch" aria-checked="{{if .Enabled}}true{{else}}false{{end}}" aria-label="Enabled"><span></span></button></form></td>
-        <td><div class="actions"><a class="btn secondary sm w96" href="/admin/webhooks?edit={{.ID}}&amp;hook={{.ID}}">Edit</a><form method="post" action="/admin/webhooks/{{.ID}}/delete"><button class="btn danger sm w96">Delete</button></form></div></td>
+        <td><form method="post" action="/admin/webhooks/{{.ID}}/toggle"><button class="toggle{{if .Enabled}} on{{end}}" role="switch" aria-checked="{{if .Enabled}}true{{else}}false{{end}}" aria-label="Enabled" aria-keyshortcuts="D"><span></span></button></form></td>
+        <td><div class="actions"><a class="btn secondary sm w96" href="/admin/webhooks?edit={{.ID}}&amp;hook={{.ID}}" aria-keyshortcuts="E">Edit</a><form method="post" action="/admin/webhooks/{{.ID}}/delete"><button class="btn danger sm w96" data-confirm="Delete the webhook to {{.URL}}?">Delete</button></form></div></td>
       </tr>
       {{else}}
       {{template "empty_row" 5}}
@@ -45,7 +46,7 @@
   </table>
   <form class="hookform flush" method="post" action="/admin/webhooks{{with .Form.ID}}/{{.}}{{end}}">
     <div class="hookrow flush">
-      <label class="field grow">URL<input name="url" type="url" value="{{.Form.URL}}" placeholder="https://" required></label>
+      <label class="field grow">URL<input name="url" type="url" value="{{.Form.URL}}" placeholder="https://" required aria-keyshortcuts="N"></label>
       {{if .Form.ID}}<label class="chk"><input type="checkbox" name="enabled" value="1"{{if .Form.Enabled}} checked{{end}}>Enabled</label>{{else}}<span class="slot w112"></span>{{end}}
       {{if .Form.ID}}<a class="btn secondary w112" href="/admin/webhooks">Cancel</a>{{else}}<span class="slot w112"></span>{{end}}
       <button class="btn save w112">{{if .Form.ID}}Save{{else}}Add{{end}}</button>
@@ -426,7 +427,7 @@
     <tbody>
       {{range .Sessions}}
       <tr><td class="strong clip">{{.User}}</td><td class="mono">{{.Created}}</td><td class="mono">{{.LastSeen}}</td>
-        <td><form method="post" action="/admin/activity/sessions/{{.ID}}/revoke"><button class="btn danger sm w96">Revoke</button></form></td></tr>
+        <td><form method="post" action="/admin/activity/sessions/{{.ID}}/revoke"><button class="btn danger sm w96" data-confirm="Revoke {{.User}}'s session?">Revoke</button></form></td></tr>
       {{else}}
       {{template "empty_row" 4}}
       {{end}}
@@ -448,7 +449,7 @@
         <td class="stack"><span>{{.Kind}} · {{.Can}}</span><span class="muted" title="{{.Where}}">{{.Where}}</span></td>
         <td class="stack"><span class="mono">{{.Expires}}</span>{{with .ExpireSoon}}<span class="soon">{{.}}</span>{{end}}</td>
         <td class="mono">{{.LastUsed}}</td>
-        <td><form method="post" action="/admin/activity/tokens/{{.ID}}/revoke"><button class="btn danger sm w96">Revoke</button></form></td>
+        <td><form method="post" action="/admin/activity/tokens/{{.ID}}/revoke"><button class="btn danger sm w96" data-confirm="Revoke {{.User}}'s token {{.Name}}?">Revoke</button></form></td>
       </tr>
       {{else}}
       {{template "empty_row" 6}}
@@ -464,15 +465,16 @@
     <div class="panelname"><h2>Rules</h2></div>
     <div class="actions">
       <div class="seg small" role="group" aria-label="Level">{{range .Filters}}<a class="{{if .Active}}on{{end}}"{{with .Keys}} aria-keyshortcuts="{{.}}"{{end}} href="{{.URL}}">{{.Label}} · {{.Count}}</a>{{end}}</div>
-      <a class="btn primary sm w128" href="/admin/rules?new=1">New rule</a>
+      <a class="btn primary sm w128" href="/admin/rules?new=1" aria-keyshortcuts="N">New rule</a>
     </div>
   </div>
   {{range .Problems}}<p class="checkerr flush" title="{{.}}">{{.}}</p>{{end}}
-  <table class="table ruletable">
+  <table class="table ruletable" data-arrows>
     <thead><tr><th>Rule</th><th class="c-kind">Kind</th><th class="c-target">Applies to</th><th class="c-level">Level</th><th class="c-on">On</th><th class="c-act">Action</th></tr></thead>
     <tbody>
       {{range .Rows}}
-      <tr{{with .Class}} class="{{.}}"{{end}}>
+      {{/* Edit is the row the keys move to (Enter or e edits); d turns that row on or off */}}
+      <tr{{with .Class}} class="{{.}}"{{end}} data-rowkeys>
         <td class="rulecell"><span class="ruleid" title="{{.File}}">{{.ID}}</span><span class="rulemsg" title="{{.Message}}">{{.Message}}</span></td>
         <td><span class="tag kind-{{.Kind}}">{{.KindLabel}}</span></td>
         <td class="clip" title="{{.Target}}">{{.Target}}</td>
@@ -480,10 +482,10 @@
         <td>
           <form class="toggle" method="post" action="/admin/rules/toggle">
             <input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="edit" value="{{$.Edit}}"><input type="hidden" name="on" value="{{if .On}}0{{else}}1{{end}}">
-            <button class="cbx{{if .On}} on{{end}}" aria-label="Enabled" aria-pressed="{{if .On}}true{{else}}false{{end}}">{{if .On}}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>{{end}}</button>
+            <button class="cbx{{if .On}} on{{end}}" aria-label="Enabled" aria-pressed="{{if .On}}true{{else}}false{{end}}" aria-keyshortcuts="D">{{if .On}}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>{{end}}</button>
           </form>
         </td>
-        <td>{{if .Editing}}<span class="btn save sm w96" aria-current="true">Editing</span>{{else}}<a class="btn ghost sm w96" href="/admin/rules?edit={{.ID}}">Edit</a>{{end}}</td>
+        <td>{{if .Editing}}<span class="btn save sm w96" aria-current="true" tabindex="0" data-nav>Editing</span>{{else}}<a class="btn ghost sm w96" href="/admin/rules?edit={{.ID}}" data-nav aria-keyshortcuts="E">Edit</a>{{end}}</td>
       </tr>
       {{end}}
     </tbody>

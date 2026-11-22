@@ -6,7 +6,7 @@
       <h1>Export</h1>
     </div>
     <div class="actions">
-      <button class="btn ghost w128" formaction="/e/{{.Eng.ID}}/export/preview" formmethod="get">Preview</button>
+      <button class="btn ghost w128" formaction="/e/{{.Eng.ID}}/export/preview" formmethod="get" aria-keyshortcuts="P">Preview</button>
       {{if .ExportV.CanSetup}}<a class="btn secondary w152" href="/e/{{.Eng.ID}}/export/setup">Destinations</a>{{else}}<span class="slot w152"></span>{{end}}
     </div>
   </div>

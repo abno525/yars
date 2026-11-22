@@ -3,11 +3,11 @@
   <h1>Notifications</h1>
   <form class="actions" method="post" action="/notifications/read">
     <span class="{{if .Unread}}qcnt{{else}}qcnt zero{{end}}">{{.Unread}}</span>
-    <button class="btn secondary w152"{{if not .Unread}} disabled{{end}}>Mark all read</button>
+    <button class="btn secondary w152"{{if not .Unread}} disabled{{end}} aria-keyshortcuts="M">Mark all read</button>
   </form>
 </div>
 <section class="panel">
-  <table class="table stable notetable">
+  <table class="table stable notetable" data-arrows>
     <thead><tr><th class="c-time">When</th><th class="c-ev">Event</th><th class="c-fnd">Finding</th><th class="c-who2">By</th><th>Text</th></tr></thead>
     <tbody>
       {{range .Notes.Rows}}
