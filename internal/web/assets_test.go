@@ -83,6 +83,36 @@ func TestAssetsPanelAndEditor(t *testing.T) {
 	}
 }
 
+// A refused (400) or conflicting (409) save brings back what was typed with
+// every field marked, so text in any field (not only Host, which a row may
+// leave empty) counts as unsaved: Cancel, Esc and leaving the page ask.
+func TestAssetsRefusedMarksEveryField(t *testing.T) {
+	e := setup(t)
+	stale := e.assetsBase(t)
+	if err := e.srv.Store.UpdateAssets("acme", "F-001-sql-injection", []finding.Asset{{Host: "other.example"}}, "", wDora); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		code int
+		form url.Values
+	}{
+		{http.StatusBadRequest, url.Values{"base": {e.assetsBase(t)}, "n": {"1"}, "url_0": {"https://app.example/login"}, "port_0": {"http"}, "note_0": {"the login form"}}},
+		{http.StatusConflict, url.Values{"base": {stale}, "n": {"1"}, "url_0": {"https://app.example/login"}, "port_0": {"8443"}, "note_0": {"mine"}}},
+	} {
+		rec := e.do(t, "alice", "POST", fpath+"/assets", c.form, nil)
+		b := rec.Body.String()
+		if rec.Code != c.code {
+			t.Fatalf("code %d, want %d:\n%s", rec.Code, c.code, b)
+		}
+		for _, f := range []string{"host_0", "url_0", "port_0", "note_0"} {
+			i := strings.Index(b, `name="`+f+`"`)
+			if i < 0 || !strings.Contains(b[i:i+strings.Index(b[i:], ">")], "data-dirty") {
+				t.Fatalf("%d: %s is not marked unsaved:\n%s", c.code, f, b)
+			}
+		}
+	}
+}
+
 func TestDuplicates(t *testing.T) {
 	e := setup(t)
 	nf := e.do(t, "alice", "GET", "/e/acme/findings/new", nil, nil).Body.String()

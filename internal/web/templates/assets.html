@@ -37,9 +37,9 @@
       {{range $i, $a := .Rows}}
         <tr>
           <td><input type="text" name="host_{{$i}}" value="{{$a.Host}}" aria-label="Host"{{if $.Error}} data-dirty{{end}}></td>
-          <td><input type="text" name="url_{{$i}}" value="{{$a.URL}}" aria-label="URL"></td>
-          <td><input type="text" name="port_{{$i}}" value="{{$a.Port}}" aria-label="Port" inputmode="numeric"></td>
-          <td><input type="text" name="note_{{$i}}" value="{{$a.Note}}" aria-label="Note"></td>
+          <td><input type="text" name="url_{{$i}}" value="{{$a.URL}}" aria-label="URL"{{if $.Error}} data-dirty{{end}}></td>
+          <td><input type="text" name="port_{{$i}}" value="{{$a.Port}}" aria-label="Port" inputmode="numeric"{{if $.Error}} data-dirty{{end}}></td>
+          <td><input type="text" name="note_{{$i}}" value="{{$a.Note}}" aria-label="Note"{{if $.Error}} data-dirty{{end}}></td>
           <td><button type="button" class="btn ghost sm icon rm" name="op" value="del-{{$i}}" aria-label="Remove" hx-post="{{$.SaveURL}}" hx-target="#assets" hx-swap="outerHTML">✕</button></td>
         </tr>
       {{end}}
