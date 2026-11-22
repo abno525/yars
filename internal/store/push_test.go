@@ -7,7 +7,9 @@ import (
 	"slices"
 	"testing"
 
+	"yars/internal/config"
 	"yars/internal/finding"
+	"yars/internal/workflow"
 )
 
 // A content edit through YARS tells what changed (finding.updated).
@@ -73,6 +75,67 @@ func TestReceivePushRestoresEngagementTree(t *testing.T) {
 	})
 	if st, _ := exec.Command("git", "-C", ed, "status", "--porcelain", "--untracked-files=no").Output(); len(st) != 0 {
 		t.Fatalf("engagement tree dirty after a push that did not land:\n%s", st)
+	}
+}
+
+// A director's push to an approved finding keeps it approved once the push
+// lands: the approval moves to the new content. A push that checked its tree
+// out but never moved the branch leaves the approval where it was; a push by
+// anyone else moves nothing (the finding is back in verification).
+func TestReceivePushCarriesApproval(t *testing.T) {
+	s, dir, fd := ready(t)
+	for _, step := range []struct {
+		a workflow.Action
+		u config.User
+	}{{workflow.Submit, uAlice}, {workflow.Clear, uBob}, {workflow.Approve, uDora}} {
+		if err := s.Transition(eng, fd, step.a, "", step.u); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ed := filepath.Join(dir, "engagements", eng)
+	p := filepath.Join(ed, "findings", fd, "finding.md")
+	edit := func(impact string) {
+		b, _ := os.ReadFile(p)
+		f, err := finding.Parse(b)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.SetSection("Impact", impact)
+		os.WriteFile(p, f.Bytes(), 0o644)
+	}
+	approved := func() string {
+		t.Helper()
+		st, err := s.DB().State(eng, "F-001")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return st.ApprovedHash
+	}
+	was := approved()
+	s.ReceivePush(eng, uDora, func() { edit("never landed") })
+	if got := approved(); got != was {
+		t.Fatalf("a push that did not land moved the approval: %s, was %s", got, was)
+	}
+	if m := load(t, s, fd).F.Meta; m.Status != "complete" {
+		t.Fatalf("after a push that did not land: %s", m.Status)
+	}
+	s.ReceivePush(eng, uDora, func() {
+		edit("Director's polish.")
+		git(t, ed, "commit", "-qam", "director's push")
+	})
+	if m := load(t, s, fd).F.Meta; m.Status != "complete" {
+		t.Fatalf("a director's push sent the finding back to %s", m.Status)
+	}
+	raw, _ := os.ReadFile(p)
+	if got := approved(); got != ContentHash(raw) {
+		t.Fatalf("approval %s, content %s", got, ContentHash(raw))
+	}
+	s.ReceivePush(eng, uBob, func() {
+		edit("A reviewer's words.")
+		git(t, ed, "commit", "-qam", "reviewer's push")
+	})
+	if m := load(t, s, fd).F.Meta; m.Status != "verification" {
+		t.Fatalf("a reviewer's push kept the approval: %s", m.Status)
 	}
 }
 

@@ -133,6 +133,72 @@ func TestPushRepairsBrokenConfig(t *testing.T) {
 	}
 }
 
+// Through the real hook: a director's push to an approved finding moves the
+// approval only once it lands. A push the hook passed that git then refused
+// (a change left in the server's work tree stops the checkout) leaves the
+// finding approved for the content it still has; the same push, once it
+// lands, keeps it approved for the new content.
+func TestPushCarriesApprovalOnceLanded(t *testing.T) {
+	p := newPushEnv(t)
+	d := p.st.DB()
+	sp := filepath.Join(p.repo.Dir, "findings", "F-001-sqli", "finding.md")
+	raw, _ := os.ReadFile(sp)
+	was := store.ContentHash(raw)
+	if err := d.Tx(func(tx *db.Tx) error {
+		return tx.PutState("acme", "F-001", db.State{Status: "complete", ApprovedHash: was})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	ed := filepath.Join(p.clone, "engagements", "acme")
+	dora := func(args ...string) (string, error) {
+		cmd := exec.Command("git", append([]string{"-C", ed, "-c", "user.name=dora", "-c", "user.email=dora@yars.local", "-c", "commit.gpgsign=false"}, args...)...)
+		cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+		out, err := cmd.CombinedOutput()
+		return string(out), err
+	}
+	cp := filepath.Join(ed, "findings", "F-001-sqli", "finding.md")
+	b, _ := os.ReadFile(cp)
+	f, err := finding.Parse(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.SetSection("Impact", "Director's polish.")
+	os.WriteFile(cp, f.Bytes(), 0o644)
+	if out, err := dora("commit", "-qam", "polish"); err != nil {
+		t.Fatalf("%v %s", err, out)
+	}
+	url := strings.Replace(p.url, "http://", "http://dora:pw@", 1) + "/git/e/acme"
+	leftOver := func() {
+		os.WriteFile(filepath.Join(p.repo.Dir, "engagement.yaml"), []byte("name: ACME\n# left over\n"), 0o644)
+	}
+	p.beforeReceive.Store(&leftOver)
+	if out, err := dora("push", url, "HEAD:main"); err == nil {
+		t.Fatalf("push into a changed work tree accepted:\n%s", out)
+	}
+	state := func() (db.State, string) {
+		t.Helper()
+		st, err := d.State("acme", "F-001")
+		if err != nil {
+			t.Fatal(err)
+		}
+		ref, err := p.st.Finding("acme", "F-001-sqli")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return st, ref.F.Meta.Status
+	}
+	if st, shown := state(); st.ApprovedHash != was || shown != "complete" {
+		t.Fatalf("after a push that did not land: approval %s (was %s), shown %s", st.ApprovedHash, was, shown)
+	}
+	if out, err := dora("push", url, "HEAD:main"); err != nil {
+		t.Fatalf("director's push refused: %v\n%s", err, out)
+	}
+	now, _ := os.ReadFile(sp)
+	if st, shown := state(); st.ApprovedHash != store.ContentHash(now) || shown != "complete" {
+		t.Fatalf("after the push landed: approval %s, content %s, shown %s", st.ApprovedHash, store.ContentHash(now), shown)
+	}
+}
+
 // A chunked body over the cap is refused (413) and leaves no spool file.
 func TestPushChunkedBodyCapped(t *testing.T) {
 	tmp := t.TempDir()

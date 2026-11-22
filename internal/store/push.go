@@ -11,6 +11,7 @@ import (
 	"yars/internal/db"
 	"yars/internal/finding"
 	"yars/internal/gitrepo"
+	"yars/internal/workflow"
 )
 
 // partAttachments names a change to a finding's files other than
@@ -88,10 +89,11 @@ func filesEvent(actor string, ref FindingRef, fp string, prev, files map[string]
 
 // ReceivePush runs serve (git receiving a push into engagement eng's repo,
 // as u) under the engagement's lock, so no commit by YARS lands in
-// between, then emits the events the pushed changes stand for, as if u had
-// made them through YARS: finding.created for each new finding and
-// finding.updated for each changed one. A rejected push moves nothing and
-// emits nothing.
+// between. Once the push landed it moves the workflow state as the same
+// changes through YARS would (pushState), then emits the events they stand
+// for, as if u had made them through YARS: finding.created for each new
+// finding and finding.updated for each changed one. A rejected push moves
+// nothing and emits nothing.
 //
 // eng "" is the main repo: the push runs under the main repo's lock and
 // emits nothing; the settings it brings apply at once (config.yaml is read
@@ -131,8 +133,14 @@ func (s *Store) ReceivePush(eng string, u config.User, serve func()) {
 	if err == nil && after != "" && after != before {
 		// read under the lock: a purge (D28) waiting on it rewrites the
 		// pushed commits
-		if evs, err = s.pushEvents(eng, before, after, u.Username); err != nil {
-			log.Printf("push to %s: events: %v", eng, err)
+		ps, err := s.pushedFindings(eng, before, after)
+		if err != nil {
+			log.Printf("push to %s: %v", eng, err)
+		} else {
+			s.pushState(eng, u, ps)
+			if evs, err = s.pushEvents(eng, u.Username, ps); err != nil {
+				log.Printf("push to %s: events: %v", eng, err)
+			}
 		}
 	}
 	l.Unlock()
@@ -171,8 +179,20 @@ func renamedFrom(r *gitrepo.Repo, rev, dir, id string) string {
 	return ""
 }
 
-// pushEvents diffs before..after of eng's repo per finding folder.
-func (s *Store) pushEvents(eng, before, after, actor string) ([]Event, error) {
+// pushedFinding is a finding folder a push changed, with a finding.md the
+// push left readable.
+type pushedFinding struct {
+	dir   string
+	cur   *finding.Finding // finding.md as the push left it
+	raw   []byte           // its bytes
+	old   *finding.Finding // before the push, here or in the folder it was renamed from (nil: new)
+	prev  []byte           // finding.md before the push in this folder (nil: none)
+	md    byte             // A or M of finding.md; 0 when untouched
+	files bool             // other files of the folder changed
+}
+
+// pushedFindings diffs before..after of eng's repo per finding folder.
+func (s *Store) pushedFindings(eng, before, after string) ([]pushedFinding, error) {
 	r, err := s.EngRepo(eng)
 	if err != nil {
 		return nil, err
@@ -205,13 +225,7 @@ func (s *Store) pushEvents(eng, before, after, actor string) ([]Event, error) {
 		}
 	}
 	slices.Sort(dirs)
-	var states map[string]db.State
-	if s.db != nil {
-		if states, err = s.db.States(eng); err != nil {
-			return nil, err
-		}
-	}
-	var evs []Event
+	var out []pushedFinding
 	for _, dir := range dirs {
 		t := byDir[dir]
 		p := path.Join("findings", dir, "finding.md")
@@ -223,33 +237,80 @@ func (s *Store) pushEvents(eng, before, after, actor string) ([]Event, error) {
 		if err != nil {
 			continue
 		}
-		st := db.State{Status: "draft"}
-		if got, ok := states[cur.Meta.ID]; ok {
-			st = got
-		}
-		applyState(&cur.Meta, st, contentHash(raw))
-		ref := FindingRef{EngID: eng, Dir: dir, F: cur}
-		var old *finding.Finding
+		pf := pushedFinding{dir: dir, cur: cur, raw: raw, md: t.md, files: t.files}
 		if before != "" {
 			if b, err := r.Show(before, p); err == nil {
-				old, _ = finding.Parse(b)
+				pf.prev = b
+				pf.old, _ = finding.Parse(b)
 			} else if prev := renamedFrom(r, before, dir, cur.Meta.ID); prev != "" {
 				// the folder was renamed: the same finding, not a new one
 				if b, err := r.Show(before, path.Join("findings", prev, "finding.md")); err == nil {
-					old, _ = finding.Parse(b)
+					pf.old, _ = finding.Parse(b)
 				}
 				// its other files moved along: changed only if they differ
 				// from the old folder's
 				if cs, err := r.ChangedFiles(before+":findings/"+prev, after+":findings/"+dir); err == nil {
-					t.files = slices.ContainsFunc(cs, func(c gitrepo.Change) bool { return c.Path != "finding.md" })
+					pf.files = slices.ContainsFunc(cs, func(c gitrepo.Change) bool { return c.Path != "finding.md" })
 				}
 			}
 		}
+		out = append(out, pf)
+	}
+	return out, nil
+}
+
+// pushState moves the workflow state a landed push by u calls for, as the
+// same changes through YARS would: a director's edit of an approved
+// finding's finding.md moves its approval to the new content (a renamed
+// folder's does not). It runs under the engagement's lock, before the push
+// is announced; a failure is logged (the push stands).
+func (s *Store) pushState(eng string, u config.User, ps []pushedFinding) {
+	if s.db == nil {
+		return
+	}
+	// unread (nil), every candidate is tried: each step checks the state again
+	states, serr := s.db.States(eng)
+	may := func(fid string, want func(db.State) bool) bool {
+		st, ok := states[fid]
+		return serr != nil || ok && want(st)
+	}
+	director := workflow.AtLeast(u, "director")
+	for _, pf := range ps {
+		if director && pf.md != 0 && pf.prev != nil {
+			if of, err := finding.Parse(pf.prev); err == nil {
+				old := contentHash(pf.prev)
+				if may(of.Meta.ID, func(st db.State) bool { return Approved(st, old) && st.ApprovedHash != "" }) {
+					if err := CarryApproval(s.db, eng, of.Meta.ID, old, contentHash(pf.raw)); err != nil {
+						log.Printf("push to %s: approval of %s: %v", eng, of.Meta.ID, err)
+					}
+				}
+			}
+		}
+	}
+}
+
+// pushEvents is the events of the findings a push by actor changed.
+func (s *Store) pushEvents(eng, actor string, ps []pushedFinding) ([]Event, error) {
+	var states map[string]db.State
+	if s.db != nil {
+		var err error
+		if states, err = s.db.States(eng); err != nil {
+			return nil, err
+		}
+	}
+	var evs []Event
+	for _, pf := range ps {
+		st := db.State{Status: "draft"}
+		if got, ok := states[pf.cur.Meta.ID]; ok {
+			st = got
+		}
+		applyState(&pf.cur.Meta, st, contentHash(pf.raw))
+		ref := FindingRef{EngID: eng, Dir: pf.dir, F: pf.cur}
 		switch {
-		case old == nil && t.md != 0:
+		case pf.old == nil && pf.md != 0:
 			evs = append(evs, findingEvent(EventCreated, actor, ref))
-		case old != nil && t.md != 0 || t.files:
-			ev := updatedEvent(actor, ref, old, t.files)
+		case pf.old != nil && pf.md != 0 || pf.files:
+			ev := updatedEvent(actor, ref, pf.old, pf.files)
 			if len(ev.Changed) > 0 {
 				evs = append(evs, ev)
 			}

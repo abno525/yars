@@ -54,18 +54,11 @@ type Checker struct {
 	// warnings, and rule errors of drafts.
 	Notes []string
 
-	// Carry lists approved findings a director changed in the checked push;
-	// once the push is accepted the hook moves their approval to the new
-	// content (store.CarryApproval).
-	Carry []Carry
-
 	// purged maps the blob ids purged from this engagement's history to
 	// their file names (D28), read once per Check: a push from an older
 	// clone must not bring one back.
 	purged map[string]string
 }
-
-type Carry struct{ Eng, Fid, OldHash, NewHash string }
 
 // TokenScopesEnv carries a git token's scopes (comma-separated) from the
 // server to the pre-receive hook; unset for a password login.
@@ -216,9 +209,6 @@ func (c *Checker) Check(username string, ups []Update) []string {
 		if len(ps) == 0 {
 			// the slow part last: only a push that passed everything else
 			ps = append(ps, c.checkRules(old, up.New)...)
-		}
-		if len(ps) == 0 {
-			c.carry(u, old, up.New)
 		}
 	}
 	if c.ConfigErr != nil && !repairs {
@@ -447,34 +437,6 @@ func (c *Checker) checkRules(old, new string) []string {
 		}
 	}
 	return ps
-}
-
-// carry records the approved findings a director's accepted push changes
-// (old..new as a whole), so their approval moves to the new content.
-func (c *Checker) carry(u config.User, old, new string) {
-	if c.Eng == "" || !manager(u) || old == "" {
-		return
-	}
-	changes, err := c.Repo.ChangedFiles(old, new)
-	if err != nil {
-		return
-	}
-	for _, ch := range changes {
-		seg := strings.Split(ch.Path, "/")
-		if ch.Status == 'D' || len(seg) != 3 || seg[0] != "findings" || seg[2] != "finding.md" {
-			continue
-		}
-		ob, err1 := c.Repo.Show(old, ch.Path)
-		nb, err2 := c.Repo.Show(new, ch.Path)
-		of, err3 := finding.Parse(ob)
-		if err1 != nil || err2 != nil || err3 != nil {
-			continue
-		}
-		// unreadable too: the carry moves an approval only where there was one
-		if st := c.status(c.Eng, of.Meta.ID, ob); st == "complete" || st == "reported" || st == unreadable {
-			c.Carry = append(c.Carry, Carry{c.Eng, of.Meta.ID, store.ContentHash(ob), store.ContentHash(nb)})
-		}
-	}
 }
 
 // mainFile checks a change in the main repo: settings only; engagement

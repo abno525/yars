@@ -166,7 +166,7 @@ func (f *fx) check(u, newRev string) []string {
 	git(f.t, srv.Dir, "fetch", "-q", "--no-recurse-submodules", f.clone, "+HEAD:refs/test/candidate")
 	old, _ := srv.Head()
 	branch, _ := srv.CurrentBranch()
-	f.c.Repo, f.c.Eng, f.c.Carry = srv, f.target, nil
+	f.c.Repo, f.c.Eng = srv, f.target
 	f.lastProblems = f.c.Check(u, []Update{{Old: old, New: newRev, Ref: branch}})
 	return f.lastProblems
 }
@@ -751,44 +751,6 @@ func TestPolicyDeletedIDNotReused(t *testing.T) {
 		os.Rename(filepath.Join(d, fdir), filepath.Join(d, "findings/F-001-renamed"))
 	}); len(ps) != 0 {
 		t.Fatalf("rename rejected: %v", ps)
-	}
-}
-
-// A director's push to an approved finding keeps it approved: the hook
-// carries the approval to the new content.
-func TestPolicyDirectorEditCarriesApproval(t *testing.T) {
-	f := newFx(t)
-	st := f.st
-	st.SetReviewers("acme", "F-001-sqli", []string{"bob"}, user("alice"))
-	st.UpdateSeverity("acme", "F-001-sqli", "high", "", user("alice").GitAuthor())
-	st.Transition("acme", "F-001-sqli", workflow.Submit, "", user("alice"))
-	st.Transition("acme", "F-001-sqli", workflow.Clear, "", user("bob"))
-	st.Transition("acme", "F-001-sqli", workflow.Approve, "", user("dora"))
-	f.reclone()
-	if ps := f.push("dora", func(d string) {
-		editMeta(d, func(fd *finding.Finding) { fd.SetSection("Impact", "director polish") })
-	}); len(ps) != 0 {
-		t.Fatalf("director edit rejected: %v", ps)
-	}
-	if len(f.c.Carry) != 1 || f.c.Carry[0].Fid != "F-001" {
-		t.Fatalf("carry %+v", f.c.Carry)
-	}
-}
-
-// The carry is recorded when the state cannot be read too: moving it is a
-// no-op unless the finding was approved for the old content, and leaving it
-// out would drop an approval without a word (M34 review).
-func TestPolicyCarryWhenStateUnreadable(t *testing.T) {
-	f := newFx(t)
-	f.reclone()
-	if _, err := f.st.DB().Exec("ALTER TABLE finding_state RENAME TO finding_state_away"); err != nil {
-		t.Fatal(err)
-	}
-	f.push("dora", func(d string) {
-		editMeta(d, func(fd *finding.Finding) { fd.SetSection("Impact", "director polish") })
-	})
-	if len(f.c.Carry) != 1 || f.c.Carry[0].Fid != "F-001" {
-		t.Fatalf("carry %+v", f.c.Carry)
 	}
 }
 
