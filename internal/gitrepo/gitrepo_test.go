@@ -100,6 +100,31 @@ func TestChangedFilesSeesIgnoredSubmodules(t *testing.T) {
 	}
 }
 
+// From no commit (old ""), the changes are against the empty tree of the
+// repository's own object format: SHA-1's, or SHA-256's in a repository
+// made with that format by hand.
+func TestChangedFilesFromEmptyTree(t *testing.T) {
+	for _, format := range []string{"sha1", "sha256"} {
+		dir := t.TempDir()
+		if out, err := exec.Command("git", "init", "-q", "--object-format="+format, "-b", "main", dir).CombinedOutput(); err != nil {
+			t.Fatalf("%s: %v %s", format, err, out)
+		}
+		r, err := Open(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		os.WriteFile(filepath.Join(dir, "a.txt"), []byte("a"), 0o644)
+		if err := r.Commit([]string{"a.txt"}, "1", Author{"a", "a@a"}); err != nil {
+			t.Fatal(err)
+		}
+		h, _ := r.Head()
+		cs, err := r.ChangedFiles("", h)
+		if err != nil || len(cs) != 1 || cs[0].Path != "a.txt" || cs[0].Status != 'A' {
+			t.Errorf("%s: %+v %v", format, cs, err)
+		}
+	}
+}
+
 func TestHeadChanges(t *testing.T) {
 	dir := t.TempDir()
 	r, err := Init(dir)

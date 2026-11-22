@@ -754,6 +754,43 @@ func TestPolicyDeletedIDNotReused(t *testing.T) {
 	}
 }
 
+// emptyRepo is a repository of object format (sha1, sha256) with no commit
+// yet, holding a commit of README.md by dora that is on no branch.
+func emptyRepo(t *testing.T, format string) (*gitrepo.Repo, string) {
+	t.Helper()
+	dir, src := t.TempDir(), t.TempDir()
+	git(t, dir, "init", "-q", "--object-format="+format, "-b", "main")
+	git(t, src, "init", "-q", "--object-format="+format, "-b", "main")
+	write(src, "README.md", "x\n")
+	git(t, src, "add", "-A")
+	git(t, src, "-c", "user.name=dora", "-c", "user.email=dora@yars.local", "commit", "-qm", "first")
+	rev := git(t, src, "rev-parse", "HEAD")
+	git(t, dir, "fetch", "-q", src, "+HEAD:refs/test/candidate")
+	r, err := gitrepo.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r, rev
+}
+
+// git's zero id stands for no commit: SHA-1's 40 zeros, or SHA-256's 64 in a
+// repository made with that format by hand. As the old id it is the first
+// push into a repository with no commit yet; as the new one, a delete.
+func TestPolicyZeroIDs(t *testing.T) {
+	for _, format := range []string{"sha1", "sha256"} {
+		r, rev := emptyRepo(t, format)
+		zero := strings.Repeat("0", len(rev))
+		c := &Checker{Repo: r, Cfg: config.Default(), Users: users}
+		if ps := c.Check("dora", []Update{{Old: zero, New: rev, Ref: "refs/heads/main"}}); len(ps) != 0 {
+			t.Errorf("%s: the first push into an empty repository: %v", format, ps)
+		}
+		git(t, r.Dir, "update-ref", "refs/heads/main", rev)
+		if ps := c.Check("dora", []Update{{Old: rev, New: zero, Ref: "refs/heads/main"}}); !slices.Equal(ps, []string{"refs/heads/main: deleting the branch is not allowed"}) {
+			t.Errorf("%s: a delete: %v", format, ps)
+		}
+	}
+}
+
 func chatMsg(text string) chat.Message { return chat.Message{Text: text} }
 
 // short is the 7-hex name of rev in dir.

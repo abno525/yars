@@ -182,7 +182,10 @@ type Change struct {
 // means "empty tree" (first push).
 func (r *Repo) ChangedFiles(old, new string) ([]Change, error) {
 	if old == "" {
-		old = "4b825dc642cb6eb9a060e54bf8d69288fbee4904" // empty tree
+		var err error
+		if old, err = r.emptyTree(); err != nil {
+			return nil, err
+		}
 	}
 	// --ignore-submodules=none: .gitmodules says ignore = all for every
 	// engagement, which would hide a moved or removed pointer; --no-abbrev:
@@ -201,6 +204,19 @@ func (r *Repo) ChangedFiles(old, new string) ([]Change, error) {
 		cs = append(cs, Change{Status: meta[4][0], Path: f[i+1], Mode: meta[1], Blob: meta[3]})
 	}
 	return cs, nil
+}
+
+// emptyTree is the empty tree's id in r's object format (SHA-256 only in
+// a repository made with it by hand).
+func (r *Repo) emptyTree() (string, error) {
+	out, err := r.run(nil, "rev-parse", "--show-object-format")
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(out) == "sha256" {
+		return "6ef19b41225c5369f1c104d45d8d85efa9b057b53b14b4b9b939dd74decc5321", nil
+	}
+	return "4b825dc642cb6eb9a060e54bf8d69288fbee4904", nil
 }
 
 // CommitAuthor identifies who a commit claims to be authored by.

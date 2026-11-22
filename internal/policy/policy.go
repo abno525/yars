@@ -23,7 +23,11 @@ import (
 	"yars/internal/workflow"
 )
 
-const zero = "0000000000000000000000000000000000000000"
+// zero reports whether id is git's zero id (no commit): 40 zeros, or 64 in
+// a SHA-256 repository.
+func zero(id string) bool {
+	return (len(id) == 40 || len(id) == 64) && strings.Trim(id, "0") == ""
+}
 
 type Update struct{ Old, New, Ref string }
 
@@ -167,12 +171,12 @@ func (c *Checker) Check(username string, ups []Update) []string {
 			ps = append(ps, up.Ref+": only "+branch+" can be pushed")
 			continue
 		}
-		if up.New == zero {
+		if zero(up.New) {
 			ps = append(ps, up.Ref+": deleting the branch is not allowed")
 			continue
 		}
 		old := up.Old
-		if old == zero {
+		if zero(old) {
 			old = ""
 		}
 		// a commit made on the website between the client's read of the
