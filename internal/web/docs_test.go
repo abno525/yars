@@ -110,6 +110,25 @@ func TestDocsListEveryTool(t *testing.T) {
 	}
 }
 
+// The tools table is a .table.stable, whose cells keep to one line
+// (white-space: nowrap, which beats .tooltable td's normal): a parameter's
+// row lets its name and description wrap, so a long description shows whole
+// instead of being cut mid-word at its column's edge.
+func TestDocsParamRowsWrap(t *testing.T) {
+	e := setup(t)
+	b := e.do(t, "alice", "GET", "/docs/mcp", nil, nil).Body.String()
+	if !strings.Contains(b, `<table class="table stable tooltable flush">`) || !strings.Contains(b, `<div class="prow"><span class="pn">`) {
+		t.Fatalf("tools table:\n%s", between(b, "tooltable", "</table>"))
+	}
+	css := e.do(t, "alice", "GET", staticPrefix()+"/style.css", nil, nil).Body.String()
+	if !strings.Contains(between(css, "\n.table.stable td {", "}"), "white-space: nowrap;") {
+		t.Fatal("stable tables no longer keep their cells to one line; recheck the parameter rows")
+	}
+	if rule := between(css, "\n.prow {", "}"); !strings.Contains(rule, "white-space: normal;") {
+		t.Errorf(".prow rule: %q", rule)
+	}
+}
+
 // With base_url set (behind a proxy), the docs show the public address,
 // not the one the request came in on.
 func TestDocsUseBaseURL(t *testing.T) {

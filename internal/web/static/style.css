@@ -1720,7 +1720,9 @@ code.plain { font: 500 13px var(--mono); color: var(--text); background: transpa
 .toolcell .tn { display: block; font: 500 14px/24px var(--mono); color: var(--text); }
 .toolcell .td { display: block; margin-top: 4px; font-size: 13px; line-height: 1.45; color: var(--muted); white-space: normal; }
 .plist { display: flex; flex-direction: column; gap: 4px; }
-.prow { display: grid; grid-template-columns: 112px 64px 80px minmax(0, 1fr); gap: 10px; align-items: baseline; font-size: 13px; line-height: 20px; }
+/* the table's cells keep to one line (.table.stable td); a parameter's name
+   and description wrap */
+.prow { display: grid; grid-template-columns: 112px 64px 80px minmax(0, 1fr); gap: 10px; align-items: baseline; font-size: 13px; line-height: 20px; white-space: normal; }
 .prow .pn { font: 500 13px var(--mono); color: var(--pname); overflow-wrap: anywhere; }
 .prow .pt { font: 500 12px var(--mono); color: var(--muted); }
 .prow .rq { font: 700 11px var(--sans); letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink); }
