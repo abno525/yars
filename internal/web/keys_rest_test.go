@@ -38,7 +38,7 @@ func TestSettingsTokenKeys(t *testing.T) {
 	wantAll(t, "/settings", e.do(t, "alice", "GET", "/settings", nil, nil).Body.String(),
 		`<a class="btn primary sm w112" href="/settings/tokens/new" aria-keyshortcuts="N">New token</a>`,
 		`<table class="table stable tokentable" data-arrows="focus">`, `<tr data-rowkeys>`,
-		`<span class="strong" title="laptop" tabindex="0" data-nav>laptop</span>`,
+		`<span class="strong" title="laptop" tabindex="0" data-nav id="row-token-`,
 		`<button class="btn danger sm w96" data-confirm="Revoke laptop?" aria-keyshortcuts="R">Revoke</button>`)
 	tplHas(t, "settings.html", `data-confirm="Remove the {{.Label}} key?">Remove</button>`)
 	wantAll(t, "/docs/mcp", e.do(t, "alice", "GET", "/docs/mcp", nil, nil).Body.String(),
@@ -87,11 +87,11 @@ func TestAdminRulesWebhooksKeys(t *testing.T) {
 	wantAll(t, "/admin/rules", e.do(t, "dora", "GET", "/admin/rules", nil, nil).Body.String(),
 		`<a class="btn primary sm w128" href="/admin/rules?new=1" aria-keyshortcuts="N">New rule</a>`,
 		`<table class="table ruletable" data-arrows="focus">`, `<tr data-rowkeys>`,
-		`<a class="btn ghost sm w96" href="/admin/rules?edit=none" data-nav aria-keyshortcuts="E">Edit</a>`,
+		`<a class="btn ghost sm w96" href="/admin/rules?edit=none" data-nav id="row-rule-none" aria-keyshortcuts="E">Edit</a>`,
 		`aria-label="Enabled" aria-pressed="true" aria-keyshortcuts="D">`)
-	tplHas(t, "admin.html", `<span class="btn save sm w96" aria-current="true" tabindex="0" data-nav>Editing</span>`,
+	tplHas(t, "admin.html", `<span class="btn save sm w96" aria-current="true" tabindex="0" data-nav id="row-rule-{{.ID}}">Editing</span>`,
 		`<table class="table stable hooktable" data-arrows="focus">`,
-		`<a href="/admin/webhooks?hook={{.ID}}" title="{{.URL}}" data-nav>{{.URL}}</a>`,
+		`<a href="/admin/webhooks?hook={{.ID}}" title="{{.URL}}" data-nav id="row-hook-{{.ID}}">{{.URL}}</a>`,
 		`aria-label="Enabled" aria-keyshortcuts="D"><span></span></button>`,
 		`<a class="btn secondary sm w96" href="/admin/webhooks?edit={{.ID}}&amp;hook={{.ID}}" aria-keyshortcuts="E">Edit</a>`,
 		`<button class="btn danger sm w96" data-confirm="Delete the webhook to {{.URL}}?">Delete</button>`,

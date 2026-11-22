@@ -1938,6 +1938,9 @@ code.plain { font: 500 13px var(--mono); color: var(--text); background: transpa
 /* the row the keys moved to (j k ↓ ↑) is tinted whole, its title not boxed;
    last, so it wins over a ticked or an archived row's tint */
 .table tbody tr:has([data-nav]:focus-visible) > td { background: var(--mark-bg); }
+/* a list row a click selected (a mouse focus is not :focus-visible); the
+   team board's rows open on a click instead */
+.table[data-arrows] tbody tr:not([data-rowclick]):has([data-nav]:focus) > td { background: var(--mark-bg); }
 .table [data-nav]:focus-visible { outline: none; }
 /* the comment the keys picked in the chat, tinted the same way */
 #chat-list .thread[data-tsel] { background: var(--mark-bg); }

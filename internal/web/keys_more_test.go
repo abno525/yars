@@ -68,7 +68,7 @@ func TestTeamBoardGuardReview(t *testing.T) {
 		"var typing = evt.detail.triggeringEvent && evt.detail.triggeringEvent.type === 'input';",
 		"yarsConfirm(q, ok, function () { if (sel) sel.value = chosen; evt.detail.issueRequest(true); }, typing);",
 		"if (sel) yarsSelectReset(sel);",
-		"function yarsConfirm(text, ok, done, safe)",
+		"function yarsConfirm(text, ok, done, safe, no)",
 		"var f = safe ? d.querySelector('button[value=cancel]') || b : b;",
 		"window.addEventListener('pageshow', function () { yarsLeaving = false; });")
 	if strings.Contains(app, "evt.detail.verb === 'get' && !live") {
@@ -113,7 +113,7 @@ func TestAdminUsersKeys(t *testing.T) {
 	e := setup(t)
 	b := e.do(t, "dora", "GET", "/admin/users", nil, nil).Body.String()
 	for _, w := range []string{`<table class="table stable usertable" data-arrows="focus">`, `<tr data-rowkeys>`,
-		`<span class="strong" title="alice" tabindex="0" data-nav>alice</span>`,
+		`<span class="strong" title="alice" tabindex="0" data-nav id="row-user-alice">alice</span>`,
 		`<button class="btn ghost sm w112" data-confirm="Reset the password of alice?" aria-keyshortcuts="R">Reset pass</button>`,
 		`aria-pressed="false" data-confirm="Disable alice?" aria-keyshortcuts="D">`,
 		`<input name="username" value="" pattern="[A-Za-z0-9._\-]+" required aria-keyshortcuts="N">`} {

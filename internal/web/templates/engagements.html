@@ -19,9 +19,9 @@
     </tr></thead>
     <tbody>
     {{range .EngRows}}
-      {{/* data-rowkeys: a (Archive) and r (Reopen) act on the row the keys moved to only (keys.js yarsRowFire) */}}
+      {{/* data-rowkeys: a (Archive) and r (Reopen) act on the row the keys moved to only (keys.js yarsRowFire); its id keeps it focused through the reload */}}
       <tr{{if .Archived}} class="off"{{end}} data-eng="{{.ID}}" data-rowkeys>
-        <td class="stack"><a href="/e/{{.ID}}" title="{{.Name}}" data-nav>{{.Name}}</a><span class="muted">{{if .Client}}{{.Client}} · {{end}}<span class="mono">{{.ID}}</span></span></td>
+        <td class="stack"><a href="/e/{{.ID}}" title="{{.Name}}" data-nav id="row-eng-{{.ID}}">{{.Name}}</a><span class="muted">{{if .Client}}{{.Client}} · {{end}}<span class="mono">{{.ID}}</span></span></td>
         <td>{{if eq .Type "retest"}}<span class="tag etype-retest">Retest</span>{{else}}<span class="tag etype-pentest">Pentest</span>{{end}}</td>
         <td>{{if .Archived}}<span class="tag eng-archived">Archived</span>{{else}}<span class="tag eng-active">Active</span>{{end}}</td>
         <td class="mono" title="{{.Start}}{{if .End}} – {{.End}}{{end}}">{{dateRange .Start .End}}</td>

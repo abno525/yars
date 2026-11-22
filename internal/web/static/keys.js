@@ -235,11 +235,62 @@ function yarsRowFire(key) {
   var els = tr.querySelectorAll('[aria-keyshortcuts]');
   for (var i = 0; i < els.length; i++) {
     if (!yarsHasKey(els[i], key) || els[i].disabled || els[i].offsetParent === null) continue;
+    yarsKeepRow(els[i], row);
     yarsPress(els[i]);
     return true;
   }
   return false;
 }
+
+// A row key's button that posts its own form (d's toggle, r's Revoke or
+// Reset pass, a's Archive: not htmx) reloads the page; the next page focuses
+// the same row again: by its id, else the row now at its place in the same
+// list (a revoked token's row is gone). Kept once the form is sent (a
+// cancelled confirm keeps nothing), for the next page of this tab only and
+// a few seconds. The list is told by its table's class: Archive from / comes
+// back on /engagements, Reset pass on its own URL.
+var yarsRowKeep = 'yars-row-keep';
+var yarsKeepNext = null; // {form, row}: the form a row key pressed
+function yarsKeepRow(el, row) {
+  var f = el.tagName === 'BUTTON' && el.type === 'submit' ? el.form : null;
+  yarsKeepNext = f && f.method === 'post' && !f.hasAttribute('hx-post') && row.closest('table') ? {form: f, row: row} : null;
+}
+document.addEventListener('submit', function (evt) {
+  var k = yarsKeepNext;
+  yarsKeepNext = null;
+  if (!k || evt.target !== k.form || evt.defaultPrevented) return;
+  var table = k.row.closest('table');
+  var rows = yarsRows().filter(function (r) { return table.contains(r); });
+  try {
+    sessionStorage.setItem(yarsRowKeep, JSON.stringify({list: table.className, id: k.row.id, i: rows.indexOf(k.row), at: Date.now()}));
+  } catch (e) { /* not kept */ }
+});
+// a confirm answered Cancel (or Esc) sends nothing (close does not bubble)
+document.addEventListener('close', function (evt) {
+  if (evt.target.id === 'confirm' && evt.target.returnValue !== 'ok') yarsKeepNext = null;
+}, true);
+document.addEventListener('DOMContentLoaded', function () {
+  var k = null;
+  try {
+    var raw = sessionStorage.getItem(yarsRowKeep);
+    sessionStorage.removeItem(yarsRowKeep);
+    k = JSON.parse(raw || 'null');
+  } catch (e) { return; }
+  if (!k || !(Date.now() - k.at < 10000)) return;
+  var a = document.activeElement;
+  if (a && a !== document.body) return; // the page put focus somewhere itself
+  var table = Array.prototype.filter.call(document.querySelectorAll('table'), function (x) {
+    return x.className === k.list;
+  })[0];
+  if (!table) return;
+  var rows = yarsRows().filter(function (r) { return table.contains(r); });
+  var el = k.id ? document.getElementById(k.id) : null;
+  if (rows.indexOf(el) < 0) el = rows[Math.min(Math.max(k.i, 0), rows.length - 1)];
+  if (!el) return;
+  el.focus({preventScroll: true});
+  // a password shown once (Reset pass) stays in view
+  if (el.scrollIntoView && !document.querySelector('.once')) el.scrollIntoView({block: 'nearest'});
+});
 
 // yarsPick: a list's row checkbox takes no characters, so the list keys work
 // with it focused (a click on it leaves focus there).
@@ -347,6 +398,22 @@ document.addEventListener('htmx:afterSettle', function () {
   var first = m.prev ? m.prev.nextElementSibling : m.body.firstElementChild;
   var nav = first && !first.matches('tr.more') ? first.querySelector('[data-nav]') : null;
   if (nav) nav.focus();
+});
+// A click on a list row (a table with data-arrows, a row with data-rowkeys)
+// outside the row's own controls selects the row as j k do, without a
+// scroll, so it is tinted and its keys work; never while text is being
+// selected. The team board's rows open on a click instead (app.js).
+document.addEventListener('click', function (evt) {
+  var t = evt.target;
+  if (yarsKeysOff() || evt.defaultPrevented || !t.closest) return;
+  var tr = t.closest('tr');
+  if (!tr || tr.hasAttribute('data-rowclick') || !(tr.hasAttribute('data-rowkeys') || tr.closest('table[data-arrows]'))) return;
+  var on = t.closest('a, button, input, select, textarea, label, summary, details, [tabindex], [contenteditable]');
+  if (on && tr.contains(on)) return;
+  var s = window.getSelection ? window.getSelection() : null;
+  if (s && !s.isCollapsed) return;
+  var nav = yarsRowOf(t);
+  if (nav && !nav.disabled) nav.focus({preventScroll: true});
 });
 
 // ? (K8): the shortcut list of this page: its Finding page group only where

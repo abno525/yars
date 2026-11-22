@@ -31,9 +31,9 @@
     <thead><tr><th>URL</th><th class="c-events">Events</th><th class="c-last">Last delivery</th><th class="c-flag">Enabled</th><th class="c-acts">Action</th></tr></thead>
     <tbody>
       {{range .Rows}}
-      {{/* the URL is the row the keys move to (Enter shows its deliveries); e edits it, d turns it on or off */}}
+      {{/* the URL is the row the keys move to (Enter shows its deliveries); e edits it, d turns it on or off; its id keeps it focused through the reload */}}
       <tr class="{{if eq .ID $.Selected}}editing{{end}}{{if not .Enabled}} off{{end}}" data-rowkeys>
-        <td class="stack"><a href="/admin/webhooks?hook={{.ID}}" title="{{.URL}}" data-nav>{{.URL}}</a><span class="mono">{{.Ending}}</span></td>
+        <td class="stack"><a href="/admin/webhooks?hook={{.ID}}" title="{{.URL}}" data-nav id="row-hook-{{.ID}}">{{.URL}}</a><span class="mono">{{.Ending}}</span></td>
         <td class="stack"><span class="mono" title="{{.Events}}">{{.Events}}</span></td>
         <td class="stack">{{if .LastState}}<span class="tag dl-{{.LastState}}">{{.Last}}</span><span class="mono">{{.LastAt}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
         <td><form method="post" action="/admin/webhooks/{{.ID}}/toggle"><button class="toggle{{if .Enabled}} on{{end}}" role="switch" aria-checked="{{if .Enabled}}true{{else}}false{{end}}" aria-label="Enabled" aria-keyshortcuts="D"><span></span></button></form></td>
@@ -161,9 +161,9 @@
       <thead><tr><th>User</th><th class="c-role">Role</th><th class="c-flag">Admin</th><th class="c-flag">Disabled</th><th class="c-date">Created</th><th class="c-num">Tokens</th><th class="c-acts">Action</th></tr></thead>
       <tbody>
         {{range .Rows}}
-        {{/* the name is the row the keys move to; u, r, d act on that row only (keys.js yarsRowFire) */}}
+        {{/* the name is the row the keys move to; u, r, d act on that row only (keys.js yarsRowFire); its id keeps it focused through the reload */}}
         <tr{{if .Disabled}} class="off"{{end}} data-rowkeys>
-          <td class="stack"><span class="strong" title="{{.Username}}" tabindex="0" data-nav>{{.Username}}</span><span class="muted" title="{{.Email}}">{{if .Email}}{{.Email}}{{else}}—{{end}}</span></td>
+          <td class="stack"><span class="strong" title="{{.Username}}" tabindex="0" data-nav id="row-user-{{.Username}}">{{.Username}}</span><span class="muted" title="{{.Email}}">{{if .Email}}{{.Email}}{{else}}—{{end}}</span></td>
           <td>
             <form method="post" action="/admin/users/{{.Username}}/role">
               <select name="role" aria-label="Role of {{.Username}}" data-choose>{{$r := .Role}}{{range $.Roles}}<option value="{{.}}"{{if eq . $r}} selected{{end}}>{{.}}</option>{{end}}</select>
@@ -473,7 +473,7 @@
     <thead><tr><th>Rule</th><th class="c-kind">Kind</th><th class="c-target">Applies to</th><th class="c-level">Level</th><th class="c-on">On</th><th class="c-act">Action</th></tr></thead>
     <tbody>
       {{range .Rows}}
-      {{/* Edit is the row the keys move to (Enter or e edits); d turns that row on or off */}}
+      {{/* Edit is the row the keys move to (Enter or e edits); d turns that row on or off; its id keeps it focused through the reload */}}
       <tr{{with .Class}} class="{{.}}"{{end}} data-rowkeys>
         <td class="rulecell"><span class="ruleid" title="{{.File}}">{{.ID}}</span><span class="rulemsg" title="{{.Message}}">{{.Message}}</span></td>
         <td><span class="tag kind-{{.Kind}}">{{.KindLabel}}</span></td>
@@ -485,7 +485,7 @@
             <button class="cbx{{if .On}} on{{end}}" aria-label="Enabled" aria-pressed="{{if .On}}true{{else}}false{{end}}" aria-keyshortcuts="D">{{if .On}}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>{{end}}</button>
           </form>
         </td>
-        <td>{{if .Editing}}<span class="btn save sm w96" aria-current="true" tabindex="0" data-nav>Editing</span>{{else}}<a class="btn ghost sm w96" href="/admin/rules?edit={{.ID}}" data-nav aria-keyshortcuts="E">Edit</a>{{end}}</td>
+        <td>{{if .Editing}}<span class="btn save sm w96" aria-current="true" tabindex="0" data-nav id="row-rule-{{.ID}}">Editing</span>{{else}}<a class="btn ghost sm w96" href="/admin/rules?edit={{.ID}}" data-nav id="row-rule-{{.ID}}" aria-keyshortcuts="E">Edit</a>{{end}}</td>
       </tr>
       {{end}}
     </tbody>

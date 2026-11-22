@@ -268,18 +268,19 @@ function yarsComment(section) {
 // as they are (a click outside does nothing: the second click of a
 // double-click would land there). A page without the dialog (none signed
 // in) falls back to the browser's. safe: the question came up while typing
-// (the team board's search), so the next key lands on Cancel, not OK.
-function yarsConfirm(text, ok, done, safe) {
+// (the team board's search), so the next key lands on Cancel, not OK. no,
+// if given, runs on Cancel or Esc.
+function yarsConfirm(text, ok, done, safe, no) {
   var d = document.getElementById('confirm');
   if (!d || !d.showModal) {
-    if (window.confirm(text)) done();
+    if (window.confirm(text)) done(); else if (no) no();
     return;
   }
   d.querySelector('[data-confirm-text]').textContent = text;
   var b = d.querySelector('[data-confirm-ok]');
   b.textContent = ok || 'OK';
   d.returnValue = '';
-  d.onclose = function () { d.onclose = null; if (d.returnValue === 'ok') done(); };
+  d.onclose = function () { d.onclose = null; if (d.returnValue === 'ok') done(); else if (no) no(); };
   // after the event that asked: an Esc that cancelled an editor would close
   // a dialog opened during it
   var f = safe ? d.querySelector('button[value=cancel]') || b : b;
@@ -437,6 +438,27 @@ document.addEventListener('htmx:beforeSwap', function (evt) {
     return i === document.activeElement || (i.value !== undefined && i.defaultValue !== undefined && yarsChanged(i));
   }) || !!t.querySelector('details[open]');
   if (busy) evt.detail.shouldSwap = false;
+});
+// Team board: Back (or Forward) while a reply or new lead is typed asks
+// first. htmx restores the board in its popstate handler with no event
+// before it to cancel, so that handler is wrapped once htmx set it (htmx's
+// DOMContentLoaded runs first: it loads before this file). Discard lets
+// htmx restore; Cancel keeps the board and puts its address back
+// (yarsHere: the URL the board showed last).
+var yarsHere = location.href;
+['htmx:pushedIntoHistory', 'htmx:replacedInHistory', 'htmx:historyRestore'].forEach(function (n) {
+  document.addEventListener(n, function () { yarsHere = location.href; });
+});
+document.addEventListener('DOMContentLoaded', function () {
+  var restore = window.onpopstate;
+  if (!restore) return;
+  window.onpopstate = function (evt) {
+    var b = document.getElementById('board');
+    if (!evt.state || !evt.state.htmx || !b || !yarsDirty(b)) { restore.call(window, evt); yarsHere = location.href; return; }
+    var was = yarsHere;
+    yarsConfirm('Discard changes?', 'Discard', function () { restore.call(window, evt); yarsHere = location.href; },
+      false, function () { history.pushState({htmx: true}, '', was); });
+  };
 });
 // Quote request: a request block goes into the reply at the cursor.
 document.addEventListener('click', function (evt) {

@@ -81,9 +81,9 @@ func TestShellHeaderOrder(t *testing.T) {
 }
 
 // A page outside any engagement (the inbox, Settings, Admin) keeps the
-// engagement last opened in this browser: the picker shows it and Findings
-// (f) goes to its list. One the user cannot see is not kept; logging out
-// forgets it.
+// engagement last opened in this browser: the picker shows it (on a hidden
+// option of its own, so picking it opens it) and Findings (f) goes to its
+// list. One the user cannot see is not kept; logging out forgets it.
 func TestLastEngagementKept(t *testing.T) {
 	e := setup(t)
 	e.outsider(t)
@@ -101,7 +101,7 @@ func TestLastEngagementKept(t *testing.T) {
 	for _, p := range []string{"/inbox", "/settings", "/"} {
 		b := e.do(t, "alice", "GET", p, nil, kept).Body.String()
 		head := between(b, `<header class="topbar">`, "</header>")
-		for _, w := range []string{`<option value="acme" selected>`, `<a class="`, `href="/e/acme" aria-keyshortcuts="F">Findings</a>`} {
+		for _, w := range []string{`<option value="acme" selected hidden>`, `<a class="`, `href="/e/acme" aria-keyshortcuts="F">Findings</a>`} {
 			if !strings.Contains(head, w) {
 				t.Errorf("%s: header lacks %s:\n%s", p, w, head)
 			}

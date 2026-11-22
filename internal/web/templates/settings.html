@@ -50,9 +50,9 @@
         <thead><tr><th>Name</th><th class="c-can">Can</th><th class="c-date">Expires</th><th class="c-date">Last used</th><th class="c-date">Created</th><th class="c-act">Action</th></tr></thead>
         <tbody>
           {{range .Settings.Tokens}}
-          {{/* the name is the row the keys move to; r revokes that row only (asking) */}}
+          {{/* the name is the row the keys move to; r revokes that row only (asking); its id keeps it focused through the reload */}}
           <tr data-rowkeys>
-            <td class="stack"><span class="strong" title="{{.Name}}" tabindex="0" data-nav>{{.Name}}</span><span class="mono">{{.Ending}}</span></td>
+            <td class="stack"><span class="strong" title="{{.Name}}" tabindex="0" data-nav id="row-token-{{.ID}}">{{.Name}}</span><span class="mono">{{.Ending}}</span></td>
             <td class="stack"><span>{{.Kind}} · {{.Can}}</span><span class="muted" title="{{.Where}}">{{.Where}}</span></td>
             <td class="stack"><span class="mono">{{.Expires}}</span>{{with .ExpireSoon}}<span class="soon">{{.}}</span>{{end}}</td>
             <td class="mono">{{.LastUsed}}</td>
