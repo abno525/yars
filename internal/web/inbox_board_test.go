@@ -51,7 +51,7 @@ func TestInboxBoardMarkAllRead(t *testing.T) {
 	e.lead(t, "alice", "JWT none", "api.acme.test", "open")
 	e.lead(t, "alice", "Open redirect", "", "open")
 	sec := queue(e.do(t, "bob", "GET", "/inbox", nil, nil).Body.String(), "board")
-	if !strings.Contains(sec, `<span class="qcnt">2</span>`) || !strings.Contains(sec, `<button class="btn secondary sm w152" form="notes" formaction="/inbox/board/read">Mark all read</button>`) {
+	if !strings.Contains(sec, `<span class="qcnt">2</span>`) || !strings.Contains(sec, `<button class="btn secondary sm w152" form="notes" formaction="/inbox/board/read" aria-keyshortcuts="M">Mark all read</button>`) {
 		t.Fatalf("before:\n%s", sec)
 	}
 	rec := e.do(t, "bob", "POST", "/inbox/board/read", url.Values{}, nil)
@@ -59,7 +59,7 @@ func TestInboxBoardMarkAllRead(t *testing.T) {
 		t.Fatalf("read all %d %s", rec.Code, rec.Header().Get("Location"))
 	}
 	sec = queue(e.do(t, "bob", "GET", "/inbox", nil, nil).Body.String(), "board")
-	if !strings.Contains(sec, `<span class="qcnt zero">0</span>`) || !strings.Contains(sec, `formaction="/inbox/board/read" disabled>Mark all read</button>`) {
+	if !strings.Contains(sec, `<span class="qcnt zero">0</span>`) || !strings.Contains(sec, `formaction="/inbox/board/read" disabled aria-keyshortcuts="M">Mark all read</button>`) {
 		t.Fatalf("after:\n%s", sec)
 	}
 	// carol's own queue is hers

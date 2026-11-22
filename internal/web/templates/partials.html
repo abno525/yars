@@ -99,8 +99,9 @@ the table's column count. */}}
     <a class="btn secondary w128" href="/e/{{.Eng.ID}}/export" aria-keyshortcuts="E">Export</a>
     {{if .CanManage}}<a class="btn secondary w128" href="/e/{{.Eng.ID}}/retest/new">New retest</a>{{else}}<span class="slot w128"></span>{{end}}
     {{if .Archive.On}}{{if .Archive.CanReopen}}<form method="post" action="/e/{{.Eng.ID}}/reopen"><button class="btn secondary w128">Reopen</button></form>{{else}}<span class="slot w128"></span>{{end}}
-    {{else}}<a class="btn {{if eq .ETab.On "board"}}secondary{{else}}primary{{end}} w128" href="/e/{{.Eng.ID}}/findings/new" aria-keyshortcuts="N">New finding</a>{{end}}
-    {{if eq .ETab.On "board"}}{{if .Archive.On}}<span class="slot w128"></span>{{else}}<a class="btn primary w128" href="/e/{{.Eng.ID}}/board?new=1" hx-get="/e/{{.Eng.ID}}/board?new=1" hx-target="#board" hx-swap="outerHTML" hx-push-url="true">New lead</a>{{end}}{{end}}
+    {{else}}<a class="btn {{if eq .ETab.On "board"}}secondary{{else}}primary{{end}} w128" href="/e/{{.Eng.ID}}/findings/new"{{if ne .ETab.On "board"}} aria-keyshortcuts="N"{{end}}>New finding</a>{{end}}
+    {{/* n is New lead on the board, New finding elsewhere */}}
+    {{if eq .ETab.On "board"}}{{if .Archive.On}}<span class="slot w128"></span>{{else}}<a class="btn primary w128" href="/e/{{.Eng.ID}}/board?new=1" hx-get="/e/{{.Eng.ID}}/board?new=1" hx-target="#board" hx-swap="outerHTML" hx-push-url="true" aria-keyshortcuts="N">New lead</a>{{end}}{{end}}
   </div>
 </div>
 {{template "archive_bar" .Archive}}

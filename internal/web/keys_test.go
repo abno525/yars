@@ -466,8 +466,8 @@ func TestEngagementListKeys(t *testing.T) {
 	for _, w := range []string{`<div class="krow" data-keys-if="a[aria-keyshortcuts~=N][href$='/findings/new']"><dt><kbd>n</kbd></dt><dd>New finding</dd></div>`,
 		`<div class="krow" data-keys-if="a[aria-keyshortcuts~=N][href='/engagements/new']"><dt><kbd>n</kbd></dt><dd>New engagement</dd></div>`,
 		`<div class="krow" data-keys-if="[data-copy=clone-cmd][aria-keyshortcuts~=C]"><dt><kbd>c</kbd></dt><dd>Copy the clone command</dd></div>`,
-		`<div class="krow" data-keys-if="tr[data-rowkeys] [aria-keyshortcuts~=A]"><dt><kbd>a</kbd></dt><dd>Archive the row</dd></div>`,
-		`<div class="krow" data-keys-if="tr[data-rowkeys] [aria-keyshortcuts~=R]"><dt><kbd>r</kbd></dt><dd>Reopen the row</dd></div>`} {
+		`<div class="krow" data-keys-if="form[action$='/archive'] [aria-keyshortcuts~=A]"><dt><kbd>a</kbd></dt><dd>Archive the row</dd></div>`,
+		`<div class="krow" data-keys-if="form[action$='/reopen'] [aria-keyshortcuts~=R]"><dt><kbd>r</kbd></dt><dd>Reopen the row</dd></div>`} {
 		if !strings.Contains(d, w) {
 			t.Errorf("the ? list lacks %s", w)
 		}
@@ -578,7 +578,8 @@ func TestListFilterDigitsAndArrows(t *testing.T) {
 	if nav := between(e.do(t, "alice", "GET", "/e/acme/board", nil, nil).Body.String(), `aria-label="State">`, "</nav>"); strings.Count(nav, "aria-keyshortcuts=") != 6 || !strings.Contains(nav, `aria-keyshortcuts="6"`) {
 		t.Errorf("the team board's six states lack their digits:\n%s", nav)
 	}
-	// the arrows are the two lists' only (data-arrows), not History's or
+	// the arrows are the lists' asked for (data-arrows: findings, engagements,
+	// and later the inbox, the team board, Admin › Users), not History's or
 	// Export's; held down they go on stepping; never in an open menu
 	if !strings.Contains(b, `<table class="table findings" data-arrows>`) {
 		t.Error("the findings table lacks data-arrows")
@@ -586,7 +587,7 @@ func TestListFilterDigitsAndArrows(t *testing.T) {
 	if !strings.Contains(e.do(t, "alice", "GET", "/", nil, nil).Body.String(), `<table class="table englist" data-arrows>`) {
 		t.Error("the engagements table lacks data-arrows")
 	}
-	for _, f := range []string{"history.html", "export.html", "inbox.html", "notifications.html"} {
+	for _, f := range []string{"history.html", "export.html", "notifications.html"} {
 		if src, _ := templateFS.ReadFile("templates/" + f); strings.Contains(string(src), "data-arrows") {
 			t.Errorf("%s takes the arrows", f)
 		}

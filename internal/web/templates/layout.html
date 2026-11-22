@@ -91,6 +91,8 @@ keys.js hides the Finding page group where there are no panels */}}
           <div class="krow" data-keys-for="F"><dt><kbd>f</kbd></dt><dd>Findings</dd></div>
           <div class="krow" data-keys-if="a[aria-keyshortcuts~=N][href$='/findings/new']"><dt><kbd>n</kbd></dt><dd>New finding</dd></div>
           <div class="krow" data-keys-if="a[aria-keyshortcuts~=N][href='/engagements/new']"><dt><kbd>n</kbd></dt><dd>New engagement</dd></div>
+          <div class="krow" data-keys-if="a[aria-keyshortcuts~=N][href$='?new=1']"><dt><kbd>n</kbd></dt><dd>New lead</dd></div>
+          <div class="krow" data-keys-if="input[aria-keyshortcuts~=N]"><dt><kbd>n</kbd></dt><dd>Add user</dd></div>
           <div class="krow" data-keys-if="[data-copy=clone-cmd][aria-keyshortcuts~=C]"><dt><kbd>c</kbd></dt><dd>Copy the clone command</dd></div>
           <div class="krow" data-keys-for="1"><dt><kbd>1</kbd>–<kbd>9</kbd></dt><dd>Filter</dd></div>
           <div class="krow"><dt><kbd>Esc</kbd></dt><dd>Close</dd></div>
@@ -103,8 +105,12 @@ keys.js hides the Finding page group where there are no panels */}}
           <div class="krow"><dt><kbd>j</kbd><kbd>k</kbd><kbd>↓</kbd><kbd>↑</kbd></dt><dd>Next or previous row</dd></div>
           <div class="krow"><dt><kbd>Enter</kbd></dt><dd>Open the row</dd></div>
           <div class="krow" data-keys-if="tr input[type=checkbox]"><dt><kbd>x</kbd></dt><dd>Tick the row</dd></div>
-          <div class="krow" data-keys-if="tr[data-rowkeys] [aria-keyshortcuts~=A]"><dt><kbd>a</kbd></dt><dd>Archive the row</dd></div>
-          <div class="krow" data-keys-if="tr[data-rowkeys] [aria-keyshortcuts~=R]"><dt><kbd>r</kbd></dt><dd>Reopen the row</dd></div>
+          <div class="krow" data-keys-if="form[action$='/archive'] [aria-keyshortcuts~=A]"><dt><kbd>a</kbd></dt><dd>Archive the row</dd></div>
+          <div class="krow" data-keys-if="form[action$='/reopen'] [aria-keyshortcuts~=R]"><dt><kbd>r</kbd></dt><dd>Reopen the row</dd></div>
+          <div class="krow" data-keys-if="form[action$='/unlock'] [aria-keyshortcuts~=U]"><dt><kbd>u</kbd></dt><dd>Unlock the row</dd></div>
+          <div class="krow" data-keys-if="form[action$='/reset'] [aria-keyshortcuts~=R]"><dt><kbd>r</kbd></dt><dd>Reset the row's password</dd></div>
+          <div class="krow" data-keys-if="form[action$='/disabled'] [aria-keyshortcuts~=D]"><dt><kbd>d</kbd></dt><dd>Disable or enable the row</dd></div>
+          <div class="krow" data-keys-if=".qacts [aria-keyshortcuts~=M]"><dt><kbd>m</kbd></dt><dd>Mark all read</dd></div>
           <div class="krow" data-keys-if="input[type=checkbox][name=id]"><dt><kbd>Shift+Space</kbd></dt><dd>Tick the range</dd></div>
           <div class="krow" data-keys-for="Shift+S"><dt><kbd>Shift+S</kbd></dt><dd>Submit the ticked</dd></div>
           <div class="krow" data-keys-for="Shift+A"><dt><kbd>Shift+A</kbd></dt><dd>Approve the ticked</dd></div>
@@ -120,6 +126,8 @@ keys.js hides the Finding page group where there are no panels */}}
           <div class="krow"><dt><kbd>r</kbd></dt><dd>Report</dd></div>
           <div class="krow"><dt><kbd>s</kbd></dt><dd>Settings</dd></div>
           <div class="krow" data-keys-if="html:not(:has([data-kpanel]))"><dt><kbd>e</kbd></dt><dd>Export</dd></div>
+          <div class="krow" data-keys-if=".tbacts [aria-keyshortcuts~=M]"><dt><kbd>m</kbd></dt><dd>Make finding</dd></div>
+          <div class="krow" data-keys-if=".tbacts [aria-keyshortcuts~=D]"><dt><kbd>d</kbd></dt><dd>Dismiss</dd></div>
         </dl>
       </section>
       <section class="kgroup" data-keys-group="finding"><h3 class="gh">Finding page</h3>

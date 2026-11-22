@@ -14,14 +14,15 @@
       </form>
     </div>
     <div class="tbscroll">
-    <table class="table tbtable">
+    <table class="table tbtable" data-arrows>
       <thead><tr>
         <th class="c-lid">ID</th><th class="c-lstate">State</th><th>Title</th><th class="c-lby">By</th><th class="c-lrep">Replies</th><th class="c-lact" aria-sort="descending">Activity ↓</th>
       </tr></thead>
       <tbody>
       {{range .Rows}}
         <tr class="{{if .Sel}}sel{{end}}{{if .Off}} off{{end}}" data-rowclick hx-get="{{.URL}}" hx-trigger="yars:rowclick" hx-target="#board" hx-swap="outerHTML" hx-push-url="true">
-          <td class="lid"><a href="{{.URL}}" hx-get="{{.URL}}" hx-target="#board" hx-swap="outerHTML" hx-push-url="true">{{.ID}}</a></td>
+          {{/* the row the keys move to; its id keeps focus there through the board's swap */}}
+          <td class="lid"><a href="{{.URL}}" id="lead-{{.ID}}" data-nav hx-get="{{.URL}}" hx-target="#board" hx-swap="outerHTML" hx-push-url="true">{{.ID}}</a></td>
           <td><span class="tag lead-{{.State}}">{{.StateLabel}}</span></td>
           <td class="ltitle"><span class="lline"><span class="lname" title="{{.Title}}">{{.Title}}</span>{{if .FindingURL}}<a class="lfid" href="{{.FindingURL}}">{{.Finding}}</a>{{end}}</span><span class="lhost" title="{{.Host}}">{{.Host}}</span></td>
           <td class="clip">{{.By}}</td>
@@ -53,10 +54,10 @@
       <span class="tbby"><strong title="{{.By}}">{{.By}}</strong> · <span class="mono">{{.When}}</span></span>
     </div>
     <div class="tbacts">
-      {{if .CanMake}}<form hx-post="{{.PostURL}}finding" hx-target="#board" hx-swap="outerHTML" hx-disabled-elt="find button">{{template "lead_keep" .}}<button class="btn primary sm w136">Make finding</button></form>{{else}}<button type="button" class="btn sm w136" disabled>Make finding</button>{{end}}
+      {{if .CanMake}}<form hx-post="{{.PostURL}}finding" hx-target="#board" hx-swap="outerHTML" hx-disabled-elt="find button">{{template "lead_keep" .}}<button class="btn primary sm w136" aria-keyshortcuts="M">Make finding</button></form>{{else}}<button type="button" class="btn sm w136" disabled>Make finding</button>{{end}}
       {{if .CanDismiss}}
       <details class="pop tbpop">
-        <summary class="btn ghost sm w96">Dismiss</summary>
+        <summary class="btn ghost sm w96" aria-keyshortcuts="D">Dismiss</summary>
         <form class="tbdlg" hx-post="{{.PostURL}}dismiss" hx-target="#board" hx-swap="outerHTML">
           {{template "lead_keep" .}}<input type="hidden" name="from" value="{{.State}}">
           <label>Reason<input name="reason" maxlength="1000" autocomplete="off" required></label>
@@ -102,7 +103,7 @@
     <div class="tbcrow"><span class="tberr"></span><button type="button" class="btn sm w136" disabled>Quote request</button><button type="button" class="btn sm w96" disabled>Post</button></div>
   </div>
   {{else}}
-  <form class="tbcomposer" hx-post="{{.PostURL}}post" hx-target="#board" hx-swap="outerHTML">
+  <form class="tbcomposer" data-guard hx-post="{{.PostURL}}post" hx-target="#board" hx-swap="outerHTML">
     {{template "lead_keep" .}}
     <textarea id="tb-text" name="text" aria-label="Reply" placeholder="Reply" maxlength="10000"{{if .TextError}} aria-invalid="true"{{end}}>{{.Text}}</textarea>
     <div class="tbcrow"><span class="tberr error">{{.TextError}}</span><button type="button" class="btn ghost sm w136" data-quote="{{.Quote}}">Quote request</button><button class="btn save sm w96">Post</button></div>
@@ -116,7 +117,7 @@
 {{define "lead_new"}}
 {{$e := .New.Errs}}
 <section class="tbthread" aria-label="New lead">
-  <form class="tbnew" hx-post="{{.URL}}" hx-target="#board" hx-swap="outerHTML">
+  <form class="tbnew" data-guard hx-post="{{.URL}}" hx-target="#board" hx-swap="outerHTML">
     <input type="hidden" name="keep_state" value="{{.State}}"><input type="hidden" name="keep_q" value="{{.Q}}">
     <div class="tbhead"><div class="tbtitle"><h2>New lead</h2></div></div>
     <div class="tbfields">

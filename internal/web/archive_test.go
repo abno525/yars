@@ -36,7 +36,7 @@ func TestArchivedPageNoEditForms(t *testing.T) {
 	if b := e.do(t, "dora", "GET", "/e/acme", nil, nil).Body.String(); !strings.Contains(b, `action="/e/acme/reopen"`) {
 		t.Fatal("no Reopen for the director")
 	}
-	if b := e.do(t, "alice", "GET", "/e/acme", nil, nil).Body.String(); strings.Contains(b, "/reopen") {
+	if b := e.do(t, "alice", "GET", "/e/acme", nil, nil).Body.String(); strings.Contains(between(b, "<main>", "</main>"), "/reopen") {
 		t.Fatal("Reopen offered to a pentester")
 	}
 	if rec := e.do(t, "alice", "POST", "/e/acme/reopen", url.Values{}, nil); rec.Code != http.StatusForbidden {

@@ -158,18 +158,45 @@ function yarsKeyButton(box, key) {
   return null;
 }
 
-// yarsFire clicks the first rendered, enabled element in scope (default the
-// document) whose aria-keyshortcuts lists key; true when one was clicked.
+// yarsPress acts on el as a click would, from a key: a field takes focus
+// (n: Add user's Username); a summary opens its popover with focus in its
+// first field (d: Dismiss's reason); a link that leaves the page while a
+// guarded form holds unsaved text asks first in the page's own dialog (and
+// the browser's leave warning then does not ask again).
+function yarsPress(el) {
+  if (el.matches('input:not([type=checkbox]):not([type=radio]), textarea, select')) { el.focus(); return; }
+  if (el.tagName === 'SUMMARY') {
+    el.click();
+    var box = el.parentNode;
+    var f = box && box.open ? box.querySelector('input:not([type=hidden]), textarea') : null;
+    if (f) f.focus();
+    return;
+  }
+  if (el.tagName === 'A' && !el.hasAttribute('hx-get') && yarsDirty(document)) {
+    yarsConfirm('Discard changes?', 'Discard', function () { yarsLeaving = true; el.click(); });
+    return;
+  }
+  el.click();
+}
+
+// yarsFire presses the first rendered, enabled element in scope (default the
+// document) whose aria-keyshortcuts lists key; true when one was pressed.
 // The bulk menu's entries are yarsBulkFire's.
 function yarsFire(key, scope) {
   if (!key) return false;
   var els = (scope || document).querySelectorAll('[aria-keyshortcuts]');
+  var cur = yarsRowOf(document.activeElement);
+  var curScope = cur && cur.closest ? cur.closest('[data-keys-scope]') : null;
   for (var i = 0; i < els.length; i++) {
     var el = els[i];
     // a row's own buttons are yarsRowFire's (the focused row only)
     if (!yarsHasKey(el, key) || el.closest('.bmenu') || el.closest('tr[data-rowkeys]')) continue;
     if (el.offsetParent === null || el.disabled) continue;
-    el.click();
+    // a section's own key (the inbox's Mark all read): with a row focused,
+    // that row's section only
+    var scope = el.closest('[data-keys-scope]');
+    if (scope && curScope && scope !== curScope) continue;
+    yarsPress(el);
     return true;
   }
   return false;
@@ -195,8 +222,9 @@ function yarsBulkFire(key) {
 }
 
 // yarsRowFire: a key of the focused row's own buttons, in a row marked
-// data-rowkeys (the engagements list: a Archive, r Reopen); never another
-// row's, so with no row focused the key does nothing.
+// data-rowkeys (the engagements list: a Archive, r Reopen; Admin › Users: u
+// Unlock, r Reset pass, d Disable); never another row's, so with no row
+// focused the key does nothing.
 function yarsRowFire(key) {
   var row = yarsRowOf(document.activeElement);
   var tr = row && row.closest ? row.closest('tr[data-rowkeys]') : null;
@@ -204,7 +232,7 @@ function yarsRowFire(key) {
   var els = tr.querySelectorAll('[aria-keyshortcuts]');
   for (var i = 0; i < els.length; i++) {
     if (!yarsHasKey(els[i], key) || els[i].disabled || els[i].offsetParent === null) continue;
-    els[i].click();
+    yarsPress(els[i]);
     return true;
   }
   return false;

@@ -794,12 +794,16 @@ document.addEventListener('htmx:load', function (evt) {
 // from what the server sent (defaultValue), or the server returned the
 // user's own text after a conflict (data-dirty).
 function yarsDirty(scope) {
-  return Array.prototype.some.call(scope.querySelectorAll('form[data-guard] textarea, form[data-guard] input[type=text]'), function (i) {
+  // an input with no type is a text box too (the team board's new lead)
+  return Array.prototype.some.call(scope.querySelectorAll('form[data-guard] textarea, form[data-guard] input[type=text], form[data-guard] input:not([type])'), function (i) {
     return i.hasAttribute('data-dirty') || i.value !== i.defaultValue;
   });
 }
+// yarsLeaving: the page's own dialog already asked (a key that leaves the
+// page, keys.js yarsPress), so the browser's leave warning does not ask again
+var yarsLeaving = false;
 window.addEventListener('beforeunload', function (evt) {
-  if (!yarsDirty(document)) return;
+  if (yarsLeaving || !yarsDirty(document)) return;
   evt.preventDefault();
   evt.returnValue = '';
 });
@@ -814,6 +818,14 @@ document.addEventListener('htmx:confirm', function (evt) {
       q = 'Discard changes?';
       ok = 'Discard';
     }
+  }
+  // the team board's reply or new lead being typed: a request of the user's
+  // that swaps the board (a filter, another lead, Cancel, n) asks first; a
+  // live refresh waits instead (htmx:beforeSwap), and posting is a POST
+  var tg = evt.detail.target, live = evt.detail.triggeringEvent && String(evt.detail.triggeringEvent.type).indexOf('sse:') === 0;
+  if (!q && tg && tg.id === 'board' && evt.detail.verb === 'get' && !live && yarsDirty(tg)) {
+    q = 'Discard changes?';
+    ok = 'Discard';
   }
   if (!q) return;
   evt.preventDefault();

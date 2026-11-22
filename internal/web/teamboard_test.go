@@ -243,7 +243,7 @@ func TestTeamBoardHeadSeverity(t *testing.T) {
 	if set < 0 || sev < set {
 		t.Errorf("severity is not after Set state:\n%s", head)
 	}
-	if !strings.Contains(head, `<summary class="btn ghost sm w96">Dismiss</summary>`) || strings.Index(b, `<div class="tbstate" role="status" title=""></div>`) < strings.Index(b, `class="tbsev"`) {
+	if !strings.Contains(head, `<summary class="btn ghost sm w96" aria-keyshortcuts="D">Dismiss</summary>`) || strings.Index(b, `<div class="tbstate" role="status" title=""></div>`) < strings.Index(b, `class="tbsev"`) {
 		t.Errorf("Dismiss is not 96 px or the message has no line of its own:\n%s", between(b, `<div class="tbhead">`, `<div class="tbmsgs">`))
 	}
 	for _, gone := range []string{"tbanalysis", ">Analysis<", `name="dup"`, "Duplicate of", "tbdup"} {
@@ -268,7 +268,7 @@ func TestTeamBoardArchived(t *testing.T) {
 		t.Fatal(err)
 	}
 	b := e.do(t, "alice", "GET", "/e/acme/board", nil, nil).Body.String()
-	if strings.Contains(b, "hx-post=") || strings.Contains(b, "?new=1") || !strings.Contains(b, `placeholder="Read-only"`) {
+	if strings.Contains(b, "hx-post=") || strings.Contains(between(b, "<main>", "</main>"), "?new=1") || !strings.Contains(b, `placeholder="Read-only"`) {
 		t.Fatalf("archived board writable:\n%s", b)
 	}
 	if rec := e.do(t, "alice", "POST", "/e/acme/board", url.Values{"title": {"t"}, "text": {"x"}}, nil); rec.Code != http.StatusForbidden {

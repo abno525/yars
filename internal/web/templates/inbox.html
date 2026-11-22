@@ -1,11 +1,12 @@
 
 {{define "inbox_list"}}
-<section class="q q-{{.Name}}">
+{{/* data-keys-scope: m (Mark all read) is the section of the row the keys moved to */}}
+<section class="q q-{{.Name}}" data-keys-scope>
   <div class="qh"><h2>{{.Heading}} <span class="qcnt{{if not .Total}} zero{{end}}">{{.Total}}</span></h2>
-    {{- if eq .Name "notes"}}<div class="qacts"><a class="btn secondary sm w104" href="/notifications">History</a><button class="btn secondary sm w152" form="notes" formaction="/notifications/read"{{if not .Total}} disabled{{end}}>Mark all read</button></div>{{end -}}
-    {{- if eq .Name "board"}}<div class="qacts"><button class="btn secondary sm w152" form="notes" formaction="/inbox/board/read"{{if not .Total}} disabled{{end}}>Mark all read</button></div>{{end -}}
+    {{- if eq .Name "notes"}}<div class="qacts"><a class="btn secondary sm w104" href="/notifications">History</a><button class="btn secondary sm w152" form="notes" formaction="/notifications/read"{{if not .Total}} disabled{{end}} aria-keyshortcuts="M">Mark all read</button></div>{{end -}}
+    {{- if eq .Name "board"}}<div class="qacts"><button class="btn secondary sm w152" form="notes" formaction="/inbox/board/read"{{if not .Total}} disabled{{end}} aria-keyshortcuts="M">Mark all read</button></div>{{end -}}
   </div>
-  <table class="table inboxt{{if .Bulk}} picks{{end}}">
+  <table class="table inboxt{{if .Bulk}} picks{{end}}" data-arrows>
     <thead>
       <tr>
         {{if .Bulk}}<th class="c-pick"><input type="checkbox" data-pick-all aria-label="Select all: {{.Heading}}"></th>{{end}}

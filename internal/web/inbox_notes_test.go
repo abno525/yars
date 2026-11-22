@@ -34,7 +34,7 @@ func TestInboxNotifications(t *testing.T) {
 	// the bell is gone: the section leads to every notice and marks them read
 	for _, want := range []string{"<h2>Notifications ", `<span class="qcnt zero">0</span>`, "<th", ">Event<", ">By<",
 		`<a class="btn secondary sm w104" href="/notifications">History</a>`,
-		`<button class="btn secondary sm w152" form="notes" formaction="/notifications/read" disabled>Mark all read</button>`} {
+		`<button class="btn secondary sm w152" form="notes" formaction="/notifications/read" disabled aria-keyshortcuts="M">Mark all read</button>`} {
 		if !strings.Contains(sec, want) {
 			t.Errorf("empty section lacks %q:\n%s", want, sec)
 		}
@@ -81,7 +81,7 @@ func TestInboxNotifications(t *testing.T) {
 	if len(ids) != 2 || !strings.Contains(b, notesForm) {
 		t.Fatalf("open buttons %v", ids)
 	}
-	if !strings.Contains(sec, `<button class="btn secondary sm w152" form="notes" formaction="/notifications/read">Mark all read</button>`) {
+	if !strings.Contains(sec, `<button class="btn secondary sm w152" form="notes" formaction="/notifications/read" aria-keyshortcuts="M">Mark all read</button>`) {
 		t.Fatal("Mark all read disabled")
 	}
 	titles := regexp.MustCompile(`<td class="title"><button class="noteopen" form="notes" formaction="/notifications/(\d+)" title="([^"]+)" data-nav id="row-notes-(\d+)">`).FindAllStringSubmatch(sec, -1)
