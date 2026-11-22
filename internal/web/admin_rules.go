@@ -534,8 +534,9 @@ func (s *Server) ruleDelete(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/admin/rules", http.StatusSeeOther)
 }
 
-// ruleBench runs one saved rule on one finding and answers the result;
-// nothing is stored.
+// ruleBench runs one saved rule on one finding and answers the result; it
+// stores no check run (script and AI results are kept as a check keeps
+// them).
 func (s *Server) ruleBench(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	x, ok := s.Rules.Rule(q.Get("rule"))
@@ -566,8 +567,8 @@ func benchCaller(r *http.Request, ref store.FindingRef) context.Context {
 	return rules.WithCaller(r.Context(), rules.Caller{User: auth.UserFrom(r.Context()).Username, Eng: ref.EngID, Fid: ref.F.Meta.ID})
 }
 
-// ruleBenchAll runs one saved rule on every finding of an engagement;
-// nothing is stored.
+// ruleBenchAll runs one saved rule on every finding of an engagement; it
+// stores no check run (as ruleBench).
 func (s *Server) ruleBenchAll(w http.ResponseWriter, r *http.Request, x rules.Rule, eng string) {
 	if !store.ValidID(eng) {
 		http.NotFound(w, r)

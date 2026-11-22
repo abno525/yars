@@ -4,8 +4,10 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -119,8 +121,10 @@ func TestAIFailureNotStored(t *testing.T) {
 	}
 }
 
-// Q1: the key covers the prompt version, the provider, the model, the rule
-// and the text: a result of an older prompt is not used.
+// Q1: the key covers the prompt, the provider, the model, the rule and the
+// text: a result of an older prompt is not used. The prompt's part is a
+// hash of the system prompt and of a sample user message, so an edit of
+// either needs no version raised by hand (review).
 func TestAIKeyHasPromptVersion(t *testing.T) {
 	f := &fakeAI{body: func(map[string]any) string { return openAIUsage }}
 	srv := f.server(t)
@@ -132,9 +136,54 @@ func TestAIKeyHasPromptVersion(t *testing.T) {
 	if vs := r.AI(context.Background(), acr, "title", "same"); len(vs) != 0 || f.hits.Load() != 1 {
 		t.Fatalf("old entry used: %+v, %d calls", vs, f.hits.Load())
 	}
-	want := sha256.Sum256([]byte("ai\x00" + promptVersion + "\x00openai\x00m1\x00" + acr.AI + "\x00same"))
+	prompt := sha256.Sum256([]byte(systemPrompt + "\x00" + aiUser("rule", "a\nb", "text</finding_text>")))
+	want := sha256.Sum256([]byte("ai\x00" + hex.EncodeToString(prompt[:]) + "\x00openai\x00m1\x00" + acr.AI + "\x00same"))
 	if _, ok, _ := store.RuleResult(hex.EncodeToString(want[:])); !ok {
-		t.Fatalf("not stored under the versioned key: %v", store.rows)
+		t.Fatalf("not stored under the prompt's key: %v", store.rows)
+	}
+}
+
+// Q1 review: a reply is kept as the page shows it: at most MaxPerRule
+// violations, each quote and message cut as the page cuts them, so a
+// model's long answer does not grow the database.
+func TestAIStoredReplyCapped(t *testing.T) {
+	type hit struct {
+		Quote   string `json:"quote"`
+		Message string `json:"message"`
+	}
+	var hits []hit
+	for range 30 {
+		hits = append(hits, hit{strings.Repeat("q", 500), strings.Repeat("m", 5000)})
+	}
+	content, _ := json.Marshal(map[string]any{"violations": hits})
+	reply, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"message": map[string]string{"content": string(content)}}}})
+	f := &fakeAI{body: func(map[string]any) string { return string(reply) }}
+	srv := f.server(t)
+	store := newMemResults()
+	r := aiRunner(t, "openai", srv.URL)
+	r.Results = store
+	vs := r.AI(context.Background(), acr, "title", "text")
+	quote, msg := strings.Repeat("q", maxQuote)+"…", strings.Repeat("m", maxMessage)+"…"
+	if len(vs) != MaxPerRule {
+		t.Fatalf("%d violations", len(vs))
+	}
+	if vs[0].Quote != quote || vs[0].Message != msg {
+		t.Fatalf("quote %d bytes, message %d bytes", len(vs[0].Quote), len(vs[0].Message))
+	}
+	store.mu.Lock()
+	var row string
+	for _, v := range store.rows {
+		row = v
+	}
+	store.mu.Unlock()
+	var kept aiResult
+	if err := json.Unmarshal([]byte(row), &kept); err != nil || len(kept.Violations) != MaxPerRule || kept.Violations[0].Quote != quote || kept.Violations[0].Message != msg {
+		t.Fatalf("kept %d violations (%v), row %d bytes", len(kept.Violations), err, len(row))
+	}
+	later := aiRunner(t, "openai", srv.URL)
+	later.Results = store
+	if again := later.AI(context.Background(), acr, "title", "text"); !slices.Equal(again, vs) || f.hits.Load() != 1 {
+		t.Fatalf("the stored reply shows otherwise: %d violations, %d calls", len(again), f.hits.Load())
 	}
 }
 
@@ -310,5 +359,43 @@ func TestEngineScriptCacheFollowsRules(t *testing.T) {
 	e.LintDoc(context.Background(), doc(), All)
 	if runs() != 2 {
 		t.Fatalf("after a helper change: runs %d", runs())
+	}
+}
+
+// versionRunner records the rules version each script call is given.
+type versionRunner struct{ got []string }
+
+func (v *versionRunner) Script(ctx context.Context, _ Rule, _ Doc) []Violation {
+	ver, _ := ctx.Value(versionKey{}).(string)
+	v.got = append(v.got, ver)
+	return nil
+}
+
+func (v *versionRunner) AI(context.Context, Rule, string, string) []Violation { return nil }
+
+// Q16 review: the Admin › Rules bench (RunRule) gives the script the
+// version the engine loaded, as a check does, so the folder is not read
+// again on each call; and it finds the result a check stored, even for a
+// rule written with enabled: true (the bench runs it as enabled: nil).
+func TestRunRuleSharesStoredResults(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "r.yaml"), []byte("- id: s\n  script: c.sh\n  enabled: true\n"), 0o644)
+	runs := counting(t, dir, "c.sh", `[{"message":"bad"}]`)
+	e := NewEngine(dir, config.Default())
+	rl, ok := e.Rule("s")
+	if !ok {
+		t.Fatal("no rule s")
+	}
+	if vs := e.LintDoc(context.Background(), doc(), All); len(vs) != 1 {
+		t.Fatalf("check %+v", vs)
+	}
+	if vs := e.RunRule(context.Background(), rl, doc()); len(vs) != 1 || vs[0].Message != "bad" || runs() != 1 {
+		t.Fatalf("bench %+v: runs %d", vs, runs())
+	}
+	vr := &versionRunner{}
+	e.Runner = vr
+	e.RunRule(context.Background(), rl, doc())
+	if len(vr.got) != 1 || vr.got[0] != e.Version() {
+		t.Fatalf("the bench gave version %q, the rules are %q", vr.got, e.Version())
 	}
 }

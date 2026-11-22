@@ -57,9 +57,13 @@ json.dump(hits, sys.stdout)
 
 ## Stored results
 
-A run that works is kept, in memory and in the server's database. The script does not run again while the rules folder (every file in it, helpers too), the rule and the finding as the script reads it on stdin stay the same. A failure, a timeout or invalid output is not kept: the next check runs the script again.
+The server keeps a run that works, in memory and in its database: for Check, `start_check` and `lint_finding all=true` (MCP), the pre-commit check (`yars lint --staged`) and the Test bench on **Admin › Rules**. There the script does not run again while the rules folder (every file in it, helpers too), the rule and the finding as the script reads it on stdin stay the same. A failure, a timeout or invalid output is not kept: the next check runs the script again.
+
+A git push and `yars lint --all` run the script each time.
 
 A script that reads anything else (the network, the time, files outside the rules folder) keeps its old result until one of these changes.
+
+A stored result is deleted after the days set for check runs on **Admin › System › Retention**. The next check then runs the script again.
 
 ## Limits
 
@@ -104,7 +108,7 @@ AI rules run where script rules run, except on a git push. Without a provider or
 
 ### Unchanged text is not sent again
 
-A result is kept, in memory and in the server's database, for the same text, instruction (`ai:`), provider and model. A check after a restart uses it too. A text that changed is sent again. A failed call (`AI check failed: …`, always a warning) is not kept.
+The server keeps a result, in memory and in its database, for the same text, instruction (`ai:`), provider and model, where it keeps script results. A check after a restart uses it too. A text that changed is sent again, and so is every text after an update of YARS that changes the prompt. A failed call (`AI check failed: …`, always a warning) is not kept. `yars lint --all` sends the text each time. Stored results are deleted as script results are.
 
 ### The text is data
 
@@ -119,4 +123,4 @@ A model can still be talked into passing a text. Keep AI rules at `level: warnin
 | Time per question | 60 s |
 | Reply | 4,096 tokens (Anthropic) |
 | Quote, message | as script rules |
-| Stored results | 2,000 in memory per kind · 50,000 in the database, script and AI together; the oldest go first |
+| Stored results | 2,000 in memory per kind · 50,000 in the database, script and AI together; the oldest go first · deleted after the check run days |

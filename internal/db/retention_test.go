@@ -179,6 +179,29 @@ func TestPruneAuditAndSessions(t *testing.T) {
 	}
 }
 
+// Q1 review: stored rule results (quotes of finding text) go with the check
+// runs' retention, by when they were stored; 0 keeps them.
+func TestPruneRuleResults(t *testing.T) {
+	d, _ := open(t)
+	now := time.Now()
+	d.PutRuleResult("old", "ai", "{}")
+	d.PutRuleResult("new", "script", "[]")
+	d.Exec("UPDATE rule_cache SET created = ? WHERE key = 'old'", now.AddDate(0, 0, -91).Unix())
+	if p, err := d.Prune(now, Retention{}); err != nil || p != (Pruned{}) || count(t, d, "rule_cache") != 2 {
+		t.Fatalf("Retention{} pruned %+v %v", p, err)
+	}
+	p, err := d.Prune(now, Retention{CheckRunDays: 90})
+	if err != nil || p != (Pruned{RuleResults: 1}) {
+		t.Fatalf("pruned %+v %v", p, err)
+	}
+	if _, ok, _ := d.RuleResult("old"); ok {
+		t.Fatal("a result older than the check runs' days was kept")
+	}
+	if _, ok, _ := d.RuleResult("new"); !ok {
+		t.Fatal("a new result was deleted")
+	}
+}
+
 // D24: a session idle longer than the retention's session days is refused.
 func TestSessionIdleFollowsRetention(t *testing.T) {
 	d, _ := open(t)

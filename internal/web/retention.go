@@ -71,10 +71,13 @@ func (s *Server) prune(d *db.DB) (db.Pruned, error) {
 	if err != nil {
 		return p, err
 	}
-	if p.Audit+p.CheckRuns+p.Sessions+p.AIUsage > 0 {
+	if p.Audit+p.CheckRuns+p.Sessions+p.AIUsage+p.RuleResults > 0 {
 		detail := fmt.Sprintf("audit %d · check runs %d · sessions %d", p.Audit, p.CheckRuns, p.Sessions)
 		if p.AIUsage > 0 {
 			detail += fmt.Sprintf(" · AI calls %d", p.AIUsage)
+		}
+		if p.RuleResults > 0 {
+			detail += fmt.Sprintf(" · rule results %d", p.RuleResults)
 		}
 		err = d.Audit("yars", "retention.prune", "", detail)
 	}

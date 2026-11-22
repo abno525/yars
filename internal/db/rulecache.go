@@ -25,10 +25,10 @@ func (d *DB) PutRuleResult(key, kind, result string) error {
 }
 
 // putRuleResult is PutRuleResult keeping the keep newest rows. A row stored
-// later has a higher rowid (one more than the highest, as nothing deletes
-// the newest row), so the rows within keep of the highest are the newest;
-// a key stored again counts as new. (Not d.Tx: a stored result is no
-// change the pages follow.)
+// later has a higher rowid (one more than the highest left), so the rows
+// within keep of the highest are the newest; a key stored again counts as
+// new. (Not d.Tx: a stored result is no change the pages follow.) Prune
+// deletes rows by age too (the check run days).
 func (d *DB) putRuleResult(key, kind, result string, keep int) error {
 	tx, err := d.Begin()
 	if err != nil {

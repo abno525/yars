@@ -31,9 +31,10 @@ func TestChecksLongMessageOnHover(t *testing.T) {
 	}
 }
 
-// Q23: a live hint is one line ending in …, the message and quote whole on
-// hover.
-func TestHintLongMessageOneLine(t *testing.T) {
+// Q23: a live hint is at most two lines ending in …, the message and quote
+// whole on hover; a short message keeps its quote in sight on the second
+// line in the split editor (review).
+func TestHintLongMessageClamped(t *testing.T) {
 	e := setupSerial(t)
 	long := strings.TrimSpace(strings.Repeat("No animals in the impact. ", 20))
 	e.rules(t, "- id: zoo\n  target: section:Impact\n  regex_forbid: 'zebra'\n  message: "+long+"\n", nil)
@@ -42,7 +43,7 @@ func TestHintLongMessageOneLine(t *testing.T) {
 		t.Fatalf("hint lacks %s:\n%s", want, b)
 	}
 	css := e.do(t, "dora", "GET", "/static/style.css", nil, nil).Body.String()
-	if !strings.Contains(css, ".hint-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }") {
-		t.Fatal("a hint is not one line ending in …")
+	if !strings.Contains(css, ".hint-text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }") {
+		t.Fatal("a hint is not two lines ending in …")
 	}
 }

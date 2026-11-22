@@ -43,6 +43,17 @@ func TestRulesGuideAIAndStoredResults(t *testing.T) {
 			t.Errorf("the guide lacks %q", want)
 		}
 	}
+	// where results are kept, where not, and for how long (review)
+	i = strings.Index(g, "## Stored results")
+	stored := g[i : i+strings.Index(g[i+3:], "\n## ")+3]
+	for _, want := range []string{"pre-commit", "A git push and `yars lint --all` run the script each time", "**Admin › System › Retention**"} {
+		if !strings.Contains(stored, want) {
+			t.Errorf("Stored results lacks %q", want)
+		}
+	}
+	if !strings.Contains(ai, "`yars lint --all` sends the text each time") {
+		t.Error("the AI rules section does not say where text is sent again")
+	}
 }
 
 // The git guide says what a pull with submodules does to the engagement

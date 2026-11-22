@@ -138,7 +138,10 @@ func (rn *Runner) Script(ctx context.Context, r Rule, d Doc) []Violation {
 	if err != nil {
 		return failed(r, err.Error())
 	}
-	def, _ := json.Marshal(r) // plain fields: it cannot fail
+	// enabled: true or left out runs the same (the bench clears it)
+	kr := r
+	kr.Enabled = nil
+	def, _ := json.Marshal(kr) // plain fields: it cannot fail
 	ck := resultKey("script", scriptFormat, rulesVersion(ctx, rn.Dir), path, r.ID, string(def), string(input))
 	if vs, ok := rn.scriptCache().Get(ck); ok {
 		return slices.Clone(vs)

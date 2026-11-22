@@ -88,4 +88,13 @@ func TestRetentionPruneAudited(t *testing.T) {
 	if l, _, _ := d.AuditQuery(db.AuditFilter{Action: "retention.prune", Limit: 5}); len(l) != 1 {
 		t.Fatalf("an empty prune was audited: %+v", l)
 	}
+	// stored rule results past the check runs' days count too (Q1 review)
+	d.PutRuleResult("k", "ai", "{}")
+	d.Exec("UPDATE rule_cache SET created = ?", time.Now().AddDate(0, 0, -91).Unix())
+	if _, err := e.srv.prune(d); err != nil {
+		t.Fatal(err)
+	}
+	if l, _, _ := d.AuditQuery(db.AuditFilter{Action: "retention.prune", Limit: 1}); len(l) != 1 || l[0].Detail != "audit 0 · check runs 0 · sessions 0 · rule results 1" {
+		t.Fatalf("prune audit %+v", l)
+	}
 }

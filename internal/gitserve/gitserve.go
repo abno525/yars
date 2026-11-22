@@ -73,7 +73,8 @@ type Server struct {
 	// is spooled to a temporary file; 0 = DefaultMaxBody.
 	MaxBody int64
 	// Lint, when set, answers POST /git/e/<id>/lint: it checks a posted
-	// finding.md with every rule and stores nothing (yars lint --staged).
+	// finding.md with every rule and stores no commit and no check run
+	// (yars lint --staged).
 	Lint func(ctx context.Context, eng string, raw []byte) ([]rules.Violation, error)
 
 	mu    sync.Mutex

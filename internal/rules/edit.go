@@ -141,7 +141,8 @@ func (e *Engine) Rule(id string) (Rule, bool) {
 }
 
 // RunRule runs one rule (even a disabled one, scripts and AI included) on
-// a finding document within the time budget, and stores nothing.
+// a finding document within the time budget, and stores no check run. It
+// shares the script and AI results a check keeps (Q1, Q16).
 func (e *Engine) RunRule(ctx context.Context, r Rule, d Doc) []Violation {
 	r.Enabled = nil
 	if err := r.prepare(); err != nil {
@@ -152,6 +153,7 @@ func (e *Engine) RunRule(ctx context.Context, r Rule, d Doc) []Violation {
 		ctx, cancel = context.WithTimeout(ctx, e.Budget)
 		defer cancel()
 	}
+	_, ver := e.current()
 	set := &Set{Dir: e.Dir, Rules: []Rule{r}}
-	return set.Run(ctx, d, e.conf(), All, e.Runner)
+	return set.Run(withVersion(ctx, ver), d, e.conf(), All, e.Runner)
 }

@@ -56,13 +56,14 @@ func (d *DB) SetRetention(r Retention) error {
 }
 
 // Pruned counts what a Prune deleted (AIUsage: calls to the AI provider,
-// which the audit days keep as long as the audit log).
-type Pruned struct{ Audit, CheckRuns, Sessions, AIUsage int }
+// which the audit days keep as long as the audit log; RuleResults: stored
+// script and AI results, which the check run days keep).
+type Pruned struct{ Audit, CheckRuns, Sessions, AIUsage, RuleResults int }
 
 // Prune deletes what is older than r allows at now: audit entries, finished
 // check runs other than each finding's latest (their results and steps go
-// with them), and sessions not used for SessionDays. A value of 0 keeps
-// that kind for good.
+// with them), stored rule results, and sessions not used for SessionDays.
+// A value of 0 keeps that kind for good.
 func (d *DB) Prune(now time.Time, r Retention) (Pruned, error) {
 	var p Pruned
 	cutoff := func(days int) string { return now.AddDate(0, 0, -days).UTC().Format(time.RFC3339) }
@@ -92,6 +93,11 @@ func (d *DB) Prune(now time.Time, r Retention) (Pruned, error) {
 			AND id NOT IN (SELECT max(id) FROM check_runs GROUP BY eng, fid)
 			AND content_hash != (SELECT n.content_hash FROM check_runs n
 				WHERE n.eng = check_runs.eng AND n.fid = check_runs.fid ORDER BY n.id DESC LIMIT 1)`, cutoff(r.CheckRunDays)); err != nil {
+			return p, err
+		}
+		// they quote finding text: kept no longer than the runs (a check
+		// runs the rule again)
+		if err := del(&p.RuleResults, "DELETE FROM rule_cache WHERE created < ?", now.AddDate(0, 0, -r.CheckRunDays).Unix()); err != nil {
 			return p, err
 		}
 	}

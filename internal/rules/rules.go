@@ -368,11 +368,16 @@ func quote(s string) string {
 	return s
 }
 
-func (r Rule) v(target, msg, q string) Violation {
+// cutMessage cuts msg to maxMessage characters and an ….
+func cutMessage(msg string) string {
 	if utf8.RuneCountInString(msg) > maxMessage {
-		msg = string([]rune(msg)[:maxMessage]) + "…"
+		return string([]rune(msg)[:maxMessage]) + "…"
 	}
-	return Violation{Rule: r.ID, Level: r.Level, Message: msg, Target: target, Quote: quote(q)}
+	return msg
+}
+
+func (r Rule) v(target, msg, q string) Violation {
+	return Violation{Rule: r.ID, Level: r.Level, Message: cutMessage(msg), Target: target, Quote: quote(q)}
 }
 
 // Run evaluates the set on d. slow may be nil (script/AI rules skipped).
