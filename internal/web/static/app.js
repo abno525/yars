@@ -148,6 +148,10 @@ document.addEventListener('change', function (e) {
   if (s.hasAttribute('data-keyed')) return; // moved with the keys: not chosen yet
   yarsChoose(s);
 });
+// Back to a page: the engagement picker shows the server's choice again, not
+// the one picked to leave (the browser's saved state or cache), so picking
+// the shown engagement is a change and opens it
+window.addEventListener('pageshow', function () { document.querySelectorAll('.engpick select').forEach(yarsSelectReset); });
 
 // Radios marked data-choose (the retest result) act the same way: a click,
 // Space or Enter chooses; the arrow keys move the selection without

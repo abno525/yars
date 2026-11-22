@@ -61,6 +61,19 @@ func TestRowKeysKeepTheRow(t *testing.T) {
 		"if (rows.indexOf(el) < 0) el = rows[Math.min(Math.max(k.i, 0), rows.length - 1)];",
 		"el.focus({preventScroll: true});",
 		"el.scrollIntoView({block: 'nearest'});")
+	// a confirm's OK sends the dialog's own form (method dialog) before the
+	// row's: that submit neither keeps nor drops the row
+	sub := between(js, "document.addEventListener('submit', function (evt) {", "\n});\n")
+	if d, n := strings.Index(sub, "if (evt.target.method === 'dialog') return;"), strings.Index(sub, "yarsKeepNext = null;"); d < 0 || d > n {
+		t.Errorf("the confirm's own submit drops the kept row:\n%s", sub)
+	}
+	// /settings#tokens: the browser handles the fragment after
+	// DOMContentLoaded (Chrome), jumping to the panel and taking the focus
+	// off the row; the address loses it before the row is focused
+	back := between(js, "var raw = sessionStorage.getItem(yarsRowKeep);", "\n});\n")
+	if h, f := strings.Index(back, "if (location.hash) history.replaceState(history.state, '', location.pathname + location.search);"), strings.Index(back, "el.focus({preventScroll: true});"); h < 0 || h > f {
+		t.Errorf("the fragment is not dropped before the row is focused:\n%s", back)
+	}
 }
 
 // Q26: outside an engagement the picker shows the one kept from last time
@@ -88,6 +101,17 @@ func TestPickerOpensKeptEngagement(t *testing.T) {
 	if !strings.Contains(sel, `<option value="">Engagement</option>`) || strings.Contains(sel, "hidden") || strings.Contains(sel, "selected") {
 		t.Errorf("none kept:\n%s", sel)
 	}
+	// Back to a page: the browser would show the option picked to leave it
+	// (its saved form state, or the page kept in its cache), so picking the
+	// shown engagement would be no change again; the picker shows the
+	// server's choice instead
+	for _, p := range []string{"/inbox", "/e/acme"} {
+		if b := e.do(t, "alice", "GET", p, nil, kept).Body.String(); !strings.Contains(b, `<select name="eng" data-choose autocomplete="off" aria-label="Engagement">`) {
+			t.Errorf("%s: the picker's state is restored by the browser:\n%s", p, between(b, `<select name="eng"`, ">"))
+		}
+	}
+	app := e.do(t, "alice", "GET", "/static/app.js", nil, nil).Body.String()
+	wantAll(t, "app.js", app, "window.addEventListener('pageshow', function () { document.querySelectorAll('.engpick select').forEach(yarsSelectReset); });")
 }
 
 // Q28: a click on a list row outside its own controls selects it (focus on

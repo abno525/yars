@@ -28,7 +28,7 @@
   {{$cur := .Eng.ID}}{{if not $cur}}{{$cur = .LastEng}}{{end}}
   <form class="engpick" method="get" action="/go">
     {{if .Engagements}}
-    <select name="eng" data-choose aria-label="Engagement">
+    <select name="eng" data-choose autocomplete="off" aria-label="Engagement">
       {{if not $cur}}<option value="">Engagement</option>{{end}}
       {{/* none open: the kept one is shown on an option of its own, its real one not picked, so picking it opens it */}}
       {{if not .Eng.ID}}{{range .Engagements}}{{if eq .ID $cur}}<option value="{{.ID}}" selected hidden>{{.Name}}{{if eq .Type "retest"}} (retest){{end}}</option>{{end}}{{end}}{{end}}

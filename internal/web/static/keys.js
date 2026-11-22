@@ -256,6 +256,8 @@ function yarsKeepRow(el, row) {
   yarsKeepNext = f && f.method === 'post' && !f.hasAttribute('hx-post') && row.closest('table') ? {form: f, row: row} : null;
 }
 document.addEventListener('submit', function (evt) {
+  // a confirm's OK sends the dialog's own form first, then the row's
+  if (evt.target.method === 'dialog') return;
   var k = yarsKeepNext;
   yarsKeepNext = null;
   if (!k || evt.target !== k.form || evt.defaultPrevented) return;
@@ -287,6 +289,9 @@ document.addEventListener('DOMContentLoaded', function () {
   var el = k.id ? document.getElementById(k.id) : null;
   if (rows.indexOf(el) < 0) el = rows[Math.min(Math.max(k.i, 0), rows.length - 1)];
   if (!el) return;
+  // the browser handles a fragment (Revoke's /settings#tokens) after this
+  // event: it would jump to the panel and take the focus off the row
+  if (location.hash) history.replaceState(history.state, '', location.pathname + location.search);
   el.focus({preventScroll: true});
   // a password shown once (Reset pass) stays in view
   if (el.scrollIntoView && !document.querySelector('.once')) el.scrollIntoView({block: 'nearest'});
