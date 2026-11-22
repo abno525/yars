@@ -46,7 +46,7 @@
       {{with .Settings.NewToken}}
       <div class="copyrow newsecret"><span class="tag shown">Shown once</span><code id="new-token" class="clip">{{.}}</code><button type="button" class="btn save sm w96" data-copy="new-token">Copy</button></div>
       {{end}}
-      <table class="table stable tokentable" data-arrows>
+      <table class="table stable tokentable" data-arrows="focus">
         <thead><tr><th>Name</th><th class="c-can">Can</th><th class="c-date">Expires</th><th class="c-date">Last used</th><th class="c-date">Created</th><th class="c-act">Action</th></tr></thead>
         <tbody>
           {{range .Settings.Tokens}}

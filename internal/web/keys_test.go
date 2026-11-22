@@ -595,7 +595,7 @@ func TestListFilterDigitsAndArrows(t *testing.T) {
 	js := e.do(t, "alice", "GET", "/static/keys.js", nil, nil).Body.String()
 	fn := js[strings.Index(js, "function yarsArrowKey(evt, key)"):]
 	fn = fn[:strings.Index(fn, "\n}\n")]
-	for _, w := range []string{"document.querySelector('[data-arrows]')", "t.closest('.bmenu, [role=menu]')", "yarsRowStep(key === 'ArrowDown' ? 1 : -1)", "evt.preventDefault();"} {
+	for _, w := range []string{"document.querySelector('[data-arrows]')", "t.closest('.bmenu, [role=menu]')", "var d = key === 'ArrowDown' ? 1 : -1;", "yarsRowStep(d)", "evt.preventDefault();"} {
 		if !strings.Contains(fn, w) {
 			t.Errorf("yarsArrowKey lacks %s:\n%s", w, fn)
 		}
@@ -894,7 +894,7 @@ func TestBranchReviewFixes(t *testing.T) {
 	}
 	// rows that need something on the page besides a key
 	d := between(e.do(t, "alice", "GET", "/", nil, nil).Body.String(), `id="keys"`, "</dialog>")
-	for _, w := range []string{`data-keys-if="#chat"`, `data-keys-if="#redact"`, `data-keys-if="tr input[type=checkbox]"`, `data-keys-if="input[type=checkbox][name=id]"`} {
+	for _, w := range []string{`data-keys-if="#chat"`, `data-keys-if="#redact"`, `data-keys-if="tr:has([data-nav]) input[type=checkbox]"`, `data-keys-if="input[type=checkbox][name=id]"`} {
 		if !strings.Contains(d, w) {
 			t.Errorf("the list lacks %s", w)
 		}

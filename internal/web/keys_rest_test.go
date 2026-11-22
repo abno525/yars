@@ -37,7 +37,7 @@ func TestSettingsTokenKeys(t *testing.T) {
 	}
 	wantAll(t, "/settings", e.do(t, "alice", "GET", "/settings", nil, nil).Body.String(),
 		`<a class="btn primary sm w112" href="/settings/tokens/new" aria-keyshortcuts="N">New token</a>`,
-		`<table class="table stable tokentable" data-arrows>`, `<tr data-rowkeys>`,
+		`<table class="table stable tokentable" data-arrows="focus">`, `<tr data-rowkeys>`,
 		`<span class="strong" title="laptop" tabindex="0" data-nav>laptop</span>`,
 		`<button class="btn danger sm w96" data-confirm="Revoke laptop?" aria-keyshortcuts="R">Revoke</button>`)
 	tplHas(t, "settings.html", `data-confirm="Remove the {{.Label}} key?">Remove</button>`)
@@ -86,16 +86,16 @@ func TestAdminRulesWebhooksKeys(t *testing.T) {
 	e.rules(t, "- id: none\n  target: title\n  regex_forbid: 'zzz'\n", nil)
 	wantAll(t, "/admin/rules", e.do(t, "dora", "GET", "/admin/rules", nil, nil).Body.String(),
 		`<a class="btn primary sm w128" href="/admin/rules?new=1" aria-keyshortcuts="N">New rule</a>`,
-		`<table class="table ruletable" data-arrows>`, `<tr data-rowkeys>`,
+		`<table class="table ruletable" data-arrows="focus">`, `<tr data-rowkeys>`,
 		`<a class="btn ghost sm w96" href="/admin/rules?edit=none" data-nav aria-keyshortcuts="E">Edit</a>`,
 		`aria-label="Enabled" aria-pressed="true" aria-keyshortcuts="D">`)
 	tplHas(t, "admin.html", `<span class="btn save sm w96" aria-current="true" tabindex="0" data-nav>Editing</span>`,
-		`<table class="table stable hooktable" data-arrows>`,
+		`<table class="table stable hooktable" data-arrows="focus">`,
 		`<a href="/admin/webhooks?hook={{.ID}}" title="{{.URL}}" data-nav>{{.URL}}</a>`,
 		`aria-label="Enabled" aria-keyshortcuts="D"><span></span></button>`,
 		`<a class="btn secondary sm w96" href="/admin/webhooks?edit={{.ID}}&amp;hook={{.ID}}" aria-keyshortcuts="E">Edit</a>`,
 		`<button class="btn danger sm w96" data-confirm="Delete the webhook to {{.URL}}?">Delete</button>`,
-		`<input name="url" type="url" value="{{.Form.URL}}" placeholder="https://" required aria-keyshortcuts="N">`,
+		`<input name="url" type="url" value="{{.Form.URL}}" placeholder="https://" required{{if not .Form.ID}} aria-keyshortcuts="N"{{end}}>`,
 		`<button class="btn danger sm w96" data-confirm="Revoke {{.User}}'s session?">Revoke</button>`,
 		`data-confirm="Revoke {{.User}}'s token {{.Name}}?">Revoke</button>`)
 	js := e.do(t, "alice", "GET", "/static/keys.js", nil, nil).Body.String()
@@ -108,6 +108,32 @@ func TestEngSettingsKeys(t *testing.T) {
 	wantAll(t, "/e/acme/settings", e.do(t, "dora", "GET", "/e/acme/settings", nil, nil).Body.String(),
 		`<select class="grow" name="user" aria-label="Add person" aria-keyshortcuts="A">`,
 		`<button class="btn danger sm w96" aria-label="Remove alice" data-confirm="Remove alice from the team?">Remove</button>`)
+}
+
+// After review: text the server sent back counts as unsaved only while some
+// is left (a refused empty reply left the board asking forever); x's row
+// shows only where a row with a checkbox takes it; a table among other things
+// (Settings' tokens, Admin's users, rules, webhooks) takes ↓ ↑ only from one
+// of its rows and lets the page scroll past its ends; n is New webhook only
+// when no webhook is being edited (it went to the edited one's URL).
+func TestRestKeysReview(t *testing.T) {
+	e := setup(t)
+	app := e.do(t, "alice", "GET", "/static/app.js", nil, nil).Body.String()
+	wantAll(t, "app.js", app, "function yarsChanged(i) {",
+		"return i.hasAttribute('data-dirty') ? i.value.trim() !== '' : i.value !== i.defaultValue;",
+		"return yarsChanged(i);",
+		"return i === document.activeElement || (i.value !== undefined && i.defaultValue !== undefined && yarsChanged(i));")
+	js := e.do(t, "alice", "GET", "/static/keys.js", nil, nil).Body.String()
+	wantAll(t, "keys.js", js, "var mixed = document.querySelector('[data-arrows=focus]');",
+		"if (!row || !mixed.contains(row)) return false;",
+		"if (i + d < 0 || i + d >= rows.length) return false;")
+	if d := between(e.do(t, "alice", "GET", "/", nil, nil).Body.String(), `id="keys"`, "</dialog>"); !strings.Contains(d, `<div class="krow" data-keys-if="tr:has([data-nav]) input[type=checkbox]"><dt><kbd>x</kbd></dt><dd>Tick the row</dd></div>`) {
+		t.Error("x's row shows where x ticks nothing")
+	}
+	tplHas(t, "settings.html", `<table class="table stable tokentable" data-arrows="focus">`)
+	tplHas(t, "admin.html", `<table class="table stable usertable" data-arrows="focus">`, `<table class="table ruletable" data-arrows="focus">`,
+		`<table class="table stable hooktable" data-arrows="focus">`,
+		`placeholder="https://" required{{if not .Form.ID}} aria-keyshortcuts="N"{{end}}>`)
 }
 
 // The ? list names every key above, each where its control is.

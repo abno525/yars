@@ -70,8 +70,7 @@ func TestTeamBoardGuardReview(t *testing.T) {
 		"if (sel) yarsSelectReset(sel);",
 		"function yarsConfirm(text, ok, done, safe)",
 		"var f = safe ? d.querySelector('button[value=cancel]') || b : b;",
-		"window.addEventListener('pageshow', function () { yarsLeaving = false; });",
-		"return i === document.activeElement || i.hasAttribute('data-dirty') ||")
+		"window.addEventListener('pageshow', function () { yarsLeaving = false; });")
 	if strings.Contains(app, "evt.detail.verb === 'get' && !live") {
 		t.Error("the board asks for GETs only")
 	}
@@ -113,7 +112,7 @@ func TestInboxKeys(t *testing.T) {
 func TestAdminUsersKeys(t *testing.T) {
 	e := setup(t)
 	b := e.do(t, "dora", "GET", "/admin/users", nil, nil).Body.String()
-	for _, w := range []string{`<table class="table stable usertable" data-arrows>`, `<tr data-rowkeys>`,
+	for _, w := range []string{`<table class="table stable usertable" data-arrows="focus">`, `<tr data-rowkeys>`,
 		`<span class="strong" title="alice" tabindex="0" data-nav>alice</span>`,
 		`<button class="btn ghost sm w112" data-confirm="Reset the password of alice?" aria-keyshortcuts="R">Reset pass</button>`,
 		`aria-pressed="false" data-confirm="Disable alice?" aria-keyshortcuts="D">`,

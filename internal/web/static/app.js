@@ -433,8 +433,8 @@ document.addEventListener('htmx:beforeSwap', function (evt) {
   var ev = evt.detail.requestConfig && evt.detail.requestConfig.triggeringEvent;
   if (!t || t.id !== 'board' || !ev || String(ev.type).indexOf('sse:') !== 0) return;
   var busy = Array.prototype.some.call(t.querySelectorAll('textarea, input:not([type=hidden]), select'), function (i) {
-    // data-dirty: text the server sent back with an error is unsaved too
-    return i === document.activeElement || i.hasAttribute('data-dirty') || (i.value !== undefined && i.defaultValue !== undefined && i.value !== i.defaultValue);
+    // text the server sent back with an error is unsaved too (yarsChanged)
+    return i === document.activeElement || (i.value !== undefined && i.defaultValue !== undefined && yarsChanged(i));
   }) || !!t.querySelector('details[open]');
   if (busy) evt.detail.shouldSwap = false;
 });
@@ -799,8 +799,14 @@ document.addEventListener('htmx:load', function (evt) {
 function yarsDirty(scope) {
   // an input with no type is a text box too (the team board's new lead)
   return Array.prototype.some.call(scope.querySelectorAll('form[data-guard] textarea, form[data-guard] input[type=text], form[data-guard] input:not([type])'), function (i) {
-    return i.hasAttribute('data-dirty') || i.value !== i.defaultValue;
+    return yarsChanged(i);
   });
+}
+// yarsChanged: a text box holds something unsaved. One the server sent back
+// (data-dirty: a conflict, a refused reply or new lead) does while any text is
+// left in it; emptied (or refused empty) there is nothing to lose.
+function yarsChanged(i) {
+  return i.hasAttribute('data-dirty') ? i.value.trim() !== '' : i.value !== i.defaultValue;
 }
 // yarsLeaving: the page's own dialog already asked (a key that leaves the
 // page, keys.js yarsPress), so the browser's leave warning does not ask again

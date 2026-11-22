@@ -304,15 +304,27 @@ function yarsListNav(key) {
   }
   return false;
 }
-// yarsArrowKey: on the findings and engagements lists ([data-arrows]) ↓ ↑
-// move the row focus as j k do, held down too, and the page does not scroll
-// instead; never in a field, an open menu or under a dialog. True when used.
+// yarsArrowKey: on a list page ([data-arrows]) ↓ ↑ move the row focus as j k
+// do, held down too, and the page does not scroll instead; never in a field,
+// an open menu or under a dialog. A table among other things
+// (data-arrows="focus": Settings' tokens, Admin's users, rules, webhooks)
+// takes them only from one of its rows, and past its first or last row the
+// page scrolls again, so what is above and below stays in reach. True when
+// used.
 function yarsArrowKey(evt, key) {
   if ((key !== 'ArrowDown' && key !== 'ArrowUp') || !document.querySelector('[data-arrows]')) return false;
   if (yarsKeysOff() || evt.isComposing || evt.defaultPrevented || document.querySelector('dialog[open]')) return false;
   var t = evt.target;
   if ((yarsTyping(t) && !yarsPick(t)) || (t.closest && t.closest('.bmenu, [role=menu]'))) return false;
-  if (!yarsRowStep(key === 'ArrowDown' ? 1 : -1)) return false; // no rows: the page scrolls
+  var d = key === 'ArrowDown' ? 1 : -1;
+  var mixed = document.querySelector('[data-arrows=focus]');
+  if (mixed) {
+    var row = yarsRowOf(document.activeElement);
+    if (!row || !mixed.contains(row)) return false;
+    var rows = yarsRows(), i = rows.indexOf(row);
+    if (i + d < 0 || i + d >= rows.length) return false;
+  }
+  if (!yarsRowStep(d)) return false; // no rows: the page scrolls
   evt.preventDefault();
   return true;
 }
