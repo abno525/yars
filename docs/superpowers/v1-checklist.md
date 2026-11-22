@@ -23,7 +23,7 @@ The final test (`v1-walkthrough.md`) passed. These are the things worth doing yo
   - Admin › Users shows a disabled Unlock in the slot instead of a gap;
   - New lead stays last on the team board, and the other engagement tabs keep its place as an empty slot.
 - [ ] With your AI provider set and an AI rule on, run Check twice on an unchanged finding: the second run makes no AI call (Admin › System › AI usage stays the same), also after a restart (Q1).
-- [ ] Rules: your server's data folder keeps the rules it has. A new one (`yars init`) starts with none; add yours in Admin › Rules.
+- [ ] Rules: your server's data folder keeps the rules it has. A new one (`yars init`) starts with none; add yours in Admin › Rules. While no rule is on, Sign off and Approve don't wait for a Check.
 - [ ] Your Confluence: send one finding with an image to a test page. The image should show inline and appear once in the page's attachments (Q5); it was tested against a fake server only.
 - [ ] Optional: set `checks.max_running: 1` in `.yars/config.yaml`. With a slow rule, start Check on two findings: the second strip shows "Queued" until the first ends (Q3).
 

@@ -1,9 +1,11 @@
 package store
 
 import (
+	"slices"
 	"strings"
 
 	"yars/internal/db"
+	"yars/internal/rules"
 )
 
 // RequireCheckKey is the server setting (Admin) that makes Sign off and
@@ -54,10 +56,25 @@ func (s *Store) SetRequireCheck(on bool, actor string) error {
 	return s.db.Audit(actor, "setting.require_check", "", v)
 }
 
-// gating reports whether the check gate applies at all: the setting is on
-// and there is a rules engine (without one nobody could ever press Check).
-// An engine with no rules still gates: its Check finishes at once.
-func (s *Store) gating() bool { return s.Linter != nil && s.db != nil && s.RequireCheck() }
+// gating reports whether the check gate applies at all: the setting is on,
+// there is a rules engine (without one nobody could ever press Check) and
+// it has a rule turned on. With none, Check would run nothing, so Sign off
+// and Approve need not wait for it (the user's call, 2026-11-23: a new data
+// folder has no rules).
+func (s *Store) gating() bool {
+	return s.Linter != nil && s.db != nil && s.RequireCheck() && s.rulesOn()
+}
+
+// rulesOn reports whether the linter has a rule turned on; a linter that
+// cannot list its rules counts as having one. A rules file that does not
+// load is no rule: its error, on every finding, blocks Submit instead.
+func (s *Store) rulesOn() bool {
+	l, ok := s.Linter.(interface{ Rules() *rules.Set })
+	if !ok {
+		return true
+	}
+	return slices.ContainsFunc(l.Rules().Rules, rules.Rule.On)
+}
 
 // checkGate is why Sign off and Approve must wait for a check run on the
 // finding fid of engID with content hash ("" = they need not): the latest

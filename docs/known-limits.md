@@ -39,6 +39,7 @@ What the polish backlog left open (it was `docs/superpowers/deferred-minors.md` 
 | Limit | Note |
 |---|---|
 | An AI rule added without an AI provider shows an orange "AI checks failed" badge on every finding after Check | Its step fails with "no AI provider configured" (as since aca92e8); Sign off and Approve are not held by it. `yars init` writes no rules, so a new data folder has none of this until someone adds an AI rule. Set a provider or turn the rule off. |
+| When the last rule is turned off, what it found in the finding's latest Check still holds Sign off and Approve, named by its message only | With no rule on, Require Check no longer asks for a run ("the rules changed since the last check" no longer shows), and the latest run's results stay open, as with Require Check off. A Check clears them; so does dismissing them. |
 | The pre-commit hook lets a commit through, "nothing checked", when it cannot reach the server | The hook never blocks a commit (M30); the server checks the push anyway. |
 | A rules file restored with its old size and time (`cp -p`, `rsync -t`) more than 2 s after an earlier change is not seen as a change | The engine's reload, the script result cache and the check runs' "+changed" all go by size and time (and content within 2 s of a write). A plain copy or a git checkout sets a new time. |
 | A run that started right after a rules save may be marked "+changed" once when nothing changed | Only when a file was written within 2 s of its start and changed again during it; Check again clears it. |

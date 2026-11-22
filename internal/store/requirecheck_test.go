@@ -266,6 +266,59 @@ func TestRequireCheckOff(t *testing.T) {
 	}
 }
 
+// With Require Check on and no rule turned on, Check would run nothing, so
+// Sign off and Approve do not wait for it (the user's call after the final
+// test, now that a new data folder has no rules). Once a rule is on, they
+// wait again.
+func TestRequireCheckSkippedWithoutRules(t *testing.T) {
+	s, dir, fd := ready(t)
+	withRules(t, s, dir, "") // an engine with no rules
+	if !s.RequireCheck() {
+		t.Fatal("off by default")
+	}
+	if err := s.Transition(eng, fd, workflow.Submit, "", uAlice); err != nil {
+		t.Fatal(err)
+	}
+	ref := load(t, s, fd)
+	key := []GateKey{{Eng: eng, Fid: ref.F.Meta.ID, Hash: ref.Hash}}
+	if g, err := s.CheckGate(eng, fd); err != nil || g != "" {
+		t.Fatalf("gate with no rules: %q %v", g, err)
+	}
+	if gates, err := s.CheckGates(key); err != nil || len(gates) != 0 {
+		t.Fatalf("gates with no rules: %v %v", gates, err)
+	}
+	if err := s.Transition(eng, fd, workflow.Clear, "", uBob); err != nil {
+		t.Fatalf("sign off with no rules: %v", err)
+	}
+	// every rule turned off: the same, also when the rule names a section
+	// the structure no longer has (a warning about it, not a rule on)
+	withRules(t, s, dir, "- id: off\n  enabled: false\n  target: section:Old\n  regex_forbid: 'zzz'\n")
+	if g, err := s.CheckGate(eng, fd); err != nil || g != "" {
+		t.Fatalf("gate with every rule off: %q %v", g, err)
+	}
+	// a rules file that does not load and no rule on: no gate either (a
+	// Check would end done, holding nothing); its load error is an error on
+	// every finding, which blocks Submit
+	withRules(t, s, dir, "rules: [\n")
+	if g, err := s.CheckGate(eng, fd); err != nil || g != "" {
+		t.Fatalf("gate with only a broken rules file: %q %v", g, err)
+	}
+	if errs := rules.Errors(s.Linter.Lint(context.Background(), load(t, s, fd).F, rules.Fast)); len(errs) != 1 || !strings.Contains(errs[0], "rule invalid") {
+		t.Fatalf("the broken file's error: %v", errs)
+	}
+	// a rule on: Approve waits for a run
+	withRules(t, s, dir, "- id: on\n  target: title\n  regex_forbid: 'zzz'\n")
+	if g, err := s.CheckGate(eng, fd); err != nil || g != GateNoRun {
+		t.Fatalf("gate with a rule on: %q %v", g, err)
+	}
+	if gates, err := s.CheckGates(key); err != nil || gates[eng+"/"+ref.F.Meta.ID] != GateNoRun {
+		t.Fatalf("gates with a rule on: %v %v", gates, err)
+	}
+	if err := s.Transition(eng, fd, workflow.Approve, "", uDora); !denied(err) || !strings.Contains(err.Error(), GateNoRun) {
+		t.Fatalf("approve with a rule on and no run: %v", err)
+	}
+}
+
 // The gate runs inside Sign off's write transaction, so it must not wait
 // on checksMu: startCheck holds that across its own database writes, which
 // wait on the transaction (each would stall until the busy timeout).

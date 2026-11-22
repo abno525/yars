@@ -14,6 +14,8 @@ A rule in `.yars/rules/*.yaml` names a script file in `.yars/rules`. The script 
 
 A new data folder (`yars init`) has no rules. **Admin › Rules** writes them. To write them by hand, change `.yars/rules/` in a clone of the main repository and push it as an admin ([git.md](git.md)).
 
+With **Require Check** on (Admin › Rules, the default), Sign off and Approve wait for a finished Check on the finding's current text. While no rule is on, they don't wait.
+
 Every `*.yaml` or `*.yml` file in `.yars/rules/` is a list of rules:
 
 | Field | Value |
