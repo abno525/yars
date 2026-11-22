@@ -15,7 +15,7 @@
         </div>
       </div>
       <div class="frow"><span class="flabel">Access</span>
-        <div class="seg n2" role="radiogroup" aria-label="Access">
+        <div class="seg n2 nocap" role="radiogroup" aria-label="Access">
           <label><input type="radio" name="access" value="read"{{if ne $f.Access "actions"}} checked{{end}}><span>Read only</span></label>
           <label><input type="radio" name="access" value="actions"{{if eq $f.Access "actions"}} checked{{end}}><span>Selected actions</span></label>
         </div>
@@ -38,7 +38,7 @@
         </div>
       </div>
       <div class="frow"><span class="flabel">Expires</span>
-        <div class="seg n4" role="radiogroup" aria-label="Expires">
+        <div class="seg n4 nocap" role="radiogroup" aria-label="Expires">
           <label><input type="radio" name="expires" value="30"{{if eq $f.Expires "30"}} checked{{end}}><span>30 days</span></label>
           <label><input type="radio" name="expires" value="90"{{if or (eq $f.Expires "90") (eq $f.Expires "")}} checked{{end}}><span>90 days</span></label>
           <label><input type="radio" name="expires" value="365"{{if eq $f.Expires "365"}} checked{{end}}><span>1 year</span></label>

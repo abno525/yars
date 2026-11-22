@@ -270,7 +270,7 @@ label { font-size: 13px; font-weight: 600; }
   background: var(--bg); color: var(--ink); border: 0; font: 600 13px/1 var(--sans); white-space: nowrap; overflow: hidden;
   text-overflow: ellipsis; text-transform: capitalize; text-decoration: none; cursor: pointer;
 }
-.seg.nocap > a { text-transform: none; } /* labels already in sentence case ("Signed off") */
+.seg.nocap > a, .seg.nocap > label > span { text-transform: none; } /* labels already in sentence case ("Signed off", "Read only") */
 .seg > a + a, .seg > button + button, .seg > label + label > span { border-left: 1px solid var(--ink); }
 .seg > label { display: inline-flex; margin: 0; font-weight: 600; }
 .seg input { position: absolute; opacity: 0; pointer-events: none; }

@@ -223,6 +223,29 @@ func TestAdminUsersUnlockSlotFilled(t *testing.T) {
 	}
 }
 
+// New token's choices read as written, in sentence case ("Read only",
+// "Selected actions", "30 days", "1 year"): a segmented control capitalizes
+// each word unless it is nocap, and nocap now covers radio segments as well
+// as link ones.
+func TestTokenNewSentenceCase(t *testing.T) {
+	e := setup(t)
+	b := e.do(t, "alice", "GET", "/settings/tokens/new", nil, nil).Body.String()
+	for _, group := range []string{"Access", "Expires"} {
+		if !regexp.MustCompile(`<div class="seg [^"]*\bnocap\b[^"]*" role="radiogroup" aria-label="` + group + `">`).MatchString(b) {
+			t.Errorf("%s is capitalized:\n%s", group, between(b, `aria-label="`+group+`"`, "</div>"))
+		}
+	}
+	for _, label := range []string{"<span>Read only</span>", "<span>Selected actions</span>", "<span>30 days</span>", "<span>1 year</span>"} {
+		if !strings.Contains(b, label) {
+			t.Errorf("no %s", label)
+		}
+	}
+	css := e.do(t, "alice", "GET", "/static/style.css", nil, nil).Body.String()
+	if !strings.Contains(css, ".seg.nocap > a, .seg.nocap > label > span { text-transform: none; }") {
+		t.Error("nocap leaves radio segments capitalized")
+	}
+}
+
 // An inbox row's who · what has its dot only between the two: a notice
 // without text (Approved) shows who did it, not "dora · ".
 func TestInboxWhoWithoutWhat(t *testing.T) {
