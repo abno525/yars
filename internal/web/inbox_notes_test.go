@@ -77,7 +77,7 @@ func TestInboxNotifications(t *testing.T) {
 		t.Errorf("nav badge leaves the notices out (was %d)", n)
 	}
 	// Open is a POST through the page's one form (none nested in a queue)
-	ids := regexp.MustCompile(`<button class="btn secondary sm w104" form="notes" formaction="/notifications/(\d+)">Open</button>`).FindAllStringSubmatch(sec, -1)
+	ids := regexp.MustCompile(`<button class="btn secondary sm w128" form="notes" formaction="/notifications/(\d+)">Open</button>`).FindAllStringSubmatch(sec, -1)
 	if len(ids) != 2 || !strings.Contains(b, notesForm) {
 		t.Fatalf("open buttons %v", ids)
 	}

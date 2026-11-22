@@ -37,7 +37,7 @@
       <td class="c-what" title="{{with .Who}}{{.}} · {{end}}{{.What}}">{{with .Who}}<strong>{{.}}</strong> · {{end}}{{.What}}</td>
       <td class="c-age mono">{{age .At}}</td>
       {{/* a notice: Open marks it read, a POST through the page's one form (the director's queues are a form already) */}}
-      <td class="c-go">{{with .NoteID}}<button class="btn secondary sm w104" form="notes" formaction="/notifications/{{.}}">Open</button>{{else}}<a class="btn {{if .Primary}}primary{{else}}secondary{{end}} sm w104" href="{{.ActURL}}">{{.Act}}</a>{{end}}</td>
+      <td class="c-go">{{with .NoteID}}<button class="btn secondary sm w128" form="notes" formaction="/notifications/{{.}}">Open</button>{{else}}<a class="btn {{if .Primary}}primary{{else}}secondary{{end}} sm w128" href="{{.ActURL}}">{{.Act}}</a>{{end}}</td>
     </tr>
   {{else}}
     {{if not .Offset}}{{template "empty_row" .Cols}}{{end}}

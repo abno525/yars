@@ -122,7 +122,7 @@ func TestInboxRowsSayWhoDidWhat(t *testing.T) {
 		t.Fatal(err)
 	}
 	q := queue(e.do(t, "alice", "GET", "/inbox", nil, nil).Body.String(), "returned")
-	if !strings.Contains(q, "<strong>bob</strong> · add a PoC") || !strings.Contains(q, `btn primary sm w104" href="`+fshort+`">Fix</a>`) {
+	if !strings.Contains(q, "<strong>bob</strong> · add a PoC") || !strings.Contains(q, `btn primary sm w128" href="`+fshort+`">Fix</a>`) {
 		t.Errorf("returned row:\n%s", q)
 	}
 	if err := st.Transition("acme", fdir, workflow.Submit, "", wAlice); err != nil {

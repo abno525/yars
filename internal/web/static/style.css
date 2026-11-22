@@ -880,7 +880,7 @@ summary.panelhead::-webkit-details-marker { display: none; }
 .inboxt thead th { height: 40px; padding: 0 8px; text-align: left; font: 700 12px/1 var(--sans); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--line); white-space: nowrap; }
 .inboxt thead th:first-child { padding-left: 20px; }
 .inboxt thead th:last-child { padding-right: 20px; }
-/* every queue: [pick 40] | title | tag 152 | engagement · ID 170 | who · what 260 | time 72 | action 104; 16 between, 20 at the ends */
+/* every queue: [pick 40] | title | tag 152 | engagement · ID 170 | who · what 260 | time 72 | action 128 (Mark reported); 16 between, 20 at the ends */
 .table.inboxt { border: 0; table-layout: fixed; }
 .inboxt th, .inboxt td { padding: 0 8px; }
 .inboxt th:first-child, .inboxt td:first-child { padding-left: 20px; }
@@ -894,7 +894,7 @@ summary.panelhead::-webkit-details-marker { display: none; }
 .table.inboxt .c-eng { width: 186px; }
 .table.inboxt .c-what { width: 276px; }
 .table.inboxt .c-age { width: 88px; }
-.table.inboxt .c-go { width: 132px; }
+.table.inboxt .c-go { width: 156px; }
 .inboxt td.title a { color: var(--text); font-weight: 600; }
 .c-eng .engid, .resline .engid { display: inline-block; max-width: 96px; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
 .inboxt td.c-what { font-size: 14px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
