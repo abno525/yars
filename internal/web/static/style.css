@@ -1185,6 +1185,10 @@ code.block { display: block; padding: 8px 10px; background: var(--code-bg); font
 .keyend { width: 64px; flex: none; }
 .twogrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: stretch; }
 .tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+/* By severity: one row; six columns are the five CVSS severities and the
+   unscored "—" tile's slot (it fills the slot, nothing moves); more
+   configured severities add columns to the same row */
+.tiles.sevtiles { grid-template-columns: repeat(6, minmax(0, 1fr)); grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); }
 .tile { padding: 12px 14px; background: var(--panel); display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .tv { font: 500 22px var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tl { font-size: 12px; color: var(--muted); }
