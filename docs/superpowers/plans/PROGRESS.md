@@ -228,4 +228,6 @@ M35 final   sweep    8efff64..49416bf (finding pages: retest result control and 
 M35 final   sweep    a943d4f..7a0768d (engagement pages: severity tiles, tab buttons and New lead's slot, team board fits, Team add row, Export head)
 M35 final   sweep    c0092f4..43465ef (inbox and admin tables: inbox actions and who · what, Last used, Activity, Users' Unlock slot, sentence case, audit lists)
 M35 final   sweep    bfed0f0..4418b48 (admin and dark: Graphite without navy, file inputs, System stats, rule bench, Structure, empty values)
+M35 final   fix      c944c8e..3a75641 (review of the follow-ups: retest error slot margin, New retest buttons in the title row, token audit fields)
+M35 final   fix      a3f29ba (browser check: scrollbar always shown beside the top bar, set_field's JSON wraps, bench Hits band)
 ```

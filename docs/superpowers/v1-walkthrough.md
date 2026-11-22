@@ -216,10 +216,11 @@ Each fix has a test that failed first, and a reviewer read each fix; what a revi
 **Fixed:**
 - **Developers:**
   - MCP parameter text wraps instead of being cut mid-word;
-  - commands break at spaces, not inside "Bearer".
+  - commands break at spaces, not inside "Bearer";
+  - a description with unbroken JSON (set_field) wraps instead of being cut.
 - **Top bar:**
   - the user name's underline sits under the name;
-  - beside the bar, no light strip on pages that do not scroll;
+  - beside the bar, no light strip on pages that do not scroll (the page's scrollbar is always shown; Chrome paints nothing else there);
   - Templates' count stands level with its search;
   - Go to shows its empty list and lines its titles up.
 - **Retest result:**
@@ -230,7 +231,7 @@ Each fix has a test that failed first, and a reviewer read each fix; what a revi
   - the lists' header band runs into the scrollbar room.
 - **History** fits the window (the list scrolls, the page does not).
 - **New retest:**
-  - Cancel, then Create retest, at the bottom right as on New finding;
+  - Cancel, then Create retest, in the title row as on New engagement and Merge, where they never move;
   - a free ID is filled in.
 - **Overview:** the severity tiles stand in one row, with a kept place for "—".
 - **Engagement tabs:**
@@ -260,7 +261,8 @@ Each fix has a test that failed first, and a reviewer read each fix; what a revi
 - **Rules:**
   - the test bench lines up with New rule;
   - Try is as wide as Run;
-  - empty tables and values show "—".
+  - empty tables and values show "—";
+  - the Hits header band runs to the panel's edge.
 - **Structure:** the lists sit two to a row; the add inputs are as wide as the items'.
 
 **Kept as recorded choices:**
