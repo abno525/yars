@@ -23,12 +23,15 @@ type engTabs struct {
 // overviewView is the Overview tab: tiles and bars only (R1).
 type overviewView struct {
 	Tiles     []tile
-	SevTiles  []tile // one per configured severity with its count, then "—" for unscored drafts when there are any
+	SevTiles  []tile // one per configured severity with its count, then "—" for unscored drafts (an empty slot when there are none)
 	Bars      boardBars
 	OpenTotal int
 }
 
-type tile struct{ Label, Value string }
+type tile struct {
+	Label, Value string
+	Slot         bool // an empty place kept for a tile
+}
 
 // chartRow is one bar of a chart: W is its share in percent of the
 // largest row (the bar's length).
@@ -150,14 +153,16 @@ func (s *Server) engOverview(w http.ResponseWriter, r *http.Request) {
 		v.OpenTotal += row.OpenThreads
 	}
 	v.Tiles = []tile{
-		{"Findings", strconv.Itoa(sum.Total)}, {"Complete or reported", strconv.Itoa(sum.Done)},
-		{"Progress", strconv.Itoa(sum.Progress) + " %"}, {"Open threads", strconv.Itoa(v.OpenTotal)},
+		{Label: "Findings", Value: strconv.Itoa(sum.Total)}, {Label: "Complete or reported", Value: strconv.Itoa(sum.Done)},
+		{Label: "Progress", Value: strconv.Itoa(sum.Progress) + " %"}, {Label: "Open threads", Value: strconv.Itoa(v.OpenTotal)},
 	}
 	for _, c := range sum.Severities {
-		v.SevTiles = append(v.SevTiles, tile{workflow.StatusTitle(c.Key), strconv.Itoa(c.N)})
+		v.SevTiles = append(v.SevTiles, tile{Label: workflow.StatusTitle(c.Key), Value: strconv.Itoa(c.N)})
 	}
 	if sum.Unscored > 0 {
-		v.SevTiles = append(v.SevTiles, tile{"—", strconv.Itoa(sum.Unscored)})
+		v.SevTiles = append(v.SevTiles, tile{Label: "—", Value: strconv.Itoa(sum.Unscored)})
+	} else {
+		v.SevTiles = append(v.SevTiles, tile{Slot: true}) // its place kept: nothing moves when one comes
 	}
 	p.Overview = v
 	s.render(w, "eng_overview.html", p)

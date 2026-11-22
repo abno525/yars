@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"yars/internal/export"
+	"yars/internal/index"
 )
 
 // The Overview's By severity tiles stand in one row. They shared the
@@ -24,8 +25,36 @@ func TestOverviewSeverityTilesOneRow(t *testing.T) {
 		t.Fatalf("Totals panel:\n%s", between(b, "<h2>Totals</h2>", "</section>"))
 	}
 	css := e.do(t, "alice", "GET", "/static/style.css", nil, nil).Body.String()
-	if !strings.Contains(css, ".tiles.sevtiles { grid-template-columns: repeat(6, minmax(0, 1fr)); grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); }") {
-		t.Fatal("style.css: the severity tiles are not one row of six")
+	if !strings.Contains(css, ".tiles.sevtiles { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); }") {
+		t.Fatal("style.css: the severity tiles are not one row, a column per tile")
+	}
+	// the "—" tile's place is there whether or not a draft is unscored (an
+	// empty slot), so the row has a column per severity plus one in every
+	// state, whatever the severities configured
+	tiles := func() (n, slots int) {
+		p := between(e.do(t, "alice", "GET", "/e/acme/overview", nil, nil).Body.String(), `<div class="tiles sevtiles">`, "</section>")
+		return strings.Count(p, `<div class="tile">`), strings.Count(p, `<div class="tileslot"></div>`)
+	}
+	sevs := len(e.srv.Store.Config().Severities)
+	rows, err := e.srv.Index.Rows(index.Query{EngID: "acme"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range rows { // every finding scored: no "—" tile
+		if r.Severity == "" {
+			if err := e.srv.Store.UpdateSeverity("acme", r.Dir, "low", "", wDora); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if n, slots := tiles(); n != sevs || slots != 1 {
+		t.Fatalf("no unscored draft: %d tiles, %d slots (want %d and 1)", n, slots, sevs)
+	}
+	if _, err := e.srv.Store.CreateFinding("acme", "Unscored", e.authorOf(wAlice)); err != nil {
+		t.Fatal(err)
+	}
+	if n, slots := tiles(); n != sevs+1 || slots != 0 {
+		t.Fatalf("an unscored draft: %d tiles, %d slots (want %d and 0)", n, slots, sevs+1)
 	}
 }
 
