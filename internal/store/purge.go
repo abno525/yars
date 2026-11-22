@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"slices"
 	"strings"
 
 	"yars/internal/config"
@@ -56,14 +57,7 @@ func (s *Store) PurgeFromHistory(engID, dir, name string, u config.User) error {
 	if keep == "" {
 		return ErrNotFound
 	}
-	// the file's versions under every folder name the finding has had (a
-	// push may rename it, before or after the redaction): "<id>" or
-	// "<id>-<slug>", the same attachment name
-	all, err := r.BlobsWhere(func(q string) bool {
-		seg := strings.Split(q, "/")
-		return q == p || len(seg) == 4 && seg[0] == "findings" && (seg[1] == fid || strings.HasPrefix(seg[1], fid+"-")) &&
-			seg[2] == "attachments" && seg[3] == name
-	})
+	all, err := r.BlobsWhere(versionPaths(p, fid, name))
 	if err != nil {
 		return err
 	}
@@ -127,6 +121,85 @@ func (s *Store) PurgeFromHistory(engID, dir, name string, u config.User) error {
 		return fmt.Errorf("%w: %w", ErrPurgeIncomplete, err)
 	}
 	return nil
+}
+
+// versionPaths matches the paths an attachment's versions have in its
+// engagement's repository: p, and name under every folder name the finding
+// fid has had (a push may rename it, before or after the redaction):
+// "<id>" or "<id>-<slug>".
+func versionPaths(p, fid, name string) func(string) bool {
+	return func(q string) bool {
+		seg := strings.Split(q, "/")
+		return q == p || len(seg) == 4 && seg[0] == "findings" && (seg[1] == fid || strings.HasPrefix(seg[1], fid+"-")) &&
+			seg[2] == "attachments" && seg[3] == name
+	}
+}
+
+// RetestHolders lists the retest copies of the finding (those a redaction
+// reaches) whose repository holds an earlier version of its attachment
+// name, in its files or its history: one a Purge from history removes
+// here, or removed. A purge is per engagement; a director purges there
+// too (Q12).
+func (s *Store) RetestHolders(engID, dir, name string) ([]FindingRef, error) {
+	if !ValidID(engID) || !ValidID(dir) || !attachmentRe.MatchString("attachments/"+name) {
+		return nil, ErrNotFound
+	}
+	ref, err := s.Finding(engID, dir)
+	if err != nil {
+		return nil, err
+	}
+	fid := ref.F.Meta.ID
+	r, err := s.EngRepo(engID)
+	if err != nil {
+		return nil, err
+	}
+	p := "findings/" + ref.Dir + "/attachments/" + name
+	keep, err := r.BlobAt("HEAD", p)
+	if err != nil {
+		return nil, err
+	}
+	all, err := r.BlobsWhere(versionPaths(p, fid, name))
+	if err != nil {
+		return nil, err
+	}
+	old := map[string]bool{}
+	for _, b := range all {
+		old[b] = true
+	}
+	if s.db != nil { // the ones a purge here took out already
+		purged, err := s.db.PurgedBlobs(engID)
+		if err != nil {
+			return nil, err
+		}
+		for b, n := range purged {
+			if n == name {
+				old[b] = true
+			}
+		}
+	}
+	delete(old, keep)
+	if len(old) == 0 {
+		return nil, nil
+	}
+	copies, err := s.retestCopies(engID, fid)
+	if err != nil {
+		return nil, err
+	}
+	var out []FindingRef
+	for _, c := range copies {
+		cr, err := s.EngRepo(c.EngID)
+		if err != nil {
+			return nil, err
+		}
+		held, err := cr.BlobsWhere(versionPaths("findings/"+c.Dir+"/attachments/"+name, fid, name))
+		if err != nil {
+			return nil, err
+		}
+		if slices.ContainsFunc(held, func(b string) bool { return old[b] }) {
+			out = append(out, c)
+		}
+	}
+	return out, nil
 }
 
 // finishCleanup completes an earlier purge of the engagement that stopped

@@ -18,6 +18,7 @@
       <tbody>
         <tr><th>File</th><td class="mono" title="{{$m.Name}}">{{$m.Name}}</td></tr>
         <tr><th>Engagement</th><td title="{{.Eng.Name}}">{{.Eng.Name}}</td></tr>
+        <tr><th>Retests</th><td{{with $m.Holders}} title="{{.}}"{{end}}>{{range $i, $r := $m.Retests}}{{if $i}}, {{end}}<a href="{{$r.URL}}">{{$r.Name}}</a>{{else}}<span class="muted">None</span>{{end}}</td></tr>
         <tr><th>Clones</th><td>Existing clones of this engagement must be cloned again</td></tr>
       </tbody>
     </table>

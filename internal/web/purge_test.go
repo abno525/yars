@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"yars/internal/auth"
+	"yars/internal/store"
 )
 
 // redacted gives the test finding two images, shot.png redacted after its
@@ -203,6 +204,64 @@ func TestPurgeNotFinishedPage(t *testing.T) {
 	}
 	if p := attachmentsPanel(t, e.do(t, "dora", "GET", fpath, nil, nil).Body.String()); strings.Contains(p, "histdot") {
 		t.Fatalf("still marked:\n%s", p)
+	}
+}
+
+// retests makes rt1 and rt2, retests of the test finding, after shot.png
+// was uploaded; rt2 is archived.
+func retests(t *testing.T, e *env) {
+	t.Helper()
+	if rec := e.sendFile(t, "alice", fpath+"/attachments", "shot.png", testPNG(t, color.White)); rec.Code != 200 {
+		t.Fatalf("upload %d", rec.Code)
+	}
+	for _, id := range []string{"rt1", "rt2"} {
+		if err := e.srv.Store.CreateRetest(store.Engagement{ID: id, Name: "Retest " + id}, "acme", []string{fdir}, "", wDora); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := e.srv.Store.Archive("rt2", wDora); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Q12: a redaction reaches the retests' copies; one it leaves (archived)
+// is named for a toast after the save.
+func TestRedactNamesRetestLeft(t *testing.T) {
+	e := setup(t)
+	retests(t, e)
+	rec := e.sendFile(t, "alice", fpath+"/attachments/shot.png/redact", "blob", testPNG(t, color.Black))
+	if rec.Code != 200 || rec.Header().Get("X-Yars-Unredacted") != "not redacted in rt2 (archived)" {
+		t.Fatalf("redact %d %q", rec.Code, rec.Header().Get("X-Yars-Unredacted"))
+	}
+	if b, _ := e.srv.Store.ReadAttachment("rt1", fdir, "attachments/shot.png"); string(b) != string(testPNG(t, color.Black)) {
+		t.Fatal("rt1's copy was not redacted")
+	}
+	if js := e.do(t, "alice", "GET", "/static/app.js", nil, nil).Body.String(); !strings.Contains(js, "var left = r.headers.get('X-Yars-Unredacted');") ||
+		!strings.Contains(js, "if (left) yarsToast(name + ': ' + left, true);") {
+		t.Fatal("app.js does not show what the redaction left")
+	}
+	// none left: no header
+	if rec := e.sendFile(t, "alice", fpath+"/attachments/shot.png/redact", "blob", testPNG(t, color.Gray{Y: 32})); rec.Code != 200 || rec.Header().Get("X-Yars-Unredacted") != "" {
+		t.Fatalf("second redact %d %q", rec.Code, rec.Header().Get("X-Yars-Unredacted"))
+	}
+}
+
+// Q12: the confirm page lists the retests holding the original (rt1 in
+// its history, rt2 in its files), each linking to its copy; none: None.
+func TestPurgePageListsRetests(t *testing.T) {
+	e := setup(t)
+	retests(t, e)
+	if rec := e.sendFile(t, "alice", fpath+"/attachments/shot.png/redact", "blob", testPNG(t, color.Black)); rec.Code != 200 {
+		t.Fatalf("redact %d", rec.Code)
+	}
+	b := e.do(t, "dora", "GET", fpath+"/attachments/shot.png/purge", nil, nil).Body.String()
+	if !strings.Contains(b, `<tr><th>Retests</th><td title="Retest rt1, Retest rt2"><a href="/e/rt1/f/001#attachments">Retest rt1</a>, <a href="/e/rt2/f/001#attachments">Retest rt2</a></td></tr>`) {
+		t.Fatalf("no retests row:\n%s", b)
+	}
+	e2 := setup(t)
+	redacted(t, e2)
+	if b := e2.do(t, "dora", "GET", fpath+"/attachments/shot.png/purge", nil, nil).Body.String(); !strings.Contains(b, `<tr><th>Retests</th><td><span class="muted">None</span></td></tr>`) {
+		t.Fatalf("no empty retests row:\n%s", b)
 	}
 }
 

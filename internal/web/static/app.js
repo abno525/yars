@@ -979,6 +979,9 @@ function yarsUpload(strip, url, blob, name, insert) {
       }
       var md = r.headers.get('X-Yars-Insert');
       if (insert && md) yarsInsert(form, md);
+      // a redaction that left a retest's copy as it was (archived) says so
+      var left = r.headers.get('X-Yars-Unredacted');
+      if (left) yarsToast(name + ': ' + left, true);
       return true;
     });
   }).catch(function () { yarsToast('Connection lost', true); return false; });

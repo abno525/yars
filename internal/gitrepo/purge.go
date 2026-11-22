@@ -51,9 +51,10 @@ func (r *Repo) pathsOf(blobs map[string]bool) ([]string, error) {
 
 // eachChange calls fn, newest first, for every file version a commit of
 // HEAD's history wrote (no history simplification; a merge against each of
-// its parents; deletions left out).
+// its parents; the first commit too, whatever log.showRoot says: a
+// retest's copies are in it; deletions left out).
 func (r *Repo) eachChange(fn func(blob, path string)) error {
-	out, err := r.run(nil, "log", "--raw", "-z", "--no-abbrev", "--no-renames", "--full-history", "-m", "--format=", "HEAD")
+	out, err := r.run(nil, "log", "--raw", "--root", "-z", "--no-abbrev", "--no-renames", "--full-history", "-m", "--format=", "HEAD")
 	if err != nil {
 		return err
 	}

@@ -229,7 +229,8 @@ func (s *Server) attachmentRedact(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	if err := s.Store.ReplaceAttachment(ref.EngID, ref.Dir, r.PathValue("name"), data, auth.UserFrom(r.Context())); err != nil {
+	rd, err := s.Store.RedactAttachment(ref.EngID, ref.Dir, r.PathValue("name"), data, auth.UserFrom(r.Context()))
+	if err != nil {
 		s.attachFail(w, err)
 		return
 	}
@@ -238,5 +239,24 @@ func (s *Server) attachmentRedact(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
+	if left := unredacted(rd); left != "" {
+		w.Header().Set("X-Yars-Unredacted", left) // a toast after the save
+	}
 	s.exec(w, "finding.html", "attach_strip", v)
+}
+
+// unredacted names the retests whose copy a redaction left holding the
+// original (Q12): "not redacted in rt2 (archived), rt3 (failed)".
+func unredacted(rd store.Redaction) string {
+	var l []string
+	for _, e := range rd.Archived {
+		l = append(l, e+" (archived)")
+	}
+	for _, e := range rd.Failed {
+		l = append(l, e+" (failed)")
+	}
+	if len(l) == 0 {
+		return ""
+	}
+	return "not redacted in " + strings.Join(l, ", ")
 }

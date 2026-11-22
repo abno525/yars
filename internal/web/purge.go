@@ -15,7 +15,14 @@ import (
 type purgeView struct {
 	ID, Name, URL, Back string
 	Error               string
+	// the retests holding the original too, to purge there (Q12); Holders
+	// is their names, the cell's title
+	Retests []purgeRetest
+	Holders string
 }
+
+// purgeRetest links to a retest's copy of the finding.
+type purgeRetest struct{ Name, URL string }
 
 // canPurge: a director, in an engagement that is not archived (the store's
 // own rule; a withdrawn finding's files can be purged too).
@@ -68,6 +75,21 @@ func (s *Server) renderPurge(w http.ResponseWriter, r *http.Request, status int,
 	}
 	fu := findingURL(ref.EngID, ref.Dir)
 	p.Purge = purgeView{ID: ref.F.Meta.ID, Name: name, URL: purgeURL(ref, name), Back: fu + "#attachments", Error: errMsg}
+	holders, err := s.Store.RetestHolders(ref.EngID, ref.Dir, name)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	var names []string
+	for _, h := range holders {
+		n := h.EngID
+		if e, err := s.Store.Engagement(h.EngID); err == nil && e.Name != "" {
+			n = e.Name
+		}
+		names = append(names, n)
+		p.Purge.Retests = append(p.Purge.Retests, purgeRetest{Name: n, URL: findingURL(h.EngID, h.Dir) + "#attachments"})
+	}
+	p.Purge.Holders = strings.Join(names, ", ")
 	p.TabTitle = "Purge " + name
 	s.renderStatus(w, status, "purge.html", p)
 }

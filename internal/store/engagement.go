@@ -246,6 +246,40 @@ func (s *Store) CreateRetest(e Engagement, source string, dirs []string, assigne
 	return nil
 }
 
+// retestCopies lists the copies of finding fid of engID in the retests
+// made from engID and in the retests of those, nearest first: in each, the
+// finding with that ID whose retest link names the engagement it was made
+// from. A retest whose copy is gone is passed over, not its own retests.
+func (s *Store) retestCopies(engID, fid string) ([]FindingRef, error) {
+	engs, err := s.ListEngagements()
+	if err != nil {
+		return nil, err
+	}
+	var out []FindingRef
+	seen := map[string]bool{engID: true}
+	for queue := []string{engID}; len(queue) > 0; queue = queue[1:] {
+		src := queue[0]
+		for _, e := range engs {
+			if e.Type != "retest" || e.Source != src || seen[e.ID] {
+				continue
+			}
+			seen[e.ID] = true
+			queue = append(queue, e.ID)
+			ref, err := s.Finding(e.ID, fid)
+			if err != nil {
+				if !errors.Is(err, ErrNotFound) {
+					log.Printf("retest copy %s/%s: %v", e.ID, fid, err)
+				}
+				continue
+			}
+			if rt := ref.F.Meta.Retest; ref.F.Meta.ID == fid && rt != nil && strings.HasPrefix(rt.Source, src+"/") {
+				out = append(out, ref)
+			}
+		}
+	}
+	return out, nil
+}
+
 // retestLinks writes a retest's team (the source's, with the retester) and
 // each copy's state (its finding ID and source folder): a fresh draft that
 // links to its original.
