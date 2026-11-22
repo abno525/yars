@@ -5,7 +5,6 @@
       <nav class="crumbs"><a href="/e/{{.Eng.ID}}">{{.Eng.Name}}</a><span class="sep" aria-hidden="true">/</span><span class="idchip">Retest</span></nav>
       <h1 title="New retest of {{.Eng.Name}}">New retest of {{.Eng.Name}}</h1>
     </div>
-    <div class="actions"><a class="btn secondary w128" href="/e/{{.Eng.ID}}">Cancel</a><button class="btn primary w128">Create retest</button></div>
   </div>
   <div class="errslot">{{if .Error}}<p class="error" title="{{.Error}}">{{.Error}}</p>{{end}}</div>
   <section class="panel">
@@ -44,5 +43,6 @@
       </tbody>
     </table>
   </section>
+  <div class="actions endrow"><a class="btn secondary w128" href="/e/{{.Eng.ID}}">Cancel</a><button class="btn primary w128">Create retest</button></div>
 </form>
 {{end}}
