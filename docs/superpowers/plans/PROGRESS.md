@@ -202,4 +202,5 @@ M35 after   fix      ec94719 (the board's action row fits its 518 px; the messag
 M35 after   review   fix 7b308af (the first step starts in the selected side panel; l drops a picked duplicate; Ctrl+S search follows the key setting)
 M35 after   done     741b738 (asked after the run: digits on every filter bar; Ctrl+S searches the findings list and team board only)
 M35 after   done     9cef96e (asked after the run: the engagements list's n, c, and a / r on the focused row)
+M35 after   done     01eb575 (asked after the run: keys for the team board, the inbox and Admin › Users; the board's typed text guarded)
 ```
