@@ -105,7 +105,9 @@ func TestSystemWideStatsFillTheirRow(t *testing.T) {
 	}
 	css := stylesheet(t)
 	for _, want := range []string{
-		".stats { display: flex; gap: 8px; }",
+		// a wide stat ends where five cells end (5 x 256 + 4 x 8), not at the
+		// panel's edge, which moves with the window and the scrollbar
+		".stats { display: flex; gap: 8px; max-width: 1312px; }",
 		".st { width: 256px; height: 72px; flex: 0 1 256px;",
 		".st.wide { width: 520px; flex: 1 1 520px; }",
 	} {
