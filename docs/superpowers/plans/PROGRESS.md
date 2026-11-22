@@ -206,4 +206,13 @@ M35 after   done     01eb575 (asked after the run: keys for the team board, the 
 M35 after   done     7d8c829 (asked after the run: keys for Settings › Tokens, Templates, Notifications, Export, Admin › Rules and Webhooks, an engagement's Settings; one-click deletes ask)
 M35 after   review   fix d681723 (every board swap asks while a reply is typed; m and d follow the focused lead; Back warns again; Destinations' Delete asks)
 M35 after   review   fix df31123 (a refused empty reply is not unsaved; mixed pages keep the arrows to their rows; n never edits a webhook)
+M35 decide  done     2ef000d..68847d1 (Q1, Q2, Q16, Q23: stored AI and script results, the text as data, whole messages; review fixes in)
+M35 decide  done     6bd6b56..48acea2 (Q3: checks.max_running and the queue; review fixes in)
+M35 decide  done     7f1f35c..016df20 (Q7, Q8, Q14, Q15: carry after the push lands, one login check, SHA-256 zero id, attachments drop sign-offs; review fix in)
+M35 decide  done     667e2d9..27355d2 (Q25, Q12, Q13: a director signs off their own finding, redaction reaches retest copies, the oversize message; review fixes in)
+M35 decide  done     c595582..a6ba7a8 (Q9, Q10, Q11: server_error, transition base, the build version; review fix in)
+M35 decide  done     2f1cd5e..80df37b (Q5: Confluence images as page attachments; review fix in)
+M35 decide  done     a61acf6..f42a0dd (Q24, Q26, Q28, Q33: the row kept after d or r, the picker re-pick, click selects, Back on the board asks; review fix in)
+M35 decide  done     5298530 (Q29: Graphite, the new dark theme)
+M35 decide  fix      e21cffc (the combined branch builds; one conflict row in the MCP docs)
 ```
