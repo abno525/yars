@@ -1243,7 +1243,7 @@ code.block { display: block; padding: 8px 10px; background: var(--code-bg); font
 .dsub { font: 500 12px var(--mono); color: var(--muted); }
 .destcard:disabled .dsub { color: var(--off-fg); }
 
-/* the picker: the head comes after the table in the page, so its count of ticked findings is final */
+/* the picker (export, new retest): the head comes first; the server renders its count of ticked findings and app.js keeps it current */
 .pickpanel { display: flex; flex-direction: column; }
 .picktable input[type=checkbox] { width: 20px; height: 20px; }
 .picktable td { height: 56px; }

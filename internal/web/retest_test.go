@@ -46,6 +46,24 @@ func TestNewRetestFlow(t *testing.T) {
 	}
 }
 
+// The New retest picker has its head above its table, as the export picker
+// does (TestExportPickHeadFirst): first in the page, with the count of ticked
+// findings rendered by the server.
+func TestNewRetestPickHeadFirst(t *testing.T) {
+	e := setup(t)
+	e.toComplete(t)
+	e.srv.Store.CreateFinding("acme", "Open redirect", e.authorOf(wAlice))
+	b := e.do(t, "dora", "GET", "/e/acme/retest/new", nil, nil).Body.String()
+	panel := between(b, `<section class="panel pickpanel">`, "</section>")
+	head, table := strings.Index(panel, `class="panelhead"`), strings.Index(panel, "<table")
+	if head < 0 || table < 0 || head > table {
+		t.Fatalf("pick panel order:\n%s", panel)
+	}
+	if !strings.Contains(panel, `<span class="mono selof" data-of="2">1 of 2</span>`) {
+		t.Fatalf("no count in the head:\n%s", panel)
+	}
+}
+
 func TestRetestPanel(t *testing.T) {
 	e := setup(t)
 	if err := e.srv.Store.CreateRetest(store.Engagement{ID: "rt", Name: "RT"}, "acme", []string{"F-001-sql-injection"}, "", wDora); err != nil {
