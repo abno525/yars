@@ -386,7 +386,7 @@ func TestTransitionSeenBeforeChecks(t *testing.T) {
 	}
 	stale := func(act workflow.Action, u config.User) {
 		t.Helper()
-		if err := s.TransitionSeen(eng, fd, act, "", seen, u); !errors.Is(err, ErrConflict) {
+		if err := s.TransitionSeen(eng, fd, act, "", seen, "", u); !errors.Is(err, ErrConflict) {
 			t.Fatalf("%s of a version changed since: %v", act, err)
 		}
 	}
