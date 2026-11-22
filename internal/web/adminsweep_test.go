@@ -80,3 +80,37 @@ func TestFileInputsLikeFields(t *testing.T) {
 		t.Error("style.css: another file input rule, or the Script input still pads its top")
 	}
 }
+
+// Admin › System: a wide stat takes the rest of its row. Wide stats were
+// two cells (520 px) and always end their row, so Last prune and Data
+// folder sat beside three empty columns (Data folder cut short) and
+// Restore's Folder and Operations' Last operation beside one. The cells
+// before them keep their 256 px places, so every row stays in line with
+// the five-cell rows (M35); a row of plain cells is unchanged.
+func TestSystemWideStatsFillTheirRow(t *testing.T) {
+	e := setup(t)
+	b := e.do(t, "dora", "GET", "/admin/system", nil, nil).Body.String()
+	wide := 0
+	for _, row := range strings.Split(b, `<div class="stats">`)[1:] {
+		row = row[:strings.Index(row, "\n    </div>")]
+		if i := strings.Index(row, `<div class="st wide">`); i >= 0 {
+			wide++
+			if strings.Contains(row[i+1:], `<div class="st`) {
+				t.Errorf("a wide stat before the end of its row:\n%s", row)
+			}
+		}
+	}
+	if wide != 4 {
+		t.Fatalf("%d wide stats (Last prune, Folder, Last operation, Data folder)", wide)
+	}
+	css := stylesheet(t)
+	for _, want := range []string{
+		".stats { display: flex; gap: 8px; }",
+		".st { width: 256px; height: 72px; flex: 0 1 256px;",
+		".st.wide { width: 520px; flex: 1 1 520px; }",
+	} {
+		if !strings.Contains(css, want) {
+			t.Errorf("style.css lacks %s", want)
+		}
+	}
+}
