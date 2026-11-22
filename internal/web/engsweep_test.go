@@ -60,30 +60,30 @@ func TestOverviewSeverityTilesOneRow(t *testing.T) {
 
 // Export, New retest and New finding stand in the same place on every tab
 // of an engagement. The board's New lead was a fourth button after them, so
-// on the board they moved 140 px left. New lead has a slot of its own first
-// in the row: the board fills it, the other tabs keep it empty (and the
-// title column is as wide on every tab). New finding is secondary on the
-// board (its primary is New lead), as before.
+// on the board they moved 140 px left. New lead keeps its place, last; the
+// other tabs keep that place as an empty slot (fill empty slots, do not
+// reorder). New finding is secondary on the board (its primary is New
+// lead), as before.
 func TestEngHeadButtonsKeepTheirPlace(t *testing.T) {
 	e := setup(t)
 	headOf := func(path string) string {
 		b := e.do(t, "dora", "GET", path, nil, nil).Body.String()
-		return between(b, `<div class="actions">`, "</div>")
+		return strings.TrimRight(between(b, `<div class="actions">`, "</div>"), " \n")
 	}
-	const rest = `<a class="btn secondary w128" href="/e/acme/export" aria-keyshortcuts="E">Export</a>
+	const first = `<div class="actions">
+    <a class="btn secondary w128" href="/e/acme/export" aria-keyshortcuts="E">Export</a>
     <a class="btn secondary w128" href="/e/acme/retest/new">New retest</a>`
+	const slot = `<span class="slot w128"></span>`
 	for _, path := range []string{"/e/acme", "/e/acme/overview", "/e/acme/report", "/e/acme/settings"} {
 		h := headOf(path)
-		if !strings.HasPrefix(h, `<div class="actions">
-    <span class="slot w128"></span>
-    `+rest) || !strings.Contains(h, `<a class="btn primary w128" href="/e/acme/findings/new" aria-keyshortcuts="N">New finding</a>`) || strings.Contains(h, "New lead") {
+		if !strings.HasPrefix(h, first) || !strings.HasSuffix(h, `<a class="btn primary w128" href="/e/acme/findings/new" aria-keyshortcuts="N">New finding</a>
+    `+slot) {
 			t.Errorf("%s head:\n%s", path, h)
 		}
 	}
 	h := headOf("/e/acme/board")
-	if !strings.HasPrefix(h, `<div class="actions">
-    <a class="btn primary w128" href="/e/acme/board?new=1" hx-get="/e/acme/board?new=1" hx-target="#board" hx-swap="outerHTML" hx-push-url="true" aria-keyshortcuts="N">New lead</a>
-    `+rest) || !strings.Contains(h, `<a class="btn secondary w128" href="/e/acme/findings/new">New finding</a>`) {
+	if !strings.HasPrefix(h, first) || !strings.HasSuffix(h, `<a class="btn secondary w128" href="/e/acme/findings/new">New finding</a>
+    <a class="btn primary w128" href="/e/acme/board?new=1" hx-get="/e/acme/board?new=1" hx-target="#board" hx-swap="outerHTML" hx-push-url="true" aria-keyshortcuts="N">New lead</a>`) {
 		t.Errorf("board head:\n%s", h)
 	}
 	// archived: the board keeps New lead's slot empty
@@ -91,9 +91,7 @@ func TestEngHeadButtonsKeepTheirPlace(t *testing.T) {
 	if err := e.srv.Store.Archive("acme", dora); err != nil {
 		t.Fatal(err)
 	}
-	if h := headOf("/e/acme/board"); !strings.HasPrefix(h, `<div class="actions">
-    <span class="slot w128"></span>
-    `+rest) || strings.Contains(h, "New lead") {
+	if h := headOf("/e/acme/board"); !strings.HasPrefix(h, first) || !strings.HasSuffix(h, slot) || strings.Contains(h, "New lead") {
 		t.Errorf("archived board head:\n%s", h)
 	}
 }

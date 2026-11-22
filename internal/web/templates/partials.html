@@ -96,12 +96,12 @@ the table's column count. */}}
     <p class="sub">{{.Eng.Client}}{{if .Eng.Start}}{{if .Eng.Client}} · {{end}}{{.Eng.Start}}{{if .Eng.End}} – {{.Eng.End}}{{end}}{{end}}{{if .IsRetest}}{{if or .Eng.Client .Eng.Start}} · {{end}}Retest of {{if .Eng.Source}}<a href="/e/{{.Eng.Source}}">{{if .Source.Name}}{{.Source.Name}}{{else}}{{.Eng.Source}}{{end}}</a>{{else}}—{{end}}{{end}}</p>
   </div>
   <div class="actions">
-    {{/* New lead's slot comes first: the board fills it, every other tab keeps it, so the buttons after it stand in one place on every tab; n is New lead on the board, New finding elsewhere */ -}}
-    {{if and (eq .ETab.On "board") (not .Archive.On)}}<a class="btn primary w128" href="/e/{{.Eng.ID}}/board?new=1" hx-get="/e/{{.Eng.ID}}/board?new=1" hx-target="#board" hx-swap="outerHTML" hx-push-url="true" aria-keyshortcuts="N">New lead</a>{{else}}<span class="slot w128"></span>{{end}}
     <a class="btn secondary w128" href="/e/{{.Eng.ID}}/export" aria-keyshortcuts="E">Export</a>
     {{if .CanManage}}<a class="btn secondary w128" href="/e/{{.Eng.ID}}/retest/new">New retest</a>{{else}}<span class="slot w128"></span>{{end}}
     {{if .Archive.On}}{{if .Archive.CanReopen}}<form method="post" action="/e/{{.Eng.ID}}/reopen"><button class="btn secondary w128">Reopen</button></form>{{else}}<span class="slot w128"></span>{{end}}
     {{else}}<a class="btn {{if eq .ETab.On "board"}}secondary{{else}}primary{{end}} w128" href="/e/{{.Eng.ID}}/findings/new"{{if ne .ETab.On "board"}} aria-keyshortcuts="N"{{end}}>New finding</a>{{end}}
+    {{/* New lead keeps its place, last: the board fills it, every other tab keeps it as a slot, so the buttons before it stand in one place on every tab; n is New lead on the board, New finding elsewhere */ -}}
+    {{if and (eq .ETab.On "board") (not .Archive.On)}}<a class="btn primary w128" href="/e/{{.Eng.ID}}/board?new=1" hx-get="/e/{{.Eng.ID}}/board?new=1" hx-target="#board" hx-swap="outerHTML" hx-push-url="true" aria-keyshortcuts="N">New lead</a>{{else}}<span class="slot w128"></span>{{end}}
   </div>
 </div>
 {{template "archive_bar" .Archive}}
