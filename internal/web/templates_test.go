@@ -29,6 +29,27 @@ func (e *env) addTemplate(t *testing.T, slug, title string) {
 	}
 }
 
+// The bar over the templates list bottom-aligns its items (.filterbar, made
+// for Activity's labelled fields): the "N of M" count is a 40px slot whose
+// text is centred, level with the 40px search field and Search beside it,
+// not resting on their bottom edge.
+func TestTemplatesCountLevel(t *testing.T) {
+	e := setup(t)
+	e.addTemplate(t, "missing-hsts", "Missing HSTS")
+	b := e.do(t, "dora", "GET", "/templates", nil, nil).Body.String()
+	bar := between(b, `<form class="filterbar" method="get" action="/templates">`, "</form>")
+	if !strings.Contains(bar, `<span class="mono slot">1 of 1</span>`) {
+		t.Fatalf("templates bar:\n%s", bar)
+	}
+	css := e.do(t, "dora", "GET", staticPrefix()+"/style.css", nil, nil).Body.String()
+	if f := between(css, "\n.filterbar {", "}"); !strings.Contains(f, "align-items: flex-end;") {
+		t.Fatalf(".filterbar: %q", f)
+	}
+	if s := between(css, "\n.slot {", "}"); !strings.Contains(s, "display: inline-flex; align-items: center;") || !strings.Contains(s, "min-height: 40px;") {
+		t.Fatalf(".slot: %q", s)
+	}
+}
+
 // A template shows its version, owner (who made it) and last edit from
 // git; History lists every version.
 func TestTemplateOwnerAndVersions(t *testing.T) {
