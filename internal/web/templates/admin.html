@@ -184,7 +184,7 @@
           </td>
           <td class="mono">{{.Created}}</td>
           <td class="num">{{.Tokens}}</td>
-          <td><div class="actions">{{if .Locked}}<form method="post" action="/admin/users/{{.Username}}/unlock"><button class="btn secondary sm w96" title="Locked out until {{.Locked}}" aria-keyshortcuts="U">Unlock</button></form>{{else}}<span class="slot w96"></span>{{end}}<form method="post" action="/admin/users/{{.Username}}/reset"><button class="btn ghost sm w112" data-confirm="Reset the password of {{.Username}}?" aria-keyshortcuts="R">Reset pass</button></form></div></td>
+          <td><div class="actions">{{if .Locked}}<form method="post" action="/admin/users/{{.Username}}/unlock"><button class="btn secondary sm w96" title="Locked out until {{.Locked}}" aria-keyshortcuts="U">Unlock</button></form>{{else}}<button type="button" class="btn secondary sm w96" disabled>Unlock</button>{{end}}<form method="post" action="/admin/users/{{.Username}}/reset"><button class="btn ghost sm w112" data-confirm="Reset the password of {{.Username}}?" aria-keyshortcuts="R">Reset pass</button></form></div></td>
         </tr>
         {{end}}
       </tbody>

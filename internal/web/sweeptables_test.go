@@ -209,6 +209,20 @@ func TestActivityDetailCopy(t *testing.T) {
 	}
 }
 
+// Admin › Users: Unlock has its place before Reset pass in every row (the
+// Action header's place). A user who is not locked out gets it disabled,
+// not an empty slot that left the header over a gap; it posts nothing and
+// takes no key.
+func TestAdminUsersUnlockSlotFilled(t *testing.T) {
+	e := setup(t)
+	b := e.do(t, "dora", "GET", "/admin/users", nil, nil).Body.String()
+	table := between(b, `<table class="table stable usertable"`, "</table>")
+	off := `<div class="actions"><button type="button" class="btn secondary sm w96" disabled>Unlock</button><form method="post" action="/admin/users/`
+	if n := strings.Count(table, off); n != 4 || strings.Contains(table, "slot") {
+		t.Fatalf("%d rows with a disabled Unlock:\n%s", n, table)
+	}
+}
+
 // An inbox row's who · what has its dot only between the two: a notice
 // without text (Approved) shows who did it, not "dora · ".
 func TestInboxWhoWithoutWhat(t *testing.T) {
