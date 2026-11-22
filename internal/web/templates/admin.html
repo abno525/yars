@@ -416,8 +416,8 @@
     </tbody>
   </table>
   <div class="pfoot flush">
-    {{if .Prev}}<a class="btn secondary sm w112" href="{{.Prev}}">Previous</a>{{else}}<span class="slot w112"></span>{{end}}
-    {{if .Next}}<a class="btn secondary sm w112" href="{{.Next}}">Next</a>{{else}}<span class="slot w112"></span>{{end}}
+    {{if .Prev}}<a class="btn secondary sm w112" href="{{.Prev}}">Previous</a>{{else}}<button type="button" class="btn secondary sm w112" disabled>Previous</button>{{end}}
+    {{if .Next}}<a class="btn secondary sm w112" href="{{.Next}}">Next</a>{{else}}<button type="button" class="btn secondary sm w112" disabled>Next</button>{{end}}
   </div>
 </section>
 <section class="panel" id="sessions">

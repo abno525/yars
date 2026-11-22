@@ -158,6 +158,31 @@ func TestActivityEmptyCellsDash(t *testing.T) {
 	}
 }
 
+// Activity's footer holds Previous and Next in their places on every page:
+// one that leads nowhere is there, disabled, so the footer is never an
+// empty strip (all on one page: both disabled).
+func TestActivityPagerFilled(t *testing.T) {
+	e := setup(t)
+	foot := func(path string) string {
+		return between(e.do(t, "dora", "GET", path, nil, nil).Body.String(), `<div class="pfoot flush">`, "</div>")
+	}
+	prevOff := `<button type="button" class="btn secondary sm w112" disabled>Previous</button>`
+	nextOff := `<button type="button" class="btn secondary sm w112" disabled>Next</button>`
+	if f := foot("/admin/activity"); !strings.Contains(f, prevOff) || !strings.Contains(f, nextOff) || strings.Contains(f, "slot") {
+		t.Errorf("one page:\n%s", f)
+	}
+	d := e.srv.Store.DB()
+	for range auditPage + 10 {
+		d.Audit("dora", "user.role", "bob", "reviewer")
+	}
+	if f := foot("/admin/activity"); !strings.Contains(f, prevOff) || !strings.Contains(f, `<a class="btn secondary sm w112" href="/admin/activity?offset=50">Next</a>`) {
+		t.Errorf("first page:\n%s", f)
+	}
+	if f := foot("/admin/activity?offset=50"); !strings.Contains(f, `<a class="btn secondary sm w112" href="/admin/activity">Previous</a>`) || !strings.Contains(f, nextOff) {
+		t.Errorf("last page:\n%s", f)
+	}
+}
+
 // An inbox row's who · what has its dot only between the two: a notice
 // without text (Approved) shows who did it, not "dora · ".
 func TestInboxWhoWithoutWhat(t *testing.T) {
