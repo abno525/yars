@@ -6,15 +6,17 @@ import (
 	"strings"
 	"testing"
 
+	"yars/internal/auth"
 	"yars/internal/db"
 	"yars/internal/workflow"
 )
 
 // cssWidth is the px width a one-line rule of style.css gives (selector as
-// written; several such rules may share a line).
+// written, alone or in the rule's selector list; several such rules may
+// share a line).
 func cssWidth(t *testing.T, css, selector string) int {
 	t.Helper()
-	m := regexp.MustCompile(`(?m)(?:^|\} )` + regexp.QuoteMeta(selector) + ` \{ width: (\d+)px; \}`).FindStringSubmatch(css)
+	m := regexp.MustCompile(`(?m)(?:^|\} )(?:[^{}\n]*, )?` + regexp.QuoteMeta(selector) + `(?:, [^{}\n]*)? \{ width: (\d+)px; \}`).FindStringSubmatch(css)
 	if m == nil {
 		t.Fatalf("style.css has no %s width", selector)
 	}
@@ -58,6 +60,35 @@ func TestInboxActionFitsMarkReported(t *testing.T) {
 	}
 	if col := cssWidth(t, css, ".table.inboxt .c-go"); col != w+8+20 {
 		t.Errorf("action column %dpx for a %dpx button", col, w)
+	}
+}
+
+// A token's Last used is a date and minute, as Activity's Time and
+// Sessions' Last seen: 16 characters of 13px Plex Mono (125px), 157px with
+// the cell's 16px padding. Its column is as wide as theirs (c-time) on
+// Admin › Tokens and in Settings; a date column (128px) cut it to "…".
+func TestTokenLastUsedFits(t *testing.T) {
+	e := setup(t)
+	_, info, err := auth.NewTokens(e.srv.Store.DB()).Create("dora", "dora", db.TokenSpec{Name: "laptop", Kind: db.TokenMCP, Scopes: []string{db.ScopeAll}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.srv.Store.DB().TokenUsed(info.ID); err != nil {
+		t.Fatal(err)
+	}
+	css := e.do(t, "dora", "GET", "/static/style.css", nil, nil).Body.String()
+	for _, path := range []string{"/admin/tokens", "/settings"} {
+		b := e.do(t, "dora", "GET", path, nil, nil).Body.String()
+		if !regexp.MustCompile(`<td class="mono">\d{4}-\d\d-\d\d \d\d:\d\d</td>`).MatchString(b) {
+			t.Errorf("%s: no last used time", path)
+		}
+		m := regexp.MustCompile(`<th class="([a-z0-9-]+)">Last used</th>`).FindStringSubmatch(b)
+		if m == nil {
+			t.Fatalf("%s: no Last used column", path)
+		}
+		if w := cssWidth(t, css, ".table th."+m[1]); w < 157 {
+			t.Errorf("%s: Last used (157px) in a %dpx column (%s)", path, w, m[1])
+		}
 	}
 }
 

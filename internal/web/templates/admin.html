@@ -440,7 +440,7 @@
 <section class="panel" id="tokens">
   <div class="panelhead"><h2>Tokens <span class="{{if .Tokens}}qcnt{{else}}qcnt zero{{end}}">{{len .Tokens}}</span></h2></div>
   <table class="table stable tokentable">
-    <thead><tr><th class="c-who">Owner</th><th>Name</th><th class="c-can">Can</th><th class="c-date">Expires</th><th class="c-date">Last used</th><th class="c-act">Action</th></tr></thead>
+    <thead><tr><th class="c-who">Owner</th><th>Name</th><th class="c-can">Can</th><th class="c-date">Expires</th><th class="c-time">Last used</th><th class="c-act">Action</th></tr></thead>
     <tbody>
       {{range .Tokens}}
       <tr>

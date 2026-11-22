@@ -47,7 +47,7 @@
       <div class="copyrow newsecret"><span class="tag shown">Shown once</span><code id="new-token" class="clip">{{.}}</code><button type="button" class="btn save sm w96" data-copy="new-token">Copy</button></div>
       {{end}}
       <table class="table stable tokentable" data-arrows="focus">
-        <thead><tr><th>Name</th><th class="c-can">Can</th><th class="c-date">Expires</th><th class="c-date">Last used</th><th class="c-date">Created</th><th class="c-act">Action</th></tr></thead>
+        <thead><tr><th>Name</th><th class="c-can">Can</th><th class="c-date">Expires</th><th class="c-time">Last used</th><th class="c-date">Created</th><th class="c-act">Action</th></tr></thead>
         <tbody>
           {{range .Settings.Tokens}}
           {{/* the name is the row the keys move to; r revokes that row only (asking); its id keeps it focused through the reload */}}
