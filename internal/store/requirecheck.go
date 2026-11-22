@@ -97,14 +97,15 @@ func (s *Store) RulesVersion() string {
 	return ""
 }
 
-// rulesStamp tells whether the rules folder changed since: the linter's
-// signature (sizes and times: a change undone moves it too), else the
-// version.
-func (s *Store) rulesStamp() string {
-	if l, ok := s.Linter.(interface{ Stamp() string }); ok {
-		return l.Stamp()
+// rulesNow is the rules' version and the folder's signature, taken together
+// (sizes and times: a change undone moves it too); a linter without a
+// signature gives its version for both.
+func (s *Store) rulesNow() (ver, stamp string) {
+	if l, ok := s.Linter.(interface{ Loaded() (string, string) }); ok {
+		return l.Loaded()
 	}
-	return s.RulesVersion()
+	v := s.RulesVersion()
+	return v, v
 }
 
 // RulesChanged reports whether a run with the rules at version runRules is

@@ -158,7 +158,7 @@ func (rn *Runner) Script(ctx context.Context, r Rule, d Doc) []Violation {
 	// taken (its signature: sizes and times, so a change undone in between
 	// counts too): a script changed during the check ran as it is now, not
 	// as the key says
-	if ok && dirSignature(rn.Dir) == at.stamp {
+	if ok && SameSignature(dirSignature(rn.Dir), at.stamp) {
 		rn.scriptCache().Add(ck, vs)
 		rn.keep(ck, "script", vs)
 	}

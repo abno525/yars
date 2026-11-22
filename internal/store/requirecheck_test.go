@@ -334,6 +334,23 @@ func TestCheckGateRunFinishedMeanwhile(t *testing.T) {
 	if gs, err := s.CheckGates([]GateKey{{eng, ref.F.Meta.ID, ref.Hash}}); err != nil || len(gs) != 0 {
 		t.Fatalf("CheckGates: %v %v", gs, err)
 	}
+	// its end marked the rules changed while it ran: the gate map reads
+	// that too, not the rules it first saw
+	ver := s.RulesVersion()
+	id, err := s.DB().StartRun(eng, ref.F.Meta.ID, ref.Hash, "bob", ver)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.setRunning(key, id, false)
+	s.beforeGateMap = func() {
+		s.beforeGateMap = nil
+		s.DB().TxFor(eng, func(tx *db.Tx) error { return tx.FinishRun(id, db.RunDone, "", nil) })
+		s.DB().SetRunRules(id, ver+"+changed")
+		s.setRunning(key, 0, true)
+	}
+	if gs, err := s.CheckGates([]GateKey{{eng, ref.F.Meta.ID, ref.Hash}}); err != nil || gs[eng+"/"+ref.F.Meta.ID] != GateRules {
+		t.Fatalf("CheckGates after a run marked changed: %v %v", gs, err)
+	}
 }
 
 // raceLinter starts a check run (as a Check pressed meanwhile) the first

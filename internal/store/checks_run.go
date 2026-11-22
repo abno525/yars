@@ -80,10 +80,11 @@ func (s *Store) startCheck(engID, dir, only string, u config.User) (db.CheckRun,
 		return s.runNow(id)
 	}
 	var keep *carried
+	asked := s.RulesVersion() // read once: what it keeps is of these rules
 	if only != "" {
 		prev, ok, err := s.db.LatestRun(engID, fid)
 		// kept only from a run on this content with these rules (Q13)
-		if err == nil && ok && prev.State != db.RunRunning && prev.ContentHash == hash && !RulesChanged(prev.Rules, s.RulesVersion()) {
+		if err == nil && ok && prev.State != db.RunRunning && prev.ContentHash == hash && !RulesChanged(prev.Rules, asked) {
 			keep, err = s.carry(prev.ID, only)
 		}
 		if err != nil {
@@ -97,7 +98,6 @@ func (s *Store) startCheck(engID, dir, only string, u config.User) (db.CheckRun,
 	// marked before the run exists: a gate that sees the new run as the
 	// latest counts it as running, not as cut off
 	s.setRunning(key, pendingRun, false)
-	asked := s.RulesVersion()
 	id, err = s.db.StartRun(engID, fid, hash, u.Username, asked)
 	if err != nil {
 		s.setRunning(key, 0, true)
@@ -282,7 +282,7 @@ func (s *Store) runCheck(j checkJob) {
 	// waited); changed while it runs (also changed and changed back: the
 	// signature moves), some rules ran as they were and some as they are,
 	// so it records a version that is never current
-	began, stamp := s.RulesVersion(), s.rulesStamp()
+	began, stamp := s.rulesNow()
 	s.db.SetRunRules(id, began)
 	progress := func(done, total int) {
 		if s.db.RunProgress(id, done, total) == nil {
@@ -316,7 +316,7 @@ func (s *Store) runCheck(j checkJob) {
 		vs = s.Linter.Lint(ctx, ref.F, rules.All)
 		progress(1, 1)
 	}
-	if s.rulesStamp() != stamp {
+	if _, now := s.rulesNow(); !rules.SameSignature(stamp, now) {
 		s.db.SetRunRules(id, began+"+changed")
 	}
 	seq, err := s.db.TxForSeq(eng, func(tx *db.Tx) error { return finishCheck(tx, id, eng, fid, vs) })

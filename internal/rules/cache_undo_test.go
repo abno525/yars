@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"yars/internal/config"
 )
@@ -16,12 +17,41 @@ func TestEngineStampMovesOnChangeUndone(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "r.yaml")
 	os.WriteFile(p, []byte("- id: a\n  regex_forbid: zzz\n"), 0o644)
+	t0 := time.Now().Add(-10 * time.Second) // file times set, not left to the clock's tick
+	os.Chtimes(p, t0, t0)
 	e := NewEngine(dir, config.Default())
-	ver, stamp := e.Version(), e.Stamp()
+	ver, stamp := e.Loaded()
 	os.WriteFile(p, []byte("- id: a\n  regex_forbid: yyy\n"), 0o644)
 	os.WriteFile(p, []byte("- id: a\n  regex_forbid: zzz\n"), 0o644)
-	if e.Version() != ver || e.Stamp() == stamp {
-		t.Fatalf("version %s→%s, stamp %s→%s", ver, e.Version(), stamp, e.Stamp())
+	t1 := t0.Add(5 * time.Second)
+	os.Chtimes(p, t1, t1)
+	ver2, stamp2 := e.Loaded()
+	if ver2 != ver || SameSignature(stamp, stamp2) {
+		t.Fatalf("version %s→%s, stamp %q→%q", ver, ver2, stamp, stamp2)
+	}
+}
+
+// Review of 421b1c9: a file's content hash is in the signature only while
+// the file is fresh (written within freshFor); its dropping out is no change.
+func TestSignatureFreshHashIsNoChange(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "r.yaml")
+	os.WriteFile(p, []byte("- id: a\n  regex_forbid: zzz\n"), 0o644)
+	fresh := time.Now().Add(-freshFor + 150*time.Millisecond)
+	os.Chtimes(p, fresh, fresh)
+	a := dirSignature(dir)
+	time.Sleep(300 * time.Millisecond) // no longer fresh: the hash drops out
+	b := dirSignature(dir)
+	if a == b {
+		t.Fatalf("the test needs the hash to drop out: %q", a)
+	}
+	if !SameSignature(a, b) || !SameSignature(b, a) {
+		t.Fatalf("a hash dropping out counts as a change: %q %q", a, b)
+	}
+	os.WriteFile(p, []byte("- id: a\n  regex_forbid: zzzz\n"), 0o644)
+	os.Chtimes(p, fresh, fresh)
+	if SameSignature(b, dirSignature(dir)) {
+		t.Fatal("a size change counts as none")
 	}
 }
 

@@ -432,15 +432,57 @@ func TestRunRecordsRulesItRan(t *testing.T) {
 	}
 }
 
-// verStamp is verGate with a signature (Stamp) that moves on every change,
-// as the engine's does, also when a change is undone.
+// verStamp is verGate with a signature that moves on every change, as the
+// engine's does, also when a change is undone (Loaded gives both at once).
 type verStamp struct {
 	verGate
-	stamp int // under mu
+	stamp int    // under mu
+	flip  string // under mu: the version the rules become right after the next Version call
 }
 
 func (l *verStamp) setVer(v string) { l.mu.Lock(); l.ver = v; l.stamp++; l.mu.Unlock() }
-func (l *verStamp) Stamp() string   { l.mu.Lock(); defer l.mu.Unlock(); return fmt.Sprint(l.stamp) }
+func (l *verStamp) Loaded() (string, string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.ver, fmt.Sprint(l.stamp)
+}
+func (l *verStamp) Version() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	v := l.ver
+	if l.flip != "" {
+		l.ver, l.flip = l.flip, ""
+		l.stamp++
+	}
+	return v
+}
+
+// Review of 421b1c9: a retry asked for while a rule is edited reads the
+// rules version once, so what it keeps and what it was asked with agree;
+// run at newer rules, it runs every rule.
+func TestRetryAskedDuringRulesEdit(t *testing.T) {
+	s, _, fd := newFinding(t)
+	l := &verStamp{verGate: verGate{stepGate: stepGate{gateLinter: gateLinter{release: make(chan struct{})}}}}
+	l.setRules(rules.Rule{ID: "a", RegexForbid: "zzz"}, rules.Rule{ID: "b", RegexForbid: "yyy"})
+	l.setVer("v1")
+	s.Linter = l
+	close(l.release)
+	if _, err := s.StartCheck(eng, fd, uAlice); err != nil {
+		t.Fatal(err)
+	}
+	waitAll(t, s)
+	l.mu.Lock()
+	l.flip = "v2" // rule b edited right after the retry first reads the version
+	l.mu.Unlock()
+	if _, err := s.RetryCheck(eng, fd, "a", uAlice); err != nil {
+		t.Fatal(err)
+	}
+	waitAll(t, s)
+	st, err := s.CheckStatus(eng, fd)
+	if err != nil || st.Run.Rules != "v2" || st.Run.Total != 2 {
+		t.Fatalf("rules %q total %d (want every rule at v2) %v", st.Run.Rules, st.Run.Total, err)
+	}
+}
 
 // Review of c88181f: a retry that waited while a rule was edited (same
 // rules, other version) keeps nothing from the run before: every rule runs
