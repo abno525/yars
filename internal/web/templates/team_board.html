@@ -7,7 +7,7 @@
 <div id="board" class="tboard" data-sse-url="{{.SSEURL}}" hx-get="{{.RefreshURL}}" hx-trigger="sse:board, sse:resync, sse:poll" hx-swap="outerHTML" data-sse>
   <div class="tbleft">
     <div class="filters">
-      <nav class="seg nocap tbseg" aria-label="State">{{range .Filters}}<a class="{{if .Active}}on{{end}}" href="{{.URL}}" hx-get="{{.URL}}" hx-target="#board" hx-swap="outerHTML" hx-push-url="true">{{.Label}} · {{.Count}}</a>{{end}}</nav>
+      <nav class="seg nocap tbseg" aria-label="State">{{range .Filters}}<a class="{{if .Active}}on{{end}}"{{with .Keys}} aria-keyshortcuts="{{.}}"{{end}} href="{{.URL}}" hx-get="{{.URL}}" hx-target="#board" hx-swap="outerHTML" hx-push-url="true">{{.Label}} · {{.Count}}</a>{{end}}</nav>
       <form class="tbsearch" action="{{.URL}}" method="get" hx-get="{{.URL}}" hx-target="#board" hx-swap="outerHTML" hx-push-url="true" hx-trigger="input changed delay:300ms from:#tb-q, submit">
         {{if .State}}<input type="hidden" name="state" value="{{.State}}">{{end}}
         <input type="search" id="tb-q" name="q" value="{{.Q}}" placeholder="Search" aria-label="Search leads" maxlength="200" autocomplete="off">

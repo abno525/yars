@@ -433,12 +433,14 @@ func TestCtrlSSearches(t *testing.T) {
 	save = save[:strings.Index(save, "\n}\n")]
 	// not from a focused button of a form that saves (nothing, as before),
 	// nor with the shortcuts off
-	for _, w := range []string{"if (!yarsTyping(a) || yarsPick(a)) {", "if (!yarsKeysOff() && !(form && !yarsPick(a) && yarsSaveButton(form))) yarsSearchFocus();"} {
+	// the findings list's and the team board's search only (not the new
+	// finding page's template search, nor any other page's)
+	for _, w := range []string{"if (!yarsTyping(a) || yarsPick(a)) {", "if (!yarsKeysOff() && !(form && !yarsPick(a) && yarsSaveButton(form))) yarsSearchFocus('#fq, #tb-q');"} {
 		if !strings.Contains(save, w) {
 			t.Errorf("yarsSave lacks %s:\n%s", w, save)
 		}
 	}
-	for _, w := range []string{"function yarsSearchBox()", "function yarsSearchFocus()"} {
+	for _, w := range []string{"function yarsSearchBox(sel)", "function yarsSearchFocus(sel)"} {
 		if !strings.Contains(js, w) {
 			t.Errorf("keys.js lacks %s", w)
 		}
@@ -509,6 +511,23 @@ func TestListFilterDigitsAndArrows(t *testing.T) {
 			t.Errorf("engagements filter lacks %s:\n%s", w, home)
 		}
 	}
+	// every filter bar of links takes the digits by place: the team board's
+	// state (1 All … 6 Dismissed), a finding's History, the rules' Level
+	e.lead(t, "alice", "S3 listing", "", "open")
+	e.rules(t, "- id: none\n  target: title\n  regex_forbid: 'zzz'\n", nil)
+	for p, bar := range map[string]string{"/e/acme/board": `aria-label="State">`, fpath + "/history": `<nav class="seg hfilter" aria-label="Show">`, "/admin/rules": `aria-label="Level">`} {
+		user := "alice"
+		if p == "/admin/rules" {
+			user = "dora"
+		}
+		nav := between(e.do(t, user, "GET", p, nil, nil).Body.String(), bar, "</")
+		if !strings.Contains(nav, `aria-keyshortcuts="1"`) {
+			t.Errorf("%s: the filter bar lacks 1:\n%s", p, nav)
+		}
+	}
+	if nav := between(e.do(t, "alice", "GET", "/e/acme/board", nil, nil).Body.String(), `aria-label="State">`, "</nav>"); strings.Count(nav, "aria-keyshortcuts=") != 6 || !strings.Contains(nav, `aria-keyshortcuts="6"`) {
+		t.Errorf("the team board's six states lack their digits:\n%s", nav)
+	}
 	// the arrows are the two lists' only (data-arrows), not History's or
 	// Export's; held down they go on stepping; never in an open menu
 	if !strings.Contains(b, `<table class="table findings" data-arrows>`) {
@@ -552,7 +571,7 @@ func TestListFilterDigitsAndArrows(t *testing.T) {
 	}
 	// the digits work on an empty list too, so their row is not in Lists
 	// (hidden without rows)
-	if d := between(page, `<h3 class="gh">Global</h3>`, "</section>"); !strings.Contains(d, `<div class="krow" data-keys-for="1"><dt><kbd>1</kbd>–<kbd>9</kbd></dt><dd>State filter</dd></div>`) {
+	if d := between(page, `<h3 class="gh">Global</h3>`, "</section>"); !strings.Contains(d, `<div class="krow" data-keys-for="1"><dt><kbd>1</kbd>–<kbd>9</kbd></dt><dd>Filter</dd></div>`) {
 		t.Errorf("the Global group lacks the digits:\n%s", d)
 	}
 }

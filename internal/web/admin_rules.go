@@ -206,7 +206,7 @@ func (s *Server) rulesView(r *http.Request, p *page, f ruleForm) error {
 		if l.key != "" {
 			u += "?level=" + l.key
 		}
-		v.Filters = append(v.Filters, link{Label: l.label, URL: u, Active: l.key == level, Count: n})
+		v.Filters = append(v.Filters, link{Label: l.label, URL: u, Active: l.key == level, Count: n, Keys: filterKey(len(v.Filters))})
 	}
 	v.RequireCheck = s.Store.RequireCheck()
 	s.fill(&f)

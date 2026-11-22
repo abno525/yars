@@ -221,7 +221,7 @@ func (s *Server) historyOf(r *http.Request, ref store.FindingRef) (historyView, 
 		case "status":
 			n = v.Status
 		}
-		v.Filters = append(v.Filters, link{Label: f.label, URL: u, Active: f.key == show, Count: n})
+		v.Filters = append(v.Filters, link{Label: f.label, URL: u, Active: f.key == show, Count: n, Keys: filterKey(len(v.Filters))})
 	}
 	if v.Sel != nil && v.Sel.Kind == "content" {
 		mk := func(view string) string {

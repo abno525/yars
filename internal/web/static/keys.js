@@ -51,11 +51,11 @@ function yarsSave() {
   var a = document.activeElement;
   var form = a && a !== document.body && a.closest ? a.closest('form') || a.form : null;
   // nothing being filled in (a focused button, link or row checkbox is not):
-  // the page's search box (the findings list's, the team board's); never
-  // from a focused button of a form that saves (nothing, as before), nor
-  // with the shortcuts off
+  // the findings list's or the team board's search box (no other page's);
+  // never from a focused button of a form that saves (nothing, as before),
+  // nor with the shortcuts off
   if (!yarsTyping(a) || yarsPick(a)) {
-    if (!yarsKeysOff() && !(form && !yarsPick(a) && yarsSaveButton(form))) yarsSearchFocus();
+    if (!yarsKeysOff() && !(form && !yarsPick(a) && yarsSaveButton(form))) yarsSearchFocus('#fq, #tb-q');
     return;
   }
   if (!form || form.hasAttribute('data-nosave')) return;
@@ -318,17 +318,17 @@ document.addEventListener('click', function (evt) {
   if (d && d.open && evt.target === d) d.close();
 });
 
-// yarsSearchBox: the page's own search box (never Go to's), rendered and
-// enabled, or null.
-function yarsSearchBox() {
-  return Array.prototype.filter.call(document.querySelectorAll('input[type=search]'), function (el) {
+// yarsSearchBox: the page's own search box matching sel (default: any; never
+// Go to's), rendered and enabled, or null.
+function yarsSearchBox(sel) {
+  return Array.prototype.filter.call(document.querySelectorAll(sel || 'input[type=search]'), function (el) {
     return !el.closest('dialog') && !el.disabled && el.getClientRects().length > 0;
   })[0] || null;
 }
-// yarsSearchFocus puts focus in the page's search box, its text selected;
-// false without one.
-function yarsSearchFocus() {
-  var s = yarsSearchBox();
+// yarsSearchFocus puts focus in that search box, its text selected; false
+// without one.
+function yarsSearchFocus(sel) {
+  var s = yarsSearchBox(sel);
   if (!s) return false;
   s.focus();
   s.select();

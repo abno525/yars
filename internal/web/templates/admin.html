@@ -462,7 +462,7 @@
   <div class="panelhead">
     <div class="panelname"><h2>Rules</h2></div>
     <div class="actions">
-      <div class="seg small" role="group" aria-label="Level">{{range .Filters}}<a class="{{if .Active}}on{{end}}" href="{{.URL}}">{{.Label}} · {{.Count}}</a>{{end}}</div>
+      <div class="seg small" role="group" aria-label="Level">{{range .Filters}}<a class="{{if .Active}}on{{end}}"{{with .Keys}} aria-keyshortcuts="{{.}}"{{end}} href="{{.URL}}">{{.Label}} · {{.Count}}</a>{{end}}</div>
       <a class="btn primary sm w128" href="/admin/rules?new=1">New rule</a>
     </div>
   </div>

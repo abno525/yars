@@ -213,7 +213,7 @@ func (s *Server) teamBoardFor(u config.User, eng string, q boardQuery, sel int) 
 		}
 		fq := q
 		fq.State = st
-		v.Filters = append(v.Filters, link{Key: st, Label: label, Count: n, Active: st == q.State, URL: fq.url(eng, "")})
+		v.Filters = append(v.Filters, link{Key: st, Label: label, Count: n, Active: st == q.State, URL: fq.url(eng, ""), Keys: filterKey(len(v.Filters))})
 	}
 	notes, err := s.Store.Notes(eng, store.NoteFilter{State: q.State, Q: q.Q, Limit: leadRows + 1})
 	if err != nil {
