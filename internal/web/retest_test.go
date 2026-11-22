@@ -62,6 +62,15 @@ func TestNewRetestPickHeadFirst(t *testing.T) {
 	if !strings.Contains(panel, `<span class="mono selof" data-of="2">1 of 2</span>`) {
 		t.Fatalf("no count in the head:\n%s", panel)
 	}
+	// drawn again after a refusal, it counts the ticked rows: not a finding
+	// no longer listed, nor one sent twice
+	for _, picks := range [][]string{{"F-001-sql-injection", "F-009-gone"}, {"F-001-sql-injection", "F-001-sql-injection"}} {
+		rec := e.do(t, "dora", "POST", "/e/acme/retest/new", url.Values{"id": {"acme"}, "name": {"X"}, "finding": picks}, nil)
+		panel := between(rec.Body.String(), `<section class="panel pickpanel">`, "</section>")
+		if rec.Code != http.StatusBadRequest || !strings.Contains(panel, `data-of="2">1 of 2</span>`) || strings.Count(panel, " checked>") != 1 {
+			t.Fatalf("%v: %d\n%s", picks, rec.Code, panel)
+		}
+	}
 }
 
 func TestRetestPanel(t *testing.T) {

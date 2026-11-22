@@ -184,6 +184,15 @@ func (s *Server) retestCreate(w http.ResponseWriter, r *http.Request) {
 			log.Printf("retest of %s: %v", p.Eng.ID, err)
 		}
 		p.Error, p.Users = msg, s.Auth.Users()
+		// the head counts the ticked rows: drop picks no longer listed, and
+		// one sent twice
+		var picks []string
+		for _, row := range p.Rows {
+			if slices.Contains(p.Form["finding"], row.Dir) {
+				picks = append(picks, row.Dir)
+			}
+		}
+		p.Form["finding"] = picks
 		s.renderStatus(w, status, "new_retest.html", p)
 		return
 	}
