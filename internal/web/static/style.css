@@ -1461,7 +1461,8 @@ input.bigin { height: 48px; font: 600 18px var(--sans); border: 2px solid var(--
 .osec { padding: 12px 20px; border-top: 1px solid var(--line-soft); }
 .osec h3 { margin-bottom: 4px; font-size: 13px; font-weight: 600; color: var(--muted); }
 .osec .md { font-size: 14px; line-height: 1.55; }
-.panel.resultp.needs { border: 2px solid var(--red); }
+.panel.resultp.needs { border-color: var(--red); box-shadow: 0 0 0 1px var(--red); } /* red, 2 px seen, the border's width unchanged: nothing moves */
+.resultp > .errslot { margin: 8px 24px 0; }
 .resultp .req { width: 120px; text-align: right; }
 .seg.result-seg > label > span { --seg-w: 136px; text-transform: none; }
 

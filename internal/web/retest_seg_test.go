@@ -26,4 +26,14 @@ func TestRetestResultSegmentsHaveNoPanelMargin(t *testing.T) {
 	if !strings.Contains(css, ".panel > form > :not(.panelhead):not(table):not(input[type=hidden]):not(.flush) { margin: 16px 24px; }") {
 		t.Fatal("style.css: the panel's form margin rule no longer leaves .flush out")
 	}
+	// nothing moves when a result is chosen or refused: the red edge of a
+	// panel that needs one does not change its border's width, and the
+	// error has its slot whether or not there is one
+	if rule := between(css, ".panel.resultp.needs {", "}"); strings.Contains(rule, "border:") || strings.Contains(rule, "border-width") {
+		t.Errorf(".panel.resultp.needs changes the border's width: %q", rule)
+	}
+	panel := between(b, `<section class="panel resultp`, "</section>")
+	if !strings.Contains(panel, `<div class="errslot">`) {
+		t.Errorf("no reserved error slot:\n%s", panel)
+	}
 }

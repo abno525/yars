@@ -19,7 +19,7 @@
   </details>
   <section class="panel resultp{{if not .Result}} needs{{end}}" id="retest-result" data-kpanel>
     <div class="panelhead"><h2>Retest result</h2><span class="req">{{if not .Result}}Needs result{{end}}</span></div>
-    {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+    <div class="errslot">{{if .Error}}<p class="error" title="{{.Error}}">{{.Error}}</p>{{end}}</div>
     {{if .Locked}}
     <p>{{range .Options}}{{if .Checked}}<span class="tag result-{{.Code}}">{{.Label}}</span>{{end}}{{end}}</p>
     {{else}}
