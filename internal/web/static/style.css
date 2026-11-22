@@ -88,6 +88,7 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     /* Graphite: hue-free greys, orange the only warm colour */
+    --navy: #3A4C78; --navy-600: #436096;
     --accent-text: #E9915C;
     --on-accent: #151515;
     --bg: #141414;
@@ -113,6 +114,7 @@
     --head-bg: #0E0E0E;
     --head-line: #2A2A2A;
     --head-field: #222222;
+    --head-field-line: #717171;
     --logo-shadow: #363636;
     --sev-critical: #AA302D;
     --run-bg: #1B2230; --run-text: #A9BBD6; --stale-bg: #2A211A;
@@ -127,6 +129,7 @@
   }
 }
 :root[data-theme="dark"] {
+  --navy: #3A4C78; --navy-600: #436096;
   --accent-text: #E9915C;
   --on-accent: #151515;
   --bg: #141414;
@@ -152,6 +155,7 @@
   --head-bg: #0E0E0E;
   --head-line: #2A2A2A;
   --head-field: #222222;
+  --head-field-line: #717171;
   --logo-shadow: #363636;
   --sev-critical: #AA302D;
   --run-bg: #1B2230; --run-text: #A9BBD6; --stale-bg: #2A211A;
