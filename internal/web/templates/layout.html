@@ -61,7 +61,7 @@
       hx-get="/go/search" hx-trigger="input changed delay:150ms, search" hx-target="#goto-results" hx-swap="innerHTML" hx-sync="this:replace">
     <kbd>Esc</kbd>
   </div>
-  <div id="goto-results" class="gotores" role="listbox"></div>
+  <div id="goto-results" class="gotores" role="listbox">{{template "goto_none"}}</div>
   <div class="gotofoot"><span><kbd>↑</kbd><kbd>↓</kbd>Select</span><span><kbd>Enter</kbd>Open</span><span><kbd>Esc</kbd>Close</span></div>
 </dialog>
 {{template "keys_dialog"}}
@@ -69,6 +69,10 @@
 </body>
 {{end}}
 </html>{{end}}
+
+{{/* goto_none is Go to's list with nothing typed: its head and the one
+empty row, as an empty table shows (goto_results is the list itself) */}}
+{{define "goto_none"}}<div class="gh"><span>Findings</span><span class="mono">—</span></div><div class="resnone">—</div>{{end}}
 
 {{/* keys_dialog is the shortcut list (?, K8): the key map in four groups;
 keys.js hides the Finding page group where there are no panels */}}

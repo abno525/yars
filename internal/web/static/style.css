@@ -897,7 +897,7 @@ summary.panelhead::-webkit-details-marker { display: none; }
 .table.inboxt .c-age { width: 88px; }
 .table.inboxt .c-go { width: 132px; }
 .inboxt td.title a { color: var(--text); font-weight: 600; }
-.c-eng .engid { display: inline-block; max-width: 96px; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
+.c-eng .engid, .resline .engid { display: inline-block; max-width: 96px; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
 .inboxt td.c-what { font-size: 14px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .inboxt .c-pick input { width: 20px; height: 20px; accent-color: var(--ink); vertical-align: middle; cursor: pointer; }
 .table.inboxt tbody tr.sel td { background: var(--pick-bg); }
@@ -1653,8 +1653,11 @@ dialog.confirmdlg::backdrop { background: var(--scrim); }
 .res:hover { background: var(--panel); color: var(--text); }
 .res.sel { background: var(--sel-bg); box-shadow: inset 3px 0 0 var(--accent); }
 .resline { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.resline .mono { flex: none; }
+/* engagement · ID: one width (the inbox's column), so the titles line up */
+.resline .mono { width: 170px; flex: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .restitle { min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* no results (nothing typed, nothing found): a row's height, a dash */
+.resnone { min-height: 56px; padding: 8px 20px; display: flex; align-items: center; border-bottom: 1px solid var(--line-soft); color: var(--muted); }
 .gotofoot {
   height: 44px; padding: 0 20px; display: flex; align-items: center; gap: 20px; border-top: 1px solid var(--line);
   background: var(--panel); font-size: 13px; color: var(--muted);

@@ -63,3 +63,44 @@ func TestGoToSearch(t *testing.T) {
 		t.Fatal("no Go to in the header")
 	}
 }
+
+// Go to keeps a 480px box for its results, so it does not grow as you type.
+// Before anything is typed, and when nothing matches, the box shows the
+// list's head and its one empty row (—), as an empty table does, not a
+// blank box. Each result's "engagement · ID" is a 170px column (as on the
+// inbox), the engagement ending in "…" past 96px, so the titles line up.
+func TestGoToEmptyAndAligned(t *testing.T) {
+	e := setup(t)
+	get := func(q string) string {
+		t.Helper()
+		rec := e.do(t, "alice", "GET", "/go/search?q="+q, nil, map[string]string{"HX-Request": "true"})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s %d", q, rec.Code)
+		}
+		return rec.Body.String()
+	}
+	none := `<div class="gh"><span>Findings</span><span class="mono">—</span></div><div class="resnone">—</div>`
+	if box := between(e.do(t, "alice", "GET", "/inbox", nil, nil).Body.String(), `<div id="goto-results"`, "</div>\n"); !strings.Contains(box, none) {
+		t.Errorf("Go to opens blank:\n%s", box)
+	}
+	if b := get(""); !strings.Contains(b, none) {
+		t.Errorf("empty query:\n%s", b)
+	}
+	if b := get("zzzz"); !strings.Contains(b, `<span>Findings</span><span class="mono">0</span>`) || !strings.Contains(b, `<div class="resnone">—</div>`) || strings.Contains(b, "href=") {
+		t.Errorf("no match:\n%s", b)
+	}
+	b := get("F-001")
+	if !strings.Contains(b, `<span class="mono" title="acme · F-001"><span class="engid">acme</span> · F-001</span><span class="restitle">`) || strings.Contains(b, "resnone") {
+		t.Errorf("a result:\n%s", b)
+	}
+	css := e.do(t, "alice", "GET", staticPrefix()+"/style.css", nil, nil).Body.String()
+	if rule := between(css, "\n.resline .mono {", "}"); !strings.Contains(rule, "width: 170px; flex: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;") {
+		t.Errorf(".resline .mono: %q", rule)
+	}
+	if rule := between(css, "\n.c-eng .engid, .resline .engid {", "}"); !strings.Contains(rule, "max-width: 96px;") {
+		t.Errorf("engagement cap: %q", rule)
+	}
+	if rule := between(css, "\n.resnone {", "}"); !strings.Contains(rule, "min-height: 56px;") || !strings.Contains(rule, "color: var(--muted);") {
+		t.Errorf(".resnone: %q", rule)
+	}
+}
