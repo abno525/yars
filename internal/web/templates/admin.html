@@ -409,7 +409,7 @@
     <thead><tr><th class="c-time">Time</th><th class="c-who">Who</th><th class="c-action">Action</th><th class="c-target">Object</th><th>Detail</th></tr></thead>
     <tbody>
       {{range .Rows}}
-      <tr{{if eq .Action "login.fail"}} class="denied"{{end}}><td class="mono">{{.TS}}</td><td class="clip">{{.Actor}}</td><td class="mono clip">{{.Action}}</td><td class="clip" title="{{.Target}}">{{if .Target}}{{.Target}}{{else}}—{{end}}</td><td class="clip" title="{{.Detail}}">{{.Detail}}</td></tr>
+      <tr{{if eq .Action "login.fail"}} class="denied"{{end}}><td class="mono">{{.TS}}</td><td class="clip">{{.Actor}}</td><td class="mono clip">{{.Action}}</td><td class="clip" title="{{.Target}}">{{if .Target}}{{.Target}}{{else}}<span class="muted">—</span>{{end}}</td><td class="clip" title="{{.Detail}}">{{if .Detail}}{{.Detail}}{{else}}<span class="muted">—</span>{{end}}</td></tr>
       {{else}}
       {{template "empty_row" 5}}
       {{end}}

@@ -147,6 +147,17 @@ func TestActivityObjectRoom(t *testing.T) {
 	}
 }
 
+// An Activity row with no object or no detail (a sign-in has neither)
+// shows the muted "—" in each empty cell, as every empty value does.
+func TestActivityEmptyCellsDash(t *testing.T) {
+	e := setup(t)
+	b := e.do(t, "dora", "GET", "/admin/activity", nil, nil).Body.String()
+	want := `<td class="mono clip">login</td><td class="clip" title=""><span class="muted">—</span></td><td class="clip" title=""><span class="muted">—</span></td>`
+	if !strings.Contains(b, want) {
+		t.Fatalf("a sign-in row lacks %s:\n%s", want, between(b, `<tbody>`, `</tbody>`))
+	}
+}
+
 // An inbox row's who · what has its dot only between the two: a notice
 // without text (Approved) shows who did it, not "dora · ".
 func TestInboxWhoWithoutWhat(t *testing.T) {
