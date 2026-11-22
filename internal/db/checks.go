@@ -68,16 +68,37 @@ type CheckStep struct {
 // shows as such.
 func StepStamp(t time.Time) string { return t.UTC().Format("2006-01-02T15:04:05.000Z07:00") }
 
+const insertStep = `INSERT INTO check_steps(run_id, pos, rule, kind, state, started, finished, hits, message, fail)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+
 // AddSteps records the steps of a run (queued ones, or ones carried over
 // from an earlier run).
 func (d *DB) AddSteps(steps []CheckStep) error {
 	for _, x := range steps {
-		if _, err := d.Exec(`INSERT INTO check_steps(run_id, pos, rule, kind, state, started, finished, hits, message, fail)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, x.RunID, x.Pos, x.Rule, x.Kind, x.State, x.Started, x.Finished, x.Hits, x.Message, x.Fail); err != nil {
+		if _, err := d.Exec(insertStep, x.RunID, x.Pos, x.Rule, x.Kind, x.State, x.Started, x.Finished, x.Hits, x.Message, x.Fail); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// SetSteps replaces the steps of run with steps, in one transaction (the
+// rules changed before it ran).
+func (d *DB) SetSteps(run int64, steps []CheckStep) error {
+	tx, err := d.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec("DELETE FROM check_steps WHERE run_id = ?", run); err != nil {
+		return err
+	}
+	for _, x := range steps {
+		if _, err := tx.Exec(insertStep, run, x.Pos, x.Rule, x.Kind, x.State, x.Started, x.Finished, x.Hits, x.Message, x.Fail); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 // StepStarted marks a rule of a run as running now.

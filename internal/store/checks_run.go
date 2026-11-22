@@ -105,15 +105,7 @@ func (s *Store) startCheck(engID, dir, only string, u config.User) (db.CheckRun,
 	}
 	s.setRunning(key, id, false)
 	if stepped {
-		var steps []db.CheckStep
-		for i, r := range ruleList {
-			x := db.CheckStep{RunID: id, Pos: i, Rule: r.ID, Kind: r.KindName(), State: db.StepQueued}
-			if old, ok := keep.step(r.ID); ok && r.ID != only {
-				x.State, x.Started, x.Finished, x.Hits, x.Message, x.Fail = old.State, old.Started, old.Finished, old.Hits, old.Message, old.Fail
-			}
-			steps = append(steps, x)
-		}
-		s.db.AddSteps(steps)
+		s.db.AddSteps(runSteps(id, ruleList, only, keep))
 	}
 	total := 1
 	if only == "" {
@@ -123,11 +115,31 @@ func (s *Store) startCheck(engID, dir, only string, u config.User) (db.CheckRun,
 	}
 	s.db.RunProgress(id, 0, total) // "0/6" from the start
 	s.checkWG.Add(1)
-	j := checkJob{id: id, ref: ref, only: only, keep: keep, by: u.Username}
+	j := checkJob{id: id, ref: ref, only: only, keep: keep, by: u.Username, stepRules: ruleList}
 	queued := s.enqueue(j) // under checksMu: in the order of the starts
 	s.checksMu.Unlock()
 	s.admit(j, queued)
 	return s.runNow(id)
+}
+
+// runSteps are run id's steps for the rules list: queued, but a retry of
+// rule only keeps the other rules' steps.
+func runSteps(id int64, list []rules.Rule, only string, keep *carried) []db.CheckStep {
+	var steps []db.CheckStep
+	for i, r := range list {
+		x := db.CheckStep{RunID: id, Pos: i, Rule: r.ID, Kind: r.KindName(), State: db.StepQueued}
+		if old, ok := keep.step(r.ID); ok && r.ID != only {
+			x.State, x.Started, x.Finished, x.Hits, x.Message, x.Fail = old.State, old.Started, old.Finished, old.Hits, old.Message, old.Fail
+		}
+		steps = append(steps, x)
+	}
+	return steps
+}
+
+// sameRules reports whether a and b are the same rules (id and kind) in the
+// same order.
+func sameRules(a, b []rules.Rule) bool {
+	return slices.EqualFunc(a, b, func(x, y rules.Rule) bool { return x.ID == y.ID && x.KindName() == y.KindName() })
 }
 
 // carry reads what a retry of rule keeps from run prev: the other rules'
@@ -245,13 +257,18 @@ func (s *Store) WaitChecks() { s.checkWG.Wait() }
 
 // runCheck runs the check j in the slot it holds, then frees the slot for
 // the next queued run. Its AI calls are recorded as the user's who asked
-// (the run's By), on this finding (D24).
+// (the run's By), on this finding (D24). An engagement archived while it
+// waited gets no run, as a start then gets none.
 func (s *Store) runCheck(j checkJob) {
 	id, ref, only, keep := j.id, j.ref, j.only, j.keep
 	eng, fid := ref.EngID, ref.F.Meta.ID
 	ctx := rules.WithCaller(context.Background(), rules.Caller{User: j.by, Eng: eng, Fid: fid})
 	defer s.checkWG.Done()
 	defer s.endCheck()
+	if err := s.writable(eng); err != nil {
+		s.dropCheck(j, err.Error())
+		return
+	}
 	defer func() {
 		if p := recover(); p != nil {
 			s.db.FailRun(id, fmt.Sprint("crashed: ", p))
@@ -267,6 +284,12 @@ func (s *Store) runCheck(j checkJob) {
 	}
 	var vs []rules.Violation
 	if c, ok := s.Linter.(StepChecker); ok {
+		// the rules changed since it was asked for (it waited): every rule
+		// as it is now, with steps to match (stale by its rules version)
+		if now := c.CheckRules(); !sameRules(now, j.stepRules) {
+			only, keep = "", nil
+			s.db.SetSteps(id, runSteps(id, now, "", nil))
+		}
 		vs = c.CheckWith(ctx, ref.F, rules.Hooks{
 			Only:     only,
 			Progress: progress,
@@ -372,8 +395,12 @@ func knownThreads(tx *db.Tx, eng, fid string, threads map[string]*chat.Thread) (
 //     notice).
 //
 // The run fails when a rule could not run (Fail; "invalid output" for a
-// script that printed something other than JSON).
+// script that printed something other than JSON). An engagement archived
+// meanwhile gets nothing (ErrArchived).
 func finishCheck(tx *db.Tx, id int64, eng, fid string, vs []rules.Violation) error {
+	if err := archivedIn(tx, eng); err != nil {
+		return err
+	}
 	state, reason := db.RunDone, ""
 	failedRules := map[string]bool{}
 	for _, v := range vs {

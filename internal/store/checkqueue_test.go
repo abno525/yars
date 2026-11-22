@@ -16,10 +16,11 @@ import (
 )
 
 // gateLinter holds each check run (every rule kind) until a token comes on
-// release; it keeps the findings whose runs began, in order, and how many
-// ran at once at most.
+// release, then reports vs; it keeps the findings whose runs began, in
+// order, and how many ran at once at most.
 type gateLinter struct {
 	release  chan struct{}
+	vs       []rules.Violation
 	mu       sync.Mutex
 	in, most int
 	began    []string
@@ -40,6 +41,33 @@ func (l *gateLinter) Lint(_ context.Context, f *finding.Finding, k rules.Kind) [
 	l.mu.Lock()
 	l.in--
 	l.mu.Unlock()
+	return l.vs
+}
+
+// stepGate is gateLinter rule by rule, with rules that can change: a run
+// waits for its token, then runs the rules as they are by then.
+type stepGate struct {
+	gateLinter
+	list []rules.Rule // under mu
+}
+
+func (l *stepGate) setRules(rs ...rules.Rule) { l.mu.Lock(); l.list = rs; l.mu.Unlock() }
+
+func (l *stepGate) CheckRules() []rules.Rule {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return slices.Clone(l.list)
+}
+
+func (l *stepGate) CheckWith(ctx context.Context, f *finding.Finding, h rules.Hooks) []rules.Violation {
+	l.Lint(ctx, f, rules.All)
+	run := slices.DeleteFunc(l.CheckRules(), func(r rules.Rule) bool { return h.Only != "" && r.ID != h.Only })
+	h.Progress(0, len(run))
+	for i, r := range run {
+		h.Start(r)
+		h.Done(r, nil)
+		h.Progress(i+1, len(run))
+	}
 	return nil
 }
 
@@ -319,5 +347,85 @@ func TestQueuedRunOfChangedFinding(t *testing.T) {
 	}
 	if r, err := s.DB().Run(gone.ID); err != nil || r.State != db.RunDone {
 		t.Fatalf("removed: %+v %v", r, err)
+	}
+}
+
+// Review: a run that waited while its engagement was archived ends without
+// running, as a start then is refused; the run under way writes nothing
+// into the archived engagement either.
+func TestQueuedRunOfArchivedEngagement(t *testing.T) {
+	s, _, fd := newFinding(t)
+	withLimit(s, 1)
+	l := newGate()
+	l.vs = []rules.Violation{{Rule: "r", Level: "error", Message: "found", Target: "title", Quote: "Finding"}}
+	s.Linter = l
+	fds := moreFindings(t, s, fd, 1)
+	under, err := s.StartCheck(eng, fds[1], uAlice)
+	if err != nil {
+		t.Fatal(err)
+	}
+	l.waitIn(t, 1)
+	queued, err := s.StartCheck(eng, fd, uAlice)
+	if err != nil || queued.State != RunQueued {
+		t.Fatalf("%+v %v", queued, err)
+	}
+	if err := s.Archive(eng, uDora); err != nil {
+		t.Fatal(err)
+	}
+	close(l.release)
+	waitAll(t, s)
+	if len(l.began) != 1 {
+		t.Fatalf("began %v", l.began)
+	}
+	for _, r := range []db.CheckRun{under, queued} {
+		if got, err := s.DB().Run(r.ID); err != nil || got.State != db.RunFailed || got.Error != ErrArchived.Error() {
+			t.Fatalf("run %d: %+v %v", r.ID, got, err)
+		}
+	}
+	for _, d := range fds {
+		if th := checkThreads(t, s, d); len(th) != 0 {
+			t.Fatalf("%s: threads in an archived engagement %+v", d, th)
+		}
+	}
+	if s.CheckRunning(eng, fidOf(t, s, fd)) {
+		t.Fatal("the dropped run is still the finding's run")
+	}
+}
+
+// Review: a run that waited while the rules changed runs every rule as it
+// is when the run starts, and its steps follow: no step left queued for a
+// rule gone, none missing for a new one.
+func TestQueuedRunOfChangedRules(t *testing.T) {
+	s, _, fd := newFinding(t)
+	withLimit(s, 1)
+	l := &stepGate{gateLinter: gateLinter{release: make(chan struct{})}}
+	keep := rules.Rule{ID: "keep", RegexForbid: "zzz"}
+	l.setRules(rules.Rule{ID: "old-ai", AI: "judge"}, keep)
+	s.Linter = l
+	fds := moreFindings(t, s, fd, 1)
+	if _, err := s.StartCheck(eng, fds[1], uAlice); err != nil {
+		t.Fatal(err)
+	}
+	l.waitIn(t, 1)
+	run, err := s.StartCheck(eng, fd, uAlice)
+	if err != nil || run.State != RunQueued {
+		t.Fatalf("%+v %v", run, err)
+	}
+	l.setRules(keep, rules.Rule{ID: "new-script", Script: "x.sh"})
+	close(l.release)
+	waitAll(t, s)
+	st, err := s.CheckStatus(eng, fd)
+	if err != nil || st.Run.ID != run.ID || st.Run.State != db.RunDone || st.Run.Total != 2 {
+		t.Fatalf("%+v %v", st.Run, err)
+	}
+	var got []string
+	for _, x := range st.Steps {
+		if x.State != db.StepPass {
+			t.Fatalf("step %+v", x)
+		}
+		got = append(got, x.Rule+" "+x.Kind)
+	}
+	if want := []string{"keep pattern", "new-script script"}; !slices.Equal(got, want) {
+		t.Fatalf("steps %v, want %v", got, want)
 	}
 }

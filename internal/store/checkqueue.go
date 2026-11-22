@@ -5,6 +5,7 @@ import (
 
 	"yars/internal/config"
 	"yars/internal/db"
+	"yars/internal/rules"
 )
 
 // RunQueued is the state a run waiting for a slot is reported in; it is
@@ -12,13 +13,15 @@ import (
 const RunQueued = "queued"
 
 // checkJob is a check run to run: run id on the finding as read when it was
-// asked for (ref), one rule only or all, what a retry keeps, and by whom.
+// asked for (ref), one rule only or all, what a retry keeps, by whom, and
+// the rules its steps were written for.
 type checkJob struct {
-	id   int64
-	ref  FindingRef
-	only string
-	keep *carried
-	by   string
+	id        int64
+	ref       FindingRef
+	only      string
+	keep      *carried
+	by        string
+	stepRules []rules.Rule
 }
 
 // checkLimit is how many check runs run at once (checks.max_running).
@@ -45,7 +48,8 @@ func (s *Store) enqueue(j checkJob) bool {
 // starting by pumpChecks. Not queued (the checks stopped), j is dropped.
 func (s *Store) admit(j checkJob, queued bool) {
 	if !queued {
-		s.dropCheck(j)
+		s.dropCheck(j, "interrupted")
+		s.checkWG.Done()
 		return
 	}
 	s.pumpChecks()
@@ -106,15 +110,15 @@ func (s *Store) StopChecks() {
 	s.queue = nil
 	s.queueMu.Unlock()
 	for _, j := range q {
-		s.dropCheck(j)
+		s.dropCheck(j, "interrupted")
+		s.checkWG.Done()
 	}
 }
 
-// dropCheck ends queued run j without running it.
-func (s *Store) dropCheck(j checkJob) {
-	defer s.checkWG.Done()
+// dropCheck ends run j without running it, failed for reason.
+func (s *Store) dropCheck(j checkJob, reason string) {
 	eng, fid := j.ref.EngID, j.ref.F.Meta.ID
-	s.db.FailRun(j.id, "interrupted")
+	s.db.FailRun(j.id, reason)
 	s.setRunning(checkKey(eng, fid), 0, true)
 	s.notify(Change{Eng: eng, Fid: fid, Kind: ChangeCheck})
 }

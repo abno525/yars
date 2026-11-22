@@ -173,10 +173,11 @@ func gitServer(r *gitrepo.Repo, au *auth.Auth, tokens *auth.Tokens, st *store.St
 		Receive: st.ReceivePush, Tokens: tokens, CanSee: st.CanSee, Lint: st.LintContent}
 }
 
-// serve runs the server until ctx is cancelled, then stops it: new
-// connections are refused, requests in flight get stopGrace to finish, the
-// background workers stop, fixes with AI stop asking, queued checks are
-// dropped, running checks get stopGrace, the database closes.
+// serve runs the server until ctx is cancelled, then stops it: queued
+// checks are dropped and none starts any more, new connections are refused,
+// requests in flight get stopGrace to finish, the background workers stop,
+// fixes with AI stop asking, running checks get stopGrace, the database
+// closes.
 // With hs.TLSConfig set it serves HTTPS with that configuration's
 // certificate.
 func serve(ctx context.Context, ln net.Listener, hs *http.Server, srv *web.Server, st *store.Store, d *db.DB) error {
@@ -194,8 +195,12 @@ func serve(ctx context.Context, ln net.Listener, hs *http.Server, srv *web.Serve
 	var err error
 	select {
 	case err = <-served: // could not serve at all
+		st.StopChecks()
 	case <-ctx.Done():
 		log.Println("yars stopping")
+		// before the requests' grace: no queued check starts in it, and a
+		// check asked for meanwhile fails at once
+		st.StopChecks()
 		sctx, cancel := context.WithTimeout(context.Background(), stopGrace)
 		if serr := hs.Shutdown(sctx); serr != nil {
 			log.Printf("stop: requests still running after %s: %v", stopGrace, serr)
@@ -206,9 +211,8 @@ func serve(ctx context.Context, ln net.Listener, hs *http.Server, srv *web.Serve
 	}
 	srv.Close()
 	// a Fix with AI answers what it has left without the AI and starts no
-	// check, so it ends well within the grace; queued checks never start
+	// check, so it ends well within the grace
 	st.StopFixes()
-	st.StopChecks()
 	checks := make(chan struct{})
 	go func() { st.WaitChecks(); close(checks) }()
 	select {

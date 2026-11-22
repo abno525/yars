@@ -189,8 +189,8 @@ func (l *holdLinter) Lint(_ context.Context, _ *finding.Finding, k rules.Kind) [
 }
 
 // Q3: told to stop, the server drops the queued checks (failed as
-// interrupted) and waits only for the run under way, not for the ones
-// behind it.
+// interrupted) at once, before the requests in flight end, so none starts
+// in their grace; it waits only for the run under way.
 func TestServeDropsQueuedChecks(t *testing.T) {
 	dir := t.TempDir()
 	if err := initData(dir); err != nil {
@@ -230,13 +230,31 @@ func TestServeDropsQueuedChecks(t *testing.T) {
 		t.Fatalf("second run %+v", runs[1])
 	}
 	srv := &web.Server{Store: st, Index: index.New(st, r), Auth: auth.New(d), Cfg: cfg}
+	hs := srv.HTTPServer("127.0.0.1:0")
+	inner := hs.Handler
+	held, hold := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	hs.Handler = http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.URL.Path == "/slow" {
+			once.Do(func() { close(held) })
+			<-hold
+			return
+		}
+		inner.ServeHTTP(w, req)
+	})
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- serve(ctx, ln, srv.HTTPServer("127.0.0.1:0"), srv, st, d) }()
+	go func() { done <- serve(ctx, ln, hs, srv, st, d) }()
+	go func() {
+		if resp, err := http.Get("http://" + ln.Addr().String() + "/slow"); err == nil {
+			resp.Body.Close()
+		}
+	}()
+	<-held // a request in flight
 	cancel()
 	deadline := time.Now().Add(5 * time.Second)
 	for {
@@ -244,12 +262,14 @@ func TestServeDropsQueuedChecks(t *testing.T) {
 			break
 		}
 		if time.Now().After(deadline) {
+			close(hold)
 			close(l.release)
-			t.Fatal("the queued run was not dropped")
+			t.Fatal("the queued run was not dropped while a request was in flight")
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	l.release <- struct{}{} // the run under way ends
+	l.release <- struct{}{} // the run under way ends within the request's grace
+	close(hold)
 	select {
 	case err := <-done:
 		if err != nil {
