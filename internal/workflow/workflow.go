@@ -161,8 +161,10 @@ func Check(u config.User, m finding.Meta, a Action) error {
 			return deny("only an assigned reviewer or a director can return a finding")
 		}
 	case Clear:
-		if u.Username == m.Author {
-			return deny("the author cannot clear their own finding")
+		// a director signs off their own finding too (Q25); Approve still
+		// needs a sign-off by an assigned reviewer other than the approver
+		if u.Username == m.Author && !manager(u) {
+			return deny("only a director can sign off their own finding")
 		}
 		if !reviewer(u, m) && !manager(u) {
 			return deny("only an assigned reviewer or a director can clear")

@@ -103,6 +103,37 @@ func TestDirectorClearsUnassigned(t *testing.T) {
 	}
 }
 
+// Q25: a director signs off their own finding and joins its reviewers;
+// approving it still needs a sign-off by another assigned reviewer.
+func TestDirectorSignsOffOwnFinding(t *testing.T) {
+	s, _ := withEngagement(t)
+	f, err := s.CreateFinding(eng, "XSS", uDora.GitAuthor())
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.SetReviewers(eng, f.Dir, []string{"bob"}, uDora)
+	s.UpdateSeverity(eng, f.Dir, "high", "", uDora)
+	if err := s.Transition(eng, f.Dir, workflow.Submit, "", uDora); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Transition(eng, f.Dir, workflow.Clear, "", uDora); err != nil {
+		t.Fatalf("own sign-off: %v", err)
+	}
+	m := load(t, s, f.Dir).F.Meta
+	if !reflect.DeepEqual(m.Reviewers, []string{"bob", "dora"}) || !reflect.DeepEqual(m.ClearedBy, []string{"dora"}) {
+		t.Fatalf("reviewers %v cleared %v", m.Reviewers, m.ClearedBy)
+	}
+	if err := s.Transition(eng, f.Dir, workflow.Approve, "", uDora); !denied(err) {
+		t.Fatalf("approved on her own sign-off: %v", err)
+	}
+	if err := s.Transition(eng, f.Dir, workflow.Clear, "", uBob); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Transition(eng, f.Dir, workflow.Approve, "", uDora); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestTransitionFlow(t *testing.T) {
 	s, _, fd := ready(t)
 	s.Transition(eng, fd, workflow.Submit, "", uAlice)

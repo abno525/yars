@@ -156,6 +156,39 @@ func TestSubmitAndClearFlow(t *testing.T) {
 	}
 }
 
+// Q25: a director who wrote a finding signs it off from the bar; Approve
+// waits for another reviewer's sign-off. A pentester author has no Sign off.
+func TestDirectorSignsOffOwnFindingBar(t *testing.T) {
+	e := setup(t)
+	st := e.srv.Store
+	f, err := st.CreateFinding("acme", "XSS", e.authorOf(wDora))
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.SetReviewers("acme", f.Dir, []string{"bob"}, wDora)
+	st.UpdateSeverity("acme", f.Dir, "high", "", e.authorOf(wDora))
+	if err := st.Transition("acme", f.Dir, workflow.Submit, "", wDora); err != nil {
+		t.Fatal(err)
+	}
+	wf := wfSection(t, e.do(t, "dora", "GET", "/e/acme/f/002", nil, nil).Body.String())
+	if !strings.Contains(wf, `<button class="btn w112 primary" id="wf-clear" aria-keyshortcuts="Shift&#43;O" data-action="clear" title="Sign off">Sign off</button>`) {
+		t.Fatalf("no enabled Sign off for the director author:\n%s", wf)
+	}
+	if !strings.Contains(wf, `id="wf-approve" aria-keyshortcuts="Shift&#43;A" data-action="approve" disabled`) {
+		t.Fatalf("Approve does not wait:\n%s", wf)
+	}
+	if rec := e.do(t, "dora", "POST", "/e/acme/f/002/action/clear", url.Values{}, nil); rec.Code != http.StatusSeeOther {
+		t.Fatalf("sign off %d", rec.Code)
+	}
+	if ref, _ := st.Finding("acme", f.Dir); !slices.Contains(ref.F.Meta.ClearedBy, "dora") {
+		t.Fatalf("not signed off: %v", ref.F.Meta.ClearedBy)
+	}
+	e.toVerification(t)
+	if wf := wfSection(t, e.do(t, "alice", "GET", fpath, nil, nil).Body.String()); strings.Contains(wf, `data-action="clear"`) {
+		t.Fatalf("Sign off for a pentester author:\n%s", wf)
+	}
+}
+
 // events lists the finding's workflow events as "user:event".
 func (e *env) events(t *testing.T) string {
 	t.Helper()

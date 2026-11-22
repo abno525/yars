@@ -72,11 +72,22 @@ func TestCheckMatrix(t *testing.T) {
 			t.Errorf("%s %s on %s: err=%v want allowed=%v", c.u.Username, c.a, c.m.Status, err, c.want)
 		}
 	}
-	// author who is director still can't clear own finding
+	// Q25: a director signs off their own finding; their sign-off alone
+	// does not let them approve it
 	m := meta("verification")
 	m.Author = "dora"
-	if Check(dora, m, Clear) == nil {
-		t.Error("author cleared own finding")
+	if err := Check(dora, m, Clear); err != nil {
+		t.Errorf("director signs off own finding: %v", err)
+	}
+	m.Reviewers, m.ClearedBy = []string{"bob", "dora"}, []string{"dora"}
+	if Check(dora, m, Approve) == nil {
+		t.Error("the author approved on her own sign-off")
+	}
+	// any other author still can't, even assigned (a hand edit)
+	own := meta("verification")
+	own.Author, own.Reviewers = "bob", []string{"bob"}
+	if err := Check(bob, own, Clear); err == nil || err.Error() != "only a director can sign off their own finding" {
+		t.Errorf("reviewer signs off own finding: %v", err)
 	}
 	// every role from reviewer up can be assigned as a reviewer
 	for _, u := range []config.User{bob, dora, adm} {
