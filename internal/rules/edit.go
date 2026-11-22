@@ -153,7 +153,7 @@ func (e *Engine) RunRule(ctx context.Context, r Rule, d Doc) []Violation {
 		ctx, cancel = context.WithTimeout(ctx, e.Budget)
 		defer cancel()
 	}
-	_, ver := e.current()
+	_, at := e.currentAt()
 	set := &Set{Dir: e.Dir, Rules: []Rule{r}}
-	return set.Run(withVersion(ctx, ver), d, e.conf(), All, e.Runner)
+	return set.Run(withVersion(ctx, at), d, e.conf(), All, e.Runner)
 }

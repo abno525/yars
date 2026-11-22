@@ -143,8 +143,8 @@ func (rn *Runner) Script(ctx context.Context, r Rule, d Doc) []Violation {
 	kr := r
 	kr.Enabled = nil
 	def, _ := json.Marshal(kr) // plain fields: it cannot fail
-	ver := rulesVersion(ctx, rn.Dir)
-	ck := resultKey("script", scriptFormat, ver, path, r.ID, string(def), string(input))
+	at := rulesAt(ctx, rn.Dir)
+	ck := resultKey("script", scriptFormat, at.ver, path, r.ID, string(def), string(input))
 	if vs, ok := rn.scriptCache().Get(ck); ok {
 		return slices.Clone(vs)
 	}
@@ -154,9 +154,11 @@ func (rn *Runner) Script(ctx context.Context, r Rule, d Doc) []Violation {
 		return slices.Clone(vs)
 	}
 	vs, ok := rn.runScript(ctx, r, path, input)
-	// kept only while the folder is still the version of the key: one
-	// changed during the check ran as it is now, not as the key says
-	if ok && dirVersion(rn.Dir) == ver {
+	// kept only while the folder is as it was when the key's version was
+	// taken (its signature: sizes and times, so a change undone in between
+	// counts too): a script changed during the check ran as it is now, not
+	// as the key says
+	if ok && dirSignature(rn.Dir) == at.stamp {
 		rn.scriptCache().Add(ck, vs)
 		rn.keep(ck, "script", vs)
 	}

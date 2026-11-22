@@ -98,14 +98,17 @@ const freshFor = 2 * time.Second
 // may live in one) with its size and time: it changes when any of them does.
 // A file written within freshFor counts by its content too, since a
 // rewrite of the same size in the same tick keeps both.
-func (e *Engine) signature() string {
+func (e *Engine) signature() string { return dirSignature(e.Dir) }
+
+// dirSignature is the signature of the rules folder dir (Engine.signature).
+func dirSignature(dir string) string {
 	var parts []string
-	filepath.WalkDir(e.Dir, func(p string, d fs.DirEntry, err error) error {
+	filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return nil
 		}
 		if info, err := d.Info(); err == nil {
-			rel, _ := filepath.Rel(e.Dir, p)
+			rel, _ := filepath.Rel(dir, p)
 			part := fmt.Sprintf("%s:%d:%d", filepath.ToSlash(rel), info.Size(), info.ModTime().UnixNano())
 			if time.Since(info.ModTime()) < freshFor {
 				if b, err := os.ReadFile(p); err == nil {
@@ -158,26 +161,38 @@ func (e *Engine) Rules() *Set {
 // current returns the rule set and its version, reloading them if files
 // changed.
 func (e *Engine) current() (*Set, string) {
+	s, at := e.currentAt()
+	return s, at.ver
+}
+
+// currentAt is current with the folder's signature the version was taken
+// at.
+func (e *Engine) currentAt() (*Set, loaded) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.reload()
-	return e.set, e.ver
+	return e.set, loaded{ver: e.ver, stamp: e.stamp}
 }
+
+// loaded is the rules a run uses: their version (the script results' key)
+// and the folder's signature when that version was taken, which a script's
+// result is kept against (cheap: sizes and times).
+type loaded struct{ ver, stamp string }
 
 type versionKey struct{}
 
-// withVersion tells the runner the version of the rules a run uses (the
-// script results' key).
-func withVersion(ctx context.Context, ver string) context.Context {
-	return context.WithValue(ctx, versionKey{}, ver)
+// withVersion tells the runner the rules a run uses.
+func withVersion(ctx context.Context, at loaded) context.Context {
+	return context.WithValue(ctx, versionKey{}, at)
 }
 
-// rulesVersion is the version withVersion gave ctx, or that of dir now.
-func rulesVersion(ctx context.Context, dir string) string {
-	if v, ok := ctx.Value(versionKey{}).(string); ok {
-		return v
+// rulesAt is what withVersion gave ctx, or the folder dir as it is now.
+func rulesAt(ctx context.Context, dir string) loaded {
+	if at, ok := ctx.Value(versionKey{}).(loaded); ok {
+		return at
 	}
-	return dirVersion(dir)
+	stamp := dirSignature(dir)
+	return loaded{ver: dirVersion(dir), stamp: stamp}
 }
 
 // reload loads the rules again when the files changed (e.mu held).
@@ -209,8 +224,8 @@ func (e *Engine) LintDoc(ctx context.Context, d Doc, kinds Kind) []Violation {
 		ctx, cancel = context.WithTimeout(ctx, e.Budget)
 		defer cancel()
 	}
-	s, ver := e.current()
-	return s.Run(withVersion(ctx, ver), d, e.conf(), kinds, e.Runner)
+	s, at := e.currentAt()
+	return s.Run(withVersion(ctx, at), d, e.conf(), kinds, e.Runner)
 }
 
 // Check runs every rule kind on a finding within the time budget, telling
@@ -241,8 +256,8 @@ func (e *Engine) CheckWith(ctx context.Context, f *finding.Finding, h Hooks) []V
 		ctx, cancel = context.WithTimeout(ctx, e.Budget)
 		defer cancel()
 	}
-	s, ver := e.current()
-	return s.RunWith(withVersion(ctx, ver), DocOf(f), e.conf(), All, e.Runner, h)
+	s, at := e.currentAt()
+	return s.RunWith(withVersion(ctx, at), DocOf(f), e.conf(), All, e.Runner, h)
 }
 
 // CheckDoc is Check on a finding document.
@@ -252,8 +267,8 @@ func (e *Engine) CheckDoc(ctx context.Context, d Doc, progress func(done, total 
 		ctx, cancel = context.WithTimeout(ctx, e.Budget)
 		defer cancel()
 	}
-	s, ver := e.current()
-	return s.RunProgress(withVersion(ctx, ver), d, e.conf(), All, e.Runner, progress)
+	s, at := e.currentAt()
+	return s.RunProgress(withVersion(ctx, at), d, e.conf(), All, e.Runner, progress)
 }
 
 // LintSection returns fast-rule hints for a section body being edited.

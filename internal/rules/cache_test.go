@@ -395,8 +395,8 @@ func TestScriptResultNotKeptAcrossRulesChange(t *testing.T) {
 type versionRunner struct{ got []string }
 
 func (v *versionRunner) Script(ctx context.Context, _ Rule, _ Doc) []Violation {
-	ver, _ := ctx.Value(versionKey{}).(string)
-	v.got = append(v.got, ver)
+	at, _ := ctx.Value(versionKey{}).(loaded)
+	v.got = append(v.got, at.ver)
 	return nil
 }
 
