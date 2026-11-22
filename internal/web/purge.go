@@ -76,23 +76,29 @@ func (s *Server) renderPurge(w http.ResponseWriter, r *http.Request, status int,
 	}
 	fu := findingURL(ref.EngID, ref.Dir)
 	p.Purge = purgeView{ID: ref.F.Meta.ID, Name: name, URL: purgeURL(ref, name), Back: fu + "#attachments", Error: errMsg}
-	holders, err := s.Store.RetestHolders(ref.EngID, ref.Dir, name)
+	holders, unread, err := s.Store.RetestHolders(ref.EngID, ref.Dir, name)
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
 	var names []string
-	for _, h := range holders {
-		n := h.EngID
-		if e, err := s.Store.Engagement(h.EngID); err == nil && e.Name != "" {
+	add := func(id, u, note string) {
+		n := id
+		if e, err := s.Store.Engagement(id); err == nil && e.Name != "" {
 			n = e.Name
 		}
-		names = append(names, n)
+		names = append(names, n+note)
+		p.Purge.Retests = append(p.Purge.Retests, purgeRetest{Name: n + note, URL: u})
+	}
+	for _, h := range holders {
 		u := "/e/" + h.EngID // the copy is gone: its history holds it
 		if h.Dir != "" {
 			u = findingURL(h.EngID, h.Dir) + "#attachments"
 		}
-		p.Purge.Retests = append(p.Purge.Retests, purgeRetest{Name: n, URL: u})
+		add(h.EngID, u, "")
+	}
+	for _, id := range unread { // it may hold it too: look there
+		add(id, "/e/"+id, " (could not be read)")
 	}
 	p.Purge.Holders = strings.Join(names, ", ")
 	p.TabTitle = "Purge " + name

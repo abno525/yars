@@ -229,16 +229,16 @@ func TestRetestHolders(t *testing.T) {
 	if err := s.Archive("rt3", uDora); err != nil {
 		t.Fatal(err)
 	}
-	if got, err := s.RetestHolders(eng, "F-003-csrf", "shot.png"); err != nil || len(got) != 0 {
-		t.Fatalf("before any redaction %v %v", idsOf(got), err)
+	if got, unread, err := s.RetestHolders(eng, "F-003-csrf", "shot.png"); err != nil || len(got) != 0 || len(unread) != 0 {
+		t.Fatalf("before any redaction %v %v %v", idsOf(got), unread, err)
 	}
 	if err := s.ReplaceAttachment(eng, "F-003-csrf", "shot.png", pngBytes(t, color.Black), uAlice); err != nil {
 		t.Fatal(err)
 	}
 	retestOf(t, s, "rt4", eng)
-	got, err := s.RetestHolders(eng, "F-003-csrf", "shot.png")
-	if err != nil || !slices.Equal(idsOf(got), []string{"rt1", "rt3", "rt2"}) || got[0].Dir != "F-003-csrf" {
-		t.Fatalf("holders %v %v", idsOf(got), err)
+	got, unread, err := s.RetestHolders(eng, "F-003-csrf", "shot.png")
+	if err != nil || !slices.Equal(idsOf(got), []string{"rt1", "rt3", "rt2"}) || got[0].Dir != "F-003-csrf" || len(unread) != 0 {
+		t.Fatalf("holders %v %v %v", idsOf(got), unread, err)
 	}
 	// rt1's own Purge takes the original out of its first commit, whatever
 	// git's log.showRoot says
@@ -253,8 +253,8 @@ func TestRetestHolders(t *testing.T) {
 	if err := s.PurgeFromHistory(eng, "F-003-csrf", "shot.png", uDora); err != nil {
 		t.Fatal(err)
 	}
-	if got, err := s.RetestHolders(eng, "F-003-csrf", "shot.png"); err != nil || !slices.Equal(idsOf(got), []string{"rt3", "rt2"}) {
-		t.Fatalf("after the purges %v %v", idsOf(got), err)
+	if got, unread, err := s.RetestHolders(eng, "F-003-csrf", "shot.png"); err != nil || !slices.Equal(idsOf(got), []string{"rt3", "rt2"}) || len(unread) != 0 {
+		t.Fatalf("after the purges %v %v %v", idsOf(got), unread, err)
 	}
 }
 
@@ -270,9 +270,9 @@ func TestRetestHoldersCopyGone(t *testing.T) {
 	if err := s.ReplaceAttachment(eng, "F-003-csrf", "shot.png", pngBytes(t, color.Black), uAlice); err != nil {
 		t.Fatal(err)
 	}
-	got, err := s.RetestHolders(eng, "F-003-csrf", "shot.png")
-	if err != nil || !slices.Equal(idsOf(got), []string{"rt1"}) || got[0].Dir != "" {
-		t.Fatalf("holders %+v %v", got, err)
+	got, unread, err := s.RetestHolders(eng, "F-003-csrf", "shot.png")
+	if err != nil || !slices.Equal(idsOf(got), []string{"rt1"}) || got[0].Dir != "" || len(unread) != 0 {
+		t.Fatalf("holders %+v %v %v", got, unread, err)
 	}
 }
 

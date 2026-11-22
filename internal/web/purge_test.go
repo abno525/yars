@@ -310,6 +310,52 @@ func TestPurgePageListsRetests(t *testing.T) {
 	}
 }
 
+// A retest the redactor cannot see is never named, also when its copy
+// cannot be read: it is counted as one they have no access to.
+func TestRedactHidesUnreadableRetest(t *testing.T) {
+	e := setup(t)
+	retests(t, e)
+	if err := e.srv.Store.RemoveMember("rt1", "alice", wDora); err != nil {
+		t.Fatal(err)
+	}
+	g := filepath.Join(e.dir, "engagements", "rt1", ".git")
+	if err := os.Rename(g, g+"-off"); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Rename(g+"-off", g)
+	rec := e.sendFile(t, "alice", fpath+"/attachments/shot.png/redact", "blob", testPNG(t, color.Black))
+	got, _ := url.PathUnescape(rec.Header().Get("X-Yars-Unredacted"))
+	if rec.Code != 200 || got != "not redacted in Retest rt2 (archived), 1 retest (no access)" {
+		t.Fatalf("redact %d, left %q", rec.Code, got)
+	}
+}
+
+// A retest whose repository cannot be read (being made, or broken) does
+// not take the purge page down: it is listed as not read, linking to the
+// retest, and a refused purge still says why (409).
+func TestPurgePageUnreadableRetest(t *testing.T) {
+	e := setup(t)
+	retests(t, e)
+	if rec := e.sendFile(t, "alice", fpath+"/attachments/shot.png/redact", "blob", testPNG(t, color.Black)); rec.Code != 200 {
+		t.Fatalf("redact %d", rec.Code)
+	}
+	g := filepath.Join(e.dir, "engagements", "rt1", ".git")
+	if err := os.Rename(g, g+"-off"); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Rename(g+"-off", g)
+	rec := e.do(t, "dora", "GET", fpath+"/attachments/shot.png/purge", nil, nil)
+	if b := rec.Body.String(); rec.Code != 200 || !strings.Contains(b, `<a href="/e/rt2/f/001#attachments">Retest rt2</a>, <a href="/e/rt1">Retest rt1 (could not be read)</a>`) {
+		t.Fatalf("purge page %d:\n%s", rec.Code, b)
+	}
+	if rec := e.sendFile(t, "alice", fpath+"/attachments", "copy.png", testPNG(t, color.White)); rec.Code != 200 {
+		t.Fatalf("upload %d", rec.Code)
+	}
+	if rec := e.do(t, "dora", "POST", fpath+"/attachments/shot.png/purge", url.Values{}, nil); rec.Code != http.StatusConflict {
+		t.Fatalf("purge with a copy elsewhere %d:\n%s", rec.Code, rec.Body.String())
+	}
+}
+
 // D28: below director, neither the page nor the purge.
 func TestPurgeForbiddenBelowDirector(t *testing.T) {
 	e := setup(t)

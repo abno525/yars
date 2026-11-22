@@ -501,7 +501,11 @@ func (s *Store) redactRetests(src FindingRef, name string, data []byte, a Actor)
 		switch {
 		case err != nil:
 			log.Printf("redact %s/%s/%s: %v", c.EngID, c.Dir, name, err)
-			rd.Failed = append(rd.Failed, c.EngID)
+			if isUser && !s.CanSee(u, c.EngID) { // not named to them, failed or not
+				rd.Hidden = append(rd.Hidden, c.EngID)
+			} else {
+				rd.Failed = append(rd.Failed, c.EngID)
+			}
 			continue
 		case !vers[b]: // none, changed since, or redacted already
 			continue

@@ -175,43 +175,46 @@ func (s *Store) earlierVersions(engID, p, fid, name string) (map[string]bool, er
 // name, in its files or its history: one a Purge from history removes
 // here, or removed. Each is its copy of the finding, or only the
 // engagement (Dir "") when the copy is gone. A purge is per engagement; a
-// director purges there too (Q12).
-func (s *Store) RetestHolders(engID, dir, name string) ([]FindingRef, error) {
+// director purges there too (Q12). unread names the retests whose
+// repository could not be read (one being made, or broken): they may hold
+// it too.
+func (s *Store) RetestHolders(engID, dir, name string) (held []FindingRef, unread []string, err error) {
 	if !ValidID(engID) || !ValidID(dir) || !attachmentRe.MatchString("attachments/"+name) {
-		return nil, ErrNotFound
+		return nil, nil, ErrNotFound
 	}
 	ref, err := s.Finding(engID, dir)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	fid := ref.F.Meta.ID
 	old, err := s.earlierVersions(engID, "findings/"+ref.Dir+"/attachments/"+name, fid, name)
 	if err != nil || len(old) == 0 {
-		return nil, err
+		return nil, nil, err
 	}
 	rts, err := s.retestsOf(engID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	var out []FindingRef
 	for _, e := range rts {
 		h, cp := FindingRef{EngID: e.ID}, ""
 		if c, ok := s.copyIn(e, fid); ok {
 			h, cp = c, "findings/"+c.Dir+"/attachments/"+name
 		}
 		cr, err := s.EngRepo(e.ID)
-		if err != nil {
-			return nil, err
+		var blobs []string
+		if err == nil {
+			blobs, err = cr.BlobsWhere(versionPaths(cp, fid, name))
 		}
-		held, err := cr.BlobsWhere(versionPaths(cp, fid, name))
 		if err != nil {
-			return nil, err
+			log.Printf("retests holding %s/%s/%s: %s: %v", engID, fid, name, e.ID, err)
+			unread = append(unread, e.ID)
+			continue
 		}
-		if slices.ContainsFunc(held, func(b string) bool { return old[b] }) {
-			out = append(out, h)
+		if slices.ContainsFunc(blobs, func(b string) bool { return old[b] }) {
+			held = append(held, h)
 		}
 	}
-	return out, nil
+	return held, unread, nil
 }
 
 // finishCleanup completes an earlier purge of the engagement that stopped
