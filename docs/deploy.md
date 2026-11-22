@@ -32,6 +32,8 @@ echo 'change-me' | sudo -u yars yars useradd --data /srv/yars --role director --
 
 The account's home is outside the data folder: rule and exporter scripts run with it as `HOME`, and anything in the data folder goes into every backup. The last line makes the first admin; the password is read from standard input. Without it, the first visit to the website opens `/setup` to create one.
 
+A new data folder has no check rules. Add the ones you want in Admin › Rules, or as files in `.yars/rules/` (see [rules.md](rules.md) for script rules).
+
 Admin › System › Restore writes the restored folder next to the data folder, so it needs `/srv` writable by `yars`. With `/srv` owned by root, restore from the shell instead (see the restore drill).
 
 ## Run as a service

@@ -24,7 +24,7 @@ The final test (`v1-walkthrough.md`) passed. These are the things worth doing yo
   - New lead stays last on the team board, and the other engagement tabs keep its place as an empty slot.
 - [ ] With your AI provider set:
   - run Check twice on an unchanged finding: the second run makes no AI call (Admin › System › AI usage stays the same), also after a restart (Q1).
-  - Without a provider, every finding shows an orange "AI checks failed" badge for the default AI rule; with one, it goes away.
+  - A new data folder (`yars init`) starts with no rules; an existing one keeps the rules it has.
 - [ ] Your Confluence: send one finding with an image to a test page. The image should show inline and appear once in the page's attachments (Q5); it was tested against a fake server only.
 - [ ] Optional: set `checks.max_running: 1` in `.yars/config.yaml`. With a slow rule, start Check on two findings: the second strip shows "Queued" until the first ends (Q3).
 

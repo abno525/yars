@@ -188,6 +188,7 @@ func TestLintShowsScriptFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	rdir := filepath.Join(dir, ".yars", "rules")
+	os.MkdirAll(rdir, 0o755) // init writes no rules, so no folder
 	os.WriteFile(filepath.Join(rdir, "boom.yaml"), []byte("- id: boom\n  level: error\n  script: boom.sh\n"), 0o644)
 	os.WriteFile(filepath.Join(rdir, "boom.sh"), []byte("#!/bin/sh\necho kaputt >&2\nexit 3\n"), 0o755)
 	r, _ := gitrepo.Open(dir)
@@ -327,9 +328,7 @@ func TestLintCommand(t *testing.T) {
 	if err := cmdInit([]string{dir}); err != nil {
 		t.Fatal(err)
 	}
-	if b, err := os.ReadFile(filepath.Join(dir, ".yars", "rules", "style.yaml")); err != nil || !strings.Contains(string(b), "title-no-trailing-dot") {
-		t.Fatalf("example rules not written: %v", err)
-	}
+	withTestRules(t, dir)
 	r, _ := gitrepo.Open(dir)
 	st := store.New(r, config.Default(), nil)
 	a := gitrepo.Author{Name: "t", Email: "t@t"}
@@ -363,6 +362,7 @@ func TestLintCommand(t *testing.T) {
 	if err := cmdInit([]string{empty}); err != nil {
 		t.Fatal(err)
 	}
+	os.MkdirAll(filepath.Join(empty, ".yars", "rules"), 0o755) // init writes no rules, so no folder
 	os.WriteFile(filepath.Join(empty, ".yars", "rules", "broken.yaml"), []byte("rules: [\n"), 0o644)
 	out.Reset()
 	if code, err := cmdLint([]string{"--data", empty}, &out); code != 1 || err != nil || !strings.Contains(out.String(), "rules/broken.yaml") {

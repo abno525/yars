@@ -271,6 +271,7 @@ func newPushEnvWith(t *testing.T, tune func(gs *gitserve.Server)) *pushEnv {
 	if err := cmdInit([]string{dir}); err != nil {
 		t.Fatal(err)
 	}
+	withTestRules(t, dir) // the server's check rules, which pushes run
 	r, _ := gitrepo.Open(dir)
 	hash := testHash(t, "pw")
 	users := []config.User{{Username: "alice", Role: "pentester", PasswordHash: hash}, {Username: "dora", Role: "director", PasswordHash: hash, IsAdmin: true}}

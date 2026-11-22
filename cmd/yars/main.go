@@ -23,7 +23,6 @@ package main
 import (
 	"bufio"
 	"context"
-	_ "embed"
 	"errors"
 	"flag"
 	"fmt"
@@ -55,9 +54,6 @@ import (
 )
 
 var system = gitrepo.Author{Name: "yars", Email: "yars@yars.local"}
-
-//go:embed rules_example.yaml
-var exampleRules []byte
 
 func exportRunner(dataDir string) *export.Runner {
 	pandoc, _ := exec.LookPath("pandoc")
@@ -825,7 +821,8 @@ func cmdSeed(args []string, out io.Writer) error {
 }
 
 // initData creates and initialises a data directory: main repo, config,
-// example rules and exporters, database.
+// example exporters, database. It writes no rules: the owner adds the ones
+// they want (Admin › Rules, or files in .yars/rules/).
 func initData(dir string) error {
 	r, err := gitrepo.Init(dir)
 	if err != nil {
@@ -841,14 +838,10 @@ func initData(dir string) error {
 		return err
 	}
 	b, _ := yaml.Marshal(config.Default())
-	if err := os.MkdirAll(rules.DirFor(dir), 0o755); err != nil {
-		return err
-	}
 	files := map[string][]byte{
-		config.ConfigPath(dir):                         b,
-		filepath.Join(dir, ".gitignore"):               []byte(serverIgnore),
-		filepath.Join(dir, "engagements", ".gitkeep"):  nil,
-		filepath.Join(rules.DirFor(dir), "style.yaml"): exampleRules,
+		config.ConfigPath(dir):                        b,
+		filepath.Join(dir, ".gitignore"):              []byte(serverIgnore),
+		filepath.Join(dir, "engagements", ".gitkeep"): nil,
 	}
 	for p, c := range files {
 		if err := os.WriteFile(p, c, 0o644); err != nil {
@@ -874,7 +867,7 @@ func initData(dir string) error {
 	if err := secret.EnsureKey(dir); err != nil {
 		return err
 	}
-	return r.Commit([]string{".yars/config.yaml", ".yars/rules", ".yars/exporters", ".gitignore", "engagements"}, "init", system)
+	return r.Commit([]string{".yars/config.yaml", ".yars/exporters", ".gitignore", "engagements"}, "init", system)
 }
 
 // accountCmd parses "--data <dir> <args…>" (want positional arguments) and
