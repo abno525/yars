@@ -244,6 +244,10 @@ func TestTokenNewSentenceCase(t *testing.T) {
 	if !strings.Contains(css, ".seg.nocap > a, .seg.nocap > label > span { text-transform: none; }") {
 		t.Error("nocap leaves radio segments capitalized")
 	}
+	// Admin › AI's Provider reads "OpenAI-compatible", as its label is
+	if b := e.do(t, "dora", "GET", "/admin/ai", nil, nil).Body.String(); !strings.Contains(b, `<div class="seg n3 wide nocap" role="radiogroup" aria-label="Provider">`) {
+		t.Errorf("Provider is capitalized:\n%s", between(b, `aria-label="Provider"`, "</div>"))
+	}
 }
 
 // An inbox row's who · what has its dot only between the two: a notice

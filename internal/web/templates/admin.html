@@ -212,7 +212,7 @@
     <div class="panelhead"><h2>AI provider</h2><span class="tag {{.State}}">{{.StateLabel}}</span></div>
     <div class="frows flush">
       <div class="frow"><span class="flabel">Provider</span>
-        <div class="seg n3 wide" role="radiogroup" aria-label="Provider">{{range .Providers}}<label><input type="radio" name="provider" value="{{.Value}}"{{if .On}} checked{{end}}><span>{{.Label}}</span></label>{{end}}</div>
+        <div class="seg n3 wide nocap" role="radiogroup" aria-label="Provider">{{range .Providers}}<label><input type="radio" name="provider" value="{{.Value}}"{{if .On}} checked{{end}}><span>{{.Label}}</span></label>{{end}}</div>
       </div>
       <label class="frow"><span class="flabel">Address</span><input class="monoin" name="base_url" value="{{.BaseURL}}" placeholder="https://api.openai.com/v1"></label>
       <label class="frow"><span class="flabel">Model</span><input class="monoin w360" name="model" value="{{.Model}}"></label>
