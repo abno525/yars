@@ -110,7 +110,7 @@ keys.js hides the Finding page group where there are no panels */}}
       <section class="kgroup" data-keys-group="lists"><h3 class="gh">Lists</h3>
         <dl>
           <div class="krow"><dt><kbd>j</kbd><kbd>k</kbd><kbd>↓</kbd><kbd>↑</kbd></dt><dd>Next or previous row</dd></div>
-          <div class="krow"><dt><kbd>Enter</kbd></dt><dd>Open the row</dd></div>
+          <div class="krow" data-keys-if="a[data-nav], button[data-nav]"><dt><kbd>Enter</kbd></dt><dd>Open the row</dd></div>
           <div class="krow" data-keys-if="tr input[type=checkbox]"><dt><kbd>x</kbd></dt><dd>Tick the row</dd></div>
           <div class="krow" data-keys-if="form[action$='/archive'] [aria-keyshortcuts~=A]"><dt><kbd>a</kbd></dt><dd>Archive the row</dd></div>
           <div class="krow" data-keys-if="form[action$='/reopen'] [aria-keyshortcuts~=R]"><dt><kbd>r</kbd></dt><dd>Reopen the row</dd></div>

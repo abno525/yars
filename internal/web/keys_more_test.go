@@ -31,8 +31,7 @@ func TestTeamBoardKeys(t *testing.T) {
 		t.Error("the new lead form is not guarded")
 	}
 	app := e.do(t, "bob", "GET", "/static/app.js", nil, nil).Body.String()
-	for _, w := range []string{"form[data-guard] input:not([type])", "if (!q && tg && tg.id === 'board' && evt.detail.verb === 'get' && !live && yarsDirty(tg)) {",
-		"var yarsLeaving = false;", "if (yarsLeaving || !yarsDirty(document)) return;"} {
+	for _, w := range []string{"form[data-guard] input:not([type])", "var yarsLeaving = false;", "if (yarsLeaving || !yarsDirty(document)) return;"} {
 		if !strings.Contains(app, w) {
 			t.Errorf("app.js lacks %s", w)
 		}
@@ -54,6 +53,37 @@ func TestTeamBoardKeys(t *testing.T) {
 	}
 }
 
+// After review: every request of the user's that swaps the board asks while
+// a reply or new lead is being typed (Make finding, severity, Set state,
+// Dismiss, not only the links), except posting that text itself; a question
+// raised while typing in the search box starts on Cancel; text the server
+// sent back with an error counts as unsaved; m and d act on the open lead
+// only while no other lead's row has focus; Back brings the leave warning
+// back.
+func TestTeamBoardGuardReview(t *testing.T) {
+	e := setup(t)
+	app := e.do(t, "alice", "GET", "/static/app.js", nil, nil).Body.String()
+	wantAll(t, "app.js", app,
+		"if (!q && tg && tg.id === 'board' && !live && !(evt.detail.verb !== 'get' && el && el.closest && el.closest('form[data-guard]')) && yarsDirty(tg)) {",
+		"var typing = evt.detail.triggeringEvent && evt.detail.triggeringEvent.type === 'input';",
+		"yarsConfirm(q, ok, function () { if (sel) sel.value = chosen; evt.detail.issueRequest(true); }, typing);",
+		"if (sel) yarsSelectReset(sel);",
+		"function yarsConfirm(text, ok, done, safe)",
+		"var f = safe ? d.querySelector('button[value=cancel]') || b : b;",
+		"window.addEventListener('pageshow', function () { yarsLeaving = false; });",
+		"return i === document.activeElement || i.hasAttribute('data-dirty') ||")
+	if strings.Contains(app, "evt.detail.verb === 'get' && !live") {
+		t.Error("the board asks for GETs only")
+	}
+	js := e.do(t, "alice", "GET", "/static/keys.js", nil, nil).Body.String()
+	wantAll(t, "keys.js", js, "if (el.closest('.tbacts') && curRow && !curRow.classList.contains('sel')) continue;", "var own = el.closest('[data-keys-scope]');")
+	tplHas(t, "team_board.html", `{{if .TextError}} aria-invalid="true" data-dirty{{end}}`,
+		`required{{if $e}} data-dirty{{end}}{{if index $e "title"}}`, `class="monoin"{{if $e}} data-dirty{{end}}`, `<textarea name="text" maxlength="10000" required{{if $e}} data-dirty{{end}}`)
+	if d := between(e.do(t, "alice", "GET", "/", nil, nil).Body.String(), `id="keys"`, "</dialog>"); !strings.Contains(d, `<div class="krow" data-keys-if="a[data-nav], button[data-nav]"><dt><kbd>Enter</kbd></dt><dd>Open the row</dd></div>`) {
+		t.Error("Enter's row shows where Enter opens nothing")
+	}
+}
+
 // The inbox: ↓ ↑ move through the rows; m marks read the section of the row
 // the keys moved to (none: the first that can), never another section's.
 func TestInboxKeys(t *testing.T) {
@@ -69,7 +99,7 @@ func TestInboxKeys(t *testing.T) {
 		}
 	}
 	js := e.do(t, "bob", "GET", "/static/keys.js", nil, nil).Body.String()
-	if !strings.Contains(js, "var scope = el.closest('[data-keys-scope]');") {
+	if !strings.Contains(js, "var own = el.closest('[data-keys-scope]');") {
 		t.Error("keys.js does not keep a key to the focused row's section")
 	}
 	if d := between(b, `id="keys"`, "</dialog>"); !strings.Contains(d, `<div class="krow" data-keys-if=".qacts [aria-keyshortcuts~=M], form[action='/notifications/read'] [aria-keyshortcuts~=M]"><dt><kbd>m</kbd></dt><dd>Mark all read</dd></div>`) {

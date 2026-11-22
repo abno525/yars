@@ -73,7 +73,7 @@
       </div>
     </div>
     <div class="pfoot flush">
-      {{if .New}}<span class="slot w112"></span>{{else}}<button class="btn danger sm w112" form="dest-delete">Delete</button>{{end}}
+      {{if .New}}<span class="slot w112"></span>{{else}}<button class="btn danger sm w112" form="dest-delete" data-confirm="Delete the destination {{.ID}}?">Delete</button>{{end}}
       <span class="pstate error" title="{{.Error}}">{{.Error}}</span>
       <button class="btn primary sm w128">Save</button>
     </div>

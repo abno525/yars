@@ -105,7 +105,7 @@
   {{else}}
   <form class="tbcomposer" data-guard hx-post="{{.PostURL}}post" hx-target="#board" hx-swap="outerHTML">
     {{template "lead_keep" .}}
-    <textarea id="tb-text" name="text" aria-label="Reply" placeholder="Reply" maxlength="10000"{{if .TextError}} aria-invalid="true"{{end}}>{{.Text}}</textarea>
+    <textarea id="tb-text" name="text" aria-label="Reply" placeholder="Reply" maxlength="10000"{{if .TextError}} aria-invalid="true" data-dirty{{end}}>{{.Text}}</textarea>
     <div class="tbcrow"><span class="tberr error">{{.TextError}}</span><button type="button" class="btn ghost sm w136" data-quote="{{.Quote}}">Quote request</button><button class="btn save sm w96">Post</button></div>
   </form>
   {{end}}
@@ -117,19 +117,20 @@
 {{define "lead_new"}}
 {{$e := .New.Errs}}
 <section class="tbthread" aria-label="New lead">
+  {{/* refused (errors): the text came back from the server, so it is unsaved (data-dirty) */}}
   <form class="tbnew" data-guard hx-post="{{.URL}}" hx-target="#board" hx-swap="outerHTML">
     <input type="hidden" name="keep_state" value="{{.State}}"><input type="hidden" name="keep_q" value="{{.Q}}">
     <div class="tbhead"><div class="tbtitle"><h2>New lead</h2></div></div>
     <div class="tbfields">
-      <label class="nefield">Title<input name="title" value="{{.New.Title}}" maxlength="200" autocomplete="off" required{{if index $e "title"}} aria-invalid="true" aria-describedby="err-title"{{end}}><span class="ferr" id="err-title">{{index $e "title"}}</span></label>
-      <label class="nefield">Host<input name="host" value="{{.New.Host}}" maxlength="2000" autocomplete="off" class="monoin"{{if index $e "host"}} aria-invalid="true"{{end}}><span class="ferr" id="err-host">{{index $e "host"}}</span></label>
+      <label class="nefield">Title<input name="title" value="{{.New.Title}}" maxlength="200" autocomplete="off" required{{if $e}} data-dirty{{end}}{{if index $e "title"}} aria-invalid="true" aria-describedby="err-title"{{end}}><span class="ferr" id="err-title">{{index $e "title"}}</span></label>
+      <label class="nefield">Host<input name="host" value="{{.New.Host}}" maxlength="2000" autocomplete="off" class="monoin"{{if $e}} data-dirty{{end}}{{if index $e "host"}} aria-invalid="true"{{end}}><span class="ferr" id="err-host">{{index $e "host"}}</span></label>
       <div class="nefield"><span>State</span>
         <div class="seg n2" role="radiogroup" aria-label="State">
           <label><input type="radio" name="state" value="open"{{if ne .New.State "info"}} checked{{end}}><span>Open</span></label><label><input type="radio" name="state" value="info"{{if eq .New.State "info"}} checked{{end}}><span>Info</span></label>
         </div>
         <span class="ferr" id="err-state">{{index $e "state"}}</span>
       </div>
-      <label class="nefield grow">First message<textarea name="text" maxlength="10000" required{{if index $e "text"}} aria-invalid="true"{{end}}>{{.New.Text}}</textarea><span class="ferr" id="err-text">{{index $e "text"}}</span></label>
+      <label class="nefield grow">First message<textarea name="text" maxlength="10000" required{{if $e}} data-dirty{{end}}{{if index $e "text"}} aria-invalid="true"{{end}}>{{.New.Text}}</textarea><span class="ferr" id="err-text">{{index $e "text"}}</span></label>
     </div>
     <div class="tbcrow"><span class="tberr"></span><a class="btn secondary sm w96" href="{{.URL}}" hx-get="{{.URL}}" hx-target="#board" hx-swap="outerHTML" hx-push-url="true">Cancel</a><button class="btn primary sm w96">Create</button></div>
   </form>

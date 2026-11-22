@@ -187,6 +187,7 @@ function yarsFire(key, scope) {
   var els = (scope || document).querySelectorAll('[aria-keyshortcuts]');
   var cur = yarsRowOf(document.activeElement);
   var curScope = cur && cur.closest ? cur.closest('[data-keys-scope]') : null;
+  var curRow = cur && cur.closest ? cur.closest('tr') : null;
   for (var i = 0; i < els.length; i++) {
     var el = els[i];
     // a row's own buttons are yarsRowFire's (the focused row only)
@@ -194,8 +195,10 @@ function yarsFire(key, scope) {
     if (el.offsetParent === null || el.disabled) continue;
     // a section's own key (the inbox's Mark all read): with a row focused,
     // that row's section only
-    var scope = el.closest('[data-keys-scope]');
-    if (scope && curScope && scope !== curScope) continue;
+    var own = el.closest('[data-keys-scope]');
+    if (own && curScope && own !== curScope) continue;
+    // the open lead's m and d: not while another lead's row has focus
+    if (el.closest('.tbacts') && curRow && !curRow.classList.contains('sel')) continue;
     yarsPress(el);
     return true;
   }

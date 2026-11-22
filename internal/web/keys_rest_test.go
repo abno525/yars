@@ -74,7 +74,8 @@ func TestExportKeys(t *testing.T) {
 	tplHas(t, "export_setup.html", `<a class="btn primary w160" href="/e/{{.Eng.ID}}/export/setup" aria-keyshortcuts="N">New destination</a>`,
 		`<table class="table stable desttable flush" data-arrows>`,
 		`<span class="btn save sm w96" aria-current="true" tabindex="0" data-nav>Editing</span>`,
-		`<a class="btn ghost sm w96" href="/e/{{$.Eng.ID}}/export/setup?edit={{.ID}}" data-nav>Edit</a>`)
+		`<a class="btn ghost sm w96" href="/e/{{$.Eng.ID}}/export/setup?edit={{.ID}}" data-nav>Edit</a>`,
+		`<button class="btn danger sm w112" form="dest-delete" data-confirm="Delete the destination {{.ID}}?">Delete</button>`)
 }
 
 // Admin › Rules and Webhooks: n a new one; ↓ ↑ through the rows; on the

@@ -267,8 +267,9 @@ function yarsComment(section) {
 // labelled ok, and runs done when that is pressed; Cancel or Esc keep things
 // as they are (a click outside does nothing: the second click of a
 // double-click would land there). A page without the dialog (none signed
-// in) falls back to the browser's.
-function yarsConfirm(text, ok, done) {
+// in) falls back to the browser's. safe: the question came up while typing
+// (the team board's search), so the next key lands on Cancel, not OK.
+function yarsConfirm(text, ok, done, safe) {
   var d = document.getElementById('confirm');
   if (!d || !d.showModal) {
     if (window.confirm(text)) done();
@@ -281,7 +282,8 @@ function yarsConfirm(text, ok, done) {
   d.onclose = function () { d.onclose = null; if (d.returnValue === 'ok') done(); };
   // after the event that asked: an Esc that cancelled an editor would close
   // a dialog opened during it
-  setTimeout(function () { d.showModal(); b.focus(); }, 0);
+  var f = safe ? d.querySelector('button[value=cancel]') || b : b;
+  setTimeout(function () { d.showModal(); f.focus(); }, 0);
 }
 
 // Comment buttons and confirm buttons are wired here (no inline handlers:
@@ -431,7 +433,8 @@ document.addEventListener('htmx:beforeSwap', function (evt) {
   var ev = evt.detail.requestConfig && evt.detail.requestConfig.triggeringEvent;
   if (!t || t.id !== 'board' || !ev || String(ev.type).indexOf('sse:') !== 0) return;
   var busy = Array.prototype.some.call(t.querySelectorAll('textarea, input:not([type=hidden]), select'), function (i) {
-    return i === document.activeElement || (i.value !== undefined && i.defaultValue !== undefined && i.value !== i.defaultValue);
+    // data-dirty: text the server sent back with an error is unsaved too
+    return i === document.activeElement || i.hasAttribute('data-dirty') || (i.value !== undefined && i.defaultValue !== undefined && i.value !== i.defaultValue);
   }) || !!t.querySelector('details[open]');
   if (busy) evt.detail.shouldSwap = false;
 });
@@ -802,6 +805,9 @@ function yarsDirty(scope) {
 // yarsLeaving: the page's own dialog already asked (a key that leaves the
 // page, keys.js yarsPress), so the browser's leave warning does not ask again
 var yarsLeaving = false;
+// Back to a page kept in the browser's cache: its text is there again, so
+// leaving it warns again
+window.addEventListener('pageshow', function () { yarsLeaving = false; });
 window.addEventListener('beforeunload', function (evt) {
   if (yarsLeaving || !yarsDirty(document)) return;
   evt.preventDefault();
@@ -819,18 +825,33 @@ document.addEventListener('htmx:confirm', function (evt) {
       ok = 'Discard';
     }
   }
-  // the team board's reply or new lead being typed: a request of the user's
-  // that swaps the board (a filter, another lead, Cancel, n) asks first; a
-  // live refresh waits instead (htmx:beforeSwap), and posting is a POST
+  // the team board's reply or new lead being typed: any request of the
+  // user's that swaps the board (a filter, the search, another lead, Cancel,
+  // n, Make finding, Dismiss, Set state, the severity) asks first, except
+  // posting that text (a POST from the guarded form itself); a live refresh
+  // waits instead (htmx:beforeSwap)
   var tg = evt.detail.target, live = evt.detail.triggeringEvent && String(evt.detail.triggeringEvent.type).indexOf('sse:') === 0;
-  if (!q && tg && tg.id === 'board' && evt.detail.verb === 'get' && !live && yarsDirty(tg)) {
+  if (!q && tg && tg.id === 'board' && !live && !(evt.detail.verb !== 'get' && el && el.closest && el.closest('form[data-guard]')) && yarsDirty(tg)) {
     q = 'Discard changes?';
     ok = 'Discard';
   }
   if (!q) return;
   evt.preventDefault();
-  yarsConfirm(q, ok, function () { evt.detail.issueRequest(true); });
+  // asked while typing in the search box: the next key lands on Cancel
+  var typing = evt.detail.triggeringEvent && evt.detail.triggeringEvent.type === 'input';
+  // a picked severity shows its saved value again unless confirmed
+  var sel = el && el.querySelector && el.tagName === 'FORM' ? el.querySelector('select[data-choose]') : null, chosen = sel ? sel.value : '';
+  if (sel) yarsSelectReset(sel);
+  yarsConfirm(q, ok, function () { if (sel) sel.value = chosen; evt.detail.issueRequest(true); }, typing);
 });
+
+// yarsSelectReset shows a select's value as the server sent it.
+function yarsSelectReset(s) {
+  for (var i = 0; i < s.options.length; i++) {
+    if (s.options[i].defaultSelected) { s.selectedIndex = i; return; }
+  }
+  s.selectedIndex = 0;
+}
 
 /* ---------- section editor states ---------- */
 

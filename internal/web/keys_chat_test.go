@@ -25,7 +25,7 @@ func TestConfirmIsInApp(t *testing.T) {
 	if n := strings.Count(app, "window.confirm("); n != 1 {
 		t.Errorf("window.confirm used %d times", n)
 	}
-	for _, w := range []string{"function yarsConfirm(text, ok, done)", "yarsConfirm(q, ok, function () { evt.detail.issueRequest(true); });",
+	for _, w := range []string{"function yarsConfirm(text, ok, done, safe)", "evt.detail.issueRequest(true); }, typing);",
 		"q = 'Discard changes?'", "evt.detail.question", "yarsConfirm(c.getAttribute('data-confirm')"} {
 		if !strings.Contains(app, w) {
 			t.Errorf("app.js lacks %s", w)
