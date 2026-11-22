@@ -273,8 +273,15 @@ func runMCP(args []string, in io.Reader, out io.Writer) error {
 	st := store.New(r, cfg, nil)
 	eng := rules.NewEngine(rules.DirFor(r.Dir), cfg)
 	st.Linter = eng
-	srv := &mcp.Server{Store: st, Index: index.New(st, r), Rules: eng, Cfg: cfg}
+	srv := mcpServer(st, index.New(st, r), eng, cfg, nil)
 	return srv.ServeStdio(context.Background(), config.User{Username: *user, Role: *role, Email: *email}, in, out)
+}
+
+// mcpServer is the MCP server of yars serve and yars mcp, naming the
+// build's version (users nil: a clone, where the push policy validates
+// reviewers).
+func mcpServer(st *store.Store, ix *index.Index, eng *rules.Engine, cfg config.Config, users func() []config.User) *mcp.Server {
+	return &mcp.Server{Store: st, Index: ix, Rules: eng, Cfg: cfg, Users: users, Version: buildVersion()}
 }
 
 // cmdToken manages MCP API tokens: yars token add|list|revoke --data <dir> [<user>]

@@ -44,7 +44,7 @@ func TestAmbiguousIDRefused(t *testing.T) {
 	}
 	for _, id := range []string{"F-001", "f-1", "1"} {
 		text, isErr := f.call(alice, "read_finding", map[string]any{"engagement": "acme", "finding": id})
-		if !isErr || !strings.Contains(text, "F-001 names more than one finding folder (F-001-copy, F-001-sql-injection); use the folder name") {
+		if !isErr || !strings.Contains(text, "F-001 names more than one finding folder (F-001-copy, F-001-sql-injection); use the folder name") || object(t, id, text)["code"] != "invalid" {
 			t.Errorf("%s: %.300s", id, text)
 		}
 	}
@@ -104,16 +104,19 @@ func TestIDExactFolder(t *testing.T) {
 }
 
 // A finding that does not parse says why when named by its ID, as by its
-// folder name; it is not "not found".
+// folder name; it is not "not found", nor the caller's mistake: the
+// server's own file (server_error).
 func TestIDBrokenFindingSaysWhy(t *testing.T) {
 	f := newFx(t)
 	p := filepath.Join(f.dir, "engagements", "acme", "findings", "F-001-sql-injection", "finding.md")
 	if err := os.WriteFile(p, []byte("---\nid: [unclosed\n---\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	text, isErr := f.call(alice, "read_finding", map[string]any{"engagement": "acme", "finding": "F-001"})
-	if m := object(t, "read_finding", text); !isErr || m["code"] == "not_found" {
-		t.Fatalf("%s", text)
+	for _, id := range []string{"F-001", "F-001-sql-injection"} {
+		text, isErr := f.call(alice, "read_finding", map[string]any{"engagement": "acme", "finding": id})
+		if m := object(t, "read_finding", text); !isErr || m["code"] != "server_error" || !strings.Contains(m["message"].(string), "F-001-sql-injection: cannot be read") {
+			t.Fatalf("%s: %s", id, text)
+		}
 	}
 }
 

@@ -33,7 +33,7 @@ func (a args) str(k string) string {
 func (a args) need(keys ...string) error {
 	for _, k := range keys {
 		if strings.TrimSpace(a.str(k)) == "" {
-			return fmt.Errorf("missing argument %q", k)
+			return invalid("missing argument %q", k)
 		}
 	}
 	return nil
@@ -346,10 +346,10 @@ var coreTools = []tool{
 			// R2: an unknown filter is refused with the valid values, not
 			// answered with an empty list
 			if st := a.str("status"); st != "" && !slices.Contains(workflow.AllStatuses, st) {
-				return "", fmt.Errorf("unknown status %q; valid statuses: %s", st, strings.Join(workflow.AllStatuses, ", "))
+				return "", invalid("unknown status %q; valid statuses: %s", st, strings.Join(workflow.AllStatuses, ", "))
 			}
 			if sev, valid := a.str("severity"), s.conf().Severities; sev != "" && !slices.Contains(valid, sev) {
-				return "", fmt.Errorf("unknown severity %q; valid severities: %s", sev, strings.Join(valid, ", "))
+				return "", invalid("unknown severity %q; valid severities: %s", sev, strings.Join(valid, ", "))
 			}
 			if _, err := s.Store.Engagement(a.str("engagement")); err != nil {
 				return "", err
@@ -376,7 +376,7 @@ var coreTools = []tool{
 			}
 			return listPage(a, out)
 		}},
-	{name: "read_finding", desc: "Read one finding: its workflow state (status, reviewers, clearances, return reason, retest), the raw finding.md content (YAML front matter + ## sections; workflow state is not in the file), each section's name, body and base hash for safe edits, open chat threads (an AI reply is marked ai), style-rule violations, and allowed_actions: every action of the status with whether you may take it now (enabled), why not (reason) and whether it needs a reason.",
+	{name: "read_finding", desc: "Read one finding: its workflow state (status, reviewers, clearances, return reason, retest), the raw finding.md content (YAML front matter + ## sections; workflow state is not in the file) and the file's hash (transition's base), each section's name, body and base hash for safe edits, open chat threads (an AI reply is marked ai), style-rule violations, and allowed_actions: every action of the status with whether you may take it now (enabled), why not (reason) and whether it needs a reason.",
 		required: []param{pEng, pFinding},
 		run: func(s *Server, ctx context.Context, u config.User, a args) (string, error) {
 			ref, err := s.ref(a)
@@ -419,6 +419,7 @@ var coreTools = []tool{
 				Dir         string             `json:"dir"`
 				State       state              `json:"state"`
 				Markdown    string             `json:"finding_md"`
+				Hash        string             `json:"hash"` // the file's as stored: transition's base
 				Sections    []sec              `json:"sections"`
 				CVSSBase    string             `json:"cvss_base"`
 				DetailsBase string             `json:"details_base"`
@@ -429,7 +430,7 @@ var coreTools = []tool{
 				Threads     []thread           `json:"open_threads"`
 				Violations  []rules.Violation  `json:"violations"`
 				Allowed     []workflow.Allowed `json:"allowed_actions"`
-			}{Engagement: ref.EngID, Dir: ref.Dir, State: st, Markdown: string(ref.F.Bytes()), CVSSBase: store.CVSSHash(ref.F.Meta),
+			}{Engagement: ref.EngID, Dir: ref.Dir, State: st, Markdown: string(ref.F.Bytes()), Hash: ref.Hash, CVSSBase: store.CVSSHash(ref.F.Meta),
 				DetailsBase: store.DetailsHash(ref.F.Meta), Assets: append([]finding.Asset{}, ref.F.Meta.Assets...), AssetsBase: store.AssetsHash(ref.F.Meta),
 				CanEdit: workflow.CanEdit(u, ref.F.Meta), Threads: []thread{}, Violations: []rules.Violation{}, Bases: s.fieldBases(ref.F.Meta)}
 			// the group bases carry each row's own: sent again with every
@@ -532,7 +533,7 @@ var coreTools = []tool{
 				}
 			}
 			if !slices.Contains(valid, a.str("section")) {
-				return "", fmt.Errorf("unknown section %q; valid sections: %s", a.str("section"), strings.Join(valid, ", "))
+				return "", invalid("unknown section %q; valid sections: %s", a.str("section"), strings.Join(valid, ", "))
 			}
 			if err := s.Store.UpdateSection(ref.EngID, ref.Dir, a.str("section"), a.str("body"), a.str("base"), u); err != nil {
 				return "", err
@@ -543,9 +544,10 @@ var coreTools = []tool{
 		required: []param{pEng, pFinding, {"field", "field name"}, {"value", "new value"}},
 		optional: []param{{"base", "the field's entry in field_bases from read_finding (details.*, cvss, cvss_reason.*: refused only if that one row changed since; each set_field answer gives the row's new base; after cvss, one base for the vector and every reason), or cvss_base, details_base or assets_base (assets); refuses the edit if it changed since you read it"}},
 		run:      setField},
-	{name: "transition", action: "status", serverOnly: true, desc: "Move a finding through the workflow: submit (draft→verification), return (verification→draft, needs reason), clear or sign_off (an assigned reviewer or a director; a director also on their own finding), approve (director, after a sign-off by an assigned reviewer other than them: verification→complete), reopen (author or director: complete→verification, needs reason), report (director: complete→reported), unreport (author or director: reported→complete, needs reason; the approval stays), revert (the step back from where the finding is: reopen or unreport), withdraw (author while draft or verification, director also when complete or reported; needs reason; takes it out of the report), revise (author or director: withdrawn→draft), take_back (author or director: verification→draft, no reason; sign-offs start over). The statuses are draft, verification, complete, reported, withdrawn.",
+	{name: "transition", action: "status", serverOnly: true, desc: "Move a finding through the workflow: submit (draft→verification), return (verification→draft, needs reason), clear or sign_off (an assigned reviewer or a director; a director also on their own finding), approve (director, after a sign-off by an assigned reviewer other than them: verification→complete), reopen (author or director: complete→verification, needs reason), report (director: complete→reported), unreport (author or director: reported→complete, needs reason; the approval stays), revert (the step back from where the finding is: reopen or unreport), withdraw (author while draft or verification, director also when complete or reported; needs reason; takes it out of the report), revise (author or director: withdrawn→draft), take_back (author or director: verification→draft, no reason; sign-offs start over). The statuses are draft, verification, complete, reported, withdrawn. Pass base (the hash from read_finding) so a sign-off or an approval is of the version you read.",
 		required: []param{pEng, pFinding, {"action", "submit | return | clear | sign_off | approve | reopen | report | unreport | revert | withdraw | revise | take_back"}},
-		optional: []param{{"reason", "required for return, withdraw, reopen, unreport and revert"}},
+		optional: []param{{"reason", "required for return, withdraw, reopen, unreport and revert"},
+			{"base", "the hash from read_finding: clear, sign_off and approve are refused if the finding changed since you read it (other actions ignore it)"}},
 		run: func(s *Server, ctx context.Context, u config.User, a args) (string, error) {
 			ref, err := s.ref(a)
 			if err != nil {
@@ -560,7 +562,7 @@ var coreTools = []tool{
 				}
 			}
 			if !ok {
-				return "", errors.New("unknown action (submit, return, clear or sign_off, approve, reopen, report, unreport, revert, withdraw, revise, take_back)")
+				return "", invalid("unknown action (submit, return, clear or sign_off, approve, reopen, report, unreport, revert, withdraw, revise, take_back)")
 			}
 			// marking reported is a director's over MCP (the delivery to the
 			// client); taking it back is the author's or a director's, as on
@@ -579,7 +581,9 @@ var coreTools = []tool{
 				}
 				return "", refuse("invalid", "a reason is required to "+what+" a finding")
 			}
-			if err := s.Store.Transition(ref.EngID, ref.Dir, act, a.str("reason"), u); err != nil {
+			// base: the version read, as the website's page sends it (kept for
+			// a sign-off or an approval only)
+			if err := s.Store.TransitionSeen(ref.EngID, ref.Dir, act, a.str("reason"), a.str("base"), u); err != nil {
 				return "", err
 			}
 			_, to := workflow.Target(act)
@@ -880,10 +884,10 @@ func setField(s *Server, ctx context.Context, u config.User, a args) (string, er
 	case strings.HasPrefix(field, "cvss_reason."):
 		key := strings.ToUpper(strings.TrimPrefix(field, "cvss_reason."))
 		if !slices.ContainsFunc(cvss.Metrics, func(m cvss.Metric) bool { return m.Key == key }) {
-			return "", fmt.Errorf("%s is not a CVSS base metric (AV, AC, PR, UI, S, C, I, A)", key)
+			return "", invalid("%s is not a CVSS base metric (AV, AC, PR, UI, S, C, I, A)", key)
 		}
 		if _, err := cvss.Parse(ref.F.Meta.CVSS); err != nil {
-			return "", errors.New("set a CVSS vector first")
+			return "", invalid("set a CVSS vector first")
 		}
 		// the vector is read inside the change: never written back stale
 		var nb map[string]string
@@ -894,7 +898,7 @@ func setField(s *Server, ctx context.Context, u config.User, a args) (string, er
 	case strings.HasPrefix(field, "details."):
 		row := strings.TrimPrefix(field, "details.")
 		if rows := s.conf().DetailsRows; !slices.Contains(rows, row) {
-			return "", fmt.Errorf("unknown details row %q; rows: %s", row, strings.Join(rows, ", "))
+			return "", invalid("unknown details row %q; rows: %s", row, strings.Join(rows, ", "))
 		}
 		// base: this row's field_bases entry, or the whole details_base
 		var nb map[string]string
@@ -920,7 +924,7 @@ func setField(s *Server, ctx context.Context, u config.User, a args) (string, er
 				}
 				i := slices.IndexFunc(s.Users(), func(x config.User) bool { return x.Username == n })
 				if i < 0 || !st.CanReview(s.Users()[i], eng, ref.F.Meta) {
-					return "", fmt.Errorf("%s is not a reviewer or director account on the engagement's team (or is the author)", n)
+					return "", invalid("%s is not a reviewer or director account on the engagement's team (or is the author)", n)
 				}
 			}
 		}
@@ -930,13 +934,13 @@ func setField(s *Server, ctx context.Context, u config.User, a args) (string, er
 	case field == "assets":
 		var list []finding.Asset
 		if jerr := json.Unmarshal([]byte(value), &list); jerr != nil {
-			return "", fmt.Errorf("assets must be a JSON list of {host, url, port, note}: %v", jerr)
+			return "", invalid("assets must be a JSON list of {host, url, port, note}: %v", jerr)
 		}
 		err = st.UpdateAssets(eng, dir, list, base, u)
 	case field == "status":
-		return "", errors.New("use the transition tool to change the status")
+		return "", invalid("use the transition tool to change the status")
 	default:
-		return "", fmt.Errorf("unknown field %q", field)
+		return "", invalid("unknown field %q", field)
 	}
 	if err != nil {
 		return "", err

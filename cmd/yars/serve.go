@@ -22,7 +22,6 @@ import (
 	"yars/internal/gitrepo"
 	"yars/internal/gitserve"
 	"yars/internal/index"
-	"yars/internal/mcp"
 	"yars/internal/rules"
 	"yars/internal/secret"
 	"yars/internal/store"
@@ -142,7 +141,7 @@ func cmdServe(args []string) error {
 		return fmt.Errorf("git setup: %w", err)
 	}
 	ix := index.New(st, r)
-	mcpSrv := &mcp.Server{Store: st, Index: ix, Rules: eng, Cfg: cfg, Users: au.Users}
+	mcpSrv := mcpServer(st, ix, eng, cfg, au.Users)
 	box, err := secret.Open(r.Dir)
 	if err != nil {
 		return fmt.Errorf("secret key: %w", err)

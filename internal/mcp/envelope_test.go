@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"yars/internal/config"
@@ -150,11 +152,17 @@ func TestErrorCodes(t *testing.T) {
 		{store.ErrNoDB, "no_database"},
 		{store.ErrBusy, "busy"},
 		{fmt.Errorf("%w: bad", store.ErrInvalidValue), "invalid"},
-		{errors.New(`missing argument "finding"`), "invalid"},
+		{fmt.Errorf("%w: x", store.ErrInvalidBody), "invalid"},
+		{fmt.Errorf("%w: x", store.ErrInvalidChat), "invalid"},
+		{refuse("invalid", `missing argument "finding"`), "invalid"},
 		{ambiguous{id: "F-001", dirs: []string{"a", "b"}}, "invalid"},
 		// a refusal the caller can retry: the finding changed while its
 		// checks ran (a Denied for the web, a conflict here)
 		{&workflow.Denied{Reason: "the finding changed while its checks ran; try again", Err: store.ErrConflict}, "conflict"},
+		// the server's own failures: not the caller's mistake
+		{errors.New("disk full"), "server_error"},
+		{fmt.Errorf("read: %w", os.ErrPermission), "server_error"},
+		{&store.UnreadableError{Eng: "acme", Dir: "F-001-x", Err: errors.New("bad yaml")}, "server_error"},
 	}
 	for _, c := range cases {
 		if got := codeOf(c.err); got != c.code {
@@ -199,6 +207,101 @@ func TestErrorCodes(t *testing.T) {
 		}
 		if m := object(t, c.tool, text); m["code"] != c.code {
 			t.Errorf("%s as %s: %s, want %s", c.tool, c.u.Username, text, c.code)
+		}
+	}
+}
+
+// Q9: every mistake of the caller (an argument left out, blank or of the
+// wrong type, a value the tool or the store refuses) is invalid, never
+// server_error.
+func TestClientMistakesStayInvalid(t *testing.T) {
+	f := newFx(t)
+	fd := func(extra map[string]any) map[string]any {
+		m := map[string]any{"engagement": "acme", "finding": "F-001"}
+		maps.Copy(m, extra)
+		return m
+	}
+	field := func(name, value string) map[string]any { return fd(map[string]any{"field": name, "value": value}) }
+	for _, c := range []struct {
+		tool string
+		args map[string]any
+	}{
+		{"read_finding", map[string]any{"engagement": "acme"}},
+		{"read_finding", map[string]any{"engagement": "acme", "finding": " "}},
+		{"read_finding", map[string]any{"engagement": "acme", "finding": 7}},
+		{"lint_finding", fd(map[string]any{"all": "yes"})},
+		{"list_findings", map[string]any{"engagement": "acme", "status": "open"}},
+		{"list_findings", map[string]any{"engagement": "acme", "severity": "severe"}},
+		{"list_findings", map[string]any{"engagement": "acme", "limit": "0"}},
+		{"list_engagements", map[string]any{"cursor": "x"}},
+		{"create_finding", map[string]any{"engagement": "acme", "title": " "}},
+		{"create_finding", map[string]any{"engagement": "acme", "title": "two\nlines"}},
+		{"update_section", fd(map[string]any{"section": "Summary", "body": "x"})},
+		{"update_section", fd(map[string]any{"section": " ", "body": "x"})},
+		{"update_section", fd(map[string]any{"section": "Impact", "body": "## Heading\n"})},
+		{"set_field", fd(map[string]any{"field": " ", "value": "x"})},
+		{"set_field", field("title", "")},
+		{"set_field", field("severity", "severe")},
+		{"set_field", field("cvss", "CVSS:3.1/AV:X")},
+		{"set_field", field("cvss_reason.FOO", "x")},
+		{"set_field", field("cvss_reason.AC", "x")}, // no vector yet
+		{"set_field", field("details.Nope", "x")},
+		{"set_field", field("reviewers", "nobody")},
+		{"set_field", field("retest_result", "maybe")},
+		{"set_field", field("assets", "{")},
+		{"set_field", field("assets", `[{"host":"h","port":"x"}]`)},
+		{"set_field", field("status", "complete")},
+		{"set_field", field("colour", "red")},
+		{"transition", fd(map[string]any{"action": "bogus"})},
+		{"transition", fd(map[string]any{"action": "withdraw"})},
+		{"add_chat_message", fd(map[string]any{"text": " "})},
+		{"add_chat_message", fd(map[string]any{"text": "x", "section": "Nope"})},
+		{"resolve_thread", fd(map[string]any{"thread": " "})},
+		{"resolve_thread", fd(map[string]any{"thread": "nope"})},
+		{"mark_notifications_read", map[string]any{}},
+		{"mark_notifications_read", map[string]any{"ids": "x"}},
+		{"read_template", map[string]any{"template": " "}},
+		{"list_history", fd(map[string]any{"limit": "999"})},
+	} {
+		text, isErr := f.call(alice, c.tool, c.args)
+		if m := object(t, c.tool, text); !isErr || m["code"] != "invalid" {
+			t.Errorf("%s %v: %s", c.tool, c.args, text)
+		}
+	}
+}
+
+// Q9: a failure of the server itself (its database closed under it, a data
+// folder it may not write) is server_error with the error's words.
+func TestServerFailureIsServerError(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root writes into a read-only folder")
+	}
+	f := newFx(t)
+	dir := filepath.Join(f.dir, "engagements", "acme", "findings", "F-001-sql-injection")
+	if err := os.Chmod(dir, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(dir, 0o755) })
+	text, isErr := f.call(alice, "update_section", map[string]any{"engagement": "acme", "finding": "F-001", "section": "Impact", "body": "x"})
+	if m := object(t, "read-only", text); !isErr || m["code"] != "server_error" || !strings.Contains(m["message"].(string), "permission denied") {
+		t.Fatalf("read-only folder: %s", text)
+	}
+	os.Chmod(dir, 0o755)
+
+	f.s.Store.DB().Close()
+	for _, c := range []struct {
+		u    config.User
+		tool string
+		args map[string]any
+	}{
+		{alice, "list_notifications", map[string]any{}},
+		{alice, "mark_notifications_read", map[string]any{"all": true}},
+		{dora, "read_finding", map[string]any{"engagement": "acme", "finding": "F-001"}},
+		{dora, "add_chat_message", map[string]any{"engagement": "acme", "finding": "F-001", "text": "x"}},
+	} {
+		text, isErr := f.call(c.u, c.tool, c.args)
+		if m := object(t, c.tool, text); !isErr || m["code"] != "server_error" || !strings.Contains(m["message"].(string), "closed") {
+			t.Errorf("%s with the database closed: %s", c.tool, text)
 		}
 	}
 }

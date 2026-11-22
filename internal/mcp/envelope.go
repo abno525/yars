@@ -118,12 +118,12 @@ func (e refusal) Error() string { return e.msg }
 func refuse(code, msg string) error { return refusal{code, msg} }
 
 // codeOf maps an error to its code: not_found, not_allowed, conflict,
-// invalid, archived, busy, no_database.
+// invalid, archived, busy, no_database, server_error.
 func codeOf(err error) string {
 	var r refusal
 	var d *workflow.Denied
 	switch {
-	case errors.As(err, &r):
+	case errors.As(err, &r): // a tool's own (invalid: a missing argument, an unknown field)
 		return r.code
 	case errors.Is(err, store.ErrConflict): // a Denied that raced a change too
 		return "conflict"
@@ -137,10 +137,13 @@ func codeOf(err error) string {
 		return "no_database"
 	case errors.Is(err, store.ErrBusy):
 		return "busy"
+	case errors.Is(err, store.ErrInvalidValue), errors.Is(err, store.ErrInvalidBody),
+		errors.Is(err, store.ErrInvalidChat), errors.Is(err, errAmbiguous):
+		return "invalid"
 	}
-	// ErrInvalidValue, ErrInvalidBody, ErrInvalidChat and a tool's own
-	// (a missing argument, an unknown field)
-	return "invalid"
+	// the server's own failure (its disk, its database, a file of its own
+	// that does not parse), never the caller's mistake
+	return "server_error"
 }
 
 // fail renders a refusal and its code from an error; the message is what
@@ -152,4 +155,9 @@ func fail(err error) string {
 		Message string `json:"message"`
 	}{false, codeOf(err), explain(err)})
 	return string(b)
+}
+
+// invalid is a refusal of the caller's argument or value (code invalid).
+func invalid(format string, a ...any) error {
+	return refuse("invalid", fmt.Sprintf(format, a...))
 }

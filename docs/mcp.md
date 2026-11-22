@@ -17,7 +17,7 @@ claude mcp add --transport http yars https://yars.example.com/mcp \
   --header "Authorization: Bearer yars_…"
 ```
 
-The endpoint speaks JSON-RPC 2.0 (`initialize`, `ping`, `tools/list`, `tools/call`), protocol versions 2025-06-18 and 2024-11-05. It follows the standard strictly: a message is one JSON object with its member names as written, `jsonrpc` must be `"2.0"`, `method` a string, an `id` a string or a number (never `null`), and request batches are refused (`-32600`). Input the server cannot accept (not JSON, a batch, an invalid notification) is answered with HTTP 400, as is an `MCP-Protocol-Version` header naming a version it does not speak. The `Authorization` scheme word may be in any case (`Bearer`, `bearer`).
+The endpoint speaks JSON-RPC 2.0 (`initialize`, `ping`, `tools/list`, `tools/call`), protocol versions 2025-06-18 and 2024-11-05. It follows the standard strictly: a message is one JSON object with its member names as written, `jsonrpc` must be `"2.0"`, `method` a string, an `id` a string or a number (never `null`), and request batches are refused (`-32600`). Input the server cannot accept (not JSON, a batch, an invalid notification) is answered with HTTP 400, as is an `MCP-Protocol-Version` header naming a version it does not speak. The `Authorization` scheme word may be in any case (`Bearer`, `bearer`). `initialize` names the build in `serverInfo.version`, as `yars version` prints it (`dev` for a build without one).
 
 Content changes are committed on the server immediately, authored by you; workflow changes and chat go into the server's database. Revoke a token in Settings (or `yars token revoke --data … alice`); it stops working at once. Tokens are stored hashed in the server's database (`.yars/yars.db`), which is never committed.
 
@@ -41,12 +41,12 @@ A clone holds **content only**. Workflow state (status, reviewers, clearances), 
 |---|---|---|---|
 | `list_engagements` | read | local + server | The engagements you work on (pentests and retests); archived ones are read only |
 | `list_findings` | read | local + server | Findings of an engagement, most severe first; filter by status or severity, search with `q` (ID, title, an asset's host or URL) |
-| `read_finding` | read | local + server | Workflow state, the raw `finding.md`, each section's body and base hash, assets, open chat threads, rule violations, and `allowed_actions` (each action of the status: `enabled`, `reason` when not, `needs: "reason"`) |
+| `read_finding` | read | local + server | Workflow state, the raw `finding.md` and its `hash`, each section's body and base hash, assets, open chat threads, rule violations, and `allowed_actions` (each action of the status: `enabled`, `reason` when not, `needs: "reason"`) |
 | `list_templates` | read | local + server | Finding templates (`.yars/templates`) with how often each was used |
 | `create_finding` | create | local + server | New draft in an engagement; `template` starts it from a template |
 | `update_section` | edit | local + server | Replace one `##` section (pass `base` from `read_finding` to avoid overwriting a colleague) |
 | `set_field` | edit (reviewers: reviewers) | local + server | `title`, `severity`, `cvss`, `cvss_reason.<METRIC>`, `details.<Row>`, `reviewers`, `retest_result`, `assets` |
-| `transition` | status (report: export) | server only | `submit`, `return` (reason), `clear`/`sign_off` (an assigned reviewer or a director; a director also on their own finding), `approve` (director, after a sign-off by an assigned reviewer other than them), `reopen` (reason; author or director: complete to verification), `report` (director), `unreport` (reason; author or director: reported to complete, the approval stays), `revert` (reason: `reopen` or `unreport`, by the finding's status), `withdraw` (reason), `revise`, `take_back` (author or director: verification to draft, sign-offs start over) |
+| `transition` | status (report: export) | server only | `submit`, `return` (reason), `clear`/`sign_off` (an assigned reviewer or a director; a director also on their own finding), `approve` (director, after a sign-off by an assigned reviewer other than them), `reopen` (reason; author or director: complete to verification), `report` (director), `unreport` (reason; author or director: reported to complete, the approval stays), `revert` (reason: `reopen` or `unreport`, by the finding's status), `withdraw` (reason), `revise`, `take_back` (author or director: verification to draft, sign-offs start over); `base` (the `hash` from `read_finding`) refuses `clear`/`sign_off` and `approve` if the finding changed since it was read |
 | `add_chat_message` / `resolve_thread` | comment | server only | Discuss in the finding's chat; `@name` mentions notify that person |
 | `lint_finding` | read | local + server | Style rules (regex/built-in; `all: true` also scripts and AI) |
 | `start_check` | checks | server only | Start a stored check run (every rule); results arrive as chat comments. Over the server's limit (`checks.max_running`) it waits in a queue: state `queued` |
@@ -84,6 +84,7 @@ The codes:
 | `archived` | The engagement is archived: read only |
 | `busy` | A check or a fix of the finding is running |
 | `no_database` | A server-only tool on a local clone |
+| `server_error` | The server itself failed (its disk, its database, a file of its own it cannot read): not the call's mistake; the message has the error's words |
 
 ## Paging
 
@@ -105,6 +106,7 @@ Some refusals and their messages:
 | `no_database` | `workflow state and chat are kept on the YARS server; use its web UI or its /mcp endpoint` | A server-only tool on a local clone |
 | `conflict` | `the finding changed since you read it; read_finding again and retry` | Stale `base` |
 | `conflict` | `not allowed: the finding changed while its checks ran; try again` | A submit or sign-off raced an edit: retry |
+| `conflict` | `not allowed: the finding changed since you opened it; read it again` | `transition` clear, sign_off or approve with a stale `base` |
 | `busy` | `a check or a fix of this finding is running` | `start_check` while a fix runs (during a check, running or queued, it answers that run), `fix_checks` while a check or a fix runs |
 | `invalid` | `a reason is required to withdraw a finding` | `transition` return, withdraw or revert without `reason` |
 | `invalid` | `unknown section "Summary"; valid sections: …` | `update_section` with a section the finding doesn't have |
@@ -112,8 +114,10 @@ Some refusals and their messages:
 | `not_allowed` | `nothing to revert: the finding is draft` | `transition revert` on a finding that is not complete or reported |
 | `invalid` | `unknown status "open"; valid statuses: draft, verification, complete, reported, withdrawn` | `list_findings` with a status (or severity) that does not exist |
 | `invalid` | `F-001 names more than one finding folder (…); use the folder name` | An ID two folders share |
+| `server_error` | `acme/F-001-sqli: cannot be read: …` | The finding's file does not parse (fix it in the repository) |
+| `server_error` | `sql: database is closed` | The server's database or disk failed; the server logs it too |
 
-A failure of the server itself (its disk, its database) also comes back as `invalid` with the error's words: the seven codes have none of their own.
+A failure of the server itself is `server_error`, never `invalid`. `invalid` is an argument or a value the server refuses; the message says which.
 
 ## Safety notes
 

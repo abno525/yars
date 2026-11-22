@@ -129,6 +129,22 @@ func TestMCPInitializeAndList(t *testing.T) {
 	}
 }
 
+// Q11: initialize names the build's version; a server given none says dev.
+func TestMCPInitializeVersion(t *testing.T) {
+	f := newFx(t)
+	version := func() any {
+		res := f.rpc(alice, "initialize", map[string]any{})["result"].(map[string]any)
+		return res["serverInfo"].(map[string]any)["version"]
+	}
+	if v := version(); v != "dev" {
+		t.Fatalf("no version: %v", v)
+	}
+	f.s.Version = "v1.2.3"
+	if v := version(); v != "v1.2.3" {
+		t.Fatalf("version: %v", v)
+	}
+}
+
 // The file is content only; read_finding reports workflow state separately.
 func TestMCPReadState(t *testing.T) {
 	f := newFx(t)

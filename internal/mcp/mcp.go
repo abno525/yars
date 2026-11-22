@@ -8,9 +8,11 @@ package mcp
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"io"
+	"log"
 	"slices"
 	"sync"
 
@@ -29,6 +31,8 @@ type Server struct {
 	// Users lists accounts for reviewer validation (nil in stdio mode,
 	// where the server-side push policy validates instead).
 	Users func() []config.User
+	// Version is the build's, as initialize names it ("" says dev).
+	Version string
 
 	histOnce sync.Once
 	hist     *history.Cache // list_history, per engagement HEAD
@@ -50,7 +54,7 @@ const latestProtocol = "2025-06-18"
 var protocols = []string{"2025-06-18", "2024-11-05"}
 
 const instructions = "YARS manages pentest findings. Use list_engagements and list_findings to navigate, " +
-	"read_finding before editing (pass the returned base hashes to avoid overwriting others), " +
+	"read_finding before editing (pass the returned base hashes to avoid overwriting others, and its hash as transition's base to sign off or approve the version you read), " +
 	"update_section/set_field to edit, transition to move a finding through draft → verification → complete " +
 	"(the statuses are draft, verification, complete, reported, withdrawn; a finding is named by its ID, F-001, or its folder name), " +
 	"add_chat_message to discuss, lint_finding or start_check/get_check_results to check the team's style rules, " +
@@ -156,7 +160,7 @@ func (s *Server) Handle(ctx context.Context, u config.User, msg []byte) []byte {
 		return reply(req.ID, map[string]any{
 			"protocolVersion": v,
 			"capabilities":    map[string]any{"tools": map[string]any{"listChanged": false}},
-			"serverInfo":      map[string]any{"name": "yars", "version": "1"},
+			"serverInfo":      map[string]any{"name": "yars", "version": cmp.Or(s.Version, "dev")},
 			"instructions":    instructions,
 		}, nil)
 	case "ping":
@@ -191,6 +195,9 @@ func (s *Server) Handle(ctx context.Context, u config.User, msg []byte) []byte {
 		}
 		res := map[string]any{"content": []map[string]any{{"type": "text", "text": text}}}
 		if err != nil {
+			if codeOf(err) == "server_error" {
+				log.Printf("mcp %s as %s: %v", p.Name, u.Username, err) // as the website logs its internal errors
+			}
 			res["content"] = []map[string]any{{"type": "text", "text": fail(err)}}
 			res["isError"] = true
 		}
