@@ -20,7 +20,7 @@ func TestArchivedPageNoEditForms(t *testing.T) {
 	if !strings.Contains(b, `<span class="tag eng-archived">Archived</span>`) || !strings.Contains(b, `<span class="idchip">acme</span>`) {
 		t.Fatalf("board:\n%s", b)
 	}
-	if strings.Contains(b, "/findings/new") || !strings.Contains(b, `<span class="slot w128"></span>`) {
+	if strings.Contains(between(b, "<main>", "</main>"), "/findings/new") || !strings.Contains(b, `<span class="slot w128"></span>`) {
 		t.Fatal("New finding on an archived board")
 	}
 	b = e.do(t, "alice", "GET", fpath, nil, nil).Body.String()

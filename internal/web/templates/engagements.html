@@ -2,7 +2,7 @@
 <div class="titlerow">
   <div class="titlecol"><h1>Engagements</h1></div>
   <div class="actions">
-    {{if .CanEngs}}<a class="btn primary w152" href="/engagements/new">New engagement</a>{{else}}<span class="slot w152"></span>{{end}}
+    {{if .CanEngs}}<a class="btn primary w152" href="/engagements/new" aria-keyshortcuts="N">New engagement</a>{{else}}<span class="slot w152"></span>{{end}}
   </div>
 </div>
 <section class="englistsec">
@@ -19,14 +19,15 @@
     </tr></thead>
     <tbody>
     {{range .EngRows}}
-      <tr{{if .Archived}} class="off"{{end}} data-eng="{{.ID}}">
+      {{/* data-rowkeys: a (Archive) and r (Reopen) act on the row the keys moved to only (keys.js yarsRowFire) */}}
+      <tr{{if .Archived}} class="off"{{end}} data-eng="{{.ID}}" data-rowkeys>
         <td class="stack"><a href="/e/{{.ID}}" title="{{.Name}}" data-nav>{{.Name}}</a><span class="muted">{{if .Client}}{{.Client}} · {{end}}<span class="mono">{{.ID}}</span></span></td>
         <td>{{if eq .Type "retest"}}<span class="tag etype-retest">Retest</span>{{else}}<span class="tag etype-pentest">Pentest</span>{{end}}</td>
         <td>{{if .Archived}}<span class="tag eng-archived">Archived</span>{{else}}<span class="tag eng-active">Active</span>{{end}}</td>
         <td class="mono" title="{{.Start}}{{if .End}} – {{.End}}{{end}}">{{dateRange .Start .End}}</td>
         <td class="num">{{.Bars.Total}}</td>
         <td class="mono">{{.Bars.Reported}} of {{.Bars.Total}}</td>
-        <td>{{if $.CanManage}}<form method="post" action="/e/{{.ID}}/{{if .Archived}}reopen{{else}}archive{{end}}"><input type="hidden" name="show" value="{{$.EngShow}}">{{if .Archived}}<button class="btn secondary sm w112">Reopen</button>{{else}}<button class="btn secondary sm w112" data-confirm="Archive {{.Name}}?">Archive</button>{{end}}</form>{{else}}<span class="slot w112"></span>{{end}}</td>
+        <td>{{if $.CanManage}}<form method="post" action="/e/{{.ID}}/{{if .Archived}}reopen{{else}}archive{{end}}"><input type="hidden" name="show" value="{{$.EngShow}}">{{if .Archived}}<button class="btn secondary sm w112" aria-keyshortcuts="R">Reopen</button>{{else}}<button class="btn secondary sm w112" data-confirm="Archive {{.Name}}?" aria-keyshortcuts="A">Archive</button>{{end}}</form>{{else}}<span class="slot w112"></span>{{end}}</td>
       </tr>
     {{else}}
       {{template "empty_row" 7}}
@@ -38,7 +39,7 @@
 <section class="panel compact">
   <div class="panelhead">
     <h2>Clone</h2>
-    <button type="button" class="btn secondary sm w96" data-copy="clone-cmd">Copy</button>
+    <button type="button" class="btn secondary sm w96" data-copy="clone-cmd" aria-keyshortcuts="C">Copy</button>
   </div>
   <pre class="flush"><code id="clone-cmd">git clone --recurse-submodules {{.CloneURL}}
 cd yars/engagements/&lt;engagement&gt; &amp;&amp; git switch main</code></pre>

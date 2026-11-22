@@ -2,12 +2,14 @@ package web
 
 import (
 	"html"
+	"net/http"
 	"net/url"
 	"os"
 	"regexp"
 	"strings"
 	"testing"
 
+	"yars/internal/store"
 	"yars/internal/workflow"
 )
 
@@ -421,6 +423,54 @@ func TestNavKeysDeclared(t *testing.T) {
 	}
 	if !strings.Contains(string(tpl), `/history" aria-keyshortcuts="Shift+H">History<`) {
 		t.Error("the template's History lacks Shift+H")
+	}
+}
+
+// The engagements list: n opens New engagement (who may make one), c copies
+// the clone command (the findings list's too), and on the row the keys moved
+// to a archives its engagement (asking first) and r reopens an archived one.
+// A row's keys act on the focused row only, never on the first one found.
+func TestEngagementListKeys(t *testing.T) {
+	e := setup(t)
+	e.srv.Git = http.NotFoundHandler()
+	dora, _ := e.srv.Auth.Lookup("dora")
+	if err := e.srv.Store.CreateEngagement(store.Engagement{ID: "beta", Name: "Beta"}, e.authorOf(dora)); err != nil {
+		t.Fatal(err)
+	}
+	e.srv.Store.Archive("beta", dora)
+	b := e.do(t, "dora", "GET", "/", nil, nil).Body.String()
+	for _, w := range []string{`<a class="btn primary w152" href="/engagements/new" aria-keyshortcuts="N">New engagement</a>`,
+		`data-copy="clone-cmd" aria-keyshortcuts="C">Copy</button>`,
+		`<tr data-eng="acme" data-rowkeys>`, `<tr class="off" data-eng="beta" data-rowkeys>`,
+		`<button class="btn secondary sm w112" data-confirm="Archive ACME Web?" aria-keyshortcuts="A">Archive</button>`,
+		`<button class="btn secondary sm w112" aria-keyshortcuts="R">Reopen</button>`} {
+		if !strings.Contains(b, w) {
+			t.Errorf("the engagements list lacks %s", w)
+		}
+	}
+	// no New engagement for a pentester: no n there
+	if b := between(e.do(t, "alice", "GET", "/", nil, nil).Body.String(), "<main>", "</main>"); strings.Contains(b, `aria-keyshortcuts="N"`) {
+		t.Error("n on a pentester's engagements list")
+	}
+	if b := e.do(t, "alice", "GET", "/e/acme", nil, nil).Body.String(); !strings.Contains(b, `data-copy="clone-cmd" aria-keyshortcuts="C">Copy</button>`) {
+		t.Error("the findings list's Copy lacks c")
+	}
+	js := e.do(t, "alice", "GET", "/static/keys.js", nil, nil).Body.String()
+	for _, w := range []string{"function yarsRowFire(key)", "el.closest('tr[data-rowkeys]')", "if (yarsRowFire(key) || yarsFire(key) || yarsBulkFire(key) || yarsWrite(evt))",
+		"if (key === 'C') { if (yarsCommentKey() || yarsFire('C')) evt.preventDefault(); return; }"} {
+		if !strings.Contains(js, w) {
+			t.Errorf("keys.js lacks %s", w)
+		}
+	}
+	d := between(b, `id="keys"`, "</dialog>")
+	for _, w := range []string{`<div class="krow" data-keys-if="a[aria-keyshortcuts~=N][href$='/findings/new']"><dt><kbd>n</kbd></dt><dd>New finding</dd></div>`,
+		`<div class="krow" data-keys-if="a[aria-keyshortcuts~=N][href='/engagements/new']"><dt><kbd>n</kbd></dt><dd>New engagement</dd></div>`,
+		`<div class="krow" data-keys-if="[data-copy=clone-cmd][aria-keyshortcuts~=C]"><dt><kbd>c</kbd></dt><dd>Copy the clone command</dd></div>`,
+		`<div class="krow" data-keys-if="tr[data-rowkeys] [aria-keyshortcuts~=A]"><dt><kbd>a</kbd></dt><dd>Archive the row</dd></div>`,
+		`<div class="krow" data-keys-if="tr[data-rowkeys] [aria-keyshortcuts~=R]"><dt><kbd>r</kbd></dt><dd>Reopen the row</dd></div>`} {
+		if !strings.Contains(d, w) {
+			t.Errorf("the ? list lacks %s", w)
+		}
 	}
 }
 
@@ -916,7 +966,8 @@ func TestBranchReviewNits(t *testing.T) {
 			t.Errorf("the list lacks %s", w)
 		}
 	}
-	for _, k := range []string{"I", "F", "N", "Shift+S", "Shift+O", "Shift+A", "Shift+P", "Shift+R", "Shift+W", "Shift+U", "Shift+C", "Shift+H"} {
+	// n's rows are tied to what it opens (New finding, New engagement): data-keys-if
+	for _, k := range []string{"I", "F", "Shift+S", "Shift+O", "Shift+A", "Shift+P", "Shift+R", "Shift+W", "Shift+U", "Shift+C", "Shift+H"} {
 		if !strings.Contains(d, `data-keys-for="`+k+`"`) {
 			t.Errorf("the list's %s row is not tied to its key", k)
 		}

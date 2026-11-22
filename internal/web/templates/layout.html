@@ -89,7 +89,9 @@ keys.js hides the Finding page group where there are no panels */}}
           <div class="krow"><dt><kbd>Ctrl+K</kbd></dt><dd>Go to</dd></div>
           <div class="krow" data-keys-for="I"><dt><kbd>i</kbd></dt><dd>Inbox</dd></div>
           <div class="krow" data-keys-for="F"><dt><kbd>f</kbd></dt><dd>Findings</dd></div>
-          <div class="krow" data-keys-for="N"><dt><kbd>n</kbd></dt><dd>New finding</dd></div>
+          <div class="krow" data-keys-if="a[aria-keyshortcuts~=N][href$='/findings/new']"><dt><kbd>n</kbd></dt><dd>New finding</dd></div>
+          <div class="krow" data-keys-if="a[aria-keyshortcuts~=N][href='/engagements/new']"><dt><kbd>n</kbd></dt><dd>New engagement</dd></div>
+          <div class="krow" data-keys-if="[data-copy=clone-cmd][aria-keyshortcuts~=C]"><dt><kbd>c</kbd></dt><dd>Copy the clone command</dd></div>
           <div class="krow" data-keys-for="1"><dt><kbd>1</kbd>–<kbd>9</kbd></dt><dd>Filter</dd></div>
           <div class="krow"><dt><kbd>Esc</kbd></dt><dd>Close</dd></div>
           <div class="krow"><dt><kbd>Ctrl+S</kbd></dt><dd>Save the form, else Search</dd></div>
@@ -101,6 +103,8 @@ keys.js hides the Finding page group where there are no panels */}}
           <div class="krow"><dt><kbd>j</kbd><kbd>k</kbd><kbd>↓</kbd><kbd>↑</kbd></dt><dd>Next or previous row</dd></div>
           <div class="krow"><dt><kbd>Enter</kbd></dt><dd>Open the row</dd></div>
           <div class="krow" data-keys-if="tr input[type=checkbox]"><dt><kbd>x</kbd></dt><dd>Tick the row</dd></div>
+          <div class="krow" data-keys-if="tr[data-rowkeys] [aria-keyshortcuts~=A]"><dt><kbd>a</kbd></dt><dd>Archive the row</dd></div>
+          <div class="krow" data-keys-if="tr[data-rowkeys] [aria-keyshortcuts~=R]"><dt><kbd>r</kbd></dt><dd>Reopen the row</dd></div>
           <div class="krow" data-keys-if="input[type=checkbox][name=id]"><dt><kbd>Shift+Space</kbd></dt><dd>Tick the range</dd></div>
           <div class="krow" data-keys-for="Shift+S"><dt><kbd>Shift+S</kbd></dt><dd>Submit the ticked</dd></div>
           <div class="krow" data-keys-for="Shift+A"><dt><kbd>Shift+A</kbd></dt><dd>Approve the ticked</dd></div>

@@ -166,7 +166,8 @@ function yarsFire(key, scope) {
   var els = (scope || document).querySelectorAll('[aria-keyshortcuts]');
   for (var i = 0; i < els.length; i++) {
     var el = els[i];
-    if (!yarsHasKey(el, key) || el.closest('.bmenu')) continue;
+    // a row's own buttons are yarsRowFire's (the focused row only)
+    if (!yarsHasKey(el, key) || el.closest('.bmenu') || el.closest('tr[data-rowkeys]')) continue;
     if (el.offsetParent === null || el.disabled) continue;
     el.click();
     return true;
@@ -189,6 +190,22 @@ function yarsBulkFire(key) {
       items[j].click();
       return true;
     }
+  }
+  return false;
+}
+
+// yarsRowFire: a key of the focused row's own buttons, in a row marked
+// data-rowkeys (the engagements list: a Archive, r Reopen); never another
+// row's, so with no row focused the key does nothing.
+function yarsRowFire(key) {
+  var row = yarsRowOf(document.activeElement);
+  var tr = row && row.closest ? row.closest('tr[data-rowkeys]') : null;
+  if (!tr || !key) return false;
+  var els = tr.querySelectorAll('[aria-keyshortcuts]');
+  for (var i = 0; i < els.length; i++) {
+    if (!yarsHasKey(els[i], key) || els[i].disabled || els[i].offsetParent === null) continue;
+    els[i].click();
+    return true;
   }
   return false;
 }
@@ -648,11 +665,12 @@ document.addEventListener('keydown', function (evt) {
   // the chat it writes
   if (key === 'E') { if (yarsEdit() || (!document.querySelector('[data-kpanel]') && yarsFire('E')) || yarsWrite(evt)) evt.preventDefault(); return; }
   if (key === 'Enter') { if (yarsEnter()) evt.preventDefault(); return; }
-  if (key === 'C') { if (yarsCommentKey()) evt.preventDefault(); return; }
+  // c comments on the finding page; elsewhere it copies the clone command
+  if (key === 'C') { if (yarsCommentKey() || yarsFire('C')) evt.preventDefault(); return; }
   // r is the picked comment's (a resolved one: nothing), never written
   if (key === 'R' && (yarsResolveKey() || yarsThread())) { evt.preventDefault(); return; }
   // a key nothing took: in the chat it starts writing
-  if (yarsFire(key) || yarsBulkFire(key) || yarsWrite(evt)) evt.preventDefault();
+  if (yarsRowFire(key) || yarsFire(key) || yarsBulkFire(key) || yarsWrite(evt)) evt.preventDefault();
 });
 
 // After a keyboard edit or save the section keeps focus: an open editor on
