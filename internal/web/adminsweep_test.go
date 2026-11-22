@@ -114,3 +114,55 @@ func TestSystemWideStatsFillTheirRow(t *testing.T) {
 		}
 	}
 }
+
+// Admin › Rules' test bench. Its fields stood 44 px in from the panel's
+// side where the New rule panel beside it has them at 20: the bench's form
+// is the panel's child (12 px 20 px, a compact panel's), and its own
+// children took the generic margin of a panel's form children too (.panel
+// > form > *, 16 px 24 px), as the Team add row's did; they are flush now,
+// as there, and the form's 12 px gap stands between them, as between the
+// rule's fields. Try (96 px) stood beside Run on engagement (176 px); side
+// by side buttons share a width (Cancel and Save, the title rows), so Try
+// is 176 too. The Hits table showed only its header before a run and after
+// one with no hits; it shows the one empty row ("—"), as every table, and
+// so does Run on engagement's.
+func TestRuleBenchLikeTheRuleForm(t *testing.T) {
+	e := setup(t)
+	e.rules(t, styleRules, nil)
+	b := e.do(t, "dora", "GET", "/admin/rules", nil, nil).Body.String()
+	form := between(b, `<form class="benchform"`, "</form>")
+	for _, want := range []string{
+		`<label class="rf flush">Rule<select name="rule">`,
+		`<div class="rgrid flush">`,
+		`<div class="benchrun flush"><button class="btn secondary sm w176">Try</button><button class="btn primary sm w176" name="all" value="1">Run on engagement</button></div>`,
+	} {
+		if !strings.Contains(form, want) {
+			t.Errorf("bench form lacks %s:\n%s", want, form)
+		}
+	}
+	empty := `<tr class="emptyrow"><td colspan="4">—</td></tr>`
+	if n := checkEmptyRows(t, "/admin/rules", b); n != 1 || !strings.Contains(between(b, `<div class="benchout flush" id="bench-out">`, "</table>"), empty) {
+		t.Errorf("%d empty tables; Hits before a run:\n%s", n, between(b, `<div class="benchout flush" id="bench-out">`, "</table>"))
+	}
+	ref, err := e.srv.Store.CreateFinding("acme", "Missing HSTS header", e.authorOf(wAlice))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := e.do(t, "dora", "GET", "/admin/rules/bench?rule=title-word&eng=acme&fid="+ref.Dir, nil, nil).Body.String()
+	if !strings.Contains(out, `<span class="badge0">0</span>`) || !strings.Contains(out, empty) {
+		t.Errorf("Hits after a run with none:\n%s", out)
+	}
+	css := stylesheet(t)
+	for _, want := range []string{
+		".panel > :not(.panelhead):not(table):not(.flush), .panel > form > :not(.panelhead):not(table):not(input[type=hidden]):not(.flush) { margin: 16px 24px; }",
+		".panel.compact > :not(.panelhead):not(.flush) { margin: 12px 20px; }",
+		".rfields { display: flex; flex-direction: column; gap: 12px; }",
+		".benchform { display: flex; flex-direction: column; gap: 12px; }",
+		".benchrun { display: flex; justify-content: flex-end; }",
+		".w176 { width: 176px; }",
+	} {
+		if !strings.Contains(css, want) {
+			t.Errorf("style.css lacks %s", want)
+		}
+	}
+}

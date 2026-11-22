@@ -573,12 +573,12 @@
 <section class="panel compact bench" id="bench">
   <div class="panelhead"><h2>Test bench</h2></div>
   <form class="benchform" action="/admin/rules/bench" hx-get="/admin/rules/bench" hx-target="#bench-out" hx-swap="outerHTML">
-    <label class="rf">Rule<select name="rule">{{range .Rules}}<option value="{{.Value}}"{{if .On}} selected{{end}}>{{.Label}}</option>{{end}}</select></label>
-    <div class="rgrid">
+    <label class="rf flush">Rule<select name="rule">{{range .Rules}}<option value="{{.Value}}"{{if .On}} selected{{end}}>{{.Label}}</option>{{end}}</select></label>
+    <div class="rgrid flush">
       <label class="rf">Engagement<select name="eng" hx-get="/admin/rules/bench/findings" hx-trigger="change" hx-target="#bench-fid" hx-swap="outerHTML">{{range .Engs}}<option value="{{.Value}}"{{if .On}} selected{{end}}>{{.Label}}</option>{{end}}</select></label>
       <label class="rf">Finding{{template "bench_findings" .}}</label>
     </div>
-    <div class="benchrun"><button class="btn secondary sm w96">Try</button><button class="btn primary sm w176" name="all" value="1">Run on engagement</button></div>
+    <div class="benchrun flush"><button class="btn secondary sm w176">Try</button><button class="btn primary sm w176" name="all" value="1">Run on engagement</button></div>
   </form>
   {{template "bench_out" .}}
 </section>
@@ -601,6 +601,8 @@
         <td title="{{.Quote}}">{{if .Quote}}<code>{{.Quote}}</code>{{else}}<span class="muted">—</span>{{end}}</td>
         <td class="c-fp">{{if .Hits}}<input type="checkbox" data-fp aria-label="False positive · {{.ID}}">{{end}}</td>
       </tr>
+      {{else}}
+      {{template "empty_row" 5}}
       {{end}}
     </tbody>
   </table>
@@ -618,6 +620,8 @@
         <td title="{{.Quote}}">{{if .Quote}}<code>{{.Quote}}</code>{{end}}</td>
         <td title="{{.Where}}">{{.Where}}</td>
       </tr>
+      {{else}}
+      {{template "empty_row" 4}}
       {{end}}
     </tbody>
   </table>
