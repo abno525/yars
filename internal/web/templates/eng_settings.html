@@ -45,7 +45,7 @@
     {{if $v.CanTeam}}
     <form class="inline flush addrow" method="post" action="/e/{{.Eng.ID}}/settings/team">
       {{/* flush: the panel's margin for a form's children is not theirs (the row lines up with the table); everyone on the team: "—" */}}
-      <select class="grow flush" name="user" aria-label="Add person" aria-keyshortcuts="A"{{if not $v.Others}} disabled{{end}}>{{range $v.Others}}<option value="{{.Value}}">{{.Value}} · {{.Label}}</option>{{else}}<option>—</option>{{end}}</select>
+      <select class="grow flush" name="user" aria-label="Add person"{{if $v.Others}} aria-keyshortcuts="A"{{else}} disabled{{end}}>{{range $v.Others}}<option value="{{.Value}}">{{.Value}} · {{.Label}}</option>{{else}}<option>—</option>{{end}}</select>
       <button class="btn primary sm w96 flush"{{if not $v.Others}} disabled{{end}}>Add</button>
     </form>
     {{end}}

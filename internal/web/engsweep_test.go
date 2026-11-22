@@ -154,7 +154,9 @@ func TestTeamAddRowLinesUp(t *testing.T) {
 		e.do(t, "dora", "POST", "/e/acme/settings/team", url.Values{"user": {u}}, nil)
 	}
 	r = rowOf()
-	if !strings.Contains(r, `<select class="grow flush" name="user" aria-label="Add person" aria-keyshortcuts="A" disabled><option>—</option></select>`) || !strings.Contains(r, `<button class="btn primary sm w96 flush" disabled>Add</button>`) {
+	// disabled, it gives up its key, so the ? list does not offer a (as the
+	// board's disabled controls do)
+	if !strings.Contains(r, `<select class="grow flush" name="user" aria-label="Add person" disabled><option>—</option></select>`) || !strings.Contains(r, `<button class="btn primary sm w96 flush" disabled>Add</button>`) {
 		t.Fatalf("add row with everyone on the team:\n%s", r)
 	}
 	css := e.do(t, "dora", "GET", "/static/style.css", nil, nil).Body.String()
