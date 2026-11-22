@@ -83,6 +83,10 @@ func TestCheckMatrix(t *testing.T) {
 	if Check(dora, m, Approve) == nil {
 		t.Error("the author approved on her own sign-off")
 	}
+	// another director approves on it, as on any director's sign-off
+	if err := Check(adm, m, Approve); err != nil || Pending(adm, m) != InboxApprove {
+		t.Errorf("a second director on the author's sign-off: %v %q", err, Pending(adm, m))
+	}
 	// any other author still can't, even assigned (a hand edit)
 	own := meta("verification")
 	own.Author, own.Reviewers = "bob", []string{"bob"}

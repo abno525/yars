@@ -303,8 +303,10 @@ func (s *Store) MarkExported(engID, dir, destination string, u config.User) erro
 	return err
 }
 
-// SetReviewers replaces the reviewer list as u. The author is never a
-// reviewer; clearances of reviewers who stay are kept.
+// SetReviewers replaces the reviewer list as u. The author is never
+// assigned: a director author's own sign-off (Q25) is kept as it is, and
+// dropped with the next list once a return or a take back cleared it.
+// Clearances of reviewers who stay are kept.
 func (s *Store) SetReviewers(engID, dir string, names []string, u config.User) error {
 	var done Event
 	err := s.changeState(engID, dir, func(ref FindingRef, st *db.State, _ string) ([]chat.Message, error) {
@@ -323,7 +325,7 @@ func (s *Store) SetReviewers(engID, dir string, names []string, u config.User) e
 		if !workflow.CanAssign(u, m) {
 			// a reviewer only adds: nobody assigned (or signed off) is dropped
 			for _, old := range st.Reviewers {
-				if !slices.Contains(list, old.Name) {
+				if old.Name != m.Author && !slices.Contains(list, old.Name) {
 					return nil, &workflow.Denied{Reason: "only the author or a director can remove a reviewer"}
 				}
 			}
@@ -339,6 +341,9 @@ func (s *Store) SetReviewers(engID, dir string, names []string, u config.User) e
 		if len(list) == 0 && m.Status == "verification" {
 			// nobody could sign it off: it would wait for ever
 			return nil, &workflow.Denied{Reason: "a finding in verification keeps at least one reviewer"}
+		}
+		if slices.ContainsFunc(st.Reviewers, func(r db.Reviewer) bool { return r.Name == m.Author && r.ClearedHash != "" }) {
+			list = append(list, m.Author) // the author's own sign-off stays
 		}
 		sort.Strings(list)
 		var next []db.Reviewer

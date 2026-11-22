@@ -134,6 +134,47 @@ func TestDirectorSignsOffOwnFinding(t *testing.T) {
 	}
 }
 
+// Q25: the director's own sign-off is kept when the reviewer list is saved
+// (no list can name her): a reviewer still only adds, and her list without
+// her keeps it. Once a return took the sign-off, the next list drops her.
+func TestSetReviewersKeepsOwnSignOff(t *testing.T) {
+	s, _ := withEngagement(t)
+	f, err := s.CreateFinding(eng, "XSS", uDora.GitAuthor())
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.SetReviewers(eng, f.Dir, []string{"bob"}, uDora)
+	s.UpdateSeverity(eng, f.Dir, "high", "", uDora)
+	s.Transition(eng, f.Dir, workflow.Submit, "", uDora)
+	if err := s.Transition(eng, f.Dir, workflow.Clear, "", uDora); err != nil {
+		t.Fatal(err)
+	}
+	check := func(reviewers, cleared []string) {
+		t.Helper()
+		if m := load(t, s, f.Dir).F.Meta; !reflect.DeepEqual(m.Reviewers, reviewers) || !reflect.DeepEqual(m.ClearedBy, cleared) {
+			t.Fatalf("reviewers %v cleared %v", m.Reviewers, m.ClearedBy)
+		}
+	}
+	if err := s.SetReviewers(eng, f.Dir, []string{"bob", "carol"}, uBob); err != nil {
+		t.Fatalf("a reviewer adds: %v", err)
+	}
+	check([]string{"bob", "carol", "dora"}, []string{"dora"})
+	if err := s.SetReviewers(eng, f.Dir, []string{"carol"}, uDora); err != nil {
+		t.Fatal(err)
+	}
+	check([]string{"carol", "dora"}, []string{"dora"})
+	if err := s.SetReviewers(eng, f.Dir, nil, uDora); !denied(err) {
+		t.Fatalf("her own entry kept a finding in verification reviewed: %v", err)
+	}
+	if err := s.Transition(eng, f.Dir, workflow.Return, "again", uCarol); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetReviewers(eng, f.Dir, []string{"carol"}, uDora); err != nil {
+		t.Fatal(err)
+	}
+	check([]string{"carol"}, nil)
+}
+
 func TestTransitionFlow(t *testing.T) {
 	s, _, fd := ready(t)
 	s.Transition(eng, fd, workflow.Submit, "", uAlice)

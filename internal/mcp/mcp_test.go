@@ -306,6 +306,29 @@ func TestMCPTransitionAndChat(t *testing.T) {
 	}
 }
 
+// Q25: a director who signed off her own finding is on its reviewers; a
+// reviewers list may name her or leave her out, and her sign-off stays.
+func TestMCPReviewersAfterOwnSignOff(t *testing.T) {
+	f := newFx(t)
+	if _, err := f.s.Store.CreateFinding("acme", "XSS", dora.GitAuthor()); err != nil {
+		t.Fatal(err)
+	}
+	set := func(u config.User, field, value string) {
+		f.ok(u, "set_field", map[string]any{"engagement": "acme", "finding": "F-002", "field": field, "value": value})
+	}
+	set(dora, "reviewers", "bob")
+	set(dora, "severity", "high")
+	for _, a := range []string{"submit", "sign_off"} {
+		f.ok(dora, "transition", map[string]any{"engagement": "acme", "finding": "F-002", "action": a})
+	}
+	set(bob, "reviewers", "bob,dora")
+	set(bob, "reviewers", "bob")
+	set(dora, "reviewers", "bob,dora")
+	if ref, _ := f.s.Store.Finding("acme", "002"); strings.Join(ref.F.Meta.Reviewers, ",") != "bob,dora" || strings.Join(ref.F.Meta.ClearedBy, ",") != "dora" {
+		t.Fatalf("reviewers %v cleared %v", ref.F.Meta.Reviewers, ref.F.Meta.ClearedBy)
+	}
+}
+
 func TestMCPSignOffReportWithdraw(t *testing.T) {
 	f := newFx(t)
 	set := func(field, value string) {

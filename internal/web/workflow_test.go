@@ -530,6 +530,30 @@ func TestReviewersAssignAll(t *testing.T) {
 	}
 }
 
+// Q25: a director who signed off her own finding is on its reviewers;
+// Assign all adds the reviewers and keeps her sign-off.
+func TestReviewersAssignAllAfterOwnSignOff(t *testing.T) {
+	e := setup(t)
+	st := e.srv.Store
+	f, err := st.CreateFinding("acme", "XSS", e.authorOf(wDora))
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.SetReviewers("acme", f.Dir, []string{"bob"}, wDora)
+	st.UpdateSeverity("acme", f.Dir, "high", "", e.authorOf(wDora))
+	st.Transition("acme", f.Dir, workflow.Submit, "", wDora)
+	if err := st.Transition("acme", f.Dir, workflow.Clear, "", wDora); err != nil {
+		t.Fatal(err)
+	}
+	if rec := e.do(t, "dora", "POST", "/e/acme/f/002/reviewers", url.Values{"all": {"1"}}, nil); rec.Code != http.StatusSeeOther {
+		t.Fatalf("code %d", rec.Code)
+	}
+	ref, _ := st.Finding("acme", f.Dir)
+	if got := strings.Join(ref.F.Meta.Reviewers, ","); got != "bob,carol,dora" || !slices.Equal(ref.F.Meta.ClearedBy, []string{"dora"}) {
+		t.Fatalf("reviewers %q cleared %v", got, ref.F.Meta.ClearedBy)
+	}
+}
+
 func TestReviewersRejectUnknown(t *testing.T) {
 	e := setup(t)
 	if b := e.denied(t, "alice", fpath+"/reviewers", url.Values{"reviewer": {"mallory"}}); !strings.Contains(b, "unknown or ineligible reviewer mallory") {

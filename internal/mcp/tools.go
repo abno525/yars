@@ -915,6 +915,9 @@ func setField(s *Server, ctx context.Context, u config.User, a args) (string, er
 		}
 		if s.Users != nil {
 			for _, n := range names {
+				if m := ref.F.Meta; n == m.Author && slices.Contains(m.Reviewers, n) {
+					continue // a director author's own sign-off: kept as it is (Q25)
+				}
 				i := slices.IndexFunc(s.Users(), func(x config.User) bool { return x.Username == n })
 				if i < 0 || !st.CanReview(s.Users()[i], eng, ref.F.Meta) {
 					return "", fmt.Errorf("%s is not a reviewer or director account on the engagement's team (or is the author)", n)

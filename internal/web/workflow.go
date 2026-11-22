@@ -446,8 +446,9 @@ func (s *Server) wfReviewers(w http.ResponseWriter, r *http.Request) {
 	names := r.PostForm["reviewer"]
 	users := s.Auth.Users() // once per request, not per name
 	if r.PostForm.Get("all") != "" {
-		// keep whoever is assigned and add every reviewer-role account
-		names = slices.Clone(ref.F.Meta.Reviewers)
+		// keep whoever is assigned and add every reviewer-role account; a
+		// director author's own sign-off stays without being named (Q25)
+		names = slices.DeleteFunc(slices.Clone(ref.F.Meta.Reviewers), func(n string) bool { return n == ref.F.Meta.Author })
 		for _, c := range users {
 			if c.Role == "reviewer" && s.Store.CanReview(c, ref.EngID, ref.F.Meta) && !slices.Contains(names, c.Username) {
 				names = append(names, c.Username)
