@@ -1709,7 +1709,7 @@ button.noteopen:focus-visible { outline: 2px solid var(--accent); outline-offset
 .dkv.top > .flabel { padding-top: 10px; }
 .panel.compact > .dkv { margin: 0; }
 .codeline { display: flex; align-items: stretch; min-width: 0; border: 1px solid var(--line); background: var(--code-bg); }
-.codeline code { flex: 1; min-width: 0; padding: 8px 14px; font: 500 13px/1.6 var(--mono); color: var(--text); white-space: pre-wrap; word-break: break-all; }
+.codeline code { flex: 1; min-width: 0; padding: 8px 14px; font: 500 13px/1.6 var(--mono); color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
 .codeline .btn { margin: 4px; align-self: flex-start; }
 code.plain { font: 500 13px var(--mono); color: var(--text); background: transparent; }
 .strongmono { color: var(--text); }

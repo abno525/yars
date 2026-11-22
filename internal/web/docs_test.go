@@ -129,6 +129,22 @@ func TestDocsParamRowsWrap(t *testing.T) {
 	}
 }
 
+// A command line (Remote, Local, the git clones) wraps at its spaces, so
+// "Bearer" stays whole; a word longer than the line still breaks, as in the
+// other pre-wrapped text (overflow-wrap: anywhere, not word-break: break-all).
+func TestDocsCommandsWrapAtSpaces(t *testing.T) {
+	e := setup(t)
+	b := e.do(t, "alice", "GET", "/docs/mcp", nil, nil).Body.String()
+	if !strings.Contains(b, `<div class="codeline"><code id="mcp-remote">`) {
+		t.Fatalf("no Remote command line:\n%s", b)
+	}
+	css := e.do(t, "alice", "GET", staticPrefix()+"/style.css", nil, nil).Body.String()
+	rule := between(css, "\n.codeline code {", "}")
+	if strings.Contains(rule, "break-all") || !strings.Contains(rule, "white-space: pre-wrap; overflow-wrap: anywhere;") {
+		t.Errorf(".codeline code rule: %q", rule)
+	}
+}
+
 // With base_url set (behind a proxy), the docs show the public address,
 // not the one the request came in on.
 func TestDocsUseBaseURL(t *testing.T) {
