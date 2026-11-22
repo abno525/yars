@@ -1411,7 +1411,9 @@ input.bigin { height: 48px; font: 600 18px var(--sans); border: 2px solid var(--
 /* history: events left, the selected change right */
 .histgrid { display: grid; grid-template-columns: 420px minmax(0, 1fr); gap: 24px; align-items: start; }
 .seg.hfilter > a { --seg-w: 96px; height: 28px; font-size: 12px; text-transform: none; }
-.evlist { display: flex; flex-direction: column; max-height: calc(100vh - 280px); overflow-y: auto; }
+/* the page fits the window, only the list scrolls: 64 top bar, 24 padding,
+   63.6 title, 24 + 24 + 24 error slot and gaps, 2 borders, 48 head, 48 padding */
+.evlist { display: flex; flex-direction: column; max-height: calc(100vh - 322px); overflow-y: auto; }
 .ev {
   min-height: 56px; padding: 10px 16px; display: grid; grid-template-columns: 10px minmax(0, 1fr) 128px; gap: 12px; align-items: center;
   border-bottom: 1px solid var(--line-soft); color: var(--text); font-size: 14px;
