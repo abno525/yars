@@ -131,6 +131,12 @@ func (s *Store) TransitionSeen(engID, dir string, act workflow.Action, reason, s
 	return s.transition(engID, dir, act, reason, seen, files, u, nil)
 }
 
+// changedSince refuses a sign-off or an approval of a version the page did
+// not show.
+func changedSince() error {
+	return &workflow.Denied{Reason: "the finding changed since you opened it; read it again", Err: ErrConflict}
+}
+
 func (s *Store) transition(engID, dir string, act workflow.Action, reason, seen, files string, u config.User, check func(finding.Meta) error) error {
 	if check == nil {
 		check = func(finding.Meta) error { return nil }
@@ -151,6 +157,10 @@ func (s *Store) transition(engID, dir string, act workflow.Action, reason, seen,
 		ref, raw, err := s.read(engID, dir, nil)
 		if err != nil {
 			return err
+		}
+		if seen != "" && contentHash(raw) != seen {
+			// first, as in the change: no gate or rule for content not seen
+			return changedSince()
 		}
 		if err := workflow.CheckWithGate(u, ref.F.Meta, act, s.Config()); err != nil {
 			return err
@@ -183,7 +193,7 @@ func (s *Store) transition(engID, dir string, act workflow.Action, reason, seen,
 			changed = now != files
 		}
 		if changed {
-			return nil, &workflow.Denied{Reason: "the finding changed since you opened it; read it again", Err: ErrConflict}
+			return nil, changedSince()
 		}
 		if linted != "" && hash != linted {
 			return nil, &workflow.Denied{Reason: "the finding changed while its checks ran; try again", Err: ErrConflict}

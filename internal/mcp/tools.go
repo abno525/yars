@@ -178,10 +178,10 @@ func explain(err error) string {
 	switch {
 	case errors.As(err, &r):
 		return r.msg
+	case errors.Is(err, store.ErrConflict): // a Denied too: a stale base, a race with an edit
+		return "the finding changed since you read it; read_finding again and retry"
 	case errors.As(err, &d):
 		return "not allowed: " + d.Reason
-	case errors.Is(err, store.ErrConflict):
-		return "the finding changed since you read it; read_finding again and retry"
 	case errors.Is(err, store.ErrNotFound):
 		return "not found"
 	case errors.Is(err, store.ErrArchived):
@@ -582,8 +582,9 @@ var coreTools = []tool{
 				return "", refuse("invalid", "a reason is required to "+what+" a finding")
 			}
 			// base: the version read, as the website's page sends it (kept for
-			// a sign-off or an approval only)
-			if err := s.Store.TransitionSeen(ref.EngID, ref.Dir, act, a.str("reason"), a.str("base"), u); err != nil {
+			// a sign-off or an approval only); finding.md's, not the
+			// attachments' (no attachments hash over MCP)
+			if err := s.Store.TransitionSeen(ref.EngID, ref.Dir, act, a.str("reason"), a.str("base"), "", u); err != nil {
 				return "", err
 			}
 			_, to := workflow.Target(act)
@@ -918,12 +919,18 @@ func setField(s *Server, ctx context.Context, u config.User, a args) (string, er
 			}
 		}
 		if s.Users != nil {
+			users := s.Users()
 			for _, n := range names {
 				if m := ref.F.Meta; n == m.Author && slices.Contains(m.Reviewers, n) {
 					continue // a director author's own sign-off: kept as it is (Q25)
 				}
-				i := slices.IndexFunc(s.Users(), func(x config.User) bool { return x.Username == n })
-				if i < 0 || !st.CanReview(s.Users()[i], eng, ref.F.Meta) {
+				ok := false
+				if i := slices.IndexFunc(users, func(x config.User) bool { return x.Username == n }); i >= 0 {
+					if ok, err = st.MayReview(users[i], eng, ref.F.Meta); err != nil {
+						return "", err // the team read failed: not the name's fault
+					}
+				}
+				if !ok {
 					return "", invalid("%s is not a reviewer or director account on the engagement's team (or is the author)", n)
 				}
 			}

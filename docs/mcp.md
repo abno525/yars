@@ -106,7 +106,7 @@ Some refusals and their messages:
 | `no_database` | `workflow state and chat are kept on the YARS server; use its web UI or its /mcp endpoint` | A server-only tool on a local clone |
 | `conflict` | `the finding changed since you read it; read_finding again and retry` | Stale `base` |
 | `conflict` | `not allowed: the finding changed while its checks ran; try again` | A submit or sign-off raced an edit: retry |
-| `conflict` | `not allowed: the finding changed since you opened it; read it again` | `transition` clear, sign_off or approve with a stale `base` |
+| `conflict` | `not allowed: the finding changed since you opened it; read it again` | `transition` clear, sign_off or approve with a stale `base` (before the checks and the gate) |
 | `busy` | `a check or a fix of this finding is running` | `start_check` while a fix runs (during a check, running or queued, it answers that run), `fix_checks` while a check or a fix runs |
 | `invalid` | `a reason is required to withdraw a finding` | `transition` return, withdraw or revert without `reason` |
 | `invalid` | `unknown section "Summary"; valid sections: …` | `update_section` with a section the finding doesn't have |

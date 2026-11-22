@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -367,6 +368,42 @@ func TestRequireCheckRunStartedMeanwhile(t *testing.T) {
 	err := s.Transition(eng, fd, workflow.Clear, "", uBob)
 	if !denied(err) || !strings.Contains(err.Error(), GateRunning) {
 		t.Fatalf("sign off during a new run: %v", err)
+	}
+}
+
+// Q10: a sign-off or an approval of a version changed since is refused as
+// that (ErrConflict) before the checks: no gate refusal for content never
+// read, no rule run on it.
+func TestTransitionSeenBeforeChecks(t *testing.T) {
+	s, dir, fd := ready(t)
+	withRules(t, s, dir, "- id: none\n  target: title\n  regex_forbid: 'zzz'\n")
+	if err := s.Transition(eng, fd, workflow.Submit, "", uAlice); err != nil {
+		t.Fatal(err)
+	}
+	seen := load(t, s, fd).Hash
+	if err := s.UpdateSection(eng, fd, "Impact", "Changed after the read.", "", uAlice); err != nil {
+		t.Fatal(err)
+	}
+	stale := func(act workflow.Action, u config.User) {
+		t.Helper()
+		if err := s.TransitionSeen(eng, fd, act, "", seen, u); !errors.Is(err, ErrConflict) {
+			t.Fatalf("%s of a version changed since: %v", act, err)
+		}
+	}
+	// no check run yet: the version is what is refused
+	stale(workflow.Clear, uBob)
+	// off, Approve runs every rule: not on content the director never read
+	if err := s.SetRequireCheck(false, "dora"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Transition(eng, fd, workflow.Clear, "", uBob); err != nil {
+		t.Fatal(err)
+	}
+	var slow int
+	s.Linter = slowLinter{&slow}
+	stale(workflow.Approve, uDora)
+	if m := load(t, s, fd).F.Meta; slow != 0 || m.Status != "verification" {
+		t.Fatalf("approve of a stale version ran %d slow rules; %s", slow, m.Status)
 	}
 }
 

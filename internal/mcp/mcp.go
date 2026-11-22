@@ -222,7 +222,12 @@ func (s *Server) gate(ctx context.Context, u config.User, t tool, a args) error 
 			return refuse("not_allowed", "not allowed: this token is not valid for engagement "+eng)
 		}
 	}
-	if eng != "" && !s.Store.CanSee(u, eng) {
+	if eng == "" {
+		return nil
+	}
+	if ok, err := s.Store.Sees(u, eng); err != nil {
+		return err // the team read failed: the server's failure (server_error)
+	} else if !ok {
 		return refuse("not_found", "not found") // as for an engagement that doesn't exist
 	}
 	return nil

@@ -18,20 +18,34 @@ func SeesAll(u config.User) bool { return u.IsAdmin || workflow.AtLeast(u, "dire
 
 // CanSee reports whether u may see engagement eng: directors and admins
 // always, others when they are on its team. Without a database (a local
-// clone) everything is visible.
+// clone) everything is visible. A team read that fails is false.
 func (s *Store) CanSee(u config.User, eng string) bool {
-	if s.db == nil || SeesAll(u) {
-		return true
-	}
-	ok, err := s.db.IsMember(eng, u.Username)
+	ok, err := s.Sees(u, eng)
 	return err == nil && ok
+}
+
+// Sees is CanSee with the team read's error.
+func (s *Store) Sees(u config.User, eng string) (bool, error) {
+	if s.db == nil || SeesAll(u) {
+		return true, nil
+	}
+	return s.db.IsMember(eng, u.Username)
 }
 
 // CanReview reports whether u may be assigned as a reviewer of m in
 // engagement eng: an enabled, eligible account (workflow.ReviewerCandidate)
 // that can see the engagement.
 func (s *Store) CanReview(u config.User, eng string, m finding.Meta) bool {
-	return !u.Disabled && workflow.ReviewerCandidate(u, m) && s.CanSee(u, eng)
+	ok, err := s.MayReview(u, eng, m)
+	return err == nil && ok
+}
+
+// MayReview is CanReview with the team read's error.
+func (s *Store) MayReview(u config.User, eng string, m finding.Meta) (bool, error) {
+	if u.Disabled || !workflow.ReviewerCandidate(u, m) {
+		return false, nil
+	}
+	return s.Sees(u, eng)
 }
 
 // Visible returns the engagements u may see; nil means all of them.

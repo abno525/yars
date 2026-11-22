@@ -296,6 +296,7 @@ func TestServerFailureIsServerError(t *testing.T) {
 	}{
 		{alice, "list_notifications", map[string]any{}},
 		{alice, "mark_notifications_read", map[string]any{"all": true}},
+		{alice, "read_finding", map[string]any{"engagement": "acme", "finding": "F-001"}}, // the team check
 		{dora, "read_finding", map[string]any{"engagement": "acme", "finding": "F-001"}},
 		{dora, "add_chat_message", map[string]any{"engagement": "acme", "finding": "F-001", "text": "x"}},
 	} {
@@ -303,6 +304,31 @@ func TestServerFailureIsServerError(t *testing.T) {
 		if m := object(t, c.tool, text); !isErr || m["code"] != "server_error" || !strings.Contains(m["message"].(string), "closed") {
 			t.Errorf("%s with the database closed: %s", c.tool, text)
 		}
+	}
+}
+
+// Q9: a team read that fails is the server's failure, not an engagement
+// the caller is not on (not_found) nor a name that is no reviewer (invalid).
+func TestTeamReadFailureIsServerError(t *testing.T) {
+	f := newFx(t)
+	if _, err := f.s.Store.DB().Exec("ALTER TABLE engagement_members RENAME TO engagement_members_away"); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		u    config.User
+		tool string
+		args map[string]any
+	}{
+		{alice, "list_findings", map[string]any{"engagement": "acme"}},
+		{dora, "set_field", map[string]any{"engagement": "acme", "finding": "F-001", "field": "reviewers", "value": "bob"}},
+	} {
+		text, isErr := f.call(c.u, c.tool, c.args)
+		if m := object(t, c.tool, text); !isErr || m["code"] != "server_error" || !strings.Contains(m["message"].(string), "engagement_members") {
+			t.Errorf("%s as %s with the team unreadable: %s", c.tool, c.u.Username, text)
+		}
+	}
+	if ref, _ := f.s.Store.Finding("acme", "001"); len(ref.F.Meta.Reviewers) != 0 {
+		t.Fatalf("reviewers set anyway: %v", ref.F.Meta.Reviewers)
 	}
 }
 
