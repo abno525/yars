@@ -1066,6 +1066,8 @@ input.grow, select.grow { flex: 1; min-width: 0; }
 .table th.c-time { width: 168px; }
 .table th.c-can { width: 240px; }
 .table th.c-action, .table th.c-target { width: 200px; }
+/* Activity: Object holds a path, Detail takes the rest (as Notifications' Finding and Text) */
+.table.audittable th.c-target { width: 400px; }
 .table th.c-level { width: 152px; }
 .table th.c-act, .table th.c-act2 { width: 144px; }
 .table th.c-acts { width: 248px; }

@@ -16,12 +16,20 @@ import (
 // share a line).
 func cssWidth(t *testing.T, css, selector string) int {
 	t.Helper()
-	m := regexp.MustCompile(`(?m)(?:^|\} )(?:[^{}\n]*, )?` + regexp.QuoteMeta(selector) + `(?:, [^{}\n]*)? \{ width: (\d+)px; \}`).FindStringSubmatch(css)
-	if m == nil {
+	n, ok := cssWidthOK(css, selector)
+	if !ok {
 		t.Fatalf("style.css has no %s width", selector)
 	}
-	n, _ := strconv.Atoi(m[1])
 	return n
+}
+
+func cssWidthOK(css, selector string) (int, bool) {
+	m := regexp.MustCompile(`(?m)(?:^|\} )(?:[^{}\n]*, )?` + regexp.QuoteMeta(selector) + `(?:, [^{}\n]*)? \{ width: (\d+)px; \}`).FindStringSubmatch(css)
+	if m == nil {
+		return 0, false
+	}
+	n, _ := strconv.Atoi(m[1])
+	return n, true
 }
 
 // The inbox's action column holds its longest label: Mark reported is 83px
@@ -88,6 +96,53 @@ func TestTokenLastUsedFits(t *testing.T) {
 		}
 		if w := cssWidth(t, css, ".table th."+m[1]); w < 157 {
 			t.Errorf("%s: Last used (157px) in a %dpx column (%s)", path, w, m[1])
+		}
+	}
+}
+
+// auditTable is the Activity table's width at 1440 x 900: the page less its
+// stable scrollbar gutter (15px), main's 32px sides and the panel's border.
+const auditTable = 1440 - 15 - 2*32 - 2
+
+// Activity's Object and Detail share what the fixed columns leave: Object
+// holds an attachment's path ("acme-retest/F-003/session-token.png" and
+// longer: 360px is 46 characters of 15px Plex Sans), Detail a prune's
+// counts ("audit 0 · check runs 0 · sessions 0 · rule results 1", about as
+// long). Object was 200px and cut the path while Detail stood mostly empty.
+func TestActivityObjectRoom(t *testing.T) {
+	e := setup(t)
+	b := e.do(t, "dora", "GET", "/admin/activity", nil, nil).Body.String()
+	css := e.do(t, "dora", "GET", "/static/style.css", nil, nil).Body.String()
+	head := between(b, `<table class="table stable audittable">`, "</thead>")
+	ths := regexp.MustCompile(`<th(?: class="([a-z0-9-]+)")?>([^<]+)</th>`).FindAllStringSubmatch(head, -1)
+	if len(ths) != 5 {
+		t.Fatalf("columns %v", ths)
+	}
+	fixed, auto := 0, 0
+	widths := map[string]int{}
+	for _, th := range ths {
+		if th[1] == "" {
+			auto++
+			continue
+		}
+		w, ok := cssWidthOK(css, ".table.audittable th."+th[1])
+		if !ok {
+			w = cssWidth(t, css, ".table th."+th[1])
+		}
+		widths[th[2]] = w
+		fixed += w
+	}
+	rest := 0
+	if auto > 0 {
+		rest = (auditTable - fixed) / auto
+	}
+	for _, col := range []string{"Object", "Detail"} {
+		w, ok := widths[col]
+		if !ok {
+			w = rest
+		}
+		if w < 360 {
+			t.Errorf("%s is %dpx of %dpx (fixed %v)", col, w, auditTable, widths)
 		}
 	}
 }
