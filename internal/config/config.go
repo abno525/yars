@@ -28,9 +28,19 @@ type Config struct {
 	AI             AIConfig   `yaml:"ai"`
 	// BaseURL is the server's address as people open it (links in webhooks
 	// and email); "" = links are paths only.
-	BaseURL string     `yaml:"base_url"`
-	SMTP    SMTPConfig `yaml:"smtp"`
+	BaseURL string       `yaml:"base_url"`
+	SMTP    SMTPConfig   `yaml:"smtp"`
+	Checks  ChecksConfig `yaml:"checks"`
 }
+
+// ChecksConfig bounds the stored check runs (Check, start_check, the run
+// after Fix with AI): MaxRunning run at once, the others wait in a queue.
+type ChecksConfig struct {
+	MaxRunning int `yaml:"max_running"` // at least 1
+}
+
+// DefaultMaxRunning is checks.max_running when config.yaml sets none.
+const DefaultMaxRunning = 4
 
 // SMTPConfig sends notification email. The password is read from the
 // environment variable named by PasswordEnv and never stored in the repo.
@@ -108,6 +118,9 @@ func validate(c *Config) error {
 	if c.SMTP.Port == 0 {
 		c.SMTP.Port = 25
 	}
+	if n := c.Checks.MaxRunning; n < 1 {
+		return fmt.Errorf("config: checks.max_running %d must be at least 1", n)
+	}
 	for k, v := range c.CVSS.Standard {
 		if !cvss.Valid(k, v) {
 			return fmt.Errorf("config: cvss.standard %s: invalid value %q", k, v)
@@ -176,6 +189,7 @@ func Default() Config {
 		ReportSections: []string{"Executive summary", "Scope", "Methodology"},
 		CVSS:           CVSSConfig{Version: "3.1", Standard: defaultStandard()},
 		SMTP:           SMTPConfig{Port: 25},
+		Checks:         ChecksConfig{MaxRunning: DefaultMaxRunning},
 	}
 }
 
@@ -193,7 +207,9 @@ func Load(dataDir string) (Config, error) {
 // Parse reads a config.yaml (nil or empty: all defaults) and validates it
 // as Load does.
 func Parse(b []byte) (Config, error) {
-	c := Config{}
+	// set before the YAML: only a max_running written there replaces it, so
+	// an explicit 0 is refused rather than taken for unset
+	c := Config{Checks: ChecksConfig{MaxRunning: DefaultMaxRunning}}
 	if err := yaml.Unmarshal(b, &c); err != nil {
 		return c, err
 	}

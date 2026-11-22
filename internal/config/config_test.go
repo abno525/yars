@@ -152,6 +152,30 @@ func TestLoadAIConfig(t *testing.T) {
 	}
 }
 
+// Q3: checks.max_running bounds the check runs at once; unset (or a
+// checks block without it) is 4, below 1 is refused.
+func TestLoadChecksMaxRunning(t *testing.T) {
+	if Default().Checks.MaxRunning != 4 {
+		t.Fatalf("default %d", Default().Checks.MaxRunning)
+	}
+	for _, body := range []string{"", "checks:\n", "checks:\n  # max_running: 8\n", "checks: {}\n", "checks:\n  max_running: ~\n"} {
+		if c, err := Load(writeCfg(t, body)); err != nil || c.Checks.MaxRunning != 4 {
+			t.Fatalf("%q: %d %v", body, c.Checks.MaxRunning, err)
+		}
+	}
+	if c, err := Load(writeCfg(t, "checks:\n  max_running: 1\n")); err != nil || c.Checks.MaxRunning != 1 {
+		t.Fatalf("one: %d %v", c.Checks.MaxRunning, err)
+	}
+	for _, bad := range []string{"0", "-2"} {
+		if _, err := Load(writeCfg(t, "checks:\n  max_running: "+bad+"\n")); err == nil || !strings.Contains(err.Error(), "checks.max_running") {
+			t.Fatalf("%s accepted: %v", bad, err)
+		}
+	}
+	if _, err := Load(writeCfg(t, "checks:\n  max_running: many\n")); err == nil {
+		t.Fatal("a word accepted")
+	}
+}
+
 func TestValidRole(t *testing.T) {
 	if !ValidRole("director") || ValidRole("boss") || ValidRole("admin") {
 		t.Fatal("ValidRole wrong")
