@@ -90,6 +90,10 @@ func TestAdminWebhooks(t *testing.T) {
 		secRe.MatchString(rec.Header().Get("Location")) || secRe.MatchString(rec.Body.String()) {
 		t.Fatalf("create %d %q", rec.Code, rec.Header().Get("Location"))
 	}
+	// Activity lists its events as the other lists there read: "a, b"
+	if log, _ := e.srv.Store.DB().AuditLog(1); len(log) != 1 || log[0].Action != "webhook.add" || log[0].Detail != "finding.status_changed, chat.posted" {
+		t.Fatalf("audit %+v", log)
+	}
 	first := e.do(t, "dora", "GET", rec.Header().Get("Location"), nil, nil)
 	sec := secRe.FindString(first.Body.String())
 	if sec == "" || first.Header().Get("Cache-Control") != "no-store" {

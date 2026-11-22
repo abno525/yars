@@ -9,6 +9,19 @@ import (
 	"yars/internal/db"
 )
 
+// Admin › Activity shows a new token's actions as the other lists there
+// read: "a, b".
+func TestTokenAuditScopesSpaced(t *testing.T) {
+	d := newDB(t)
+	d.AddUser(config.User{Username: "bob", Role: "reviewer"})
+	if _, _, err := NewTokens(d).Create("dora", "bob", db.TokenSpec{Name: "laptop", Kind: db.TokenMCP, Scopes: []string{"edit", "comment"}}); err != nil {
+		t.Fatal(err)
+	}
+	if log, _ := d.AuditLog(1); len(log) != 1 || !strings.HasSuffix(log[0].Detail, " mcp edit, comment laptop") {
+		t.Fatalf("audit %+v", log)
+	}
+}
+
 func TestTokens(t *testing.T) {
 	d := newDB(t)
 	d.AddUser(config.User{Username: "bob", Role: "reviewer"})

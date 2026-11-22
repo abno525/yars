@@ -167,7 +167,7 @@ func (s *Server) hookCreate(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	s.Store.DB().Audit(u.Username, "webhook.add", url, strings.Join(ev, ","))
+	s.Store.DB().Audit(u.Username, "webhook.add", url, strings.Join(ev, ", "))
 	s.startHooks()
 	// POST-redirect-GET: a reload doesn't add a second webhook; the page
 	// after the redirect shows the secret once
@@ -194,7 +194,7 @@ func (s *Server) hookUpdate(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	s.Store.DB().Audit(u.Username, "webhook.edit", url, strings.Join(ev, ","))
+	s.Store.DB().Audit(u.Username, "webhook.edit", url, strings.Join(ev, ", "))
 	http.Redirect(w, r, "/admin/webhooks?hook="+strconv.FormatInt(id, 10), http.StatusSeeOther)
 }
 
