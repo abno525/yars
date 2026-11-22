@@ -32,8 +32,13 @@ func TestRetestResultSegmentsHaveNoPanelMargin(t *testing.T) {
 	if rule := between(css, ".panel.resultp.needs {", "}"); strings.Contains(rule, "border:") || strings.Contains(rule, "border-width") {
 		t.Errorf(".panel.resultp.needs changes the border's width: %q", rule)
 	}
+	// the slot is flush, or the panel's generic child margin (16 px 24 px,
+	// a stronger selector) wins over its own 8 px
 	panel := between(b, `<section class="panel resultp`, "</section>")
-	if !strings.Contains(panel, `<div class="errslot">`) {
-		t.Errorf("no reserved error slot:\n%s", panel)
+	if !strings.Contains(panel, `<div class="errslot flush">`) {
+		t.Errorf("no reserved flush error slot:\n%s", panel)
+	}
+	if !strings.Contains(css, ".resultp > .errslot { margin: 8px 24px 0; }") {
+		t.Errorf("style.css lacks the error slot's margin")
 	}
 }
