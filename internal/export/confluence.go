@@ -2,6 +2,7 @@ package export
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
@@ -22,6 +23,7 @@ import (
 	"path"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"yars/internal/finding"
@@ -288,8 +290,16 @@ func (r *Runner) confluence(ctx context.Context, e Exporter, in Input) (Result, 
 		cur = &p
 		cur.Version.Number = max(cur.Version.Number, 1)
 	}
+	// what an existing page holds: unchanged pictures are not sent again
+	var had []confAttachment
+	if !created {
+		had, err = r.pageAttachments(ctx, user, token, base+"/"+url.PathEscape(cur.ID)+"/child/attachment")
+		if err != nil {
+			return Result{}, err
+		}
+	}
 	for _, pic := range pics { // then the pictures, then the body that shows them
-		if err := r.putAttachment(ctx, user, token, base+"/"+url.PathEscape(cur.ID)+"/child/attachment", pic, !created); err != nil {
+		if err := r.putAttachment(ctx, user, token, base+"/"+url.PathEscape(cur.ID)+"/child/attachment", pic, had); err != nil {
 			return Result{}, err
 		}
 	}
@@ -306,6 +316,16 @@ func (r *Runner) confluence(ctx context.Context, e Exporter, in Input) (Result, 
 	data, err := call(method, target, body)
 	if err != nil {
 		return Result{}, err
+	}
+	// last the pictures a push left that the body no longer shows: a current
+	// attachment stays downloadable to anyone who can view the page
+	for _, a := range had {
+		if a.ID != "" && strings.HasPrefix(a.comment(), "sha256:") && !used[a.Title] {
+			_, err := r.call(ctx, "confluence delete of "+a.Title, user, token, "DELETE", base+"/"+url.PathEscape(a.ID), nil)
+			if err != nil && !notFound(err) {
+				return Result{}, err
+			}
+		}
 	}
 	var out struct {
 		confPage
@@ -349,30 +369,49 @@ func fileSafe(id string) string {
 	}, id)
 }
 
+// confAttachment is an attachment of a page as the content API lists it.
+type confAttachment struct {
+	ID, Title            string
+	Metadata, Extensions struct{ Comment string }
+}
+
+// comment is in metadata or in extensions, by Confluence version.
+func (a confAttachment) comment() string {
+	return cmp.Or(a.Metadata.Comment, a.Extensions.Comment)
+}
+
+// pageAttachments lists the page's attachments (target), following the
+// list's next link: a server may give fewer than asked for.
+func (r *Runner) pageAttachments(ctx context.Context, user, token, target string) ([]confAttachment, error) {
+	var all []confAttachment
+	for {
+		q := url.Values{"start": {strconv.Itoa(len(all))}, "limit": {"200"}}
+		data, err := r.call(ctx, "confluence attachment list", user, token, "GET", target+"?"+q.Encode(), nil)
+		if err != nil {
+			return nil, err
+		}
+		var got struct {
+			Results []confAttachment
+			Links   struct{ Next string } `json:"_links"`
+		}
+		json.Unmarshal(data, &got)
+		all = append(all, got.Results...)
+		if got.Links.Next == "" || len(got.Results) == 0 {
+			return all, nil
+		}
+	}
+}
+
 // putAttachment uploads pic to the page's attachments (target): a new one,
-// or a new version of the one with its name. With check it first asks for
-// that name and skips the upload when the page has these bytes already, by
-// the sha256 every upload leaves in the attachment's comment.
-func (r *Runner) putAttachment(ctx context.Context, user, token, target string, pic pagePic, check bool) error {
-	what := "confluence upload of " + pic.name
+// or a new version of the one with its name. It skips the upload when the
+// page had these bytes already, by the sha256 every upload leaves in the
+// attachment's comment.
+func (r *Runner) putAttachment(ctx context.Context, user, token, target string, pic pagePic, had []confAttachment) error {
 	h := sha256.Sum256(pic.data)
 	comment := "sha256:" + hex.EncodeToString(h[:])
-	if check {
-		data, err := r.call(ctx, what, user, token, "GET", target+"?"+url.Values{"filename": {pic.name}}.Encode(), nil)
-		if err != nil {
-			return err
-		}
-		var found struct {
-			Results []struct {
-				Title                string
-				Metadata, Extensions struct{ Comment string } // the comment is in either, by Confluence version
-			}
-		}
-		json.Unmarshal(data, &found)
-		for _, a := range found.Results {
-			if a.Title == pic.name && (a.Metadata.Comment == comment || a.Extensions.Comment == comment) {
-				return nil
-			}
+	for _, a := range had {
+		if a.Title == pic.name && a.comment() == comment {
+			return nil
 		}
 	}
 	var body bytes.Buffer
@@ -391,7 +430,7 @@ func (r *Runner) putAttachment(ctx context.Context, user, token, target string, 
 	}
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 	req.Header.Set("X-Atlassian-Token", "no-check") // uploads are refused without it
-	_, err = r.send(req, what, user, token)
+	_, err = r.send(req, "confluence upload of "+pic.name, user, token)
 	return err
 }
 

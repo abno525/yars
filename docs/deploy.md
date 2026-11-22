@@ -66,11 +66,13 @@ journalctl -u yars -f
 
 ## Confluence
 
-A Confluence destination with a `base_url` publishes through Confluence's REST API: one page for the findings sent, or a page of its own for a single finding. A later send updates the same page.
+A Confluence destination with a `base_url` publishes through Confluence's REST API. From the website each finding gets a page of its own. `yars export` does the same for a single finding; several go on one page, with the report sections, whose pictures are left out. A later send updates the same page.
 
-A finding's pictures become attachments of the page and show where they stand in the text. Each is named after its finding and file, for example `F-003-shot.png`. A send uploads only the pictures that are new or changed: the attachment's comment holds the file's SHA-256. Pictures in the report sections are left out.
+A finding's pictures become attachments of the page and show where they stand in the text. Each is named after its finding and file, for example `F-003-shot.png`. A send uploads only the pictures that are new or changed: the attachment's comment holds the file's SHA-256.
 
-The account behind the key needs permission, in the space, to view it, add pages and add attachments. Without the last, a send with pictures fails with `confluence upload of F-003-shot.png failed: HTTP 403 …`. An existing page then keeps its old text; a new one stays empty.
+A picture that is no longer in the page's text is deleted from the page once the new text is written. This covers a picture taken out of a finding, a finding renumbered, and a finding no longer on a `yars export` page. Confluence Cloud moves it to the space's trash. Attachments added in Confluence by hand stay.
+
+The account behind the key needs permission, in the space, to view it, add pages, add attachments and delete attachments. Without adding, a send with pictures fails with `confluence upload of F-003-shot.png failed: HTTP 403 …`. An existing page then keeps its old text; a new one stays empty. Without deleting, a send that drops a picture fails with `confluence delete of F-003-shot.png failed: HTTP 403 …`. The page then has its new text, and the picture stays attached until it is deleted in Confluence.
 
 The Confluence HTML download has no page to attach to: its pictures stay inside the file.
 

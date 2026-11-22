@@ -19,7 +19,7 @@ mark_reported: true
 #       parent_id: "123456"
 #       user_env: CONFLUENCE_USER     # env vars on the YARS server
 #       token_env: CONFLUENCE_TOKEN
-# The account needs permission to add pages and attachments in the space.
+# The account needs permission to add pages and to add and delete attachments in the space.
 name: Confluence HTML
 type: confluence
 statuses: [complete]

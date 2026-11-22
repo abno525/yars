@@ -6,9 +6,13 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -167,7 +171,10 @@ type fakeConfluence struct {
 	body       map[string]any
 	writes     []string
 	n          int
-	failUpload bool // uploads are refused, as for a user who may not add attachments
+	failUpload bool   // uploads are refused, as for a user who may not add attachments
+	failDelete bool   // so are deletions
+	failList   bool   // the attachment list answers 500
+	commentIn  string // "metadata" or "extensions": where the list has an attachment's comment ("": both)
 }
 
 type fakePage struct {
@@ -189,8 +196,12 @@ func storageOf(body map[string]any) string {
 	return v
 }
 
-// attachments answers a page's attachment list (one file by ?filename=)
-// and uploads, which need the XSRF header as Confluence's do.
+// attID is the id of a page's attachment.
+func attID(pid, name string) string { return "att" + pid + "-" + name }
+
+// attachments answers a page's attachment list (50 a page at most, as a
+// server may cap the limit asked for) and uploads, which need the XSRF
+// header as Confluence's do.
 func (c *fakeConfluence) attachments(w http.ResponseWriter, r *http.Request, pid string) {
 	p, ok := c.pages[pid]
 	if !ok {
@@ -202,18 +213,42 @@ func (c *fakeConfluence) attachments(w http.ResponseWriter, r *http.Request, pid
 		p.Attachments = map[string]*fakeAttachment{}
 	}
 	item := func(name string, a *fakeAttachment) map[string]any {
-		return map[string]any{"id": "att-" + name, "type": "attachment", "title": name, "version": map[string]int{"number": a.Version},
-			"metadata": map[string]string{"comment": a.Comment, "mediaType": a.Type}, "extensions": map[string]any{"comment": a.Comment, "mediaType": a.Type, "fileSize": len(a.Data)}}
+		meta := map[string]any{"mediaType": a.Type}
+		ext := map[string]any{"mediaType": a.Type, "fileSize": len(a.Data)}
+		if c.commentIn != "extensions" {
+			meta["comment"] = a.Comment
+		}
+		if c.commentIn != "metadata" {
+			ext["comment"] = a.Comment
+		}
+		return map[string]any{"id": attID(pid, name), "type": "attachment", "title": name, "version": map[string]int{"number": a.Version},
+			"metadata": meta, "extensions": ext}
 	}
 	switch r.Method {
 	case "GET":
-		res := []map[string]any{}
-		for name, a := range p.Attachments {
-			if q := r.URL.Query().Get("filename"); q == "" || q == name {
-				res = append(res, item(name, a))
-			}
+		if c.failList {
+			w.WriteHeader(500)
+			io.WriteString(w, `{"message":"database unavailable"}`)
+			return
 		}
-		json.NewEncoder(w).Encode(map[string]any{"results": res})
+		names := slices.Sorted(maps.Keys(p.Attachments))
+		start, _ := strconv.Atoi(r.URL.Query().Get("start"))
+		limit, err := strconv.Atoi(r.URL.Query().Get("limit"))
+		if err != nil || limit < 1 {
+			limit = 25
+		}
+		limit = min(limit, 50)
+		start = min(max(start, 0), len(names))
+		end := min(start+limit, len(names))
+		res := []map[string]any{}
+		for _, name := range names[start:end] {
+			res = append(res, item(name, p.Attachments[name]))
+		}
+		links := map[string]string{"base": "https://w"}
+		if end < len(names) {
+			links["next"] = "/rest/api/content/" + pid + "/child/attachment?limit=" + strconv.Itoa(limit) + "&start=" + strconv.Itoa(end)
+		}
+		json.NewEncoder(w).Encode(map[string]any{"results": res, "start": start, "limit": limit, "size": len(res), "_links": links})
 	case "PUT":
 		if r.Header.Get("X-Atlassian-Token") != "no-check" {
 			w.WriteHeader(403)
@@ -257,6 +292,23 @@ func (c *fakeConfluence) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch {
+	case r.Method == "DELETE": // an attachment, to the trash
+		if c.failDelete {
+			w.WriteHeader(403)
+			io.WriteString(w, `{"message":"User not permitted to delete attachment `+id+`"}`)
+			return
+		}
+		for pid, p := range c.pages {
+			for name := range p.Attachments {
+				if attID(pid, name) == id {
+					delete(p.Attachments, name)
+					w.WriteHeader(204)
+					return
+				}
+			}
+		}
+		w.WriteHeader(404)
+		io.WriteString(w, `{"message":"No content found"}`)
 	case r.Method == "GET" && r.URL.Path == "/rest/api/content":
 		res := []map[string]any{}
 		for pid, p := range c.pages {
@@ -468,9 +520,8 @@ func TestConfluenceImagesKnownPage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"GET /rest/api/content/55",
-		"GET /rest/api/content/55/child/attachment", "PUT /rest/api/content/55/child/attachment",
-		"GET /rest/api/content/55/child/attachment", "PUT /rest/api/content/55/child/attachment",
+	want := []string{"GET /rest/api/content/55", "GET /rest/api/content/55/child/attachment",
+		"PUT /rest/api/content/55/child/attachment", "PUT /rest/api/content/55/child/attachment",
 		"PUT /rest/api/content/55"}
 	if strings.Join(c.calls, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("calls %v", c.calls)
@@ -485,8 +536,15 @@ func TestConfluenceImagesKnownPage(t *testing.T) {
 
 // Sending again uploads no picture that is unchanged (no attachment
 // versions pile up); a changed one becomes a new version of its attachment.
+// Confluence editions list the comment in metadata or in extensions.
 func TestConfluenceImagesUnchangedNotUploaded(t *testing.T) {
-	c := &fakeConfluence{pages: map[string]*fakePage{}}
+	for _, in := range []string{"metadata", "extensions"} {
+		t.Run(in, func(t *testing.T) { unchangedNotUploaded(t, in) })
+	}
+}
+
+func unchangedNotUploaded(t *testing.T, commentIn string) {
+	c := &fakeConfluence{pages: map[string]*fakePage{}, commentIn: commentIn}
 	r, e := confSetup(t, c)
 	files := confFiles()
 	res, err := r.Run(context.Background(), e, confImages(t, files))
@@ -502,7 +560,7 @@ func TestConfluenceImagesUnchangedNotUploaded(t *testing.T) {
 		if _, err := r.Run(context.Background(), e, in); err != nil {
 			t.Fatal(err)
 		}
-		if n := count(c.calls, upload); n != 0 || count(c.calls, "GET /rest/api/content/1/child/attachment") != 2 {
+		if n := count(c.calls, upload); n != 0 || count(c.calls, "GET /rest/api/content/1/child/attachment") != 1 {
 			t.Fatalf("unchanged uploaded: %v", c.calls)
 		}
 	}
@@ -519,6 +577,146 @@ func TestConfluenceImagesUnchangedNotUploaded(t *testing.T) {
 	if count(c.calls, upload) != 1 || shot.Version != 2 || !bytes.Equal(shot.Data, files["F-001/shot.png"]) || shot.Comment != sum(shot.Data) ||
 		p.Attachments["F-001-net.gif"].Version != 1 {
 		t.Fatalf("changed: %v %+v", c.calls, shot)
+	}
+}
+
+// A picture taken out of the text leaves the page too: a current
+// attachment stays downloadable to anyone who can view the page. It goes
+// after the new body is written; attachments added by hand stay.
+func TestConfluenceRemovedImagesDeleted(t *testing.T) {
+	c := &fakeConfluence{pages: map[string]*fakePage{}}
+	r, e := confSetup(t, c)
+	res, err := r.Run(context.Background(), e, confImages(t, confFiles()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := c.pages["1"]
+	p.Attachments["scan.pdf"] = &fakeAttachment{Data: []byte("pdf"), Type: "application/pdf", Comment: "from the client", Version: 1}
+	p.Attachments["notes.txt"] = &fakeAttachment{Data: []byte("txt"), Type: "text/plain", Version: 1}
+	known := map[string]Remote{"F-001": res.Items[0].Remote}
+	// the screenshot is taken out of the text
+	c.calls = nil
+	in := confImages(t, confFiles())
+	in.Known = known
+	in.Findings[0].SetSection("Impact", "![net](attachments/net.gif)")
+	if _, err := r.Run(context.Background(), e, in); err != nil {
+		t.Fatal(err)
+	}
+	if p.Attachments["F-001-shot.png"] != nil || p.Attachments["F-001-net.gif"] == nil || p.Attachments["scan.pdf"] == nil || p.Attachments["notes.txt"] == nil {
+		t.Fatalf("attachments %v", slices.Sorted(maps.Keys(p.Attachments)))
+	}
+	del := "DELETE /rest/api/content/" + attID("1", "F-001-shot.png")
+	if i, j := slices.Index(c.calls, "PUT /rest/api/content/1"), slices.Index(c.calls, del); i < 0 || j < i || count(c.calls, del) != 1 {
+		t.Fatalf("calls %v", c.calls)
+	}
+	// no picture left in the text: none left on the page
+	in.Findings[0].SetSection("Impact", "No pictures.")
+	if _, err := r.Run(context.Background(), e, in); err != nil {
+		t.Fatal(err)
+	}
+	if got := slices.Sorted(maps.Keys(p.Attachments)); !slices.Equal(got, []string{"notes.txt", "scan.pdf"}) {
+		t.Fatalf("attachments %v", got)
+	}
+}
+
+// The attachment list is read page by page: a server may give fewer than
+// asked for.
+func TestConfluenceAttachmentListPages(t *testing.T) {
+	old := map[string]*fakeAttachment{"by-hand.png": {Data: []byte("x"), Type: "image/png", Version: 1}}
+	for i := range 120 {
+		old[fmt.Sprintf("F-009-old%03d.png", i)] = &fakeAttachment{Data: []byte("x"), Type: "image/png", Comment: sum([]byte("x")), Version: 1}
+	}
+	old["F-001-shot.png"] = &fakeAttachment{Data: pngBytes(), Type: "image/png", Comment: sum(pngBytes()), Version: 1}
+	c := &fakeConfluence{pages: map[string]*fakePage{"55": {Title: "old title", Version: 4, Attachments: old}}}
+	r, e := confSetup(t, c)
+	in := confImages(t, confFiles())
+	in.Known = map[string]Remote{"F-001": {ID: "55", Version: 4}}
+	if _, err := r.Run(context.Background(), e, in); err != nil {
+		t.Fatal(err)
+	}
+	if n := count(c.calls, "GET /rest/api/content/55/child/attachment"); n != 3 {
+		t.Fatalf("%d list calls: %v", n, c.calls)
+	}
+	if got := slices.Sorted(maps.Keys(c.pages["55"].Attachments)); !slices.Equal(got, []string{"F-001-net.gif", "F-001-shot.png", "by-hand.png"}) ||
+		count(c.calls, "PUT /rest/api/content/55/child/attachment") != 1 {
+		t.Fatalf("attachments %v calls %v", got, c.calls)
+	}
+}
+
+// A list that fails fails the export before any upload or page write.
+func TestConfluenceAttachmentListError(t *testing.T) {
+	c := &fakeConfluence{pages: map[string]*fakePage{"55": {Title: "old title", Version: 4}}, failList: true}
+	r, e := confSetup(t, c)
+	in := confImages(t, confFiles())
+	in.Known = map[string]Remote{"F-001": {ID: "55", Version: 4}}
+	_, err := r.Run(context.Background(), e, in)
+	if err == nil || !strings.Contains(err.Error(), "500") || !strings.Contains(err.Error(), "database unavailable") {
+		t.Fatalf("err %v", err)
+	}
+	if count(c.calls, "PUT /rest/api/content/55/child/attachment") != 0 || len(c.writes) != 0 || c.pages["55"].Version != 4 {
+		t.Fatalf("calls %v writes %q", c.calls, c.writes)
+	}
+}
+
+// A deletion that fails fails the export with its picture named: it is
+// still on the page. The new body is written by then.
+func TestConfluenceImageDeleteError(t *testing.T) {
+	c := &fakeConfluence{pages: map[string]*fakePage{}}
+	r, e := confSetup(t, c)
+	res, err := r.Run(context.Background(), e, confImages(t, confFiles()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.failDelete = true
+	in := confImages(t, confFiles())
+	in.Known = map[string]Remote{"F-001": res.Items[0].Remote}
+	in.Findings[0].SetSection("Impact", "![net](attachments/net.gif)")
+	_, err = r.Run(context.Background(), e, in)
+	if err == nil || !strings.Contains(err.Error(), "confluence delete of F-001-shot.png failed: HTTP 403") || !strings.Contains(err.Error(), "not permitted to delete") {
+		t.Fatalf("err %v", err)
+	}
+	if p := c.pages["1"]; p.Version != 3 || p.Attachments["F-001-shot.png"] == nil || strings.Contains(c.writes[len(c.writes)-1], "F-001-shot.png") {
+		t.Fatalf("page %+v writes %q", p, c.writes)
+	}
+}
+
+// A finding ID with characters a file name may not have names its
+// attachments with _ in their place, in the upload and in the body.
+func TestConfluenceImageNameUnsafeID(t *testing.T) {
+	c := &fakeConfluence{pages: map[string]*fakePage{}}
+	r, e := confSetup(t, c)
+	files := map[string][]byte{"F 1/x/shot.png": pngBytes(), "F 1/x/net.gif": []byte("GIF89a net")}
+	in := confImages(t, files)
+	in.Findings[0].Meta.ID = "F 1/x"
+	if _, err := r.Run(context.Background(), e, in); err != nil {
+		t.Fatal(err)
+	}
+	p := c.pages["1"]
+	if a := p.Attachments["F_1_x-shot.png"]; a == nil || !bytes.Equal(a.Data, pngBytes()) || len(p.Attachments) != 2 {
+		t.Fatalf("attachments %v", slices.Sorted(maps.Keys(p.Attachments)))
+	}
+	if body := c.writes[len(c.writes)-1]; !strings.Contains(body, `<ri:attachment ri:filename="F_1_x-shot.png" />`) {
+		t.Fatalf("body %s", body)
+	}
+}
+
+// A new page the service gives no id has nowhere to put the pictures.
+func TestConfluenceNewPageWithoutID(t *testing.T) {
+	var calls []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls = append(calls, r.Method+" "+r.URL.Path)
+		if r.Method == "GET" {
+			io.WriteString(w, `{"results":[]}`)
+			return
+		}
+		io.WriteString(w, `{}`)
+	}))
+	defer srv.Close()
+	r, e := confSetup(t, &fakeConfluence{})
+	e.Confluence.BaseURL = strings.Replace(srv.URL, "127.0.0.1", "localhost", 1)
+	_, err := r.Run(context.Background(), e, confImages(t, confFiles()))
+	if err == nil || err.Error() != "confluence push failed: the new page has no id" || !slices.Equal(calls, []string{"GET /rest/api/content", "POST /rest/api/content"}) {
+		t.Fatalf("err %v calls %v", err, calls)
 	}
 }
 
