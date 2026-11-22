@@ -552,13 +552,16 @@ table.kv { width: 100%; border-collapse: collapse; }
 /* Check (152) and its state slot (164): stale, a failed rule, AI down */
 .wfcheck { flex: none; display: flex; align-items: center; gap: 8px; }
 .checkslot { width: 164px; flex: none; display: flex; justify-content: flex-end; align-items: center; overflow: hidden; white-space: nowrap; }
+/* a flag is a box of the buttons' size beside it (Check's, 152 × 40), as the
+   checks panel's state flag is; config errors stay plain text */
 .checkflag {
-  height: 28px; max-width: 164px; padding: 0 10px; display: inline-flex; align-items: center; gap: 8px; overflow: hidden;
+  width: 152px; height: 40px; flex: none; padding: 0 10px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; overflow: hidden;
   border: 1px solid currentColor; font-size: 13px; font-weight: 600; white-space: nowrap; text-overflow: ellipsis;
 }
 .checkflag.warn { color: var(--accent-text); background: color-mix(in srgb, var(--accent) 8%, transparent); }
 .checkflag.bad { color: var(--red); background: color-mix(in srgb, var(--red) 6%, transparent); }
-.checkflag.text { height: auto; padding: 0; border: 0; background: transparent; }
+.checkflag.text { width: auto; height: auto; max-width: 164px; padding: 0; border: 0; background: transparent; }
+.checkslot > .tag { width: 152px; height: 40px; }
 .checkflag .mono { font-size: 12px; }
 .wfcheck .btn svg, .btn.checking svg { width: 16px; height: 16px; }
 .wfcheck .btn, .btn.checking { gap: 8px; }

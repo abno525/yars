@@ -180,6 +180,26 @@ func TestChecksStripHiddenWhenWithdrawnOrNoRules(t *testing.T) {
 	}
 }
 
+// The flag beside Check in the workflow bar (Rule failed, AI checks failed,
+// Checks stale) is a box of the buttons' size, 152 × 40, as Check and the
+// status's buttons beside it are and as the checks panel's own state flag
+// is; it was 28 px high (24 for Checks stale) and only as wide as its text.
+// Config errors stay plain red text.
+func TestCheckFlagAsLargeAsButtons(t *testing.T) {
+	css := stylesheet(t)
+	for _, want := range []string{
+		".checkflag {\n  width: 152px; height: 40px; flex: none; padding: 0 10px; display: inline-flex; align-items: center; justify-content: center;",
+		".checkflag.text { width: auto; height: auto;",
+		".checkslot > .tag { width: 152px; height: 40px; }",
+	} {
+		if !strings.Contains(css, want) {
+			t.Errorf("style.css lacks %q", want)
+		}
+	}
+	// the buttons it stands beside: Check w152 at the full 40 px (no sm)
+	tplHas(t, "workflow.html", `<button type="button" class="btn {{.Class}} w152" hx-post="{{.URL}}"`)
+}
+
 // rowWith is the checks table row (<tr>…</tr>) holding text.
 func rowWith(t *testing.T, panel, text string) string {
 	t.Helper()
