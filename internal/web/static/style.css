@@ -670,6 +670,8 @@ button.wfstate:hover { text-decoration: underline; }
 .hint { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 2px 12px; padding: 8px 12px; border-left: 4px solid var(--sev-medium); background: var(--panel); font-size: 14px; }
 .hint.error { color: var(--text); border-left-color: var(--red); }
 .hint-level { font: 700 12px/1.6 var(--sans); letter-spacing: 0.06em; text-transform: uppercase; }
+/* one line: a message of up to 4,000 characters ends in …, whole on hover */
+.hint-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .hint-where { grid-column: 2; font-size: 12px; }
 /* the checks panel never changes size: the list scrolls inside it */
 .panel.checks { height: 360px; display: flex; flex-direction: column; }

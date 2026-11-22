@@ -239,6 +239,16 @@ func TestViolationCap(t *testing.T) {
 	}
 }
 
+// Q23: a built-in check's message is the admin's text and the detail, whole
+// however long the text is (up to the 4,000-character cap).
+func TestBuiltinMessageWhole(t *testing.T) {
+	text := strings.Repeat("Write every section. ", 30)
+	vs := run(t, "- id: ne\n  target: section:Impact\n  check: not-empty\n  message: '"+text+"'\n", doc())
+	if len(vs) != 1 || vs[0].Message != text+" (section:Impact is empty)" {
+		t.Fatalf("got %+v", vs)
+	}
+}
+
 func TestDisabledRule(t *testing.T) {
 	if vs := run(t, "- id: x\n  enabled: false\n  target: title\n  regex_forbid: '.'\n", doc()); len(vs) != 0 {
 		t.Fatalf("got %+v", vs)

@@ -34,7 +34,7 @@
         {{range .Rows}}
         <tr>
           <td><span class="tag lvl-{{.Level}}">{{.Level}}</span></td>
-          <td title="{{.Rule}}">{{.Message}}</td>
+          <td title="{{.Message}} · {{.Rule}}">{{.Message}}</td>
           <td title="{{.Quote}}">{{if .Quote}}<code>{{.Quote}}</code>{{end}}</td>
           <td title="{{.Where}}">{{.Where}}</td>
           <td>{{if .CanDismiss}}<button type="button" class="btn ghost sm w96" aria-controls="dismiss-{{.N}}" aria-expanded="false" data-dismiss-toggle>Dismiss</button>{{else}}<span class="slot w96"></span>{{end}}</td>
@@ -63,7 +63,7 @@
           {{range .Dismissed}}
           <tr>
             <td><span class="tag lvl-{{.Level}}">{{.Level}}</span></td>
-            <td title="{{.Rule}}{{with .Quote}} · {{.}}{{end}}">{{.Message}}</td>
+            <td title="{{.Message}} · {{.Rule}}{{with .Quote}} · {{.}}{{end}}">{{.Message}}</td>
             <td title="{{.Reason}}">{{if .Reason}}{{.Reason}}{{else}}<span class="muted">—</span>{{end}}</td>
             <td title="{{.At}}">{{.By}}</td>
             <td>{{if .CanDismiss}}<form hx-post="{{$.UndismissURL}}" hx-target="#checks" hx-swap="outerHTML"><input type="hidden" name="rule" value="{{.Rule}}"><input type="hidden" name="target" value="{{.Target}}"><input type="hidden" name="quote" value="{{.Quote}}"><button class="btn ghost sm w96">Restore</button></form>{{else}}<span class="slot w96"></span>{{end}}</td>
@@ -95,7 +95,7 @@
   {{range .}}
   <li class="hint {{.Level}}">
     <span class="hint-level">{{.Level}}</span>
-    <span>{{.Message}}{{if .Quote}} — <code>{{.Quote}}</code>{{end}}</span>
+    <span class="hint-text" title="{{.Message}}{{with .Quote}} — {{.}}{{end}}">{{.Message}}{{if .Quote}} — <code>{{.Quote}}</code>{{end}}</span>
     <span class="muted hint-where">{{.Target}} · {{.Rule}}</span>
   </li>
   {{end}}

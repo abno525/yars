@@ -26,8 +26,9 @@ const MaxPerRule = 20
 const maxQuote = 80
 
 // maxMessage caps a violation's message (a script's or a model's can be any
-// length).
-const maxMessage = 300
+// length): the message is kept whole up to it (Q23), and the page cuts it
+// with … where it shows one line.
+const maxMessage = 4000
 
 type Rule struct {
 	ID              string `yaml:"id"`

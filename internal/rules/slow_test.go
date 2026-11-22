@@ -66,15 +66,24 @@ func TestScriptTimeoutAndEscape(t *testing.T) {
 	}
 }
 
-// A script's (or a model's) message is cut at 300 characters, as a quote
-// is at 80: one long answer cannot fill the bar or the strip (backlog, M5).
+// A script's (or a model's) message is kept whole up to 4,000 characters
+// and cut after them, as a quote is at 80: one runaway answer cannot flood
+// the page (backlog, M5; Q23).
 func TestRuleMessageCapped(t *testing.T) {
+	if maxMessage != 4000 {
+		t.Fatalf("maxMessage %d", maxMessage)
+	}
 	dir := t.TempDir()
 	script(t, dir, "long.sh", "printf '[{\"message\":\"%05000d\"}]' 0\n")
+	script(t, dir, "full.sh", "printf '[{\"message\":\"%04000d\"}]' 0\n")
 	r := NewRunner(dir, config.AIConfig{})
 	vs := r.Script(context.Background(), Rule{ID: "s", Level: "warning", Script: "long.sh"}, doc())
 	if len(vs) != 1 || len([]rune(vs[0].Message)) != maxMessage+1 || !strings.HasSuffix(vs[0].Message, "…") {
 		t.Fatalf("got %d characters: %+v", len([]rune(vs[0].Message)), vs)
+	}
+	vs = r.Script(context.Background(), Rule{ID: "f", Level: "warning", Script: "full.sh"}, doc())
+	if len(vs) != 1 || vs[0].Message != strings.Repeat("0", 4000) {
+		t.Fatalf("got %d characters", len([]rune(vs[0].Message)))
 	}
 }
 

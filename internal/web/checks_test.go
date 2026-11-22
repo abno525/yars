@@ -221,16 +221,20 @@ func TestCVSSProblemListedOnce(t *testing.T) {
 	if rec := e.do(t, "alice", "POST", fpath+"/cvss", form, nil); rec.Code >= 400 {
 		t.Fatalf("cvss %d: %s", rec.Code, rec.Body.String())
 	}
+	// cells counts the cells whose text holds s (a cell's title repeats it)
+	cells := func(p, s string) int {
+		return len(regexp.MustCompile(`>[^<]*`+regexp.QuoteMeta(s)+`[^<]*</td>`).FindAllString(p, -1))
+	}
 	e.rules(t, "- id: cv\n  check: cvss-explained\n", nil)
 	p := checksPanel(t, e.do(t, "alice", "GET", fpath, nil, nil).Body.String())
-	if n := strings.Count(p, "Attack Complexity"); n != 1 {
+	if n := cells(p, "Attack Complexity"); n != 1 {
 		t.Fatalf("%d rows about Attack Complexity:\n%s", n, p)
 	}
 	// without the rule the gate's own row says it
 	gateRow := "explain the non-standard CVSS value for Attack Complexity"
 	e.rules(t, "- id: no-zebra\n  target: title\n  regex_forbid: 'zebra'\n", nil)
 	p = checksPanel(t, e.do(t, "alice", "GET", fpath, nil, nil).Body.String())
-	if n := strings.Count(p, gateRow); n != 1 {
+	if n := cells(p, gateRow); n != 1 {
 		t.Fatalf("%d gate rows about Attack Complexity:\n%s", n, p)
 	}
 	// a rule that only warns does not stand for the gate's error, which
@@ -247,7 +251,7 @@ func TestCVSSProblemListedOnce(t *testing.T) {
 	}
 	p = checksPanel(t, e.do(t, "alice", "GET", fpath, nil, nil).Body.String())
 	open := p[:strings.Index(p, `<details class="dismissed"`)]
-	if strings.Count(open, gateRow) != 1 {
+	if cells(open, gateRow) != 1 {
 		t.Fatalf("a dismissed rule row hid the gate's error:\n%s", p)
 	}
 }
