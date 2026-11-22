@@ -55,7 +55,8 @@ func (s *Store) SetRequireCheck(on bool, actor string) error {
 }
 
 // gating reports whether the check gate applies at all: the setting is on
-// and there are rules to run (without them nobody could ever press Check).
+// and there is a rules engine (without one nobody could ever press Check).
+// An engine with no rules still gates: its Check finishes at once.
 func (s *Store) gating() bool { return s.Linter != nil && s.db != nil && s.RequireCheck() }
 
 // checkGate is why Sign off and Approve must wait for a check run on the

@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"yars/internal/config"
@@ -36,10 +37,14 @@ func TestInitWritesNoRules(t *testing.T) {
 	r, _ := gitrepo.Open(dir)
 	st := store.New(r, config.Default(), nil)
 	a := gitrepo.Author{Name: "t", Email: "t@t"}
-	st.CreateEngagement(store.Engagement{ID: "acme", Name: "ACME"}, a)
-	st.CreateFinding("acme", "Bad title.", a)
+	if err := st.CreateEngagement(store.Engagement{ID: "acme", Name: "ACME"}, a); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateFinding("acme", "Bad title.", a); err != nil {
+		t.Fatal(err)
+	}
 	var out bytes.Buffer
-	if code, err := cmdLint([]string{"--data", dir, "--fast"}, &out); err != nil || code != 0 {
+	if code, err := cmdLint([]string{"--data", dir, "--fast"}, &out); err != nil || code != 0 || !strings.Contains(out.String(), "1 finding(s) checked") {
 		t.Fatalf("lint with no rules: %d %v\n%s", code, err, out.String())
 	}
 }

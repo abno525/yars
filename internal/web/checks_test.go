@@ -191,6 +191,7 @@ func TestCheckFlagAsLargeAsButtons(t *testing.T) {
 		".checkflag {\n  width: 152px; height: 40px; flex: none; padding: 0 10px; display: inline-flex; align-items: center; justify-content: center;",
 		".checkflag.text { width: auto; height: auto;",
 		".checkslot > .tag { width: 152px; height: 40px; }",
+		".checkslot { width: 164px; flex: none;", // holds the 152 px box
 	} {
 		if !strings.Contains(css, want) {
 			t.Errorf("style.css lacks %q", want)

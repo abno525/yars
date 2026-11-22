@@ -10,6 +10,37 @@ A rule in `.yars/rules/*.yaml` names a script file in `.yars/rules`. The script 
   enabled: true
 ```
 
+## Rule files
+
+A new data folder (`yars init`) has no rules. **Admin › Rules** writes them. To write them by hand, change `.yars/rules/` in a clone of the main repository and push it as an admin ([git.md](git.md)).
+
+Every `*.yaml` or `*.yml` file in `.yars/rules/` is a list of rules:
+
+| Field | Value |
+|---|---|
+| `id` | required; one rule per id across the files |
+| `level` | `error` (default) or `warning`. An open error blocks Submit; any open result, a warning too, holds Sign off and Approve until it is fixed or dismissed |
+| `message` | shown with each hit; empty → the id |
+| `target` | `text` (default: the title, every section and every details row), `title`, `sections`, `section:<Name>`, `details`, `details:<Row>` |
+| `enabled` | `false` turns the rule off |
+
+and exactly one check:
+
+| Field | Check |
+|---|---|
+| `regex_forbid` | a Go (RE2) regular expression; each match in the target is a hit |
+| `regex_require` | a regular expression each part of the target must match; an empty part is skipped unless `require_nonempty: true` |
+| `check` | built-in: `table-cells-no-backticks` (no backticks in table cells and details rows), `cvss-explained` (a CVSS value other than the standard one in `config.yaml` needs a reason), `not-empty` (each part of the target has text) |
+| `script` | a program in `.yars/rules` (below) |
+| `ai` | an instruction for the AI provider (AI rules, below) |
+
+```yaml
+- id: title-no-trailing-dot
+  target: title
+  regex_forbid: '\.\s*$'
+  message: The title must not end with a dot
+```
+
 ## stdin: the finding (rules.Doc)
 
 | Field | Type | Value |

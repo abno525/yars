@@ -230,4 +230,6 @@ M35 final   sweep    c0092f4..43465ef (inbox and admin tables: inbox actions and
 M35 final   sweep    bfed0f0..4418b48 (admin and dark: Graphite without navy, file inputs, System stats, rule bench, Structure, empty values)
 M35 final   fix      c944c8e..3a75641 (review of the follow-ups: retest error slot margin, New retest buttons in the title row, token audit fields)
 M35 final   fix      a3f29ba (browser check: scrollbar always shown beside the top bar, set_field's JSON wraps, bench Hits band)
+M35 final   change   da1399c (the user: yars init writes no rules; the example rules are test data now)
+M35 final   change   a3c4ef3 (the user: the flag beside Check is 152 × 40, as the buttons beside it)
 ```
