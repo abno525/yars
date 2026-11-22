@@ -64,6 +64,16 @@ journalctl -u yars -f
 
 `--https` says a proxy in front serves HTTPS, so cookies are `Secure` and responses carry HSTS. A stop (`systemctl stop`) gives requests in flight and running checks 30 seconds each to finish.
 
+## Confluence
+
+A Confluence destination with a `base_url` publishes through Confluence's REST API: one page for the findings sent, or a page of its own for a single finding. A later send updates the same page.
+
+A finding's pictures become attachments of the page and show where they stand in the text. Each is named after its finding and file, for example `F-003-shot.png`. A send uploads only the pictures that are new or changed: the attachment's comment holds the file's SHA-256. Pictures in the report sections are left out.
+
+The account behind the key needs permission, in the space, to view it, add pages and add attachments. Without the last, a send with pictures fails with `confluence upload of F-003-shot.png failed: HTTP 403 …`. An existing page then keeps its old text; a new one stays empty.
+
+The Confluence HTML download has no page to attach to: its pictures stay inside the file.
+
 ## HTTPS
 
 Put a reverse proxy in front, or let YARS serve TLS itself.

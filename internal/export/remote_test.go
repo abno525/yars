@@ -1,7 +1,10 @@
 package export
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -9,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"yars/internal/finding"
 )
 
 // fakeJira keeps issues by key with their labels; it answers searches by
@@ -153,18 +158,89 @@ func TestJiraKnownIssue(t *testing.T) {
 	}
 }
 
-// fakeConfluence keeps pages by id with their title and version.
+// fakeConfluence keeps pages by id with their title, version and
+// attachments; writes holds the storage body of every page write.
 type fakeConfluence struct {
-	mu    sync.Mutex
-	pages map[string]*fakePage
-	calls []string
-	body  map[string]any
-	n     int
+	mu         sync.Mutex
+	pages      map[string]*fakePage
+	calls      []string
+	body       map[string]any
+	writes     []string
+	n          int
+	failUpload bool // uploads are refused, as for a user who may not add attachments
 }
 
 type fakePage struct {
-	Title   string
-	Version int
+	Title       string
+	Version     int
+	Attachments map[string]*fakeAttachment // by file name
+}
+
+type fakeAttachment struct {
+	Data                 []byte
+	Type, Comment, Minor string
+	Version              int
+}
+
+func storageOf(body map[string]any) string {
+	b, _ := body["body"].(map[string]any)
+	s, _ := b["storage"].(map[string]any)
+	v, _ := s["value"].(string)
+	return v
+}
+
+// attachments answers a page's attachment list (one file by ?filename=)
+// and uploads, which need the XSRF header as Confluence's do.
+func (c *fakeConfluence) attachments(w http.ResponseWriter, r *http.Request, pid string) {
+	p, ok := c.pages[pid]
+	if !ok {
+		w.WriteHeader(404)
+		io.WriteString(w, `{"message":"No content found"}`)
+		return
+	}
+	if p.Attachments == nil {
+		p.Attachments = map[string]*fakeAttachment{}
+	}
+	item := func(name string, a *fakeAttachment) map[string]any {
+		return map[string]any{"id": "att-" + name, "type": "attachment", "title": name, "version": map[string]int{"number": a.Version},
+			"metadata": map[string]string{"comment": a.Comment, "mediaType": a.Type}, "extensions": map[string]any{"comment": a.Comment, "mediaType": a.Type, "fileSize": len(a.Data)}}
+	}
+	switch r.Method {
+	case "GET":
+		res := []map[string]any{}
+		for name, a := range p.Attachments {
+			if q := r.URL.Query().Get("filename"); q == "" || q == name {
+				res = append(res, item(name, a))
+			}
+		}
+		json.NewEncoder(w).Encode(map[string]any{"results": res})
+	case "PUT":
+		if r.Header.Get("X-Atlassian-Token") != "no-check" {
+			w.WriteHeader(403)
+			io.WriteString(w, `{"message":"XSRF check failed"}`)
+			return
+		}
+		if c.failUpload {
+			w.WriteHeader(403)
+			io.WriteString(w, `{"message":"User not permitted to create attachments for content: `+pid+`"}`)
+			return
+		}
+		file, fh, err := r.FormFile("file")
+		if err != nil {
+			w.WriteHeader(400)
+			return
+		}
+		data, _ := io.ReadAll(file)
+		a := p.Attachments[fh.Filename]
+		if a == nil {
+			a = &fakeAttachment{}
+			p.Attachments[fh.Filename] = a
+		}
+		a.Data, a.Type, a.Comment, a.Minor, a.Version = data, fh.Header.Get("Content-Type"), r.FormValue("comment"), r.FormValue("minorEdit"), a.Version+1
+		json.NewEncoder(w).Encode(map[string]any{"results": []map[string]any{item(fh.Filename, a)}})
+	default:
+		w.WriteHeader(405)
+	}
 }
 
 func (c *fakeConfluence) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -176,6 +252,10 @@ func (c *fakeConfluence) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"_links": map[string]string{"base": "https://w", "webui": "/p/" + id}}
 	}
 	id := strings.TrimPrefix(r.URL.Path, "/rest/api/content/")
+	if pid, ok := strings.CutSuffix(id, "/child/attachment"); ok {
+		c.attachments(w, r, pid)
+		return
+	}
 	switch {
 	case r.Method == "GET" && r.URL.Path == "/rest/api/content":
 		res := []map[string]any{}
@@ -208,10 +288,12 @@ func (c *fakeConfluence) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		p.Version, p.Title = v, c.body["title"].(string)
+		c.writes = append(c.writes, storageOf(c.body))
 		json.NewEncoder(w).Encode(page(id, p))
 	case r.Method == "POST":
 		c.body = nil
 		json.NewDecoder(r.Body).Decode(&c.body)
+		c.writes = append(c.writes, storageOf(c.body))
 		c.n++
 		pid := string(rune('0' + c.n))
 		c.pages[pid] = &fakePage{Title: c.body["title"].(string), Version: 1}
@@ -256,5 +338,218 @@ func TestConfluenceKnownPage(t *testing.T) {
 	}
 	if it := res.Items[0]; it.Action != "updated" || it.Remote != (Remote{ID: "1", Version: 2}) || c.n != 1 {
 		t.Fatalf("by title %+v calls %v", it, c.calls)
+	}
+}
+
+func confSetup(t *testing.T, c *fakeConfluence) (*Runner, Exporter) {
+	t.Helper()
+	srv := httptest.NewServer(c)
+	t.Cleanup(srv.Close)
+	r, _ := runner(t, "")
+	r.Getenv = func(k string) string { return map[string]string{"CONFLUENCE_U": "bot", "CONFLUENCE_T": "tok123"}[k] }
+	return r, Exporter{ID: "c", Type: "confluence", Confluence: &ConfluenceConf{BaseURL: strings.Replace(srv.URL, "127.0.0.1", "localhost", 1), Space: "S", UserEnv: "CONFLUENCE_U", TokenEnv: "CONFLUENCE_T"}}
+}
+
+// confImages is F-001 alone with two pictures, one of them shown twice,
+// read from files ("<finding>/<file>") the test may change.
+func confImages(t *testing.T, files map[string][]byte) Input {
+	in := oneFinding(t)
+	in.Findings[0].SetSection("Impact", "Before ![shot](attachments/shot.png) after.\n\n![again](attachments/shot.png)\n\n![net](attachments/net.gif)")
+	in.Attachment = func(f *finding.Finding, rel string) ([]byte, bool) {
+		b, ok := files[f.Meta.ID+"/"+strings.TrimPrefix(rel, "attachments/")]
+		return b, ok
+	}
+	return in
+}
+
+func confFiles() map[string][]byte {
+	return map[string][]byte{"F-001/shot.png": pngBytes(), "F-001/net.gif": []byte("GIF89a net")}
+}
+
+func sum(b []byte) string {
+	s := sha256.Sum256(b)
+	return "sha256:" + hex.EncodeToString(s[:])
+}
+
+func count(calls []string, call string) int {
+	n := 0
+	for _, c := range calls {
+		if c == call {
+			n++
+		}
+	}
+	return n
+}
+
+// A finding's pictures become attachments of its page, shown inline where
+// they stood: a new page is made first (empty), the pictures uploaded,
+// then the body written (Q5).
+func TestConfluenceImagesNewPage(t *testing.T) {
+	c := &fakeConfluence{pages: map[string]*fakePage{}}
+	r, e := confSetup(t, c)
+	res, err := r.Run(context.Background(), e, confImages(t, confFiles()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"GET /rest/api/content", "POST /rest/api/content", "PUT /rest/api/content/1/child/attachment", "PUT /rest/api/content/1/child/attachment", "PUT /rest/api/content/1"}
+	if strings.Join(c.calls, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("calls %v", c.calls)
+	}
+	if it := res.Items[0]; it.Action != "created" || it.Remote != (Remote{ID: "1", Version: 2}) || it.URL != "https://w/p/1" {
+		t.Fatalf("item %+v", it)
+	}
+	if len(c.writes) != 2 || c.writes[0] != "" {
+		t.Fatalf("writes %q", c.writes)
+	}
+	body := c.writes[1]
+	for _, s := range []string{
+		`Before <ac:image ac:alt="shot"><ri:attachment ri:filename="F-001-shot.png" /></ac:image> after.`,
+		`<ac:image ac:alt="again"><ri:attachment ri:filename="F-001-shot.png" /></ac:image>`,
+		`<ac:image ac:alt="net"><ri:attachment ri:filename="F-001-net.gif" /></ac:image>`,
+	} {
+		if !strings.Contains(body, s) {
+			t.Errorf("body lacks %s:\n%s", s, body)
+		}
+	}
+	if strings.Contains(body, "data:") || strings.Contains(body, "<img") {
+		t.Fatalf("image inlined:\n%s", body)
+	}
+	p := c.pages["1"]
+	shot, net := p.Attachments["F-001-shot.png"], p.Attachments["F-001-net.gif"]
+	if len(p.Attachments) != 2 || shot == nil || net == nil {
+		t.Fatalf("attachments %v", p.Attachments)
+	}
+	if !bytes.Equal(shot.Data, pngBytes()) || shot.Type != "image/png" || shot.Comment != sum(pngBytes()) || shot.Version != 1 || shot.Minor != "true" {
+		t.Fatalf("shot %+v", shot)
+	}
+	if string(net.Data) != "GIF89a net" || net.Type != "image/gif" || net.Comment != sum(net.Data) {
+		t.Fatalf("net %+v", net)
+	}
+}
+
+// On a page of several findings each finding's picture is an attachment
+// of its own, though the files have the same name.
+func TestConfluenceImageNamesPerFinding(t *testing.T) {
+	c := &fakeConfluence{pages: map[string]*fakePage{}}
+	r, e := confSetup(t, c)
+	in := input(t)
+	for _, f := range in.Findings {
+		f.SetSection("Impact", "![shot](attachments/shot.png)")
+	}
+	in.Attachment = func(f *finding.Finding, rel string) ([]byte, bool) {
+		return []byte(f.Meta.ID), rel == "attachments/shot.png"
+	}
+	if _, err := r.Run(context.Background(), e, in); err != nil {
+		t.Fatal(err)
+	}
+	p := c.pages["1"]
+	if p == nil || p.Title != "ACME Web — findings" || len(p.Attachments) != 3 {
+		t.Fatalf("page %+v", p)
+	}
+	body := c.writes[len(c.writes)-1]
+	for _, id := range []string{"F-001", "F-002", "F-003"} {
+		if a := p.Attachments[id+"-shot.png"]; a == nil || string(a.Data) != id {
+			t.Errorf("%s: %+v", id, a)
+		}
+		if strings.Count(body, `ri:filename="`+id+`-shot.png"`) != 1 {
+			t.Errorf("%s not shown once:\n%s", id, body)
+		}
+	}
+}
+
+// A remembered page gets the pictures it lacks, then its new body; no page
+// is made.
+func TestConfluenceImagesKnownPage(t *testing.T) {
+	c := &fakeConfluence{pages: map[string]*fakePage{"55": {Title: "old title", Version: 4}}}
+	r, e := confSetup(t, c)
+	in := confImages(t, confFiles())
+	in.Known = map[string]Remote{"F-001": {ID: "55", Version: 4}}
+	res, err := r.Run(context.Background(), e, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"GET /rest/api/content/55",
+		"GET /rest/api/content/55/child/attachment", "PUT /rest/api/content/55/child/attachment",
+		"GET /rest/api/content/55/child/attachment", "PUT /rest/api/content/55/child/attachment",
+		"PUT /rest/api/content/55"}
+	if strings.Join(c.calls, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("calls %v", c.calls)
+	}
+	if it := res.Items[0]; it.Action != "updated" || it.Remote != (Remote{ID: "55", Version: 5}) || c.n != 0 {
+		t.Fatalf("item %+v", it)
+	}
+	if p := c.pages["55"]; len(p.Attachments) != 2 || !strings.Contains(c.writes[0], `ri:filename="F-001-net.gif"`) {
+		t.Fatalf("page %+v body %q", p, c.writes)
+	}
+}
+
+// Sending again uploads no picture that is unchanged (no attachment
+// versions pile up); a changed one becomes a new version of its attachment.
+func TestConfluenceImagesUnchangedNotUploaded(t *testing.T) {
+	c := &fakeConfluence{pages: map[string]*fakePage{}}
+	r, e := confSetup(t, c)
+	files := confFiles()
+	res, err := r.Run(context.Background(), e, confImages(t, files))
+	if err != nil {
+		t.Fatal(err)
+	}
+	upload := "PUT /rest/api/content/1/child/attachment"
+	// again, remembered and found by title
+	for _, known := range []map[string]Remote{{"F-001": res.Items[0].Remote}, nil} {
+		c.calls = nil
+		in := confImages(t, files)
+		in.Known = known
+		if _, err := r.Run(context.Background(), e, in); err != nil {
+			t.Fatal(err)
+		}
+		if n := count(c.calls, upload); n != 0 || count(c.calls, "GET /rest/api/content/1/child/attachment") != 2 {
+			t.Fatalf("unchanged uploaded: %v", c.calls)
+		}
+	}
+	p := c.pages["1"]
+	if p.Version != 4 || p.Attachments["F-001-shot.png"].Version != 1 || p.Attachments["F-001-net.gif"].Version != 1 {
+		t.Fatalf("page v%d, attachments %+v %+v", p.Version, p.Attachments["F-001-shot.png"], p.Attachments["F-001-net.gif"])
+	}
+	c.calls = nil
+	files["F-001/shot.png"] = append(pngBytes(), 0)
+	if _, err := r.Run(context.Background(), e, confImages(t, files)); err != nil {
+		t.Fatal(err)
+	}
+	shot := p.Attachments["F-001-shot.png"]
+	if count(c.calls, upload) != 1 || shot.Version != 2 || !bytes.Equal(shot.Data, files["F-001/shot.png"]) || shot.Comment != sum(shot.Data) ||
+		p.Attachments["F-001-net.gif"].Version != 1 {
+		t.Fatalf("changed: %v %+v", c.calls, shot)
+	}
+}
+
+// An upload that fails fails the export with its picture named, and the
+// page's body is not written.
+func TestConfluenceImageUploadError(t *testing.T) {
+	c := &fakeConfluence{pages: map[string]*fakePage{"55": {Title: "old title", Version: 4}}, failUpload: true}
+	r, e := confSetup(t, c)
+	in := confImages(t, confFiles())
+	in.Known = map[string]Remote{"F-001": {ID: "55", Version: 4}}
+	_, err := r.Run(context.Background(), e, in)
+	if err == nil || !strings.Contains(err.Error(), "F-001-shot.png") || !strings.Contains(err.Error(), "403") || !strings.Contains(err.Error(), "not permitted to create attachments") {
+		t.Fatalf("err %v", err)
+	}
+	if p := c.pages["55"]; p.Version != 4 || count(c.calls, "PUT /rest/api/content/55") != 0 || count(c.calls, "PUT /rest/api/content/55/child/attachment") != 1 {
+		t.Fatalf("page v%d calls %v", p.Version, c.calls)
+	}
+	// a new page is made, stays empty
+	c.calls, c.writes = nil, nil
+	_, err = r.Run(context.Background(), e, confImages(t, confFiles()))
+	if err == nil || !strings.Contains(err.Error(), "F-001-shot.png") || len(c.writes) != 1 || c.writes[0] != "" || count(c.calls, "PUT /rest/api/content/1") != 0 {
+		t.Fatalf("new: %v writes %q calls %v", err, c.writes, c.calls)
+	}
+}
+
+// The Confluence HTML file keeps its pictures inline: it has no page to
+// attach them to.
+func TestConfluenceDownloadInlinesImages(t *testing.T) {
+	r, _ := runner(t, "")
+	res, err := r.Run(context.Background(), Exporter{ID: "c", Type: "confluence"}, confImages(t, confFiles()))
+	if err != nil || !bytes.Contains(res.Data, []byte(`src="data:image/png;base64,`)) || !bytes.Contains(res.Data, []byte(`src="data:image/gif;base64,`)) || bytes.Contains(res.Data, []byte("ac:image")) {
+		t.Fatalf("%v\n%s", err, res.Data)
 	}
 }

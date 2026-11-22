@@ -3,7 +3,9 @@ package export
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,7 +15,9 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"io"
+	"mime/multipart"
 	"net/http"
+	"net/textproto"
 	"net/url"
 	"path"
 	"regexp"
@@ -83,8 +87,9 @@ var imgTag = regexp.MustCompile(`<img src="([^"]*)" alt="([^"]*)"(?: title="[^"]
 var attachmentRef = regexp.MustCompile(`^attachments/[A-Za-z0-9][A-Za-z0-9._-]*$`)
 var imageTypes = map[string]string{".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp"}
 
-// images inlines the finding's own attachments as data URIs and removes every
-// other image, so a report can never pull in server files or remote URLs.
+// images inlines the finding's own attachments as data URIs (a push shows
+// them as attachments of the page) and removes every other image, so a
+// report can never pull in server files or remote URLs.
 func images(x string, f *finding.Finding, in Input) string {
 	return imgTag.ReplaceAllStringFunc(x, func(m string) string {
 		sub := imgTag.FindStringSubmatch(m)
@@ -92,6 +97,9 @@ func images(x string, f *finding.Finding, in Input) string {
 		ct := imageTypes[strings.ToLower(path.Ext(src))]
 		if attachmentRef.MatchString(src) && ct != "" && in.Attachment != nil {
 			if data, ok := in.Attachment(f, src); ok && (!in.strictImages || decodes(data)) {
+				if in.attach != nil {
+					return `<ac:image ac:alt="` + alt + `"><ri:attachment ri:filename="` + html.EscapeString(in.attach(f, src, ct, data)) + `" /></ac:image>`
+				}
 				if in.imageSrc != nil {
 					return `<img src="` + html.EscapeString(in.imageSrc(f, src, ct, data)) + `" alt="` + alt + `" />`
 				}
@@ -214,15 +222,31 @@ func (r *Runner) confluence(ctx context.Context, e Exporter, in Input) (Result, 
 	call := func(method, url string, body []byte) ([]byte, error) {
 		return r.call(ctx, "confluence push", user, token, method, url, body)
 	}
-	payload := map[string]any{
-		"type":  "page",
-		"title": title,
-		"space": map[string]string{"key": c.Space},
-		"body":  map[string]any{"storage": map[string]string{"value": xmlChars(XHTML(in, true)), "representation": "storage"}},
+	// the findings' pictures become attachments of the page, shown where
+	// they stand (Confluence may not show data URIs); names as the HTML ZIP's
+	var pics []pagePic
+	used := map[string]bool{}
+	in.attach = func(f *finding.Finding, rel, ct string, data []byte) string {
+		name := fileSafe(f.Meta.ID) + "-" + path.Base(rel)
+		if !used[name] {
+			used[name] = true
+			pics = append(pics, pagePic{name, ct, data})
+		}
+		return name
 	}
-	if c.ParentID != "" {
-		payload["ancestors"] = []map[string]string{{"id": c.ParentID}}
+	page := func(storage string) map[string]any {
+		p := map[string]any{
+			"type":  "page",
+			"title": title,
+			"space": map[string]string{"key": c.Space},
+			"body":  map[string]any{"storage": map[string]string{"value": storage, "representation": "storage"}},
+		}
+		if c.ParentID != "" {
+			p["ancestors"] = []map[string]string{{"id": c.ParentID}}
+		}
+		return p
 	}
+	payload := page(xmlChars(XHTML(in, true)))
 	// the page this finding became before, read for its current version
 	var cur *confPage
 	if len(in.Findings) == 1 {
@@ -249,9 +273,32 @@ func (r *Runner) confluence(ctx context.Context, e Exporter, in Input) (Result, 
 			}
 		}
 	}
+	created := cur == nil
+	if created && len(pics) > 0 { // attachments need the page: made empty first
+		body, _ := json.Marshal(page(""))
+		data, err := call("POST", base, body)
+		if err != nil {
+			return Result{}, err
+		}
+		var p confPage
+		json.Unmarshal(data, &p)
+		if p.ID == "" {
+			return Result{}, errors.New("confluence push failed: the new page has no id")
+		}
+		cur = &p
+		cur.Version.Number = max(cur.Version.Number, 1)
+	}
+	for _, pic := range pics { // then the pictures, then the body that shows them
+		if err := r.putAttachment(ctx, user, token, base+"/"+url.PathEscape(cur.ID)+"/child/attachment", pic, !created); err != nil {
+			return Result{}, err
+		}
+	}
 	method, target, action, version := "POST", base, "created", 1
 	if cur != nil {
-		method, target, action, version = "PUT", base+"/"+url.PathEscape(cur.ID), "updated", cur.Version.Number+1
+		method, target, version = "PUT", base+"/"+url.PathEscape(cur.ID), cur.Version.Number+1
+		if !created {
+			action = "updated"
+		}
 		payload["id"] = cur.ID
 		payload["version"] = map[string]int{"number": version}
 	}
@@ -284,6 +331,68 @@ type confPage struct {
 	ID      string
 	Version struct{ Number int }
 	Space   struct{ Key string }
+}
+
+// pagePic is a finding's picture as an attachment of the page.
+type pagePic struct {
+	name, ct string
+	data     []byte
+}
+
+// fileSafe keeps a finding ID to the characters of a file name.
+func fileSafe(id string) string {
+	return strings.Map(func(r rune) rune {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '.' || r == '_' || r == '-' {
+			return r
+		}
+		return '_'
+	}, id)
+}
+
+// putAttachment uploads pic to the page's attachments (target): a new one,
+// or a new version of the one with its name. With check it first asks for
+// that name and skips the upload when the page has these bytes already, by
+// the sha256 every upload leaves in the attachment's comment.
+func (r *Runner) putAttachment(ctx context.Context, user, token, target string, pic pagePic, check bool) error {
+	what := "confluence upload of " + pic.name
+	h := sha256.Sum256(pic.data)
+	comment := "sha256:" + hex.EncodeToString(h[:])
+	if check {
+		data, err := r.call(ctx, what, user, token, "GET", target+"?"+url.Values{"filename": {pic.name}}.Encode(), nil)
+		if err != nil {
+			return err
+		}
+		var found struct {
+			Results []struct {
+				Title                string
+				Metadata, Extensions struct{ Comment string } // the comment is in either, by Confluence version
+			}
+		}
+		json.Unmarshal(data, &found)
+		for _, a := range found.Results {
+			if a.Title == pic.name && (a.Metadata.Comment == comment || a.Extensions.Comment == comment) {
+				return nil
+			}
+		}
+	}
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	part, _ := mw.CreatePart(textproto.MIMEHeader{
+		"Content-Disposition": {`form-data; name="file"; filename="` + pic.name + `"`},
+		"Content-Type":        {pic.ct},
+	})
+	part.Write(pic.data)
+	mw.WriteField("comment", comment)
+	mw.WriteField("minorEdit", "true") // no mail to the page's watchers
+	mw.Close()
+	req, err := http.NewRequestWithContext(ctx, "PUT", target, &body)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	req.Header.Set("X-Atlassian-Token", "no-check") // uploads are refused without it
+	_, err = r.send(req, what, user, token)
+	return err
 }
 
 // httpsOnly refuses a service address that isn't https (plain http only to
@@ -321,6 +430,11 @@ func (r *Runner) call(ctx context.Context, what, user, token, method, url string
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	return r.send(req, what, user, token)
+}
+
+// send sends req with Basic auth and reads the JSON answer, as call.
+func (r *Runner) send(req *http.Request, what, user, token string) ([]byte, error) {
 	req.Header.Set("Accept", "application/json")
 	req.SetBasicAuth(user, token)
 	resp, err := r.HTTP.Do(req)

@@ -271,6 +271,9 @@ type Input struct {
 	// imageSrc, when set, replaces inlining: it stores an attachment and
 	// returns the src to use (the HTML ZIP).
 	imageSrc func(f *finding.Finding, rel, ct string, data []byte) string
+	// attach, when set, replaces inlining: it keeps an attachment for the
+	// page and returns its file name there (the Confluence push).
+	attach func(f *finding.Finding, rel, ct string, data []byte) string
 	// strictImages keeps only pictures that decode (PNG, JPEG, GIF): a PDF
 	// fails on a broken one.
 	strictImages bool
