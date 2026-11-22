@@ -1,0 +1,120 @@
+package store
+
+import (
+	"slices"
+
+	"yars/internal/config"
+	"yars/internal/db"
+)
+
+// RunQueued is the state a run waiting for a slot is reported in; it is
+// stored as running (in progress, for the gate too).
+const RunQueued = "queued"
+
+// checkJob is a check run to run: run id on the finding as read when it was
+// asked for (ref), one rule only or all, what a retry keeps, and by whom.
+type checkJob struct {
+	id   int64
+	ref  FindingRef
+	only string
+	keep *carried
+	by   string
+}
+
+// checkLimit is how many check runs run at once (checks.max_running).
+func (s *Store) checkLimit() int {
+	if n := s.Config().Checks.MaxRunning; n > 0 {
+		return n
+	}
+	return config.DefaultMaxRunning
+}
+
+// enqueue puts j behind the runs waiting already; false once the checks
+// stopped.
+func (s *Store) enqueue(j checkJob) bool {
+	s.queueMu.Lock()
+	defer s.queueMu.Unlock()
+	if s.checksStopped {
+		return false
+	}
+	s.queue = append(s.queue, j)
+	return true
+}
+
+// admit starts what fits once j is queued: j waiting is announced here, j
+// starting by pumpChecks. Not queued (the checks stopped), j is dropped.
+func (s *Store) admit(j checkJob, queued bool) {
+	if !queued {
+		s.dropCheck(j)
+		return
+	}
+	s.pumpChecks()
+	if s.queuedRun(j.id) {
+		s.notify(Change{Eng: j.ref.EngID, Fid: j.ref.F.Meta.ID, Kind: ChangeCheck})
+	}
+}
+
+// pumpChecks starts queued runs, oldest first, while a slot is free.
+func (s *Store) pumpChecks() {
+	limit := s.checkLimit()
+	var next []checkJob
+	s.queueMu.Lock()
+	for !s.checksStopped && s.active < limit && len(s.queue) > 0 {
+		next = append(next, s.queue[0])
+		s.queue[0] = checkJob{}
+		s.queue = s.queue[1:]
+		s.active++
+	}
+	s.queueMu.Unlock()
+	for _, j := range next {
+		s.notify(Change{Eng: j.ref.EngID, Fid: j.ref.F.Meta.ID, Kind: ChangeCheck})
+		go s.runCheck(j)
+	}
+}
+
+// endCheck frees a run's slot for the next queued run.
+func (s *Store) endCheck() {
+	s.queueMu.Lock()
+	s.active--
+	s.queueMu.Unlock()
+	s.pumpChecks()
+}
+
+// queuedRun reports whether run id waits for a slot.
+func (s *Store) queuedRun(id int64) bool {
+	s.queueMu.Lock()
+	defer s.queueMu.Unlock()
+	return slices.ContainsFunc(s.queue, func(j checkJob) bool { return j.id == id })
+}
+
+// runNow reads run id, RunQueued while it waits for a slot.
+func (s *Store) runNow(id int64) (db.CheckRun, error) {
+	run, err := s.db.Run(id)
+	if err == nil && run.State == db.RunRunning && s.queuedRun(id) {
+		run.State = RunQueued
+	}
+	return run, err
+}
+
+// StopChecks drops the queued check runs (the server is stopping): each
+// fails as interrupted, as a restart would leave it, and nothing more
+// starts. The runs under way go on (WaitChecks).
+func (s *Store) StopChecks() {
+	s.queueMu.Lock()
+	s.checksStopped = true
+	q := s.queue
+	s.queue = nil
+	s.queueMu.Unlock()
+	for _, j := range q {
+		s.dropCheck(j)
+	}
+}
+
+// dropCheck ends queued run j without running it.
+func (s *Store) dropCheck(j checkJob) {
+	defer s.checkWG.Done()
+	eng, fid := j.ref.EngID, j.ref.F.Meta.ID
+	s.db.FailRun(j.id, "interrupted")
+	s.setRunning(checkKey(eng, fid), 0, true)
+	s.notify(Change{Eng: eng, Fid: fid, Kind: ChangeCheck})
+}

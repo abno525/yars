@@ -655,7 +655,7 @@ var coreTools = []tool{
 			}
 			return list(out, "")
 		}},
-	{name: "start_check", action: "checks", serverOnly: true, desc: "Start a stored check run of every rule (fast, script and AI) on a finding, as the Check button does. It runs in the background; each new violation is posted as a chat comment. Read the outcome with get_check_results.",
+	{name: "start_check", action: "checks", serverOnly: true, desc: "Start a stored check run of every rule (fast, script and AI) on a finding, as the Check button does. It runs in the background; while the server runs as many checks as it allows, it waits in a queue (state queued). Each new violation is posted as a chat comment. Read the outcome with get_check_results.",
 		required: []param{pEng, pFinding},
 		run: func(s *Server, ctx context.Context, u config.User, a args) (string, error) {
 			ref, err := s.ref(a)
@@ -673,7 +673,7 @@ var coreTools = []tool{
 				Total int    `json:"total"`
 			}{run.ID, run.State, run.Done, run.Total})
 		}},
-	{name: "get_check_results", serverOnly: true, desc: "The finding's latest check run: state (running, done, failed), progress, whether the finding changed since (stale), and its results with dismissals.",
+	{name: "get_check_results", serverOnly: true, desc: "The finding's latest check run: state (queued, running, done, failed), progress, whether the finding changed since (stale), and its results with dismissals.",
 		required: []param{pEng, pFinding},
 		run: func(s *Server, ctx context.Context, u config.User, a args) (string, error) {
 			ref, err := s.ref(a)

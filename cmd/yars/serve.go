@@ -175,8 +175,8 @@ func gitServer(r *gitrepo.Repo, au *auth.Auth, tokens *auth.Tokens, st *store.St
 
 // serve runs the server until ctx is cancelled, then stops it: new
 // connections are refused, requests in flight get stopGrace to finish, the
-// background workers stop, fixes with AI stop asking, running checks get
-// stopGrace, the database closes.
+// background workers stop, fixes with AI stop asking, queued checks are
+// dropped, running checks get stopGrace, the database closes.
 // With hs.TLSConfig set it serves HTTPS with that configuration's
 // certificate.
 func serve(ctx context.Context, ln net.Listener, hs *http.Server, srv *web.Server, st *store.Store, d *db.DB) error {
@@ -206,8 +206,9 @@ func serve(ctx context.Context, ln net.Listener, hs *http.Server, srv *web.Serve
 	}
 	srv.Close()
 	// a Fix with AI answers what it has left without the AI and starts no
-	// check, so it ends well within the grace
+	// check, so it ends well within the grace; queued checks never start
 	st.StopFixes()
+	st.StopChecks()
 	checks := make(chan struct{})
 	go func() { st.WaitChecks(); close(checks) }()
 	select {

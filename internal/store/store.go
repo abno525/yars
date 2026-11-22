@@ -135,6 +135,12 @@ type Store struct {
 	runningMu sync.Mutex
 	running   map[string]int64
 	checkWG   sync.WaitGroup
+	// check runs holding a slot (checks.max_running) and the ones waiting
+	// for one, oldest first; queueMu is held only to read or change them
+	queueMu       sync.Mutex
+	active        int
+	queue         []checkJob
+	checksStopped bool // StopChecks: nothing more starts
 	// every Fix with AI runs under fixCtx; StopFixes cancels it
 	fixOnce sync.Once
 	fixCtx  context.Context
@@ -186,6 +192,7 @@ func (s *Store) applyConfig(c config.Config) {
 	for _, fn := range subs {
 		fn(c)
 	}
+	s.pumpChecks() // a raised checks.max_running starts queued runs
 }
 
 // ReloadConfig applies config.yaml as the main repo has it now and returns

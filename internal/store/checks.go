@@ -35,6 +35,7 @@ type CheckStatus struct {
 	Run       db.CheckRun
 	HasRun    bool
 	Running   bool // in progress in this server
+	Queued    bool // … waiting for a slot (Running too; Run.State is RunQueued)
 	Stale     bool // the finding or the rules changed since the run started
 	Results   []db.CheckResult
 	Steps     []db.CheckStep          // each rule of the run, in order

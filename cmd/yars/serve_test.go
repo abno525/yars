@@ -8,13 +8,17 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"yars/internal/auth"
 	"yars/internal/config"
+	"yars/internal/db"
+	"yars/internal/finding"
 	"yars/internal/gitrepo"
 	"yars/internal/index"
+	"yars/internal/rules"
 	"yars/internal/store"
 	"yars/internal/web"
 )
@@ -167,5 +171,95 @@ func TestServeStopsCleanly(t *testing.T) {
 	}
 	if err := d.Ping(); err == nil {
 		t.Fatal("the database is still open")
+	}
+}
+
+// holdLinter holds each check run until a token comes on release.
+type holdLinter struct {
+	release chan struct{}
+	began   atomic.Int32
+}
+
+func (l *holdLinter) Lint(_ context.Context, _ *finding.Finding, k rules.Kind) []rules.Violation {
+	if k == rules.All {
+		l.began.Add(1)
+		<-l.release
+	}
+	return nil
+}
+
+// Q3: told to stop, the server drops the queued checks (failed as
+// interrupted) and waits only for the run under way, not for the ones
+// behind it.
+func TestServeDropsQueuedChecks(t *testing.T) {
+	dir := t.TempDir()
+	if err := initData(dir); err != nil {
+		t.Fatal(err)
+	}
+	r, err := gitrepo.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := dataDB(r.Dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Default()
+	cfg.Checks.MaxRunning = 1
+	st := store.New(r, cfg, d)
+	l := &holdLinter{release: make(chan struct{})}
+	st.Linter = l
+	a := gitrepo.Author{Name: "ann", Email: "ann@yars.local"}
+	if err := st.CreateEngagement(store.Engagement{ID: "acme", Name: "ACME"}, a); err != nil {
+		t.Fatal(err)
+	}
+	u := config.User{Username: "ann", Role: "director"}
+	var runs []db.CheckRun
+	for _, title := range []string{"One", "Two"} {
+		f, err := st.CreateFinding("acme", title, a)
+		if err != nil {
+			t.Fatal(err)
+		}
+		run, err := st.StartCheck("acme", f.Dir, u)
+		if err != nil {
+			t.Fatal(err)
+		}
+		runs = append(runs, run)
+	}
+	if runs[1].State != store.RunQueued {
+		t.Fatalf("second run %+v", runs[1])
+	}
+	srv := &web.Server{Store: st, Index: index.New(st, r), Auth: auth.New(d), Cfg: cfg}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- serve(ctx, ln, srv.HTTPServer("127.0.0.1:0"), srv, st, d) }()
+	cancel()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if run, err := d.Run(runs[1].ID); err == nil && run.State == db.RunFailed && run.Error == "interrupted" {
+			break
+		}
+		if time.Now().After(deadline) {
+			close(l.release)
+			t.Fatal("the queued run was not dropped")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	l.release <- struct{}{} // the run under way ends
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("serve: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		close(l.release)
+		t.Fatal("serve waits for the queued run")
+	}
+	if n := l.began.Load(); n != 1 {
+		t.Fatalf("%d runs began", n)
 	}
 }

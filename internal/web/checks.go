@@ -36,10 +36,11 @@ type stepRow struct {
 type checksView struct {
 	Enabled                                 bool
 	URL, DismissURL, UndismissURL, RetryURL string
-	// State of the latest run: "" (none), running, done, failed, invalid
-	// (a script printed no JSON) or stale (the finding changed since).
+	// State of the latest run: "" (none), queued (waiting for a slot,
+	// checks.max_running), running, done, failed, invalid (a script printed
+	// no JSON) or stale (the finding changed since).
 	State, StateLabel, Error string
-	Running                  bool
+	Running, Queued          bool // Queued: Running too
 	ReadOnly                 bool // archived engagement: no Check, no Dismiss
 	Done, Total              int  // rules done of the run's rules
 	Progress                 string
@@ -123,7 +124,7 @@ func stepView(x db.CheckStep, level string, canRetry bool, now time.Time) stepRo
 	return row
 }
 
-var checkStateLabel = map[string]string{"running": "Running", "done": "Done", "failed": "Failed",
+var checkStateLabel = map[string]string{"queued": "Queued", "running": "Running", "done": "Done", "failed": "Failed",
 	"invalid": "Invalid output", "stale": "Stale"}
 
 func (s *Server) routesChecks(mux *http.ServeMux) {
@@ -187,6 +188,8 @@ func (s *Server) checksFor(r *http.Request, ref store.FindingRef) checksView {
 	if st.HasRun {
 		v.Error = st.Run.Error
 		switch {
+		case st.Queued:
+			v.State, v.Running, v.Queued = "queued", true, true
 		case st.Running:
 			v.State, v.Running = "running", true
 		case st.Stale:

@@ -20,6 +20,7 @@
 | `smtp.from` | string | — | sender address |
 | `smtp.username` | string | — | empty = no login |
 | `smtp.password_env` | string | — | name of the environment variable holding the password |
+| `checks.max_running` | number | 4 | at least 1; check runs the server runs at once |
 
 ## Example
 
@@ -45,6 +46,12 @@ smtp:
   from: yars@example.com
   username: yars
   password_env: YARS_SMTP_PASSWORD
+checks:
+  max_running: 4
 ```
 
 Without `smtp.host` and `smtp.from` the Email column of the notification settings is hidden.
+
+## Check runs
+
+A check run (the Check button, `start_check`, the run after Fix with AI) runs every rule, scripts and AI included. The server runs at most `checks.max_running` of them at once. Further runs wait in a queue and start in the order they were asked for, as runs end. A queued run is the finding's run: Check again, or `start_check`, answers it. The Checks strip and the Check button show it as Queued; `start_check` and `get_check_results` give the state `queued`. A queued run checks the finding as it was when it was asked for, as a running one does. Raising the limit starts queued runs at once. When the server stops, the queued runs are dropped and fail as interrupted.

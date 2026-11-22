@@ -15,9 +15,11 @@ import (
 
 // StartCheck starts a run of every rule (fast, script, AI) on the finding in
 // the background, as u, and returns it. While a run of the finding is in
-// progress, that run is returned instead. Progress is announced as
-// ChangeCheck; at the end the results are stored and each new violation is
-// posted as a chat thread (see finishCheck).
+// progress (or queued), that run is returned instead. With checks.max_running
+// runs under way the run waits in a queue, first in, first out, its State
+// RunQueued. Progress is announced as ChangeCheck; at the end the results
+// are stored and each new violation is posted as a chat thread (see
+// finishCheck).
 func (s *Store) StartCheck(engID, dir string, u config.User) (db.CheckRun, error) {
 	return s.startCheck(engID, dir, "", u)
 }
@@ -75,7 +77,7 @@ func (s *Store) startCheck(engID, dir, only string, u config.User) (db.CheckRun,
 		if id == fixRun {
 			return db.CheckRun{}, ErrBusy // the AI is fixing it (StartFix)
 		}
-		return s.db.Run(id)
+		return s.runNow(id)
 	}
 	var keep *carried
 	if only != "" {
@@ -121,10 +123,11 @@ func (s *Store) startCheck(engID, dir, only string, u config.User) (db.CheckRun,
 	}
 	s.db.RunProgress(id, 0, total) // "0/6" from the start
 	s.checkWG.Add(1)
+	j := checkJob{id: id, ref: ref, only: only, keep: keep, by: u.Username}
+	queued := s.enqueue(j) // under checksMu: in the order of the starts
 	s.checksMu.Unlock()
-	s.notify(Change{Eng: engID, Fid: fid, Kind: ChangeCheck})
-	go s.runCheck(id, ref, only, keep, u.Username)
-	return s.db.Run(id)
+	s.admit(j, queued)
+	return s.runNow(id)
 }
 
 // carry reads what a retry of rule keeps from run prev: the other rules'
@@ -201,7 +204,8 @@ func stepOutcome(run int64, r rules.Rule, vs []rules.Violation) db.CheckStep {
 }
 
 // CheckRunning reports whether this server is running a check of the
-// finding now (a run a stopped server left "running" is not).
+// finding now, or has one queued (a run a stopped server left "running" is
+// not).
 func (s *Store) CheckRunning(engID, fid string) bool {
 	s.runningMu.Lock()
 	defer s.runningMu.Unlock()
@@ -235,15 +239,19 @@ func (s *Store) setRunning(key string, id int64, forget bool) {
 	s.running[key] = id
 }
 
-// WaitChecks waits until no check run is in progress.
+// WaitChecks waits until no check run is in progress, queued ones too: they
+// run as slots free (StopChecks drops them).
 func (s *Store) WaitChecks() { s.checkWG.Wait() }
 
-// runCheck runs the check id started by user by (the run's By); its AI
-// calls are recorded as theirs, on this finding (D24).
-func (s *Store) runCheck(id int64, ref FindingRef, only string, keep *carried, by string) {
+// runCheck runs the check j in the slot it holds, then frees the slot for
+// the next queued run. Its AI calls are recorded as the user's who asked
+// (the run's By), on this finding (D24).
+func (s *Store) runCheck(j checkJob) {
+	id, ref, only, keep := j.id, j.ref, j.only, j.keep
 	eng, fid := ref.EngID, ref.F.Meta.ID
-	ctx := rules.WithCaller(context.Background(), rules.Caller{User: by, Eng: eng, Fid: fid})
+	ctx := rules.WithCaller(context.Background(), rules.Caller{User: j.by, Eng: eng, Fid: fid})
 	defer s.checkWG.Done()
+	defer s.endCheck()
 	defer func() {
 		if p := recover(); p != nil {
 			s.db.FailRun(id, fmt.Sprint("crashed: ", p))

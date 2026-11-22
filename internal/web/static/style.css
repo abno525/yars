@@ -770,7 +770,7 @@ summary.panelhead::-webkit-details-marker { display: none; }
   border: 1px solid; font: 700 13px/1 var(--sans); letter-spacing: 0.06em; text-transform: uppercase;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.checkstate.check-running { border-color: var(--verification); background: var(--run-bg); color: var(--run-text); }
+.checkstate.check-running, .checkstate.check-queued { border-color: var(--verification); background: var(--run-bg); color: var(--run-text); }
 .checkstate.check-done { border-color: var(--green); background: var(--green-bg); color: var(--green-text); }
 .checkstate.check-failed, .checkstate.check-invalid { border-color: var(--red); background: var(--bad-bg); color: var(--red); }
 .checkstate.check-stale { border-color: var(--accent-text); background: var(--stale-bg); color: var(--accent-text); }

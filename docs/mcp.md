@@ -49,8 +49,8 @@ A clone holds **content only**. Workflow state (status, reviewers, clearances), 
 | `transition` | status (report: export) | server only | `submit`, `return` (reason), `clear`/`sign_off`, `approve`, `reopen` (reason; author or director: complete to verification), `report` (director), `unreport` (reason; author or director: reported to complete, the approval stays), `revert` (reason: `reopen` or `unreport`, by the finding's status), `withdraw` (reason), `revise`, `take_back` (author or director: verification to draft, sign-offs start over) |
 | `add_chat_message` / `resolve_thread` | comment | server only | Discuss in the finding's chat; `@name` mentions notify that person |
 | `lint_finding` | read | local + server | Style rules (regex/built-in; `all: true` also scripts and AI) |
-| `start_check` | checks | server only | Start a stored check run (every rule); results arrive as chat comments |
-| `get_check_results` | read | server only | The latest check run: state, progress, results, whether it is stale |
+| `start_check` | checks | server only | Start a stored check run (every rule); results arrive as chat comments. Over the server's limit (`checks.max_running`) it waits in a queue: state `queued` |
+| `get_check_results` | read | server only | The latest check run: state (`queued`, `running`, `done`, `failed`), progress, results, whether it is stale |
 | `list_notifications` | read | server only | Your notifications (newest first); `unread: true` for unread ones only |
 | `whoami` | read | local + server | Your username, role, admin flag and (over HTTP) the token's actions and engagements |
 | `get_config` | read | local + server | Sections, details rows, severities, CVSS version and standard values, statuses, transition actions |
@@ -105,7 +105,7 @@ Some refusals and their messages:
 | `no_database` | `workflow state and chat are kept on the YARS server; use its web UI or its /mcp endpoint` | A server-only tool on a local clone |
 | `conflict` | `the finding changed since you read it; read_finding again and retry` | Stale `base` |
 | `conflict` | `not allowed: the finding changed while its checks ran; try again` | A submit or sign-off raced an edit: retry |
-| `busy` | `a check or a fix of this finding is running` | `start_check` while a fix runs (during a check it answers the running run), `fix_checks` while a check or a fix runs |
+| `busy` | `a check or a fix of this finding is running` | `start_check` while a fix runs (during a check, running or queued, it answers that run), `fix_checks` while a check or a fix runs |
 | `invalid` | `a reason is required to withdraw a finding` | `transition` return, withdraw or revert without `reason` |
 | `invalid` | `unknown section "Summary"; valid sections: …` | `update_section` with a section the finding doesn't have |
 | `invalid` | `use the transition tool to change the status` | `set_field status` |

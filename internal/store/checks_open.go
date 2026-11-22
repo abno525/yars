@@ -299,7 +299,7 @@ func (s *Store) undismissed(engID, fid string, vs []rules.Violation) ([]rules.Vi
 
 // CheckStatus returns the finding's latest check run with its results and
 // dismissals. A run left "running" by an earlier server is failed here
-// ("interrupted").
+// ("interrupted"); one waiting for a slot reads as RunQueued.
 func (s *Store) CheckStatus(engID, dir string) (CheckStatus, error) {
 	if s.db == nil {
 		return CheckStatus{}, ErrNoDB
@@ -315,6 +315,9 @@ func (s *Store) CheckStatus(engID, dir string) (CheckStatus, error) {
 	if err == nil && st.HasRun && st.Run.State == db.RunRunning {
 		if s.inProgress(checkKey(engID, fid), st.Run.ID) {
 			st.Running = true
+			if st.Queued = s.queuedRun(st.Run.ID); st.Queued {
+				st.Run.State = RunQueued
+			}
 		} else if err = s.db.FailRun(st.Run.ID, "interrupted"); err == nil {
 			st.Run, err = s.db.Run(st.Run.ID)
 		}

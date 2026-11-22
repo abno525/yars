@@ -1,15 +1,19 @@
 package mcp
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"yars/internal/config"
 	"yars/internal/db"
+	"yars/internal/finding"
 	"yars/internal/rules"
 	"yars/internal/store"
 )
@@ -119,6 +123,78 @@ func TestMCPChecks(t *testing.T) {
 		t.Fatalf("archived %s", out)
 	}
 	f.ok(alice, "get_check_results", a)
+}
+
+// holdLinter holds each check run (every rule kind) until release closes.
+type holdLinter struct {
+	release chan struct{}
+	in      atomic.Int32
+}
+
+func (l *holdLinter) Lint(_ context.Context, _ *finding.Finding, k rules.Kind) []rules.Violation {
+	if k == rules.All {
+		l.in.Add(1)
+		<-l.release
+	}
+	return nil
+}
+
+// Q3: over checks.max_running a run waits: start_check and
+// get_check_results say queued, a second start answers the same run, and
+// it runs once a slot frees.
+func TestMCPCheckQueued(t *testing.T) {
+	f := newFx(t)
+	l := &holdLinter{release: make(chan struct{})}
+	f.s.Store.Linter = l
+	c := f.s.Store.Config()
+	c.Checks.MaxRunning = 1
+	f.s.Store.SetConfig(c)
+	released := false
+	release := func() {
+		if !released {
+			released = true
+			close(l.release)
+		}
+		f.s.Store.WaitChecks()
+	}
+	t.Cleanup(release)
+	other, err := f.s.Store.CreateFinding("acme", "Reflected XSS", alice.GitAuthor())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.s.Store.StartCheck("acme", other.Dir, alice); err != nil {
+		t.Fatal(err)
+	}
+	for deadline := time.Now().Add(5 * time.Second); l.in.Load() != 1; time.Sleep(5 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the first run did not start")
+		}
+	}
+	a := map[string]any{"engagement": "acme", "finding": "F-001"}
+	type started struct {
+		RunID int64  `json:"run_id"`
+		State string `json:"state"`
+	}
+	var first, again started
+	if out := f.ok(alice, "start_check", a); json.Unmarshal([]byte(out), &first) != nil || first.State != "queued" || first.RunID == 0 {
+		t.Fatalf("start_check: %s", out)
+	}
+	if out := f.ok(alice, "start_check", a); json.Unmarshal([]byte(out), &again) != nil || again != first {
+		t.Fatalf("second start_check: %s", out)
+	}
+	var st struct {
+		RunID   int64  `json:"run_id"`
+		State   string `json:"state"`
+		Running bool   `json:"running"`
+	}
+	if out := f.ok(alice, "get_check_results", a); json.Unmarshal([]byte(out), &st) != nil || st.State != "queued" || !st.Running || st.RunID != first.RunID {
+		t.Fatalf("get_check_results while queued: %s", out)
+	}
+	release()
+	st.Running = false // omitted when false
+	if out := f.ok(alice, "get_check_results", a); json.Unmarshal([]byte(out), &st) != nil || st.State != "done" || st.Running {
+		t.Fatalf("get_check_results after: %s", out)
+	}
 }
 
 func TestMCPNotifications(t *testing.T) {

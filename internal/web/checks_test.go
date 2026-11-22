@@ -1,14 +1,18 @@
 package web
 
 import (
+	"context"
 	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"yars/internal/db"
+	"yars/internal/finding"
 	"yars/internal/gitrepo"
 	"yars/internal/rules"
 	"yars/internal/workflow"
@@ -441,6 +445,78 @@ func TestChecksStartedRefetchOnLoad(t *testing.T) {
 		if b := e.do(t, "alice", "GET", p, nil, nil).Body.String(); strings.Contains(b, ", load\"") {
 			t.Errorf("%s refetches on load (a loop):\n%s", p, b)
 		}
+	}
+}
+
+// holdLinter holds each check run (every rule kind) until release closes;
+// the fast rules for the page pass at once.
+type holdLinter struct {
+	release chan struct{}
+	in      atomic.Int32
+}
+
+func (l *holdLinter) Lint(_ context.Context, _ *finding.Finding, k rules.Kind) []rules.Violation {
+	if k == rules.All {
+		l.in.Add(1)
+		<-l.release
+	}
+	return nil
+}
+
+// Q3: over checks.max_running a run waits: the strip says Queued in its
+// state slot and the bar's Check button says so in its place; once the slot
+// frees it runs and ends.
+func TestChecksStripQueued(t *testing.T) {
+	e := setup(t)
+	e.rules(t, "- id: title-word\n  target: title\n  regex_forbid: 'injection'\n  message: Avoid the word injection\n", nil)
+	st := e.srv.Store
+	c := st.Config()
+	c.Checks.MaxRunning = 1
+	st.SetConfig(c)
+	l := &holdLinter{release: make(chan struct{})}
+	st.Linter = l
+	released := false
+	release := func() {
+		if !released {
+			released = true
+			close(l.release)
+		}
+		st.WaitChecks()
+	}
+	t.Cleanup(release)
+	other, err := st.CreateFinding("acme", "Reflected XSS", e.authorOf(wAlice))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.StartCheck("acme", other.Dir, wAlice); err != nil {
+		t.Fatal(err)
+	}
+	for deadline := time.Now().Add(5 * time.Second); l.in.Load() != 1; time.Sleep(5 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the first run did not start")
+		}
+	}
+	rec := e.do(t, "alice", "POST", fpath+"/checks", url.Values{}, nil)
+	run := rec.Body.String()
+	if rec.Code != 200 || !regexp.MustCompile(`<button[^>]*class="btn secondary w152 checking"[^>]*disabled[^>]*>.*</svg>Queued<progress value="0" max="1"></progress></button>`).MatchString(run) {
+		t.Fatalf("queued bar %d:\n%s", rec.Code, run)
+	}
+	slot := regexp.MustCompile(`<span class="slot w152"><span class="checkstate check-queued" title="[^"]*">Queued</span></span>`)
+	if !slot.MatchString(run) {
+		t.Fatalf("queued strip in the answer:\n%s", run)
+	}
+	p := e.do(t, "bob", "GET", fpath+"/checks", nil, nil).Body.String()
+	if tag := stripTag(t, p); !slot.MatchString(p) || !strings.Contains(tag, " open") || !strings.Contains(tag, " data-running") {
+		t.Fatalf("queued strip:\n%s", p)
+	}
+	release()
+	p = e.do(t, "bob", "GET", fpath+"/checks", nil, nil).Body.String()
+	if strings.Contains(p, "Queued") || !strings.Contains(p, `<span class="slot w152"><span class="checkstate check-done"`) {
+		t.Fatalf("after the slot freed:\n%s", p)
+	}
+	css := e.do(t, "dora", "GET", "/static/style.css", nil, nil).Body.String()
+	if !strings.Contains(css, ".checkstate.check-running, .checkstate.check-queued {") {
+		t.Fatal("no queued state style")
 	}
 }
 
