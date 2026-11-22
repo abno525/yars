@@ -23,3 +23,16 @@ func TestDupsStripeAboveTable(t *testing.T) {
 		t.Fatal("style.css: no stripe drawn above the duplicates table")
 	}
 }
+
+// The lists that scroll inside New finding keep the scrollbar's room
+// (scrollbar-gutter: stable: nothing moves when they start to scroll); the
+// header band runs on into that room, painted in the list's own background
+// under the table, as the top bar's colours are in the page's gutter.
+func TestScrollListHeaderBandFillsGutter(t *testing.T) {
+	e := setup(t)
+	css := e.do(t, "alice", "GET", "/static/style.css", nil, nil).Body.String()
+	want := ".tplscroll, .newf .dups .dscroll { background: linear-gradient(var(--panel) 43px, var(--line) 43px, var(--line) 44px, transparent 44px) no-repeat; }"
+	if !strings.Contains(css, want) {
+		t.Fatal("style.css: the header band stops short of the lists' scrollbar room")
+	}
+}

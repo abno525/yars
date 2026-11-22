@@ -1514,6 +1514,8 @@ input.bigin { height: 48px; font: 600 18px var(--sans); border: 2px solid var(--
 .dups::before { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 4px; background: var(--accent); pointer-events: none; }
 .dups .panelname h2 { color: var(--accent-text); }
 .newf .dups .dscroll { height: 200px; overflow-y: auto; scrollbar-gutter: stable; }
+/* the header band runs on into the scrollbar's room (the table covers the rest) */
+.tplscroll, .newf .dups .dscroll { background: linear-gradient(var(--panel) 43px, var(--line) 43px, var(--line) 44px, transparent 44px) no-repeat; }
 .table.dtable { border: 0; table-layout: fixed; font-size: 14px; }
 .dtable th.c-id { width: 96px; }
 .dtable th.c-tag { width: 136px; }
