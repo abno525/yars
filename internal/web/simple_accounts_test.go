@@ -336,3 +336,32 @@ func TestSimpleSetupTags(t *testing.T) {
 		t.Fatal("standard setup tags")
 	}
 }
+
+// Admin › Rules: Require Check comes before Complete in the simple workflow.
+func TestSimpleRequireCheckLabel(t *testing.T) {
+	e := setupSimple(t)
+	e.rules(t, noneRule, nil)
+	b := e.do(t, "anna", "GET", "/admin/rules", nil, nil).Body.String()
+	tbl := between(b, `<table class="table ruletable settingtable">`, "</table>")
+	if !strings.Contains(tbl, `<td class="setname">Require Check before Complete</td>`) || !strings.Contains(tbl, `aria-label="Require Check before Complete"`) {
+		t.Fatalf("settings table:\n%s", tbl)
+	}
+	if strings.Contains(tbl, "Sign off") || strings.Contains(tbl, "Approve") {
+		t.Fatalf("standard wording left:\n%s", tbl)
+	}
+}
+
+// Admin › System names the simple workflow; the standard one adds no row.
+func TestSimpleSystemWorkflow(t *testing.T) {
+	e := setupSimple(t)
+	b := e.do(t, "anna", "GET", "/admin/system", nil, nil).Body.String()
+	if !strings.Contains(b, `<div class="stats">
+      <div class="st wide"><span class="sl">Workflow</span><span class="sv" title="Simple (set by yars init)">Simple (set by yars init)</span></div>
+    </div>`) {
+		t.Fatalf("no workflow row:\n%s", between(b, "<h2>Server</h2>", "</section>"))
+	}
+	std := setup(t)
+	if b := std.do(t, "dora", "GET", "/admin/system", nil, nil).Body.String(); strings.Contains(b, ">Workflow<") {
+		t.Fatal("a workflow row in the standard workflow")
+	}
+}

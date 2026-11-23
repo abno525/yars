@@ -164,14 +164,14 @@
         {{/* the name is the row the keys move to; u, r, d act on that row only (keys.js yarsRowFire); its id keeps it focused through the reload */}}
         <tr{{if .Disabled}} class="off"{{end}} data-rowkeys>
           <td class="stack"><span class="strong" title="{{.Username}}" tabindex="0" data-nav id="row-user-{{.Username}}">{{.Username}}</span><span class="muted" title="{{.Email}}">{{if .Email}}{{.Email}}{{else}}—{{end}}</span></td>
-          {{if not simple}}
+          {{- if not simple}}
           <td>
             <form method="post" action="/admin/users/{{.Username}}/role">
               <select name="role" aria-label="Role of {{.Username}}" data-choose>{{$r := .Role}}{{range $.Roles}}<option value="{{.}}"{{if eq . $r}} selected{{end}}>{{.}}</option>{{end}}</select>
               <noscript><button class="btn ghost sm w96">Set</button></noscript>
             </form>
           </td>
-          {{end}}
+          {{- end}}
           <td>
             <form class="toggle" method="post" action="/admin/users/{{.Username}}/admin">
               <input type="hidden" name="on" value="{{if .IsAdmin}}0{{else}}1{{end}}">
@@ -197,11 +197,11 @@
     <div class="vfields">
       <label>Username<input name="username" value="{{.Form.Get "username"}}" pattern="[A-Za-z0-9._\-]+" required aria-keyshortcuts="N"></label>
       <label>Email<input name="email" type="email" value="{{.Form.Get "email"}}"></label>
-      {{if not simple}}
+      {{- if not simple}}
       <fieldset class="rf"><legend>Role</legend>
         <div class="seg fill n3">{{$r := .Form.Get "role"}}{{range .Roles}}<label><input type="radio" name="role" value="{{.}}"{{if eq . $r}} checked{{end}}><span>{{.}}</span></label>{{end}}</div>
       </fieldset>
-      {{end}}
+      {{- end}}
       <label class="chk"><input type="checkbox" name="admin" value="1"{{if eq (.Form.Get "admin") "1"}} checked{{end}}>Admin</label>
       <label>Temporary password<input class="monoin" name="password" autocomplete="new-password" minlength="10" placeholder="generated"></label>
     </div>
@@ -396,6 +396,11 @@
     <div class="stats">
       <div class="st wide"><span class="sl">Data folder</span><span class="sv" title="{{.DataDir}}">{{.DataDir}}</span></div>
     </div>
+    {{- if simple}}
+    <div class="stats">
+      <div class="st wide"><span class="sl">Workflow</span><span class="sv" title="Simple (set by yars init)">Simple (set by yars init)</span></div>
+    </div>
+    {{- end}}
   </div>
 </section>
 {{end}}
@@ -500,11 +505,12 @@
     <thead><tr><th>Setting</th><th class="c-on">On</th><th class="c-act"><span class="sr">Action</span></th></tr></thead>
     <tbody>
       <tr>
-        <td class="setname">Require Check before Sign off and Approve</td>
+        {{- $rc := "Require Check before Sign off and Approve"}}{{if simple}}{{$rc = "Require Check before Complete"}}{{end}}
+        <td class="setname">{{$rc}}</td>
         <td>
           <form class="toggle" method="post" action="/admin/rules/require-check">
             <input type="hidden" name="on" value="{{if .RequireCheck}}0{{else}}1{{end}}">
-            <button class="cbx{{if .RequireCheck}} on{{end}}" aria-label="Require Check before Sign off and Approve" aria-pressed="{{if .RequireCheck}}true{{else}}false{{end}}">{{if .RequireCheck}}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>{{end}}</button>
+            <button class="cbx{{if .RequireCheck}} on{{end}}" aria-label="{{$rc}}" aria-pressed="{{if .RequireCheck}}true{{else}}false{{end}}">{{if .RequireCheck}}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>{{end}}</button>
           </form>
         </td>
         <td><span class="slot w96"></span></td>

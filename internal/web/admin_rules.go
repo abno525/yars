@@ -75,7 +75,8 @@ type rulesAdmin struct {
 	Edit     string
 	Form     ruleForm
 	Bench    benchView
-	// RequireCheck: Sign off and Approve wait for a check run (a setting)
+	// RequireCheck: Sign off and Approve (Complete in the simple workflow)
+	// wait for a check run (a setting)
 	RequireCheck bool
 }
 
