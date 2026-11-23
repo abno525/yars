@@ -361,8 +361,9 @@ func fixChecks(s *Server, ctx context.Context, u config.User, a args) (string, e
 // them over MCP now, with the reason transition would give, checked in its
 // order: marking reported is a director's here, then no database (a
 // clone), the archive, the role, status and content gate, and for submit,
-// approve and sign off the store's own blocks with the fast rules (script
-// and AI rules run at the transition itself).
+// approve, sign off and complete the store's own blocks with the fast rules
+// (script and AI rules run at the transition itself). The actions are those
+// of the data folder's workflow (AllowedActions reads it from the config).
 func (s *Server) allowedActions(ctx context.Context, u config.User, ref store.FindingRef) []workflow.Allowed {
 	out := workflow.AllowedActions(u, ref.F.Meta, s.conf())
 	tk, hasTok := tokenFrom(ctx)
