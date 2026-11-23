@@ -10,7 +10,7 @@
     <div class="wfrevs">
       {{- if simple}}
       <span class="rl">Author</span>
-      <span class="chips">{{with .Author}}<span class="rev" title="{{.}}"><span class="name">{{.}}</span></span>{{else}}<span class="none">—</span>{{end}}</span>
+      <span class="chips">{{with .Author}}<span class="rev author" title="{{.}}"><span class="name">{{.}}</span></span>{{else}}<span class="none">—</span>{{end}}</span>
       {{- else}}
       <span class="rl">Reviewers</span>
       <span class="chips">{{range .Chips}}<span class="rev{{if .Cleared}} cleared{{end}}" title="{{.Name}}"><span class="name">{{.Name}}</span></span>{{else}}<span class="none">None</span>{{end}}</span>

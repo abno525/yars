@@ -227,7 +227,8 @@ func TestSimpleBulkMenu(t *testing.T) {
 			t.Errorf("%s menu %v", u, got)
 		}
 		for _, want := range []string{
-			`name="action" value="complete" role="menuitem" data-act="complete" aria-keyshortcuts="Shift&#43;A" disabled>Complete <span class="v">· complete</span>`,
+			// no verb: "Complete · complete" said the word twice
+			`name="action" value="complete" role="menuitem" data-act="complete" aria-keyshortcuts="Shift&#43;A" disabled>Complete</button>`,
 			`name="action" value="report" role="menuitem" data-act="report" aria-keyshortcuts="Shift&#43;P" disabled>Reported <span class="v">· mark reported</span>`,
 			`data-bulk-reason="Draft" role="menuitem" data-act="reopen" disabled>Draft <span class="v">· revert</span>`,
 			`data-bulk-reason="Back to complete" role="menuitem" data-act="unreport" disabled>Back to complete <span class="v">· revert</span>`,

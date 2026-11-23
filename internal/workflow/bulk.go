@@ -39,7 +39,7 @@ var bulkMenus = map[string][]BulkOption{
 // simpleBulk is the bulk Set state menu of the simple workflow, the same for
 // every account; no two entries share a label.
 var simpleBulk = []BulkOption{
-	Flow{Simple: true}.bulkOpt(Complete, "Complete", "complete"),
+	Flow{Simple: true}.bulkOpt(Complete, "Complete", ""), // the state is the verb: no "Complete · complete"
 	Flow{Simple: true}.bulkOpt(Report, "Reported", "mark reported"),
 	Flow{Simple: true}.bulkOpt(Reopen, "Draft", "revert"),
 	Flow{Simple: true}.bulkOpt(Unreport, "Back to complete", "revert"),

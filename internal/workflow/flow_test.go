@@ -305,7 +305,9 @@ func TestSimpleBulk(t *testing.T) {
 	for _, o := range simple.BulkOptions(anna) {
 		byAct[o.Action] = o
 	}
-	for a, want := range map[Action][2]string{Complete: {"Complete", "complete"}, Report: {"Reported", "mark reported"},
+	// Complete has no verb: "Complete · complete" said the word twice (the
+	// end-to-end check); Withdrawn has none either
+	for a, want := range map[Action][2]string{Complete: {"Complete", ""}, Report: {"Reported", "mark reported"},
 		Reopen: {"Draft", "revert"}, Unreport: {"Back to complete", "revert"}, Withdraw: {"Withdrawn", ""}} {
 		if o := byAct[a]; o.Label != want[0] || o.Verb != want[1] {
 			t.Errorf("%s: %+v", a, o)

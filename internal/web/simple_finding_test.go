@@ -311,8 +311,14 @@ func TestSimpleCompleteSlots(t *testing.T) {
 // is refused as the store refuses it, whoever is named.
 func TestSimpleNoReviewerUI(t *testing.T) {
 	e := setupSimple(t)
+	// the author's chip has no square: on a reviewer's chip it says open or
+	// signed off, and on the author's an empty one read as an unticked box
+	// (the end-to-end check)
 	author := `<span class="rl">Author</span>
-      <span class="chips"><span class="rev" title="anna"><span class="name">anna</span></span></span>`
+      <span class="chips"><span class="rev author" title="anna"><span class="name">anna</span></span></span>`
+	if css := stylesheet(t); !strings.Contains(css, ".rev.author::before { content: none; }") {
+		t.Error("style.css lacks the author chip's rule")
+	}
 	look := func(state string) {
 		t.Helper()
 		for _, u := range []string{"anna", "ben"} {

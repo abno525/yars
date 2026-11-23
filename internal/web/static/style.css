@@ -588,6 +588,8 @@ progress::-moz-progress-bar { background: var(--accent); }
 .rev .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .rev.cleared { background: var(--green-bg); color: var(--green-text); }
 .rev.cleared::before { background: currentColor; border-color: currentColor; }
+/* the simple workflow's author chip: no open or signed-off square */
+.rev.author::before { content: none; }
 .pop { position: relative; flex: none; }
 .pop > summary { list-style: none; }
 .pop > summary::-webkit-details-marker { display: none; }
