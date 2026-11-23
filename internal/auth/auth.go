@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"golang.org/x/crypto/bcrypt"
 
@@ -63,6 +64,14 @@ func (a *Auth) Lookup(name string) (config.User, bool) {
 	}
 	return u, true
 }
+
+// MinPassword is the shortest password YARS accepts, in characters: on the
+// website (setup, Admin › Users, a password change) and from yars useradd
+// and yars passwd.
+const MinPassword = 10
+
+// PasswordTooShort reports whether pw has fewer than MinPassword characters.
+func PasswordTooShort(pw string) bool { return utf8.RuneCountInString(pw) < MinPassword }
 
 func HashPassword(pw string) (string, error) {
 	h, err := bcrypt.GenerateFromPassword([]byte(pw), cost)

@@ -2,6 +2,7 @@ package web
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"net/mail"
 	"strings"
@@ -13,8 +14,8 @@ import (
 	"yars/internal/store"
 )
 
-// minPassword is the shortest password YARS accepts from a form.
-const minPassword = 10
+// tooShort is the refusal of a password shorter than auth.MinPassword.
+var tooShort = fmt.Sprintf("Password: at least %d characters", auth.MinPassword)
 
 // noUsers reports whether the database has no account yet (first run).
 // Once one exists the answer is remembered (the web pages can't delete
@@ -54,8 +55,8 @@ func (s *Server) setupPage(w http.ResponseWriter, r *http.Request) {
 // passwordProblem checks a new password typed twice ("" = fine).
 func passwordProblem(pw, repeat string) string {
 	switch {
-	case len([]rune(pw)) < minPassword:
-		return "Password: at least 10 characters"
+	case auth.PasswordTooShort(pw):
+		return tooShort
 	case pw != repeat:
 		return "Passwords differ"
 	}

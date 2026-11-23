@@ -37,8 +37,8 @@
       <div class="panelhead"><h2>Password</h2><div class="actions"><span class="pstate error" title="{{.Settings.PasswordErr}}">{{.Settings.PasswordErr}}</span><button class="btn save sm w96">Change</button></div></div>
       <div class="fgrid three">
         <label class="field">Current<input type="password" name="current" autocomplete="current-password" required></label>
-        <label class="field">New<input type="password" name="new" autocomplete="new-password" minlength="10" required></label>
-        <label class="field">Repeat new<input type="password" name="repeat" autocomplete="new-password" minlength="10" required></label>
+        <label class="field">New<input type="password" name="new" autocomplete="new-password" minlength="{{minPassword}}" required></label>
+        <label class="field">Repeat new<input type="password" name="repeat" autocomplete="new-password" minlength="{{minPassword}}" required></label>
       </div>
     </form>
 

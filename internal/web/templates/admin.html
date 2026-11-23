@@ -203,7 +203,7 @@
       </fieldset>
       {{- end}}
       <label class="chk"><input type="checkbox" name="admin" value="1"{{if eq (.Form.Get "admin") "1"}} checked{{end}}>Admin</label>
-      <label>Temporary password<input class="monoin" name="password" autocomplete="new-password" minlength="10" placeholder="generated"></label>
+      <label>Temporary password<input class="monoin" name="password" autocomplete="new-password" minlength="{{minPassword}}" placeholder="generated"></label>
     </div>
     <div class="pfoot flush"><button class="btn primary w128">Add user</button></div>
   </form>

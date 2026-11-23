@@ -195,7 +195,7 @@ func TestCommandsUseDefaultData(t *testing.T) {
 	dir := initDir(t)
 	t.Setenv("YARS_DATA", dir)
 	var out bytes.Buffer
-	if err := cmdUseradd([]string{"--role", "director", "ann"}, strings.NewReader("pw\n"), &out); err != nil {
+	if err := cmdUseradd([]string{"--role", "director", "ann"}, strings.NewReader("password-1\n"), &out); err != nil {
 		t.Fatal(err)
 	}
 	if err := cmdRole([]string{"ann", "reviewer"}, &out); err != nil {

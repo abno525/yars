@@ -1050,6 +1050,9 @@ func readPassword(in io.Reader, out io.Writer) (string, error) {
 	if pw == "" {
 		return "", fmt.Errorf("empty password (%v)", err)
 	}
+	if auth.PasswordTooShort(pw) { // as the website asks
+		return "", fmt.Errorf("password too short: at least %d characters", auth.MinPassword)
+	}
 	return auth.HashPassword(pw)
 }
 

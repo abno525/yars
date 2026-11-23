@@ -222,6 +222,8 @@ var funcs = template.FuncMap{"join": strings.Join, "checkedIn": checkedIn, "rete
 	// a read panel refetches itself when the finding changed (MCP, a push,
 	// another tab); an open editor has no trigger, so it is never replaced
 	"liveTrigger": func() string { return "sse:content, sse:resync, sse:poll" },
+	// a new password's minlength, as the server checks it
+	"minPassword": func() int { return auth.MinPassword },
 	// simple reports whether the data folder runs the simple workflow; each
 	// server sets its own (init), so any template asks {{if simple}}
 	"simple": func() bool { return false },

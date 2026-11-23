@@ -19,7 +19,7 @@ Needs Go 1.27.
 ```sh
 go build -o yars ./cmd/yars
 ./yars init data
-echo 'change-me' | ./yars useradd --data data --role director --admin alice
+echo 'change-me-now' | ./yars useradd --data data --role director --admin alice
 ./yars serve --data data
 ```
 
@@ -31,7 +31,7 @@ Working alone, or in a team of two? Skip the roles.
 
 ```sh
 ./yars init --simple data
-echo 'change-me' | ./yars useradd --data data --admin alice
+echo 'change-me-now' | ./yars useradd --data data --admin alice
 ```
 
 Draft → complete → reported. Admin or not. That's all.

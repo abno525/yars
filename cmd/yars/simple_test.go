@@ -152,7 +152,7 @@ func TestNewDatabaseTakesConfigWorkflow(t *testing.T) {
 	dir := initSimple(t)
 	dropDB(dir)
 	var out bytes.Buffer
-	if err := cmdUseradd([]string{"--data", dir, "--role", "pentester", "carl"}, strings.NewReader("pw\n"), &out); err == nil || err.Error() != "the simple workflow has no roles" {
+	if err := cmdUseradd([]string{"--data", dir, "--role", "pentester", "carl"}, strings.NewReader("password-1\n"), &out); err == nil || err.Error() != "the simple workflow has no roles" {
 		t.Errorf("useradd --role pentester on a new database: %v", err)
 	}
 
@@ -187,7 +187,7 @@ func TestUseraddSimple(t *testing.T) {
 	dir := initSimple(t)
 	add := func(args ...string) (string, error) {
 		var out bytes.Buffer
-		err := cmdUseradd(append([]string{"--data", dir}, args...), strings.NewReader("pw\n"), &out)
+		err := cmdUseradd(append([]string{"--data", dir}, args...), strings.NewReader("password-1\n"), &out)
 		return out.String(), err
 	}
 	for want, args := range map[string][]string{
@@ -232,7 +232,7 @@ func TestUseraddSimple(t *testing.T) {
 func TestRoleRefusedSimple(t *testing.T) {
 	dir := initSimple(t)
 	var out bytes.Buffer
-	if err := cmdUseradd([]string{"--data", dir, "ben"}, strings.NewReader("pw\n"), &out); err != nil {
+	if err := cmdUseradd([]string{"--data", dir, "ben"}, strings.NewReader("password-1\n"), &out); err != nil {
 		t.Fatal(err)
 	}
 	for _, role := range []string{"pentester", "director"} {
