@@ -408,6 +408,25 @@ func TestSimpleSetReviewersTokenRefused(t *testing.T) {
 	}
 }
 
+// fix_checks on a finding past draft says Fix with AI works on drafts, as
+// the simple workflow's tools/list says; the standard workflow's refusal
+// still names verification.
+func TestSimpleFixChecksDraftsOnly(t *testing.T) {
+	for _, state := range []string{"complete", "reported", "withdrawn"} {
+		f := simpleStateFx(t, state)
+		text, isErr := f.call(ben, "fix_checks", f001())
+		if m := object(t, state, text); !isErr || m["code"] != "not_allowed" || m["message"] != "not allowed: this finding is "+state+"; Fix with AI works on drafts" {
+			t.Errorf("%s: %s", state, text)
+		}
+	}
+	f := newFx(t)
+	f.ok(alice, "transition", map[string]any{"engagement": "acme", "finding": "F-001", "action": "withdraw", "reason": "out of scope"})
+	text, isErr := f.call(dora, "fix_checks", map[string]any{"engagement": "acme", "finding": "F-001"})
+	if m := object(t, "standard", text); !isErr || m["message"] != "not allowed: this finding is withdrawn; Fix with AI works on drafts and findings in verification" {
+		t.Errorf("standard: %s", text)
+	}
+}
+
 // simpleStateFx is a simple-workflow fixture whose F-001 is in state:
 // draft (no severity: not ready), ready (severity high), complete,
 // reported, withdrawn.

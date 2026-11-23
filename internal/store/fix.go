@@ -103,7 +103,11 @@ func (s *Store) StartFix(engID, dir string, u config.User) error {
 		return &workflow.Denied{Reason: "this finding is " + ref.F.Meta.Status + "; " + u.Username + " cannot edit it"}
 	}
 	if !FixOpen(ref.F.Meta.Status) {
-		return &workflow.Denied{Reason: "this finding is " + ref.F.Meta.Status + "; Fix with AI works on drafts and findings in verification"}
+		works := "drafts and findings in verification"
+		if s.Flow().Simple {
+			works = "drafts" // a stray verification reads as a draft there
+		}
+		return &workflow.Denied{Reason: "this finding is " + ref.F.Meta.Status + "; Fix with AI works on " + works}
 	}
 	if !s.AICanFix() {
 		return fmt.Errorf("%w: no AI provider configured", ErrInvalidValue)
