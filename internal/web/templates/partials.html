@@ -79,7 +79,7 @@ the table's column count. */}}
         {{if $.IsRetest}}<td>{{if .RetestResult}}<span class="tag result-{{.RetestResult}}">{{retestLabel .RetestResult}}</span>{{else if .IsRetest}}<span class="muted">—</span>{{else}}<span class="muted small">new</span>{{end}}</td>{{end}}
         <td class="cnt">{{if .OpenThreads}}<span class="badge">{{.OpenThreads}}</span>{{else}}<span class="badge0">0</span>{{end}}</td>
         <td class="clip">{{.Author}}</td>
-        <td class="revs"><span class="rvs">{{$r := .}}{{range .Reviewers}}<span class="rv{{if cleared $r .}} cleared{{end}}" title="{{.}}"><span class="name">{{.}}</span>{{if cleared $r .}}<span class="sr"> (signed off)</span>{{end}}</span>{{else}}<span class="muted">—</span>{{end}}</span></td>
+        {{if not simple}}<td class="revs"><span class="rvs">{{$r := .}}{{range .Reviewers}}<span class="rv{{if cleared $r .}} cleared{{end}}" title="{{.}}"><span class="name">{{.}}</span>{{if cleared $r .}}<span class="sr"> (signed off)</span>{{end}}</span>{{else}}<span class="muted">—</span>{{end}}</span></td>{{end}}
       </tr>
     {{else}}
       {{if not $.Offset}}{{template "empty_row" (colspan $)}}{{end}}

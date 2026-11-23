@@ -746,7 +746,10 @@ func (s *Server) engPage(r *http.Request, eng string, keep map[string]bool) (*pa
 		return nil, err
 	}
 	p.Bars = barsOf(p.Summary)
-	for _, st := range append([]string{""}, index.ShownOrder...) {
+	f := s.flow()
+	// the workflow's own states, in its order (the simple one: no
+	// verification, no signed off), so the digits follow them
+	for _, st := range append([]string{""}, f.ShownAll()...) {
 		label, n, key := workflow.StatusTitle(st), p.Summary.ByShown[st], st
 		if st == "" {
 			label, n, key = "All", p.Summary.Total, "all"
@@ -760,6 +763,10 @@ func (s *Server) engPage(r *http.Request, eng string, keep map[string]bool) (*pa
 		p.IsRetest = true
 		cols = append(append(slices.Clone(columns[:5]), struct{ Key, Label string }{"result", "Result"}), columns[5:]...)
 		p.Source, _ = s.Store.Engagement(p.Eng.Source)
+	}
+	if !f.HasReviewers() {
+		// no reviewers: no Reviewers column (finding_rows leaves its cell out)
+		cols = slices.DeleteFunc(slices.Clone(cols), func(c struct{ Key, Label string }) bool { return c.Key == "reviewers" })
 	}
 	for _, c := range cols {
 		c := c
