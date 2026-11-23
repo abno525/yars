@@ -31,9 +31,18 @@ claude mcp add yars -- yars mcp --data . --user alice
 
 Each engagement folder (`engagements/<id>`) is a separate git repository: commit and `git push` inside it. Settings (`.yars/`, directors only) are pushed from the top folder; `git pull` there first, because the server moves the engagement pointers itself. To work on one engagement only, clone it alone: `git clone https://alice:…@yars.example.com/git/e/<id>`.
 
-The assistant edits your clone and commits as `alice`. Nothing reaches the team until you `git push`; the server then re-checks every change (paths, authorship, whether the finding may still be edited) and rejects anything the website would reject. Set `--role reviewer` (or director) if you are not a pentester, so the local checks match yours.
+The assistant edits your clone and commits as `alice`. Nothing reaches the team until you `git push`; the server then re-checks every change (paths, authorship, whether the finding may still be edited) and rejects anything the website would reject. Set `--role reviewer` (or director) if you are not a pentester, so the local checks match yours; the simple workflow has no roles, so leave it out there.
 
 A clone holds **content only**. Workflow state (status, reviewers, clearances), chat, check runs and notifications live in the server's database, so in local mode the tools marked *server only* answer that you need the server — use the remote setup above for those.
+
+## Simple workflow
+
+A data folder set up with `yars init --simple` runs the simple workflow: draft → complete → reported, with no reviewers and no roles (an account is an admin or not). `initialize`'s instructions and `tools/list` describe it, and the tools follow it:
+
+- `transition` takes `complete` (draft to complete; held as `approve` is, without the reviewers: by the content gate, rule errors, open checks and, with Require Check on, a missing check run of the current text; `base` refuses it if the finding changed since it was read), `reopen` (reason; complete to draft), `report`, `unreport` (reason; reported to complete), `revert`, `withdraw` (reason) and `revise`. `submit`, `return`, `clear`/`sign_off`, `approve` and `take_back` are refused with `not_allowed`: not part of the simple workflow.
+- `get_config` gives `workflow` (`simple`, or `standard` on any other server), the statuses `draft`, `complete`, `reported` and `withdrawn`, and the actions above; `list_findings` filters by those statuses.
+- `whoami` and `list_team` give no role, and `set_field reviewers` is refused with `not_allowed`.
+- `read_finding`'s `allowed_actions` are the simple workflow's actions of the finding's status.
 
 ## Tools
 
@@ -52,9 +61,9 @@ A clone holds **content only**. Workflow state (status, reviewers, clearances), 
 | `start_check` | checks | server only | Start a stored check run (every rule); results arrive as chat comments. Over the server's limit (`checks.max_running`) it waits in a queue: state `queued` |
 | `get_check_results` | read | server only | The latest check run: state (`queued`, `running`, `done`, `failed`), progress, results, whether it is stale |
 | `list_notifications` | read | server only | Your notifications (newest first); `unread: true` for unread ones only |
-| `whoami` | read | local + server | Your username, role, admin flag and (over HTTP) the token's actions and engagements |
-| `get_config` | read | local + server | Sections, details rows, severities, CVSS version and standard values, statuses, transition actions |
-| `list_team` | read | server only | The engagement's members with their roles |
+| `whoami` | read | local + server | Your username, role (none in the simple workflow), admin flag and (over HTTP) the token's actions and engagements |
+| `get_config` | read | local + server | The workflow (`standard` or `simple`), sections, details rows, severities, CVSS version and standard values, statuses, transition actions |
+| `list_team` | read | server only | The engagement's members with their roles (none in the simple workflow) |
 | `read_chat` | read | server only | The finding's whole chat, oldest first: threads with replies (AI replies marked) and workflow events |
 | `list_history` | read | local + server | The finding's versions, newest first: commit, author (AI marked), time, what changed |
 | `list_attachments` | read | local + server | The finding's attachments: name, size, type, whether an earlier version is in the history |
@@ -110,6 +119,7 @@ Some refusals and their messages:
 | `invalid` | `unknown section "Summary"; valid sections: …` | `update_section` with a section the finding doesn't have |
 | `invalid` | `use the transition tool to change the status` | `set_field status` |
 | `not_allowed` | `nothing to revert: the finding is draft` | `transition revert` on a finding that is not complete or reported |
+| `not_allowed` | `not allowed: Approve is not part of the simple workflow (draft → complete → reported)` | `transition` with a step of the standard workflow on a server of the simple one |
 | `invalid` | `unknown status "open"; valid statuses: draft, verification, complete, reported, withdrawn` | `list_findings` with a status (or severity) that does not exist |
 | `invalid` | `F-001 names more than one finding folder (…); use the folder name` | An ID two folders share |
 | `server_error` | `acme/F-001-sqli: cannot be read: …` | The finding's file does not parse (fix it in the repository) |

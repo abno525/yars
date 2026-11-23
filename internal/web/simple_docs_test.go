@@ -38,3 +38,20 @@ func TestSimpleDocsPage(t *testing.T) {
 		t.Errorf("standard token actions:\n%s", sa)
 	}
 }
+
+// The developer docs tell of the simple workflow: the MCP page has its
+// section, and a webhook's status change can carry the action complete.
+func TestSimpleDocsText(t *testing.T) {
+	e := setupSimple(t)
+	mcpPage := e.do(t, "ben", "GET", "/docs/mcp", nil, nil).Body.String()
+	sec := between(mcpPage, ">Simple workflow</h2>", "<h2")
+	for _, w := range []string{"yars init --simple", "<code>complete</code>", "<code>workflow</code>", "not_allowed", "<code>set_field reviewers</code>"} {
+		if !strings.Contains(sec, w) {
+			t.Errorf("the MCP page's simple workflow lacks %q:\n%s", w, sec)
+		}
+	}
+	hooks := e.do(t, "ben", "GET", "/docs/webhooks", nil, nil).Body.String()
+	if row := between(hooks, "<td><code>finding.status_changed</code></td>", "</tr>"); !strings.Contains(row, "<code>complete</code>") || !strings.Contains(row, "<code>approve</code>") {
+		t.Errorf("the status change row:\n%s", row)
+	}
+}

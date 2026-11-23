@@ -46,7 +46,7 @@ def valid(secret: str, body: bytes, header: str) -> bool:
 
 | Event | Extra fields |
 |---|---|
-| `finding.status_changed` | `action` (`submit`, `return`, `clear`, `approve`, `reopen`, `report`, `unreport`, `withdraw`, `revise`, `take_back`), `from`, `to`, `reason` (set for `return`, `withdraw`, `reopen` and `unreport`, the two reverts); `destination` when an export marked it reported |
+| `finding.status_changed` | `action` (`submit`, `return`, `clear`, `approve`, `reopen`, `report`, `unreport`, `withdraw`, `revise`, `take_back`; a server of the simple workflow sends `complete`, `reopen`, `report`, `unreport`, `withdraw` and `revise`, so a finding reaches complete with `complete`, never `approve`), `from`, `to`, `reason` (set for `return`, `withdraw`, `reopen` and `unreport`, the two reverts); `destination` when an export marked it reported |
 | `finding.created` | — |
 | `finding.updated` | `changed`: what changed (`Title`, `Severity`, `CVSS`, `Details`, `Assets`, section names, `Attachments`) |
 | `chat.posted` | `message`: `{id, text, section, reply}` |
