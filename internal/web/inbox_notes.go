@@ -35,9 +35,10 @@ func (s *Server) notesInbox(u config.User, engs []store.Engagement) ([]inboxRow,
 	}
 	// the findings' titles as they are now, as the notifications page shows them
 	current := s.Index.CurrentTitles()
+	simple := s.flow().Simple
 	out := make([]inboxRow, 0, len(l))
 	for _, n := range l {
-		ir := inboxRow{NoteID: n.ID, Title: n.Title, URL: noteTarget(n), TagClass: "nev-" + n.Event, Tag: notify.Label(n.Event),
+		ir := inboxRow{NoteID: n.ID, Title: n.Title, URL: noteTarget(n), TagClass: "nev-" + n.Event, Tag: notify.LabelFor(n.Event, simple),
 			Who: n.Actor, What: excerpt(n.Text), Act: "Open"}
 		if n.Event != notify.Token {
 			ir.Title, ir.EngID, ir.EngName, ir.ID = current(n.Eng, n.Fid, n.Title), n.Eng, names[n.Eng], n.Fid

@@ -7,7 +7,10 @@ import (
 	"strings"
 	"testing"
 
+	"yars/internal/config"
 	"yars/internal/db"
+	"yars/internal/notify"
+	"yars/internal/workflow"
 )
 
 // Admin › Users of the simple workflow: no Role column, no role select in a
@@ -154,5 +157,74 @@ func TestSimpleTokenScopes(t *testing.T) {
 	std := setup(t)
 	if b := std.do(t, "alice", "GET", "/settings/tokens/new", nil, nil).Body.String(); !strings.Contains(b, `name="action" value="reviewers"`) {
 		t.Fatal("standard scopes")
+	}
+}
+
+// The notification settings list the simple workflow's events (Completed,
+// not Approved; no review events), and saving them leaves the hidden events
+// as they are.
+func TestSimpleNotificationSettings(t *testing.T) {
+	e := setupSimple(t)
+	b := e.do(t, "ben", "GET", "/settings", nil, nil).Body.String()
+	tbl := between(b, `<table class="table stable notifytable">`, "</table>")
+	last := -1
+	for _, ev := range notify.EventsFor(true) {
+		i := strings.Index(tbl, `<td class="strong">`+ev.Label+`</td>`)
+		if i < 0 || i < last {
+			t.Fatalf("%s missing or out of order:\n%s", ev.Label, tbl)
+		}
+		last = i
+	}
+	if !strings.Contains(tbl, `value="approved.app"`) || !strings.Contains(tbl, `aria-label="Completed · In app"`) {
+		t.Fatalf("completed row:\n%s", tbl)
+	}
+	for _, no := range []string{"returned.", "review.", "taken_back.", ">Approved<", "Returned to me", "Review requested", "Taken back"} {
+		if strings.Contains(tbl, no) {
+			t.Errorf("notification settings have %q", no)
+		}
+	}
+	if n := strings.Count(tbl, "<tr>"); n != len(notify.EventsFor(true))+1 {
+		t.Fatalf("%d rows", n)
+	}
+	d := e.srv.Store.DB()
+	if err := d.SetNotify("ben", notify.Returned, "app", true); err != nil {
+		t.Fatal(err)
+	}
+	if rec := e.do(t, "ben", "POST", "/settings/notifications", url.Values{"n": {"approved.app", "review.app", "mentioned.app"}}, nil); rec.Code != http.StatusSeeOther {
+		t.Fatalf("save %d", rec.Code)
+	}
+	p, _ := d.NotifyPrefs("ben")
+	if len(p) != 3 || !slices.Equal(p[notify.Returned], []string{"app"}) || !slices.Equal(p[notify.Approved], []string{"app"}) ||
+		!slices.Equal(p[notify.Mentioned], []string{"app"}) {
+		t.Fatalf("prefs %v", p)
+	}
+}
+
+// A notice of a completed finding reads "Completed" on the notifications
+// page and in the inbox; the standard workflow keeps "Approved".
+func TestSimpleNotificationLabel(t *testing.T) {
+	e := setupSimple(t)
+	ben := config.User{Username: "ben", Role: "director"}
+	fd := "F-001-sql-injection"
+	if err := e.srv.Store.UpdateSeverity("acme", fd, "high", "", ben); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.srv.Store.Transition("acme", fd, workflow.Complete, "", ben); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{"/notifications", "/inbox"} {
+		b := e.do(t, "anna", "GET", p, nil, nil).Body.String()
+		if !strings.Contains(b, `<span class="tag nev-approved">Completed</span>`) || strings.Contains(b, `nev-approved">Approved<`) {
+			t.Errorf("%s:\n%s", p, b)
+		}
+	}
+	std := setup(t)
+	if _, err := std.srv.Store.DB().AddNotification(db.Notification{User: "alice", Event: notify.Approved, Eng: "acme", Dir: fd, Fid: "F-001", Title: "SQL injection", Actor: "dora"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{"/notifications", "/inbox"} {
+		if b := std.do(t, "alice", "GET", p, nil, nil).Body.String(); !strings.Contains(b, `<span class="tag nev-approved">Approved</span>`) {
+			t.Errorf("standard %s", p)
+		}
 	}
 }

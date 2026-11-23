@@ -99,8 +99,9 @@ func (s *Server) notificationsPage(w http.ResponseWriter, r *http.Request) {
 		}
 		// the findings' titles as they are now, not as they were then
 		current := s.Index.CurrentTitles()
+		simple := s.flow().Simple
 		for _, n := range l {
-			row := noteRow{ID: n.ID, Event: n.Event, Label: notify.Label(n.Event), Eng: n.Eng, Fid: n.Fid,
+			row := noteRow{ID: n.ID, Event: n.Event, Label: notify.LabelFor(n.Event, simple), Eng: n.Eng, Fid: n.Fid,
 				Title: n.Title, By: n.Actor, At: when(n.TS), Text: n.Text, Read: n.Read, Ref: "Token"}
 			if n.Event != notify.Token {
 				row.Title, row.Ref = current(n.Eng, n.Fid, n.Title), n.Eng+" · "+n.Fid

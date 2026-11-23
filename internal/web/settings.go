@@ -195,7 +195,7 @@ func (s *Server) settingsBase(r *http.Request) (*page, error) {
 		return nil, err
 	}
 	p.Settings.Channels = s.channels()
-	for _, ev := range notify.Events {
+	for _, ev := range notify.EventsFor(s.flow().Simple) {
 		row := notifyRow{Event: ev.Key, Label: ev.Label}
 		for _, ch := range p.Settings.Channels {
 			row.Cells = append(row.Cells, option{Value: ev.Key + "." + ch.Value, Label: ch.Label, On: slices.Contains(prefs[ev.Key], ch.Value)})
@@ -538,9 +538,10 @@ func (s *Server) notifySave(w http.ResponseWriter, r *http.Request) {
 	u := auth.UserFrom(r.Context())
 	r.ParseForm()
 	d := s.Store.DB()
-	// only the channels on the page: a hidden email choice is kept
+	// only the events and channels on the page: a hidden email choice, or an
+	// event the simple workflow does not list, is kept
 	var cs []db.NotifyChoice
-	for _, ev := range notify.Events {
+	for _, ev := range notify.EventsFor(s.flow().Simple) {
 		for _, ch := range s.channels() {
 			cs = append(cs, db.NotifyChoice{Event: ev.Key, Channel: ch.Value, On: slices.Contains(r.PostForm["n"], ev.Key+"."+ch.Value)})
 		}
