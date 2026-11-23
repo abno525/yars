@@ -138,8 +138,9 @@ func TestSimpleCompleteGate(t *testing.T) {
 	}
 }
 
-// With Require Check off, Complete runs the rules inline as Approve does:
-// an error blocks it, worded as BlockingNow words it.
+// With Require Check off, an error rule blocks Complete, worded as
+// BlockingNow words it. A regex rule is fast, so the open checks find it
+// too: TestSimpleCompleteRunsSlowRules pins the inline run.
 func TestSimpleCompleteRunsRules(t *testing.T) {
 	s, dir, fd := simpleDraft(t)
 	withRules(t, s, dir, "- id: t\n  target: title\n  regex_forbid: 'SQL'\n  message: no SQL in titles\n")
@@ -155,6 +156,34 @@ func TestSimpleCompleteRunsRules(t *testing.T) {
 	}
 	if load(t, s, fd).F.Meta.Status != "draft" {
 		t.Fatal("status changed")
+	}
+}
+
+// With Require Check off, Complete runs every rule inline, scripts too,
+// though nobody pressed Check on the content: an error only a script finds
+// (the open checks run the fast rules alone) refuses it until it is
+// dismissed, as it refuses Approve.
+func TestSimpleCompleteRunsSlowRules(t *testing.T) {
+	s, _, fd := simpleDraft(t)
+	if err := s.SetRequireCheck(false, "anna"); err != nil {
+		t.Fatal(err)
+	}
+	s.Linter = slowOnly{}
+	if err := s.UpdateSection(eng, fd, "Impact", "the SECRET key", "", sAnna); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Transition(eng, fd, workflow.Complete, "", sBen); !denied(err) || err.Error() != "cannot complete: A secret is quoted" {
+		t.Fatalf("completed with a script error open: %v", err)
+	}
+	if load(t, s, fd).F.Meta.Status != "draft" {
+		t.Fatal("status changed")
+	}
+	checked(t, s, fd)
+	if err := s.DismissWhy(eng, fd, "secrets", "section:Impact", "SECRET", "a test key", sAnna); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Transition(eng, fd, workflow.Complete, "", sBen); err != nil {
+		t.Fatalf("dismissed script error still blocks: %v", err)
 	}
 }
 
