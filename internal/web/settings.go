@@ -66,7 +66,7 @@ func (s *Server) tokenActions() []string {
 	return db.TokenActions
 }
 
-var tokenExpiry =[]option{{Value: "30", Label: "30 days"}, {Value: "90", Label: "90 days"}, {Value: "365", Label: "1 year"}, {Value: "never", Label: "Never"}}
+var tokenExpiry = []option{{Value: "30", Label: "30 days"}, {Value: "90", Label: "90 days"}, {Value: "365", Label: "1 year"}, {Value: "never", Label: "Never"}}
 
 // Connections: outside services a user can keep a personal key for.
 var connServices = []option{{Value: "confluence", Label: "Confluence"}, {Value: "jira", Label: "Jira"}}
