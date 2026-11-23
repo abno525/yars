@@ -245,7 +245,7 @@ func (s *Server) Handle(ctx context.Context, u config.User, msg []byte) []byte {
 func (s *Server) gate(ctx context.Context, u config.User, t tool, a args) error {
 	eng := a.str("engagement")
 	if tk, ok := tokenFrom(ctx); ok {
-		if act := actionOf(t, a); !tk.Allows(act) {
+		if act := actionIn(s.flow(), t, a); !tk.Allows(act) {
 			return refuse("not_allowed", "not allowed: this token may not "+actionLabel[act])
 		}
 		if t.also != "" && !tk.Allows(t.also) {

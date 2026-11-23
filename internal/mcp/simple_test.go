@@ -366,6 +366,48 @@ func TestSimpleSetReviewersRefused(t *testing.T) {
 	}
 }
 
+// Over HTTP too, set_field reviewers is refused because the simple workflow
+// has no reviewers, not because the token lacks an action the simple server
+// never offers: a token with every other action, or the CLI's, reaches the
+// store's refusal; set_field is an edit, so a token that may not edit is
+// refused that.
+func TestSimpleSetReviewersTokenRefused(t *testing.T) {
+	f := newSimpleFx(t)
+	var offered []string
+	for _, a := range db.TokenActions {
+		if a != "reviewers" {
+			offered = append(offered, a)
+		}
+	}
+	cases := []struct {
+		tok  db.TokenInfo
+		says string
+	}{
+		{db.TokenInfo{Kind: db.TokenMCP, Scopes: offered}, "not allowed: the simple workflow has no reviewers"},
+		{db.TokenInfo{Kind: db.TokenMCP, Scopes: []string{"edit"}}, "not allowed: the simple workflow has no reviewers"},
+		{db.TokenInfo{Kind: db.TokenMCP, Scopes: []string{db.ScopeAll}}, "not allowed: the simple workflow has no reviewers"},
+		{db.TokenInfo{Kind: db.TokenMCP, Scopes: []string{db.ScopeRead}}, "not allowed: this token may not edit findings"},
+		{db.TokenInfo{Kind: db.TokenMCP, Scopes: []string{"reviewers"}}, "not allowed: this token may not edit findings"},
+	}
+	for _, c := range cases {
+		for _, u := range []config.User{anna, ben} {
+			text, isErr := f.callTok(u, c.tok, "set_field", f001("field", "reviewers", "value", "ben"))
+			if m := object(t, "set_field", text); !isErr || m["code"] != "not_allowed" || m["message"] != c.says {
+				t.Errorf("%s with %v: %s", u.Username, c.tok.Scopes, text)
+			}
+		}
+	}
+	var rd struct {
+		State struct {
+			Reviewers []string `json:"reviewers"`
+		} `json:"state"`
+	}
+	json.Unmarshal([]byte(f.ok(anna, "read_finding", f001())), &rd)
+	if len(rd.State.Reviewers) != 0 {
+		t.Errorf("reviewers %v", rd.State.Reviewers)
+	}
+}
+
 // simpleStateFx is a simple-workflow fixture whose F-001 is in state:
 // draft (no severity: not ready), ready (severity high), complete,
 // reported, withdrawn.

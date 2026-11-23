@@ -136,6 +136,17 @@ func actionOf(t tool, a args) string {
 	return t.action
 }
 
+// actionIn is actionOf in workflow f. The simple workflow has no reviewers,
+// nor a token action for them (Settings › Tokens offers none): set_field on
+// reviewers is an edit there, which the store refuses.
+func actionIn(f workflow.Flow, t tool, a args) string {
+	act := actionOf(t, a)
+	if act == "reviewers" && !f.HasReviewers() {
+		return t.action
+	}
+	return act
+}
+
 var actionLabel = map[string]string{"read": "read", "create": "create findings", "edit": "edit findings",
 	"comment": "comment or resolve", "status": "change status", "reviewers": "assign reviewers",
 	"checks": "run checks", "export": "export"}
