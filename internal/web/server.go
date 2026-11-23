@@ -187,6 +187,7 @@ type page struct {
 	Chat          chatView
 	Checks        checksView
 	CloneURL      string
+	CloneCmd      string // the engagements list: the main clone's command for this account (mainClone)
 	Retest        *retestView
 	IsRetest      bool
 	Attach        *attachView // the finding page: its attachments (D4)
@@ -615,12 +616,51 @@ func (s *Server) home(w http.ResponseWriter, r *http.Request) {
 	}
 	if s.Git != nil {
 		p.CloneURL = gitBase(r) + "/git/yars"
+		p.CloneCmd = mainClone(p.CloneURL, store.SeesAll(p.User), p.Engagements)
 	}
 	if err = s.engList(p, r.URL.Query().Get("show")); err != nil {
 		s.fail(w, err)
 		return
 	}
 	s.render(w, "engagements.html", p)
+}
+
+// mainClone is the command that clones the main repository at url with the
+// engagements engs (those the account sees), each on main. The main
+// repository names every engagement as a submodule, and git stops a
+// recursive clone at the first one the account may not fetch (403), so only
+// an account that sees all of them clones recursively; the others check out
+// their own by path.
+func mainClone(url string, all bool, engs []store.Engagement) string {
+	const onMain = "\ngit submodule foreach -q git switch -q main"
+	switch {
+	case all:
+		return "git clone --recurse-submodules " + url + " && cd yars" + onMain
+	case len(engs) == 0:
+		return "git clone " + url
+	}
+	return "git clone " + url + " && cd yars\ngit submodule update --init " + engPaths(engs) + onMain
+}
+
+// mainCloneLine is mainClone on one line, into findings/, for Developers ›
+// Git (which puts the engagements on main on a line of its own).
+func mainCloneLine(url string, all bool, engs []store.Engagement) string {
+	switch {
+	case all:
+		return "git clone --recurse-submodules " + url + " findings"
+	case len(engs) == 0:
+		return "git clone " + url + " findings"
+	}
+	return "git clone " + url + " findings && git -C findings submodule update --init " + engPaths(engs)
+}
+
+// engPaths are the engagements' folders in the main repository.
+func engPaths(engs []store.Engagement) string {
+	paths := make([]string, len(engs))
+	for i, e := range engs {
+		paths[i] = "engagements/" + e.ID
+	}
+	return strings.Join(paths, " ")
 }
 
 // gitBase is the server's base URL as the browser sees it.

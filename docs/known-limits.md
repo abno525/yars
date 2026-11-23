@@ -49,6 +49,7 @@ What the polish backlog left open (it was `docs/superpowers/deferred-minors.md` 
 | In the inbox and Go to, a long engagement ID is cut at 96 px, the whole one on hover | Two date-prefixed IDs (2026-11-acme-webapp, 2026-11-acme-api) can look alike there. |
 | MCP `set_field assets` takes the port as a string | As documented; an agent sending a number is refused with the format and corrects it. |
 | The History page still scrolls when a selected change's diff is taller than the window | The list column fits the window; the diff panel has no height limit. |
+| A clone of the main repository shows every engagement's ID, also of engagements the account is not on | The main repository is one repository for everyone and its `.gitmodules` names every engagement; hiding them needs a per-account view of it. Where an ID would name a client, choose one that does not. |
 
 ## Simple mode
 

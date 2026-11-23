@@ -96,12 +96,12 @@
 <section class="panel compact">
   <div class="panelhead"><h2>Clone</h2><span class="mono">/git/yars · /git/e/&lt;id&gt;</span></div>
   <div class="dkv flush top">
-    <span class="flabel">Everything</span>
-    <div class="codeline"><code id="git-all">git clone --recurse-submodules {{.MainURL}} findings</code><button type="button" class="btn save sm w96" data-copy="git-all">Copy</button></div>
+    <span class="flabel">{{if .MainAll}}Everything{{else}}Your engagements{{end}}</span>
+    <div class="codeline"><code id="git-all">{{.MainCmd}}</code><button type="button" class="btn save sm w96" data-copy="git-all">Copy</button></div>
   </div>
   <div class="dkv flush top">
     <span class="flabel">Each engagement on main</span>
-    <div class="codeline"><code id="git-main">git submodule foreach git switch -q main</code><button type="button" class="btn save sm w96" data-copy="git-main">Copy</button></div>
+    <div class="codeline"><code id="git-main">git submodule foreach -q git switch -q main</code><button type="button" class="btn save sm w96" data-copy="git-main">Copy</button></div>
   </div>
   <table class="table stable clonetable flush">
     <thead><tr><th class="c-id">Engagement</th><th>One engagement</th><th class="c-act2">Copy</th></tr></thead>

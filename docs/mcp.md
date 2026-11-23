@@ -24,10 +24,13 @@ Content changes are committed on the server immediately, authored by you; workfl
 ## Local: work on your clone
 
 ```sh
-git clone --recurse-submodules https://alice:…@yars.example.com/git/yars findings && cd findings
-git submodule foreach git switch -q main      # each engagement is its own repo; work on its main branch
+git clone https://alice:…@yars.example.com/git/yars findings && cd findings
+git submodule update --init engagements/<id>  # each engagement you are on
+git submodule foreach -q git switch -q main   # each engagement is its own repo; work on its main branch
 claude mcp add yars -- yars mcp --data . --user alice
 ```
+
+The Clone panel on the Engagements page shows the clone with your engagements. A pentester or reviewer names the engagements they are on: git stops a recursive clone at the first one they may not fetch. A director or an admin (in the simple workflow, every account) clones them all with `git clone --recurse-submodules` instead of the first two lines.
 
 Each engagement folder (`engagements/<id>`) is a separate git repository: commit and `git push` inside it. Settings (`.yars/`, directors only) are pushed from the top folder; `git pull` there first, because the server moves the engagement pointers itself. To work on one engagement only, clone it alone: `git clone https://alice:…@yars.example.com/git/e/<id>`.
 

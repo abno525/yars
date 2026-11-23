@@ -28,12 +28,24 @@ A sign-off covers a finding's text and its attachments. A push that changes eith
 
 ## Cloning and pulling
 
+Directors and admins (in the simple workflow, every account) see every engagement and clone them all:
+
 ```sh
-git clone --recurse-submodules https://<server>/git/yars findings
-git -C findings submodule foreach git switch -q main
+git clone --recurse-submodules https://<server>/git/yars findings && cd findings
+git submodule foreach -q git switch -q main
 ```
 
-Git checks submodules out on a detached HEAD: a commit made there is on no branch, and the push of `main` leaves it out. The second line puts every engagement on `main`. `git pull --recurse-submodules` (and `git submodule update`) detaches them again: run the same `git submodule foreach git switch -q main` after it, or pull inside an engagement (`git -C findings/engagements/<id> pull`), which keeps it on `main`.
+A pentester or reviewer may fetch only the engagements whose team they are on, and git stops a recursive clone at the first one they are not on. So they name their own, as the Clone panel on the Engagements page does for them; the other engagements stay empty folders:
+
+```sh
+git clone https://<server>/git/yars findings && cd findings
+git submodule update --init engagements/<id> engagements/<id2>
+git submodule foreach -q git switch -q main
+```
+
+Git checks submodules out on a detached HEAD: a commit made there is on no branch, and the push of `main` leaves it out. The last line puts every engagement on `main`. To pull, run `git pull` in the top folder, then `git submodule foreach -q git pull -q`: each engagement pulls its `main`. `git pull --recurse-submodules` (and `git submodule update`) detaches them again, and switching back to `main` after it lands on the `main` of the previous pull: pull there too. A pull touches only the engagements the clone checked out.
+
+A new engagement is checked out with `git submodule update --init engagements/<id>` (a director or an admin may leave out the path), then switched to `main` as above. Without the path, a pentester's or reviewer's `git submodule update --init` stops at the first engagement they are not on, and every later pull tries that one again; `git submodule deinit engagements/<id>` takes it out (it warns that it could not unset `core.worktree`, which does no harm).
 
 With a clone URL that holds your user name, as Developers › Git shows it, git prints `warning: redirecting to …/git/yars/`: it compares the URL it was given with the one it reached, which has no user name. Nothing is redirected, and the clone is whole.
 
@@ -114,7 +126,7 @@ Errors and warnings dismissed on the finding's Checks panel don't count. The res
 yars hook install --data <clone>
 ```
 
-Run it once in each clone (a main clone or an engagement clone), and again after a new engagement arrives in a main clone (`git submodule update --init`): it puts a `pre-commit` hook in every engagement repository. Each commit then sends the `finding.md` files it adds or changes (as staged, not the work tree) to the server, which checks them as the Check button does, with the same rules, AI rules included, and the finding's workflow state, so a commit can take as long as a Check does (at most two minutes). Nothing of it is kept on the server (no commit, no check run) except what Check keeps too: the AI usage records, under your account, and the stored script and AI results (Script rules › Stored results).
+Run it once in each clone (a main clone or an engagement clone), and again after a new engagement is checked out in a main clone (`git submodule update --init engagements/<id>`): it puts a `pre-commit` hook in every engagement repository. Each commit then sends the `finding.md` files it adds or changes (as staged, not the work tree) to the server, which checks them as the Check button does, with the same rules, AI rules included, and the finding's workflow state, so a commit can take as long as a Check does (at most two minutes). Nothing of it is kept on the server (no commit, no check run) except what Check keeps too: the AI usage records, under your account, and the stored script and AI results (Script rules › Stored results).
 
 The hook signs in with the login git has saved for the clone and never asks for one: the login in the clone URL (a Git token from Settings › Tokens works there, and failed tokens never lock the account), or the one git's credential helper keeps. Stock git keeps none: set a helper once (`git config --global credential.helper store`, or `cache`, or your system's keyring helper), then `git fetch` once to save the login. A login the server refuses is forgotten by the helper, as git does. The hook reaches the server as git does (`http.sslCAInfo`, `http.sslVerify`, `http.proxy`).
 
