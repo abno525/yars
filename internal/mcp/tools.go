@@ -846,11 +846,22 @@ var coreTools = []tool{
 			if s.Index != nil {
 				title = s.Index.CurrentTitles() // the title now, as the web shows it
 			}
+			f := s.flow()
 			for _, n := range l {
-				out = append(out, note{n.ID, n.Event, n.Eng, n.Fid, n.Dir, title(n.Eng, n.Fid, n.Title), n.Actor, n.Text, n.TS, n.Read})
+				out = append(out, note{n.ID, eventIn(f, n.Event), n.Eng, n.Fid, n.Dir, title(n.Eng, n.Fid, n.Title), n.Actor, n.Text, n.TS, n.Read})
 			}
 			return list(out, next)
 		}},
+}
+
+// eventIn is a notification's event as workflow f names it: the simple one
+// has no approval, so what Complete tells the author (notify.Approved, the
+// web's "Completed") is "completed" there.
+func eventIn(f workflow.Flow, event string) string {
+	if f.Simple && event == "approved" {
+		return "completed"
+	}
+	return event
 }
 
 var toolByName = func() map[string]tool {

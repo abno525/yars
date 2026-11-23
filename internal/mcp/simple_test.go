@@ -427,6 +427,36 @@ func TestSimpleFixChecksDraftsOnly(t *testing.T) {
 	}
 }
 
+// list_notifications names a completion "completed" in the simple
+// workflow, which has no approval; the other events keep their names, and
+// the standard workflow's approval stays "approved".
+func TestSimpleNotificationsCompleted(t *testing.T) {
+	events := func(f *fx, u config.User) string {
+		var notes []struct{ Event, By string }
+		itemsOf(t, f.ok(u, "list_notifications", nil), &notes)
+		var out []string
+		for _, n := range notes {
+			out = append(out, n.Event+" by "+n.By)
+		}
+		return strings.Join(out, ", ")
+	}
+	f := newSimpleFx(t)
+	d := f.s.Store.DB()
+	d.AddUser(anna)
+	d.AddNotification(db.Notification{User: "anna", Event: "reply", Eng: "acme", Fid: "F-001", Actor: "ben", Text: "done"})
+	d.AddNotification(db.Notification{User: "anna", Event: "approved", Eng: "acme", Fid: "F-001", Actor: "ben"})
+	d.AddNotification(db.Notification{User: "anna", Event: "reverted", Eng: "acme", Fid: "F-001", Actor: "ben", Text: "a typo"})
+	if got := events(f, anna); got != "reverted by ben, completed by ben, reply by ben" {
+		t.Errorf("simple: %s", got)
+	}
+	std := newFx(t)
+	std.s.Store.DB().AddUser(alice)
+	std.s.Store.DB().AddNotification(db.Notification{User: "alice", Event: "approved", Eng: "acme", Fid: "F-001", Actor: "dora"})
+	if got := events(std, alice); got != "approved by dora" {
+		t.Errorf("standard: %s", got)
+	}
+}
+
 // simpleStateFx is a simple-workflow fixture whose F-001 is in state:
 // draft (no severity: not ready), ready (severity high), complete,
 // reported, withdrawn.
