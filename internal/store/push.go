@@ -310,7 +310,7 @@ func (s *Store) pushEvents(eng, actor string, ps []pushedFinding) ([]Event, erro
 		if got, ok := states[pf.cur.Meta.ID]; ok {
 			st = got
 		}
-		applyState(&pf.cur.Meta, st, contentHash(pf.raw))
+		applyState(&pf.cur.Meta, st, contentHash(pf.raw), s.Flow())
 		ref := FindingRef{EngID: eng, Dir: pf.dir, F: pf.cur}
 		switch {
 		case pf.old == nil && pf.md != 0:

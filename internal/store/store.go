@@ -24,6 +24,7 @@ import (
 	"yars/internal/finding"
 	"yars/internal/gitrepo"
 	"yars/internal/rules"
+	"yars/internal/workflow"
 )
 
 var (
@@ -83,6 +84,9 @@ type Store struct {
 	cfgMu   sync.RWMutex
 	cfg     config.Config // read through Config()
 	cfgSubs []func(config.Config)
+	// workflowKey is config.yaml's workflow key as New was given it: fixed
+	// by yars init, so applyConfig keeps it whatever a later config says
+	workflowKey string
 	// applyMu orders configurations: each is set and handed to every
 	// subscriber before the next (taken before mainMu, never under it)
 	applyMu sync.Mutex
@@ -160,9 +164,10 @@ type Linter interface {
 
 // New opens the store on repo r. d holds workflow state and chat; nil means
 // content only (state reads as draft, state and chat writes return ErrNoDB).
+// cfg's workflow is the store's for good (see applyConfig).
 func New(r *gitrepo.Repo, cfg config.Config, d *db.DB) *Store {
 	root, err := os.OpenRoot(r.Dir)
-	return &Store{repo: r, db: d, cfg: cfg, root: root, rootErr: err}
+	return &Store{repo: r, db: d, cfg: cfg, workflowKey: cfg.Workflow, root: root, rootErr: err}
 }
 
 // DB is the database (nil on a local clone).
@@ -175,6 +180,10 @@ func (s *Store) Config() config.Config {
 	return s.cfg
 }
 
+// Flow is the data folder's workflow (config.yaml's workflow key as the
+// store was created with it: applyConfig keeps it).
+func (s *Store) Flow() workflow.Flow { return workflow.FlowOf(s.Config()) }
+
 // SetConfig replaces the configuration (after config.yaml was saved, on
 // the website or by a push) and tells the OnConfig subscribers.
 func (s *Store) SetConfig(c config.Config) {
@@ -183,8 +192,15 @@ func (s *Store) SetConfig(c config.Config) {
 	s.applyConfig(c)
 }
 
-// applyConfig sets c and tells the subscribers, under applyMu.
-func (s *Store) applyConfig(c config.Config) {
+// applyConfig sets c and tells the subscribers, under applyMu, and returns
+// c as applied. The workflow stays the one the store was created with (it
+// is set by yars init): one c switches is logged and replaced.
+func (s *Store) applyConfig(c config.Config) config.Config {
+	if pinned := (config.Config{Workflow: s.workflowKey}); c.Simple() != pinned.Simple() {
+		log.Printf("config: workflow %q not applied: this data folder runs the %s workflow (set by yars init)",
+			c.Workflow, workflow.FlowOf(pinned).Name())
+		c.Workflow = s.workflowKey
+	}
 	s.cfgMu.Lock()
 	s.cfg = c
 	subs := s.cfgSubs
@@ -193,11 +209,13 @@ func (s *Store) applyConfig(c config.Config) {
 		fn(c)
 	}
 	s.pumpChecks() // a raised checks.max_running starts queued runs
+	return c
 }
 
 // ReloadConfig applies config.yaml as the main repo has it now and returns
-// it: read and applied in one step, so of two saves (a push, Admin ›
-// Structure) the one applied last is the one on disk last.
+// it as applied (its workflow the store's): read and applied in one step,
+// so of two saves (a push, Admin › Structure) the one applied last is the
+// one on disk last.
 func (s *Store) ReloadConfig() (config.Config, error) {
 	s.applyMu.Lock()
 	defer s.applyMu.Unlock()
@@ -207,8 +225,7 @@ func (s *Store) ReloadConfig() (config.Config, error) {
 	if err != nil {
 		return config.Config{}, err
 	}
-	s.applyConfig(c)
-	return c, nil
+	return s.applyConfig(c), nil
 }
 
 // OnConfig registers fn to be told each configuration SetConfig applies

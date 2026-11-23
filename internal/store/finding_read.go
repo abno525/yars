@@ -21,8 +21,11 @@ func ContentHash(raw []byte) string { return BodyHash(string(raw)) }
 
 func contentHash(raw []byte) string { return ContentHash(raw) }
 
-// applyState fills the workflow fields of m from st.
-func applyState(m *finding.Meta, st db.State, hash string) {
+// applyState fills the workflow fields of m from st, as workflow f reads
+// it. The simple workflow has no verification and no reviewers: a stored
+// verification, and a complete or reported finding whose content changed
+// after its approval, read as draft, and stored reviewers are left out.
+func applyState(m *finding.Meta, st db.State, hash string, f workflow.Flow) {
 	m.Status, m.Reviewers, m.ClearedBy, m.Returned, m.Withdrawn, m.Retest = st.Status, nil, nil, nil, nil, nil
 	if m.Status == "" {
 		m.Status = "draft"
@@ -42,7 +45,16 @@ func applyState(m *finding.Meta, st db.State, hash string) {
 	if st.RetestSource != "" {
 		m.Retest = &finding.Retest{Source: st.RetestSource, Result: st.RetestResult}
 	}
-	if (st.Status == "complete" || st.Status == "reported") && !Approved(st, hash) {
+	drifted := (st.Status == "complete" || st.Status == "reported") && !Approved(st, hash)
+	if f.Simple {
+		// nothing to review: a drifted finding is completed again
+		if drifted || st.Status == "verification" {
+			m.Status = "draft"
+		}
+		m.Reviewers, m.ClearedBy = nil, nil
+		return
+	}
+	if drifted {
 		// the content changed after approval without a director's edit
 		// through YARS (e.g. a push that raced the approve): review again
 		m.Status = "verification"
@@ -196,7 +208,7 @@ func (s *Store) read(engID, dir string, states map[string]db.State) (FindingRef,
 		}
 	}
 	hash := contentHash(b)
-	applyState(&f.Meta, st, hash)
+	applyState(&f.Meta, st, hash, s.Flow())
 	ref := FindingRef{EngID: engID, Dir: dir, F: f, Hash: hash}
 	if fi, err := s.root.Stat(findingPath(engID, dir)); err == nil {
 		ref.Modified = fi.ModTime().UTC()

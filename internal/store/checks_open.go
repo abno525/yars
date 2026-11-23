@@ -35,14 +35,15 @@ func (s *Store) BlockingNow(engID, dir string, act workflow.Action, u config.Use
 }
 
 // blocking lists what blocks act on the finding (content hash): Submit and
-// Approve run every rule now (scripts and AI too: no check run may have
-// covered the content) and are blocked by its undismissed errors; Sign off
-// and Approve are blocked by every open check, warnings too (OpenChecks,
-// the source the page and Ready to approve show). With Require Check on,
-// Sign off and Approve first need a finished run on this content
-// (checkGate), and Approve runs nothing inline: the run is the source. The
-// rules run for u on the finding (their AI calls are recorded so, D24);
-// kinds are the rules run inline (Transition: all; BlockingNow: fast).
+// Approve (and Complete, the simple workflow's approval) run every rule now
+// (scripts and AI too: no check run may have covered the content) and are
+// blocked by its undismissed errors; Sign off, Approve and Complete are
+// blocked by every open check, warnings too (OpenChecks, the source the page
+// and Ready to approve show). With Require Check on, Sign off, Approve and
+// Complete first need a finished run on this content (checkGate), and
+// Approve and Complete run nothing inline: the run is the source. The rules
+// run for u on the finding (their AI calls are recorded so, D24); kinds are
+// the rules run inline (Transition: all; BlockingNow: fast).
 func (s *Store) blocking(act workflow.Action, ref FindingRef, hash string, u config.User, kinds rules.Kind) ([]string, error) {
 	var out []string
 	gate := SignsOff(act) && s.gating()
@@ -56,7 +57,7 @@ func (s *Store) blocking(act workflow.Action, ref FindingRef, hash string, u con
 			out = append(out, g)
 		}
 	}
-	if act == workflow.Submit || (act == workflow.Approve && !gate) {
+	if act == workflow.Submit || ((act == workflow.Approve || act == workflow.Complete) && !gate) {
 		ctx := rules.WithCaller(context.Background(), rules.Caller{User: u.Username, Eng: ref.EngID, Fid: ref.F.Meta.ID})
 		vs, err := s.undismissed(ref.EngID, ref.F.Meta.ID, s.Linter.Lint(ctx, ref.F, kinds))
 		if err != nil {
@@ -269,7 +270,7 @@ func (s *Store) LintContent(ctx context.Context, engID string, raw []byte) ([]ru
 			return nil, err
 		}
 	}
-	applyState(&f.Meta, st, contentHash(raw))
+	applyState(&f.Meta, st, contentHash(raw), s.Flow())
 	c := rules.CallerOf(ctx)
 	c.Eng, c.Fid = engID, ""
 	if lintFidRe.MatchString(f.Meta.ID) {

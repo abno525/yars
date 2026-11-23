@@ -58,5 +58,8 @@ func checkKey(eng, fid string) string { return eng + "/" + fid }
 func notice(v rules.Violation) bool { return v.Target == "rules" || v.Target == "ai" }
 
 // SignsOff reports whether an action hands a finding on towards a director
-// (Sign off, Approve): it needs the finding clean, warnings dismissed too.
-func SignsOff(act workflow.Action) bool { return act == workflow.Clear || act == workflow.Approve }
+// (Sign off, Approve) or completes it (Complete, the simple workflow's
+// approval): it needs the finding clean, warnings dismissed too.
+func SignsOff(act workflow.Action) bool {
+	return act == workflow.Clear || act == workflow.Approve || act == workflow.Complete
+}

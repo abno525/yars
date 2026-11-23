@@ -557,7 +557,7 @@ func (s *Store) Merge(engID, srcDir, dstDir string, u config.User) error {
 	if !workflow.AtLeast(u, "director") {
 		return &workflow.Denied{Reason: "only a director can merge findings"}
 	}
-	if err := workflow.Check(u, src.F.Meta, workflow.Withdraw); err != nil {
+	if err := s.Flow().Check(u, src.F.Meta, workflow.Withdraw); err != nil {
 		return err
 	}
 	if !workflow.Active(dst.F.Meta.Status) {

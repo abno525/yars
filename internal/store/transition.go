@@ -85,7 +85,7 @@ func (s *Store) changeState(engID, dir string, fn func(ref FindingRef, st *db.St
 		if err != nil {
 			return err
 		}
-		applyState(&ref.F.Meta, st, hash)
+		applyState(&ref.F.Meta, st, hash, s.Flow())
 		msgs, err := fn(ref, &st, hash)
 		if err != nil {
 			return err
@@ -272,14 +272,20 @@ func (s *Store) transition(engID, dir string, act workflow.Action, reason, seen,
 			st.ReturnedBy, st.ReturnedReason = "", ""
 		case workflow.Approve:
 			st.ApprovedHash = hash // approval is for exactly this content
+		case workflow.Complete:
+			// the simple workflow's approval: for exactly this content, so
+			// an edit through YARS keeps it complete (carryApproval)
+			uncleared()
+			st.ReturnedBy, st.ReturnedReason = "", ""
+			st.ApprovedHash = hash
 		}
-		_, st.Status = workflow.Target(act)
+		_, st.Status = s.Flow().Target(act)
 		return []chat.Message{ev}, nil
 	})
 	if err != nil {
 		return err
 	}
-	_, done.To = workflow.Target(act)
+	_, done.To = s.Flow().Target(act)
 	s.Emit(done)
 	return nil
 }
@@ -297,7 +303,7 @@ func (s *Store) MarkExported(engID, dir, destination string, u config.User) erro
 	}
 	var done Event
 	err := s.changeState(engID, dir, func(ref FindingRef, st *db.State, _ string) ([]chat.Message, error) {
-		from, to := workflow.Target(workflow.Report)
+		from, to := s.Flow().Target(workflow.Report)
 		if !slices.Contains(from, ref.F.Meta.Status) {
 			return nil, &workflow.Denied{Reason: ref.F.Meta.ID + " is " + ref.F.Meta.Status + ", not complete"}
 		}
@@ -316,8 +322,12 @@ func (s *Store) MarkExported(engID, dir, destination string, u config.User) erro
 // SetReviewers replaces the reviewer list as u. The author is never
 // assigned: a director author's own sign-off (Q25) is kept as it is, and
 // dropped with the next list once a return or a take back cleared it.
-// Clearances of reviewers who stay are kept.
+// Clearances of reviewers who stay are kept. The simple workflow has no
+// reviewers: refused (*workflow.Denied).
 func (s *Store) SetReviewers(engID, dir string, names []string, u config.User) error {
+	if err := s.noReviewers(); err != nil {
+		return err
+	}
 	var done Event
 	err := s.changeState(engID, dir, func(ref FindingRef, st *db.State, _ string) ([]chat.Message, error) {
 		m := ref.F.Meta
@@ -382,6 +392,15 @@ func (s *Store) SetReviewers(engID, dir string, names []string, u config.User) e
 
 const errSelfAssign = "only the author or a director can make you a reviewer"
 
+// noReviewers refuses a change of the reviewer list in a workflow without
+// reviewers (the simple one).
+func (s *Store) noReviewers() error {
+	if !s.Flow().HasReviewers() {
+		return &workflow.Denied{Reason: "the simple workflow has no reviewers"}
+	}
+	return nil
+}
+
 // reviewersDenied is why the reviewer list of m cannot change: the finding
 // is no longer open, or the user may not assign.
 func reviewersDenied(m finding.Meta) error {
@@ -395,8 +414,12 @@ func reviewersDenied(m finding.Meta) error {
 // it is inside the change, so a reviewer someone added meanwhile (and their
 // sign-off) stays. The author's name, and u's own when u may only add
 // (workflow.CanAddReviewer), are skipped; when no name could be added and
-// none was on the list already, it is *workflow.Denied.
+// none was on the list already, it is *workflow.Denied (as it is in the
+// simple workflow, which has no reviewers).
 func (s *Store) AddReviewers(engID, dir string, names []string, u config.User) error {
+	if err := s.noReviewers(); err != nil {
+		return err
+	}
 	var done Event
 	err := s.changeState(engID, dir, func(ref FindingRef, st *db.State, _ string) ([]chat.Message, error) {
 		m := ref.F.Meta
