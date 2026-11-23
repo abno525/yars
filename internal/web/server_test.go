@@ -8,9 +8,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
+	"weak"
 
 	"golang.org/x/crypto/bcrypt"
 
@@ -44,13 +46,19 @@ type env struct {
 // process with them.
 func setup(t *testing.T) *env {
 	t.Helper()
-	// a test may build several servers; t.Parallel may be called once
-	if _, again := paralleled.LoadOrStore(t, true); !again {
-		t.Parallel()
-	}
+	parallelOnce(t)
 	e := newEnv(t)
 	e.parallel = true
 	return e
+}
+
+// parallelOnce makes t parallel the first time a setup asks (a test may build
+// several servers; t.Parallel may be called once) and forgets t when it ends.
+func parallelOnce(t *testing.T) {
+	if _, again := paralleled.LoadOrStore(t, true); !again {
+		t.Cleanup(func() { paralleled.Delete(t) })
+		t.Parallel()
+	}
 }
 
 // setupSerial is setup for a test that must not run beside others: it counts
@@ -60,6 +68,44 @@ func setup(t *testing.T) *env {
 func setupSerial(t *testing.T) *env {
 	t.Helper()
 	return newEnv(t)
+}
+
+// A finished test lets its server go. testing keeps every parallel test, and
+// the cleanups it registered, until the whole package has run, so a cleanup
+// holding the server kept it (store, database, index, pages): 16 MB a test,
+// 6 GB over the package, more than a CI runner has. setup also forgets the
+// test in paralleled.
+func TestFinishedTestsLetTheirServerGo(t *testing.T) {
+	var kept []*testing.T // as testing keeps them
+	var servers []weak.Pointer[Server]
+	for _, c := range []struct {
+		name, user string
+		mk         func(*testing.T) *env
+	}{{"setup", "dora", setup}, {"serial", "dora", setupSerial}, {"simple", "anna", setupSimple}} {
+		// a parallel subtest has ended when its group's Run returns
+		t.Run(c.name, func(t *testing.T) {
+			t.Run("test", func(t *testing.T) {
+				kept = append(kept, t)
+				e := c.mk(t)
+				// the server builds its pages
+				if rec := e.do(t, c.user, "GET", "/e/acme/f/F-001-sql-injection", nil, nil); rec.Code != 200 {
+					t.Fatalf("code %d", rec.Code)
+				}
+				servers = append(servers, weak.Make(e.srv))
+			})
+		})
+	}
+	runtime.GC()
+	runtime.GC()
+	for i, w := range servers {
+		if w.Value() != nil {
+			t.Errorf("%s: its server is still live", kept[i].Name())
+		}
+		if _, held := paralleled.Load(kept[i]); held {
+			t.Errorf("%s: still in paralleled", kept[i].Name())
+		}
+	}
+	runtime.KeepAlive(kept)
 }
 
 // serialOnly fails a parallel test that does something only a serial one may.
@@ -88,7 +134,10 @@ func newEnv(t *testing.T) *env {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { d.Close() })
+	// each cleanup lets go of what it closed: testing keeps the test, and so
+	// its cleanups, until the whole package has run
+	// (TestFinishedTestsLetTheirServerGo)
+	t.Cleanup(func() { d.Close(); d = nil })
 	st := store.New(r, cfg, d)
 	a := gitrepo.Author{Name: "alice", Email: "alice@yars.local"}
 	if err := st.CreateEngagement(store.Engagement{ID: "acme", Name: "ACME Web"}, a); err != nil {
@@ -115,7 +164,7 @@ func newEnv(t *testing.T) *env {
 	au := auth.New(d)
 	s := &Server{Store: st, Index: index.New(st, r), Auth: au, Cfg: cfg}
 	e := &env{srv: s, h: s.Handler(), dir: dir, toks: map[string]string{}}
-	t.Cleanup(s.Close)
+	t.Cleanup(func() { s.Close(); s = nil })
 	for _, u := range users {
 		tok, ok := au.Login(u.Username, "pw")
 		if !ok {
