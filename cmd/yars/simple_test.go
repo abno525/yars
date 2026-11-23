@@ -10,6 +10,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"yars/internal/config"
+	"yars/internal/gitrepo"
 )
 
 // initSimple sets up a data folder with the simple workflow.
@@ -60,6 +61,59 @@ func TestInitSimple(t *testing.T) {
 	}
 	if _, err := os.Stat(config.ConfigPath(late)); err == nil {
 		t.Fatal("a folder was set up")
+	}
+}
+
+// handEdit commits config.yaml as body in the data folder, as an admin's
+// edit on the server would land (an uncommitted one is put back to HEAD on
+// start).
+func handEdit(t *testing.T, dir string, body []byte) {
+	t.Helper()
+	if err := os.WriteFile(config.ConfigPath(dir), body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("git", "-C", dir, "-c", "user.name=x", "-c", "user.email=x@x", "-c", "commit.gpgsign=false",
+		"commit", "-qam", "hand edit").CombinedOutput(); err != nil {
+		t.Fatalf("%v %s", err, out)
+	}
+}
+
+// serve does not start when config.yaml's workflow is not the one yars init
+// set up (its database setting), whichever way, and says how to put it
+// back; a folder whose two agree starts on its workflow.
+func TestServeRefusesWorkflowMismatch(t *testing.T) {
+	std, _ := yaml.Marshal(config.Default())
+	simple := append([]byte("workflow: simple\n"), std...)
+
+	dir := initSimple(t)
+	handEdit(t, dir, std)
+	r, _ := gitrepo.Open(dir)
+	if _, _, _, err := prepareData(r); err == nil || err.Error() != "config.yaml says workflow standard but this data folder was set up with simple (yars init); put workflow: simple back" {
+		t.Fatalf("simple folder, standard config: %v", err) // fatal: yars serve below would serve
+	}
+	// through yars serve: it stops before it listens
+	if err := cmdServe([]string{"--data", dir, "--addr", "127.0.0.1:0"}); err == nil || !strings.Contains(err.Error(), "put workflow: simple back") {
+		t.Errorf("yars serve: %v", err)
+	}
+
+	dir = t.TempDir()
+	if err := initData(dir); err != nil {
+		t.Fatal(err)
+	}
+	handEdit(t, dir, simple)
+	r, _ = gitrepo.Open(dir)
+	if _, _, _, err := prepareData(r); err == nil || err.Error() != "config.yaml says workflow simple but this data folder was set up with standard (yars init); put workflow: standard back" {
+		t.Errorf("standard folder, simple config: %v", err)
+	}
+
+	r, _ = gitrepo.Open(initSimple(t))
+	cfg, d, st, err := prepareData(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	if !cfg.Simple() || !st.Flow().Simple {
+		t.Fatalf("a simple folder starts on %s", st.Flow().Name())
 	}
 }
 

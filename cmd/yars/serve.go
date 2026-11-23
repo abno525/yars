@@ -26,6 +26,7 @@ import (
 	"yars/internal/secret"
 	"yars/internal/store"
 	"yars/internal/web"
+	"yars/internal/workflow"
 )
 
 // stopGrace is how long a stop waits for requests in flight, and then for
@@ -48,7 +49,8 @@ func backfillTeams(st *store.Store, d *db.DB) error {
 
 // prepareData readies a data folder the way every start does, before the
 // first request: a push cut off mid-way leaves no tree behind, the database
-// is opened (and migrated), teams are backfilled, board claims a stop cut off
+// is opened (and migrated), config.yaml's workflow is checked against the
+// one yars init set up, teams are backfilled, board claims a stop cut off
 // are reset, server files are git-ignored and the engagement pointers follow
 // their repositories. The upgrade test runs it on old data.
 func prepareData(r *gitrepo.Repo) (config.Config, *db.DB, *store.Store, error) {
@@ -64,6 +66,10 @@ func prepareData(r *gitrepo.Repo) (config.Config, *db.DB, *store.Store, error) {
 	}
 	d, err := dataDB(r.Dir)
 	if err != nil {
+		return config.Config{}, nil, nil, err
+	}
+	if err := checkWorkflow(cfg, d); err != nil {
+		d.Close()
 		return config.Config{}, nil, nil, err
 	}
 	st := store.New(r, cfg, d)
@@ -85,6 +91,23 @@ func prepareData(r *gitrepo.Repo) (config.Config, *db.DB, *store.Store, error) {
 		return fail("update engagement pointers", err)
 	}
 	return cfg, d, st, nil
+}
+
+// checkWorkflow refuses a config.yaml whose workflow is not the one the
+// data folder was set up with: yars init records it in the database
+// (workflowSetting), and it cannot change after (a hand edit of the file).
+func checkWorkflow(cfg config.Config, d *db.DB) error {
+	set, err := d.Setting(workflowSetting)
+	if err != nil {
+		return fmt.Errorf("workflow setting: %w", err)
+	}
+	if set == "" {
+		set = config.WorkflowStandard
+	}
+	if now := workflow.FlowOf(cfg).Name(); now != set {
+		return fmt.Errorf("config.yaml says workflow %s but this data folder was set up with %s (yars init); put workflow: %s back", now, set, set)
+	}
+	return nil
 }
 
 func cmdServe(args []string) error {
@@ -119,7 +142,11 @@ func cmdServe(args []string) error {
 		return err
 	}
 	if users, _ := d.Users(); len(users) == 0 {
-		log.Println("no accounts yet: open the web page to set up the first admin (/setup), or run: yars useradd --data", r.Dir, "--role director --admin <name>")
+		role := "--role director " // the simple workflow has no roles
+		if cfg.Simple() {
+			role = ""
+		}
+		log.Println("no accounts yet: open the web page to set up the first admin (/setup), or run: yars useradd --data", r.Dir, role+"--admin <name>")
 	}
 	eng := rules.NewEngine(rules.DirFor(r.Dir), cfg)
 	st.Linter = eng
