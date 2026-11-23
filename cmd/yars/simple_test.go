@@ -12,7 +12,9 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"yars/internal/config"
+	"yars/internal/db"
 	"yars/internal/gitrepo"
+	"yars/internal/store"
 	"yars/internal/workflow"
 )
 
@@ -307,6 +309,45 @@ func TestHookBrokenConfigKeepsSimple(t *testing.T) {
 		if (code == 0) != ok || (!ok && !strings.Contains(out.String(), "(this server runs the simple workflow) and cannot change")) {
 			t.Errorf("repair %q: code %d\n%s", body, code, out.String())
 		}
+	}
+}
+
+// yars export --mark in the simple workflow: any account marks the exported
+// complete findings reported, and a missing --as names no role.
+func TestExportMarkSimple(t *testing.T) {
+	dir := initSimple(t)
+	d := openDB(t, dir)
+	if err := d.AddUser(config.User{Username: "ben", Role: "director"}); err != nil {
+		t.Fatal(err)
+	}
+	r, _ := gitrepo.Open(dir)
+	cfg, err := config.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := store.New(r, cfg, d)
+	a := gitrepo.Author{Name: "ben", Email: "ben@yars.local"}
+	st.CreateEngagement(store.Engagement{ID: "acme", Name: "ACME"}, a)
+	ref, err := st.CreateFinding("acme", "SQL injection", a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(filepath.Join(dir, "engagements", "acme", "findings", ref.Dir, "finding.md"))
+	if err := d.TxFor("acme", func(tx *db.Tx) error {
+		return tx.PutState("acme", "F-001", db.State{Status: "complete", ApprovedHash: store.ContentHash(raw)})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(t.TempDir(), "r.html")
+	var log bytes.Buffer
+	if code, err := cmdExport([]string{"--data", dir, "--exporter", "confluence", "--out", out, "--mark", "acme"}, &log); code != 2 || err == nil || err.Error() != "--mark needs --as <account>" {
+		t.Fatalf("no --as: code %d err %v", code, err)
+	}
+	if code, err := cmdExport([]string{"--data", dir, "--exporter", "confluence", "--out", out, "--mark", "--as", "ben", "acme"}, &log); code != 0 || err != nil || !strings.Contains(log.String(), "marked reported F-001") {
+		t.Fatalf("code %d err %v: %s", code, err, log.String())
+	}
+	if s, _ := d.State("acme", "F-001"); s.Status != "reported" {
+		t.Fatalf("F-001 is %s", s.Status)
 	}
 }
 

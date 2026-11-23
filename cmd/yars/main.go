@@ -122,6 +122,9 @@ func cmdExport(args []string, out io.Writer) (int, error) {
 		}
 		u, ok, _ := d.User(*as)
 		if !ok {
+			if cfg.Simple() { // every account is a director: no role to name
+				return 2, fmt.Errorf("--mark needs --as <account>")
+			}
 			return 2, fmt.Errorf("--mark needs --as <director account>")
 		}
 		if !workflow.AtLeast(u, "director") {
