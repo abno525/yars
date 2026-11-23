@@ -21,8 +21,8 @@
   <fieldset class="neteam">
     <div class="neteamhead"><legend>Team</legend><button type="button" class="btn secondary w128" data-check-all="member">Add everyone</button></div>
     <div class="neteamlist">
-      <label class="nemember me"><input type="checkbox" checked disabled aria-label="{{.User.Username}}"><span class="strong clip">{{.User.Username}}</span><span class="muted">{{.User.Role}}</span></label>
-      {{range .Users}}<label class="nemember"><input type="checkbox" name="member" value="{{.Username}}"{{if checkedIn $.Form "member" .Username}} checked{{end}}><span class="strong clip">{{.Username}}</span><span class="muted">{{.Role}}</span></label>{{end}}
+      <label class="nemember me"><input type="checkbox" checked disabled aria-label="{{.User.Username}}"><span class="strong clip">{{.User.Username}}</span><span class="muted">{{if not simple}}{{.User.Role}}{{end}}</span></label>
+      {{range .Users}}<label class="nemember"><input type="checkbox" name="member" value="{{.Username}}"{{if checkedIn $.Form "member" .Username}} checked{{end}}><span class="strong clip">{{.Username}}</span><span class="muted">{{if not simple}}{{.Role}}{{end}}</span></label>{{end}}
     </div>
   </fieldset>
 </form>

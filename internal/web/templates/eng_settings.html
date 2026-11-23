@@ -31,21 +31,21 @@
   <section class="panel compact">
     <div class="panelhead"><h2>Team <span class="qcnt{{if not $v.Members}} zero{{end}}">{{len $v.Members}}</span></h2></div>
     <table class="table stable teamtable flush">
-      <thead><tr><th>User</th><th class="c-role">Role</th><th class="c-act">Action</th></tr></thead>
+      <thead><tr><th>User</th>{{if not simple}}<th class="c-role">Role</th>{{end}}<th class="c-act">Action</th></tr></thead>
       <tbody>
       {{$eng := .Eng.ID}}
       {{range $v.Members}}
-        <tr><td class="strong clip">{{.Value}}</td><td class="muted">{{.Label}}</td>
+        <tr><td class="strong clip">{{.Value}}</td>{{if not simple}}<td class="muted">{{.Label}}</td>{{end}}
           <td>{{if $v.CanTeam}}<form method="post" action="/e/{{$eng}}/settings/team/remove"><input type="hidden" name="user" value="{{.Value}}"><button class="btn danger sm w96" aria-label="Remove {{.Value}}" data-confirm="Remove {{.Value}} from the team?">Remove</button></form>{{else}}<span class="slot w96"></span>{{end}}</td></tr>
       {{else}}
-        {{template "empty_row" 3}}
+        {{if simple}}{{template "empty_row" 2}}{{else}}{{template "empty_row" 3}}{{end}}
       {{end}}
       </tbody>
     </table>
     {{if $v.CanTeam}}
     <form class="inline flush addrow" method="post" action="/e/{{.Eng.ID}}/settings/team">
       {{/* flush: the panel's margin for a form's children is not theirs (the row lines up with the table); everyone on the team: "—" */}}
-      <select class="grow flush" name="user" aria-label="Add person"{{if $v.Others}} aria-keyshortcuts="A"{{else}} disabled{{end}}>{{range $v.Others}}<option value="{{.Value}}">{{.Value}} · {{.Label}}</option>{{else}}<option>—</option>{{end}}</select>
+      <select class="grow flush" name="user" aria-label="Add person"{{if $v.Others}} aria-keyshortcuts="A"{{else}} disabled{{end}}>{{range $v.Others}}<option value="{{.Value}}">{{.Value}}{{if not simple}} · {{.Label}}{{end}}</option>{{else}}<option>—</option>{{end}}</select>
       <button class="btn primary sm w96 flush"{{if not $v.Others}} disabled{{end}}>Add</button>
     </form>
     {{end}}

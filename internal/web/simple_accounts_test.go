@@ -3,13 +3,18 @@ package web
 import (
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
+	"yars/internal/auth"
 	"yars/internal/config"
 	"yars/internal/db"
+	"yars/internal/gitrepo"
+	"yars/internal/index"
 	"yars/internal/notify"
+	"yars/internal/store"
 	"yars/internal/workflow"
 )
 
@@ -226,5 +231,108 @@ func TestSimpleNotificationLabel(t *testing.T) {
 		if b := std.do(t, "alice", "GET", p, nil, nil).Body.String(); !strings.Contains(b, `<span class="tag nev-approved">Approved</span>`) {
 			t.Errorf("standard %s", p)
 		}
+	}
+}
+
+// The team panel has no Role column, its empty row spans the two columns
+// left, and the add select names people without a role.
+func TestSimpleTeamPanelNoRoles(t *testing.T) {
+	e := setupSimple(t)
+	e.addUser(t, config.User{Username: "cleo", Role: "director"})
+	b := e.do(t, "anna", "GET", "/e/acme/settings", nil, nil).Body.String()
+	tbl := between(b, `<table class="table stable teamtable flush">`, "</table>")
+	if !strings.Contains(tbl, `<thead><tr><th>User</th><th class="c-act">Action</th></tr></thead>`) {
+		t.Fatalf("team head:\n%s", tbl)
+	}
+	if strings.Contains(tbl, "director") || strings.Contains(tbl, `<td class="muted">`) {
+		t.Fatalf("a role in the team:\n%s", tbl)
+	}
+	if !strings.Contains(tbl, `<td class="strong clip">ben</td>`) {
+		t.Fatalf("ben not listed:\n%s", tbl)
+	}
+	add := between(b, `<select class="grow flush" name="user"`, "</select>")
+	if !strings.Contains(add, `<option value="cleo">cleo</option>`) || strings.Contains(add, " · ") {
+		t.Fatalf("add select:\n%s", add)
+	}
+	if err := e.srv.Store.CreateEngagement(store.Engagement{ID: "beta", Name: "Beta"}, gitrepo.Author{Name: "anna", Email: "anna@yars.local"}); err != nil {
+		t.Fatal(err)
+	}
+	b = e.do(t, "anna", "GET", "/e/beta/settings", nil, nil).Body.String()
+	if tbl := between(b, `<table class="table stable teamtable flush">`, "</table>"); !strings.Contains(tbl, `<tr class="emptyrow"><td colspan="2">—</td></tr>`) {
+		t.Fatalf("empty team:\n%s", tbl)
+	}
+	// the standard workflow keeps the roles
+	std := setup(t)
+	b = std.do(t, "dora", "GET", "/e/acme/settings", nil, nil).Body.String()
+	if !strings.Contains(b, `<th class="c-role">Role</th>`) || !strings.Contains(b, `<td class="muted">pentester</td>`) {
+		t.Fatal("standard team panel")
+	}
+}
+
+// The new-engagement form and the retest form name people without roles.
+func TestSimpleNewEngagementAndRetestNoRoles(t *testing.T) {
+	e := setupSimple(t)
+	b := e.do(t, "anna", "GET", "/engagements/new", nil, nil).Body.String()
+	team := between(b, `<div class="neteamlist">`, "</fieldset>")
+	if !strings.Contains(team, `<span class="strong clip">anna</span><span class="muted"></span>`) ||
+		!strings.Contains(team, `<span class="strong clip">ben</span><span class="muted"></span>`) || strings.Contains(team, "director") {
+		t.Fatalf("new engagement team:\n%s", team)
+	}
+	b = e.do(t, "anna", "GET", "/e/acme/retest/new", nil, nil).Body.String()
+	sel := between(b, `<select name="assignee">`, "</select>")
+	if !strings.Contains(sel, `<option value="ben">ben</option>`) || strings.Contains(sel, "director") || strings.Contains(sel, "(") {
+		t.Fatalf("retester select:\n%s", sel)
+	}
+	// the standard workflow keeps them
+	std := setup(t)
+	if b := std.do(t, "dora", "GET", "/engagements/new", nil, nil).Body.String(); !strings.Contains(b, `<span class="strong clip">alice</span><span class="muted">pentester</span>`) {
+		t.Fatal("standard new engagement")
+	}
+	if b := std.do(t, "dora", "GET", "/e/acme/retest/new", nil, nil).Body.String(); !strings.Contains(b, ">alice (pentester)</option>") {
+		t.Fatal("standard retest")
+	}
+}
+
+// freshSimple is a server of the simple workflow on a new data directory
+// without any account.
+func freshSimple(t *testing.T) *env {
+	t.Helper()
+	dir := t.TempDir()
+	r, err := gitrepo.Init(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := db.Open(filepath.Join(t.TempDir(), "yars.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { d.Close() })
+	cfg := config.Default()
+	cfg.Workflow = config.WorkflowSimple
+	st := store.New(r, cfg, d)
+	s := &Server{Store: st, Index: index.New(st, r), Auth: auth.New(d), Cfg: cfg}
+	t.Cleanup(s.Close)
+	return &env{srv: s, h: s.Handler(), dir: dir, toks: map[string]string{}}
+}
+
+// /setup of the simple workflow tags the first account admin only; the
+// account is stored as a director, as in the standard one.
+func TestSimpleSetupTags(t *testing.T) {
+	e := freshSimple(t)
+	b := e.do(t, "", "GET", "/setup", nil, nil).Body.String()
+	head := between(b, `<div class="barehead">`, "</div>")
+	if head != `<div class="barehead"><h1>Set up YARS</h1><span class="tag adminflag">admin</span>` {
+		t.Fatalf("setup head: %q", head)
+	}
+	rec := e.do(t, "", "POST", "/setup", url.Values{"username": {"anna"}, "password": {"long enough pw"}, "repeat": {"long enough pw"}}, nil)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("setup %d", rec.Code)
+	}
+	if u, ok := e.srv.Auth.Lookup("anna"); !ok || u.Role != "director" || !u.IsAdmin {
+		t.Fatalf("anna %+v", u)
+	}
+	std := fresh(t)
+	if b := std.do(t, "", "GET", "/setup", nil, nil).Body.String(); !strings.Contains(b, `<span class="tag role">director</span><span class="tag adminflag">admin</span>`) {
+		t.Fatal("standard setup tags")
 	}
 }
