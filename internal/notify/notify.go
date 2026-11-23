@@ -50,6 +50,31 @@ func Label(key string) string {
 	return key
 }
 
+// simpleEvents are the events of the simple workflow: no review, so no
+// Returned to me, Review requested or Taken back; Approved is what Complete
+// tells the author.
+var simpleEvents = []Event{{Reply, "Reply in my thread"}, {Approved, "Completed"}, {Reverted, "Reverted"},
+	{Mentioned, "Mentioned"}, {Check, "Check finished"}, {Token, "Token expiring"}}
+
+// EventsFor is the events the settings list in the standard workflow
+// (Events) or the simple one.
+func EventsFor(simple bool) []Event {
+	if simple {
+		return simpleEvents
+	}
+	return Events
+}
+
+// LabelFor is an event's name for people in the standard or the simple
+// workflow: Approved reads "Completed" in the simple one; an event it does
+// not list keeps its standard name.
+func LabelFor(key string, simple bool) string {
+	if simple && key == Approved {
+		return "Completed"
+	}
+	return Label(key)
+}
+
 // Keys lists the event keys.
 func Keys() []string {
 	var out []string
@@ -77,7 +102,15 @@ type Notifier struct {
 	MailFor func() Mailer
 	// BaseURL starts the links in email.
 	BaseURL func() string
-	wg      sync.WaitGroup
+	// Simple reports whether the data folder runs the simple workflow, whose
+	// email names the events as it does (LabelFor); nil = standard.
+	Simple func() bool
+	wg     sync.WaitGroup
+}
+
+// label is an event's name in email.
+func (n *Notifier) label(key string) string {
+	return LabelFor(key, n.Simple != nil && n.Simple())
 }
 
 func (n *Notifier) mailer() Mailer {
@@ -119,7 +152,8 @@ func recipients(e store.Event) map[string]string {
 			}
 		case "return":
 			add(e.Author, Returned)
-		case "approve":
+		case "approve", "complete":
+			// complete is the simple workflow's approval
 			add(e.Author, Approved)
 		case "take_back":
 			// it left their queue, and any sign-off they gave is gone
@@ -283,9 +317,9 @@ func (n *Notifier) mailFor(x db.Notification) (string, string) {
 		}
 		return subject, Label(x.Event) + " · " + x.Actor + "\n" + x.Title + " · " + x.Text + "\n\n" + base + "/settings#tokens\n"
 	}
-	subject := "[YARS] " + Label(x.Event) + ": " + x.Fid + " " + x.Title
+	subject := "[YARS] " + n.label(x.Event) + ": " + x.Fid + " " + x.Title
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s · %s\n%s · %s %s\n", Label(x.Event), x.Actor, x.Eng, x.Fid, x.Title)
+	fmt.Fprintf(&b, "%s · %s\n%s · %s %s\n", n.label(x.Event), x.Actor, x.Eng, x.Fid, x.Title)
 	if x.Text != "" {
 		b.WriteString("\n" + x.Text + "\n")
 	}
