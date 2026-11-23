@@ -208,6 +208,24 @@ var (
 	pFinding = param{"finding", "finding ID (F-001) or directory name (F-001-sql-injection)"}
 )
 
+// actionNames lists the actions transition takes in workflow f, as an
+// unknown action's refusal names them: clear with its alias sign_off, and
+// revert (the step back, by status) after unreport.
+func actionNames(f workflow.Flow) string {
+	var names []string
+	for _, act := range f.Actions() {
+		switch act {
+		case workflow.Clear:
+			names = append(names, "clear or sign_off")
+		case workflow.Unreport:
+			names = append(names, string(act), "revert")
+		default:
+			names = append(names, string(act))
+		}
+	}
+	return strings.Join(names, ", ")
+}
+
 // explain turns store/workflow errors into messages for the assistant.
 func explain(err error) string {
 	var d *workflow.Denied
@@ -383,8 +401,8 @@ var coreTools = []tool{
 			}
 			// R2: an unknown filter is refused with the valid values, not
 			// answered with an empty list
-			if st := a.str("status"); st != "" && !slices.Contains(workflow.AllStatuses, st) {
-				return "", invalid("unknown status %q; valid statuses: %s", st, strings.Join(workflow.AllStatuses, ", "))
+			if st, valid := a.str("status"), s.flow().AllStatuses(); st != "" && !slices.Contains(valid, st) {
+				return "", invalid("unknown status %q; valid statuses: %s", st, strings.Join(valid, ", "))
 			}
 			if sev, valid := a.str("severity"), s.conf().Severities; sev != "" && !slices.Contains(valid, sev) {
 				return "", invalid("unknown severity %q; valid severities: %s", sev, strings.Join(valid, ", "))
@@ -597,9 +615,13 @@ var coreTools = []tool{
 			if err != nil {
 				return "", err
 			}
+			f := s.flow()
 			act, ok := workflow.ParseAction(a.str("action"))
-			if from, _ := workflow.Target(act); ok && from == nil && !s.conf().Simple() {
-				ok = false // complete, the simple workflow's: unknown here, as before it came
+			if from, _ := f.Target(act); ok && from == nil && !f.Simple {
+				// complete, the simple workflow's: unknown in the standard one,
+				// as before it came. The simple workflow refuses the standard
+				// one's steps by name (Check: not part of the simple workflow).
+				ok = false
 			}
 			if !ok && strings.EqualFold(strings.TrimSpace(a.str("action")), "revert") {
 				// R4: the step back from the finding's status
@@ -609,7 +631,7 @@ var coreTools = []tool{
 				}
 			}
 			if !ok {
-				return "", invalid("unknown action (submit, return, clear or sign_off, approve, reopen, report, unreport, revert, withdraw, revise, take_back)")
+				return "", invalid("unknown action (%s)", actionNames(f))
 			}
 			// marking reported is a director's over MCP (the delivery to the
 			// client); taking it back is the author's or a director's, as on
@@ -620,7 +642,7 @@ var coreTools = []tool{
 			// a missing reason is a missing argument, once the role and the
 			// status allow the action and nothing else refuses it first (a
 			// clone, the archive: the store's own refusals come then)
-			if workflow.NeedsReason(act) && strings.TrimSpace(a.str("reason")) == "" && workflow.Check(u, ref.F.Meta, act) == nil &&
+			if workflow.NeedsReason(act) && strings.TrimSpace(a.str("reason")) == "" && f.Check(u, ref.F.Meta, act) == nil &&
 				s.Store.DB() != nil && !s.Store.Archived(ref.EngID) {
 				what := map[workflow.Action]string{workflow.Return: "return", workflow.Withdraw: "withdraw"}[act]
 				if what == "" {
@@ -634,7 +656,7 @@ var coreTools = []tool{
 			if err := s.Store.TransitionSeen(ref.EngID, ref.Dir, act, a.str("reason"), a.str("base"), "", u); err != nil {
 				return "", err
 			}
-			_, to := workflow.Target(act)
+			_, to := f.Target(act)
 			return okMsg(string(act) + " done; status is now " + to)
 		}},
 	{name: "add_chat_message", action: "comment", serverOnly: true, desc: "Post a message in the finding's chat, optionally about a section or as a reply to a thread. @name mentions notify that person.",
@@ -967,7 +989,9 @@ func setField(s *Server, ctx context.Context, u config.User, a args) (string, er
 				names = append(names, n)
 			}
 		}
-		if s.Users != nil {
+		// the simple workflow has no reviewers: the store refuses any list
+		// (not_allowed), so no name is checked as if it could be one
+		if s.Users != nil && s.flow().HasReviewers() {
 			users := s.Users()
 			for _, n := range names {
 				if m := ref.F.Meta; n == m.Author && slices.Contains(m.Reviewers, n) {

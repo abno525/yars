@@ -240,3 +240,232 @@ func TestSimpleListTeamNoRoles(t *testing.T) {
 		}
 	}
 }
+
+// f001 is the arguments naming the fixture's finding, plus the given ones
+// (name, value, name, value…).
+func f001(kv ...string) map[string]any {
+	m := map[string]any{"engagement": "acme", "finding": "F-001"}
+	for i := 0; i+1 < len(kv); i += 2 {
+		m[kv[i]] = kv[i+1]
+	}
+	return m
+}
+
+// simpleRead is read_finding's status and hash.
+func simpleRead(t *testing.T, f *fx) (status, hash string) {
+	t.Helper()
+	m := object(t, "read_finding", f.ok(anna, "read_finding", f001()))
+	st, _ := m["state"].(map[string]any)["status"].(string)
+	h, _ := m["hash"].(string)
+	return st, h
+}
+
+// Complete takes a draft to complete for the version read (base), and
+// says so; report, then revert twice, takes it back to complete and to
+// draft, each answer naming the status it is now.
+func TestSimpleTransitionComplete(t *testing.T) {
+	f := newSimpleFx(t)
+	f.ok(anna, "set_field", f001("field", "severity", "value", "high"))
+	_, old := simpleRead(t, f)
+	f.ok(anna, "update_section", f001("section", "Impact", "body", "Full read."))
+	// a base the finding no longer has: read it again
+	text, isErr := f.call(ben, "transition", f001("action", "complete", "base", old))
+	if !isErr || object(t, "complete", text)["code"] != "conflict" {
+		t.Fatalf("a stale base: %s", text)
+	}
+	if st, _ := simpleRead(t, f); st != "draft" {
+		t.Fatalf("status %s", st)
+	}
+	_, hash := simpleRead(t, f)
+	steps := []struct {
+		user                         config.User
+		action, reason, says, status string
+	}{
+		{ben, "complete", "", "complete done; status is now complete", "complete"},
+		{anna, "report", "", "report done; status is now reported", "reported"},
+		{anna, "revert", "a typo", "unreport done; status is now complete", "complete"},
+		{ben, "revert", "more work", "reopen done; status is now draft", "draft"},
+	}
+	for _, s := range steps {
+		text := f.ok(s.user, "transition", f001("action", s.action, "reason", s.reason, "base", hash))
+		if message(t, text) != s.says {
+			t.Errorf("%s: %s", s.action, text)
+		}
+		if st, _ := simpleRead(t, f); st != s.status {
+			t.Errorf("%s: status %s", s.action, st)
+		}
+	}
+	text, isErr = f.call(anna, "transition", f001("action", "revert", "reason", "again"))
+	if !isErr || message(t, text) != "nothing to revert: the finding is draft" {
+		t.Errorf("revert a draft: %s", text)
+	}
+}
+
+// The standard workflow's steps are refused by name, as not part of the
+// simple workflow (with a reason, without one, with a stale base: never a
+// request for a reason or a conflict); an unknown action lists the simple
+// workflow's actions.
+func TestSimpleTransitionSubmitRefused(t *testing.T) {
+	f := newSimpleFx(t)
+	f.ok(anna, "set_field", f001("field", "severity", "value", "high"))
+	for _, act := range []string{"submit", "return", "clear", "sign_off", "approve", "take_back"} {
+		for _, a := range []map[string]any{f001("action", act, "reason", "because"), f001("action", act), f001("action", act, "base", "a hash the finding never had")} {
+			text, isErr := f.call(anna, "transition", a)
+			if m := object(t, act, text); !isErr || m["code"] != "not_allowed" || !strings.HasSuffix(message(t, text), " is not part of the simple workflow (draft → complete → reported)") {
+				t.Errorf("%v: %s", a, text)
+			}
+		}
+	}
+	text, isErr := f.call(anna, "transition", f001("action", "lock"))
+	if m := object(t, "lock", text); !isErr || m["code"] != "invalid" || m["message"] != "unknown action (complete, reopen, report, unreport, revert, withdraw, revise)" {
+		t.Errorf("unknown: %s", text)
+	}
+	if st, _ := simpleRead(t, f); st != "draft" {
+		t.Errorf("status %s", st)
+	}
+}
+
+// list_findings takes the simple workflow's statuses: verification is
+// unknown there.
+func TestSimpleListFindingsStatus(t *testing.T) {
+	f := newSimpleFx(t)
+	text, isErr := f.call(anna, "list_findings", map[string]any{"engagement": "acme", "status": "verification"})
+	if m := object(t, "list_findings", text); !isErr || m["code"] != "invalid" ||
+		m["message"] != `unknown status "verification"; valid statuses: draft, complete, reported, withdrawn` {
+		t.Fatalf("%s", text)
+	}
+	f.ok(anna, "set_field", f001("field", "severity", "value", "high"))
+	f.ok(anna, "transition", f001("action", "complete"))
+	for st, n := range map[string]int{"complete": 1, "draft": 0, "": 1} {
+		var rows []struct{ ID, Status string }
+		itemsOf(t, f.ok(anna, "list_findings", map[string]any{"engagement": "acme", "status": st}), &rows)
+		if len(rows) != n || (n == 1 && rows[0].Status != "complete") {
+			t.Errorf("status %q: %+v", st, rows)
+		}
+	}
+}
+
+// set_field reviewers is refused by the store, whatever the names: the
+// simple workflow has no reviewers (not_allowed, not a name's fault).
+func TestSimpleSetReviewersRefused(t *testing.T) {
+	f := newSimpleFx(t)
+	for _, names := range []string{"ben", "anna", "nobody", ""} {
+		text, isErr := f.call(anna, "set_field", f001("field", "reviewers", "value", names))
+		if m := object(t, names, text); !isErr || m["code"] != "not_allowed" || m["message"] != "not allowed: the simple workflow has no reviewers" {
+			t.Errorf("%q: %s", names, text)
+		}
+	}
+	var rd struct {
+		State struct {
+			Reviewers []string `json:"reviewers"`
+		} `json:"state"`
+	}
+	json.Unmarshal([]byte(f.ok(anna, "read_finding", f001())), &rd)
+	if len(rd.State.Reviewers) != 0 {
+		t.Errorf("reviewers %v", rd.State.Reviewers)
+	}
+}
+
+// simpleStateFx is a simple-workflow fixture whose F-001 is in state:
+// draft (no severity: not ready), ready (severity high), complete,
+// reported, withdrawn.
+func simpleStateFx(t *testing.T, state string) *fx {
+	t.Helper()
+	f := newSimpleFx(t)
+	if state == "draft" {
+		return f
+	}
+	f.ok(anna, "set_field", f001("field", "severity", "value", "high"))
+	steps := map[string][]string{"complete": {"complete"}, "reported": {"complete", "report"}, "withdrawn": {"withdraw"}}
+	for _, act := range steps[state] {
+		f.ok(anna, "transition", f001("action", act, "reason", "because"))
+	}
+	return f
+}
+
+// simpleCloneOf is a server on f's folder without the database (yars mcp
+// on a clone), with f's simple config.yaml.
+func simpleCloneOf(t *testing.T, f *fx) *fx {
+	t.Helper()
+	r, err := gitrepo.Open(f.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := store.New(r, f.s.Cfg, nil)
+	return &fx{t: t, dir: f.dir, s: &Server{Store: st, Index: index.New(st, r), Cfg: f.s.Cfg}}
+}
+
+// Each action read_finding lists in the simple workflow goes through
+// transition when it is enabled, and is refused with its reason when not:
+// as it is, with style rules, archived, through a token, on a clone. The
+// actions listed are the simple workflow's of the status.
+func TestSimpleAllowedActions(t *testing.T) {
+	want := map[string]string{"draft": "complete withdraw", "ready": "complete withdraw", "complete": "reopen report withdraw",
+		"reported": "unreport withdraw", "withdrawn": "revise"}
+	for _, mode := range matchModes {
+		if mode.name == "clone" {
+			mode.prep = simpleCloneOf
+		}
+		states := []string{"draft", "ready", "complete", "reported", "withdrawn"}
+		if mode.name != "plain" {
+			states = []string{"ready", "complete"}
+		}
+		for _, state := range states {
+			for _, u := range []config.User{anna, ben} {
+				call := func(f *fx, tool string, a map[string]any) (string, bool) {
+					if mode.tok != nil {
+						return f.callTok(u, *mode.tok, tool, a)
+					}
+					return f.call(u, tool, a)
+				}
+				where := mode.name + " " + state + "/" + u.Username
+				var rd struct {
+					Allowed []workflow.Allowed `json:"allowed_actions"`
+				}
+				text, isErr := call(mode.prep(t, simpleStateFx(t, state)), "read_finding", f001())
+				if isErr {
+					t.Fatalf("%s: %s", where, text)
+				}
+				json.Unmarshal([]byte(text), &rd)
+				var names []string
+				for _, al := range rd.Allowed {
+					names = append(names, al.Action)
+				}
+				listed := want[state]
+				if mode.name == "clone" {
+					listed = want["draft"] // a clone holds no workflow state: every finding reads as a draft
+				}
+				if got := strings.Join(names, " "); got != listed {
+					t.Errorf("%s: actions %s", where, got)
+				}
+				if mode.name == "plain" && state == "draft" && (rd.Allowed[0].Enabled || !strings.Contains(rd.Allowed[0].Reason, "cannot complete: set a CVSS vector or a severity")) {
+					t.Errorf("%s: complete %+v", where, rd.Allowed[0])
+				}
+				for _, al := range rd.Allowed {
+					text, isErr := call(mode.prep(t, simpleStateFx(t, state)), "transition", f001("action", al.Action, "reason", "because"))
+					switch {
+					case al.Enabled && isErr:
+						t.Errorf("%s %s listed enabled, refused: %s", where, al.Action, text)
+					case !al.Enabled && !isErr:
+						t.Errorf("%s %s listed disabled (%s), done", where, al.Action, al.Reason)
+					case !al.Enabled && (al.Reason == "" || !strings.Contains(message(t, text), al.Reason)):
+						t.Errorf("%s %s: listed %q, refused %q", where, al.Action, al.Reason, message(t, text))
+					}
+					if al.Needs != "reason" {
+						continue
+					}
+					// without the reason it needs: a disabled action is refused
+					// for the listed reason first, an enabled one asks for it
+					text, _ = call(mode.prep(t, simpleStateFx(t, state)), "transition", f001("action", al.Action))
+					m := object(t, al.Action, text)
+					switch {
+					case al.Enabled && m["code"] != "invalid":
+						t.Errorf("%s %s without a reason: %s", where, al.Action, text)
+					case !al.Enabled && !strings.Contains(m["message"].(string), al.Reason):
+						t.Errorf("%s %s without a reason: listed %q, refused %s", where, al.Action, al.Reason, text)
+					}
+				}
+			}
+		}
+	}
+}
