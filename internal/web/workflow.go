@@ -148,6 +148,8 @@ var wfKeys = map[workflow.Action]string{
 	workflow.Submit: "Shift+S", workflow.Clear: "Shift+O", workflow.Approve: "Shift+A", workflow.Report: "Shift+P",
 	workflow.Return: "Shift+R", workflow.Withdraw: "Shift+W", workflow.Reopen: "Shift+U", workflow.Unreport: "Shift+U",
 	workflow.Revise: "Shift+U", workflow.TakeBack: "Shift+T",
+	// Approve's key: Shift+A completes a finding in either workflow
+	workflow.Complete: "Shift+A",
 }
 
 type wfSlotSpec struct {

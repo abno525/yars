@@ -222,6 +222,9 @@ var funcs = template.FuncMap{"join": strings.Join, "checkedIn": checkedIn, "rete
 	// a read panel refetches itself when the finding changed (MCP, a push,
 	// another tab); an open editor has no trigger, so it is never replaced
 	"liveTrigger": func() string { return "sse:content, sse:resync, sse:poll" },
+	// simple reports whether the data folder runs the simple workflow; each
+	// server sets its own (init), so any template asks {{if simple}}
+	"simple": func() bool { return false },
 	"stepArgs": func(s stepRow, retryURL string) any {
 		return struct {
 			Step     stepRow
@@ -272,12 +275,13 @@ func (s *Server) init() {
 	// execute their blocks via any page set.
 	shared := []string{"templates/layout.html", "templates/partials.html", "templates/cvss.html", "templates/details.html", "templates/workflow.html", "templates/chat.html", "templates/checks.html", "templates/retest.html", "templates/board.html", "templates/assets.html"}
 	names, _ := fs.Glob(templateFS, "templates/*.html")
+	own := template.FuncMap{"simple": func() bool { return s.flow().Simple }}
 	for _, n := range names {
 		if slices.Contains(shared, n) {
 			continue
 		}
 		base := strings.TrimPrefix(n, "templates/")
-		s.pages[base] = template.Must(template.New(base).Funcs(funcs).ParseFS(templateFS, append(slices.Clone(shared), n)...))
+		s.pages[base] = template.Must(template.New(base).Funcs(funcs).Funcs(own).ParseFS(templateFS, append(slices.Clone(shared), n)...))
 	}
 }
 
@@ -472,6 +476,15 @@ func (s *Server) conf() config.Config {
 	s.cfgMu.RLock()
 	defer s.cfgMu.RUnlock()
 	return s.Cfg
+}
+
+// flow is the data folder's workflow: the store's (fixed when it was
+// created), or the configuration's on a server without one.
+func (s *Server) flow() workflow.Flow {
+	if s.Store != nil {
+		return s.Store.Flow()
+	}
+	return workflow.FlowOf(s.conf())
 }
 
 // setConfig applies a configuration to the store (which the MCP server
