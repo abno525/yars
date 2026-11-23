@@ -1,7 +1,7 @@
 // Command yars: git-backed pentest findings tracker. Finding content lives
 // in git; accounts, workflow state and chat in .yars/yars.db (server only).
 //
-//	yars init <dir>
+//	yars init [--simple] <dir>   (--simple: the simple workflow, fixed after init)
 //	yars use [<dir>]   (set or show the default data folder)
 //	yars useradd --data <dir> --role <role> [--email e] <username>   (password read from stdin)
 //	yars passwd|userdel|unlock --data <dir> <username>; yars role --data <dir> <username> <role>
@@ -685,7 +685,7 @@ func cmdLint(args []string, out io.Writer) (int, error) {
 func usage() {
 	fmt.Fprintln(os.Stderr, `usage (flags first; --data defaults to $YARS_DATA, then yars use, then .):
   yars version
-  yars init <dir>
+  yars init [--simple] <dir>   (--simple: draft → complete → reported, no roles; fixed after init)
   yars use [<dir>]   (set the default data folder, or show it)
   yars serve --data <dir> [--addr :8080] [--tls-cert <file> --tls-key <file>] [--https]
   yars useradd --data <dir> --role pentester|reviewer|director [--email e] [--admin] <user>   (password from stdin)
@@ -778,14 +778,31 @@ func main() {
 	}
 }
 
-func cmdInit(args []string) error {
-	if len(args) != 1 {
-		usage()
-	}
-	if err := initData(args[0]); err != nil {
+func cmdInit(args []string) error { return cmdInitOut(args, os.Stdout) }
+
+// cmdInitOut sets up a data folder: yars init [--simple] <dir>. The
+// workflow is chosen here and fixed after it.
+func cmdInitOut(args []string, out io.Writer) error {
+	fs := flag.NewFlagSet("init", flag.ContinueOnError)
+	simple := fs.Bool("simple", false, "the simple workflow: draft → complete → reported, no roles or reviewers")
+	fs.SetOutput(out)
+	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	fmt.Println("initialised", args[0])
+	if fs.NArg() > 1 && strings.HasPrefix(fs.Arg(1), "-") { // the flag package stops at the folder
+		return fmt.Errorf("usage: yars init [--simple] <dir>: flags go before the folder; %q is after it", fs.Arg(1))
+	}
+	if fs.NArg() != 1 {
+		usage()
+	}
+	if err := initDataMode(fs.Arg(0), *simple); err != nil {
+		return err
+	}
+	if *simple {
+		fmt.Fprintln(out, "initialised", fs.Arg(0), "(simple workflow)")
+	} else {
+		fmt.Fprintln(out, "initialised", fs.Arg(0))
+	}
 	return nil
 }
 
@@ -820,10 +837,21 @@ func cmdSeed(args []string, out io.Writer) error {
 	return nil
 }
 
-// initData creates and initialises a data directory: main repo, config,
+// workflowSetting is the database setting yars init --simple writes
+// (config.WorkflowSimple; unset for the standard workflow): the workflow the
+// data folder was set up with, which config.yaml's workflow key must keep.
+const workflowSetting = "workflow"
+
+// initData creates and initialises a data directory with the standard
+// workflow (initDataMode).
+func initData(dir string) error { return initDataMode(dir, false) }
+
+// initDataMode creates and initialises a data directory: main repo, config,
 // example exporters, database. It writes no rules: the owner adds the ones
-// they want (Admin › Rules, or files in .yars/rules/).
-func initData(dir string) error {
+// they want (Admin › Rules, or files in .yars/rules/). With simple it sets
+// up the simple workflow: config.yaml's workflow key and the database's
+// workflow setting (the standard workflow writes neither).
+func initDataMode(dir string, simple bool) error {
 	r, err := gitrepo.Init(dir)
 	if err != nil {
 		return err
@@ -837,7 +865,11 @@ func initData(dir string) error {
 	if err := os.MkdirAll(filepath.Dir(config.ConfigPath(dir)), 0o755); err != nil {
 		return err
 	}
-	b, _ := yaml.Marshal(config.Default())
+	cfg := config.Default()
+	if simple {
+		cfg.Workflow = config.WorkflowSimple
+	}
+	b, _ := yaml.Marshal(cfg)
 	files := map[string][]byte{
 		config.ConfigPath(dir):                        b,
 		filepath.Join(dir, ".gitignore"):              []byte(serverIgnore),
@@ -861,6 +893,12 @@ func initData(dir string) error {
 	d, err := dataDB(dir)
 	if err != nil {
 		return err
+	}
+	if simple {
+		if err := d.SetSetting(workflowSetting, config.WorkflowSimple); err != nil {
+			d.Close()
+			return err
+		}
 	}
 	d.Close()
 	// the key that encrypts personal and AI keys in the database (git-ignored)
