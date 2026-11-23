@@ -1,0 +1,29 @@
+name: ci
+on:
+  push:
+    branches: [master, feat/redesign, "pr/**"]
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: git identity for the tests
+        run: |
+          git config --global user.name ci
+          git config --global user.email ci@yars.local
+          git config --global init.defaultBranch main
+      - name: tidy
+        run: go mod tidy -diff
+      - name: format
+        run: test -z "$(gofmt -l .)"
+      - name: vet
+        run: go vet ./...
+      - name: test
+        run: go test ./...
+      - name: race
+        run: go test -race ./internal/store ./internal/db ./internal/index ./internal/events ./internal/web

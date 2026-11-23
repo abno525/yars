@@ -79,10 +79,20 @@ func Parse(s string) (Vector, error) {
 	}
 	for _, m := range Metrics {
 		if _, ok := v[m.Key]; !ok {
-			return nil, fmt.Errorf("missing metric %s", m.Key)
+			return nil, fmt.Errorf("missing metric %s (%s): add %s", m.Key, m.Name, m.codes(m.Key+":"))
 		}
 	}
 	return v, nil
+}
+
+// codes lists a metric's values for a message, each after prefix: "N, L
+// or H", "A:N, A:L or A:H". Every metric has at least two.
+func (m Metric) codes(prefix string) string {
+	cs := make([]string, len(m.Values))
+	for i, v := range m.Values {
+		cs[i] = prefix + v.Code
+	}
+	return strings.Join(cs[:len(cs)-1], ", ") + " or " + cs[len(cs)-1]
 }
 
 // ParsePartial is Parse but allows missing metrics.
@@ -104,7 +114,7 @@ func ParsePartial(s string) (Vector, error) {
 		}
 		k, val, ok := strings.Cut(part, ":")
 		if !ok {
-			return nil, fmt.Errorf("invalid component %s", part)
+			return nil, fmt.Errorf("invalid component %s: write metric:value, for example AC:L", part)
 		}
 		if _, known := metric(k); !known {
 			return nil, fmt.Errorf("unknown metric %s (only base metrics are supported)", k)
@@ -113,7 +123,11 @@ func ParsePartial(s string) (Vector, error) {
 			return nil, fmt.Errorf("duplicate metric %s", k)
 		}
 		if !Valid(k, val) {
-			return nil, fmt.Errorf("invalid value %s for %s", val, k)
+			m, _ := metric(k)
+			if val == "" {
+				return nil, fmt.Errorf("no value for %s (%s): use %s", k, m.Name, m.codes(""))
+			}
+			return nil, fmt.Errorf("invalid value %s for %s (%s): use %s", val, k, m.Name, m.codes(""))
 		}
 		v[k] = val
 	}

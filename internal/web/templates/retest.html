@@ -1,23 +1,35 @@
 {{define "retest_panel"}}
 {{with .}}
-<section class="panel retest-panel" id="retest">
-  <div class="panelhead">
-    <h2>Retest result</h2>
-    <span class="muted small">Original:
-      {{if .SourceMissing}}{{.Source}} (not found){{else}}<a href="{{.SourceURL}}">{{.Source}}</a>
-      {{if .SourceSev}}<span class="pill sev-{{.SourceSev}}">{{.SourceSev}}</span>{{end}}
-      <span class="pill status-{{.SourceStatus}}">{{.SourceStatus}}</span>{{end}}
-    </span>
-  </div>
-  {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
-  {{if .Locked}}
-    <p>{{range .Options}}{{if .Checked}}<span class="pill result-{{.Code}}">{{.Label}}</span>{{end}}{{end}}</p>
-  {{else}}
-  <form class="seg result-seg" hx-post="{{.URL}}" hx-trigger="change" hx-target="#retest" hx-swap="outerHTML">
-    {{range .Options}}<label><input type="radio" name="result" value="{{.Code}}"{{if .Checked}} checked{{end}}><span>{{.Label}}</span></label>{{end}}
-  </form>
-  {{if not .Result}}<p class="muted small">Not retested yet — pick the result once you have checked the fix.</p>{{end}}
-  {{end}}
-</section>
+<div class="retestgrid" id="retest">
+  <details class="panel compact orig">
+    <summary class="panelhead">
+      <div class="panelname"><h2>Original</h2><span class="mono clip" title="{{.Source}}">{{.Source}}</span>{{if not .SourceMissing}}<span class="tag status-{{.SourceStatus}}">{{statusLabel .SourceStatus}}</span>{{end}}</div>
+      {{if .SourceMissing}}<span class="slot w96"></span>{{else}}<a class="btn secondary sm w96" href="{{.SourceURL}}">Open</a>{{end}}
+    </summary>
+    {{if .SourceMissing}}<p class="muted">—</p>{{else}}
+    {{if or .Details .Vector .SourceSev}}
+    <table class="kv flush">{{template "kv_head"}}<tbody>
+      {{if .SourceSev}}<tr><th scope="row">Severity</th><td><span class="tag sev-{{.SourceSev}}">{{.SourceSev}}</span></td></tr>{{end}}
+      {{range .Details}}<tr><th scope="row">{{.Name}}</th><td class="text">{{.Value}}</td></tr>{{end}}
+      {{if .Vector}}<tr><th scope="row">CVSS</th><td class="mono">{{.Vector}} · {{score .Score}}</td></tr>{{end}}
+    </tbody></table>
+    {{end}}
+    {{range .Sections}}<div class="osec flush"><h3>{{.Name}}</h3><div class="md">{{.HTML}}</div></div>{{end}}
+    {{end}}
+  </details>
+  <section class="panel resultp{{if not .Result}} needs{{end}}" id="retest-result" data-kpanel>
+    <div class="panelhead"><h2>Retest result</h2><span class="req">{{if not .Result}}Needs result{{end}}</span></div>
+    <div class="errslot flush">{{if .Error}}<p class="error" title="{{.Error}}">{{.Error}}</p>{{end}}</div>
+    {{if .Locked}}
+    <p>{{range .Options}}{{if .Checked}}<span class="tag result-{{.Code}}">{{.Label}}</span>{{end}}{{end}}</p>
+    {{else}}
+    {{/* the labels are the segments, not blocks of a panel's form: flush keeps the panel's margin off them */}}
+    <form class="seg result-seg" role="radiogroup" aria-label="Retest result" hx-post="{{.URL}}" hx-trigger="yars:choose" hx-target="#retest" hx-swap="outerHTML">
+      <input type="hidden" name="was" value="{{.Result}}">
+      {{range .Options}}<label class="flush"><input type="radio" data-choose name="result" value="{{.Code}}"{{if .Checked}} checked{{end}} id="retest-{{.Code}}"><span>{{.Label}}</span></label>{{end}}
+    </form>
+    {{end}}
+  </section>
+</div>
 {{end}}
 {{end}}

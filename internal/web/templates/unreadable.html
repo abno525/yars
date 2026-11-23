@@ -1,0 +1,15 @@
+{{define "content"}}
+<div class="titlerow">
+  <div class="titlecol">
+    <nav class="crumbs"><a href="/e/{{.Eng.ID}}">{{.Eng.Name}}</a><span class="sep" aria-hidden="true">/</span><span class="idchip">{{.TabTitle}}</span></nav>
+    <h1>Cannot read finding</h1>
+  </div>
+</div>
+<section class="panel">
+  <div class="panelhead"><h2>File</h2></div>
+  <table class="kv details flush">{{template "kv_head"}}<tbody>
+    <tr><th scope="row">Path</th><td class="text mono" title="{{.Unreadable}}">{{.Unreadable}}</td></tr>
+    <tr><th scope="row">Error</th><td class="text mono" title="{{.Error}}">{{.Error}}</td></tr>
+  </tbody></table>
+</section>
+{{end}}

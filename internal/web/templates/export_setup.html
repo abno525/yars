@@ -1,0 +1,84 @@
+{{define "content"}}
+<div class="titlerow">
+  <div class="titlecol">
+    <nav class="crumbs"><a href="/e/{{.Eng.ID}}">{{.Eng.Name}}</a><span class="sep" aria-hidden="true">/</span><a href="/e/{{.Eng.ID}}/export">Export</a><span class="sep" aria-hidden="true">/</span><span class="muted">Destinations</span></nav>
+    <h1>Destinations</h1>
+  </div>
+  <div class="actions"><a class="btn primary w160" href="/e/{{.Eng.ID}}/export/setup" aria-keyshortcuts="N">New destination</a></div>
+</div>
+{{range .ExportV.LoadErrors}}<p class="checkerr" title="{{.}}">{{.}}</p>{{end}}
+<div class="destsetup">
+  <section class="panel compact">
+    <table class="table stable desttable flush" data-arrows>
+      <thead><tr><th>Destination</th><th class="c-kind">Kind</th><th class="c-key">Server key</th><th class="c-mark">Marks reported</th><th class="c-act">Action</th></tr></thead>
+      <tbody>
+        {{range .ExportV.Setup.Rows}}
+        <tr{{if .Editing}} class="editing"{{end}}>
+          <td class="stack"><span class="strong" title="{{.Name}}">{{.Name}}</span><span class="mono" title="{{.ID}}.yaml · {{.Sub}}">{{.ID}}.yaml · {{.Sub}}</span></td>
+          <td><span class="tag kind-{{.Kind}}">{{.Kind}}</span></td>
+          <td class="mono">{{.Key}}</td>
+          <td class="c-ch"><span class="cbx ro{{if .Marks}} on{{end}}" role="img" aria-label="{{if .Marks}}marks reported{{else}}does not mark{{end}}">{{if .Marks}}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>{{end}}</span></td>
+          {{/* the row the keys move to: Enter edits it */}}
+          <td>{{if .Editing}}<span class="btn save sm w96" aria-current="true" tabindex="0" data-nav>Editing</span>{{else}}<a class="btn ghost sm w96" href="/e/{{$.Eng.ID}}/export/setup?edit={{.ID}}" data-nav>Edit</a>{{end}}</td>
+        </tr>
+        {{else}}
+        {{template "empty_row" 5}}
+        {{end}}
+      </tbody>
+    </table>
+  </section>
+  {{with .ExportV.Setup.Form}}
+  <form class="panel compact destform" method="post" action="/e/{{$.Eng.ID}}/export/setup">
+    <div class="panelhead"><h2>{{if .New}}New destination{{else}}Edit destination{{end}}</h2><span class="mono fname" title="{{.ID}}.yaml">{{if .ID}}{{.ID}}.yaml{{end}}</span></div>
+    {{if .New}}<input type="hidden" name="new" value="1">{{end}}
+    <div class="rfields">
+      <div class="rgrid">
+        <label class="rf">ID<input class="monoin" name="id" value="{{.ID}}" required{{if not .New}} readonly{{end}}></label>
+        <label class="rf">Name<input name="name" value="{{.Name}}" required></label>
+      </div>
+      <label class="rf">Type<select name="type">{{$t := .Type}}{{range $.ExportV.Setup.Types}}<option value="{{.Value}}"{{if eq .Value $t}} selected{{end}}>{{.Label}}</option>{{end}}</select></label>
+      <div class="t t-pandoc">
+        <div class="rgrid">
+          <label class="rf">Format<select name="format">{{$f := .Format}}{{range $.ExportV.Setup.Formats}}<option{{if eq . $f}} selected{{end}}>{{.}}</option>{{end}}</select></label>
+          <label class="rf">Template<input class="monoin" name="template" value="{{.Template}}"></label>
+        </div>
+      </div>
+      <div class="t t-service">
+        <label class="rf">Address<input class="monoin" name="base_url" value="{{.BaseURL}}"{{if not $.CanAdmin}} readonly{{end}}></label>
+        <div class="rgrid">
+          <label class="rf s-confluence">Space<input class="monoin" name="space" value="{{.Space}}"></label>
+          <label class="rf s-confluence">Parent page<input class="monoin" name="parent_id" value="{{.ParentID}}"></label>
+          <label class="rf s-jira">Project<input class="monoin" name="project" value="{{.Project}}"></label>
+          <label class="rf s-jira">Issue type<input class="monoin" name="issue_type" value="{{.IssueType}}"></label>
+        </div>
+        <div class="rgrid">
+          <label class="rf">User env<input class="monoin" name="user_env" value="{{.UserEnv}}"{{if not $.CanAdmin}} readonly{{end}}></label>
+          <label class="rf">Token env<input class="monoin" name="token_env" value="{{.TokenEnv}}"{{if not $.CanAdmin}} readonly{{end}}></label>
+        </div>
+      </div>
+      <div class="t t-script">
+        <div class="rgrid">
+          <label class="rf">Script<input class="monoin" name="script" value="{{.Script}}"></label>
+          <label class="rf">Extension<input class="monoin" name="extension" value="{{.Extension}}"></label>
+        </div>
+      </div>
+      <div class="rgrid">
+        <fieldset class="rf"><legend>Includes</legend>
+          <label class="chk"><input type="checkbox" name="status" value="complete"{{if .Complete}} checked{{end}}>complete</label>
+          <label class="chk"><input type="checkbox" name="status" value="reported"{{if .Reported}} checked{{end}}>reported</label>
+        </fieldset>
+        <fieldset class="rf"><legend>On export</legend>
+          <label class="chk"><input type="checkbox" name="mark_reported" value="1"{{if .Marks}} checked{{end}}>Marks reported</label>
+        </fieldset>
+      </div>
+    </div>
+    <div class="pfoot flush">
+      {{if .New}}<span class="slot w112"></span>{{else}}<button class="btn danger sm w112" form="dest-delete" data-confirm="Delete the destination {{.ID}}?">Delete</button>{{end}}
+      <span class="pstate error" title="{{.Error}}">{{.Error}}</span>
+      <button class="btn primary sm w128">Save</button>
+    </div>
+  </form>
+  {{if not .New}}<form id="dest-delete" method="post" action="/e/{{$.Eng.ID}}/export/setup/delete" hidden><input type="hidden" name="id" value="{{.ID}}"></form>{{end}}
+  {{end}}
+</div>
+{{end}}

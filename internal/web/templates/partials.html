@@ -1,31 +1,150 @@
 {{define "findings"}}
-<div id="findings">
+<div id="findings"{{if .LiveURL}} data-sse-url="{{.LiveURL}}" hx-get="{{.ListURL}}" hx-trigger="sse:content, sse:workflow, sse:chat, sse:resync, sse:poll" hx-swap="outerHTML" data-rows="{{len .Rows}}" data-sse{{end}}>
   <div class="filters">
+    <nav class="seg nocap fseg" aria-label="Status">
     {{range .StatusFilters}}
-    <a class="chip {{if .Active}}active{{end}}" href="{{.URL}}" hx-get="{{.URL}}" hx-target="#findings" hx-swap="outerHTML" hx-push-url="true">{{.Label}}</a>
+    <a class="{{if .Active}}on{{end}}" id="flt-{{.Key}}"{{with .Keys}} aria-keyshortcuts="{{.}}"{{end}} href="{{.URL}}" hx-get="{{.URL}}" hx-target="#findings" hx-swap="outerHTML" hx-push-url="true">{{.Label}} · {{.Count}}</a>
+    {{end}}
+    </nav>
+    {{if .SearchURL}}
+    <form class="fsearch" action="{{.SearchURL}}" hx-get="{{.SearchURL}}" hx-target="#findings" hx-swap="outerHTML" hx-push-url="true" hx-sync="this:replace" hx-trigger="input changed delay:200ms from:#fq, search from:#fq, submit">
+      <input type="search" id="fq" class="w360" name="q" value="{{.Q}}" placeholder="Search" aria-label="Search findings" maxlength="200" autocomplete="off" spellcheck="false">
+    </form>
     {{end}}
   </div>
-  <table class="findings">
+  {{if .Bulk.On}}
+  <form class="fbulkform" hx-post="{{.Bulk.URL}}" hx-target="#findings" hx-swap="outerHTML" hx-disabled-elt="find button">
+  {{template "bulkbar" .Bulk}}
+  {{end}}
+  <table class="table findings" data-arrows>
     <thead><tr>
+      {{if .Bulk.On}}<th class="col-pick"><input type="checkbox" data-pick-all aria-label="Select all"></th>{{end}}
       {{range .Columns}}
-      <th><a href="{{.URL}}" hx-get="{{.URL}}" hx-target="#findings" hx-swap="outerHTML" hx-push-url="true">{{.Label}}{{if .Active}}{{if .Desc}} ▼{{else}} ▲{{end}}{{end}}</a></th>
+      <th class="col-{{.Key}}"><a id="sort-{{.Key}}" href="{{.URL}}" hx-get="{{.URL}}" hx-target="#findings" hx-swap="outerHTML" hx-push-url="true">{{.Label}}{{if .Active}}{{if .Desc}} ↓{{else}} ↑{{end}}{{end}}</a></th>
       {{end}}
     </tr></thead>
     <tbody>
+    {{template "finding_rows" .}}
+    </tbody>
+  </table>
+  {{if .Bulk.On}}</form>{{end}}
+</div>
+{{end}}
+
+{{/* the bulk bar (a bulkBar), inside its form: the findings list and the director's inbox */}}
+{{define "bulkbar"}}
+  <div class="fbulk" role="toolbar" aria-label="Bulk actions">
+    <span class="nsel" data-nsel>{{.Selected}} selected</span>
+    <span class="vs"></span>
+    <div class="bdd">
+      <button type="button" class="btn save sm w152" data-bulk-menu aria-haspopup="menu" aria-expanded="false"{{if not .Selected}} disabled{{end}}>Set state ▾</button>
+      <div class="bmenu" role="menu" aria-label="Set state" hidden>
+        {{range .Options}}<button {{if .Reason}}type="button" data-bulk-reason="{{.Label}}"{{else}}name="action" value="{{.Action}}"{{end}} role="menuitem" data-act="{{.Action}}"{{with .Key}} aria-keyshortcuts="{{.}}"{{end}}{{if not .Enabled}} disabled{{end}}>{{.Label}}{{with .Verb}} <span class="v">· {{.}}</span>{{end}}</button>{{end}}
+      </div>
+    </div>
+    {{if .Assign}}
+    <div class="bdd">
+      <button type="button" class="btn secondary sm w152" data-bulk-menu aria-haspopup="true" aria-expanded="false"{{if not .Selected}} disabled{{end}}>Assign reviewers</button>
+      <div class="bmenu bpicker" hidden>
+        <div class="bplist">{{range .Users}}<label><input type="checkbox" name="reviewer" value="{{.}}"><span>{{.}}</span></label>{{end}}</div>
+        <div class="bpfoot"><button class="btn primary sm w96" name="action" value="reviewers">Assign</button></div>
+      </div>
+    </div>
+    {{else}}<span class="slot w152"></span>{{end}}
+    <span class="grow"></span>
+    <span class="bsum" role="status">{{if .Ran}}<span class="mv">{{.Moved}} moved</span> <span class="sk">· {{.Skip}} skipped</span>{{end}}</span>
+    <button type="button" class="btn sm w96 bclear" data-bulk-clear{{if not (or .Selected .Ran)}} disabled{{end}}>Clear</button>
+    <section class="bdlg" role="dialog" aria-labelledby="bulk-reason-head" hidden>
+      <h2 id="bulk-reason-head" data-bulk-head>{{/* the entry that opens the panel names its verb (app.js); until then the simple workflow, which has no Return, says Withdraw */}}{{$verb := "Return"}}{{if simple}}{{$verb = "Withdraw"}}{{end}}{{$verb}} {{.Selected}} findings</h2>
+      <label>Reason<textarea name="reason" rows="3" maxlength="4000" required disabled></textarea></label>
+      <div class="acts"><button class="btn danger w112" name="action" value="{{if simple}}withdraw{{else}}return{{end}}" data-bulk-go aria-keyshortcuts="Control+Enter">{{$verb}}</button><button type="button" class="btn secondary w96" data-bulk-cancel>Cancel</button></div>
+    </section>
+  </div>
+{{end}}
+
+{{/* empty_row is the one empty state of every table: under its header
+row, one row of normal height with a left-aligned dash; the argument is
+the table's column count. */}}
+{{define "empty_row"}}<tr class="emptyrow"><td colspan="{{.}}">—</td></tr>{{end}}
+
+{{define "finding_rows"}}
     {{range .Rows}}
-      <tr>
+      <tr data-fid="{{.Dir}}"{{if $.Bulk.On}} data-acts="{{index $.Bulk.Acts .Dir}}"{{end}}{{with index $.Bulk.Skipped .Dir}} class="skip" title="{{.}}"{{else}}{{if index $.Bulk.Picked .Dir}} class="sel"{{end}}{{end}}>
+        {{if $.Bulk.On}}<td class="c-pick">{{if index $.Bulk.Pick .Dir}}<input type="checkbox" name="id" value="{{.Dir}}" aria-label="Select {{.ID}}"{{if index $.Bulk.Picked .Dir}} checked{{end}} id="pick-{{.Dir}}">{{end}}</td>{{end}}
         <td class="fid"><a href="{{fpath .EngID .Dir}}">{{.ID}}</a></td>
-        <td><a href="{{fpath .EngID .Dir}}">{{.Title}}</a></td>
-        <td>{{if .Severity}}<span class="pill sev-{{.Severity}}">{{.Severity}}</span>{{end}}</td>
-        <td class="fid">{{.Score}}</td>
-        <td><span class="pill status-{{.Status}}">{{.Status}}</span></td>
-        {{if $.IsRetest}}<td>{{if .RetestResult}}<span class="pill result-{{.RetestResult}}">{{retestLabel .RetestResult}}</span>{{else if .IsRetest}}<span class="muted">—</span>{{else}}<span class="muted small">new</span>{{end}}</td>{{end}}
-        <td class="fid">{{if .OpenThreads}}<span class="threads" title="open chat threads">{{.OpenThreads}} open</span>{{end}}</td>
-        <td>{{.Author}}</td>
-        <td>{{join .Reviewers ", "}}</td>
+        <td class="title"><a href="{{fpath .EngID .Dir}}" title="{{.Title}}" data-nav id="row-{{.Dir}}">{{.Title}}</a></td>
+        <td>{{if .Severity}}<span class="tag sev-{{.Severity}}">{{.Severity}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
+        <td class="num">{{score .Score}}</td>
+        <td><span class="tag status-{{.Shown}}">{{statusLabel .Shown}}</span></td>
+        {{if $.IsRetest}}<td>{{if .RetestResult}}<span class="tag result-{{.RetestResult}}">{{retestLabel .RetestResult}}</span>{{else if .IsRetest}}<span class="muted">—</span>{{else}}<span class="muted small">new</span>{{end}}</td>{{end}}
+        <td class="cnt">{{if .OpenThreads}}<span class="badge">{{.OpenThreads}}</span>{{else}}<span class="badge0">0</span>{{end}}</td>
+        <td class="clip">{{.Author}}</td>
+        {{if not simple}}<td class="revs"><span class="rvs">{{$r := .}}{{range .Reviewers}}<span class="rv{{if cleared $r .}} cleared{{end}}" title="{{.}}"><span class="name">{{.}}</span>{{if cleared $r .}}<span class="sr"> (signed off)</span>{{end}}</span>{{else}}<span class="muted">—</span>{{end}}</span></td>{{end}}
       </tr>
     {{else}}
-      <tr><td colspan="9" class="muted empty">No findings match.</td></tr>
+      {{if not $.Offset}}{{template "empty_row" (colspan $)}}{{end}}
+    {{end}}
+    {{if .MoreURL}}
+      <tr class="more" id="findings-more"><td colspan="{{colspan $}}"><button type="button" class="btn secondary w152" hx-get="{{.MoreURL}}" hx-target="#findings-more" hx-swap="outerHTML">Load {{.PageSize}} more</button></td></tr>
+    {{end}}
+{{end}}
+
+{{define "enghead"}}
+<div class="titlerow">
+  <div class="titlecol">
+    <h1 title="{{.Eng.Name}}">{{.Eng.Name}}</h1>
+    <p class="sub">{{.Eng.Client}}{{if .Eng.Start}}{{if .Eng.Client}} · {{end}}{{.Eng.Start}}{{if .Eng.End}} – {{.Eng.End}}{{end}}{{end}}{{if .IsRetest}}{{if or .Eng.Client .Eng.Start}} · {{end}}Retest of {{if .Eng.Source}}<a href="/e/{{.Eng.Source}}">{{if .Source.Name}}{{.Source.Name}}{{else}}{{.Eng.Source}}{{end}}</a>{{else}}—{{end}}{{end}}</p>
+  </div>
+  <div class="actions">
+    <a class="btn secondary w128" href="/e/{{.Eng.ID}}/export" aria-keyshortcuts="E">Export</a>
+    {{if .CanManage}}<a class="btn secondary w128" href="/e/{{.Eng.ID}}/retest/new">New retest</a>{{else}}<span class="slot w128"></span>{{end}}
+    {{if .Archive.On}}{{if .Archive.CanReopen}}<form method="post" action="/e/{{.Eng.ID}}/reopen"><button class="btn secondary w128">Reopen</button></form>{{else}}<span class="slot w128"></span>{{end}}
+    {{else}}<a class="btn {{if eq .ETab.On "board"}}secondary{{else}}primary{{end}} w128" href="/e/{{.Eng.ID}}/findings/new"{{if ne .ETab.On "board"}} aria-keyshortcuts="N"{{end}}>New finding</a>{{end}}
+    {{/* New lead keeps its place, last: the board fills it, every other tab keeps it as a slot, so the buttons before it stand in one place on every tab; n is New lead on the board, New finding elsewhere */ -}}
+    {{if and (eq .ETab.On "board") (not .Archive.On)}}<a class="btn primary w128" href="/e/{{.Eng.ID}}/board?new=1" hx-get="/e/{{.Eng.ID}}/board?new=1" hx-target="#board" hx-swap="outerHTML" hx-push-url="true" aria-keyshortcuts="N">New lead</a>{{else}}<span class="slot w128"></span>{{end}}
+  </div>
+</div>
+{{template "archive_bar" .Archive}}
+<nav class="etabs" aria-label="Engagement">{{range .ETab.Items}}<a{{with .Keys}} aria-keyshortcuts="{{.}}"{{end}} class="etab{{if .Active}} on{{end}}" href="{{.URL}}"{{if .Active}} aria-current="page"{{end}}>{{.Label}}{{if eq .Key "board"}} {{if .Count}}<span class="badge">{{.Count}}</span>{{else}}<span class="badge0">0</span>{{end}}{{end}}</a>{{end}}</nav>
+{{end}}
+
+{{define "chart"}}
+<table class="sevchart table stable flush">
+  <thead><tr><th class="c-tag">Key</th><th>Share</th><th class="c-num">Findings</th></tr></thead>
+  <tbody>
+  {{range .}}
+    <tr>
+      <td><span class="tag {{if eq .Key "draft" "verification" "signed-off" "complete" "reported" "withdrawn"}}status{{else}}sev{{end}}-{{.Key}}">{{statusLabel .Key}}</span></td>
+      <td><svg class="hbar" viewBox="0 0 100 12" preserveAspectRatio="none" aria-hidden="true"><rect class="seg-empty" x="0" y="0" width="100" height="12"></rect><rect class="seg-{{.Key}}" x="0" y="0" width="{{.W}}" height="12"></rect></svg></td>
+      <td class="num{{if .Zero}} muted{{end}}">{{.N}}</td>
+    </tr>
+  {{end}}
+  </tbody>
+</table>
+{{end}}
+
+{{define "archive_bar"}}
+{{if .On}}
+<div class="archbar" role="status">
+  <svg class="lockicon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="5" y="11" width="14" height="10"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path></svg>
+  <span class="tag eng-archived">Archived</span>
+  <span class="idchip">{{.ID}}</span>
+  <span class="mono">{{.At}}{{if .By}} · {{.By}}{{end}}</span>
+</div>
+{{end}}
+{{end}}
+
+{{define "bulk_result"}}
+<div class="bulk-result" id="bulk-result" data-action="{{.Action}}">
+  <table class="table">
+    <thead><tr><th class="c-id">Finding</th><th class="title">Title</th><th>Result</th></tr></thead>
+    <tbody>
+    {{range .Items}}
+      <tr data-key="{{.Key}}" class="{{if .OK}}ok{{else}}denied{{end}}">
+        <td class="fid">{{if .ID}}{{.ID}}{{else}}{{.Key}}{{end}}</td>
+        <td class="title" title="{{.Title}}">{{.Title}}</td>
+        <td>{{if .OK}}<span class="tag status-ok">Done</span>{{else}}<span class="text">{{.Reason}}</span>{{end}}</td>
+      </tr>
     {{end}}
     </tbody>
   </table>
@@ -33,32 +152,66 @@
 {{end}}
 
 {{define "editor"}}
-<section class="panel editing" id="s-{{.Anchor}}">
-  <form hx-post="{{.SaveURL}}" hx-target="#s-{{.Anchor}}" hx-swap="outerHTML">
-    <div class="panelhead"><h2>{{.Name}}</h2></div>
-    {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
-    {{if .Current}}<details class="current" open><summary>Current saved version</summary><div class="md">{{.Current}}</div></details>{{end}}
+<section class="panel editing{{if .Conflict}} conflict{{end}}" id="s-{{.Anchor}}" data-kpanel>
+  <form class="flush" hx-post="{{.SaveURL}}" hx-target="#s-{{.Anchor}}" hx-swap="outerHTML" data-guard{{if .Presence.URL}} data-presence="{{.Presence.URL}}"{{end}}>
+    <div class="panelhead">
+      <h2 title="{{.Name}}">{{.Name}}<span class="dirtydot" title="Unsaved"></span></h2>
+      <div class="panel-tools">
+        {{if .Presence.URL}}{{template "presence" .Presence}}{{end}}
+        <div class="seg modes" role="group" aria-label="View">
+          <button type="button" data-mode="write" aria-pressed="false">Write</button><button type="button" data-mode="split" aria-pressed="true">Split</button><button type="button" data-mode="preview" aria-pressed="false">Preview</button>
+        </div>
+      </div>
+    </div>
+    {{if .Conflict}}
+    <div class="cbar flush">
+      <span class="cwho"><strong title="{{.Error}}">{{.Error}}</strong>{{with .Diff}}<span class="mono">{{.At}}</span>{{end}}</span>
+      <div class="actions">
+        <button type="button" class="btn secondary sm w96" data-theirs="t-{{.Anchor}}" aria-pressed="true">Show diff</button>
+        <button type="button" class="btn secondary sm w96" hx-get="{{.EditURL}}" hx-target="#s-{{.Anchor}}" hx-swap="outerHTML" hx-confirm="Discard your text?">Take theirs</button>
+        <button class="btn save sm w96">Keep mine</button>
+      </div>
+    </div>
+    {{with .Diff}}
+    <div class="cdiff flush" id="t-{{$.Anchor}}">
+      <div class="ccol">
+        <div class="dhead"><h3>Mine</h3><span class="mono">base {{.MineBase}}</span></div>
+        <div class="lines">{{range .Mine}}<div class="ln{{with .Class}} {{.}}{{end}}"><span class="lno">{{.No}}</span><span class="lop">{{.Op}}</span><span class="ltext">{{.Text}}</span></div>{{end}}</div>
+      </div>
+      <div class="ccol">
+        <div class="dhead"><h3 title="{{.By}}">{{if .By}}{{.By}}{{if .ByAI}}<span class="tag ai">AI</span>{{end}} · {{.At}}{{else}}Saved{{end}}</h3><span class="mono">{{.TheirsAt}}</span></div>
+        <div class="lines">{{range .Theirs}}<div class="ln{{with .Class}} {{.}}{{end}}"><span class="lno">{{.No}}</span><span class="lop">{{.Op}}</span><span class="ltext">{{.Text}}</span></div>{{end}}</div>
+      </div>
+    </div>
+    {{else}}
+    <div class="theirs md flush" id="t-{{.Anchor}}">{{if .Current}}{{.Current}}{{else}}<p class="muted">Empty</p>{{end}}</div>
+    {{end}}
+    {{else if .Error}}<p class="error editerr">{{.Error}}</p>{{end}}
     <input type="hidden" name="base" value="{{.Base}}">
-    <div class="editor">
-      <textarea name="body" rows="14" autofocus
+    <div class="editor" data-view="split">
+      <textarea name="body" rows="14" aria-label="{{.Name}}" autofocus{{if .Error}} data-dirty{{end}}
         hx-post="{{.PreviewURL}}" hx-trigger="keyup changed delay:300ms, load" hx-target="#p-{{.Anchor}}" hx-swap="innerHTML">{{.Raw}}</textarea>
       <div class="preview md" id="p-{{.Anchor}}"></div>
     </div>
-    <div class="actions">
-      <button class="primary">Save</button>
-      <button type="button" hx-get="{{.SaveURL}}" hx-target="#s-{{.Anchor}}" hx-swap="outerHTML">Cancel</button>
+    {{with .Attach}}{{template "attach_strip" .}}{{end}}
+    <div class="pfoot flush">
+      <span class="pstate" data-pstate>{{if .Conflict}}Conflict{{end}}</span>
+      <button type="button" class="btn secondary sm w96 invisible" data-draft-restore>Restore</button>
+      <button type="button" class="btn secondary sm w96" hx-get="{{.SaveURL}}" hx-target="#s-{{.Anchor}}" hx-swap="outerHTML" data-guard-cancel>Cancel</button>
+      <button class="btn save sm w96" aria-keyshortcuts="Control+S"{{if .Conflict}} disabled{{end}}>Save</button>
     </div>
   </form>
 </section>
 {{end}}
 
 {{define "panel"}}
-<section class="panel" id="s-{{.Anchor}}">
+<section class="panel" id="s-{{.Anchor}}" data-kpanel{{if .LiveURL}} hx-get="{{.LiveURL}}" hx-trigger="{{liveTrigger}}, sse:chat" hx-swap="outerHTML" data-sse{{end}}>
   <div class="panelhead">
-    <h2>{{.Name}}</h2>
+    <div class="panelname"><h2>{{.Name}}</h2>{{if .Open}}<span class="open-count">{{.Open}}</span>{{end}}</div>
     <span class="panel-tools">
-      <button class="link" type="button" data-section="{{.Name}}" onclick="yarsComment(this.dataset.section)">Comment{{if .Open}} <span class="open-count">{{.Open}}</span>{{end}}</button>
-      {{if .EditURL}}<button class="link" hx-get="{{.EditURL}}" hx-target="#s-{{.Anchor}}" hx-swap="outerHTML">Edit</button>{{end}}
+      {{if .Presence.URL}}{{template "presence" .Presence}}{{end}}
+      {{if .ReadOnly}}<span class="slot w96"></span>{{else}}<button class="btn ghost sm w96" type="button" data-comment="{{.Name}}" data-kskip>Comment</button>{{end}}
+      {{if .EditURL}}<button class="btn ghost sm w96" aria-keyshortcuts="E" data-kskip hx-get="{{.EditURL}}" hx-target="#s-{{.Anchor}}" hx-swap="outerHTML">Edit</button>{{else}}<span class="slot w96 lockslot">{{template "lock"}}</span>{{end}}
     </span>
   </div>
   <div class="md">{{if .HTML}}{{.HTML}}{{else}}<p class="muted">Empty</p>{{end}}</div>

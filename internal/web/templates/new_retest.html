@@ -1,41 +1,48 @@
 {{define "content"}}
-<form class="card" method="post" action="/e/{{.Eng.ID}}/retest/new">
-  <h1>New retest of {{.Eng.Name}}</h1>
-  <p class="muted">Creates a new engagement with copies of the selected findings. Each copy starts as a draft with a retest result to fill in. {{.Eng.Name}} itself is not changed.</p>
-  {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
-  <div class="form-grid">
-    <label>ID <input name="id" value="{{.Form.Get "id"}}" pattern="[A-Za-z0-9._\-]+" required></label>
-    <label>Name <input name="name" value="{{.Form.Get "name"}}" required></label>
-    <label>Client <input name="client" value="{{.Form.Get "client"}}"></label>
-    <label>Start <input name="start" type="date" value="{{.Form.Get "start"}}"></label>
-    <label>End <input name="end" type="date" value="{{.Form.Get "end"}}"></label>
-    <label>Retester
-      <select name="assignee">
-        <option value="">Keep original authors</option>
-        {{$cur := .Form.Get "assignee"}}
-        {{range .Users}}<option value="{{.Username}}"{{if eq .Username $cur}} selected{{end}}>{{.Username}} ({{.Role}})</option>{{end}}
-      </select>
-    </label>
+<form class="newretest" method="post" action="/e/{{.Eng.ID}}/retest/new">
+  <div class="titlerow">
+    <div class="titlecol">
+      <nav class="crumbs"><a href="/e/{{.Eng.ID}}">{{.Eng.Name}}</a><span class="sep" aria-hidden="true">/</span><span class="idchip">Retest</span></nav>
+      <h1 title="New retest of {{.Eng.Name}}">New retest of {{.Eng.Name}}</h1>
+    </div>
+    <div class="actions"><a class="btn secondary w128" href="/e/{{.Eng.ID}}">Cancel</a><button class="btn primary w128">Create retest</button></div>
   </div>
-  <h2 class="subhead">Findings to retest</h2>
-  <table class="findings pick">
-    <tbody>
-    {{range .Rows}}
-      <tr>
-        <td><input type="checkbox" name="finding" value="{{.Dir}}" id="pick-{{.Dir}}"{{if checkedIn $.Form "finding" .Dir}} checked{{end}}></td>
-        <td class="fid"><label for="pick-{{.Dir}}">{{.ID}}</label></td>
-        <td><label for="pick-{{.Dir}}">{{.Title}}</label></td>
-        <td>{{if .Severity}}<span class="pill sev-{{.Severity}}">{{.Severity}}</span>{{end}}</td>
-        <td><span class="pill status-{{.Status}}">{{.Status}}</span></td>
-      </tr>
-    {{else}}
-      <tr><td class="muted empty">This engagement has no findings.</td></tr>
-    {{end}}
-    </tbody>
-  </table>
-  <div class="actions">
-    <button class="primary">Create retest</button>
-    <a class="button" href="/e/{{.Eng.ID}}">Cancel</a>
-  </div>
+  <div class="errslot">{{if .Error}}<p class="error" title="{{.Error}}">{{.Error}}</p>{{end}}</div>
+  <section class="panel">
+    <div class="panelhead"><h2>Retest</h2></div>
+    <div class="fgrid three">
+      <label class="field">Name<input name="name" value="{{.Form.Get "name"}}" required></label>
+      <label class="field">ID<input class="monoin" name="id" value="{{.Form.Get "id"}}" pattern="[A-Za-z0-9._\-]+" required></label>
+      <label class="field">Client<input name="client" value="{{.Form.Get "client"}}"></label>
+      <label class="field">Start<input class="monoin" name="start" type="date" value="{{.Form.Get "start"}}"></label>
+      <label class="field">End<input class="monoin" name="end" type="date" value="{{.Form.Get "end"}}"></label>
+      <label class="field">Retester
+        <select name="assignee">
+          <option value="">Keep original authors</option>
+          {{$cur := .Form.Get "assignee"}}
+          {{range .Users}}<option value="{{.Username}}"{{if eq .Username $cur}} selected{{end}}>{{.Username}}{{if not simple}} ({{.Role}}){{end}}</option>{{end}}
+        </select>
+      </label>
+    </div>
+  </section>
+  <section class="panel pickpanel">
+    <div class="panelhead"><h2>Findings to retest</h2><span class="mono selof" data-of="{{len .Rows}}">{{len (index .Form "finding")}} of {{len .Rows}}</span></div>
+    <table class="table stable picktable flush">
+      <thead><tr><th class="c-pick"><span class="sr">Pick</span></th><th class="c-fid">ID</th><th>Title</th><th class="c-sev">Severity</th><th class="c-sev">Original status</th></tr></thead>
+      <tbody>
+      {{range .Rows}}
+        <tr>
+          <td><input type="checkbox" name="finding" value="{{.Dir}}" id="pick-{{.Dir}}"{{if checkedIn $.Form "finding" .Dir}} checked{{end}}></td>
+          <td class="fid"><label for="pick-{{.Dir}}">{{.ID}}</label></td>
+          <td class="title"><label for="pick-{{.Dir}}" title="{{.Title}}">{{.Title}}</label></td>
+          <td>{{if .Severity}}<span class="tag sev-{{.Severity}}">{{.Severity}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
+          <td><span class="tag status-{{.Shown}}">{{statusLabel .Shown}}</span></td>
+        </tr>
+      {{else}}
+        {{template "empty_row" 5}}
+      {{end}}
+      </tbody>
+    </table>
+  </section>
 </form>
 {{end}}

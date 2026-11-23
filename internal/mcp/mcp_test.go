@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -15,8 +16,10 @@ import (
 	"yars/internal/auth"
 	"yars/internal/config"
 	"yars/internal/db"
+	"yars/internal/finding"
 	"yars/internal/gitrepo"
 	"yars/internal/index"
+	"yars/internal/rules"
 	"yars/internal/store"
 )
 
@@ -28,10 +31,11 @@ var (
 )
 
 type fx struct {
-	t   *testing.T
-	s   *Server
-	dir string
-	id  int
+	t      *testing.T
+	s      *Server
+	dir    string
+	dbPath string
+	id     int
 }
 
 func newFx(t *testing.T) *fx {
@@ -41,7 +45,8 @@ func newFx(t *testing.T) *fx {
 		t.Fatal(err)
 	}
 	cfg := config.Default()
-	d, err := db.Open(filepath.Join(t.TempDir(), "yars.db"))
+	dbPath := filepath.Join(t.TempDir(), "yars.db")
+	d, err := db.Open(dbPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,8 +54,9 @@ func newFx(t *testing.T) *fx {
 	st := store.New(r, cfg, d)
 	st.CreateEngagement(store.Engagement{ID: "acme", Name: "ACME"}, dora.GitAuthor())
 	st.CreateFinding("acme", "SQL injection", alice.GitAuthor())
+	d.AddMembers("acme", "alice", "pen2", "bob") // the team; dora directs
 	users := []config.User{alice, pen2, bob, dora}
-	return &fx{t: t, dir: r.Dir, s: &Server{Store: st, Index: index.New(st, r), Cfg: cfg, Users: func() []config.User { return users }}}
+	return &fx{t: t, dir: r.Dir, dbPath: dbPath, s: &Server{Store: st, Index: index.New(st, r), Cfg: cfg, Users: func() []config.User { return users }}}
 }
 
 // rpc sends one request and returns the decoded response.
@@ -96,9 +102,9 @@ func (f *fx) lastCommit() string {
 
 func TestMCPInitializeAndList(t *testing.T) {
 	f := newFx(t)
-	r := f.rpc(alice, "initialize", map[string]any{"protocolVersion": "2025-03-26", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "t"}})
+	r := f.rpc(alice, "initialize", map[string]any{"protocolVersion": "2024-11-05", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "t"}})
 	res := r["result"].(map[string]any)
-	if res["protocolVersion"] != "2025-03-26" || res["capabilities"].(map[string]any)["tools"] == nil || res["serverInfo"].(map[string]any)["name"] != "yars" {
+	if res["protocolVersion"] != "2024-11-05" || res["capabilities"].(map[string]any)["tools"] == nil || res["serverInfo"].(map[string]any)["name"] != "yars" {
 		t.Fatalf("initialize: %v", r)
 	}
 	if out := f.s.Handle(context.Background(), alice, []byte(`{"jsonrpc":"2.0","method":"notifications/initialized"}`)); out != nil {
@@ -120,6 +126,22 @@ func TestMCPInitializeAndList(t *testing.T) {
 	}
 	if pong := f.rpc(alice, "ping", nil); pong["error"] != nil {
 		t.Fatalf("ping %v", pong)
+	}
+}
+
+// Q11: initialize names the build's version; a server given none says dev.
+func TestMCPInitializeVersion(t *testing.T) {
+	f := newFx(t)
+	version := func() any {
+		res := f.rpc(alice, "initialize", map[string]any{})["result"].(map[string]any)
+		return res["serverInfo"].(map[string]any)["version"]
+	}
+	if v := version(); v != "dev" {
+		t.Fatalf("no version: %v", v)
+	}
+	f.s.Version = "v1.2.3"
+	if v := version(); v != "v1.2.3" {
+		t.Fatalf("version: %v", v)
 	}
 }
 
@@ -205,9 +227,15 @@ func TestMCPSetFieldBase(t *testing.T) {
 		DetailsBase string `json:"details_base"`
 	}
 	json.Unmarshal([]byte(f.ok(alice, "read_finding", map[string]any{"engagement": "acme", "finding": "F-001"})), &rd)
-	// a colleague changes the vector meanwhile
+	// a colleague changes the vector meanwhile: a reason is a row of its
+	// own (D14), so it is still set, on the new vector
 	f.ok(bob, "set_field", args("cvss", "CVSS:3.1/AV:L/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:N", ""))
-	if text, isErr := f.call(alice, "set_field", args("cvss_reason.AC", "race", rd.CVSSBase)); !isErr || !strings.Contains(text, "changed") {
+	f.ok(alice, "set_field", args("cvss_reason.AC", "race", rd.CVSSBase))
+	if ref, _ := f.s.Store.Finding("acme", "001"); !strings.Contains(ref.F.Meta.CVSS, "AV:L") {
+		t.Fatalf("vector written back: %s", ref.F.Meta.CVSS)
+	}
+	// the vector itself with the old base: refused
+	if text, isErr := f.call(alice, "set_field", args("cvss", "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N", rd.CVSSBase)); !isErr || !strings.Contains(text, "changed") {
 		t.Fatalf("stale cvss base: %s", text)
 	}
 	f.ok(alice, "set_field", args("details.Location", "a", rd.DetailsBase))
@@ -294,6 +322,78 @@ func TestMCPTransitionAndChat(t *testing.T) {
 	}
 }
 
+// Q25: a director who signed off her own finding is on its reviewers; a
+// reviewers list may name her or leave her out, and her sign-off stays.
+func TestMCPReviewersAfterOwnSignOff(t *testing.T) {
+	f := newFx(t)
+	if _, err := f.s.Store.CreateFinding("acme", "XSS", dora.GitAuthor()); err != nil {
+		t.Fatal(err)
+	}
+	set := func(u config.User, field, value string) {
+		f.ok(u, "set_field", map[string]any{"engagement": "acme", "finding": "F-002", "field": field, "value": value})
+	}
+	set(dora, "reviewers", "bob")
+	set(dora, "severity", "high")
+	for _, a := range []string{"submit", "sign_off"} {
+		f.ok(dora, "transition", map[string]any{"engagement": "acme", "finding": "F-002", "action": a})
+	}
+	set(bob, "reviewers", "bob,dora")
+	set(bob, "reviewers", "bob")
+	set(dora, "reviewers", "bob,dora")
+	if ref, _ := f.s.Store.Finding("acme", "002"); strings.Join(ref.F.Meta.Reviewers, ",") != "bob,dora" || strings.Join(ref.F.Meta.ClearedBy, ",") != "dora" {
+		t.Fatalf("reviewers %v cleared %v", ref.F.Meta.Reviewers, ref.F.Meta.ClearedBy)
+	}
+}
+
+func TestMCPSignOffReportWithdraw(t *testing.T) {
+	f := newFx(t)
+	set := func(field, value string) {
+		f.ok(alice, "set_field", map[string]any{"engagement": "acme", "finding": "F-001", "field": field, "value": value})
+	}
+	set("reviewers", "bob")
+	set("severity", "high")
+	tr := func(u config.User, action, reason string) (string, bool) {
+		return f.call(u, "transition", map[string]any{"engagement": "acme", "finding": "F-001", "action": action, "reason": reason})
+	}
+	status := func() string {
+		ref, err := f.s.Store.Finding("acme", "001")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ref.F.Meta.Status
+	}
+	tr(alice, "submit", "")
+	if text, isErr := tr(bob, "sign_off", ""); isErr {
+		t.Fatalf("sign_off: %s", text)
+	}
+	tr(dora, "approve", "")
+	if text, isErr := tr(alice, "report", ""); !isErr || status() != "complete" {
+		t.Fatalf("pentester reported: %s", text)
+	}
+	if text, isErr := tr(dora, "report", ""); isErr || status() != "reported" || !strings.Contains(text, "reported") {
+		t.Fatalf("director report: %s", text)
+	}
+	if text, isErr := tr(dora, "withdraw", ""); !isErr || !strings.Contains(text, "reason") {
+		t.Fatalf("withdraw without reason: %s", text)
+	}
+	if text, isErr := tr(dora, "withdraw", "client disputes it"); isErr || status() != "withdrawn" {
+		t.Fatalf("withdraw: %s", text)
+	}
+	out := f.ok(alice, "read_finding", map[string]any{"engagement": "acme", "finding": "F-001"})
+	if !strings.Contains(out, `"withdrawn"`) || !strings.Contains(out, "client disputes it") {
+		t.Fatalf("read_finding lacks withdrawal:\n%s", out)
+	}
+	if out := f.ok(alice, "list_findings", map[string]any{"engagement": "acme"}); strings.Contains(out, "F-001") {
+		t.Fatalf("withdrawn finding listed by default:\n%s", out)
+	}
+	if out := f.ok(alice, "list_findings", map[string]any{"engagement": "acme", "status": "withdrawn"}); !strings.Contains(out, "F-001") {
+		t.Fatalf("withdrawn filter:\n%s", out)
+	}
+	if text, isErr := tr(alice, "revise", ""); isErr || status() != "draft" {
+		t.Fatalf("revise: %s", text)
+	}
+}
+
 func TestMCPPermissions(t *testing.T) {
 	f := newFx(t)
 	set := func(field, value string) {
@@ -302,6 +402,25 @@ func TestMCPPermissions(t *testing.T) {
 	set("reviewers", "bob")
 	set("severity", "high")
 	f.ok(alice, "transition", map[string]any{"engagement": "acme", "finding": "F-001", "action": "submit"})
+	// the author takes it back (a reviewer cannot) and submits again
+	if text, isErr := f.call(bob, "transition", map[string]any{"engagement": "acme", "finding": "F-001", "action": "take_back"}); !isErr || !strings.Contains(text, "author") {
+		t.Fatalf("reviewer took back via MCP: %s", text)
+	}
+	if out := f.ok(alice, "transition", map[string]any{"engagement": "acme", "finding": "F-001", "action": "take_back"}); !strings.Contains(out, "now draft") {
+		t.Fatalf("take back: %s", out)
+	}
+	f.ok(alice, "transition", map[string]any{"engagement": "acme", "finding": "F-001", "action": "submit"})
+	// another pentester on the team may neither change the reviewers nor
+	// sign off (backlog, M9)
+	// (a valid list, so only the permission can refuse it: review)
+	if text, isErr := f.call(pen2, "set_field", map[string]any{"engagement": "acme", "finding": "F-001", "field": "reviewers", "value": "bob"}); !isErr ||
+		!strings.Contains(text, "not_allowed") || !strings.Contains(text, "only a reviewer, the author or a director can assign reviewers") {
+		t.Fatalf("a pentester who is not the author set the reviewers: %s", text)
+	}
+	if text, isErr := f.call(pen2, "transition", map[string]any{"engagement": "acme", "finding": "F-001", "action": "clear"}); !isErr ||
+		!strings.Contains(text, "not_allowed") || !strings.Contains(text, "only an assigned reviewer or a director can clear") {
+		t.Fatalf("a pentester who is not a reviewer signed off: %s", text)
+	}
 	if text, isErr := f.call(alice, "transition", map[string]any{"engagement": "acme", "finding": "F-001", "action": "approve"}); !isErr || !strings.Contains(text, "director") {
 		t.Fatalf("pentester approved: %s", text)
 	}
@@ -313,8 +432,89 @@ func TestMCPPermissions(t *testing.T) {
 	if text, isErr := f.call(alice, "update_section", map[string]any{"engagement": "acme", "finding": "F-001", "section": "Impact", "body": "late"}); !isErr || !strings.Contains(text, "complete") {
 		t.Fatalf("locked edit: %s", text)
 	}
-	if _, isErr := f.call(dora, "transition", map[string]any{"engagement": "acme", "finding": "F-001", "action": "report"}); !isErr {
-		t.Fatal("report via MCP")
+	// report is open to directors only over MCP (the author marks it on
+	// the finding page or the bulk bar)
+	for _, u := range []config.User{bob, alice} {
+		if text, isErr := f.call(u, "transition", map[string]any{"engagement": "acme", "finding": "F-001", "action": "report"}); !isErr || !strings.Contains(text, "director") {
+			t.Fatalf("%s reported via MCP: %s", u.Username, text)
+		}
+	}
+	f.ok(dora, "transition", map[string]any{"engagement": "acme", "finding": "F-001", "action": "report"})
+}
+
+// R4: revert takes the finding back one step from where it is, with a
+// reason; nothing to revert on a draft. The author reverts her own finding
+// over MCP as on the website (roadmap answer 6).
+func TestMCPRevertResolvesByStatus(t *testing.T) {
+	f := newFx(t)
+	tr := func(u config.User, action, reason string) (string, bool) {
+		return f.call(u, "transition", map[string]any{"engagement": "acme", "finding": "F-001", "action": action, "reason": reason})
+	}
+	if text, isErr := tr(dora, "revert", "x"); !isErr || !strings.Contains(text, "nothing to revert: the finding is draft") {
+		t.Fatalf("revert on a draft: %s", text)
+	}
+	// unreport on a draft says where it is possible, not who may
+	if text, isErr := tr(alice, "unreport", "x"); !isErr || !strings.Contains(text, "Revert to complete is only possible in reported") {
+		t.Fatalf("unreport on a draft: %s", text)
+	}
+	f.ok(alice, "set_field", map[string]any{"engagement": "acme", "finding": "F-001", "field": "reviewers", "value": "bob"})
+	f.ok(alice, "set_field", map[string]any{"engagement": "acme", "finding": "F-001", "field": "severity", "value": "high"})
+	for _, step := range []struct {
+		u config.User
+		a string
+	}{{alice, "submit"}, {bob, "clear"}, {dora, "approve"}, {dora, "report"}} {
+		f.ok(step.u, "transition", map[string]any{"engagement": "acme", "finding": "F-001", "action": step.a})
+	}
+	if text, isErr := tr(bob, "revert", "sent too early"); !isErr || !strings.Contains(text, "only the author or a director can revert a finding") {
+		t.Fatalf("reviewer unreported via MCP: %s", text)
+	}
+	if text, isErr := tr(alice, "revert", "sent too early"); isErr || !strings.Contains(text, "status is now complete") {
+		t.Fatalf("author's revert of reported: %s", text)
+	}
+	// the author reverts her complete finding to verification
+	if text, isErr := tr(alice, "revert", "wrong host"); isErr || !strings.Contains(text, "status is now verification") {
+		t.Fatalf("revert of complete: %s", text)
+	}
+}
+
+// R4: a token needs the status action to revert, as to withdraw (an
+// unreport delivers nothing to the client); report alone needs export.
+func TestMCPRevertTokenScope(t *testing.T) {
+	tr := toolByName["transition"]
+	for action, want := range map[string]string{"unreport": "status", "revert": "status", "reopen": "status", "report": "export"} {
+		if got := actionOf(tr, args{"action": action}); got != want {
+			t.Errorf("%s needs %q, want %q", action, got, want)
+		}
+	}
+}
+
+// R4, Review focus 4: an older client calling reopen without a reason is
+// told what to send.
+func TestMCPReopenWithoutReasonExplains(t *testing.T) {
+	f := newFx(t)
+	f.ok(alice, "set_field", map[string]any{"engagement": "acme", "finding": "F-001", "field": "reviewers", "value": "bob"})
+	f.ok(alice, "set_field", map[string]any{"engagement": "acme", "finding": "F-001", "field": "severity", "value": "high"})
+	for _, step := range []struct {
+		u config.User
+		a string
+	}{{alice, "submit"}, {bob, "clear"}, {dora, "approve"}} {
+		f.ok(step.u, "transition", map[string]any{"engagement": "acme", "finding": "F-001", "action": step.a})
+	}
+	text, isErr := f.call(dora, "transition", map[string]any{"engagement": "acme", "finding": "F-001", "action": "reopen"})
+	if !isErr || !strings.Contains(text, "a reason is required") {
+		t.Fatalf("reopen without a reason: %s", text)
+	}
+	// the tool says which actions need one, and lists the new ones
+	tr := toolByName["transition"]
+	if !strings.Contains(tr.optional[0].desc, "required for return, withdraw, reopen, unreport and revert") ||
+		!strings.Contains(tr.required[2].desc, "unreport | revert") || !strings.Contains(tr.desc, "unreport (") || !strings.Contains(tr.desc, "revert (") {
+		t.Fatalf("transition tool: %+v", tr)
+	}
+	if text, _ := f.call(dora, "transition", map[string]any{"engagement": "acme", "finding": "F-001", "action": "bogus"}); !strings.Contains(text, "report, unreport, revert, withdraw") {
+		t.Fatalf("unknown action: %s", text)
+	}
+	if !strings.Contains(instructions, "return, withdraw, report, revert)") {
+		t.Fatal("instructions do not ask to confirm a revert")
 	}
 }
 
@@ -368,6 +568,29 @@ func TestMCPCreateAndLint(t *testing.T) {
 	}
 }
 
+func TestMCPLintMarksDismissed(t *testing.T) {
+	f := newFx(t)
+	rd := filepath.Join(f.dir, ".yars", "rules")
+	os.MkdirAll(rd, 0o755)
+	os.WriteFile(filepath.Join(rd, "r.yaml"), []byte("- id: no-sql\n  target: title\n  regex_forbid: 'SQL'\n- id: no-inj\n  target: title\n  regex_forbid: 'injection'\n"), 0o644)
+	eng := rules.NewEngine(rd, f.s.Cfg)
+	f.s.Rules, f.s.Store.Linter = eng, eng
+	if err := f.s.Store.Dismiss("acme", "F-001-sql-injection", "no-sql", "SQL", bob); err != nil {
+		t.Fatal(err)
+	}
+	var vs []map[string]any
+	itemsOf(t, f.ok(alice, "lint_finding", map[string]any{"engagement": "acme", "finding": "F-001"}), &vs)
+	if len(vs) != 2 {
+		t.Fatalf("got %+v", vs)
+	}
+	for _, v := range vs {
+		dismissed := v["rule"] == "no-sql"
+		if (v["dismissed"] == true) != dismissed || (dismissed && v["dismissed_by"] != "bob") {
+			t.Fatalf("violation %+v", v)
+		}
+	}
+}
+
 func (f *fx) httpServer(t *testing.T) (*httptest.Server, *auth.Tokens, string) {
 	t.Helper()
 	d := f.s.Store.DB()
@@ -377,15 +600,7 @@ func (f *fx) httpServer(t *testing.T) (*httptest.Server, *auth.Tokens, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lookup := func(name string) (config.User, bool) {
-		for _, u := range f.s.Users() {
-			if u.Username == name {
-				return u, true
-			}
-		}
-		return config.User{}, false
-	}
-	srv := httptest.NewServer(f.s.HTTPHandler(tk, lookup))
+	srv := httptest.NewServer(f.s.HTTPHandler(tk))
 	t.Cleanup(srv.Close)
 	return srv, tk, tok
 }
@@ -422,12 +637,53 @@ func TestMCPHTTPAuth(t *testing.T) {
 	if c, _ := post(t, srv.URL, tok, list); c != 200 {
 		t.Errorf("good token: %d", c)
 	}
-	tk.Revoke("bob")
+	tk.Revoke("cli", "bob")
 	if c, _ := post(t, srv.URL, tok, list); c != 401 {
 		t.Errorf("revoked token: %d", c)
 	}
 	if c, _ := post(t, srv.URL, tok, `{"jsonrpc":"2.0","id":1,"method":"ping","params":"`+strings.Repeat("x", 3<<20)+`"}`); c != 401 && c != 413 {
 		t.Errorf("huge body: %d", c)
+	}
+}
+
+// `yars token revoke` runs as its own process with its own database
+// connection while the server runs: the next request with that token is
+// refused, since tokens are looked up in the database each time (backlog, M9).
+func TestMCPRevokeFromAnotherProcess(t *testing.T) {
+	f := newFx(t)
+	srv, _, tok := f.httpServer(t)
+	list := `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`
+	if c, _ := post(t, srv.URL, tok, list); c != 200 {
+		t.Fatalf("good token: %d", c)
+	}
+	other, err := db.Open(f.dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer other.Close()
+	if err := auth.NewTokens(other).Revoke("cli", "bob"); err != nil {
+		t.Fatal(err)
+	}
+	if c, _ := post(t, srv.URL, tok, list); c != 401 {
+		t.Fatalf("a token revoked by another process still works: %d", c)
+	}
+}
+
+// R5: a token of an account with an unchanged temporary password is
+// refused with what to do about it.
+func TestMCPHTTPMustChange(t *testing.T) {
+	f := newFx(t)
+	srv, _, tok := f.httpServer(t)
+	temp, _ := auth.HashPassword("temporary-pw-1")
+	if err := f.s.Store.DB().ResetPassword("bob", temp); err != nil {
+		t.Fatal(err)
+	}
+	c, body := post(t, srv.URL, tok, `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
+	if c != 403 || !strings.Contains(body, "set a new password first (log in on the website)") {
+		t.Fatalf("%d %q", c, body)
+	}
+	if c, body := post(t, srv.URL, "yars_nope", `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`); c != 401 || strings.Contains(body, "new password") {
+		t.Fatalf("bad token: %d %q", c, body)
 	}
 }
 
@@ -461,5 +717,18 @@ func TestServeStdio(t *testing.T) {
 	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
 	if len(lines) != 2 || !strings.Contains(lines[0], `"id":1`) || !strings.Contains(lines[1], "list_findings") {
 		t.Fatalf("stdio output:\n%s", out.String())
+	}
+}
+
+// addTemplate commits a template to the main repo.
+func addTemplate(t *testing.T, f *fx, slug, title string) {
+	t.Helper()
+	err := f.s.Store.SaveTemplate(slug, gitrepo.Author{Name: "dora", Email: "dora@yars.local"}, func(cur *finding.Finding) (*finding.Finding, error) {
+		nf := f.s.Store.NewTemplate(title)
+		nf.SetSection("Impact", "Attackers read every row.")
+		return nf, nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }

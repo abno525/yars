@@ -1,22 +1,31 @@
 {{define "content"}}
-<div class="pagehead">
-  <div>
-    <h1>{{.Eng.Name}}</h1>
-    <p class="muted">{{.Eng.Client}}</p>
-    {{if .IsRetest}}<p class="retest-banner">Retest of <a href="/e/{{.Eng.Source}}">{{if .Source.Name}}{{.Source.Name}}{{else}}{{.Eng.Source}}{{end}}</a></p>{{end}}
-  </div>
-  <div class="actions">
-    <a class="button" href="/e/{{.Eng.ID}}/export">Export</a>
-    {{if .CanManage}}<a class="button" href="/e/{{.Eng.ID}}/retest/new">New retest</a>{{end}}
-    <a class="button primary" href="/e/{{.Eng.ID}}/findings/new">New finding</a>
-  </div>
-</div>
+{{template "enghead" .}}
+{{template "engbars" .}}
 {{template "findings" .}}
 {{if .CloneURL}}
-<section class="panel clonehint">
-  <h2>Work locally on this engagement</h2>
-  <p class="muted small">This engagement is its own git repository: its history shows only its own changes. Clone it with your YARS login, edit, commit and push.</p>
-  <pre><code>git clone {{.CloneURL}}</code></pre>
+<section class="clonebar">
+  <span class="label">Clone</span>
+  <code id="clone-cmd">git clone {{.CloneURL}}</code>
+  <button type="button" class="btn w96" data-copy="clone-cmd" aria-keyshortcuts="C">Copy</button>
 </section>
 {{end}}
+{{end}}
+
+{{/* the list after a bulk run, with the progress panel out of band */}}
+{{define "findings_ran"}}{{template "findings" .}}{{template "engbars" .}}{{end}}
+
+{{/* the progress panel */}}
+{{define "engbars"}}
+<section class="bars" id="engbars"{{if .BarsOOB}} hx-swap-oob="true"{{end}} aria-label="Engagement progress">
+  <div class="barcol">
+    <div class="barhead"><span class="barname">Progress</span><span class="barval">{{.Bars.Reported}} of {{.Bars.Total}} reported</span></div>
+    {{template "bar" .Bars.Progress}}
+    {{template "legend" .Bars.Progress}}
+  </div>
+  <div class="barcol">
+    <div class="barhead"><span class="barname">By severity</span><span class="barval">{{.Bars.Total}} finding{{if ne .Bars.Total 1}}s{{end}}</span></div>
+    {{template "bar" .Bars.Severity}}
+    {{template "legend" .Bars.Severity}}
+  </div>
+</section>
 {{end}}

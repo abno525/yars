@@ -51,6 +51,48 @@ func TestParseBasic(t *testing.T) {
 	}
 }
 
+const bom = "\xef\xbb\xbf"
+
+// Files an editor may write are read: a UTF-8 byte order mark (dropped on
+// the next write), empty front matter, and a closing "---" with no newline
+// after it (backlog, Core).
+func TestParseEditorQuirks(t *testing.T) {
+	f, err := Parse([]byte(bom + canonical))
+	if err != nil || f.Meta.ID != "F-001" || len(f.Sections) != 2 {
+		t.Fatalf("with a BOM: %v %+v", err, f)
+	}
+	if got := string(f.Bytes()); got != canonical {
+		t.Fatalf("with a BOM, written back:\n%q", got)
+	}
+	empty := "---\n---\n\n## Description\n\ntext\n"
+	f, err = Parse([]byte(empty))
+	if err != nil || f.Meta.ID != "" || len(f.Sections) != 1 || f.Sections[0].Name != "Description" {
+		t.Fatalf("empty front matter: %v %+v", err, f)
+	}
+	if got := string(f.Bytes()); got != empty {
+		t.Fatalf("empty front matter, written back:\n%q", got)
+	}
+	for _, in := range []string{"---\nid: F-001\ntitle: X\n---", "---\nid: F-001\ntitle: X\n---\r\n", "---\n---"} {
+		f, err := Parse([]byte(in))
+		if err != nil || len(f.Sections) != 0 || f.Preamble != "" {
+			t.Fatalf("%q: %v %+v", in, err, f)
+		}
+		if in != "---\n---" && f.Meta.ID != "F-001" {
+			t.Fatalf("%q: meta %+v", in, f.Meta)
+		}
+	}
+	// a body without a final newline is written back as it was (review)
+	noEOL := "---\nid: F-001\n---\n\n## Impact\n\ntext"
+	if f, err := Parse([]byte(noEOL)); err != nil || string(f.Bytes()) != noEOL {
+		t.Fatalf("no final newline: %v %q", err, f.Bytes())
+	}
+	for _, in := range []string{"", "id: F-001\n", "---\nid: F-001\n", "---\nid: F-001\n----\n"} {
+		if _, err := Parse([]byte(in)); err == nil {
+			t.Errorf("%q parsed", in)
+		}
+	}
+}
+
 func TestRoundTrip(t *testing.T) {
 	f, err := Parse([]byte(canonical))
 	if err != nil {

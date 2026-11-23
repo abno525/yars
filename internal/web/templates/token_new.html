@@ -1,0 +1,72 @@
+{{define "content"}}
+{{$f := .Settings.Token}}
+<div class="titlecol">
+  <nav class="crumbs"><a href="/settings">Settings</a><span class="sep" aria-hidden="true">/</span><a href="/settings#tokens">Tokens</a></nav>
+  <h1>New token</h1>
+</div>
+<div class="sidegrid">
+  <form class="panel" method="post" action="/settings/tokens/new">
+    <div class="frows flush">
+      <label class="frow"><span class="flabel">Name</span><input class="w360" name="name" value="{{$f.Name}}" maxlength="64" required></label>
+      <div class="frow"><span class="flabel">Use for</span>
+        <div class="seg n2" role="radiogroup" aria-label="Use for">
+          <label><input type="radio" name="kind" value="mcp"{{if eq $f.Kind "mcp"}} checked{{end}}><span>MCP</span></label>
+          <label><input type="radio" name="kind" value="git"{{if eq $f.Kind "git"}} checked{{end}}><span>Git</span></label>
+        </div>
+      </div>
+      <div class="frow"><span class="flabel">Access</span>
+        <div class="seg n2 nocap" role="radiogroup" aria-label="Access">
+          <label><input type="radio" name="access" value="read"{{if ne $f.Access "actions"}} checked{{end}}><span>Read only</span></label>
+          <label><input type="radio" name="access" value="actions"{{if eq $f.Access "actions"}} checked{{end}}><span>Selected actions</span></label>
+        </div>
+      </div>
+      <div class="frow top"><span class="flabel">Actions</span>
+        <div class="checkgrid">
+          <label class="chk muted"><input type="checkbox" checked disabled>Read findings and chat</label>
+          {{range $f.Actions}}<label class="chk"><input type="checkbox" name="action" value="{{.Value}}"{{if .On}} checked{{end}}>{{.Label}}</label>{{end}}
+        </div>
+      </div>
+      <div class="frow top"><span class="flabel">Engagements</span>
+        <div class="fstack">
+          <div class="seg n2" role="radiogroup" aria-label="Engagements">
+            <label><input type="radio" name="engs" value="all"{{if ne $f.Engs "selected"}} checked{{end}}><span>All</span></label>
+            <label><input type="radio" name="engs" value="selected"{{if eq $f.Engs "selected"}} checked{{end}}><span>Selected</span></label>
+          </div>
+          <div class="checklist">
+            {{range $f.EngOpts}}<label class="chk"><input type="checkbox" name="eng" value="{{.Value}}"{{if .On}} checked{{end}}><span class="grow clip" title="{{.Label}}">{{.Label}}</span>{{if .Muted}}<span class="tag eng-archived">Archived</span>{{else}}<span class="tagslot"></span>{{end}}<span class="mono idcol" title="{{.Value}}">{{.Value}}</span></label>{{else}}<span class="muted">—</span>{{end}}
+          </div>
+        </div>
+      </div>
+      <div class="frow"><span class="flabel">Expires</span>
+        <div class="seg n4 nocap" role="radiogroup" aria-label="Expires">
+          <label><input type="radio" name="expires" value="30"{{if eq $f.Expires "30"}} checked{{end}}><span>30 days</span></label>
+          <label><input type="radio" name="expires" value="90"{{if or (eq $f.Expires "90") (eq $f.Expires "")}} checked{{end}}><span>90 days</span></label>
+          <label><input type="radio" name="expires" value="365"{{if eq $f.Expires "365"}} checked{{end}}><span>1 year</span></label>
+          <label><input type="radio" name="expires" value="never"{{if eq $f.Expires "never"}} checked{{end}}><span>Never</span></label>
+        </div>
+      </div>
+    </div>
+    <div class="pfoot flush">
+      <span class="pstate error" title="{{$f.Error}}">{{$f.Error}}</span>
+      <a class="btn secondary w128" href="/settings#tokens">Cancel</a>
+      <button class="btn primary w128">Create token</button>
+    </div>
+  </form>
+  <aside class="sidecol">
+    <section class="panel compact once{{if not $f.Secret}} idle{{end}}" aria-label="New token">
+      <div class="panelhead"><h2>Token</h2>{{if $f.Secret}}<span class="tag shown">Shown once</span>{{end}}</div>
+      <div class="copyrow flush">
+        <code id="new-token" class="clip">{{$f.Secret}}</code>
+        {{if $f.Secret}}<button type="button" class="btn save w96" data-copy="new-token">Copy</button>{{else}}<span class="slot w96"></span>{{end}}
+      </div>
+    </section>
+    <section class="panel compact">
+      <div class="panelhead"><h2>Use it</h2></div>
+      <div class="usage">
+        <span class="flabel">MCP</span><code class="block">{{$f.MCPURL}} · Authorization: Bearer yars_…</code>
+        <span class="flabel">Git</span><code class="block">git clone {{$f.GitURL}}&lt;engagement&gt; · {{.User.Username}} · yars_…</code>
+      </div>
+    </section>
+  </aside>
+</div>
+{{end}}

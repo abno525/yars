@@ -1,0 +1,61 @@
+{{define "content"}}
+{{$f := .Finding.F}}
+{{$h := .History}}
+<div class="titlerow">
+  <div class="titlecol">
+    <nav class="crumbs"><a href="/e/{{.Eng.ID}}">{{.Eng.Name}}</a><span class="sep" aria-hidden="true">/</span><a class="idchip" href="{{$h.Back}}">{{$f.Meta.ID}}</a></nav>
+    <h1 title="History · {{$f.Meta.Title}}">History · {{$f.Meta.Title}}</h1>
+  </div>
+  <div class="actions"><a class="btn secondary w128" href="{{$h.Back}}">Back</a></div>
+</div>
+<div class="errslot">{{if $h.Error}}<p class="error" title="{{$h.Error}}">{{$h.Error}}</p>{{end}}</div>
+<div class="histgrid">
+  <section class="panel compact hevents">
+    <div class="panelhead">
+      <h2>Changes</h2>
+      <nav class="seg hfilter" aria-label="Show">{{range $h.Filters}}<a class="{{if .Active}}on{{end}}"{{with .Keys}} aria-keyshortcuts="{{.}}"{{end}} href="{{.URL}}">{{.Label}} · {{.Count}}</a>{{end}}</nav>
+    </div>
+    <div class="evlist flush">
+      {{range $h.Events}}
+      <a class="ev{{if .On}} on{{end}}" href="{{.URL}}" data-nav>
+        <span class="dot {{.Class}}"></span>
+        <span class="evwhat"><span class="evline"><strong>{{.Who}}</strong>{{if .AI}}<span class="tag ai">AI</span>{{end}} <span class="evact">{{.Act}}</span></span>{{if .Short}}<span class="mono">{{.Short}}</span>{{else if .Text}}<span class="mono" title="{{.Text}}">{{.Text}}</span>{{end}}</span>
+        <span class="mono evtime">{{.Time}}</span>
+      </a>
+      {{else}}
+      <p class="muted evnone">—</p>
+      {{end}}
+    </div>
+  </section>
+  <section class="panel hdiff">
+    {{with $h.Sel}}
+    <div class="panelhead">
+      <div class="panelname"><h2>{{.Who}}</h2>{{if .AI}}<span class="tag ai">AI</span>{{end}}<span class="mono clip">{{.Time}}{{if .Short}} · {{.Short}}{{end}}</span>{{if eq .Kind "content"}}<span class="mono"><span class="minus">−{{$h.Removed}}</span> <span class="plus">+{{$h.Added}}</span></span>{{end}}</div>
+      {{if eq .Kind "content"}}<nav class="seg dmode" aria-label="View"><a class="{{if not $h.Full}}on{{end}}" href="{{$h.DiffURL}}">Diff</a><a class="{{if $h.Full}}on{{end}}" href="{{$h.FullURL}}">Full text</a></nav>{{end}}
+    </div>
+    {{if eq .Kind "status"}}
+    <div class="hstatus"><span class="dot {{.Class}}"></span><span><strong>{{.Who}}</strong> {{.Act}}</span>{{if .Text}}<p class="text">{{.Text}}</p>{{end}}</div>
+    {{else}}
+    {{$ev := .Key}}
+    {{range $h.Diffs}}
+    <div class="dhead flush">
+      <h3 title="{{.Name}}">{{.Name}}</h3>
+      <span class="mono"><span class="minus">−{{.Removed}}</span> <span class="plus">+{{.Added}}</span></span>
+      {{if and $h.CanRestore .Section}}
+      <form method="post" action="{{$h.RestoreURL}}">
+        <input type="hidden" name="ev" value="{{$ev}}"><input type="hidden" name="section" value="{{.Section}}"><input type="hidden" name="base" value="{{.Base}}">
+        <button class="btn secondary sm w96">Restore</button>
+      </form>
+      {{else}}<span class="slot w96"></span>{{end}}
+    </div>
+    <div class="lines flush">{{range .Lines}}<div class="ln{{with .Class}} {{.}}{{end}}"><span class="lno">{{.No}}</span><span class="lop">{{.Op}}</span><span class="ltext">{{.Text}}</span></div>{{end}}</div>
+    {{else}}
+    <p class="muted">—</p>
+    {{end}}
+    {{end}}
+    {{else}}
+    <div class="panelhead"><h2>—</h2></div>
+    {{end}}
+  </section>
+</div>
+{{end}}

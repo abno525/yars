@@ -1,0 +1,27 @@
+{{define "content"}}
+{{$m := .Purge}}
+<form class="newf" method="post" action="{{$m.URL}}">
+  <div class="titlerow">
+    <div class="titlecol">
+      <nav class="crumbs"><a href="/e/{{.Eng.ID}}">{{.Eng.Name}}</a><span class="sep" aria-hidden="true">/</span><a class="idchip" href="{{$m.Back}}">{{$m.ID}}</a></nav>
+      <h1 title="{{$m.Name}}">Purge {{$m.Name}} from history</h1>
+    </div>
+    <div class="actions">
+      <a class="btn secondary w96" href="{{$m.Back}}">Cancel</a>
+      <button class="btn danger w112">Purge</button>
+    </div>
+  </div>
+  <div class="errslot">{{if $m.Error}}<p class="error" title="{{$m.Error}}">{{$m.Error}}</p>{{end}}</div>
+  <section class="panel compact">
+    <div class="panelhead"><h2>Purge from history</h2></div>
+    <table class="kv details purgekv flush">{{template "kv_head"}}
+      <tbody>
+        <tr><th>File</th><td class="mono" title="{{$m.Name}}">{{$m.Name}}</td></tr>
+        <tr><th>Engagement</th><td title="{{.Eng.Name}}">{{.Eng.Name}}</td></tr>
+        <tr><th>Retests</th><td{{with $m.Holders}} title="{{.}}"{{end}}>{{range $i, $r := $m.Retests}}{{if $i}}, {{end}}<a href="{{$r.URL}}">{{$r.Name}}</a>{{else}}<span class="muted">None</span>{{end}}</td></tr>
+        <tr><th>Clones</th><td>Existing clones of this engagement must be cloned again</td></tr>
+      </tbody>
+    </table>
+  </section>
+</form>
+{{end}}

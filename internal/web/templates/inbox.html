@@ -1,30 +1,72 @@
+
 {{define "inbox_list"}}
-<table class="findings">
-  <tbody>
-  {{range .}}
-    <tr>
-      <td><a href="{{fpath .EngID .Dir}}">{{.Title}}</a></td>
-      <td>{{if .Severity}}<span class="pill sev-{{.Severity}}">{{.Severity}}</span>{{end}}</td>
-      <td class="muted">{{.EngName}} · <span class="fid">{{.ID}}</span></td>
-      <td class="muted">{{.Author}}</td>
+{{/* data-keys-scope: m (Mark all read) is the section of the row the keys moved to */}}
+<section class="q q-{{.Name}}" data-keys-scope>
+  <div class="qh"><h2>{{.Heading}} <span class="qcnt{{if not .Total}} zero{{end}}">{{.Total}}</span></h2>
+    {{- if eq .Name "notes"}}<div class="qacts"><a class="btn secondary sm w104" href="/notifications">History</a><button class="btn secondary sm w152" form="notes" formaction="/notifications/read"{{if not .Total}} disabled{{end}} aria-keyshortcuts="M">Mark all read</button></div>{{end -}}
+    {{- if eq .Name "board"}}<div class="qacts"><button class="btn secondary sm w152" form="notes" formaction="/inbox/board/read"{{if not .Total}} disabled{{end}} aria-keyshortcuts="M">Mark all read</button></div>{{end -}}
+  </div>
+  <table class="table inboxt{{if .Bulk}} picks{{end}}" data-arrows>
+    <thead>
+      <tr>
+        {{if .Bulk}}<th class="c-pick"><input type="checkbox" data-pick-all aria-label="Select all: {{.Heading}}"></th>{{end}}
+        <th class="title">Title</th>
+        <th class="c-tag">{{.TagHead}}</th>
+        <th class="c-eng">Engagement · ID</th>
+        <th class="c-what">{{.WhoHead}}</th>
+        <th class="c-age">Time</th>
+        <th class="c-go">Action</th>
+      </tr>
+    </thead>
+    <tbody>
+    {{template "inbox_rows" .}}
+    </tbody>
+  </table>
+</section>
+{{end}}
+
+{{define "inbox_rows"}}
+  {{$b := .Bulk}}
+  {{range .Rows}}
+    <tr{{with .Key}} data-key="{{.}}"{{end}}{{if $b}} data-acts="{{index $b.Acts .Key}}"{{with index $b.Skipped .Key}} class="skip" title="{{.}}"{{else}}{{if index $b.Picked .Key}} class="sel"{{end}}{{end}}{{end}}>
+      {{if $b}}<td class="c-pick">{{if index $b.Pick .Key}}<input type="checkbox" name="id" value="{{.Key}}" aria-label="Select {{.EngID}} {{.ID}}"{{if index $b.Picked .Key}} checked{{end}} id="pick-{{$.Name}}-{{.EngID}}-{{.ID}}">{{end}}</td>{{end}}
+      {{/* a notice's title opens it as Open does (marks it read), so Enter on the row does too */}}
+      <td class="title">{{if .NoteID}}<button class="noteopen" form="notes" formaction="/notifications/{{.NoteID}}" title="{{.Title}}" data-nav id="row-notes-{{.NoteID}}">{{.Title}}</button>{{else}}<a href="{{.URL}}" title="{{.Title}}" data-nav id="row-{{$.Name}}-{{.EngID}}-{{.ID}}">{{.Title}}</a>{{end}}</td>
+      <td class="c-tag">{{if .Tag}}<span class="tag {{.TagClass}}">{{.Tag}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
+      {{if .EngID}}<td class="c-eng mono" title="{{.EngName}} · {{.ID}}"><span class="engid">{{.EngID}}</span> · <span class="fid">{{.ID}}</span></td>{{else}}<td class="c-eng mono"><span class="muted">—</span></td>{{end}}
+      <td class="c-what" title="{{.Who}}{{if and .Who .What}} · {{end}}{{.What}}">{{with .Who}}<strong>{{.}}</strong>{{end}}{{if and .Who .What}} · {{end}}{{.What}}{{if not (or .Who .What)}}<span class="muted">—</span>{{end}}</td>
+      <td class="c-age mono">{{age .At}}</td>
+      {{/* a notice: Open marks it read, a POST through the page's one form (the director's queues are a form already) */}}
+      <td class="c-go">{{with .NoteID}}<button class="btn secondary sm w128" form="notes" formaction="/notifications/{{.}}">Open</button>{{else}}<a class="btn {{if .Primary}}primary{{else}}secondary{{end}} sm w128" href="{{.ActURL}}">{{.Act}}</a>{{end}}</td>
     </tr>
   {{else}}
-    <tr><td class="muted empty">Nothing here.</td></tr>
+    {{if not .Offset}}{{template "empty_row" .Cols}}{{end}}
   {{end}}
-  </tbody>
-</table>
+  {{if .MoreURL}}
+    <tr class="more" id="inbox-more-{{.Name}}"><td colspan="{{.Cols}}"><button type="button" class="btn secondary w152" hx-get="{{.MoreURL}}" hx-target="#inbox-more-{{.Name}}" hx-swap="outerHTML">Load {{.PageSize}} more</button></td></tr>
+  {{end}}
+{{end}}
+
+{{define "inbox_queues"}}
+<div class="inbox">
+  {{range .Queues}}{{template "inbox_list" .}}{{end}}
+</div>
+{{end}}
+
+{{/* a director's inbox: the bar over every queue, in one form the run swaps */}}
+{{define "inbox_lists"}}
+{{if .Bulk}}
+<form class="fbulkform" hx-post="/inbox/bulk" hx-target="this" hx-swap="outerHTML" hx-disabled-elt="find button">
+  {{template "bulkbar" .Bulk}}
+  {{template "inbox_queues" .}}
+</form>
+{{else}}
+{{template "inbox_queues" .}}
+{{end}}
 {{end}}
 
 {{define "content"}}
-<div class="pagehead"><h1>Inbox</h1></div>
-<div class="inbox">
-  <h2>Awaiting my review</h2>
-  {{template "inbox_list" .Inbox.Review}}
-  {{if or .Inbox.Approve (eq .User.Role "director")}}
-  <h2>Ready to approve</h2>
-  {{template "inbox_list" .Inbox.Approve}}
-  {{end}}
-  <h2>Returned to me</h2>
-  {{template "inbox_list" .Inbox.Returned}}
-</div>
+<div class="titlerow"><div class="titlecol"><h1>Inbox</h1></div></div>
+{{template "inbox_lists" .InboxLists}}
+<form id="notes" method="post" hidden><input type="hidden" name="back" value="inbox"></form>
 {{end}}

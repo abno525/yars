@@ -1,0 +1,32 @@
+{{define "content"}}
+{{$t := .Tpl}}
+<div class="titlerow">
+  <div class="titlecol">
+    <nav class="crumbs"><a href="/templates">Templates</a><span class="sep" aria-hidden="true">/</span><a href="/templates/{{$t.Slug}}">{{$t.Title}}</a><span class="sep" aria-hidden="true">/</span><span class="idchip">v{{$t.Own.Version}}</span></nav>
+    <h1>History</h1>
+  </div>
+  <div class="actions">
+    <span class="mono usedcount">Owner {{$t.Own.Owner}} · Used {{$t.Used}}</span>
+    <a class="btn secondary w128" href="/templates/{{$t.Slug}}">Template</a>
+  </div>
+</div>
+<section class="panel">
+  <div class="panelhead"><h2>Versions <span class="{{if $t.Own.History}}qcnt{{else}}qcnt zero{{end}}">{{len $t.Own.History}}</span></h2></div>
+  <table class="table stable tplhist">
+    <thead><tr><th class="c-ver">Version</th><th class="c-date">Date</th><th class="c-author">Author</th><th>Change</th><th class="c-hash">Commit</th></tr></thead>
+    <tbody>
+      {{range $t.Own.History}}
+      <tr>
+        <td class="mono strong">v{{.N}}</td>
+        <td class="mono">{{.Date}}</td>
+        <td title="{{.Author}}">{{.Author}}</td>
+        <td title="{{.Subject}}">{{.Subject}}</td>
+        <td class="mono">{{.Hash}}</td>
+      </tr>
+      {{else}}
+      {{template "empty_row" 5}}
+      {{end}}
+    </tbody>
+  </table>
+</section>
+{{end}}

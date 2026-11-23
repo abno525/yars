@@ -1,12 +1,73 @@
 {{define "content"}}
-<form class="card narrow" method="post" action="/e/{{.Eng.ID}}/findings/new">
-  <h1>New finding</h1>
-  <p class="muted">in <strong>{{.Eng.Name}}</strong></p>
-  {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
-  <label>Title <input name="title" value="{{.Form.Get "title"}}" required autofocus></label>
-  <div class="actions">
-    <button class="primary">Create</button>
-    <a class="button" href="/e/{{.Eng.ID}}">Cancel</a>
+<form class="newf" method="post" action="/e/{{.Eng.ID}}/findings/new">
+  <div class="titlerow">
+    <div class="titlecol">
+      <nav class="crumbs"><a href="/e/{{.Eng.ID}}">{{.Eng.Name}}</a><span class="sep" aria-hidden="true">/</span><span class="idchip">New</span></nav>
+      <h1>New finding</h1>
+    </div>
+  </div>
+  <div class="errslot">{{if .Error}}<p class="error" title="{{.Error}}">{{.Error}}</p>{{end}}</div>
+  <div class="newgrid">
+    <div class="newmain">
+      <label class="field">Title<input class="bigin" name="title" value="{{.Form.Get "title"}}" required autofocus
+        hx-get="/e/{{.Eng.ID}}/findings/new/dups" hx-trigger="input changed delay:400ms, load" hx-target="#dups" hx-swap="outerHTML"></label>
+      {{template "dups_panel" .Dups}}
+      <section class="panel tplpick">
+        <div class="tplbar flush">
+          <div class="seg tplmode" role="radiogroup" aria-label="Start from">
+            <label><input type="radio" name="mode" value="template"{{if eq .Tpl.Mode "template"}} checked{{end}}><span>Template</span></label>
+            <label><input type="radio" name="mode" value="blank"{{if eq .Tpl.Mode "blank"}} checked{{end}}><span>Blank</span></label>
+          </div>
+          <input type="search" class="grow" name="q" value="{{.Tpl.Q}}" placeholder="Search templates" aria-label="Search templates"
+            hx-get="/e/{{.Eng.ID}}/findings/new/templates" hx-trigger="input changed delay:250ms, search" hx-target="#tpllist" hx-swap="outerHTML"
+            hx-include="#tpllist input[name=template]:checked">
+        </div>
+        {{template "tpl_list" .Tpl}}
+      </section>
+    </div>
+    <aside class="newside">
+      {{template "tpl_preview" .Tpl.Preview}}
+      <div class="actions endrow">
+        <a class="btn secondary w128" href="/e/{{.Eng.ID}}">Cancel</a>
+        <button class="btn primary w128">Create</button>
+      </div>
+    </aside>
   </div>
 </form>
+{{end}}
+
+{{define "tpl_list"}}
+<div id="tpllist" class="tpllist flush">
+  <div class="tplscroll">
+    <table class="table stable tpltable">
+      <thead><tr><th class="c-pick"><span class="sr">Pick</span></th><th>Title</th><th class="c-sev">Severity</th><th class="c-num">CVSS</th><th class="c-num">Used</th></tr></thead>
+      <tbody>
+      {{range .Rows}}
+        <tr{{if .On}} class="picked"{{end}}>
+          <td><input type="radio" name="template" value="{{.Slug}}"{{if .On}} checked{{end}} id="tpl-{{.Slug}}"
+            hx-get="/e/{{$.Eng}}/findings/new/preview?t={{.Slug}}" hx-trigger="change" hx-target="#tplpreview" hx-swap="outerHTML"></td>
+          <td class="title"><label for="tpl-{{.Slug}}" title="{{.Title}}">{{.Title}}</label></td>
+          <td>{{if .Severity}}<span class="tag sev-{{.Severity}}">{{.Severity}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
+          <td class="num">{{score .Score}}</td>
+          <td class="num">{{if .Used}}<span class="badge">{{.Used}}</span>{{else}}<span class="badge0">0</span>{{end}}</td>
+        </tr>
+      {{else}}
+        {{template "empty_row" 5}}
+      {{end}}
+      </tbody>
+    </table>
+  </div>
+  <div class="tplfoot"><span class="mono">{{len .Rows}} of {{.Total}}</span><a href="/templates">Templates</a></div>
+</div>
+{{end}}
+
+{{define "tpl_search"}}{{template "tpl_list" .}}{{template "tpl_preview" .Preview}}{{end}}
+
+{{define "tpl_preview"}}
+<section class="tplpreview panel compact" id="tplpreview"{{if .OOB}} hx-swap-oob="true"{{end}}>
+  <div class="panelhead"><h2>Preview</h2><span class="vector" title="{{.Vector}}">{{.Vector}}</span></div>
+  <div class="pvbody flush">
+    {{range .Sections}}<div class="pvsec"><h3>{{.Name}}</h3>{{if .HTML}}<div class="md">{{.HTML}}</div>{{else}}<p class="muted">—</p>{{end}}</div>{{end}}
+  </div>
+</section>
 {{end}}

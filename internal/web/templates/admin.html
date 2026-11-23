@@ -1,0 +1,642 @@
+{{define "content"}}
+<h1>Admin</h1>
+<div class="admin">
+  <nav class="atabs" aria-label="Admin">
+    {{range .Admin.Tabs}}{{if .URL}}<a class="atab{{if .On}} on{{end}}" href="{{.URL}}">{{.Label}}{{with .Dot}}<span class="adot" title="{{.}}"></span>{{end}}</a>{{else}}<span class="atab" aria-hidden="true"></span>{{end}}{{end}}
+  </nav>
+  <div class="adminbody">
+    {{if eq .Admin.Tab "rules"}}{{template "admin_rules" .Admin.Rules}}{{end}}
+    {{if eq .Admin.Tab "users"}}{{template "admin_users" .Admin.Users}}{{end}}
+    {{if eq .Admin.Tab "ai"}}{{template "admin_ai" .Admin.AI}}{{end}}
+    {{if eq .Admin.Tab "system"}}{{template "admin_system" .Admin.System}}{{end}}
+    {{if eq .Admin.Tab "activity"}}{{template "admin_activity" .Admin.Activity}}{{end}}
+    {{if eq .Admin.Tab "tokens"}}{{template "admin_tokens" .Admin.Activity}}{{end}}
+    {{if eq .Admin.Tab "structure"}}{{template "admin_structure" .Admin.Structure}}{{end}}
+    {{if eq .Admin.Tab "webhooks"}}{{template "admin_webhooks" .Admin.Hooks}}{{end}}
+  </div>
+  <div class="adminfoot"><a href="/docs/webhooks">Webhooks</a><a href="/docs/config">Config</a><a href="/docs/git">Git</a></div>
+</div>
+{{end}}
+
+{{define "admin_webhooks"}}
+{{with .Secret}}
+<section class="panel once">
+  <div class="panelhead"><h2>Secret</h2><span class="mono">X-YARS-Signature: sha256=…</span></div>
+  <div class="copyrow flush"><code id="hook-secret">{{.}}</code><button type="button" class="btn save sm w96" data-copy="hook-secret">Copy</button></div>
+</section>
+{{end}}
+<section class="panel">
+  <div class="panelhead"><h2>Webhooks <span class="{{if .Rows}}qcnt{{else}}qcnt zero{{end}}">{{len .Rows}}</span></h2><a class="strong" href="/docs/webhooks">docs/webhooks.md</a></div>
+  <table class="table stable hooktable" data-arrows="focus">
+    <thead><tr><th>URL</th><th class="c-events">Events</th><th class="c-last">Last delivery</th><th class="c-flag">Enabled</th><th class="c-acts">Action</th></tr></thead>
+    <tbody>
+      {{range .Rows}}
+      {{/* the URL is the row the keys move to (Enter shows its deliveries); e edits it, d turns it on or off; its id keeps it focused through the reload */}}
+      <tr class="{{if eq .ID $.Selected}}editing{{end}}{{if not .Enabled}} off{{end}}" data-rowkeys>
+        <td class="stack"><a href="/admin/webhooks?hook={{.ID}}" title="{{.URL}}" data-nav id="row-hook-{{.ID}}">{{.URL}}</a><span class="mono">{{.Ending}}</span></td>
+        <td class="stack"><span class="mono" title="{{.Events}}">{{.Events}}</span></td>
+        <td class="stack">{{if .LastState}}<span class="tag dl-{{.LastState}}">{{.Last}}</span><span class="mono">{{.LastAt}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
+        <td><form method="post" action="/admin/webhooks/{{.ID}}/toggle"><button class="toggle{{if .Enabled}} on{{end}}" role="switch" aria-checked="{{if .Enabled}}true{{else}}false{{end}}" aria-label="Enabled" aria-keyshortcuts="D"><span></span></button></form></td>
+        <td><div class="actions"><a class="btn secondary sm w96" href="/admin/webhooks?edit={{.ID}}&amp;hook={{.ID}}" aria-keyshortcuts="E">Edit</a><form method="post" action="/admin/webhooks/{{.ID}}/delete"><button class="btn danger sm w96" data-confirm="Delete the webhook to {{.URL}}?">Delete</button></form></div></td>
+      </tr>
+      {{else}}
+      {{template "empty_row" 5}}
+      {{end}}
+    </tbody>
+  </table>
+  <form class="hookform flush" method="post" action="/admin/webhooks{{with .Form.ID}}/{{.}}{{end}}">
+    <div class="hookrow flush">
+      <label class="field grow">URL<input name="url" type="url" value="{{.Form.URL}}" placeholder="https://" required{{if not .Form.ID}} aria-keyshortcuts="N"{{end}}></label>
+      {{if .Form.ID}}<label class="chk"><input type="checkbox" name="enabled" value="1"{{if .Form.Enabled}} checked{{end}}>Enabled</label>{{else}}<span class="slot w112"></span>{{end}}
+      {{if .Form.ID}}<a class="btn secondary w112" href="/admin/webhooks">Cancel</a>{{else}}<span class="slot w112"></span>{{end}}
+      <button class="btn save w112">{{if .Form.ID}}Save{{else}}Add{{end}}</button>
+    </div>
+    <div class="evgrid flush">
+      {{range .Events}}<label class="chk"><input type="checkbox" name="event" value="{{.Value}}"{{if .On}} checked{{end}}><span class="mono">{{.Label}}</span></label>{{end}}
+    </div>
+    <span class="pstate error flush" title="{{.Form.Error}}">{{.Form.Error}}</span>
+  </form>
+</section>
+{{if .Selected}}
+<section class="panel">
+  <div class="panelhead"><h2>Deliveries</h2><span class="mono clip" title="{{.SelURL}}">{{.SelURL}}</span></div>
+  <table class="table stable dltable">
+    <thead><tr><th class="c-time">When</th><th class="c-events">Event</th><th class="c-state">State</th><th class="c-num">Status</th><th class="c-num">Tries</th><th>Error</th><th class="c-act2">Action</th></tr></thead>
+    <tbody>
+      {{range .Log}}
+      <tr>
+        <td class="mono">{{.At}}</td>
+        <td class="mono">{{.Event}}</td>
+        <td><span class="tag dl-{{.State}}">{{.State}}</span></td>
+        <td class="num">{{.Status}}</td>
+        <td class="num">{{.Tries}}</td>
+        <td class="muted" title="{{.Error}}">{{.Error}}</td>
+        <td><form method="post" action="/admin/webhooks/deliveries/{{.ID}}/redeliver"><button class="btn secondary sm w112">Redeliver</button></form></td>
+      </tr>
+      {{else}}
+      {{template "empty_row" 7}}
+      {{end}}
+    </tbody>
+  </table>
+</section>
+{{end}}
+{{end}}
+
+{{define "admin_structure"}}
+{{if .Saved}}
+<div class="savedbar" role="status">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>
+  <strong>Saved</strong><span class="hashchip">{{.Saved}}</span><span class="mono clip">.yars/config.yaml</span>
+</div>
+{{end}}
+<form class="structform" method="post" action="/admin/structure">
+  <input type="hidden" name="base" value="{{.Base}}">
+  <div class="structhead">
+    <span class="pstate error" title="{{.Error}}">{{.Error}}</span>
+    <span class="mono chgslot">{{.Changes}}</span>
+    <a class="btn secondary w128" href="/admin/structure">Discard</a>
+    <button class="btn save w128" name="op" value="save">Save</button>
+  </div>
+  <div class="structgrid">
+    {{range .Lists}}{{$l := .}}
+    <section class="panel compact slist">
+      <div class="panelhead"><h2>{{.Title}} <span class="qcnt{{if not .Items}} zero{{end}}">{{len .Items}}</span></h2></div>
+      <div class="sitems flush">
+      {{range $i, $it := .Items}}
+        <div class="sitem">
+          {{if .Sev}}<span class="sw seg-{{.Value}}"></span>{{end}}
+          <input name="{{$l.Field}}" value="{{.Value}}"{{if .Locked}} readonly{{end}} aria-label="{{$l.Title}} {{.Value}}">
+          <span class="mono sused">{{.Used}}</span>
+          <button class="btn ghost sm icon" name="op" value="up:{{$l.Key}}:{{$i}}" aria-label="Up"{{if eq $i 0}} disabled{{end}}>↑</button>
+          <button class="btn ghost sm icon" name="op" value="down:{{$l.Key}}:{{$i}}" aria-label="Down"{{if .Last}} disabled{{end}}>↓</button>
+          {{if .Locked}}{{template "lock"}}{{else}}<button class="btn ghost sm icon rm" name="op" value="del:{{$l.Key}}:{{$i}}" aria-label="Remove">×</button>{{end}}
+        </div>
+      {{end}}
+      </div>
+      <div class="sadd flush">
+        <input class="grow" name="new_{{.Key}}" placeholder="{{.Placeholder}}" aria-label="{{.Placeholder}}">
+        <button class="btn secondary sm w152" name="op" value="add:{{.Key}}">Add</button>
+      </div>
+    </section>
+    {{end}}
+  </div>
+  <section class="panel">
+    <div class="panelhead"><h2>CVSS</h2>
+      <label class="verpick">Version<select name="version"><option value="3.1"{{if eq .Version "3.1"}} selected{{end}}>3.1</option></select></label>
+    </div>
+    <table class="table stable cvsstd flush">
+      <thead><tr><th class="c-metric">Metric</th><th class="c-key">Key</th><th>Standard value</th><th class="c-num">Non-standard</th></tr></thead>
+      <tbody>
+      {{range .Metrics}}{{$m := .}}
+        <tr{{if ne .Std .Was}} class="editing"{{end}}>
+          <td class="strong clip">{{.Name}}</td>
+          <td class="mono">{{.Key}}</td>
+          <td><div class="seg stdseg">{{range .Values}}<label><input type="radio" name="std_{{$m.Key}}" value="{{.Code}}"{{if eq .Code $m.Std}} checked{{end}}><span title="{{.Name}}">{{.Code}}</span></label>{{end}}<label><input type="radio" name="std_{{$m.Key}}" value="-"{{if not $m.Std}} checked{{end}}><span>—</span></label></div></td>
+          <td class="num">{{if .NonStd}}<span class="badge">{{.NonStd}}</span>{{else}}<span class="badge0">0</span>{{end}}</td>
+        </tr>
+      {{end}}
+      </tbody>
+    </table>
+  </section>
+</form>
+{{end}}
+
+{{define "cbx_mark"}}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>{{end}}
+
+{{define "admin_users"}}
+{{with .Temp}}
+<div class="once panel compact" role="status">
+  <div class="panelhead"><h2>Temporary password</h2><span class="tag shown">Shown once</span></div>
+  <div class="copyrow flush">
+    <span class="idchip">{{.User}}</span>
+    <code id="temp-pw">{{.Password}}</code>
+    <button type="button" class="btn save w96" data-copy="temp-pw">Copy</button>
+  </div>
+</div>
+{{end}}
+<div class="sidegrid">
+  <section class="panel">
+    <div class="panelhead"><h2>Users</h2><span class="pstate error" title="{{.Error}}">{{.Error}}</span></div>
+    <table class="table stable usertable" data-arrows="focus">
+      <thead><tr><th>User</th>{{if not simple}}<th class="c-role">Role</th>{{end}}<th class="c-flag">Admin</th><th class="c-flag">Disabled</th><th class="c-date">Created</th><th class="c-num">Tokens</th><th class="c-acts">Action</th></tr></thead>
+      <tbody>
+        {{range .Rows}}
+        {{/* the name is the row the keys move to; u, r, d act on that row only (keys.js yarsRowFire); its id keeps it focused through the reload */}}
+        <tr{{if .Disabled}} class="off"{{end}} data-rowkeys>
+          <td class="stack"><span class="strong" title="{{.Username}}" tabindex="0" data-nav id="row-user-{{.Username}}">{{.Username}}</span><span class="muted" title="{{.Email}}">{{if .Email}}{{.Email}}{{else}}—{{end}}</span></td>
+          {{- if not simple}}
+          <td>
+            <form method="post" action="/admin/users/{{.Username}}/role">
+              <select name="role" aria-label="Role of {{.Username}}" data-choose>{{$r := .Role}}{{range $.Roles}}<option value="{{.}}"{{if eq . $r}} selected{{end}}>{{.}}</option>{{end}}</select>
+              <noscript><button class="btn ghost sm w96">Set</button></noscript>
+            </form>
+          </td>
+          {{- end}}
+          <td>
+            <form class="toggle" method="post" action="/admin/users/{{.Username}}/admin">
+              <input type="hidden" name="on" value="{{if .IsAdmin}}0{{else}}1{{end}}">
+              <button class="cbx{{if .IsAdmin}} on{{end}}" aria-label="Admin {{.Username}}" aria-pressed="{{if .IsAdmin}}true{{else}}false{{end}}"{{if and .Self .IsAdmin}} disabled{{end}}>{{if .IsAdmin}}{{template "cbx_mark"}}{{end}}</button>
+            </form>
+          </td>
+          <td>
+            <form class="toggle" method="post" action="/admin/users/{{.Username}}/disabled">
+              <input type="hidden" name="on" value="{{if .Disabled}}0{{else}}1{{end}}">
+              <button class="cbx{{if .Disabled}} on{{end}}" aria-label="Disabled {{.Username}}" aria-pressed="{{if .Disabled}}true{{else}}false{{end}}"{{if not .Disabled}} data-confirm="Disable {{.Username}}?"{{end}} aria-keyshortcuts="D"{{if .Self}} disabled{{end}}>{{if .Disabled}}{{template "cbx_mark"}}{{end}}</button>
+            </form>
+          </td>
+          <td class="mono">{{.Created}}</td>
+          <td class="num">{{.Tokens}}</td>
+          <td><div class="actions">{{if .Locked}}<form method="post" action="/admin/users/{{.Username}}/unlock"><button class="btn secondary sm w96" title="Locked out until {{.Locked}}" aria-keyshortcuts="U">Unlock</button></form>{{else}}<button type="button" class="btn secondary sm w96" disabled>Unlock</button>{{end}}<form method="post" action="/admin/users/{{.Username}}/reset"><button class="btn ghost sm w112" data-confirm="Reset the password of {{.Username}}?" aria-keyshortcuts="R">Reset pass</button></form></div></td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </section>
+  <form class="panel compact sidecol" method="post" action="/admin/users">
+    <div class="panelhead"><h2>Add user</h2></div>
+    <div class="vfields">
+      <label>Username<input name="username" value="{{.Form.Get "username"}}" pattern="[A-Za-z0-9._\-]+" required aria-keyshortcuts="N"></label>
+      <label>Email<input name="email" type="email" value="{{.Form.Get "email"}}"></label>
+      {{- if not simple}}
+      <fieldset class="rf"><legend>Role</legend>
+        <div class="seg fill n3">{{$r := .Form.Get "role"}}{{range .Roles}}<label><input type="radio" name="role" value="{{.}}"{{if eq . $r}} checked{{end}}><span>{{.}}</span></label>{{end}}</div>
+      </fieldset>
+      {{- end}}
+      <label class="chk"><input type="checkbox" name="admin" value="1"{{if eq (.Form.Get "admin") "1"}} checked{{end}}>Admin</label>
+      <label>Temporary password<input class="monoin" name="password" autocomplete="new-password" minlength="10" placeholder="generated"></label>
+    </div>
+    <div class="pfoot flush"><button class="btn primary w128">Add user</button></div>
+  </form>
+</div>
+{{end}}
+
+{{define "admin_ai"}}
+<div class="sidegrid">
+  <form class="panel" method="post" action="/admin/ai">
+    <div class="panelhead"><h2>AI provider</h2><span class="tag {{.State}}">{{.StateLabel}}</span></div>
+    <div class="frows flush">
+      <div class="frow"><span class="flabel">Provider</span>
+        <div class="seg n3 wide nocap" role="radiogroup" aria-label="Provider">{{range .Providers}}<label><input type="radio" name="provider" value="{{.Value}}"{{if .On}} checked{{end}}><span>{{.Label}}</span></label>{{end}}</div>
+      </div>
+      <label class="frow"><span class="flabel">Address</span><input class="monoin" name="base_url" value="{{.BaseURL}}" placeholder="https://api.openai.com/v1"></label>
+      <label class="frow"><span class="flabel">Model</span><input class="monoin w360" name="model" value="{{.Model}}"></label>
+      <label class="frow"><span class="flabel">Price in</span><span class="keyrow"><input class="monoin w128" name="price_in" value="{{.PriceIn}}" inputmode="decimal" autocomplete="off"><span class="muted">per 1M tokens</span></span></label>
+      <label class="frow"><span class="flabel">Price out</span><span class="keyrow"><input class="monoin w128" name="price_out" value="{{.PriceOut}}" inputmode="decimal" autocomplete="off"><span class="muted">per 1M tokens</span></span></label>
+      <label class="frow"><span class="flabel">API key</span>
+        <span class="keyrow">
+          <input class="monoin w360" type="password" name="key" autocomplete="off" placeholder="{{if .KeyEnding}}{{.KeyEnding}}{{end}}" aria-label="API key">
+          <span class="mono keyend">{{.KeyEnding}}</span>
+          {{if .EnvName}}<span class="tag {{if .EnvSet}}good{{else}}idle{{end}}" title="{{.EnvName}}">{{.EnvName}}</span>{{end}}
+        </span>
+      </label>
+    </div>
+    <div class="pfoot flush">
+      <span class="pstate{{if or .Error (and .Test (not .Test.OK))}} error{{end}}" title="{{.Error}}{{with .Test}}{{.Error}}{{end}}">{{if .Error}}{{.Error}}{{else}}{{with .Test}}{{.At}} · {{if .OK}}{{.Took}}{{else}}{{.Error}}{{end}}{{end}}{{end}}</span>
+      <button class="btn secondary w128" formaction="/admin/ai/test" formnovalidate>Test</button>
+      <button class="btn primary w128">Save</button>
+    </div>
+  </form>
+  <section class="panel compact sidecol">
+    <div class="panelhead"><h2>Rules using AI</h2><a class="btn ghost sm w112" href="/admin/rules">Rules</a></div>
+    <table class="table stable airules flush">
+      <thead><tr><th>Rule</th><th class="c-level">Level</th></tr></thead>
+      <tbody>
+        {{range .Rules}}<tr><td class="mono clip" title="{{.Value}}">{{.Value}}</td><td><span class="tag lvl-{{.Label}}">{{.Label}}</span></td></tr>
+        {{else}}{{template "empty_row" 2}}{{end}}
+      </tbody>
+    </table>
+  </section>
+</div>
+{{end}}
+
+{{define "admin_system"}}
+{{with .Health}}
+<section class="panel sys">
+  <div class="panelhead">
+    <h2>Health{{if .Errors}}<span class="tag bad">{{.Errors}} error{{if ne .Errors 1}}s{{end}}</span>{{end}}{{if .Warnings}}<span class="tag warn">{{.Warnings}} warning{{if ne .Warnings 1}}s{{end}}</span>{{end}}</h2>
+    <div class="actions"><span class="checked">Checked <span class="mono">{{.Checked}}</span></span><form method="post" action="/admin/system/check"><button class="btn save sm w128">Run integrity</button></form></div>
+  </div>
+  <div class="pbody flush">
+    <table class="table stable healthtable">
+      <thead><tr><th class="c-check">Check</th><th class="c-state">Status</th><th class="c-result">Result</th><th>Detail</th></tr></thead>
+      <tbody>
+        {{range .Rows}}
+        <tr><td class="clip">{{if .URL}}<a class="lk" href="{{.URL}}">{{.Name}}</a>{{else}}{{.Name}}{{end}}</td><td><span class="tag {{.State}}">{{.Label}}</span></td><td class="clip" title="{{.Result}}">{{.Result}}</td><td class="dt clip" title="{{.Detail}}">{{.Detail}}</td></tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+</section>
+{{end}}
+<form class="panel sys" id="backup" method="post" action="/admin/system/backup">
+  <div class="panelhead">
+    <h2>Backup</h2>
+    <div class="actions"><button class="btn primary sm w152">Download backup</button></div>
+  </div>
+  <div class="pbody flush">
+    <div class="stats">
+      <div class="st"><span class="sl">Last backup</span><span class="sv">{{.LastBackup}}</span></div>
+      <div class="st"><span class="sl">Size</span><span class="sv">{{.BackupSize}}</span></div>
+      <div class="st"><span class="sl">By</span><span class="sv">{{.BackupBy}}</span></div>
+      <div class="st"><span class="sl">Keys</span><span class="sv">{{.BackupKey}}</span></div>
+    </div>
+    <div class="sfields">
+      <div class="sfield"><span class="sl">Contents</span>
+        <div class="sfc">
+          <label class="chk"><input type="checkbox" checked disabled>Database</label>
+          <label class="chk"><input type="checkbox" checked disabled>Repos</label>
+          <label class="chk"><input type="checkbox" checked disabled>Settings</label>
+          <label class="chk"><input type="checkbox" name="key" value="1">Keys</label>
+        </div>
+      </div>
+    </div>
+  </div>
+</form>
+<form class="panel sys" id="retention" method="post" action="/admin/system/retention">
+  <div class="panelhead">
+    <h2>Retention</h2>
+    <div class="actions"><span class="pstate error" title="{{.RetentionError}}">{{.RetentionError}}</span><button class="btn save sm w96">Save</button></div>
+  </div>
+  <div class="pbody flush">
+    <div class="stats">
+      <div class="st wide"><span class="sl">Last prune</span><span class="sv" title="{{.LastPrune}}">{{.LastPrune}}</span></div>
+    </div>
+    <div class="sfields">
+      <label class="sfield"><span class="sl">Audit log</span><span class="sfc"><input class="w96" type="number" name="audit_days" min="0" max="3650" value="{{.Retention.AuditDays}}"{{if eq .RetentionBad "audit_days"}} autofocus{{end}}><span class="muted">days</span></span></label>
+      <label class="sfield"><span class="sl">Check runs</span><span class="sfc"><input class="w96" type="number" name="check_run_days" min="0" max="3650" value="{{.Retention.CheckRunDays}}"{{if eq .RetentionBad "check_run_days"}} autofocus{{end}}><span class="muted">days</span></span></label>
+      <label class="sfield"><span class="sl">Sessions</span><span class="sfc"><input class="w96" type="number" name="session_days" min="0" max="3650" value="{{.Retention.SessionDays}}"{{if eq .RetentionBad "session_days"}} autofocus{{end}}><span class="muted">days</span></span></label>
+    </div>
+  </div>
+</form>
+{{with .AIUsage}}
+<section class="panel sys" id="aiusage">
+  <div class="panelhead"><h2>AI usage</h2></div>
+  <div class="pbody flush">
+    {{range .Periods}}
+    <div class="stats">
+      <div class="st"><span class="sl">Period</span><span class="sv">{{.Label}}</span></div>
+      <div class="st"><span class="sl">Calls</span><span class="sv">{{.Calls}}</span></div>
+      <div class="st"><span class="sl">Tokens in</span><span class="sv">{{.In}}</span></div>
+      <div class="st"><span class="sl">Tokens out</span><span class="sv">{{.Out}}</span></div>
+      <div class="st"><span class="sl">Cost</span><span class="sv">{{.Cost}}</span></div>
+    </div>
+    {{end}}
+    <table class="table stable usagetable">
+      <thead><tr><th>User</th><th class="c-num">Calls</th><th class="c-num">Tokens in</th><th class="c-num">Tokens out</th><th class="c-num">Cost</th></tr></thead>
+      <tbody>
+        {{range .Users}}<tr><td class="clip" title="{{.User}}">{{.User}}</td><td class="num" title="{{.Calls}}">{{.Calls}}</td><td class="num" title="{{.In}}">{{.In}}</td><td class="num" title="{{.Out}}">{{.Out}}</td><td class="num" title="{{.Cost}}">{{.Cost}}</td></tr>
+        {{else}}{{template "empty_row" 5}}{{end}}
+      </tbody>
+    </table>
+  </div>
+</section>
+{{end}}
+<form class="panel sys" id="restore" method="post" action="/admin/system/restore" enctype="multipart/form-data">
+  <div class="panelhead">
+    <h2>Restore</h2>
+    <div class="actions"><span class="pstate error" title="{{.RestoreError}}">{{.RestoreError}}</span><input class="restorefile" type="file" name="backup" accept=".zip,application/zip" required aria-label="Backup"{{if .RestoreError}} autofocus{{end}}><button class="btn primary sm w128">Restore</button></div>
+  </div>
+  <div class="pbody flush">
+    {{with .Restored}}
+    <div class="stats">
+      <div class="st"><span class="sl">Schema</span><span class="sv">v{{.Schema}}</span></div>
+      <div class="st"><span class="sl">Engagements</span><span class="sv">{{.Engagements}}</span></div>
+      <div class="st"><span class="sl">Findings</span><span class="sv">{{.Find}}</span></div>
+      <div class="st"><span class="sl">Keys</span><span class="sv">{{if .HasKey}}with key{{else}}without key{{end}}</span></div>
+    </div>
+    <div class="copyrow flush"><code id="restore-cmd" title="yars serve --data {{.Target}}">yars serve --data {{.Target}}</code><button type="button" class="btn save sm w96" data-copy="restore-cmd">Copy</button></div>
+    {{end}}
+    <div class="stats">
+      <div class="st"><span class="sl">Last restore</span><span class="sv" title="{{.LastRestore}}">{{.LastRestore}}</span></div>
+      <div class="st"><span class="sl">By</span><span class="sv">{{.RestoreBy}}</span></div>
+      <div class="st wide"><span class="sl">Folder</span><span class="sv" title="{{.RestoreDir}}">{{.RestoreDir}}</span></div>
+    </div>
+  </div>
+</form>
+<section class="panel sys">
+  <div class="panelhead">
+    <h2>Operations</h2>
+    <div class="actions">
+      <form method="post" action="/admin/system/sync"><button class="btn secondary sm w136">Sync pointers</button></form>
+      <form method="post" action="/admin/system/reindex"><button class="btn secondary sm w136">Rebuild index</button></form>
+      <form method="post" action="/admin/system/migrate"><button class="btn secondary sm w136">Migrate status</button></form>
+    </div>
+  </div>
+  <div class="pbody flush">
+    <div class="stats">
+      <div class="st"><span class="sl">Index build</span><span class="sv">{{.IndexBuild}}</span></div>
+      <div class="st"><span class="sl">Schema</span><span class="sv">v{{.Schema}}</span></div>
+      <div class="st wide"><span class="sl">Last operation</span><span class="sv{{if and .Op (not .OpOK)}} error{{end}}" title="{{.OpResult}}">{{if .OpResult}}{{.OpResult}}{{else}}—{{end}}</span></div>
+    </div>
+    {{if .OpItems}}
+    <table class="table stable">
+      <thead><tr><th>To migrate</th></tr></thead>
+      <tbody>{{range .OpItems}}<tr><td class="dt clip" title="{{.}}">{{.}}</td></tr>{{end}}</tbody>
+    </table>
+    {{end}}
+  </div>
+</section>
+<section class="panel sys">
+  <div class="panelhead"><h2>Server</h2></div>
+  <div class="pbody flush">
+    <div class="stats">
+      <div class="st"><span class="sl">Version</span><span class="sv" title="{{.Version}}">{{.Version}}</span></div>
+      <div class="st"><span class="sl">Running since</span><span class="sv">{{.Started}}</span></div>
+      <div class="st"><span class="sl">Up for</span><span class="sv">{{.Uptime}}</span></div>
+      <div class="st"><span class="sl">Database</span><span class="sv">{{.DBSize}}</span></div>
+      <div class="st"><span class="sl">Git clone</span><span class="sv mono">{{.GitClone}}</span></div>
+    </div>
+    <div class="stats">
+      <div class="st"><span class="sl">Users</span><span class="sv">{{.Users}}</span></div>
+      <div class="st"><span class="sl">Engagements</span><span class="sv">{{.Engagements}}</span></div>
+      <div class="st"><span class="sl">Archived</span><span class="sv">{{.Archived}}</span></div>
+      <div class="st"><span class="sl">Findings</span><span class="sv">{{.Findings}}</span></div>
+      <div class="st"><span class="sl">Chat messages</span><span class="sv">{{.Messages}}</span></div>
+    </div>
+    <div class="stats">
+      <div class="st wide"><span class="sl">Data folder</span><span class="sv" title="{{.DataDir}}">{{.DataDir}}</span></div>
+    </div>
+    {{- if simple}}
+    <div class="stats">
+      <div class="st wide"><span class="sl">Workflow</span><span class="sv" title="Simple (set by yars init)">Simple (set by yars init)</span></div>
+    </div>
+    {{- end}}
+  </div>
+</section>
+{{end}}
+
+{{define "admin_activity"}}
+<form class="filterbar" method="get" action="/admin/activity">
+  <label>Person<select name="actor" class="w160" data-choose><option value="">All</option>{{range .Actors}}<option value="{{.Value}}"{{if .On}} selected{{end}}>{{.Label}}</option>{{end}}</select></label>
+  <label>Action<select name="action" class="w160" data-choose><option value="">All</option>{{range .Actions}}<option value="{{.Value}}"{{if .On}} selected{{end}}>{{.Label}}</option>{{end}}</select></label>
+  <noscript><button class="btn secondary w96">Show</button></noscript>
+  <span class="grow"></span>
+  <span class="mono rangeslot">{{.Range}}</span>
+</form>
+<section class="panel" id="log">
+  <table class="table stable audittable">
+    <thead><tr><th class="c-time">Time</th><th class="c-who">Who</th><th class="c-action">Action</th><th class="c-target">Object</th><th>Detail</th></tr></thead>
+    <tbody>
+      {{range .Rows}}
+      <tr{{if eq .Action "login.fail"}} class="denied"{{end}}><td class="mono">{{.TS}}</td><td class="clip">{{.Actor}}</td><td class="mono clip">{{.Action}}</td><td class="clip" title="{{.Target}}">{{if .Target}}{{.Target}}{{else}}<span class="muted">—</span>{{end}}</td><td class="clip" title="{{.Detail}}">{{if .Detail}}{{.Detail}}{{else}}<span class="muted">—</span>{{end}}</td></tr>
+      {{else}}
+      {{template "empty_row" 5}}
+      {{end}}
+    </tbody>
+  </table>
+  <div class="pfoot flush">
+    {{if .Prev}}<a class="btn secondary sm w112" href="{{.Prev}}">Previous</a>{{else}}<button type="button" class="btn secondary sm w112" disabled>Previous</button>{{end}}
+    {{if .Next}}<a class="btn secondary sm w112" href="{{.Next}}">Next</a>{{else}}<button type="button" class="btn secondary sm w112" disabled>Next</button>{{end}}
+  </div>
+</section>
+<section class="panel" id="sessions">
+  <div class="panelhead"><h2>Sessions <span class="{{if .Sessions}}qcnt{{else}}qcnt zero{{end}}">{{len .Sessions}}</span></h2></div>
+  <table class="table stable">
+    <thead><tr><th>User</th><th class="c-time">Signed in</th><th class="c-time">Last seen</th><th class="c-act">Action</th></tr></thead>
+    <tbody>
+      {{range .Sessions}}
+      <tr><td class="strong clip">{{.User}}</td><td class="mono">{{.Created}}</td><td class="mono">{{.LastSeen}}</td>
+        <td><form method="post" action="/admin/activity/sessions/{{.ID}}/revoke"><button class="btn danger sm w96" data-confirm="Revoke {{.User}}'s session?">Revoke</button></form></td></tr>
+      {{else}}
+      {{template "empty_row" 4}}
+      {{end}}
+    </tbody>
+  </table>
+</section>
+{{end}}
+
+{{define "admin_tokens"}}
+<section class="panel" id="tokens">
+  <div class="panelhead"><h2>Tokens <span class="{{if .Tokens}}qcnt{{else}}qcnt zero{{end}}">{{len .Tokens}}</span></h2></div>
+  <table class="table stable tokentable">
+    <thead><tr><th class="c-who">Owner</th><th>Name</th><th class="c-can">Can</th><th class="c-date">Expires</th><th class="c-time">Last used</th><th class="c-act">Action</th></tr></thead>
+    <tbody>
+      {{range .Tokens}}
+      <tr>
+        <td class="strong clip">{{.User}}</td>
+        <td class="stack"><span class="strong" title="{{.Name}}">{{.Name}}</span><span class="mono">{{.Ending}}</span></td>
+        <td class="stack"><span>{{.Kind}} · {{.Can}}</span><span class="muted" title="{{.Where}}">{{.Where}}</span></td>
+        <td class="stack"><span class="mono">{{.Expires}}</span>{{with .ExpireSoon}}<span class="soon">{{.}}</span>{{end}}</td>
+        <td class="mono">{{.LastUsed}}</td>
+        <td><form method="post" action="/admin/activity/tokens/{{.ID}}/revoke"><button class="btn danger sm w96" data-confirm="Revoke {{.User}}'s token {{.Name}}?">Revoke</button></form></td>
+      </tr>
+      {{else}}
+      {{template "empty_row" 6}}
+      {{end}}
+    </tbody>
+  </table>
+</section>
+{{end}}
+
+{{define "admin_rules"}}
+<section class="panel" id="rules">
+  <div class="panelhead">
+    <div class="panelname"><h2>Rules</h2></div>
+    <div class="actions">
+      <div class="seg small" role="group" aria-label="Level">{{range .Filters}}<a class="{{if .Active}}on{{end}}"{{with .Keys}} aria-keyshortcuts="{{.}}"{{end}} href="{{.URL}}">{{.Label}} · {{.Count}}</a>{{end}}</div>
+      <a class="btn primary sm w128" href="/admin/rules?new=1" aria-keyshortcuts="N">New rule</a>
+    </div>
+  </div>
+  {{range .Problems}}<p class="checkerr flush" title="{{.}}">{{.}}</p>{{end}}
+  <table class="table ruletable" data-arrows="focus">
+    <thead><tr><th>Rule</th><th class="c-kind">Kind</th><th class="c-target">Applies to</th><th class="c-level">Level</th><th class="c-on">On</th><th class="c-act">Action</th></tr></thead>
+    <tbody>
+      {{range .Rows}}
+      {{/* Edit is the row the keys move to (Enter or e edits); d turns that row on or off; its id keeps it focused through the reload */}}
+      <tr{{with .Class}} class="{{.}}"{{end}} data-rowkeys>
+        <td class="rulecell"><span class="ruleid" title="{{.File}}">{{.ID}}</span><span class="rulemsg" title="{{.Message}}">{{.Message}}</span></td>
+        <td><span class="tag kind-{{.Kind}}">{{.KindLabel}}</span></td>
+        <td class="clip" title="{{.Target}}">{{.Target}}</td>
+        <td><span class="tag lvl-{{.Level}}">{{.Level}}</span></td>
+        <td>
+          <form class="toggle" method="post" action="/admin/rules/toggle">
+            <input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="edit" value="{{$.Edit}}"><input type="hidden" name="on" value="{{if .On}}0{{else}}1{{end}}">
+            <button class="cbx{{if .On}} on{{end}}" aria-label="Enabled" aria-pressed="{{if .On}}true{{else}}false{{end}}" aria-keyshortcuts="D">{{if .On}}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>{{end}}</button>
+          </form>
+        </td>
+        <td>{{if .Editing}}<span class="btn save sm w96" aria-current="true" tabindex="0" data-nav id="row-rule-{{.ID}}">Editing</span>{{else}}<a class="btn ghost sm w96" href="/admin/rules?edit={{.ID}}" data-nav id="row-rule-{{.ID}}" aria-keyshortcuts="E">Edit</a>{{end}}</td>
+      </tr>
+      {{else}}
+      {{template "empty_row" 6}}
+      {{end}}
+    </tbody>
+  </table>
+  <table class="table ruletable settingtable">
+    <thead><tr><th>Setting</th><th class="c-on">On</th><th class="c-act"><span class="sr">Action</span></th></tr></thead>
+    <tbody>
+      <tr>
+        {{- $rc := "Require Check before Sign off and Approve"}}{{if simple}}{{$rc = "Require Check before Complete"}}{{end}}
+        <td class="setname">{{$rc}}</td>
+        <td>
+          <form class="toggle" method="post" action="/admin/rules/require-check">
+            <input type="hidden" name="on" value="{{if .RequireCheck}}0{{else}}1{{end}}">
+            <button class="cbx{{if .RequireCheck}} on{{end}}" aria-label="{{$rc}}" aria-pressed="{{if .RequireCheck}}true{{else}}false{{end}}">{{if .RequireCheck}}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>{{end}}</button>
+          </form>
+        </td>
+        <td><span class="slot w96"></span></td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+<div class="rulesgrid">
+  {{template "rule_form" .Form}}
+  {{template "bench" .Bench}}
+</div>
+{{end}}
+
+{{define "rule_form"}}
+<form class="panel compact ruleform" method="post" action="/admin/rules/save" enctype="multipart/form-data">
+  <div class="panelhead"><h2>{{if .New}}New rule{{else}}Edit rule{{end}}</h2><span class="mono fname" title="{{.File}}">{{.File}}</span></div>
+  <input type="hidden" name="old" value="{{.Old}}">
+  <div class="rfields">
+    <label class="rf">ID<input class="monoin" name="id" value="{{.ID}}" required{{with index .Errs "id"}} aria-invalid="true"{{end}}><span class="ferr" title="{{index .Errs "id"}}">{{index .Errs "id"}}</span></label>
+    <fieldset class="rf"><legend>Kind</legend>
+      <div class="seg fill n4">
+        <label><input type="radio" name="kind" value="pattern"{{if eq .Kind "pattern"}} checked{{end}}><span>Pattern</span></label>
+        <label><input type="radio" name="kind" value="builtin"{{if eq .Kind "builtin"}} checked{{end}}><span>Built-in</span></label>
+        <label><input type="radio" name="kind" value="script"{{if eq .Kind "script"}} checked{{end}}><span>Script</span></label>
+        <label><input type="radio" name="kind" value="ai"{{if eq .Kind "ai"}} checked{{end}}><span>AI</span></label>
+      </div>
+    </fieldset>
+    <div class="rgrid">
+      <label class="rf">Applies to<select name="target">{{range .Targets}}<option value="{{.Value}}"{{if .On}} selected{{end}}>{{.Label}}</option>{{end}}</select></label>
+      <fieldset class="rf"><legend>Level</legend>
+        <div class="seg fill n2">
+          <label><input type="radio" name="level" value="error"{{if eq .Level "error"}} checked{{end}}><span>Error</span></label>
+          <label><input type="radio" name="level" value="warning"{{if eq .Level "warning"}} checked{{end}}><span>Warning</span></label>
+        </div>
+      </fieldset>
+    </div>
+    <div class="k k-pattern">
+      <fieldset class="rf"><legend>Text must</legend>
+        <div class="seg fill n2">
+          <label><input type="radio" name="mode" value="forbid"{{if ne .Mode "require"}} checked{{end}}><span>Not match</span></label>
+          <label><input type="radio" name="mode" value="require"{{if eq .Mode "require"}} checked{{end}}><span>Match</span></label>
+        </div>
+      </fieldset>
+      <div class="rf"><span>Pattern</span>
+        <div class="regex"><span class="delim">/</span><input class="monoin" name="pattern" value="{{.Pattern}}" aria-label="Pattern"{{with index .Errs "pattern"}} aria-invalid="true"{{end}}><span class="delim">/</span><label class="aa"><input type="checkbox" name="icase" value="1"{{if .ICase}} checked{{end}}>Aa</label></div>
+        <span class="ferr" title="{{index .Errs "pattern"}}">{{index .Errs "pattern"}}</span>
+      </div>
+    </div>
+    <fieldset class="rf k k-builtin"><legend>Check</legend>
+      <div class="opts">
+        {{range .Builtins}}<label class="opt"><input type="radio" name="check" value="{{.ID}}"{{if eq .ID $.Check}} checked{{end}}><span class="optname">{{.Name}}</span><span class="mono">{{.ID}}</span></label>{{end}}
+      </div>
+      <span class="ferr" title="{{index .Errs "check"}}">{{index .Errs "check"}}</span>
+    </fieldset>
+    <div class="rf k k-script"><span>Script</span>
+      <div class="scriptrow"><span class="mono scriptname" title="{{.Script}}">{{.Script}}</span><input type="file" name="script" aria-label="Script"{{with index .Errs "script"}} aria-invalid="true"{{end}}></div>
+      <span class="ferr" title="{{index .Errs "script"}}">{{index .Errs "script"}}</span>
+    </div>
+    <label class="rf k k-ai">Rule for the AI<textarea name="ai"{{with index .Errs "ai"}} aria-invalid="true"{{end}}>{{.AI}}</textarea><span class="ferr" title="{{index .Errs "ai"}}">{{index .Errs "ai"}}</span></label>
+    <label class="rf">Message<input name="message" value="{{.Message}}"></label>
+  </div>
+  <div class="pfoot flush">
+    {{if .New}}<span class="slot w112"></span>{{else}}<button class="btn danger sm w112" form="rule-delete">Delete</button>{{end}}
+    <span class="pstate error" title="{{index .Errs "form"}}">{{index .Errs "form"}}</span>
+    <button class="btn primary sm w128">Save</button>
+  </div>
+</form>
+{{if not .New}}<form id="rule-delete" method="post" action="/admin/rules/delete" hidden><input type="hidden" name="id" value="{{.Old}}"></form>{{end}}
+{{end}}
+
+{{define "bench"}}
+<section class="panel compact bench" id="bench">
+  <div class="panelhead"><h2>Test bench</h2></div>
+  <form class="benchform" action="/admin/rules/bench" hx-get="/admin/rules/bench" hx-target="#bench-out" hx-swap="outerHTML">
+    <label class="rf flush">Rule<select name="rule">{{range .Rules}}<option value="{{.Value}}"{{if .On}} selected{{end}}>{{.Label}}</option>{{end}}</select></label>
+    <div class="rgrid flush">
+      <label class="rf">Engagement<select name="eng" hx-get="/admin/rules/bench/findings" hx-trigger="change" hx-target="#bench-fid" hx-swap="outerHTML">{{range .Engs}}<option value="{{.Value}}"{{if .On}} selected{{end}}>{{.Label}}</option>{{end}}</select></label>
+      <label class="rf">Finding{{template "bench_findings" .}}</label>
+    </div>
+    <div class="benchrun flush"><button class="btn secondary sm w176">Try</button><button class="btn primary sm w176" name="all" value="1">Run on engagement</button></div>
+  </form>
+  {{template "bench_out" .}}
+</section>
+{{end}}
+
+{{define "bench_findings"}}<select id="bench-fid" name="fid">{{range .Findings}}<option value="{{.Value}}"{{if .On}} selected{{end}}>{{.Label}}</option>{{end}}</select>{{end}}
+
+{{define "bench_out"}}
+{{if .All}}
+<div class="benchout flush" id="bench-out">
+  <div class="benchhead"><span class="benchsum mono" title="{{.Summary}}">{{.Summary}} · <span data-fp-count>0 false positives</span> · {{.At}}</span></div>
+  <table class="table benchtable benchall">
+    <thead><tr><th class="c-id">ID</th><th>Finding</th><th class="c-hits">Hits</th><th class="c-quote">Quote</th><th class="c-fp">False pos.</th></tr></thead>
+    <tbody>
+      {{range .FRows}}
+      <tr>
+        <td class="mono">{{.ID}}</td>
+        <td title="{{.Title}}"><a class="strong" href="{{.URL}}">{{.Title}}</a></td>
+        <td class="mono c-hits">{{.Hits}}</td>
+        <td title="{{.Quote}}">{{if .Quote}}<code>{{.Quote}}</code>{{else}}<span class="muted">—</span>{{end}}</td>
+        <td class="c-fp">{{if .Hits}}<input type="checkbox" data-fp aria-label="False positive · {{.ID}}">{{end}}</td>
+      </tr>
+      {{else}}
+      {{template "empty_row" 5}}
+      {{end}}
+    </tbody>
+  </table>
+</div>
+{{else}}
+<div class="benchout flush" id="bench-out">
+  <div class="benchhead"><span class="cnt">Hits <span class="hits">{{if .Ran}}{{if .Hits}}<span class="badge">{{.Hits}}</span>{{else}}<span class="badge0">0</span>{{end}}{{end}}</span></span></div>
+  <table class="table benchtable">
+    <thead><tr><th class="c-level">Level</th><th>Message</th><th class="c-quote">Quote</th><th class="c-where">Section</th></tr></thead>
+    <tbody>
+      {{range .Rows}}
+      <tr>
+        <td><span class="tag lvl-{{.Level}}">{{.Level}}</span></td>
+        <td title="{{.Message}}">{{.Message}}</td>
+        <td title="{{.Quote}}">{{if .Quote}}<code>{{.Quote}}</code>{{else}}<span class="muted">—</span>{{end}}</td>
+        <td title="{{.Where}}">{{with .Where}}{{.}}{{else}}<span class="muted">—</span>{{end}}</td>
+      </tr>
+      {{else}}
+      {{template "empty_row" 4}}
+      {{end}}
+    </tbody>
+  </table>
+</div>
+{{end}}
+{{end}}

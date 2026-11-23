@@ -11,6 +11,22 @@ func msg(id, user, text string) Message {
 	return Message{ID: id, User: user, Text: text, TS: time.Date(2026, 11, 4, 10, 0, 0, 0, time.UTC)}
 }
 
+// Resolving a resolved thread is refused: it would succeed again and add a
+// message that changes nothing.
+func TestValidateResolveTwice(t *testing.T) {
+	root := msg("t1", "alice", "is this right?")
+	if err := Validate([]Message{root}, Message{ID: "r1", Resolves: "t1"}); err != nil {
+		t.Fatal(err)
+	}
+	resolved := []Message{root, {ID: "r1", User: "bob", Resolves: "t1"}}
+	if err := Validate(resolved, Message{ID: "r2", Resolves: "t1"}); err == nil || err.Error() != "thread already resolved" {
+		t.Fatalf("resolve twice: %v", err)
+	}
+	if err := Validate(resolved, Message{ID: "o1", Reopens: "t1"}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestRoundTrip(t *testing.T) {
 	m := msg("a1", "alice", "hello\nworld")
 	m.Section = "Impact"

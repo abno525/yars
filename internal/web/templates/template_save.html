@@ -1,0 +1,27 @@
+{{define "content"}}
+{{$f := .Finding.F}}
+<div class="titlerow">
+  <div class="titlecol">
+    <nav class="crumbs"><a href="/e/{{.Eng.ID}}">{{.Eng.Name}}</a><span class="sep" aria-hidden="true">/</span><a class="idchip" href="{{.Tpl.Back}}">{{$f.Meta.ID}}</a></nav>
+    <h1 title="{{$f.Meta.Title}}">Save as template</h1>
+  </div>
+</div>
+<form class="panel savetpl" method="post" action="{{.Tpl.Back}}/template">
+  <div class="panelhead"><h2>Save as template</h2><span class="pstate error" title="{{.Tpl.Error}}">{{.Tpl.Error}}</span></div>
+  <div class="fgrid">
+    <label class="field">Template title<input name="title" value="{{.Tpl.Title}}" required></label>
+  </div>
+  <div class="tsub flush">Strip</div>
+  <div class="striplist flush">
+    {{range .Tpl.Strip}}
+    <label class="strip"><input type="checkbox" name="strip" value="{{.Key}}"{{if .On}} checked{{end}}><span class="strong">{{.Label}}</span><span class="mono clip" title="{{.Value}}">{{.Value}}</span></label>
+    {{else}}
+    <p class="strip muted">—</p>
+    {{end}}
+  </div>
+  <div class="pfoot flush">
+    <a class="btn secondary sm w96" href="{{.Tpl.Back}}">Cancel</a>
+    <button class="btn save sm w128">Save template</button>
+  </div>
+</form>
+{{end}}

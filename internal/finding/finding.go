@@ -36,6 +36,7 @@ type Meta struct {
 	CVSSReasons map[string]string `yaml:"cvss_reasons,omitempty"`
 	// Details holds the details table, keyed by configured row name.
 	Details map[string]string `yaml:"details,omitempty"`
+	Assets  []Asset           `yaml:"assets,omitempty"`
 	Extra   map[string]any    `yaml:",inline"`
 
 	// Workflow state (from the database).
@@ -43,7 +44,23 @@ type Meta struct {
 	Reviewers []string  `yaml:"-"`
 	ClearedBy []string  `yaml:"-"` // reviewers whose clearance matches the current content
 	Returned  *Returned `yaml:"-"` // set when a reviewer sends the finding back to draft
+	Withdrawn *Returned `yaml:"-"` // who withdrew the finding and why (status withdrawn)
 	Retest    *Retest   `yaml:"-"` // only in retests
+}
+
+// Asset is one affected asset: a host and/or URL, an optional port and a
+// note.
+type Asset struct {
+	Host string `yaml:"host,omitempty" json:"host,omitempty"`
+	URL  string `yaml:"url,omitempty" json:"url,omitempty"`
+	Port string `yaml:"port,omitempty" json:"port,omitempty"`
+	Note string `yaml:"note,omitempty" json:"note,omitempty"`
+}
+
+// Key identifies an asset regardless of its note and letter case.
+func (a Asset) Key() string {
+	n := func(s string) string { return strings.ToLower(strings.TrimSpace(s)) }
+	return n(a.Host) + "\x00" + n(a.URL) + "\x00" + n(a.Port)
 }
 
 // StateKeys are front-matter keys that used to hold workflow state.
@@ -223,6 +240,7 @@ type Finding struct {
 
 	rawMeta  string // front matter text exactly as read (LF-normalized)
 	metaSnap string // Meta encoding at parse time, to detect deliberate changes
+	parsed   bool   // read by Parse: rawMeta is the file's (it may be empty)
 	crlf     bool   // file used CRLF line endings
 }
 
@@ -293,23 +311,34 @@ func encodeMeta(m *Meta) string {
 	return out.String()
 }
 
+// Parse reads a finding file. It takes what editors write too: a UTF-8 byte
+// order mark (not written back), empty front matter, and a closing "---"
+// that ends the file without a newline.
 func Parse(b []byte) (*Finding, error) {
-	s := string(b)
-	f := &Finding{crlf: strings.Contains(s, "\r\n")}
+	s := strings.TrimPrefix(string(b), "\xef\xbb\xbf")
+	f := &Finding{crlf: strings.Contains(s, "\r\n"), parsed: true}
 	s = strings.ReplaceAll(s, "\r\n", "\n")
 	if !strings.HasPrefix(s, "---\n") {
 		return nil, errors.New("finding: missing front matter")
 	}
-	end := strings.Index(s[4:], "\n---\n")
-	if end < 0 {
-		return nil, errors.New("finding: unterminated front matter")
+	if strings.HasSuffix(s, "\n---") {
+		s += "\n" // a closing "---" at the very end (any other last line stays as it is)
 	}
-	f.rawMeta = s[4 : 4+end+1]
+	var rest string
+	if strings.HasPrefix(s[4:], "---\n") { // empty front matter
+		rest = s[8:]
+	} else {
+		end := strings.Index(s[4:], "\n---\n")
+		if end < 0 {
+			return nil, errors.New("finding: unterminated front matter")
+		}
+		f.rawMeta = s[4 : 4+end+1]
+		rest = s[4+end+5:]
+	}
 	if err := yaml.Unmarshal([]byte(f.rawMeta), &f.Meta); err != nil {
 		return nil, err
 	}
 	f.metaSnap = encodeMeta(&f.Meta)
-	rest := s[4+end+5:]
 
 	var cur *Section
 	var buf strings.Builder
@@ -345,7 +374,7 @@ func (f *Finding) Bytes() []byte {
 	out.WriteString("---\n")
 	// Keep the front matter byte-for-byte (comments, order, style) unless
 	// Meta was deliberately changed since parsing.
-	if enc := encodeMeta(&f.Meta); f.rawMeta != "" && enc == f.metaSnap {
+	if enc := encodeMeta(&f.Meta); (f.parsed || f.rawMeta != "") && enc == f.metaSnap {
 		out.WriteString(f.rawMeta)
 	} else {
 		out.WriteString(enc)

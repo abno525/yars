@@ -1,10 +1,16 @@
 package web
 
 import (
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
 	"testing"
+	"time"
+
+	"yars/internal/chat"
+	"yars/internal/db"
+	"yars/internal/workflow"
 )
 
 func (e *env) chatIDs(t *testing.T) []string {
@@ -30,7 +36,7 @@ func TestChatPostAndList(t *testing.T) {
 	e.do(t, "bob", "POST", fpath+"/chat", url.Values{"text": {"Yes, see step 2."}, "reply": {root}}, nil)
 	rec = e.do(t, "bob", "POST", fpath+"/chat", url.Values{"resolves": {root}}, nil)
 	b := rec.Body.String()
-	if !strings.Contains(b, "Yes, see step 2.") || !strings.Contains(b, "resolved by bob") {
+	if !strings.Contains(b, "Yes, see step 2.") || !strings.Contains(b, "Resolved</strong> by bob") {
 		t.Fatalf("body:\n%s", b)
 	}
 	if got := e.lastCommit(t); got != "alice|F-001: create" {
@@ -50,13 +56,43 @@ func TestChatMessageLayout(t *testing.T) {
 	}
 }
 
+// Hiding a resolved thread is per user and answers with the chat list.
+func TestChatHideShow(t *testing.T) {
+	e := setup(t)
+	e.do(t, "bob", "POST", fpath+"/chat", url.Values{"text": {"Typo in step 2"}}, nil)
+	id := e.chatIDs(t)[0]
+	if rec := e.do(t, "alice", "POST", fpath+"/chat/"+id+"/hide", url.Values{}, nil); rec.Code != http.StatusBadRequest {
+		t.Fatalf("hid an open thread: %d", rec.Code)
+	}
+	e.do(t, "bob", "POST", fpath+"/chat", url.Values{"resolves": {id}}, nil)
+	b := e.do(t, "alice", "GET", fpath, nil, nil).Body.String()
+	if !strings.Contains(b, fshort+"/chat/"+id+"/hide") || strings.Contains(b, "data-hidden") {
+		t.Fatalf("resolved thread lacks hide:\n%s", b)
+	}
+	rec := e.do(t, "alice", "POST", fpath+"/chat/"+id+"/hide", url.Values{}, nil)
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `id="chat-list"`) || !strings.Contains(rec.Body.String(), "data-hidden") ||
+		!strings.Contains(rec.Body.String(), fshort+"/chat/"+id+"/show") {
+		t.Fatalf("hide code %d:\n%s", rec.Code, rec.Body.String())
+	}
+	if b := e.do(t, "alice", "GET", fshort+"/chat", nil, nil).Body.String(); !strings.Contains(b, "data-hidden") {
+		t.Fatal("hidden state not kept")
+	}
+	if b := e.do(t, "bob", "GET", fshort+"/chat", nil, nil).Body.String(); strings.Contains(b, "data-hidden") {
+		t.Fatal("hidden for another user")
+	}
+	if b := e.do(t, "alice", "POST", fpath+"/chat/"+id+"/show", url.Values{}, nil).Body.String(); strings.Contains(b, "data-hidden") {
+		t.Fatal("show kept it hidden")
+	}
+}
+
 // A collapsed (resolved) thread still shows what the comment said.
 func TestResolvedThreadShowsComment(t *testing.T) {
 	e := setup(t)
 	long := "**Please** rename the `login` parameter in step 2 " + strings.Repeat("and explain more ", 20)
 	e.do(t, "bob", "POST", fpath+"/chat", url.Values{"text": {long}}, nil)
 	b := e.do(t, "bob", "POST", fpath+"/chat", url.Values{"resolves": {e.chatIDs(t)[0]}}, nil).Body.String()
-	sum := b[strings.Index(b, "<summary>"):strings.Index(b, "</summary>")]
+	row := b[strings.Index(b, `class="rrow"`):]
+	sum := row[:strings.Index(row, "</button>")]
 	if !strings.Contains(sum, "Please rename the login parameter in step 2") || !strings.Contains(sum, "…") || strings.Contains(sum, "**") {
 		t.Fatalf("summary lacks a plain excerpt:\n%s", sum)
 	}
@@ -92,8 +128,8 @@ func TestChatEscapes(t *testing.T) {
 func TestChatPoll204(t *testing.T) {
 	e := setup(t)
 	e.do(t, "alice", "POST", fpath+"/chat", url.Values{"text": {"first"}}, nil)
-	msgs, _ := e.srv.Store.Chat("acme", fdir)
-	h := chatHash(msgs)
+	ref, _ := e.srv.Store.Finding("acme", fdir)
+	h := e.srv.chatStamp(ref)
 	if rec := e.do(t, "bob", "GET", fpath+"/chat?since="+h, nil, nil); rec.Code != http.StatusNoContent {
 		t.Fatalf("unchanged poll code %d", rec.Code)
 	}
@@ -101,6 +137,10 @@ func TestChatPoll204(t *testing.T) {
 	rec := e.do(t, "alice", "GET", fpath+"/chat?since="+h, nil, nil)
 	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "second") {
 		t.Fatalf("changed poll code %d", rec.Code)
+	}
+	// a poll swaps the list only, never the composer and its draft (backlog, M4)
+	if b := rec.Body.String(); strings.Contains(b, `id="chat-text"`) || strings.Contains(b, `class="composer"`) {
+		t.Fatalf("the poll answer carries the composer:\n%s", b)
 	}
 }
 
@@ -110,29 +150,164 @@ func TestChatBadRef400(t *testing.T) {
 	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "unknown thread") {
 		t.Fatalf("code %d body:\n%s", rec.Code, rec.Body.String())
 	}
+	// a failed reply answers with the list only: its text never lands in
+	// the main composer (backlog, M4)
+	if b := rec.Body.String(); !strings.HasPrefix(strings.TrimSpace(b), `<div id="chat-list"`) || strings.Contains(b, `id="chat-text"`) {
+		t.Fatalf("a failed reply's answer is not the list alone:\n%s", b)
+	}
 }
 
-func TestReturnShowsInChat(t *testing.T) {
+// A refused reply comes back in its thread's reply box, so it can be
+// shortened and sent again; the other threads' boxes stay empty (backlog,
+// M4).
+func TestFailedReplyKeepsText(t *testing.T) {
+	e := setup(t)
+	e.do(t, "alice", "POST", fpath+"/chat", url.Values{"text": {"first"}}, nil)
+	e.do(t, "alice", "POST", fpath+"/chat", url.Values{"text": {"second"}}, nil)
+	ids := e.chatIDs(t)
+	long := strings.Repeat("word ", 2001)
+	rec := e.do(t, "bob", "POST", fpath+"/chat", url.Values{"text": {long}, "reply": {ids[0]}}, nil)
+	b := rec.Body.String()
+	if rec.Code != http.StatusBadRequest || !strings.Contains(b, "longer than 10000") {
+		t.Fatalf("code %d", rec.Code)
+	}
+	if !strings.Contains(b, `id="reply-`+ids[0]+`" placeholder="Reply" aria-label="Reply" value="`+strings.TrimSpace(long)) {
+		t.Fatal("the refused reply is not in its box")
+	}
+	if !strings.Contains(b, `id="reply-`+ids[1]+`" placeholder="Reply" aria-label="Reply">`) {
+		t.Fatal("another thread's box is not empty")
+	}
+}
+
+// chatList is the #chat-list of a page or fragment.
+func chatList(t *testing.T, b string) string {
+	t.Helper()
+	i := strings.Index(b, `<div id="chat-list"`)
+	if i < 0 {
+		t.Fatalf("no chat list:\n%s", b)
+	}
+	b = b[i:]
+	if j := strings.Index(b, `<form class="composer"`); j >= 0 {
+		b = b[:j]
+	}
+	return b
+}
+
+// D21: status changes are read in the chat; the Status panel is gone.
+func TestStatusEventsInChat(t *testing.T) {
+	e := setup(t)
+	e.toVerification(t)
+	b := e.do(t, "alice", "GET", fpath, nil, nil).Body.String()
+	if list := chatList(t, b); !strings.Contains(list, `<div class="chatev ev-submit"><span class="what"><strong>alice</strong> submitted it for verification</span>`) {
+		t.Fatalf("no submit in the chat:\n%s", list)
+	}
+	if strings.Contains(b, `id="activity"`) {
+		t.Fatal("the Status panel is still on the page")
+	}
+	// the poll answers the list alone (nothing out of band)
+	if poll := e.do(t, "alice", "GET", fpath+"/chat", nil, nil).Body.String(); strings.Contains(poll, "hx-swap-oob") || !strings.Contains(poll, "ev-submit") {
+		t.Fatalf("poll:\n%s", poll)
+	}
+}
+
+// D21: events and threads are one timeline, in the order they happened.
+func TestChatOrderMixesEventsAndThreads(t *testing.T) {
+	e := setup(t)
+	st := e.srv.Store
+	if _, err := st.PostChat("acme", fdir, chat.Message{Text: "first note"}, wBob); err != nil {
+		t.Fatal(err)
+	}
+	e.toVerification(t)
+	if _, err := st.PostChat("acme", fdir, chat.Message{Text: "second note"}, wBob); err != nil {
+		t.Fatal(err)
+	}
+	list := chatList(t, e.do(t, "alice", "GET", fpath+"/chat", nil, nil).Body.String())
+	a, s, b := strings.Index(list, "first note"), strings.Index(list, "submitted it for verification"), strings.Index(list, "second note")
+	if a < 0 || !(a < s && s < b) {
+		t.Fatalf("order %d %d %d:\n%s", a, s, b, list)
+	}
+}
+
+// D21: the tail is still the newest 50 messages: events do not count; those
+// older than the oldest thread shown wait behind Show older.
+func TestChatTailCountsMessagesOnly(t *testing.T) {
+	e := setup(t)
+	st, d := e.srv.Store, e.srv.Store.DB()
+	for i := range 60 {
+		if _, err := st.PostChat("acme", fdir, chat.Message{Text: fmt.Sprintf("m%02d", i)}, wBob); err != nil {
+			t.Fatal(err)
+		}
+		if i%2 == 0 { // 30 events, one after each even message
+			if err := d.TxFor("acme", func(tx *db.Tx) error {
+				return tx.AddMessage("acme", "F-001", chat.Message{ID: chat.NewID(), TS: time.Now(), User: "alice", Event: "submit"})
+			}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	list := chatList(t, e.do(t, "alice", "GET", fpath, nil, nil).Body.String())
+	if !strings.Contains(list, "Show older (10)") || strings.Contains(list, "<p>m09</p>") || !strings.Contains(list, "<p>m10</p>") {
+		t.Fatalf("tail:\n%s", list)
+	}
+	// the events after m10, m12, … m58 are shown; the five before m10 are not
+	if n := strings.Count(list, `class="chatev ev-submit"`); n != 25 {
+		t.Fatalf("%d events shown", n)
+	}
+	if strings.Index(list, `class="chatev`) < strings.Index(list, "<p>m10</p>") {
+		t.Fatal("an event older than the oldest thread shown")
+	}
+}
+
+// D21: a Return's reason is read in the chat, on the event's row.
+func TestReturnReasonShownInChat(t *testing.T) {
 	e := setup(t)
 	e.toVerification(t)
 	e.do(t, "bob", "POST", fpath+"/action/return", url.Values{"reason": {"Add a screenshot"}}, nil)
-	b := e.do(t, "alice", "GET", fpath, nil, nil).Body.String()
-	// status changes live in their own box above the chat, not in it
-	act, chat := strings.Index(b, `id="activity"`), strings.Index(b, `id="chat"`)
-	if act < 0 || chat < act {
-		t.Fatalf("no status box above the chat:\n%s", b)
+	list := chatList(t, e.do(t, "alice", "GET", fpath, nil, nil).Body.String())
+	row := between(list, `<div class="chatev ev-return">`, "</div>")
+	if !strings.Contains(row, "<strong>bob</strong> returned it to draft: <span class=\"text\">Add a screenshot</span>") || !strings.Contains(row, `<span class="time">`) {
+		t.Fatalf("return row:\n%s", list)
 	}
-	box := b[act:chat]
-	if !strings.Contains(box, "returned it to draft") || !strings.Contains(box, "Add a screenshot") || !strings.Contains(box, "submitted it") {
-		t.Fatalf("status box:\n%s", box)
+}
+
+// R4: a revert reads as one in the chat, with its reason, and in the
+// history.
+func TestRevertWordsInChatAndHistory(t *testing.T) {
+	e := setup(t)
+	e.toComplete(t)
+	st := e.srv.Store
+	for _, step := range []struct {
+		a      workflow.Action
+		reason string
+	}{{workflow.Report, ""}, {workflow.Unreport, "sent too early"}, {workflow.Reopen, "wrong host"}} {
+		if err := st.Transition("acme", fdir, step.a, step.reason, wDora); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if strings.Contains(b[chat:], "returned it to draft") {
-		t.Fatal("status change still listed in the chat")
+	list := chatList(t, e.do(t, "alice", "GET", fpath, nil, nil).Body.String())
+	for kind, want := range map[string]string{
+		"unreport": `<strong>dora</strong> reverted it to complete: <span class="text">sent too early</span>`,
+		"reopen":   `<strong>dora</strong> reverted it to verification: <span class="text">wrong host</span>`,
+	} {
+		if row := between(list, `<div class="chatev ev-`+kind+`">`, "</div>"); !strings.Contains(row, want) {
+			t.Errorf("%s row:\n%s", kind, list)
+		}
 	}
-	// the chat poll refreshes the box out of band, so others' changes show up
-	poll := e.do(t, "alice", "GET", fpath+"/chat", nil, nil).Body.String()
-	if !strings.Contains(poll, `id="activity" hx-swap-oob="true"`) || !strings.Contains(poll, "returned it to draft") {
-		t.Fatalf("poll lacks the status box:\n%s", poll)
+	h := e.do(t, "alice", "GET", "/e/acme/f/001/history", nil, nil).Body.String()
+	for _, want := range []string{"reverted to complete", "reverted to verification"} {
+		if !strings.Contains(h, want) {
+			t.Errorf("history lacks %q", want)
+		}
+	}
+	// both reverts get the reopen marker colour
+	css := e.do(t, "alice", "GET", "/static/style.css", nil, nil).Body.String()
+	for _, want := range []string{".chatev.ev-reopen::before, .chatev.ev-unreport::before, .chatev.ev-revise::before { background: var(--accent); }",
+		".dot.ev-reopen, .dot.ev-unreport, .dot.ev-revise, .dot.ev-retest { background: var(--accent); }",
+		// and the notification's tag
+		".tag.nev-reverted, .tag.nev-taken_back { background: var(--accent); color: var(--on-accent); }"} {
+		if !strings.Contains(css, want) {
+			t.Errorf("style.css lacks %s", want)
+		}
 	}
 }
 
@@ -142,10 +317,10 @@ func TestSectionCommentCount(t *testing.T) {
 	b := e.do(t, "alice", "GET", fpath, nil, nil).Body.String()
 	impact := b[strings.Index(b, `id="s-impact"`):]
 	impact = impact[:strings.Index(impact, "</section>")]
-	if !strings.Contains(impact, `class="open-count">1<`) || !strings.Contains(impact, `data-section="Impact"`) {
+	if !strings.Contains(impact, `class="open-count">1<`) || !strings.Contains(impact, `data-comment="Impact"`) {
 		t.Fatalf("impact panel:\n%s", impact)
 	}
-	if b := e.do(t, "alice", "GET", "/e/acme", nil, nil).Body.String(); !strings.Contains(b, "1 open") {
+	if b := e.do(t, "alice", "GET", "/e/acme", nil, nil).Body.String(); !strings.Contains(b[strings.Index(b, `id="findings"`):], `class="badge">1<`) {
 		t.Fatal("table lacks open count")
 	}
 }

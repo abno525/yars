@@ -14,6 +14,21 @@ import (
 
 func chatMsg(text string) chat.Message { return chat.Message{Text: text} }
 
+// Comments can point at the Details table and the CVSS block, not only at
+// the text sections.
+func TestPostChatOnDetailsAndCVSS(t *testing.T) {
+	s, _, fd := newFinding(t)
+	for _, sec := range []string{"Details", "CVSS"} {
+		m, err := s.PostChat(eng, fd, chat.Message{Text: "check this", Section: sec}, uBob)
+		if err != nil {
+			t.Fatalf("%s: %v", sec, err)
+		}
+		if m.Section != sec {
+			t.Fatalf("section %q, want %q", m.Section, sec)
+		}
+	}
+}
+
 // Chat lives in the database: posting makes no commit and writes no file.
 func TestPostChat(t *testing.T) {
 	s, dir, fd := newFinding(t)
@@ -43,6 +58,35 @@ func TestPostChat(t *testing.T) {
 	}
 }
 
+// Hiding a resolved thread is personal: other users still see it.
+func TestHideThreadPerUser(t *testing.T) {
+	s, _, fd := newFinding(t)
+	root, _ := s.PostChat(eng, fd, chat.Message{Text: "x"}, uBob)
+	open, _ := s.PostChat(eng, fd, chat.Message{Text: "y"}, uBob)
+	if err := s.HideThread(eng, fd, root.ID, true, uAlice); !errors.Is(err, ErrInvalidChat) {
+		t.Fatalf("hid an open thread: %v", err)
+	}
+	if err := s.HideThread(eng, fd, "missing", true, uAlice); !errors.Is(err, ErrInvalidChat) {
+		t.Fatalf("hid a missing thread: %v", err)
+	}
+	s.PostChat(eng, fd, chat.Message{Resolves: root.ID}, uBob)
+	if err := s.HideThread(eng, fd, root.ID, true, uAlice); err != nil {
+		t.Fatal(err)
+	}
+	if h, err := s.HiddenThreads(eng, fd, uAlice); err != nil || !h[root.ID] || h[open.ID] {
+		t.Fatalf("alice hidden %v %v", h, err)
+	}
+	if h, _ := s.HiddenThreads(eng, fd, uBob); len(h) != 0 {
+		t.Fatalf("bob hidden %v", h)
+	}
+	if err := s.HideThread(eng, fd, root.ID, false, uAlice); err != nil {
+		t.Fatal(err)
+	}
+	if h, _ := s.HiddenThreads(eng, fd, uAlice); len(h) != 0 {
+		t.Fatalf("after show %v", h)
+	}
+}
+
 func TestPostChatRejectsBadRefs(t *testing.T) {
 	s, _, fd := newFinding(t)
 	for _, m := range []chat.Message{{Text: "x", Reply: "missing"}, {Resolves: "missing"}, {Text: " "}, {Text: "x", Section: "Nope"}} {
@@ -65,6 +109,21 @@ func TestResolveDropsText(t *testing.T) {
 	msgs, _ := s.Chat(eng, fd)
 	if got.Text != "" || msgs[1].Text != "" || msgs[1].Section != "" {
 		t.Fatalf("resolve kept text (%d chars) / section %q", len(msgs[1].Text), msgs[1].Section)
+	}
+}
+
+// A reply belongs to its thread, which carries the section: a section sent
+// with a reply (MCP takes one) is dropped, as a marker's is (backlog, M4).
+func TestReplyDropsSection(t *testing.T) {
+	s, _, fd := newFinding(t)
+	root, _ := s.PostChat(eng, fd, chat.Message{Text: "about impact", Section: "Impact"}, uBob)
+	got, err := s.PostChat(eng, fd, chat.Message{Reply: root.ID, Text: "agreed", Section: "Description"}, uAlice)
+	if err != nil {
+		t.Fatal(err)
+	}
+	msgs, _ := s.Chat(eng, fd)
+	if got.Section != "" || msgs[1].Section != "" || msgs[0].Section != "Impact" {
+		t.Fatalf("reply section %q / stored %q, root %q", got.Section, msgs[1].Section, msgs[0].Section)
 	}
 }
 

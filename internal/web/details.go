@@ -4,7 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"sort"
-	"strconv"
+	"strings"
 
 	"yars/internal/auth"
 	"yars/internal/store"
@@ -12,13 +12,16 @@ import (
 
 type detailsRow struct {
 	Field, Name, Value string
+	BaseField, Base    string // the row's own base (store.RowHash of its stored value)
 }
 
 type detailsView struct {
 	Rows, Other               []detailsRow
 	Base, Error               string
 	Locked                    bool
+	ReadOnly                  bool // archived engagement: no Comment either
 	ViewURL, EditURL, SaveURL string
+	LiveURL                   string // the read panel's live refresh
 }
 
 func (s *Server) routesDetails(mux *http.ServeMux) {
@@ -27,18 +30,28 @@ func (s *Server) routesDetails(mux *http.ServeMux) {
 	mux.HandleFunc("POST /e/{eng}/f/{fid}/details", s.detailsSave)
 }
 
-// detailsFor builds the view; typed overrides configured row values (by index).
-func (s *Server) detailsFor(ref store.FindingRef, typed map[int]string) detailsView {
+// rowField is the form field of a details row: keyed by its name, so a
+// value lands under the row the editor showed even if the rows changed.
+const rowField = "row:"
+
+// baseField is the form field of a row's base: each row is checked on its
+// own, and only rows the user changed are written.
+const baseField = "base:"
+
+// detailsFor builds the view; typed overrides configured row values (by name).
+func (s *Server) detailsFor(ref store.FindingRef, typed map[string]string) detailsView {
 	d := ref.F.Meta.Details
 	base := findingURL(ref.EngID, ref.Dir) + "/details"
-	v := detailsView{Base: store.DetailsHash(ref.F.Meta), ViewURL: base, EditURL: base + "/edit", SaveURL: base}
+	v := detailsView{Base: store.DetailsHash(ref.F.Meta), ViewURL: base, EditURL: base + "/edit", SaveURL: base,
+		ReadOnly: s.Store.Archived(ref.EngID), LiveURL: s.liveURL(base, ref)}
 	known := map[string]bool{}
-	for i, name := range s.Cfg.DetailsRows {
+	for _, name := range s.conf().DetailsRows {
 		val := d[name]
-		if t, ok := typed[i]; ok {
+		if t, ok := typed[name]; ok {
 			val = t
 		}
-		v.Rows = append(v.Rows, detailsRow{Field: "row_" + strconv.Itoa(i), Name: name, Value: val})
+		v.Rows = append(v.Rows, detailsRow{Field: rowField + name, Name: name, Value: val,
+			BaseField: baseField + name, Base: store.RowHash(d[name])})
 		known[name] = true
 	}
 	for k, val := range d {
@@ -51,7 +64,7 @@ func (s *Server) detailsFor(ref store.FindingRef, typed map[int]string) detailsV
 }
 
 func (s *Server) detailsGet(w http.ResponseWriter, r *http.Request) {
-	if ref, ok := s.cvssRef(w, r); ok {
+	if ref, ok := s.liveRef(w, r); ok {
 		v := s.detailsFor(ref, nil)
 		v.Locked = s.locked(r, ref)
 		s.exec(w, "finding.html", "details_panel", v)
@@ -70,19 +83,52 @@ func (s *Server) detailsSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	r.ParseForm()
-	typed := map[int]string{}
-	values := map[string]string{}
-	for i, name := range s.Cfg.DetailsRows {
-		f := "row_" + strconv.Itoa(i)
-		if r.PostForm.Has(f) {
-			typed[i] = r.PostForm.Get(f)
-			values[name] = typed[i]
+	// a value is saved under the row name it was posted with: a configured
+	// row, or one the finding already has; any other name means the rows
+	// changed while the editor was open
+	known := map[string]bool{}
+	for _, name := range s.conf().DetailsRows {
+		known[name] = true
+	}
+	for name := range ref.F.Meta.Details {
+		known[name] = true
+	}
+	values, bases := map[string]string{}, map[string]string{}
+	perRow, gone := false, false
+	for k, vs := range r.PostForm {
+		if name, ok := strings.CutPrefix(k, baseField); ok && len(vs) > 0 {
+			bases[name], perRow = vs[0], true
 		}
 	}
-	err := s.Store.UpdateDetails(ref.EngID, ref.Dir, values, r.PostForm.Get("base"), auth.UserFrom(r.Context()))
+	for k, vs := range r.PostForm {
+		if name, ok := strings.CutPrefix(k, rowField); ok && len(vs) > 0 {
+			gone = gone || !known[name]
+			// per row: a row the user left as it was is not written, so a
+			// change made meanwhile (MCP, a push) stays
+			if b, ok := bases[name]; perRow && ok && store.RowHash(store.CleanRow(vs[0])) == b {
+				continue
+			}
+			values[name] = vs[0]
+		}
+	}
+	var err error
+	switch {
+	case gone:
+		err = store.ErrConflict
+	case perRow && len(values) == 0:
+	case perRow:
+		_, err = s.Store.UpdateDetailsRows(ref.EngID, ref.Dir, values, bases, auth.UserFrom(r.Context()))
+	default:
+		err = s.Store.UpdateDetails(ref.EngID, ref.Dir, values, r.PostForm.Get("base"), auth.UserFrom(r.Context()))
+	}
 	if errors.Is(err, store.ErrConflict) {
-		v := s.detailsFor(ref, typed)
-		v.Error = "The details were changed by someone else while you were editing. Your text is kept below; saving again will replace theirs."
+		// the rows the user changed, typed; the others as they are now
+		v := s.detailsFor(ref, values)
+		v.Error = conflictText
+		if gone {
+			// a row the editor showed is no longer configured
+			v.Error = "Details rows changed"
+		}
 		s.execStatus(w, http.StatusConflict, "finding.html", "details_editor", v)
 		return
 	}

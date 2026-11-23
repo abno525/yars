@@ -8,8 +8,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
-	"yars/internal/auth"
 	"yars/internal/config"
 	"yars/internal/gitrepo"
 	"yars/internal/store"
@@ -24,12 +24,12 @@ func legacyRepo(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hash, _ := auth.HashPassword("pw")
+	hash := testHash(t, "pw")
 	files := map[string]string{
-		".yars/config.yaml":                 "severities: [critical, high, medium, low, info]\n",
-		".gitignore":                        ".yars/users.yaml\n.yars/tokens.yaml\n",
-		".gitattributes":                    "*.png binary\nchat.jsonl merge=union\n",
-		"engagements/acme/engagement.yaml":  "name: ACME\ntype: pentest\n",
+		".yars/config.yaml":                "severities: [critical, high, medium, low, info]\n",
+		".gitignore":                       ".yars/users.yaml\n.yars/tokens.yaml\n",
+		".gitattributes":                   "*.png binary\nchat.jsonl merge=union\n",
+		"engagements/acme/engagement.yaml": "name: ACME\ntype: pentest\n",
 		"engagements/acme/findings/F-001-sqli/finding.md": "---\nid: F-001\ntitle: SQLi\nstatus: verification\nseverity: high\nauthor: alice\nreviewers:\n    - bob\n    - carol\ncleared_by:\n    - bob\n---\n\n## Impact\n\nDB read.\n",
 		"engagements/acme/findings/F-001-sqli/chat.jsonl": `{"id":"aaaaaaaaaaaa","ts":"2026-11-04T10:00:00Z","user":"bob","text":"PoC?","section":"Impact"}` + "\n" +
 			`{"id":"bbbbbbbbbbbb","ts":"2026-11-04T10:05:00Z","user":"alice","event":"submit"}` + "\n",
@@ -163,6 +163,135 @@ func TestMigrate(t *testing.T) {
 	}
 }
 
+// A file the main repository ignored stays out of the engagement's own
+// repository when the migration makes it (its import commit took every
+// file) (backlog, M11).
+func TestMigrateKeepsIgnoredFilesOut(t *testing.T) {
+	dir := legacyRepo(t)
+	os.WriteFile(filepath.Join(dir, ".gitignore"), []byte(".yars/users.yaml\n.yars/tokens.yaml\n*.tmp\n"), 0o644)
+	gitT(t, dir, "commit", "-qam", "ignore scratch files")
+	os.WriteFile(filepath.Join(dir, "engagements", "acme", "findings", "F-001-sqli", "scratch.tmp"), []byte("local notes"), 0o644)
+	os.WriteFile(filepath.Join(dir, "engagements", "acme", "loose.md"), []byte("not ignored"), 0o644)
+	var out bytes.Buffer
+	if err := cmdMigrate([]string{"--data", dir}, &out); err != nil {
+		t.Fatalf("%v\n%s", err, out.String())
+	}
+	tracked, err := gitIn(filepath.Join(dir, "engagements", "acme"), "ls-files")
+	if err != nil || strings.Contains(tracked, "scratch.tmp") || !strings.Contains(tracked, "loose.md") {
+		t.Fatalf("tracked:\n%s", tracked)
+	}
+}
+
+// The import keeps what the main repository tracked even where an ignore
+// rule matches it (an attachment YARS added with -f), takes file names as
+// they are (a leading space, brackets), and leaves out ignored files and
+// folders as patterns that match only them; on the split path and on the
+// fallback (no git subtree) alike (M34 review).
+func TestMigrateImportNames(t *testing.T) {
+	for _, fallback := range []bool{false, true} {
+		dir := legacyRepo(t)
+		os.WriteFile(filepath.Join(dir, ".gitignore"), []byte(".yars/users.yaml\n.yars/tokens.yaml\n*.log\n*.tmp\nnode_modules/\n"), 0o644)
+		fdir := filepath.Join(dir, "engagements", "acme", "findings", "F-001-sqli")
+		os.MkdirAll(filepath.Join(fdir, "attachments"), 0o755)
+		os.WriteFile(filepath.Join(fdir, "attachments", "burp.log"), []byte("request"), 0o644)
+		gitT(t, dir, "add", "-f", "engagements/acme/findings/F-001-sqli/attachments/burp.log")
+		gitT(t, dir, "commit", "-qam", "attachment under an ignore rule")
+		os.WriteFile(filepath.Join(dir, "engagements", "acme", " lead.md"), []byte("leading space"), 0o644)
+		os.WriteFile(filepath.Join(dir, "engagements", "acme", "a[1].tmp"), []byte("ignored"), 0o644)
+		os.WriteFile(filepath.Join(dir, "engagements", "acme", "a1.md"), []byte("not ignored"), 0o644)
+		os.MkdirAll(filepath.Join(dir, "engagements", "acme", "node_modules", "x"), 0o755)
+		os.WriteFile(filepath.Join(dir, "engagements", "acme", "node_modules", "x", "i.js"), []byte("ignored"), 0o644)
+		if fallback {
+			bin := t.TempDir()
+			real, err := exec.LookPath("git")
+			if err != nil {
+				t.Fatal(err)
+			}
+			os.WriteFile(filepath.Join(bin, "git"), []byte("#!/bin/sh\nfor a in \"$@\"; do [ \"$a\" = subtree ] && exit 1; done\nexec "+real+" \"$@\"\n"), 0o755)
+			t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+		}
+		var out bytes.Buffer
+		if err := cmdMigrate([]string{"--data", dir}, &out); err != nil {
+			t.Fatalf("fallback %v: %v\n%s", fallback, err, out.String())
+		}
+		names, _ := gitNames(filepath.Join(dir, "engagements", "acme"), "ls-files", "-z")
+		tracked := "\n" + strings.Join(names, "\n") + "\n"
+		for _, want := range []string{"/burp.log\n", "\n lead.md\n", "\na1.md\n"} {
+			if !strings.Contains(tracked, want) {
+				t.Errorf("fallback %v: %q not tracked:%s", fallback, want, tracked)
+			}
+		}
+		for _, bad := range []string{"a[1].tmp", "node_modules"} {
+			if strings.Contains(tracked, bad) {
+				t.Errorf("fallback %v: %q tracked", fallback, bad)
+			}
+		}
+	}
+}
+
+// A finding folder copied by hand with its chat.jsonl holds messages whose
+// ids another finding's chat already has: ids are unique, so they are not
+// copied, and the migration says so instead of dropping them silently
+// (backlog, M10).
+func TestMigrateReportsChatOfCopies(t *testing.T) {
+	dir := legacyRepo(t)
+	src := filepath.Join(dir, "engagements", "acme", "findings", "F-001-sqli")
+	dst := filepath.Join(dir, "engagements", "acme", "findings", "F-003-sqli-copy")
+	os.MkdirAll(dst, 0o755)
+	b, _ := os.ReadFile(filepath.Join(src, "finding.md"))
+	os.WriteFile(filepath.Join(dst, "finding.md"), []byte(strings.Replace(string(b), "id: F-001", "id: F-003", 1)), 0o644)
+	c, _ := os.ReadFile(filepath.Join(src, "chat.jsonl"))
+	os.WriteFile(filepath.Join(dst, "chat.jsonl"), c, 0o644)
+	var out bytes.Buffer
+	if err := cmdMigrate([]string{"--data", dir}, &out); err != nil {
+		t.Fatalf("%v\n%s", err, out.String())
+	}
+	if !strings.Contains(out.String(), "2 chat messages of acme/F-003 are already acme/F-001's: not copied") {
+		t.Fatalf("output:\n%s", out.String())
+	}
+}
+
+// A chat line written by hand without a time gets the chat file's time,
+// not year 0001 (M34 review of the backlog's timestamp line).
+func TestMigrateChatWithoutTime(t *testing.T) {
+	dir := legacyRepo(t)
+	cp := filepath.Join(dir, "engagements", "acme", "findings", "F-002-xss", "chat.jsonl")
+	os.WriteFile(cp, []byte(`{"id":"cccccccccccc","user":"bob","text":"no time"}`+"\n"), 0o644)
+	when := time.Date(2026, 3, 4, 5, 6, 7, 0, time.UTC)
+	os.Chtimes(cp, when, when)
+	var out bytes.Buffer
+	if err := cmdMigrate([]string{"--data", dir}, &out); err != nil {
+		t.Fatalf("%v\n%s", err, out.String())
+	}
+	r, _ := gitrepo.Open(dir)
+	msgs, err := store.New(r, config.Default(), openDB(t, dir)).Chat("acme", "F-002-xss")
+	if err != nil || len(msgs) != 1 || !msgs[0].TS.Equal(when) {
+		t.Fatalf("%v %+v", err, msgs)
+	}
+}
+
+// An API token whose account is gone from users.yaml is skipped with a
+// line saying so; the migration goes on and finishes (backlog, M10).
+func TestMigrateSkipsTokenOfMissingUser(t *testing.T) {
+	dir := legacyRepo(t)
+	toks := "- user: bob\n  sha256: " + strings.Repeat("ab", 32) + "\n- user: zed\n  sha256: " + strings.Repeat("cd", 32) + "\n"
+	os.WriteFile(filepath.Join(dir, ".yars", "tokens.yaml"), []byte(toks), 0o600)
+	var out bytes.Buffer
+	if err := cmdMigrate([]string{"--data", dir}, &out); err != nil {
+		t.Fatalf("%v\n%s", err, out.String())
+	}
+	if !strings.Contains(out.String(), "skip API token of zed: no such account") {
+		t.Fatalf("output:\n%s", out.String())
+	}
+	d := openDB(t, dir)
+	if u, ok, _ := d.TokenUser(strings.Repeat("ab", 32)); !ok || u != "bob" {
+		t.Fatal("bob's token not migrated")
+	}
+	if items := legacyItems(dir); len(items) != 0 {
+		t.Fatalf("still legacy: %v", items)
+	}
+}
+
 // If the migration commit fails, the working tree is left exactly as it was
 // (a dirty tree would make every push fail), and a re-run finishes the job
 // without duplicating chat.
@@ -230,5 +359,33 @@ func TestServeRefusesLegacyData(t *testing.T) {
 	err := cmdServe([]string{"--data", dir, "--addr", "127.0.0.1:0"})
 	if err == nil || !strings.Contains(err.Error(), "yars migrate") {
 		t.Fatalf("err %v", err)
+	}
+}
+
+// Accounts imported by yars migrate get the defaults v5 gave existing
+// accounts: directors are admins and everyone is on the engagements that
+// exist.
+func TestMigrateAccountDefaults(t *testing.T) {
+	dir := legacyRepo(t)
+	hash := testHash(t, "pw")
+	users := []config.User{{Username: "alice", Role: "pentester", PasswordHash: hash}, {Username: "bob", Role: "reviewer", PasswordHash: hash}, {Username: "dora", Role: "director", PasswordHash: hash}}
+	if err := config.SaveUsers(dir, users); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := cmdMigrate([]string{"--data", dir}, &out); err != nil {
+		t.Fatalf("%v\n%s", err, out.String())
+	}
+	d := openDB(t, dir)
+	if u, _, _ := d.User("dora"); !u.IsAdmin {
+		t.Fatal("imported director is not an admin")
+	}
+	if u, _, _ := d.User("alice"); u.IsAdmin {
+		t.Fatal("imported pentester is an admin")
+	}
+	for _, eng := range []string{"acme", "rt"} {
+		if ok, _ := d.IsMember(eng, "alice"); !ok {
+			t.Errorf("alice not on %s", eng)
+		}
 	}
 }

@@ -49,6 +49,21 @@ func TestCVSSCalcLive(t *testing.T) {
 	}
 }
 
+// The calculator belongs to the editor: on a finding the user may not edit
+// it is refused as the editor is, instead of drawing an editor that cannot
+// save (backlog, M3).
+func TestCVSSCalcLocked(t *testing.T) {
+	e := setup(t)
+	e.toComplete(t)
+	for _, path := range []string{"/cvss/edit", "/cvss/calc"} {
+		method := map[string]string{"/cvss/edit": "GET", "/cvss/calc": "POST"}[path]
+		rec := e.do(t, "alice", method, fpath+path, vecForm(nil), nil)
+		if rec.Code != http.StatusForbidden || strings.Contains(rec.Body.String(), `name="reason_AC"`) {
+			t.Errorf("%s on a complete finding: %d", path, rec.Code)
+		}
+	}
+}
+
 func TestCVSSSave(t *testing.T) {
 	e := setup(t)
 	edit := e.do(t, "alice", "GET", fpath+"/cvss/edit", nil, nil)
@@ -144,10 +159,30 @@ func TestSeverityManual(t *testing.T) {
 	}
 }
 
+// The saved CVSS panel lists every non-standard metric in a table with
+// headers: metric, the team standard, the chosen value and the reason.
+func TestCVSSReasonsTableInView(t *testing.T) {
+	e := setup(t)
+	form := vecForm(nil)
+	for _, k := range []string{"AC", "C", "I"} {
+		form.Set("reason_"+k, "because "+k)
+	}
+	e.do(t, "alice", "POST", fpath+"/cvss", form, nil)
+	b := e.do(t, "alice", "GET", fpath+"/cvss", nil, nil).Body.String()
+	for _, h := range []string{"<th class=\"c-metric\">Metric</th>", "<th class=\"c-chosen\">Chosen</th>", "<th>Reason</th>", "because C"} {
+		if !strings.Contains(b, h) {
+			t.Fatalf("missing %q in CVSS panel:\n%s", h, b)
+		}
+	}
+	if strings.Contains(b, "Standard</th>") {
+		t.Fatal("the standard column is implied and not shown")
+	}
+}
+
 func TestCVSSExplanationTableUnderCalculator(t *testing.T) {
 	e := setup(t)
 	b := e.do(t, "alice", "POST", fpath+"/cvss/calc", vecForm(nil), nil).Body.String()
-	tbl := strings.Index(b, "Explanation")
+	tbl := strings.Index(b, "Reasoning")
 	paste := strings.Index(b, `name="paste"`)
 	for _, k := range []string{"AC", "C", "I"} {
 		i := strings.Index(b, `<textarea name="reason_`+k+`"`)
@@ -193,8 +228,8 @@ func TestCVSSEditorUIGuards(t *testing.T) {
 	for _, want := range []string{
 		`id="cvss-AV-N"`,                 // radios keep focus across swaps
 		`hx-sync="closest form:replace"`, // fast clicks don't race
-		`keyup[key==`,                    // Enter in paste box applies
-		`hx-confirm=`,                    // clear asks first
+		`data-enter`,                     // Enter in paste box applies (app.js)
+		`data-confirm=`,                  // clear asks first
 	} {
 		if !strings.Contains(b, want) {
 			t.Fatalf("missing %q:\n%s", want, b)
@@ -209,7 +244,7 @@ func TestSeverityConflict(t *testing.T) {
 		t.Fatal("severity form has no base")
 	}
 	rec := e.do(t, "bob", "POST", fpath+"/severity", url.Values{"severity": {"low"}, "base": {"0000000000000000"}}, nil)
-	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "changed by someone else") {
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "The finding changed since you read it") {
 		t.Fatalf("code %d body:\n%s", rec.Code, rec.Body.String())
 	}
 }

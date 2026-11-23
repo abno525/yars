@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -32,6 +33,18 @@ func srcFixture(t *testing.T) (*Store, string) {
 }
 
 func chatMsgText(s string) chat.Message { return chat.Message{Text: s} }
+
+// A withdrawn finding is not part of the report, so it can't be retested.
+func TestRetestSkipsWithdrawn(t *testing.T) {
+	s, _ := srcFixture(t)
+	if err := s.Transition(eng, "F-002-xss", workflow.Withdraw, "duplicate", uAlice); err != nil {
+		t.Fatal(err)
+	}
+	err := s.CreateRetest(Engagement{ID: "rt", Name: "RT"}, eng, []string{"F-001-sql-injection", "F-002-xss"}, "", uDora)
+	if !errors.Is(err, ErrInvalidValue) || !strings.Contains(err.Error(), "withdrawn") {
+		t.Fatalf("err %v", err)
+	}
+}
 
 func treeHash(t *testing.T, root string) map[string][32]byte {
 	t.Helper()
@@ -86,6 +99,135 @@ func TestCreateRetest(t *testing.T) {
 	nf, err := s.CreateFinding("2027-01-acme-retest", "New issue", uAlice.GitAuthor())
 	if err != nil || nf.F.Meta.ID != "F-004" || nf.F.Meta.Retest != nil {
 		t.Fatalf("new finding %+v %v", nf.F.Meta, err)
+	}
+}
+
+// The copies' links and the team are written before the repository, and
+// taken back when it fails: a retest is made whole or not at all, never
+// copies that look like plain drafts. Here the links fail (the database
+// refuses them) (backlog, M10).
+func TestCreateRetestWholeOrNothing(t *testing.T) {
+	s, dir := srcFixture(t)
+	if _, err := s.db.Exec("CREATE TRIGGER boom BEFORE INSERT ON finding_state WHEN NEW.eng = 'rt' BEGIN SELECT RAISE(ABORT, 'disk full'); END"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateRetest(Engagement{ID: "rt", Name: "RT"}, eng, []string{"F-001-sql-injection"}, "", uDora); err == nil || !strings.Contains(err.Error(), "disk full") {
+		t.Fatalf("err %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "engagements", "rt")); err == nil {
+		t.Fatal("the copies were written")
+	}
+	if _, err := s.Engagement("rt"); err == nil {
+		t.Fatal("the retest engagement exists")
+	}
+	// the repository fails (no room for it): the links go again
+	engs := filepath.Join(dir, "engagements")
+	os.Chmod(engs, 0o555)
+	defer os.Chmod(engs, 0o755)
+	if os.Geteuid() != 0 {
+		if err := s.CreateRetest(Engagement{ID: "rt2", Name: "RT"}, eng, []string{"F-001-sql-injection"}, "", uDora); err == nil {
+			t.Fatal("created in a read-only folder")
+		}
+		if st, _ := s.db.State("rt2", "F-001"); st.RetestSource != "" {
+			t.Fatalf("a link was left: %+v", st)
+		}
+		if m, _ := s.db.Members("rt2"); len(m) != 0 {
+			t.Fatalf("a team was left: %v", m)
+		}
+	}
+}
+
+// When the retest's repository cannot be made (here the main repository
+// refuses the commit that records it), the links and team written first are
+// taken back (M34 review).
+func TestCreateRetestRepoFailsPurges(t *testing.T) {
+	s, dir := srcFixture(t)
+	hook := filepath.Join(dir, ".git", "hooks", "pre-commit")
+	if err := os.WriteFile(hook, []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateRetest(Engagement{ID: "rt", Name: "RT"}, eng, []string{"F-001-sql-injection"}, "", uDora); err == nil {
+		t.Fatal("created though the main repository refused")
+	}
+	if st, _ := s.db.State("rt", "F-001"); st.RetestSource != "" {
+		t.Fatalf("a link was left: %+v", st)
+	}
+	if m, _ := s.db.Members("rt"); len(m) != 0 {
+		t.Fatalf("a team was left: %v", m)
+	}
+	// the form says "try again": that works
+	os.Remove(hook)
+	if err := s.CreateRetest(Engagement{ID: "rt", Name: "RT"}, eng, []string{"F-001-sql-injection"}, "", uDora); err != nil {
+		t.Fatalf("trying again: %v", err)
+	}
+}
+
+// A retest needs the database (its links and team live there): without
+// one (a clone) it is refused before anything is written (backlog, M10).
+func TestCreateRetestNeedsDB(t *testing.T) {
+	s, dir := srcFixture(t)
+	clone := New(s.repo, s.Config(), nil)
+	if err := clone.CreateRetest(Engagement{ID: "rt", Name: "RT"}, eng, []string{"F-001-sql-injection"}, "", uDora); !errors.Is(err, ErrNoDB) {
+		t.Fatalf("err %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "engagements", "rt")); err == nil {
+		t.Fatal("the retest engagement was written")
+	}
+}
+
+// A copy brings its finding's attachments, so the screenshots its text
+// shows (attachments/…) are there in the retest too (backlog, M7).
+func TestRetestCopiesAttachments(t *testing.T) {
+	s, dir := srcFixture(t)
+	png := []byte("\x89PNG\r\n\x1a\n" + strings.Repeat("x", 64))
+	if _, err := s.AddAttachment(eng, "F-003-csrf", "shot.png", png, alice); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddAttachment(eng, "F-003-csrf", "notes.txt", []byte("steps"), alice); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateRetest(Engagement{ID: "rt", Name: "RT"}, eng, []string{"F-001-sql-injection", "F-003-csrf"}, "", uDora); err != nil {
+		t.Fatal(err)
+	}
+	as, err := s.Attachments("rt", "F-003-csrf")
+	if err != nil || len(as) != 2 || as[0].Name != "notes.txt" || as[1].Name != "shot.png" {
+		t.Fatalf("attachments %+v %v", as, err)
+	}
+	if b, err := s.ReadAttachment("rt", "F-003-csrf", "attachments/shot.png"); err != nil || string(b) != string(png) {
+		t.Fatalf("shot.png %v", err)
+	}
+	if as, _ := s.Attachments("rt", "F-001-sql-injection"); len(as) != 0 {
+		t.Fatalf("a finding without attachments got %+v", as)
+	}
+	if out, err := exec.Command("git", "-C", filepath.Join(dir, "engagements", "rt"), "status", "--porcelain").Output(); err != nil || len(out) != 0 {
+		t.Fatalf("not committed: %v\n%s", err, out)
+	}
+}
+
+// Q13: an attachment over the 20 MB read limit (only a hand edit makes
+// one) is refused before anything is written, naming the finding, the
+// file and the limit.
+func TestRetestOversizeAttachment(t *testing.T) {
+	s, dir := srcFixture(t)
+	big := filepath.Join(dir, "engagements", eng, "findings", "F-003-csrf", "attachments", "dump.png")
+	if err := os.MkdirAll(filepath.Dir(big), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Create(big)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Truncate(20<<20 + 1) // sparse: 20 MB and one byte
+	f.Close()
+	err = s.CreateRetest(Engagement{ID: "rt", Name: "RT"}, eng, []string{"F-001-sql-injection", "F-003-csrf"}, "", uDora)
+	if !errors.Is(err, ErrInvalidValue) || !strings.Contains(err.Error(), "finding F-003-csrf: attachment dump.png is larger than 20 MB") {
+		t.Fatalf("err %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "engagements", "rt")); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatal("the retest was written")
+	}
+	if st, _ := s.db.State("rt", "F-001"); st.RetestSource != "" {
+		t.Fatalf("a link was left: %+v", st)
 	}
 }
 

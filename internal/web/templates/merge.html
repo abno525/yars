@@ -1,0 +1,49 @@
+{{define "content"}}
+{{$m := .Merge}}
+<form class="newf" method="post" action="{{$m.URL}}">
+  <div class="titlerow">
+    <div class="titlecol">
+      <nav class="crumbs"><a href="/e/{{.Eng.ID}}">{{.Eng.Name}}</a><span class="sep" aria-hidden="true">/</span><a class="idchip" href="{{$m.Back}}">{{$m.ID}}</a></nav>
+      <h1 title="{{$m.Title}}">Merge {{$m.ID}} into</h1>
+    </div>
+    <div class="actions">
+      <a class="btn secondary w128" href="{{$m.Back}}">Cancel</a>
+      <button class="btn primary w128">Merge</button>
+    </div>
+  </div>
+  <div class="errslot">{{if $m.Error}}<p class="error" title="{{$m.Error}}">{{$m.Error}}</p>{{end}}</div>
+  <div class="newgrid">
+    <section class="panel">
+      <div class="panelhead"><div class="panelname"><h2>Target</h2>{{template "assets_count" $m.Targets}}</div></div>
+      <div class="mscroll flush">
+        <table class="table tpltable mtable">
+          <thead><tr><th class="c-pick"><span class="sr">Pick</span></th><th class="c-id">ID</th><th>Title</th><th class="c-tag">Status</th><th class="c-tag">Severity</th></tr></thead>
+          <tbody>
+          {{range $m.Targets}}
+            <tr{{if .On}} class="picked"{{end}}>
+              <td><input type="radio" name="into" value="{{.Dir}}"{{if .On}} checked{{end}} id="into-{{.Dir}}" required></td>
+              <td class="fid">{{.ID}}</td>
+              <td class="title"><label for="into-{{.Dir}}" title="{{.Title}}">{{.Title}}</label></td>
+              <td><span class="tag status-{{.Shown}}">{{statusLabel .Shown}}</span></td>
+              <td>{{if .Severity}}<span class="tag sev-{{.Severity}}">{{.Severity}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
+            </tr>
+          {{else}}
+            {{template "empty_row" 5}}
+          {{end}}
+          </tbody>
+        </table>
+      </div>
+    </section>
+    <section class="panel compact">
+      <div class="panelhead"><h2>Moves</h2><span class="mono">{{$m.ID}}</span></div>
+      <table class="table mparts flush">
+        <thead><tr><th>Part</th><th class="c-num">Count</th></tr></thead>
+        <tbody>
+        {{range $m.Parts}}<tr><td>{{.Name}}</td><td class="num">{{.N}}</td></tr>{{end}}
+        <tr><td>Status</td><td class="num"><span class="tag status-withdrawn">withdrawn</span></td></tr>
+        </tbody>
+      </table>
+    </section>
+  </div>
+</form>
+{{end}}

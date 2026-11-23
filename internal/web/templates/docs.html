@@ -1,0 +1,121 @@
+{{define "content"}}
+{{$d := .Docs}}
+<div class="titlerow">
+  <h1>Developers</h1>
+  <div class="actions">
+    {{if eq $d.Page "mcp"}}<a class="btn primary w128" href="/settings/tokens/new" aria-keyshortcuts="N">New token</a>
+    {{else if and (eq $d.Page "webhooks") .CanAdmin}}<a class="btn secondary w128" href="/admin/webhooks">Webhooks</a>
+    {{else}}<span class="slot w128"></span>{{end}}
+  </div>
+</div>
+<div class="docgrid">
+  <nav class="drail" aria-label="Developers">
+    {{range $d.Tabs}}<a href="{{.URL}}" class="dtab{{if .On}} on{{end}}"{{if .On}} aria-current="page"{{end}}>{{.Label}}</a>{{end}}
+  </nav>
+  <div class="docmain">
+    {{if eq $d.Page "mcp"}}{{template "docs_mcp" $d}}{{end}}
+    {{if eq $d.Page "git"}}{{template "docs_git" $d}}{{end}}
+    <section class="panel">
+      <div class="panelhead"><h2>{{$d.Title}}</h2><span class="mono">docs/{{$d.Page}}.md</span></div>
+      <div class="md doc">{{$d.HTML}}</div>
+    </section>
+  </div>
+</div>
+{{end}}
+
+{{define "docs_mcp"}}
+<section class="panel compact">
+  <div class="panelhead"><h2>Connect</h2><span class="mono">JSON-RPC 2.0 · initialize · ping · tools/list · tools/call</span></div>
+  <div class="dkv flush">
+    <span class="flabel">Endpoint</span>
+    <div class="codeline"><code id="mcp-url">{{.MCPURL}}</code><button type="button" class="btn save sm w96" data-copy="mcp-url">Copy</button></div>
+  </div>
+  <div class="dkv flush">
+    <span class="flabel">Auth</span>
+    <code class="plain">Authorization: Bearer yars_…</code>
+  </div>
+  <div class="dkv flush">
+    <span class="flabel">Protocol</span>
+    <span class="mono strongmono">{{.Protocol}} <span class="muted">· {{.OlderProtocols}}</span></span>
+  </div>
+  <div class="dkv flush top">
+    <span class="flabel">Remote</span>
+    <div class="codeline"><code id="mcp-remote">claude mcp add --transport http yars {{.MCPURL}} --header "Authorization: Bearer yars_…"</code><button type="button" class="btn save sm w96" data-copy="mcp-remote">Copy</button></div>
+  </div>
+  <div class="dkv flush top">
+    <span class="flabel">Local · stdio</span>
+    <div class="codeline"><code id="mcp-local">yars mcp --data . --user {{.User}}</code><button type="button" class="btn save sm w96" data-copy="mcp-local">Copy</button></div>
+  </div>
+  <div class="dkv flush">
+    <span class="flabel">Tokens</span>
+    <span class="keyrow"><span class="{{if .Tokens}}qcnt{{else}}qcnt zero{{end}}">{{.Tokens}}</span><a class="strong" href="/settings#tokens">Manage tokens</a></span>
+  </div>
+</section>
+
+<section class="panel compact">
+  <div class="panelhead"><h2>Tools <span class="{{if .Tools}}qcnt{{else}}qcnt zero{{end}}">{{len .Tools}}</span></h2><span class="mono">tools/list</span></div>
+  <table class="table stable tooltable flush">
+    <thead><tr><th class="c-tool">Tool</th><th class="c-scope">Token action</th><th>Parameters</th><th class="c-scope">Runs on</th></tr></thead>
+    <tbody>
+      {{range .Tools}}
+      <tr>
+        <td class="toolcell"><span class="tn">{{.Name}}</span><span class="td">{{.Desc}}</span></td>
+        <td class="topcell"><span class="tag {{actionTag .Action}}">{{actionName .Action}}</span></td>
+        <td class="topcell">
+          {{if .Params}}
+          <div class="plist">
+            {{range .Params}}<div class="prow"><span class="pn">{{.Name}}</span><span class="pt">{{.Type}}</span><span class="{{if .Required}}rq{{else}}op{{end}}">{{if .Required}}Required{{else}}Optional{{end}}</span><span class="pd">{{.Desc}}</span></div>{{end}}
+          </div>
+          {{else}}<span class="muted">—</span>{{end}}
+        </td>
+        <td class="topcell">{{if .ServerOnly}}<span class="tag runs-server">Server only</span>{{else}}<span class="tag runs-both">Local + server</span>{{end}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+</section>
+
+<section class="panel compact">
+  <div class="panelhead"><h2>Token actions → tools</h2><a class="strong" href="/settings/tokens/new">New token</a></div>
+  <table class="table stable acttable flush">
+    <thead><tr><th class="c-act3">Token action</th><th class="c-scope">Scope</th><th>Tools</th></tr></thead>
+    <tbody>
+      {{range .Actions}}
+      <tr>
+        <td class="strong">{{.Label}}</td>
+        <td><span class="tag {{actionTag .Action}}">{{actionName .Action}}</span></td>
+        <td class="toollist">{{range .Tools}}<span>{{.}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+</section>
+{{end}}
+
+{{define "docs_git"}}
+<section class="panel compact">
+  <div class="panelhead"><h2>Clone</h2><span class="mono">/git/yars · /git/e/&lt;id&gt;</span></div>
+  <div class="dkv flush top">
+    <span class="flabel">Everything</span>
+    <div class="codeline"><code id="git-all">git clone --recurse-submodules {{.MainURL}} findings</code><button type="button" class="btn save sm w96" data-copy="git-all">Copy</button></div>
+  </div>
+  <div class="dkv flush top">
+    <span class="flabel">Each engagement on main</span>
+    <div class="codeline"><code id="git-main">git submodule foreach git switch -q main</code><button type="button" class="btn save sm w96" data-copy="git-main">Copy</button></div>
+  </div>
+  <table class="table stable clonetable flush">
+    <thead><tr><th class="c-id">Engagement</th><th>One engagement</th><th class="c-act2">Copy</th></tr></thead>
+    <tbody>
+      {{range $i, $e := .EngOpts}}
+      <tr>
+        <td class="strong" title="{{.Label}}">{{.Label}}</td>
+        <td><code class="plain" id="git-e{{$i}}">git clone {{$.EngURL}}{{.Value}}</code></td>
+        <td><button type="button" class="btn save sm w96" data-copy="git-e{{$i}}">Copy</button></td>
+      </tr>
+      {{else}}
+      {{template "empty_row" 3}}
+      {{end}}
+    </tbody>
+  </table>
+</section>
+{{end}}

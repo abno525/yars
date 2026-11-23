@@ -1,0 +1,54 @@
+{{define "content"}}
+{{template "enghead" .}}
+{{$v := .EngSettings}}
+<div class="twogrid">
+  {{if $v.CanEdit}}
+  <form class="panel" method="post" action="/e/{{.Eng.ID}}/settings">
+    <div class="panelhead"><h2>General</h2><span class="pstate error" title="{{$v.Error}}">{{$v.Error}}</span></div>
+    <div class="fgrid two">
+      <label class="field">Name<input name="name" value="{{$v.Form.Name}}" required></label>
+      <div class="field"><span class="flabel">ID</span><span class="fvalue mono">{{.Eng.ID}}</span></div>
+      <label class="field">Client<input name="client" value="{{$v.Form.Client}}"></label>
+      <div class="field"><span class="flabel">Type</span><span class="fvalue">{{.Eng.Type}}</span></div>
+      <label class="field">Start<input class="monoin" name="start" type="date" value="{{$v.Form.Start}}"></label>
+      <label class="field">End<input class="monoin" name="end" type="date" value="{{$v.Form.End}}"></label>
+    </div>
+    <div class="pfoot flush"><a class="btn secondary sm w96" href="/e/{{.Eng.ID}}/settings">Cancel</a><button class="btn save sm w96">Save</button></div>
+  </form>
+  {{else}}
+  <section class="panel">
+    <div class="panelhead"><h2>General</h2></div>
+    <div class="fgrid two">
+      <div class="field"><span class="flabel">Name</span><span class="fvalue" title="{{.Eng.Name}}">{{.Eng.Name}}</span></div>
+      <div class="field"><span class="flabel">ID</span><span class="fvalue mono">{{.Eng.ID}}</span></div>
+      <div class="field"><span class="flabel">Client</span><span class="fvalue">{{if .Eng.Client}}{{.Eng.Client}}{{else}}—{{end}}</span></div>
+      <div class="field"><span class="flabel">Type</span><span class="fvalue">{{.Eng.Type}}</span></div>
+      <div class="field"><span class="flabel">Start</span><span class="fvalue mono">{{if .Eng.Start}}{{.Eng.Start}}{{else}}—{{end}}</span></div>
+      <div class="field"><span class="flabel">End</span><span class="fvalue mono">{{if .Eng.End}}{{.Eng.End}}{{else}}—{{end}}</span></div>
+    </div>
+  </section>
+  {{end}}
+  <section class="panel compact">
+    <div class="panelhead"><h2>Team <span class="qcnt{{if not $v.Members}} zero{{end}}">{{len $v.Members}}</span></h2></div>
+    <table class="table stable teamtable flush">
+      <thead><tr><th>User</th>{{if not simple}}<th class="c-role">Role</th>{{end}}<th class="c-act">Action</th></tr></thead>
+      <tbody>
+      {{$eng := .Eng.ID}}
+      {{range $v.Members}}
+        <tr><td class="strong clip">{{.Value}}</td>{{if not simple}}<td class="muted">{{.Label}}</td>{{end}}
+          <td>{{if $v.CanTeam}}<form method="post" action="/e/{{$eng}}/settings/team/remove"><input type="hidden" name="user" value="{{.Value}}"><button class="btn danger sm w96" aria-label="Remove {{.Value}}" data-confirm="Remove {{.Value}} from the team?">Remove</button></form>{{else}}<span class="slot w96"></span>{{end}}</td></tr>
+      {{else}}
+        {{template "empty_row" $v.TeamCols}}
+      {{end}}
+      </tbody>
+    </table>
+    {{if $v.CanTeam}}
+    <form class="inline flush addrow" method="post" action="/e/{{.Eng.ID}}/settings/team">
+      {{/* flush: the panel's margin for a form's children is not theirs (the row lines up with the table); everyone on the team: "—" */}}
+      <select class="grow flush" name="user" aria-label="Add person"{{if $v.Others}} aria-keyshortcuts="A"{{else}} disabled{{end}}>{{range $v.Others}}<option value="{{.Value}}">{{.Value}}{{if not simple}} · {{.Label}}{{end}}</option>{{else}}<option>—</option>{{end}}</select>
+      <button class="btn primary sm w96 flush"{{if not $v.Others}} disabled{{end}}>Add</button>
+    </form>
+    {{end}}
+  </section>
+</div>
+{{end}}

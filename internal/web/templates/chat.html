@@ -1,65 +1,88 @@
 {{define "chat_panel"}}
-<aside class="chat" id="chat">
+<aside class="panel compact chat" id="chat" data-kpanel="side">
   <div class="panelhead">
     <h2>Chat</h2>
-    {{if .Open}}<span class="threads">{{.Open}} open</span>{{end}}
+    <span class="threads">{{if .Open}}{{.Open}} open{{end}}</span>
   </div>
+  {{template "chat_list" .}}
+  {{if not .ReadOnly}}
   <form class="composer" hx-post="{{.PostURL}}" hx-target="#chat" hx-swap="outerHTML">
     {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
-    <textarea name="text" rows="3" placeholder="Write a message (Markdown)…" id="chat-text">{{.Text}}</textarea>
+    <textarea name="text" rows="3" placeholder="Message" aria-label="Message" id="chat-text">{{.Text}}</textarea>
     <div class="composer-row">
-      <select name="section" id="chat-section" aria-label="About section">
+      <select name="section" id="chat-section" aria-label="Section">
         <option value="">General</option>
         {{$cur := .Section}}
         {{range .Sections}}<option value="{{.}}"{{if eq . $cur}} selected{{end}}>{{.}}</option>{{end}}
       </select>
-      <button class="primary">Send</button>
+      <button class="btn save w112" aria-keyshortcuts="Control+Enter">Send</button>
     </div>
   </form>
-  {{template "chat_list" .}}
+  {{end}}
 </aside>
 {{end}}
 
-{{define "activity"}}
-<section class="activity" id="activity"{{if .OOB}} hx-swap-oob="true"{{end}}>
-  <div class="panelhead"><h2>Status changes</h2></div>
-  {{range .Events}}
-  <p class="event"><strong>{{.User}}</strong> {{.What}}{{if .Text}}: <span class="text">{{.Text}}</span>{{end}} <span class="muted">{{.Time}}</span></p>
-  {{else}}
-  <p class="muted">None yet.</p>
-  {{end}}
-</section>
-{{end}}
-
 {{define "chat_list"}}
-<div id="chat-list" hx-get="{{.ListURL}}" hx-trigger="every 5s" hx-swap="outerHTML">
+<div id="chat-list" hx-get="{{.ListURL}}" hx-trigger="sse:chat, sse:workflow, sse:resync, sse:poll" hx-swap="outerHTML" data-sse>
   {{if .ListError}}<p class="error">{{.ListError}}</p>{{end}}
+  {{if .Older}}<button type="button" class="btn ghost sm w152 older" hx-get="{{.OlderURL}}" hx-target="#chat-list" hx-swap="outerHTML">Show older ({{.Older}})</button>{{end}}
   {{range .Items}}
+    {{with .Event}}<div class="chatev ev-{{.Kind}}"><span class="what"><strong>{{.User}}</strong> {{.What}}{{if .Text}}: <span class="text">{{.Text}}</span>{{end}}</span><span class="time">{{.Time}}</span></div>{{end}}
     {{with .Thread}}
-    {{if .Resolved}}<details class="thread resolved"><summary><strong>{{.Root.User}}</strong>{{if .Root.Section}} <span class="tag">{{.Root.Section}}</span>{{end}} <span class="excerpt">{{.Root.Excerpt}}</span> <span class="muted">· {{if .Replies}}{{len .Replies}} {{if eq (len .Replies) 1}}reply{{else}}replies{{end}} · {{end}}resolved by {{.ResolvedBy}}</span></summary>{{else}}<div class="thread">{{end}}
+    {{if .Resolved}}
+    <div class="thread resolved" id="t-{{.Root.ID}}" data-thread="{{.Root.ID}}"{{if .Hidden}} data-hidden{{end}}>
+      <form class="rform" hx-post="{{if .Hidden}}{{.ShowURL}}{{else}}{{.HideURL}}{{end}}" hx-target="#chat-list" hx-swap="outerHTML">
+        {{if $.All}}<input type="hidden" name="all" value="1">{{end}}
+        <button class="rrow" aria-expanded="{{if .Hidden}}false{{else}}true{{end}}">
+          <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>
+          <span class="rtext"><strong>Resolved</strong> by {{.ResolvedBy}}{{if .Root.Section}} · {{.Root.Section}}{{end}} · <span class="excerpt">{{.Root.Excerpt}}</span></span>
+          <span class="rtoggle">{{if .Hidden}}Show{{else}}Hide{{end}}</span>
+        </button>
+      </form>
+      {{if not .Hidden}}
+      <div class="rbody">
+        {{template "chat_msg" .Root}}
+        {{range .Replies}}<div class="reply">{{template "chat_msg" .}}</div>{{end}}
+        {{if not $.ReadOnly}}
+        <form class="thread-tools" hx-post="{{$.PostURL}}" hx-target="#chat-list" hx-swap="outerHTML">
+          {{if $.All}}<input type="hidden" name="all" value="1">{{end}}
+          <input type="hidden" name="reopens" value="{{.Root.ID}}"><button class="btn ghost sm w96" id="reopen-{{.Root.ID}}">Reopen</button>
+        </form>
+        {{end}}
+      </div>
+      {{end}}
+    </div>
+    {{else}}
+    {{/* a comment the keys pick (keys.js yarsThreadStep): by its id, kept through a refresh */}}
+    <div class="thread" id="t-{{.Root.ID}}" data-thread="{{.Root.ID}}">
       {{template "chat_msg" .Root}}
       {{range .Replies}}<div class="reply">{{template "chat_msg" .}}</div>{{end}}
-      <form class="reply-form" hx-post="{{$.PostURL}}" hx-target="#chat-list" hx-swap="outerHTML">
-        <input type="hidden" name="reply" value="{{.Root.ID}}">
-        <input name="text" placeholder="Reply…" aria-label="Reply">
-        <button>Reply</button>
-      </form>
-      <form hx-post="{{$.PostURL}}" hx-target="#chat-list" hx-swap="outerHTML">
-        {{if .Resolved}}<input type="hidden" name="reopens" value="{{.Root.ID}}"><button class="link">Reopen</button>
-        {{else}}<input type="hidden" name="resolves" value="{{.Root.ID}}"><button class="link">Resolve</button>{{end}}
-      </form>
-    {{if .Resolved}}</details>{{else}}</div>{{end}}
+      {{if not $.ReadOnly}}
+      <div class="thread-actions">
+        <form class="reply-form" hx-post="{{$.PostURL}}" hx-target="#chat-list" hx-swap="outerHTML">
+          <input type="hidden" name="reply" value="{{.Root.ID}}">
+          {{if $.All}}<input type="hidden" name="all" value="1">{{end}}
+          <input name="text" id="reply-{{.Root.ID}}" placeholder="Reply" aria-label="Reply"{{if and $.ReplyTo (eq $.ReplyTo .Root.ID)}} value="{{$.ReplyText}}"{{end}}>
+          <button class="btn ghost sm w96" aria-keyshortcuts="Control+Enter">Reply</button>
+        </form>
+        <form class="thread-tools" hx-post="{{$.PostURL}}" hx-target="#chat-list" hx-swap="outerHTML">
+          {{if $.All}}<input type="hidden" name="all" value="1">{{end}}
+          <input type="hidden" name="resolves" value="{{.Root.ID}}"><button class="btn secondary sm w96" id="resolve-{{.Root.ID}}">Resolve</button>
+        </form>
+      </div>
+      {{end}}
+    </div>
+    {{end}}
     {{end}}
   {{else}}
-    <p class="muted">No messages yet.</p>
+    <p class="muted">—</p>
   {{end}}
 </div>
-{{if .OOB}}{{template "activity" .}}{{end}}
 {{end}}
 
 {{define "chat_msg"}}
 <div class="msg">
   <div class="md">{{.HTML}}</div>
-  <div class="msg-head"><strong>{{.User}}</strong>{{if .Section}} <a class="tag" href="#s-{{.Anchor}}" title="Go to {{.Section}}">{{.Section}}</a>{{end}} <span class="muted">{{.Time}}</span></div>
+  <div class="msg-head"><strong>{{.User}}</strong>{{if .AI}}<span class="tag ai">AI</span>{{end}}{{if .Section}}<a class="ref" href="#s-{{.Anchor}}" title="{{.Section}}">{{.Section}}</a>{{end}}<span class="muted time">{{.Time}}</span></div>
 </div>
 {{end}}

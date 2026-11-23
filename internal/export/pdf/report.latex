@@ -1,0 +1,132 @@
+% YARS report theme for pandoc + xelatex (Report-PDF design): navy and
+% orange cover, contents, numbered sections, one page per finding with its
+% severity colour bar and CVSS. IBM Plex when installed, else TeX Gyre
+% Heros/Cursor, else Latin Modern.
+\documentclass[10pt,a4paper]{article}
+\usepackage{fontspec}
+\usepackage{xcolor}
+\usepackage[a4paper,left=24mm,right=24mm,top=28mm,bottom=26mm,headsep=8mm,footskip=12mm]{geometry}
+\usepackage{graphicx}
+\usepackage{longtable,booktabs,array}
+\usepackage{calc}
+\usepackage{etoolbox}
+\usepackage{fancyhdr}
+\usepackage{fvextra}
+\IfFileExists{multirow.sty}{\usepackage{multirow}}{}
+\IfFileExists{soul.sty}{\usepackage{soul}}{\providecommand{\st}[1]{#1}}
+\usepackage[hidelinks]{hyperref}
+
+% ---------- fonts ----------
+\IfFontExistsTF{IBMPlexSans-Regular.otf}{%
+  \setmainfont{IBMPlexSans}[Extension=.otf,UprightFont=*-Regular,BoldFont=*-Bold,ItalicFont=*-Italic,BoldItalicFont=*-BoldItalic]%
+  \setsansfont{IBMPlexSans}[Extension=.otf,UprightFont=*-Regular,BoldFont=*-Bold,ItalicFont=*-Italic,BoldItalicFont=*-BoldItalic]%
+}{\IfFontExistsTF{texgyreheros-regular.otf}{%
+  \setmainfont{texgyreheros}[Extension=.otf,UprightFont=*-regular,BoldFont=*-bold,ItalicFont=*-italic,BoldItalicFont=*-bolditalic]%
+  \setsansfont{texgyreheros}[Extension=.otf,UprightFont=*-regular,BoldFont=*-bold,ItalicFont=*-italic,BoldItalicFont=*-bolditalic]%
+}{}}
+\IfFontExistsTF{IBMPlexMono-Regular.otf}{%
+  \setmonofont{IBMPlexMono}[Extension=.otf,UprightFont=*-Regular,BoldFont=*-Bold,ItalicFont=*-Italic,BoldItalicFont=*-BoldItalic,Scale=0.92]%
+}{\IfFontExistsTF{texgyrecursor-regular.otf}{%
+  \setmonofont{texgyrecursor}[Extension=.otf,UprightFont=*-regular,BoldFont=*-bold,ItalicFont=*-italic,BoldItalicFont=*-bolditalic]%
+}{}}
+\IfFontExistsTF{Bungee-Regular.ttf}{\newfontfamily\yarslogo{Bungee-Regular.ttf}}{\newcommand{\yarslogo}{\sffamily\bfseries}}
+
+% ---------- colours ----------
+\definecolor{yarsnavy}{HTML}{13233F}
+\definecolor{yarsorange}{HTML}{F26B1D}
+\definecolor{yarsmuted}{HTML}{5B6474}
+\definecolor{yarsline}{HTML}{D9DDE3}
+\definecolor{yarspanel}{HTML}{F4F5F7}
+\definecolor{yarshead}{HTML}{C9D2E3}
+\definecolor{yarsfaint}{HTML}{8FA3C4}
+\definecolor{yarsrule}{HTML}{2E4A78}
+
+% ---------- pandoc ----------
+\providecommand{\tightlist}{\setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+\newcounter{none}
+\makeatletter
+\newsavebox\pandoc@box
+\newcommand*\pandocbounded[1]{%
+  \sbox\pandoc@box{#1}%
+  \Gscale@div\@tempa{\textheight}{\dimexpr\ht\pandoc@box+\dp\pandoc@box\relax}%
+  \Gscale@div\@tempb{\linewidth}{\wd\pandoc@box}%
+  \ifdim\@tempb\p@<\@tempa\p@\let\@tempa\@tempb\fi
+  \ifdim\@tempa\p@<\p@\scalebox{\@tempa}{\usebox\pandoc@box}%
+  \else\usebox{\pandoc@box}%
+  \fi}
+\patchcmd\longtable{\par}{\if@noskipsec\mbox{}\fi\par}{}{}
+\makeatother
+$if(highlighting-macros)$
+$highlighting-macros$
+$endif$
+\setlength{\emergencystretch}{3em}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{5pt plus 1pt}
+\renewcommand{\arraystretch}{1.25}
+\urlstyle{same}
+
+% ---------- headings ----------
+\makeatletter
+\renewcommand\section{\@startsection{section}{1}{\z@}{-6ex \@plus -1ex \@minus -.2ex}{2.2ex}{\normalfont\LARGE\bfseries\color{yarsnavy}}}
+\renewcommand\subsection{\@startsection{subsection}{2}{\z@}{-4ex}{1.5ex}{\normalfont\large\bfseries\color{yarsnavy}}}
+\renewcommand\subsubsection{\@startsection{subsubsection}{3}{\z@}{-3ex}{1ex}{\normalfont\normalsize\bfseries\color{yarsnavy}}}
+\renewcommand\@seccntformat[1]{\csname the#1\endcsname\enspace\textperiodcentered\enspace}
+\makeatother
+\setcounter{secnumdepth}{1}
+\setcounter{tocdepth}{2}
+
+% ---------- page ----------
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\scriptsize\bfseries\color{yarsmuted}$title$}
+\fancyhead[R]{\scriptsize\bfseries\color{yarsmuted}CONFIDENTIAL}
+\renewcommand{\headrule}{{\color{yarsorange}\hrule height 2pt}}
+\fancyfoot[L]{\scriptsize\color{yarsmuted}$if(client)$$client$ \textperiodcentered{} $endif$$title$}
+\fancyfoot[R]{\scriptsize\ttfamily\thepage}
+\renewcommand{\footrule}{{\color{yarsline}\hrule height 0.4pt}\vskip 3pt}
+
+% ---------- report pieces (from report.lua) ----------
+% a severity tag: background, text colour, label
+\newcommand{\yarstag}[3]{\colorbox[HTML]{#1}{\makebox[18mm]{\color[HTML]{#2}\fontsize{7}{8}\selectfont\bfseries #3}}}
+% a severity's part of the cover bar: colour, width in mm
+\newcommand{\yarsseg}[2]{\textcolor[HTML]{#1}{\rule{#2mm}{3.5mm}}\hspace{0.6mm}}
+% a cover fact: label, value
+\newcommand{\yarsmeta}[2]{\begin{minipage}[t]{0.23\linewidth}{\scriptsize\color{yarsfaint}\MakeUppercase{#1}}\\[1mm]{\small\color{white}#2}\end{minipage}\hfill}
+% a section name inside a finding
+\newcommand{\yarssub}[1]{\par\vspace{3mm}\noindent{\footnotesize\bfseries\color{yarsmuted}#1}\par\nopagebreak\vspace{0.5mm}}
+% the cover and the contents: brand, kicker, title, subtitle, bar, counts, facts
+\newcommand{\yarscover}[7]{%
+  \begin{titlepage}
+  \pagecolor{yarsnavy}\color{white}
+  \noindent{\color{yarsorange}\rule{\linewidth}{2.5mm}}\par\vspace{10mm}
+  \noindent{\yarslogo\fontsize{26}{30}\selectfont\color{yarsorange}#1}\hfill
+  \fcolorbox{yarsorange}{yarsnavy}{\scriptsize\bfseries\color{yarsorange}CONFIDENTIAL}\par
+  \vspace{62mm}
+  {\small\bfseries\color{yarshead}\MakeUppercase{#2}}\par\vspace{4mm}
+  {\fontsize{34}{38}\selectfont\bfseries #3}\par\vspace{5mm}
+  {\large\color{yarshead}#4}\par\vspace{12mm}
+  \noindent #5\par\vspace{1mm}
+  {\footnotesize\ttfamily\color{yarshead}#6}\par
+  \vfill
+  {\color{yarsrule}\hrule height 0.4pt}\vspace{5mm}
+  \noindent #7\par
+  \end{titlepage}
+  \nopagecolor
+  \tableofcontents
+  \vspace{4mm}}
+% a finding's head: background, text colour, SEVERITY, id, title, score, vector
+\newcommand{\yarsfinding}[7]{%
+  \clearpage
+  \phantomsection\addcontentsline{toc}{subsection}{#4\quad #5}%
+  \noindent{\color[HTML]{#1}\vrule width 2mm}\hspace{4mm}%
+  \begin{minipage}[c]{\dimexpr\linewidth-30mm\relax}
+    \vspace{2mm}{\small\ttfamily\color{yarsmuted}#4}\par\vspace{0.5mm}
+    {\Large\bfseries\color{yarsnavy}#5}\par\vspace{2mm}
+    \yarstag{#1}{#2}{#3}\hspace{2mm}{\scriptsize\ttfamily\color{yarsmuted}#7}\par\vspace{2mm}
+  \end{minipage}\hfill
+  \colorbox{yarsnavy}{\begin{minipage}[c][16mm][c]{16mm}\centering\color{white}{\Large\sffamily\bfseries #6}\par\vspace{0.5mm}{\tiny CVSS}\end{minipage}}%
+  \par\vspace{4mm}}
+
+\begin{document}
+$body$
+\end{document}

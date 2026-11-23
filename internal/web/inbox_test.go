@@ -24,7 +24,7 @@ func TestInboxColumnOrder(t *testing.T) {
 	e := setup(t)
 	e.toVerification(t)
 	b := section(e.do(t, "bob", "GET", "/inbox", nil, nil).Body.String(), "Awaiting my review")
-	title, sev, eng, num := strings.Index(b, "SQL injection"), strings.Index(b, `class="pill sev-high"`), strings.Index(b, "ACME Web"), strings.Index(b, "F-001")
+	title, sev, eng, num := strings.Index(b, "SQL injection"), strings.Index(b, `class="tag sev-high"`), strings.Index(b, `<span class="engid">acme`), strings.Index(b, `<span class="fid">F-001`)
 	if title < 0 || !(title < sev && sev < eng && eng < num) {
 		t.Fatalf("order title %d sev %d eng %d num %d:\n%s", title, sev, eng, num, b)
 	}
@@ -44,7 +44,7 @@ func TestInboxLists(t *testing.T) {
 
 	e.do(t, "bob", "POST", fpath+"/action/clear", url.Values{}, nil)
 	b = e.do(t, "bob", "GET", "/inbox", nil, nil).Body.String()
-	if strings.Contains(section(b, "Awaiting my review"), "SQL injection") || strings.Contains(b, `class="badge"`) {
+	if strings.Contains(section(b, "Awaiting my review"), "SQL injection") || strings.Contains(b, `Inbox <span class="badge"`) {
 		t.Fatalf("bob still pending:\n%s", b)
 	}
 	b = e.do(t, "dora", "GET", "/inbox", nil, nil).Body.String()
@@ -60,5 +60,16 @@ func TestInboxLists(t *testing.T) {
 	// badge also on other pages
 	if b := e.do(t, "alice", "GET", "/e/acme", nil, nil).Body.String(); !strings.Contains(b, `class="badge">1<`) {
 		t.Fatal("badge missing on engagement page")
+	}
+}
+
+// Every inbox column has a header, the action column too.
+func TestInboxActionHeader(t *testing.T) {
+	e := setup(t)
+	for _, u := range []string{"alice", "dora"} {
+		b := e.do(t, u, "GET", "/inbox", nil, nil).Body.String()
+		if strings.Contains(b, `<th class="c-go"></th>`) || !strings.Contains(b, `<th class="c-go">Action</th>`) {
+			t.Errorf("%s: action column without a header", u)
+		}
 	}
 }

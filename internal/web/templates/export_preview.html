@@ -1,0 +1,26 @@
+{{define "content"}}
+<form class="titlerow" method="post" action="/e/{{.Eng.ID}}/export">
+  <div class="titlecol">
+    <nav class="crumbs"><a href="/e/{{.Eng.ID}}">{{.Eng.Name}}</a><span class="sep" aria-hidden="true">/</span><a href="/e/{{.Eng.ID}}/export">Export</a><span class="sep" aria-hidden="true">/</span><span class="muted">Preview</span></nav>
+    <h1>Report preview</h1>
+  </div>
+  <div class="actions">
+    {{range .ExportV.Picked}}<input type="hidden" name="finding" value="{{.}}">{{end}}
+    <a class="btn secondary w128" href="/e/{{.Eng.ID}}/export?{{range $i, $d := .ExportV.Picked}}{{if $i}}&amp;{{end}}finding={{$d}}{{end}}">Send</a>
+    <button class="btn primary w160" name="download" value="pdf"{{if (index .ExportV.Downloads 0).Disabled}} disabled{{end}}>Download PDF</button>
+  </div>
+</form>
+<div class="pvgrid">
+  <nav class="panel compact toc" aria-label="Report contents">
+    <div class="panelhead"><h2>Contents</h2>{{with .ExportV.Toc}}<span class="badge">{{len .}}</span>{{else}}<span class="badge0">0</span>{{end}}</div>
+    <a class="flush" href="#rp-summary"><span class="mono tocn">1</span>Executive summary</a>
+    <a class="flush" href="#rp-scope"><span class="mono tocn">2</span>Scope and overview</a>
+    <a class="flush" href="#rp-findings"><span class="mono tocn">3</span>Findings</a>
+    <div class="tsub flush">Findings · {{len .ExportV.Toc}}</div>
+    {{range .ExportV.Toc}}<a class="flush fd" href="#{{.Anchor}}"><span class="mono tocn">{{.ID}}</span><span class="clip" title="{{.Title}}">{{.Title}}</span></a>{{end}}
+  </nav>
+  <div class="paper preview-doc" data-theme="light">
+    <article class="sheet">{{.ExportV.Report}}</article>
+  </div>
+</div>
+{{end}}

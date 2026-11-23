@@ -2,6 +2,7 @@ package store
 
 import (
 	"errors"
+	"image/color"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -9,6 +10,7 @@ import (
 	"testing"
 
 	"yars/internal/config"
+	"yars/internal/db"
 	"yars/internal/gitrepo"
 	"yars/internal/workflow"
 )
@@ -101,6 +103,78 @@ func TestDirectorClearsUnassigned(t *testing.T) {
 	}
 }
 
+// Q25: a director signs off their own finding and joins its reviewers;
+// approving it still needs a sign-off by another assigned reviewer.
+func TestDirectorSignsOffOwnFinding(t *testing.T) {
+	s, _ := withEngagement(t)
+	f, err := s.CreateFinding(eng, "XSS", uDora.GitAuthor())
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.SetReviewers(eng, f.Dir, []string{"bob"}, uDora)
+	s.UpdateSeverity(eng, f.Dir, "high", "", uDora)
+	if err := s.Transition(eng, f.Dir, workflow.Submit, "", uDora); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Transition(eng, f.Dir, workflow.Clear, "", uDora); err != nil {
+		t.Fatalf("own sign-off: %v", err)
+	}
+	m := load(t, s, f.Dir).F.Meta
+	if !reflect.DeepEqual(m.Reviewers, []string{"bob", "dora"}) || !reflect.DeepEqual(m.ClearedBy, []string{"dora"}) {
+		t.Fatalf("reviewers %v cleared %v", m.Reviewers, m.ClearedBy)
+	}
+	if err := s.Transition(eng, f.Dir, workflow.Approve, "", uDora); !denied(err) {
+		t.Fatalf("approved on her own sign-off: %v", err)
+	}
+	if err := s.Transition(eng, f.Dir, workflow.Clear, "", uBob); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Transition(eng, f.Dir, workflow.Approve, "", uDora); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Q25: the director's own sign-off is kept when the reviewer list is saved
+// (no list can name her): a reviewer still only adds, and her list without
+// her keeps it. Once a return took the sign-off, the next list drops her.
+func TestSetReviewersKeepsOwnSignOff(t *testing.T) {
+	s, _ := withEngagement(t)
+	f, err := s.CreateFinding(eng, "XSS", uDora.GitAuthor())
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.SetReviewers(eng, f.Dir, []string{"bob"}, uDora)
+	s.UpdateSeverity(eng, f.Dir, "high", "", uDora)
+	s.Transition(eng, f.Dir, workflow.Submit, "", uDora)
+	if err := s.Transition(eng, f.Dir, workflow.Clear, "", uDora); err != nil {
+		t.Fatal(err)
+	}
+	check := func(reviewers, cleared []string) {
+		t.Helper()
+		if m := load(t, s, f.Dir).F.Meta; !reflect.DeepEqual(m.Reviewers, reviewers) || !reflect.DeepEqual(m.ClearedBy, cleared) {
+			t.Fatalf("reviewers %v cleared %v", m.Reviewers, m.ClearedBy)
+		}
+	}
+	if err := s.SetReviewers(eng, f.Dir, []string{"bob", "carol"}, uBob); err != nil {
+		t.Fatalf("a reviewer adds: %v", err)
+	}
+	check([]string{"bob", "carol", "dora"}, []string{"dora"})
+	if err := s.SetReviewers(eng, f.Dir, []string{"carol"}, uDora); err != nil {
+		t.Fatal(err)
+	}
+	check([]string{"carol", "dora"}, []string{"dora"})
+	if err := s.SetReviewers(eng, f.Dir, nil, uDora); !denied(err) {
+		t.Fatalf("her own entry kept a finding in verification reviewed: %v", err)
+	}
+	if err := s.Transition(eng, f.Dir, workflow.Return, "again", uCarol); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetReviewers(eng, f.Dir, []string{"carol"}, uDora); err != nil {
+		t.Fatal(err)
+	}
+	check([]string{"carol"}, nil)
+}
+
 func TestTransitionFlow(t *testing.T) {
 	s, _, fd := ready(t)
 	s.Transition(eng, fd, workflow.Submit, "", uAlice)
@@ -114,15 +188,192 @@ func TestTransitionFlow(t *testing.T) {
 	if m.Status != "complete" || !reflect.DeepEqual(m.ClearedBy, []string{"bob"}) {
 		t.Fatalf("meta %+v", m)
 	}
-	if err := s.Transition(eng, fd, workflow.Reopen, "", uDora); err != nil {
+	if err := s.Transition(eng, fd, workflow.Reopen, "wrong host", uDora); err != nil {
 		t.Fatal(err)
 	}
 	if m := load(t, s, fd).F.Meta; m.Status != "verification" || len(m.ClearedBy) != 0 {
 		t.Fatalf("reopen %+v", m)
 	}
-	want := []string{"alice:submit:", "bob:clear:", "dora:approve:", "dora:reopen:"}
+	want := []string{"alice:submit:", "bob:clear:", "dora:approve:", "dora:reopen:wrong host"}
 	if got := events(t, s, fd); !reflect.DeepEqual(got, want) {
 		t.Fatalf("events %v", got)
+	}
+}
+
+// completed returns a finding by alice that bob signed off and dora
+// approved.
+func completed(t *testing.T) (*Store, string) {
+	t.Helper()
+	s, _, fd := ready(t)
+	for _, step := range []struct {
+		a workflow.Action
+		u config.User
+	}{{workflow.Submit, uAlice}, {workflow.Clear, uBob}, {workflow.Approve, uDora}} {
+		if err := s.Transition(eng, fd, step.a, "", step.u); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return s, fd
+}
+
+// R4: reverting Reported asks for no new approval: the approval and the
+// sign-offs stay.
+func TestUnreportKeepsApproval(t *testing.T) {
+	s, fd := completed(t)
+	before, _ := s.DB().State(eng, "F-001")
+	if err := s.Transition(eng, fd, workflow.Report, "", uDora); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Transition(eng, fd, workflow.Unreport, "sent too early", uDora); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := s.DB().State(eng, "F-001")
+	if after.Status != "complete" || after.ApprovedHash == "" || after.ApprovedHash != before.ApprovedHash || !reflect.DeepEqual(after.Reviewers, before.Reviewers) {
+		t.Fatalf("after unreport %+v, before %+v", after, before)
+	}
+	if m := load(t, s, fd).F.Meta; m.Status != "complete" {
+		t.Fatalf("shown as %s", m.Status)
+	}
+}
+
+// R4, Review focus 1: a finding sent to Confluence or Jira keeps its page
+// through a revert, so the next send updates the same page.
+func TestUnreportKeepsRemoteLink(t *testing.T) {
+	s, fd := completed(t)
+	if err := s.DB().SetExportRemote(db.ExportRemote{Destination: "wiki", Eng: eng, Finding: "F-001", Target: "SPACE", RemoteID: "42", Version: 3, URL: "https://wiki.example/42"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Transition(eng, fd, workflow.Report, "", uDora); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Transition(eng, fd, workflow.Unreport, "sent too early", uDora); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Transition(eng, fd, workflow.Reopen, "wrong host", uDora); err != nil {
+		t.Fatal(err)
+	}
+	if r, ok, err := s.DB().ExportRemote("wiki", eng, "F-001"); err != nil || !ok || r.RemoteID != "42" || r.Version != 3 {
+		t.Fatalf("remote link %+v %v %v", r, ok, err)
+	}
+}
+
+// R4, Review focus 3: a blank reason is refused for both reverts.
+func TestRevertNeedsReasonInStore(t *testing.T) {
+	s, fd := completed(t)
+	if err := s.Transition(eng, fd, workflow.Reopen, "  ", uDora); !denied(err) || !strings.Contains(err.Error(), "a reason is required") {
+		t.Fatalf("reopen without a reason: %v", err)
+	}
+	if err := s.Transition(eng, fd, workflow.Report, "", uDora); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Transition(eng, fd, workflow.Unreport, "  ", uDora); !denied(err) || !strings.Contains(err.Error(), "a reason is required") {
+		t.Fatalf("unreport without a reason: %v", err)
+	}
+	if m := load(t, s, fd).F.Meta; m.Status != "reported" {
+		t.Fatalf("a refused revert moved it to %s", m.Status)
+	}
+}
+
+// R4: the revert is in the history with its reason: the chat's event and
+// the domain event.
+func TestRevertEventCarriesReason(t *testing.T) {
+	s, fd := completed(t)
+	rec := &recorder{}
+	s.OnEvent(rec.add)
+	if err := s.Transition(eng, fd, workflow.Report, "", uDora); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Transition(eng, fd, workflow.Unreport, " sent too early ", uAlice); err != nil {
+		t.Fatal(err)
+	}
+	got := events(t, s, fd)
+	if got[len(got)-1] != "alice:unreport:sent too early" {
+		t.Fatalf("events %v", got)
+	}
+	if e := rec.last(EventStatus); e.Action != "unreport" || e.From != "reported" || e.To != "complete" || e.Reason != "sent too early" {
+		t.Fatalf("event %+v", e)
+	}
+	if err := s.Transition(eng, fd, workflow.Reopen, "wrong host", uAlice); err != nil {
+		t.Fatal(err)
+	}
+	if e := rec.last(EventStatus); e.Action != "reopen" || e.From != "complete" || e.To != "verification" || e.Reason != "wrong host" {
+		t.Fatalf("reopen event %+v", e)
+	}
+}
+
+func TestWithdrawAndRevise(t *testing.T) {
+	s, _, fd := ready(t)
+	s.Transition(eng, fd, workflow.Submit, "", uAlice)
+	if err := s.Transition(eng, fd, workflow.Clear, "", uBob); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Transition(eng, fd, workflow.Withdraw, "  ", uAlice); !denied(err) || !strings.Contains(err.Error(), "reason") {
+		t.Fatalf("withdraw without reason: %v", err)
+	}
+	if err := s.Transition(eng, fd, workflow.Withdraw, "dup", uBob); !denied(err) {
+		t.Fatalf("reviewer withdrew: %v", err)
+	}
+	if err := s.Transition(eng, fd, workflow.Withdraw, "duplicate of F-002", uAlice); err != nil {
+		t.Fatal(err)
+	}
+	m := load(t, s, fd).F.Meta
+	if m.Status != "withdrawn" || len(m.ClearedBy) != 0 || m.Withdrawn == nil || m.Withdrawn.By != "alice" || m.Withdrawn.Reason != "duplicate of F-002" {
+		t.Fatalf("withdrawn meta %+v %+v", m, m.Withdrawn)
+	}
+	if err := s.Transition(eng, fd, workflow.Revise, "", uBob); !denied(err) {
+		t.Fatalf("reviewer restored: %v", err)
+	}
+	if err := s.Transition(eng, fd, workflow.Revise, "", uAlice); err != nil {
+		t.Fatal(err)
+	}
+	m = load(t, s, fd).F.Meta
+	if m.Status != "draft" || m.Withdrawn != nil || len(m.ClearedBy) != 0 {
+		t.Fatalf("revised meta %+v", m)
+	}
+	want := []string{"alice:submit:", "bob:clear:", "alice:withdraw:duplicate of F-002", "alice:revise:"}
+	if got := events(t, s, fd); !reflect.DeepEqual(got, want) {
+		t.Fatalf("events %v", got)
+	}
+}
+
+// A returned draft that is withdrawn shows only why it was withdrawn.
+func TestWithdrawClearsReturned(t *testing.T) {
+	s, _, fd := ready(t)
+	s.Transition(eng, fd, workflow.Submit, "", uAlice)
+	if err := s.Transition(eng, fd, workflow.Return, "needs impact", uBob); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Transition(eng, fd, workflow.Withdraw, "duplicate", uAlice); err != nil {
+		t.Fatal(err)
+	}
+	if m := load(t, s, fd).F.Meta; m.Returned != nil {
+		t.Fatalf("withdrawn finding still returned: %+v", m.Returned)
+	}
+}
+
+func TestDirectorWithdrawsComplete(t *testing.T) {
+	s, _, fd := ready(t)
+	s.Transition(eng, fd, workflow.Submit, "", uAlice)
+	s.Transition(eng, fd, workflow.Clear, "", uBob)
+	if err := s.Transition(eng, fd, workflow.Approve, "", uDora); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Transition(eng, fd, workflow.Withdraw, "out of scope", uAlice); !denied(err) {
+		t.Fatalf("author withdrew a complete finding: %v", err)
+	}
+	if err := s.Transition(eng, fd, workflow.Withdraw, "out of scope", uDora); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Transition(eng, fd, workflow.Revise, "", uDora); err != nil {
+		t.Fatal(err)
+	}
+	if m := load(t, s, fd).F.Meta; m.Status != "draft" {
+		t.Fatalf("status %s", m.Status)
+	}
+	// the old approval doesn't come back: a draft needs review again
+	st, _ := s.DB().State(eng, load(t, s, fd).F.Meta.ID)
+	if st.ApprovedHash != "" {
+		t.Fatal("approval kept")
 	}
 }
 
@@ -184,6 +435,80 @@ func TestEditVoidsClearances(t *testing.T) {
 	}
 }
 
+// A sign-off covers the attachments too: an upload or a redaction while the
+// finding is in verification drops the sign-offs, as a text change does. An
+// approved finding keeps its sign-offs (and its approval) when a director
+// adds one.
+func TestAttachmentChangeVoidsClearances(t *testing.T) {
+	s, _, fd := ready(t)
+	s.Transition(eng, fd, workflow.Submit, "", uAlice)
+	signed := func(before string) {
+		t.Helper()
+		if err := s.Transition(eng, fd, workflow.Clear, "", uBob); err != nil {
+			t.Fatal(err)
+		}
+		if c := load(t, s, fd).F.Meta.ClearedBy; !reflect.DeepEqual(c, []string{"bob"}) {
+			t.Fatalf("before %s: cleared %v", before, c)
+		}
+	}
+	signed("an upload")
+	if _, err := s.AddAttachment(eng, fd, "shot.png", pngBytes(t, color.White), uAlice); err != nil {
+		t.Fatal(err)
+	}
+	if m := load(t, s, fd).F.Meta; m.Status != "verification" || len(m.ClearedBy) != 0 {
+		t.Fatalf("after an upload: %s, cleared %v", m.Status, m.ClearedBy)
+	}
+	signed("a redaction")
+	if err := s.ReplaceAttachment(eng, fd, "shot.png", pngBytes(t, color.Black), uBob); err != nil {
+		t.Fatal(err)
+	}
+	if m := load(t, s, fd).F.Meta; m.Status != "verification" || len(m.ClearedBy) != 0 {
+		t.Fatalf("after a redaction: %s, cleared %v", m.Status, m.ClearedBy)
+	}
+	signed("the approval")
+	if err := s.Transition(eng, fd, workflow.Approve, "", uDora); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddAttachment(eng, fd, "more.png", pngBytes(t, color.White), uDora); err != nil {
+		t.Fatal(err)
+	}
+	if m := load(t, s, fd).F.Meta; m.Status != "complete" || !reflect.DeepEqual(m.ClearedBy, []string{"bob"}) {
+		t.Fatalf("approved finding after an upload: %s, cleared %v", m.Status, m.ClearedBy)
+	}
+}
+
+// A sign-off is for the attachments the page showed too: one sent with the
+// attachments as they were before an upload is refused, as one after a text
+// edit is; with them as they are now it counts.
+func TestSignOffBindsToViewedAttachments(t *testing.T) {
+	s, _, fd := ready(t)
+	s.Transition(eng, fd, workflow.Submit, "", uAlice)
+	seen := load(t, s, fd).Hash
+	files, err := s.AttachmentsHash(eng, fd)
+	if err != nil || files == "" {
+		t.Fatalf("attachments hash %q: %v", files, err)
+	}
+	if _, err := s.AddAttachment(eng, fd, "shot.png", pngBytes(t, color.White), uAlice); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.TransitionSeen(eng, fd, workflow.Clear, "", seen, files, uBob); !errors.Is(err, ErrConflict) {
+		t.Fatalf("a sign-off for the attachments before the upload: %v", err)
+	}
+	if c := load(t, s, fd).F.Meta.ClearedBy; len(c) != 0 {
+		t.Fatalf("bob signed off attachments he did not see: %v", c)
+	}
+	now, err := s.AttachmentsHash(eng, fd)
+	if err != nil || now == files {
+		t.Fatalf("the upload left the attachments hash %q: %v", now, err)
+	}
+	if err := s.TransitionSeen(eng, fd, workflow.Clear, "", seen, now, uBob); err != nil {
+		t.Fatal(err)
+	}
+	if c := load(t, s, fd).F.Meta.ClearedBy; !reflect.DeepEqual(c, []string{"bob"}) {
+		t.Fatalf("a sign-off on the current attachments: %v", c)
+	}
+}
+
 // The edit lock is enforced inside the store (against freshly loaded state),
 // not only by the web layer.
 func TestContentEditDeniedWhenLocked(t *testing.T) {
@@ -224,6 +549,28 @@ func TestSetReviewersDropsClearance(t *testing.T) {
 	m := load(t, s, fd).F.Meta
 	if !reflect.DeepEqual(m.Reviewers, []string{"carol"}) || !reflect.DeepEqual(m.ClearedBy, []string{"carol"}) {
 		t.Fatalf("meta %+v", m)
+	}
+}
+
+// A finding in verification keeps at least one reviewer, or nobody could
+// sign it off: emptying the list is refused, for the author and a director
+// alike; in draft the list may be empty (backlog, M3).
+func TestReviewersNotEmptiedInVerification(t *testing.T) {
+	s, _, fd := ready(t)
+	if err := s.SetReviewers(eng, fd, nil, uAlice); err != nil {
+		t.Fatalf("draft: %v", err)
+	}
+	s.SetReviewers(eng, fd, []string{"bob"}, uAlice)
+	if err := s.Transition(eng, fd, workflow.Submit, "", uAlice); err != nil {
+		t.Fatal(err)
+	}
+	for _, u := range []config.User{uAlice, uDora} {
+		if err := s.SetReviewers(eng, fd, nil, u); !denied(err) || !strings.Contains(err.Error(), "at least one reviewer") {
+			t.Fatalf("%s emptied the list: %v", u.Username, err)
+		}
+	}
+	if r := load(t, s, fd).F.Meta.Reviewers; !reflect.DeepEqual(r, []string{"bob"}) {
+		t.Fatalf("reviewers %v", r)
 	}
 }
 

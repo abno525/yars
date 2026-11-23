@@ -1,16 +1,20 @@
 package main
 
 import (
+	"database/sql"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"os/exec"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -97,11 +101,11 @@ type legacyToken struct {
 // changes nothing.
 func cmdMigrate(args []string, out io.Writer) error {
 	flags := flag.NewFlagSet("migrate", flag.ContinueOnError)
-	data := flags.String("data", ".", "data repo")
+	data := dataFlag(flags)
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	r, err := gitrepo.Open(*data)
+	r, err := openData(flags, *data)
 	if err != nil {
 		return err
 	}
@@ -116,12 +120,29 @@ func cmdMigrate(args []string, out io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("users.yaml: %w", err)
 	}
+	// accounts from before teams and the admin flag get what v5 gave the
+	// accounts it found: directors are admins, everyone is on every
+	// engagement there is
+	var engs []string
+	if ents, err := os.ReadDir(filepath.Join(r.Dir, "engagements")); err == nil {
+		for _, e := range ents {
+			if e.IsDir() && store.ValidID(e.Name()) {
+				engs = append(engs, e.Name())
+			}
+		}
+	}
 	for _, u := range users {
 		if _, ok, err := d.User(u.Username); err != nil {
 			return err
 		} else if !ok {
+			u.IsAdmin = u.IsAdmin || u.Role == "director"
 			if err := d.AddUser(u); err != nil {
-				return err
+				return fmt.Errorf("account %s: %w", u.Username, err)
+			}
+			for _, eng := range engs {
+				if err := d.AddMembers(eng, u.Username); err != nil {
+					return err
+				}
 			}
 			fmt.Fprintln(out, "account", u.Username)
 		}
@@ -135,6 +156,12 @@ func cmdMigrate(args []string, out io.Writer) error {
 		return err
 	}
 	for _, tk := range toks {
+		if _, ok, err := d.User(tk.User); err != nil {
+			return err
+		} else if !ok { // the account went before the token did
+			fmt.Fprintln(out, "skip API token of", tk.User+": no such account")
+			continue
+		}
 		if _, ok, _ := d.TokenUser(tk.Hash); !ok {
 			if err := d.AddToken(tk.User, tk.Hash); err != nil {
 				return fmt.Errorf("token of %s: %w", tk.User, err)
@@ -199,16 +226,32 @@ func cmdMigrate(args []string, out io.Writer) error {
 			}
 			cp := base + "/chat.jsonl"
 			if cb, err := os.ReadFile(filepath.Join(r.Dir, cp)); err == nil {
-				var have int
+				// ids are unique: a message already stored is this finding's
+				// (a migration run again) or a copied folder's, which is told
+				theirs := map[string]int{}
+				var fileTime time.Time // a line written without a time gets the file's
+				if info, err := os.Stat(filepath.Join(r.Dir, cp)); err == nil {
+					fileTime = info.ModTime().UTC().Truncate(time.Second)
+				}
 				for _, m := range chat.Parse(cb) {
-					if err := tx.QueryRow("SELECT count(*) FROM chat WHERE id = ?", m.ID).Scan(&have); err != nil {
-						return err
+					if m.TS.IsZero() {
+						m.TS = fileTime
 					}
-					if have == 0 {
+					var hasEng, hasFid string
+					err := tx.QueryRow("SELECT eng, fid FROM chat WHERE id = ?", m.ID).Scan(&hasEng, &hasFid)
+					switch {
+					case errors.Is(err, sql.ErrNoRows):
 						if err := tx.AddMessage(eng, fid, m); err != nil {
 							return err
 						}
+					case err != nil:
+						return err
+					case hasEng != eng || hasFid != fid:
+						theirs[hasEng+"/"+hasFid]++
 					}
+				}
+				for _, other := range slices.Sorted(maps.Keys(theirs)) {
+					fmt.Fprintf(out, "%d chat messages of %s/%s are already %s's: not copied\n", theirs[other], eng, fid, other)
 				}
 				removed = append(removed, cp)
 				fmt.Fprintln(out, "chat of", eng+"/"+fid)
@@ -310,6 +353,44 @@ func gitIn(dir string, args ...string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
+// gitNames runs a git command whose -z output is names: split at NUL and
+// never trimmed (a name may start or end with a space).
+func gitNames(dir string, args ...string) ([]string, error) {
+	out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).Output()
+	if err != nil {
+		return nil, fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
+	}
+	return slices.DeleteFunc(strings.Split(string(out), "\x00"), func(f string) bool { return f == "" }), nil
+}
+
+// excludeLine is an ignore pattern that matches name and nothing else.
+func excludeLine(name string) string {
+	var b strings.Builder
+	b.WriteByte('/')
+	for i, r := range name {
+		if strings.ContainsRune(`\*?[`, r) || (r == ' ' && strings.TrimRight(name[i:], " ") == "") {
+			b.WriteByte('\\')
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+// importFiles commits what the engagement folder abs holds beyond its
+// history, but what is excluded: named, since the commit adds what it is
+// given.
+func importFiles(abs, id string) error {
+	files, err := gitNames(abs, "ls-files", "-z", "-o", "-m", "-d", "--exclude-standard")
+	if err != nil || len(files) == 0 {
+		return err
+	}
+	er, err := gitrepo.Open(abs)
+	if err != nil {
+		return err
+	}
+	return er.Commit(slices.Compact(slices.Sorted(slices.Values(files))), "engagement "+id+": import", system)
+}
+
 // ownRepo reports whether engagements/<id> is already a repository.
 func ownRepo(dir, id string) bool {
 	return exists(filepath.Join(dir, "engagements", id, ".git"))
@@ -331,6 +412,12 @@ func splitEngagements(r *gitrepo.Repo, out io.Writer) error {
 		p, abs := "engagements/"+id, filepath.Join(r.Dir, "engagements", id)
 		branch := "yars-split-" + id
 		split := false
+		// what the main repository ignored there (untracked: what it tracked
+		// is the engagement's, an ignore rule or not) stays out of the new one
+		ignored, err := gitNames(r.Dir, "ls-files", "-z", "-o", "-i", "--directory", "--exclude-standard", "--", p)
+		if err != nil {
+			return err
+		}
 		if tracked, _ := gitIn(r.Dir, "ls-files", "--", p); tracked != "" {
 			if _, err := gitIn(r.Dir, "subtree", "split", "-q", "-P", p, "-b", branch, "HEAD"); err == nil {
 				split = true
@@ -344,6 +431,15 @@ func splitEngagements(r *gitrepo.Repo, out io.Writer) error {
 		if _, err := gitIn(abs, "init", "-q", "-b", "main"); err != nil {
 			return err
 		}
+		var exclude []string
+		for _, f := range ignored {
+			exclude = append(exclude, excludeLine(strings.TrimPrefix(f, p+"/")))
+		}
+		if len(exclude) > 0 {
+			if err := os.WriteFile(filepath.Join(abs, ".git", "info", "exclude"), []byte(strings.Join(exclude, "\n")+"\n"), 0o644); err != nil {
+				return err
+			}
+		}
 		if split {
 			if _, err := gitIn(abs, "fetch", "-q", r.Dir, branch); err != nil {
 				return err
@@ -354,14 +450,8 @@ func splitEngagements(r *gitrepo.Repo, out io.Writer) error {
 			gitIn(r.Dir, "branch", "-q", "-D", branch)
 		}
 		// anything not in the split history (or everything, without it)
-		if st, _ := gitIn(abs, "status", "--porcelain"); st != "" {
-			er, err := gitrepo.Open(abs)
-			if err != nil {
-				return err
-			}
-			if err := er.Commit([]string{"."}, "engagement "+id+": import", system); err != nil {
-				return err
-			}
+		if err := importFiles(abs, id); err != nil {
+			return err
 		}
 		fmt.Fprintln(out, "engagement", id, "is now its own repository")
 	}
@@ -377,7 +467,13 @@ func splitEngagements(r *gitrepo.Repo, out io.Writer) error {
 		}
 		p, abs := "engagements/"+id, filepath.Join(r.Dir, "engagements", id)
 		if head, _ := gitIn(abs, "rev-parse", "-q", "--verify", "HEAD"); head == "" {
-			// an engagement folder with no files still gets a first commit
+			// an interrupted run's repository gets its files now; one with
+			// none still gets a first commit
+			if err := importFiles(abs, id); err != nil {
+				return err
+			}
+		}
+		if head, _ := gitIn(abs, "rev-parse", "-q", "--verify", "HEAD"); head == "" {
 			if _, err := gitIn(abs, "-c", "user.name="+system.Name, "-c", "user.email="+system.Email, "commit", "-q", "--allow-empty", "-m", "engagement "+id+": start"); err != nil {
 				return err
 			}

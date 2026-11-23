@@ -2,6 +2,7 @@ package db
 
 import (
 	"database/sql"
+	"strconv"
 	"time"
 
 	"yars/internal/chat"
@@ -9,7 +10,8 @@ import (
 
 // Reviewer is an assigned reviewer; ClearedHash is the hash of finding.md
 // when they cleared it ("" = not cleared). A clearance counts only while the
-// file still has that hash, so any content change voids it.
+// file still has that hash, so any change of the text voids it; a change of
+// the attachments in verification clears it (store).
 type Reviewer struct{ Name, ClearedHash string }
 
 // State is a finding's workflow state. A finding with no stored state is a
@@ -22,16 +24,20 @@ type State struct {
 	// ApprovedHash is the finding.md hash at approval; a complete finding
 	// whose content no longer matches is back in verification.
 	ApprovedHash string
+	// WithdrawnBy and WithdrawnReason say who took the finding out of the
+	// report and why (status withdrawn).
+	WithdrawnBy, WithdrawnReason string
 }
 
 func scanState(sc interface{ Scan(...any) error }) (string, State, error) {
 	var fid string
 	var s State
-	err := sc.Scan(&fid, &s.Status, &s.ReturnedBy, &s.ReturnedReason, &s.RetestSource, &s.RetestResult, &s.ApprovedHash)
+	err := sc.Scan(&fid, &s.Status, &s.ReturnedBy, &s.ReturnedReason, &s.RetestSource, &s.RetestResult, &s.ApprovedHash,
+		&s.WithdrawnBy, &s.WithdrawnReason)
 	return fid, s, err
 }
 
-const stateCols = "fid, status, returned_by, returned_reason, retest_source, retest_result, approved_hash"
+const stateCols = "fid, status, returned_by, returned_reason, retest_source, retest_result, approved_hash, withdrawn_by, withdrawn_reason"
 
 // querier is what both *DB and *Tx can run reads on.
 type querier interface {
@@ -73,7 +79,12 @@ func (d *DB) Known(eng, fid string) (bool, error) {
 // Purge drops all workflow state and chat of an engagement (used when an
 // engagement is created under the name of one that no longer exists).
 func (tx *Tx) Purge(eng string) error {
-	for _, t := range []string{"finding_state", "reviewers", "chat"} {
+	tx.touch(eng)
+	if _, err := tx.Exec("DELETE FROM check_results WHERE run_id IN (SELECT id FROM check_runs WHERE eng = ?)", eng); err != nil {
+		return err
+	}
+	for _, t := range []string{"finding_state", "reviewers", "chat", "chat_hidden", "check_runs", "dismissals", "engagement_members", "engagement_meta",
+		"board_notes", "board_messages", "board_seen", "redactions", "purged_blobs"} {
 		if _, err := tx.Exec("DELETE FROM "+t+" WHERE eng = ?", eng); err != nil {
 			return err
 		}
@@ -128,15 +139,17 @@ func states(d querier, eng, fid string) (map[string]State, error) {
 
 // PutState replaces a finding's whole workflow state.
 func (tx *Tx) PutState(eng, fid string, s State) error {
+	tx.touch(eng)
 	if s.Status == "" {
 		s.Status = "draft"
 	}
-	_, err := tx.Exec(`INSERT INTO finding_state(eng, fid, status, returned_by, returned_reason, retest_source, retest_result, approved_hash)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	_, err := tx.Exec(`INSERT INTO finding_state(eng, fid, status, returned_by, returned_reason, retest_source, retest_result, approved_hash,
+		withdrawn_by, withdrawn_reason)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(eng, fid) DO UPDATE SET status = excluded.status, returned_by = excluded.returned_by,
 		returned_reason = excluded.returned_reason, retest_source = excluded.retest_source, retest_result = excluded.retest_result,
-		approved_hash = excluded.approved_hash`,
-		eng, fid, s.Status, s.ReturnedBy, s.ReturnedReason, s.RetestSource, s.RetestResult, s.ApprovedHash)
+		approved_hash = excluded.approved_hash, withdrawn_by = excluded.withdrawn_by, withdrawn_reason = excluded.withdrawn_reason`,
+		eng, fid, s.Status, s.ReturnedBy, s.ReturnedReason, s.RetestSource, s.RetestResult, s.ApprovedHash, s.WithdrawnBy, s.WithdrawnReason)
 	if err != nil {
 		return err
 	}
@@ -155,12 +168,12 @@ func (tx *Tx) PutState(eng, fid string, s State) error {
 	return nil
 }
 
-const msgCols = "fid, id, ts, username, text, section, reply, resolves, reopens, event"
+const msgCols = "fid, id, ts, username, text, section, reply, resolves, reopens, event, kind"
 
 func scanMsg(sc interface{ Scan(...any) error }) (string, chat.Message, error) {
 	var fid, ts string
 	var m chat.Message
-	if err := sc.Scan(&fid, &m.ID, &ts, &m.User, &m.Text, &m.Section, &m.Reply, &m.Resolves, &m.Reopens, &m.Event); err != nil {
+	if err := sc.Scan(&fid, &m.ID, &ts, &m.User, &m.Text, &m.Section, &m.Reply, &m.Resolves, &m.Reopens, &m.Event, &m.Kind); err != nil {
 		return "", m, err
 	}
 	t, err := time.Parse(time.RFC3339Nano, ts)
@@ -169,17 +182,32 @@ func scanMsg(sc interface{ Scan(...any) error }) (string, chat.Message, error) {
 }
 
 // Messages returns a finding's chat in posting order.
-func (d *DB) Messages(eng, fid string) ([]chat.Message, error) {
-	all, err := d.messages("SELECT "+msgCols+" FROM chat WHERE eng = ? AND fid = ? ORDER BY seq", eng, fid)
+func (d *DB) Messages(eng, fid string) ([]chat.Message, error) { return findingMessages(d, eng, fid) }
+
+// Messages reads a finding's chat inside the transaction (validate, then
+// add, without a concurrent post slipping in between).
+func (tx *Tx) Messages(eng, fid string) ([]chat.Message, error) { return findingMessages(tx, eng, fid) }
+
+func findingMessages(q querier, eng, fid string) ([]chat.Message, error) {
+	all, err := messages(q, "SELECT "+msgCols+" FROM chat WHERE eng = ? AND fid = ? ORDER BY seq", eng, fid)
 	return all[fid], err
+}
+
+// ChatStamp identifies a finding's chat without reading it: the number of
+// messages and the highest message sequence number ("<n>.<seq>"). Any post,
+// workflow event or purge changes it.
+func (d *DB) ChatStamp(eng, fid string) (string, error) {
+	var n, seq int64
+	err := d.QueryRow("SELECT COUNT(*), COALESCE(MAX(seq), 0) FROM chat WHERE eng = ? AND fid = ?", eng, fid).Scan(&n, &seq)
+	return strconv.FormatInt(n, 10) + "." + strconv.FormatInt(seq, 10), err
 }
 
 // AllMessages returns every finding's chat in an engagement, by finding ID.
 func (d *DB) AllMessages(eng string) (map[string][]chat.Message, error) {
-	return d.messages("SELECT "+msgCols+" FROM chat WHERE eng = ? ORDER BY seq", eng)
+	return messages(d, "SELECT "+msgCols+" FROM chat WHERE eng = ? ORDER BY seq", eng)
 }
 
-func (d *DB) messages(q string, args ...any) (map[string][]chat.Message, error) {
+func messages(d querier, q string, args ...any) (map[string][]chat.Message, error) {
 	rows, err := d.Query(q, args...)
 	if err != nil {
 		return nil, err
@@ -196,9 +224,65 @@ func (d *DB) messages(q string, args ...any) (map[string][]chat.Message, error) 
 	return out, rows.Err()
 }
 
+// SetChatHidden hides (on) or shows a chat thread of a finding for one user.
+// It is a personal view setting: no change counter moves.
+func (d *DB) SetChatHidden(user, eng, fid, thread string, on bool) error {
+	q := "DELETE FROM chat_hidden WHERE username = ? AND eng = ? AND fid = ? AND thread_id = ?"
+	if on {
+		q = "INSERT OR IGNORE INTO chat_hidden(username, eng, fid, thread_id) VALUES (?, ?, ?, ?)"
+	}
+	_, err := d.Exec(q, user, eng, fid, thread)
+	return err
+}
+
+// ChatHidden returns the threads of a finding that user hid.
+func (d *DB) ChatHidden(user, eng, fid string) (map[string]bool, error) {
+	rows, err := d.Query("SELECT thread_id FROM chat_hidden WHERE username = ? AND eng = ? AND fid = ?", user, eng, fid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]bool{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out[id] = true
+	}
+	return out, rows.Err()
+}
+
+// MoveHash points the approval, the sign-offs and the check runs of a
+// finding at new where they pointed at old (a rename that changed nothing
+// a reviewer read). A run still going is left on old: it checks the content
+// as it was and ends out of date.
+func (tx *Tx) MoveHash(eng, fid, old, new string) error {
+	tx.touch(eng)
+	for _, q := range []string{
+		"UPDATE finding_state SET approved_hash = ? WHERE eng = ? AND fid = ? AND approved_hash = ?",
+		"UPDATE reviewers SET cleared_hash = ? WHERE eng = ? AND fid = ? AND cleared_hash = ?",
+		"UPDATE check_runs SET content_hash = ? WHERE eng = ? AND fid = ? AND content_hash = ? AND state <> '" + RunRunning + "'",
+	} {
+		if _, err := tx.Exec(q, new, eng, fid, old); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// RenameChatSection moves the comments of a finding's section to its new
+// name.
+func (tx *Tx) RenameChatSection(eng, fid, old, new string) error {
+	tx.touch(eng)
+	_, err := tx.Exec("UPDATE chat SET section = ? WHERE eng = ? AND fid = ? AND section = ?", new, eng, fid, old)
+	return err
+}
+
 // AddMessage appends a chat message (or workflow event) to a finding.
 func (tx *Tx) AddMessage(eng, fid string, m chat.Message) error {
-	_, err := tx.Exec("INSERT INTO chat(id, eng, fid, ts, username, text, section, reply, resolves, reopens, event) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		m.ID, eng, fid, m.TS.UTC().Format(time.RFC3339Nano), m.User, m.Text, m.Section, m.Reply, m.Resolves, m.Reopens, m.Event)
+	tx.touch(eng)
+	_, err := tx.Exec("INSERT INTO chat(id, eng, fid, ts, username, text, section, reply, resolves, reopens, event, kind) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		m.ID, eng, fid, m.TS.UTC().Format(time.RFC3339Nano), m.User, m.Text, m.Section, m.Reply, m.Resolves, m.Reopens, m.Event, m.Kind)
 	return err
 }

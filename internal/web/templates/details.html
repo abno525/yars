@@ -1,10 +1,14 @@
 {{define "details_panel"}}
-<section class="panel" id="details">
+<section class="panel" id="details" data-kpanel hx-get="{{.LiveURL}}" hx-trigger="{{liveTrigger}}" hx-swap="outerHTML" data-sse>
   <div class="panelhead">
-    <h2>Details</h2>
-    {{if not .Locked}}<button class="link" hx-get="{{.EditURL}}" hx-target="#details" hx-swap="outerHTML">Edit</button>{{end}}
+    <h2 id="s-details">Details</h2>
+    <div class="panel-tools">
+      {{if .ReadOnly}}<span class="slot w96"></span>{{else}}<button class="btn ghost sm w96" type="button" data-comment="Details" data-kskip>Comment</button>{{end}}
+      {{if .Locked}}<span class="slot w96 lockslot">{{template "lock"}}</span>{{else}}<button class="btn ghost sm w96" aria-keyshortcuts="E" data-kskip hx-get="{{.EditURL}}" hx-target="#details" hx-swap="outerHTML">Edit</button>{{end}}
+    </div>
   </div>
   <table class="kv details">
+    {{template "kv_head"}}
     <tbody>
     {{range .Rows}}
       <tr><th scope="row">{{.Name}}</th><td class="text">{{if .Value}}{{.Value}}{{else}}<span class="muted">—</span>{{end}}</td></tr>
@@ -15,10 +19,13 @@
 </section>
 {{end}}
 
+{{define "kv_head"}}<thead><tr><th scope="col">Field</th><th scope="col">Value</th></tr></thead>{{end}}
+
 {{define "details_other"}}
 {{if .Other}}
   <h3 class="subhead">Other</h3>
   <table class="kv details">
+    {{template "kv_head"}}
     <tbody>
     {{range .Other}}<tr><th scope="row">{{.Name}}</th><td class="text">{{.Value}}</td></tr>{{end}}
     </tbody>
@@ -27,20 +34,23 @@
 {{end}}
 
 {{define "details_editor"}}
-<section class="panel editing" id="details">
-  <form hx-post="{{.SaveURL}}" hx-target="#details" hx-swap="outerHTML">
+<section class="panel editing" id="details" data-kpanel>
+  <form class="flush" hx-post="{{.SaveURL}}" hx-target="#details" hx-swap="outerHTML" data-guard>
     <div class="panelhead"><h2>Details</h2></div>
-    {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
     <input type="hidden" name="base" value="{{.Base}}">
+    <div class="detail-fields">
     {{range .Rows}}
-    <label class="detail-field">{{.Name}}
-      <textarea name="{{.Field}}" rows="3">{{.Value}}</textarea>
+    <label class="detail-field"><span>{{.Name}}</span>
+      <input type="hidden" name="{{.BaseField}}" value="{{.Base}}">
+      <textarea name="{{.Field}}" rows="2"{{if $.Error}} data-dirty{{end}}>{{.Value}}</textarea>
     </label>
     {{end}}
+    </div>
     {{template "details_other" .}}
-    <div class="actions">
-      <button class="primary">Save</button>
-      <button type="button" hx-get="{{.ViewURL}}" hx-target="#details" hx-swap="outerHTML">Cancel</button>
+    <div class="pfoot flush">
+      <span class="pstate error" title="{{.Error}}">{{.Error}}</span>
+      <button type="button" class="btn secondary sm w96" hx-get="{{.ViewURL}}" hx-target="#details" hx-swap="outerHTML" data-guard-cancel>Cancel</button>
+      <button class="btn save sm w96" aria-keyshortcuts="Control+S">Save</button>
     </div>
   </form>
 </section>

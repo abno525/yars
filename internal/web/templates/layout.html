@@ -1,35 +1,181 @@
 {{define "layout"}}<!doctype html>
-<html lang="en">
+<html lang="en"{{with .User.Theme}} data-theme="{{.}}"{{end}}{{if .User.Username}} data-theme-save{{end}}{{if .User.KeysOff}} data-keys="off"{{end}}>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{if .Eng.ID}}{{.Eng.Name}} · {{end}}YARS</title>
-<link rel="stylesheet" href="/static/style.css">
-<meta name="htmx-config" content='{"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"(400|409)","swap":true,"error":false},{"code":"[45]..","swap":false,"error":true}]}'>
-<script src="/static/htmx.min.js"></script>
-<script src="/static/app.js"></script>
+<title>{{with .TabTitle}}{{.}} · {{else}}{{if .Eng.ID}}{{.Eng.Name}} · {{end}}{{end}}YARS</title>
+<link rel="icon" type="image/svg+xml" href="{{static}}/favicon.svg">
+<link rel="stylesheet" href="{{static}}/style.css">
+<meta name="htmx-config" content='{"allowEval":false,"includeIndicatorStyles":false,"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"(400|409)","swap":true,"error":false},{"code":"[45]..","swap":false,"error":true}]}'>
+<script src="{{static}}/htmx.min.js"></script>
+<script src="{{static}}/app.js"></script>
+<script src="{{static}}/keys.js" defer></script>
+<script src="{{static}}/sse.js" defer></script>
 </head>
+{{if .Bare}}
+<body class="bare">
+<main class="baremain">
+<span class="logo big">YARS</span>
+{{template "content" .}}
+</main>
+</body>
+{{else}}
 <body>
 <header class="topbar">
-  <a class="brand" href="/">YARS</a>
+  <a class="logo" href="/">YARS</a>
   {{if .User.Username}}
+  {{/* the engagement: the page's, else the one opened last in this browser */}}
+  {{$cur := .Eng.ID}}{{if not $cur}}{{$cur = .LastEng}}{{end}}
+  <form class="engpick" method="get" action="/go">
     {{if .Engagements}}
-    <form class="switcher" method="get" action="/go">
-      <select name="eng" onchange="this.form.submit()" aria-label="Engagement">
-        {{if not .Eng.ID}}<option value="">Select engagement…</option>{{end}}
-        {{range .Engagements}}<option value="{{.ID}}" {{if eq .ID $.Eng.ID}}selected{{end}}>{{.Name}}{{if eq .Type "retest"}} (retest){{end}}</option>{{end}}
-      </select>
-      <noscript><button>Go</button></noscript>
-    </form>
+    <select name="eng" data-choose autocomplete="off" aria-label="Engagement">
+      {{if not $cur}}<option value="">Engagement</option>{{end}}
+      {{/* none open: the kept one is shown on an option of its own, its real one not picked, so picking it opens it */}}
+      {{if not .Eng.ID}}{{range .Engagements}}{{if eq .ID $cur}}<option value="{{.ID}}" selected hidden>{{.Name}}{{if eq .Type "retest"}} (retest){{end}}</option>{{end}}{{end}}{{end}}
+      {{range .Engagements}}<option value="{{.ID}}" {{if eq .ID $.Eng.ID}}selected{{end}}>{{.Name}}{{if eq .Type "retest"}} (retest){{end}}</option>{{end}}
+    </select>
+    <noscript><button class="btn ghost">Go</button></noscript>
     {{end}}
-    <span class="spacer"></span>
-    <a class="inboxlink" href="/inbox">Inbox{{with .Inbox.Count}} <span class="badge">{{.}}</span>{{end}}</a>
-    <span class="who">{{.User.Username}} <span class="role">{{.User.Role}}</span></span>
-    <form method="post" action="/logout"><button class="link">Log out</button></form>
+  </form>
+  <nav class="nav">
+    <a class="{{if eq .Nav ""}}on{{end}}" href="{{if $cur}}/e/{{$cur}}{{else}}/{{end}}" aria-keyshortcuts="F">Findings</a>
+    <a class="{{if eq .Nav "inbox"}}on{{end}}" href="/inbox" aria-keyshortcuts="I">Inbox {{with .Inbox.Count}}<span class="badge">{{.}}</span>{{else}}<span class="badge0">0</span>{{end}}</a>
+    {{if .CanAdmin}}<a class="{{if eq .Nav "admin"}}on{{end}}" href="/admin">Admin</a>{{end}}
+  </nav>
+  <a class="who{{if eq .Nav "settings"}} on{{end}}" href="/settings" title="{{.User.Username}}{{if not simple}} · {{.User.Role}}{{end}}">{{.User.Username}}</a>
+  <button type="button" class="goto" data-goto aria-haspopup="dialog" aria-controls="goto"><span>Go to</span><kbd>Ctrl K</kbd></button>
+  <form method="post" action="/logout"><button class="btn ghost w96 logout">Log out</button></form>
+  {{else}}
+  <span class="nav"></span>
   {{end}}
 </header>
 <main>
 {{template "content" .}}
 </main>
+<div id="toasts" aria-live="polite"></div>
+{{if .User.Username}}
+<dialog id="goto" class="gotodlg" aria-label="Go to">
+  <div class="gotohead">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4-4"></path></svg>
+    <input type="search" name="q" autocomplete="off" spellcheck="false" aria-label="Go to" aria-controls="goto-results"
+      hx-get="/go/search" hx-trigger="input changed delay:150ms, search" hx-target="#goto-results" hx-swap="innerHTML" hx-sync="this:replace">
+    <kbd>Esc</kbd>
+  </div>
+  <div id="goto-results" class="gotores" role="listbox">{{template "goto_none"}}</div>
+  <div class="gotofoot"><span><kbd>↑</kbd><kbd>↓</kbd>Select</span><span><kbd>Enter</kbd>Open</span><span><kbd>Esc</kbd>Close</span></div>
+</dialog>
+{{template "keys_dialog"}}
+{{end}}
 </body>
+{{end}}
 </html>{{end}}
+
+{{/* goto_none is Go to's list with nothing typed: its head and the one
+empty row, as an empty table shows (goto_results is the list itself) */}}
+{{define "goto_none"}}<div class="gh"><span>Findings</span><span class="mono">—</span></div><div class="resnone">—</div>{{end}}
+
+{{/* keys_dialog is the shortcut list (?, K8): the key map in four groups;
+keys.js hides the Finding page group where there are no panels */}}
+{{define "keys_dialog"}}
+{{/* the page's confirmation (app.js yarsConfirm): the browser's own is never shown */}}
+<dialog id="confirm" class="confirmdlg" aria-labelledby="confirm-text">
+  <form method="dialog">
+    <p id="confirm-text" data-confirm-text></p>
+    <div class="acts"><button value="cancel" class="btn secondary w128">Cancel</button><button value="ok" class="btn danger w128" data-confirm-ok>OK</button></div>
+  </form>
+</dialog>
+<dialog id="keys" class="gotodlg keysdlg" aria-labelledby="keys-head">
+  <div class="gotohead"><h2 id="keys-head">Keyboard shortcuts</h2><kbd>Esc</kbd></div>
+  <div class="keysbody">
+    <div class="kcol">
+      <section class="kgroup"><h3 class="gh">Global</h3>
+        <dl>
+          <div class="krow"><dt><kbd>?</kbd></dt><dd>Shortcut list</dd></div>
+          <div class="krow"><dt><kbd>/</kbd></dt><dd>Search or Go to</dd></div>
+          <div class="krow"><dt><kbd>Ctrl+K</kbd></dt><dd>Go to</dd></div>
+          <div class="krow" data-keys-for="I"><dt><kbd>i</kbd></dt><dd>Inbox</dd></div>
+          <div class="krow" data-keys-for="F"><dt><kbd>f</kbd></dt><dd>Findings</dd></div>
+          <div class="krow" data-keys-if="a[aria-keyshortcuts~=N][href$='/findings/new']"><dt><kbd>n</kbd></dt><dd>New finding</dd></div>
+          <div class="krow" data-keys-if="a[aria-keyshortcuts~=N][href='/engagements/new']"><dt><kbd>n</kbd></dt><dd>New engagement</dd></div>
+          <div class="krow" data-keys-if="a[aria-keyshortcuts~=N][href$='/board?new=1']"><dt><kbd>n</kbd></dt><dd>New lead</dd></div>
+          <div class="krow" data-keys-if="input[name=username][aria-keyshortcuts~=N]"><dt><kbd>n</kbd></dt><dd>Add user</dd></div>
+          <div class="krow" data-keys-if="a[aria-keyshortcuts~=N][href='/settings/tokens/new']"><dt><kbd>n</kbd></dt><dd>New token</dd></div>
+          <div class="krow" data-keys-if="input[name=title][aria-keyshortcuts~=N]"><dt><kbd>n</kbd></dt><dd>New template</dd></div>
+          <div class="krow" data-keys-if="a[aria-keyshortcuts~=N][href$='/export/setup']"><dt><kbd>n</kbd></dt><dd>New destination</dd></div>
+          <div class="krow" data-keys-if="a[aria-keyshortcuts~=N][href='/admin/rules?new=1']"><dt><kbd>n</kbd></dt><dd>New rule</dd></div>
+          <div class="krow" data-keys-if="input[name=url][aria-keyshortcuts~=N]"><dt><kbd>n</kbd></dt><dd>New webhook</dd></div>
+          <div class="krow" data-keys-for="P"><dt><kbd>p</kbd></dt><dd>Preview</dd></div>
+          <div class="krow" data-keys-if="select[aria-keyshortcuts~=A]"><dt><kbd>a</kbd></dt><dd>Add to the team</dd></div>
+          <div class="krow" data-keys-if="[data-copy=clone-cmd][aria-keyshortcuts~=C]"><dt><kbd>c</kbd></dt><dd>Copy the clone command</dd></div>
+          <div class="krow" data-keys-for="1"><dt><kbd>1</kbd>–<kbd>9</kbd></dt><dd>Filter</dd></div>
+          <div class="krow"><dt><kbd>Esc</kbd></dt><dd>Close</dd></div>
+          <div class="krow"><dt><kbd>Ctrl+S</kbd></dt><dd>Save the form, else Search</dd></div>
+          <div class="krow"><dt><kbd>Ctrl+Enter</kbd></dt><dd>Send the form</dd></div>
+        </dl>
+      </section>
+      <section class="kgroup" data-keys-group="lists"><h3 class="gh">Lists</h3>
+        <dl>
+          <div class="krow"><dt><kbd>j</kbd><kbd>k</kbd><kbd>↓</kbd><kbd>↑</kbd></dt><dd>Next or previous row</dd></div>
+          <div class="krow" data-keys-if="a[data-nav], button[data-nav]"><dt><kbd>Enter</kbd></dt><dd>Open the row</dd></div>
+          <div class="krow" data-keys-if="tr:has([data-nav]) input[type=checkbox]"><dt><kbd>x</kbd></dt><dd>Tick the row</dd></div>
+          <div class="krow" data-keys-if="form[action$='/archive'] [aria-keyshortcuts~=A]"><dt><kbd>a</kbd></dt><dd>Archive the row</dd></div>
+          <div class="krow" data-keys-if="form[action$='/reopen'] [aria-keyshortcuts~=R]"><dt><kbd>r</kbd></dt><dd>Reopen the row</dd></div>
+          <div class="krow" data-keys-if="form[action$='/unlock'] [aria-keyshortcuts~=U]"><dt><kbd>u</kbd></dt><dd>Unlock the row</dd></div>
+          <div class="krow" data-keys-if="form[action$='/reset'] [aria-keyshortcuts~=R]"><dt><kbd>r</kbd></dt><dd>Reset the row's password</dd></div>
+          <div class="krow" data-keys-if="form[action$='/revoke'] [aria-keyshortcuts~=R]"><dt><kbd>r</kbd></dt><dd>Revoke the row's token</dd></div>
+          <div class="krow" data-keys-if="form[action$='/disabled'] [aria-keyshortcuts~=D], form[action$='/toggle'] [aria-keyshortcuts~=D]"><dt><kbd>d</kbd></dt><dd>Disable or enable the row</dd></div>
+          <div class="krow" data-keys-if="tr[data-rowkeys] [aria-keyshortcuts~=E]"><dt><kbd>e</kbd></dt><dd>Edit the row</dd></div>
+          <div class="krow" data-keys-if=".qacts [aria-keyshortcuts~=M], form[action='/notifications/read'] [aria-keyshortcuts~=M]"><dt><kbd>m</kbd></dt><dd>Mark all read</dd></div>
+          <div class="krow" data-keys-if="input[type=checkbox][name=id]"><dt><kbd>Shift+Space</kbd></dt><dd>Tick the range</dd></div>
+          <div class="krow" data-keys-for="Shift+S"><dt><kbd>Shift+S</kbd></dt><dd>Submit the ticked</dd></div>
+          <div class="krow" data-keys-for="Shift+A"><dt><kbd>Shift+A</kbd></dt><dd>{{if simple}}Complete the ticked{{else}}Approve the ticked{{end}}</dd></div>
+          <div class="krow" data-keys-for="Shift+P"><dt><kbd>Shift+P</kbd></dt><dd>Mark the ticked reported</dd></div>
+        </dl>
+      </section>
+    </div>
+    <div class="kcol">
+      <section class="kgroup" data-keys-group="eng"><h3 class="gh">Engagement</h3>
+        <dl>
+          <div class="krow" data-keys-for="T"><dt><kbd>t</kbd><kbd>b</kbd></dt><dd>Team board</dd></div>
+          <div class="krow"><dt><kbd>o</kbd></dt><dd>Overview</dd></div>
+          <div class="krow"><dt><kbd>r</kbd></dt><dd>Report</dd></div>
+          <div class="krow"><dt><kbd>s</kbd></dt><dd>Settings</dd></div>
+          <div class="krow" data-keys-if="html:not(:has([data-kpanel]))"><dt><kbd>e</kbd></dt><dd>Export</dd></div>
+          <div class="krow" data-keys-if=".tbacts [aria-keyshortcuts~=M]"><dt><kbd>m</kbd></dt><dd>Make finding</dd></div>
+          <div class="krow" data-keys-if=".tbacts [aria-keyshortcuts~=D]"><dt><kbd>d</kbd></dt><dd>Dismiss</dd></div>
+        </dl>
+      </section>
+      <section class="kgroup" data-keys-group="finding"><h3 class="gh">Finding page</h3>
+        <dl>
+          <div class="krow"><dt><kbd>j</kbd><kbd>k</kbd><kbd>↓</kbd><kbd>↑</kbd></dt><dd>Next or previous panel</dd></div>
+          <div class="krow" data-keys-if="#chat"><dt><kbd>l</kbd><kbd>→</kbd></dt><dd>Chat panel</dd></div>
+          <div class="krow" data-keys-if="#chat"><dt><kbd>h</kbd><kbd>←</kbd></dt><dd>Back to the panel</dd></div>
+          <div class="krow" data-keys-if="[data-kpanel] [aria-keyshortcuts~=E]"><dt><kbd>e</kbd></dt><dd>Edit the panel</dd></div>
+          <div class="krow"><dt><kbd>Enter</kbd></dt><dd>The panel's button</dd></div>
+          <div class="krow" data-keys-for="Shift+S"><dt><kbd>Shift+S</kbd></dt><dd>Submit</dd></div>
+          <div class="krow" data-keys-for="Shift+O"><dt><kbd>Shift+O</kbd></dt><dd>Sign off</dd></div>
+          <div class="krow" data-keys-for="Shift+A"><dt><kbd>Shift+A</kbd></dt><dd>{{if simple}}Complete{{else}}Approve{{end}}</dd></div>
+          <div class="krow" data-keys-for="Shift+P"><dt><kbd>Shift+P</kbd></dt><dd>Mark reported</dd></div>
+          <div class="krow" data-keys-for="Shift+R"><dt><kbd>Shift+R</kbd></dt><dd>Return</dd></div>
+          <div class="krow" data-keys-for="Shift+W"><dt><kbd>Shift+W</kbd></dt><dd>Withdraw</dd></div>
+          <div class="krow" data-keys-for="Shift+U"><dt><kbd>Shift+U</kbd></dt><dd>Revert or restore</dd></div>
+          <div class="krow" data-keys-for="Shift+C"><dt><kbd>Shift+C</kbd></dt><dd>Check</dd></div>
+          <div class="krow" data-keys-for="Shift+H"><dt><kbd>Shift+H</kbd></dt><dd>History</dd></div>
+          <div class="krow" data-keys-if="#redact"><dt><kbd>Ctrl+S</kbd><kbd>Ctrl+Z</kbd></dt><dd>Redact: save, undo</dd></div>
+        </dl>
+      </section>
+      <section class="kgroup" data-keys-group="chat"><h3 class="gh">Chat</h3>
+        <dl>
+          <div class="krow"><dt><kbd>c</kbd></dt><dd>Comment on the panel</dd></div>
+          <div class="krow" data-keys-if="#chat-list .thread, #dups [data-pick]"><dt><kbd>j</kbd><kbd>k</kbd><kbd>↓</kbd><kbd>↑</kbd></dt><dd>Next or previous comment or duplicate</dd></div>
+          <div class="krow" data-keys-if="#dups [data-merge]"><dt><kbd>Enter</kbd></dt><dd>Merge into the picked duplicate</dd></div>
+          <div class="krow" data-keys-if="#chat-list .thread-tools [name=resolves]"><dt><kbd>r</kbd></dt><dd>Resolve the comment</dd></div>
+          <div class="krow" data-keys-if="#chat-text"><dt><kbd>Other keys</kbd></dt><dd>Write a reply</dd></div>
+          <div class="krow"><dt><kbd>Ctrl+Enter</kbd></dt><dd>Send</dd></div>
+          <div class="krow" data-keys-for="Control+H"><dt><kbd>Ctrl+H</kbd></dt><dd>Hide or show the chat</dd></div>
+        </dl>
+      </section>
+    </div>
+  </div>
+</dialog>
+{{end}}

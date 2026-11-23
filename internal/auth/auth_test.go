@@ -33,6 +33,29 @@ func newAuth(t *testing.T) (*Auth, *db.DB) {
 	return New(d), d
 }
 
+// The session cookie is Secure when the site is served over HTTPS; it is
+// always HttpOnly and SameSite=Lax, and clearing it matches.
+func TestCookieSecureFlag(t *testing.T) {
+	for _, secure := range []bool{false, true} {
+		a := &Auth{Secure: secure}
+		rec := httptest.NewRecorder()
+		a.SetCookie(rec, "tok")
+		a.ClearCookie(rec)
+		cs := rec.Result().Cookies()
+		if len(cs) != 2 {
+			t.Fatalf("cookies %v", cs)
+		}
+		for _, c := range cs {
+			if c.Name != CookieName || c.Secure != secure || !c.HttpOnly || c.SameSite != http.SameSiteLaxMode {
+				t.Errorf("secure=%v: cookie %+v", secure, c)
+			}
+		}
+		if cs[0].Value != "tok" || cs[0].MaxAge <= 0 || cs[1].MaxAge >= 0 {
+			t.Errorf("set %+v, clear %+v", cs[0], cs[1])
+		}
+	}
+}
+
 func TestLoginOK(t *testing.T) {
 	a, _ := newAuth(t)
 	tok, ok := a.Login("alice", "secret")
@@ -124,5 +147,64 @@ func TestAccountChangesApplyAtOnce(t *testing.T) {
 	}
 	if len(a.Users()) != 0 {
 		t.Fatal("Users lists a deleted account")
+	}
+}
+
+// A disabled account can't log in, and its open sessions stop working.
+func TestDisabledAccount(t *testing.T) {
+	a, d := newAuth(t)
+	tok, _ := a.Login("alice", "secret")
+	h := a.Require(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	d.SetDisabled("alice", true)
+	if get(h, tok).Code != http.StatusSeeOther {
+		t.Fatal("disabled account still logged in")
+	}
+	if _, ok := a.Login("alice", "secret"); ok {
+		t.Fatal("disabled account logged in")
+	}
+	if _, ok := a.Check("alice", "secret"); ok {
+		t.Fatal("disabled account passes Check")
+	}
+	if _, ok := a.Lookup("alice"); ok {
+		t.Fatal("Lookup returns a disabled account")
+	}
+	d.SetDisabled("alice", false)
+	if _, ok := a.Login("alice", "secret"); !ok {
+		t.Fatal("re-enabled account can't log in")
+	}
+}
+
+func TestLoginAudited(t *testing.T) {
+	a, d := newAuth(t)
+	a.Login("alice", "secret")
+	a.Login("alice", "nope")
+	a.Login("mallory", "x")
+	l, _ := d.AuditLog(10)
+	if len(l) != 3 || l[2].Action != "login" || l[2].Actor != "alice" || l[1].Action != "login.fail" || l[0].Target != "mallory" {
+		t.Fatalf("audit %+v", l)
+	}
+}
+
+// Failed logins are filed under one actor with the typed name as target,
+// and repeats of a name within the hour make one row with a count, so typed
+// names can't flood the log or the activity page's actor list.
+func TestLoginFailAggregated(t *testing.T) {
+	a, d := newAuth(t)
+	for i := 0; i < 3; i++ {
+		a.Login("mallory", "x")
+	}
+	a.Login("alice", "nope")
+	l, _ := d.AuditLog(10)
+	if len(l) != 2 {
+		t.Fatalf("audit %+v", l)
+	}
+	if l[0].Actor != db.FailedLoginActor || l[0].Target != "alice" || l[0].Detail != "1 attempt" {
+		t.Fatalf("alice row %+v", l[0])
+	}
+	if l[1].Actor != db.FailedLoginActor || l[1].Target != "mallory" || l[1].Detail != "3 attempts" {
+		t.Fatalf("mallory row %+v", l[1])
+	}
+	if actors, _ := d.AuditActors(); len(actors) != 1 || actors[0] != db.FailedLoginActor {
+		t.Fatalf("actors %v", actors)
 	}
 }

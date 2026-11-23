@@ -3,12 +3,14 @@ package web
 import (
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"slices"
 	"strings"
 
 	"yars/internal/auth"
 	"yars/internal/config"
+	"yars/internal/cvss"
 	"yars/internal/index"
 	"yars/internal/store"
 	"yars/internal/workflow"
@@ -26,6 +28,10 @@ type retestView struct {
 	Options                   []retestOption
 	URL, Error                string
 	Locked                    bool
+	// the original, shown beside the result
+	Details       []detailsRow
+	Vector, Score string
+	Sections      []tplSection
 }
 
 func (s *Server) routesRetest(mux *http.ServeMux) {
@@ -43,14 +49,32 @@ func (s *Server) retestFor(r *http.Request, ref store.FindingRef) *retestView {
 	v := &retestView{Result: rt.Result, Source: rt.Source, URL: findingURL(ref.EngID, ref.Dir) + "/retest", Locked: s.locked(r, ref)}
 	if eng, dir, ok := strings.Cut(rt.Source, "/"); ok {
 		v.SourceURL = findingURL(eng, dir)
-		if src, err := s.Store.Finding(eng, dir); err == nil {
-			v.SourceStatus = src.F.Meta.Status
-			v.SourceSev = src.F.Meta.Severity
+		// the original is shown only to those on its engagement's team
+		if src, err := s.Store.Finding(eng, dir); err == nil && s.Store.CanSee(auth.UserFrom(r.Context()), eng) {
+			m := src.F.Meta
+			v.SourceStatus = workflow.Shown(m)
+			v.SourceSev = cvss.Derive(m.CVSS, m.Severity)
+			for _, name := range s.conf().DetailsRows {
+				if x := strings.TrimSpace(m.Details[name]); x != "" {
+					v.Details = append(v.Details, detailsRow{Name: name, Value: x})
+				}
+			}
+			if vec, err := cvss.Parse(m.CVSS); err == nil {
+				n, _ := cvss.Score(vec)
+				v.Vector, v.Score = vec.String(), cvss.FormatScore(n)
+			}
+			for _, sec := range src.F.Sections {
+				if strings.TrimSpace(sec.Body) != "" {
+					v.Sections = append(v.Sections, tplSection{Name: sec.Name, HTML: s.linkAttachments(s.renderMD(sec.Body), src)})
+				}
+			}
 		} else {
 			v.SourceMissing = true
 		}
+	} else {
+		v.SourceMissing = true // names no finding
 	}
-	for _, c := range workflow.RetestResults {
+	for _, c := range []string{"fixed", "partially_fixed", "not_fixed"} { // the board's order
 		v.Options = append(v.Options, retestOption{Code: c, Label: workflow.RetestLabel(c), Checked: c == rt.Result})
 	}
 	return v
@@ -61,13 +85,14 @@ func (s *Server) retestSave(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	err := s.Store.SetRetestResult(ref.EngID, ref.Dir, r.FormValue("result"), auth.UserFrom(r.Context()))
-	if err != nil && !errors.Is(err, store.ErrInvalidValue) {
+	err := s.Store.SetRetestResultFrom(ref.EngID, ref.Dir, r.FormValue("was"), r.FormValue("result"), auth.UserFrom(r.Context()))
+	conflict := errors.Is(err, store.ErrConflict)
+	if err != nil && !errors.Is(err, store.ErrInvalidValue) && !conflict {
 		s.fail(w, err)
 		return
 	}
 	status := http.StatusOK
-	if err == nil {
+	if err == nil || conflict {
 		if ref, err = s.Store.Finding(ref.EngID, ref.Dir); err != nil {
 			s.fail(w, err)
 			return
@@ -78,7 +103,10 @@ func (s *Server) retestSave(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not a retest finding", http.StatusBadRequest)
 		return
 	}
-	if err != nil {
+	if conflict {
+		// the panel as it is now: the choice is made again on it
+		status, v.Error = http.StatusConflict, "the result changed since you opened the page; choose again"
+	} else if err != nil {
 		status, v.Error = http.StatusBadRequest, err.Error()
 	} else {
 		// the result feeds the submit gate: reload so the workflow bar updates
@@ -111,7 +139,12 @@ func (s *Server) retestForm(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "only a director can start a retest", http.StatusForbidden)
 		return
 	}
-	p.Form = map[string][]string{"id": {p.Eng.ID + "-retest"}, "name": {p.Eng.Name + " — retest"}, "client": {p.Eng.Client}}
+	id, err := s.freeEngID(p.Eng.ID + "-retest")
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	p.Form = map[string][]string{"id": {id}, "name": {p.Eng.Name + " — retest"}, "client": {p.Eng.Client}}
 	for _, row := range p.Rows {
 		if row.Status == "complete" || row.Status == "reported" {
 			p.Form["finding"] = append(p.Form["finding"], row.Dir)
@@ -119,6 +152,21 @@ func (s *Server) retestForm(w http.ResponseWriter, r *http.Request) {
 	}
 	p.Users = s.Auth.Users()
 	s.render(w, "new_retest.html", p)
+}
+
+// freeEngID is id, else id-2, id-3 …: the first no engagement folder has
+// (CreateRetest refuses an ID whose folder exists), as freeSlug is for a
+// template's name.
+func (s *Server) freeEngID(id string) (string, error) {
+	ids, err := s.Store.EngagementIDs()
+	if err != nil {
+		return "", err
+	}
+	free := id
+	for i := 2; slices.Contains(ids, free); i++ {
+		free = fmt.Sprintf("%s-%d", id, i)
+	}
+	return free, nil
 }
 
 func (s *Server) retestCreate(w http.ResponseWriter, r *http.Request) {
@@ -141,14 +189,31 @@ func (s *Server) retestCreate(w http.ResponseWriter, r *http.Request) {
 	} else {
 		err = s.Store.CreateRetest(e, p.Eng.ID, r.PostForm["finding"], assignee, p.User)
 	}
-	if errors.Is(err, store.ErrInvalidValue) {
-		p.Error = strings.TrimPrefix(err.Error(), store.ErrInvalidValue.Error()+": ")
-		p.Users = s.Auth.Users()
-		s.renderStatus(w, http.StatusBadRequest, "new_retest.html", p)
-		return
-	}
 	if err != nil {
-		s.fail(w, err)
+		// the form again, with what was typed and why it did not go through
+		status, msg := http.StatusInternalServerError, "the retest could not be created; try again"
+		var d *workflow.Denied
+		switch {
+		case errors.Is(err, store.ErrInvalidValue):
+			status, msg = http.StatusBadRequest, strings.TrimPrefix(err.Error(), store.ErrInvalidValue.Error()+": ")
+		case errors.As(err, &d):
+			status, msg = http.StatusForbidden, d.Reason
+		case errors.Is(err, store.ErrBusy):
+			status, msg = http.StatusConflict, store.ErrBusy.Error()
+		default:
+			log.Printf("retest of %s: %v", p.Eng.ID, err)
+		}
+		p.Error, p.Users = msg, s.Auth.Users()
+		// the head counts the ticked rows: drop picks no longer listed, and
+		// one sent twice
+		var picks []string
+		for _, row := range p.Rows {
+			if slices.Contains(p.Form["finding"], row.Dir) {
+				picks = append(picks, row.Dir)
+			}
+		}
+		p.Form["finding"] = picks
+		s.renderStatus(w, status, "new_retest.html", p)
 		return
 	}
 	http.Redirect(w, r, "/e/"+e.ID, http.StatusSeeOther)

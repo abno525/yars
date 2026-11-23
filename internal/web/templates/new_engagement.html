@@ -1,15 +1,29 @@
 {{define "content"}}
-<form class="card narrow" method="post" action="/engagements/new">
-  <h1>New engagement</h1>
-  {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
-  <label>ID <input name="id" value="{{.Form.Get "id"}}" placeholder="2026-11-acme-webapp" pattern="[A-Za-z0-9._\-]+" required autofocus></label>
-  <label>Name <input name="name" value="{{.Form.Get "name"}}" required></label>
-  <label>Client <input name="client" value="{{.Form.Get "client"}}"></label>
-  <label>Start <input name="start" type="date" value="{{.Form.Get "start"}}"></label>
-  <label>End <input name="end" type="date" value="{{.Form.Get "end"}}"></label>
+<div class="titlerow">
+  <div class="titlecol"><h1>New engagement</h1></div>
   <div class="actions">
-    <button class="primary">Create</button>
-    <a class="button" href="/">Cancel</a>
+    <a class="btn secondary w128" href="/engagements">Cancel</a>
+    <button class="btn primary w128" form="new-engagement">Create</button>
   </div>
+</div>
+<form id="new-engagement" class="panel neweng" method="post" action="/engagements/new">
+  {{$idErr := index .FieldErrs "id"}}{{$nameErr := index .FieldErrs "name"}}{{$startErr := index .FieldErrs "start"}}{{$endErr := index .FieldErrs "end"}}
+  <div class="nefields two">
+    <label class="nefield">ID<input class="monoin" name="id" value="{{.Form.Get "id"}}"{{if $idErr}} aria-invalid="true"{{end}} aria-describedby="id-err" required autofocus><span class="ferr" id="id-err">{{$idErr}}</span></label>
+    <label class="nefield">Name<input name="name" value="{{.Form.Get "name"}}"{{if $nameErr}} aria-invalid="true"{{end}} aria-describedby="name-err" required><span class="ferr" id="name-err">{{$nameErr}}</span></label>
+  </div>
+  <label class="nefield flush">Client<input name="client" value="{{.Form.Get "client"}}"></label>
+  <div class="nefields two">
+    <label class="nefield">Start<input name="start" type="date" value="{{.Form.Get "start"}}"{{if $startErr}} aria-invalid="true" aria-describedby="dates-err"{{end}}></label>
+    <label class="nefield">End<input name="end" type="date" value="{{.Form.Get "end"}}"{{if $endErr}} aria-invalid="true" aria-describedby="dates-err"{{end}}></label>
+  </div>
+  {{if or $startErr $endErr}}<span class="ferr" id="dates-err">{{if $startErr}}Start: {{$startErr}}{{else}}End: {{$endErr}}{{end}}</span>{{end}}
+  <fieldset class="neteam">
+    <div class="neteamhead"><legend>Team</legend><button type="button" class="btn secondary w128" data-check-all="member">Add everyone</button></div>
+    <div class="neteamlist">
+      <label class="nemember me"><input type="checkbox" checked disabled aria-label="{{.User.Username}}"><span class="strong clip">{{.User.Username}}</span><span class="muted">{{if not simple}}{{.User.Role}}{{end}}</span></label>
+      {{range .Users}}<label class="nemember"><input type="checkbox" name="member" value="{{.Username}}"{{if checkedIn $.Form "member" .Username}} checked{{end}}><span class="strong clip">{{.Username}}</span><span class="muted">{{if not simple}}{{.Role}}{{end}}</span></label>{{end}}
+    </div>
+  </fieldset>
 </form>
 {{end}}

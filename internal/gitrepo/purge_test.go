@@ -1,0 +1,327 @@
+package gitrepo
+
+import (
+	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+)
+
+// history makes a repository where a.png was A, then B (with another
+// commit between), and returns it with the blob ids of A and B.
+func history(t *testing.T) (r *Repo, dir, blobA, blobB string) {
+	t.Helper()
+	dir = t.TempDir()
+	r, err := Init(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	commit := func(name, body, msg string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := r.Commit([]string{name}, msg, Author{"alice", "alice@yars.local"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	commit("a.png", "A", "first")
+	blobA = gitOut(t, dir, "rev-parse", "HEAD:a.png")
+	commit("note.txt", "n", "second")
+	commit("a.png", "B", "third")
+	blobB = gitOut(t, dir, "rev-parse", "HEAD:a.png")
+	return r, dir, blobA, blobB
+}
+
+func gitOut(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).Output()
+	if err != nil {
+		t.Fatalf("git %v: %v", args, err)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// D28: the blobs a path has had, newest first.
+func TestBlobsOf(t *testing.T) {
+	r, _, blobA, blobB := history(t)
+	got, err := r.BlobsOf("a.png")
+	if err != nil || !slices.Equal(got, []string{blobB, blobA}) {
+		t.Fatalf("blobs %v %v, want %v %v", got, err, blobB, blobA)
+	}
+	if got, _ := r.BlobsOf("note.txt"); len(got) != 1 {
+		t.Fatalf("note blobs %v", got)
+	}
+}
+
+// git runs a command that needs an identity (merge) in dir.
+func git(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	return gitOut(t, dir, append([]string{"-c", "user.name=t", "-c", "user.email=t@yars.local"}, args...)...)
+}
+
+// D28: a version a merge left out (-s ours) and one a merge made (a
+// conflict resolved with a new file) are listed too.
+func TestBlobsOfMergedVersions(t *testing.T) {
+	r, dir, blobA, blobB := history(t)
+	main, err := r.CurrentBranch()
+	if err != nil {
+		t.Fatal(err)
+	}
+	put := func(body, msg string) string {
+		t.Helper()
+		os.WriteFile(filepath.Join(dir, "a.png"), []byte(body), 0o644)
+		git(t, dir, "add", "a.png")
+		git(t, dir, "commit", "-q", "-m", msg)
+		return gitOut(t, dir, "rev-parse", "HEAD:a.png")
+	}
+	git(t, dir, "checkout", "-q", "-b", "side", "HEAD~1")
+	blobC := put("C", "side")
+	git(t, dir, "checkout", "-q", main)
+	git(t, dir, "merge", "-q", "-s", "ours", "-m", "keep ours", "side")
+	git(t, dir, "checkout", "-q", "-b", "side2", "HEAD")
+	blobD := put("D", "side2")
+	git(t, dir, "checkout", "-q", main)
+	put("E", "main")
+	exec.Command("git", "-C", dir, "-c", "user.name=t", "-c", "user.email=t@yars.local", "merge", "-q", "side2").Run() // conflicts
+	blobF := put("F", "resolved")
+	got, err := r.BlobsOf("a.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{blobA, blobB, blobC, blobD, blobF} {
+		if !slices.Contains(got, want) {
+			t.Fatalf("blobs %v lack %s", got, want)
+		}
+	}
+	if b, err := r.BlobAt("HEAD", "a.png"); err != nil || b != blobF {
+		t.Fatalf("blob at HEAD %s %v, want %s", b, err, blobF)
+	}
+	if b, err := r.BlobAt("HEAD", "none.png"); err != nil || b != "" {
+		t.Fatalf("a path HEAD lacks: %q %v", b, err)
+	}
+}
+
+// D28: the same bytes in the current files under another path would keep
+// the old version: the drop names that path, and changes nothing (no
+// rewrite, the reflog kept).
+func TestDropOldBlobsRefusesWhileElsewhere(t *testing.T) {
+	r, dir, blobA, blobB := history(t)
+	if err := os.WriteFile(filepath.Join(dir, "copy.png"), []byte("A"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Commit([]string{"copy.png"}, "copy", Author{"alice", "alice@yars.local"}); err != nil {
+		t.Fatal(err)
+	}
+	head0 := gitOut(t, dir, "rev-parse", "HEAD")
+	reflog := gitOut(t, dir, "reflog")
+	err := r.DropOldBlobs("a.png", blobB)
+	var ee *ElsewhereError
+	if !errors.As(err, &ee) || ee.At != "copy.png" || !strings.Contains(err.Error(), "redact it there first") {
+		t.Fatalf("drop with a copy elsewhere: %v", err)
+	}
+	if exec.Command("git", "-C", dir, "cat-file", "-e", blobA).Run() != nil {
+		t.Fatal("objects were removed before the refusal")
+	}
+	if h := gitOut(t, dir, "rev-parse", "HEAD"); h != head0 || gitOut(t, dir, "reflog") != reflog {
+		t.Fatal("a refused drop rewrote the history or its reflog")
+	}
+}
+
+// D28: an old version under other paths in history only (a copy deleted
+// since, a folder renamed since) goes from every one of them.
+func TestDropOldBlobsAtEveryPath(t *testing.T) {
+	r, dir, blobA, blobB := history(t)
+	a := Author{"alice", "alice@yars.local"}
+	if err := os.WriteFile(filepath.Join(dir, "copy.png"), []byte("A"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Commit([]string{"copy.png"}, "copy", a); err != nil {
+		t.Fatal(err)
+	}
+	git(t, dir, "rm", "-q", "copy.png")
+	git(t, dir, "commit", "-q", "-m", "copy gone")
+	if err := r.DropOldBlobs("a.png", blobB); err != nil {
+		t.Fatal(err)
+	}
+	if exec.Command("git", "-C", dir, "cat-file", "-e", blobA).Run() == nil {
+		t.Fatal("the old version is still in the repository")
+	}
+	if got := gitOut(t, dir, "rev-parse", "HEAD:a.png"); got != blobB {
+		t.Fatalf("current %s", got)
+	}
+}
+
+// D28: a file whose folder a push renamed (and changed in the same commit)
+// after the redaction keeps its earlier versions under the old name: the
+// paths the caller names find them all, and the drop removes them.
+func TestBlobsWhereFindsEarlierNames(t *testing.T) {
+	r, dir, blobA, blobB := history(t)
+	os.Mkdir(filepath.Join(dir, "moved"), 0o755)
+	git(t, dir, "mv", "a.png", "moved/a.png")
+	os.WriteFile(filepath.Join(dir, "moved", "a.png"), []byte("C"), 0o644)
+	git(t, dir, "add", "moved/a.png")
+	git(t, dir, "commit", "-q", "-m", "moved and changed")
+	blobC := gitOut(t, dir, "rev-parse", "HEAD:moved/a.png")
+	got, err := r.BlobsWhere(func(p string) bool { return p == "a.png" || p == "moved/a.png" })
+	if err != nil || !slices.Contains(got, blobA) || !slices.Contains(got, blobB) || !slices.Contains(got, blobC) || slices.Contains(got, gitOut(t, dir, "rev-parse", "HEAD:note.txt")) {
+		t.Fatalf("blobs %v %v", got, err)
+	}
+	if err := r.DropOldBlobsWith("moved/a.png", blobC, []string{blobA, blobB}, nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, b := range []string{blobA, blobB} {
+		if exec.Command("git", "-C", dir, "cat-file", "-e", b).Run() == nil {
+			t.Fatalf("%s is still in the repository", b)
+		}
+	}
+}
+
+// D28: a different file deleted in the commit that added the purged one
+// is not taken for its earlier name, however alike: its history stays.
+func TestDropOldBlobsLeavesSimilarFile(t *testing.T) {
+	r, dir, _, _ := history(t)
+	text := strings.Repeat("the same line of text\n", 50)
+	os.WriteFile(filepath.Join(dir, "other.png"), []byte(text), 0o644)
+	git(t, dir, "add", "other.png")
+	git(t, dir, "commit", "-q", "-m", "other")
+	other := gitOut(t, dir, "rev-parse", "HEAD:other.png")
+	git(t, dir, "rm", "-q", "other.png")
+	os.WriteFile(filepath.Join(dir, "s.png"), []byte(text+"one more\n"), 0o644)
+	git(t, dir, "add", "s.png")
+	git(t, dir, "commit", "-q", "-m", "other gone, s added")
+	os.WriteFile(filepath.Join(dir, "s.png"), []byte("redacted"), 0o644)
+	git(t, dir, "add", "s.png")
+	git(t, dir, "commit", "-q", "-m", "s redacted")
+	if err := r.DropOldBlobs("s.png", gitOut(t, dir, "rev-parse", "HEAD:s.png")); err != nil {
+		t.Fatal(err)
+	}
+	if exec.Command("git", "-C", dir, "cat-file", "-e", other).Run() != nil {
+		t.Fatal("another file's history went with the purge")
+	}
+}
+
+// D28: a purged id that history holds again (the same bytes uploaded and
+// redacted once more) is not cleanup left undone.
+func TestFinishDropLeavesWhatHistoryHolds(t *testing.T) {
+	r, _, blobA, _ := history(t)
+	if err := r.FinishDrop([]string{blobA}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// D28: odd paths in history: one starting with a colon is dropped like any
+// other; one with a line break cannot be listed for the filter, so the
+// drop fails, and not with the advice to redact a current file.
+func TestDropOldBlobsOddPaths(t *testing.T) {
+	for _, odd := range []string{":x.png", "nl\nx.png"} {
+		r, dir, blobA, blobB := history(t)
+		if err := os.WriteFile(filepath.Join(dir, odd), []byte("A"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		git(t, dir, "--literal-pathspecs", "add", "--", odd)
+		git(t, dir, "commit", "-q", "-m", "copy")
+		git(t, dir, "--literal-pathspecs", "rm", "-q", "--", odd)
+		git(t, dir, "commit", "-q", "-m", "copy gone")
+		err := r.DropOldBlobs("a.png", blobB)
+		var ee *ElsewhereError
+		switch {
+		case odd == ":x.png" && err != nil:
+			t.Fatalf("%q: %v", odd, err)
+		case odd == ":x.png" && exec.Command("git", "-C", dir, "cat-file", "-e", blobA).Run() == nil:
+			t.Fatalf("%q: the old version is still there", odd)
+		case odd != ":x.png" && (err == nil || errors.As(err, &ee)):
+			t.Fatalf("%q: %v", odd, err)
+		}
+	}
+}
+
+// D28: a drop that stopped after the rewrite (the server stopped) left the
+// backup ref, the reflogs and the old objects: FinishDrop removes them.
+func TestFinishDrop(t *testing.T) {
+	r, dir, blobA, blobB := history(t)
+	cmd := exec.Command("git", "-C", dir, "filter-branch", "-f", "--index-filter",
+		`test "$(git rev-parse -q --verify :a.png)" = "`+blobA+`" && git rm -q --cached -- a.png; true`, "--", "HEAD")
+	cmd.Env = append(os.Environ(), "FILTER_BRANCH_SQUELCH_WARNING=1")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("filter-branch: %v %s", err, out)
+	}
+	if err := r.FinishDrop([]string{blobA, blobB}); err != nil {
+		t.Fatal(err)
+	}
+	if refs := gitOut(t, dir, "for-each-ref", "refs/original"); refs != "" {
+		t.Fatalf("backup refs left: %s", refs)
+	}
+	if exec.Command("git", "-C", dir, "cat-file", "-e", blobA).Run() == nil {
+		t.Fatal("the old version is still in the repository")
+	}
+	if exec.Command("git", "-C", dir, "cat-file", "-e", blobB).Run() != nil {
+		t.Fatal("the current version went")
+	}
+}
+
+// D28: a drop that fails after the rewrite leaves no backup ref behind.
+func TestDropOldBlobsFailureLeavesNoBackupRef(t *testing.T) {
+	r, dir, blobA, _ := history(t)
+	if err := r.DropOldBlobs("a.png", blobA); err == nil { // HEAD's files would change
+		t.Fatal("no error")
+	}
+	if refs := gitOut(t, dir, "for-each-ref", "refs/original"); refs != "" {
+		t.Fatalf("backup refs left: %s", refs)
+	}
+}
+
+// D28: keep must be the current version: a drop that would change HEAD's
+// files is refused.
+func TestDropOldBlobsKeepsHeadTree(t *testing.T) {
+	r, _, blobA, _ := history(t)
+	if err := r.DropOldBlobs("a.png", blobA); err == nil || !strings.Contains(err.Error(), "current files") {
+		t.Fatalf("a drop of the current version: %v", err)
+	}
+}
+
+// D28: once gc has started there is no way back; its failure says so.
+func TestDropOldBlobsCleanupFailure(t *testing.T) {
+	r, dir, blobA, blobB := history(t)
+	if err := os.WriteFile(filepath.Join(dir, ".git", "objects", "info", "commit-graph.lock"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := r.DropOldBlobs("a.png", blobB)
+	if !errors.Is(err, ErrPurgeCleanup) {
+		t.Fatalf("gc failure: %v", err)
+	}
+	if exec.Command("git", "-C", dir, "cat-file", "-e", blobA).Run() == nil {
+		t.Fatal("the old blob is still there")
+	}
+}
+
+// D28: every version of a path but keep goes from history; the commits and
+// the work tree stay.
+func TestDropOldBlobs(t *testing.T) {
+	r, dir, blobA, blobB := history(t)
+	before := gitOut(t, dir, "log", "--format=%s")
+	if err := r.DropOldBlobs("a.png", blobB); err != nil {
+		t.Fatal(err)
+	}
+	if err := exec.Command("git", "-C", dir, "cat-file", "-e", blobA).Run(); err == nil {
+		t.Fatal("the old blob is still in the repository")
+	}
+	if after := gitOut(t, dir, "log", "--format=%s"); after != before {
+		t.Fatalf("subjects %q, were %q", after, before)
+	}
+	if st := gitOut(t, dir, "status", "--porcelain"); st != "" {
+		t.Fatalf("work tree changed: %q", st)
+	}
+	if got := gitOut(t, dir, "rev-parse", "HEAD:a.png"); got != blobB {
+		t.Fatalf("current blob %s, want %s", got, blobB)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, "a.png")); string(b) != "B" {
+		t.Fatalf("file %q", b)
+	}
+	if refs := gitOut(t, dir, "for-each-ref", "refs/original"); refs != "" {
+		t.Fatalf("backup refs left: %s", refs)
+	}
+}

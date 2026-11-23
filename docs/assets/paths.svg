@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 420" width="960" height="420" role="img" aria-label="Three ways in: Git, MCP and Review">
+  <defs>
+    <marker id="arr" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M0 0 L8 4 L0 8 Z" fill="#F26B1D"/>
+    </marker>
+    <style>
+      .card { fill: #FFFFFF; stroke: #D9DDE3; stroke-width: 1; }
+      .head { fill: #13233F; }
+      .title { fill: #F26B1D; font-family: Arial Black, Impact, Helvetica, Arial, sans-serif; font-size: 22px; font-weight: 800; letter-spacing: 1px; }
+      .chip { fill: #F4F5F7; stroke: #B7BDC7; stroke-width: 1; }
+      .chipt { fill: #13233F; font-family: IBM Plex Sans, Segoe UI, Helvetica, Arial, sans-serif; font-size: 13px; font-weight: 600; text-anchor: middle; }
+      .arrow { stroke: #F26B1D; stroke-width: 2; marker-end: url(#arr); }
+      .line { fill: #0F172A; font-family: IBM Plex Sans, Segoe UI, Helvetica, Arial, sans-serif; font-size: 17px; }
+      .band { fill: #F4F5F7; }
+      .cmd { fill: #C4520F; font-family: IBM Plex Mono, Menlo, Consolas, monospace; font-size: 15px; font-weight: 500; }
+    </style>
+  </defs>
+  <rect width="960" height="420" fill="#FFFFFF"/>
+
+  <!-- GIT -->
+  <g transform="translate(24 24)">
+    <rect class="card" x="0.5" y="0.5" width="287" height="371"/>
+    <rect class="head" width="288" height="56"/>
+    <text class="title" x="20" y="38">GIT</text>
+    <rect class="chip" x="20.5" y="80.5" width="71" height="31"/><text class="chipt" x="56" y="101">clone</text>
+    <line class="arrow" x1="95" y1="96" x2="104" y2="96"/>
+    <rect class="chip" x="108.5" y="80.5" width="71" height="31"/><text class="chipt" x="144" y="101">edit</text>
+    <line class="arrow" x1="183" y1="96" x2="192" y2="96"/>
+    <rect class="chip" x="196.5" y="80.5" width="71" height="31"/><text class="chipt" x="232" y="101">push</text>
+    <line x1="20" y1="150" x2="268" y2="150" stroke="#D9DDE3" stroke-width="2"/>
+    <circle cx="40" cy="150" r="7" fill="#13233F"/><circle cx="100" cy="150" r="7" fill="#13233F"/>
+    <circle cx="160" cy="150" r="7" fill="#13233F"/><circle cx="220" cy="150" r="7" fill="#13233F"/>
+    <circle cx="260" cy="150" r="7" fill="#F26B1D"/>
+    <text class="line" x="20" y="208">Each engagement is a repo.</text>
+    <text class="line" x="20" y="238">Findings are Markdown.</text>
+    <text class="line" x="20" y="268">Every push is checked.</text>
+    <rect class="band" y="316" width="288" height="56"/>
+    <text class="cmd" x="20" y="349">$ git push</text>
+  </g>
+
+  <!-- MCP -->
+  <g transform="translate(336 24)">
+    <rect class="card" x="0.5" y="0.5" width="287" height="371"/>
+    <rect class="head" width="288" height="56"/>
+    <text class="title" x="20" y="38">MCP</text>
+    <rect class="chip" x="20.5" y="80.5" width="71" height="31"/><text class="chipt" x="56" y="101">agent</text>
+    <line class="arrow" x1="95" y1="96" x2="104" y2="96"/>
+    <rect class="chip" x="108.5" y="80.5" width="71" height="31"/><text class="chipt" x="144" y="101">/mcp</text>
+    <line class="arrow" x1="183" y1="96" x2="192" y2="96"/>
+    <rect class="chip" x="196.5" y="80.5" width="71" height="31"/><text class="chipt" x="232" y="101">finding</text>
+    <rect x="20" y="145" width="56" height="10" fill="#1E3A66"/><rect x="84" y="145" width="56" height="10" fill="#1E3A66"/>
+    <rect x="148" y="145" width="56" height="10" fill="#1E3A66"/><rect x="212" y="145" width="56" height="10" fill="#F26B1D"/>
+    <text class="line" x="20" y="208">AI agents write findings.</text>
+    <text class="line" x="20" y="238">They check and fix them.</text>
+    <text class="line" x="20" y="268">Same rules as people.</text>
+    <rect class="band" y="316" width="288" height="56"/>
+    <text class="cmd" x="20" y="349">POST /mcp</text>
+  </g>
+
+  <!-- REVIEW -->
+  <g transform="translate(648 24)">
+    <rect class="card" x="0.5" y="0.5" width="287" height="371"/>
+    <rect class="head" width="288" height="56"/>
+    <text class="title" x="20" y="38">REVIEW</text>
+    <rect class="chip" x="20.5" y="80.5" width="71" height="31"/><text class="chipt" x="56" y="101">author</text>
+    <line class="arrow" x1="95" y1="96" x2="104" y2="96"/>
+    <rect class="chip" x="108.5" y="80.5" width="71" height="31"/><text class="chipt" x="144" y="101">reviewer</text>
+    <line class="arrow" x1="183" y1="96" x2="192" y2="96"/>
+    <rect class="chip" x="196.5" y="80.5" width="71" height="31"/><text class="chipt" x="232" y="101">director</text>
+    <!-- the workflow bar: draft, verification, signed off done; complete now; reported next -->
+    <rect x="20" y="140" width="46" height="20" fill="#13233F"/><rect x="70" y="140" width="46" height="20" fill="#13233F"/>
+    <rect x="120" y="140" width="46" height="20" fill="#13233F"/><rect x="170" y="140" width="46" height="20" fill="#F26B1D"/>
+    <rect x="220" y="140" width="48" height="20" fill="#E6E8EC"/>
+    <text class="line" x="20" y="208">Reviewers sign off.</text>
+    <text class="line" x="20" y="238">A director approves.</text>
+    <text class="line" x="20" y="268">Or simple: no roles.</text>
+    <rect class="band" y="316" width="288" height="56"/>
+    <text class="cmd" x="20" y="349">$ yars init --simple</text>
+  </g>
+</svg>

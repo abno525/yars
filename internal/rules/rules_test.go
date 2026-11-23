@@ -36,6 +36,20 @@ func run(t *testing.T, rulesYAML string, d Doc) []Violation {
 	return s.Run(context.Background(), d, config.Default(), Fast, nil)
 }
 
+// A problem with a rule that has no id names the rule by its file and its
+// place in it, as a problem with the whole file is named by the file
+// (backlog, M5).
+func TestProblemOfRuleWithoutID(t *testing.T) {
+	s := Load(writeRules(t, map[string]string{"r.yaml": "- id: fine\n  regex_forbid: 'x'\n- level: error\n  regex_forbid: 'y'\n- regex_forbid: 'z'\n  levle: error\n"}))
+	var rules []string
+	for _, p := range s.Problems {
+		rules = append(rules, p.Rule)
+	}
+	if strings.Join(rules, ",") != "rules/r.yaml#2,rules/r.yaml#3" {
+		t.Fatalf("problems %+v", s.Problems)
+	}
+}
+
 func TestLoadReportsBadRules(t *testing.T) {
 	dir := writeRules(t, map[string]string{
 		"bad.yaml": "- id: [unclosed\n",
@@ -162,6 +176,30 @@ func TestTargets(t *testing.T) {
 	}
 }
 
+// The table check reads tables as the page renders them: lines in an
+// indented code block are code, a table in a block quote is a table, and a
+// last row written without pipes is a row (backlog, M5).
+func TestTableCellsCheckAsRendered(t *testing.T) {
+	for body, want := range map[string]string{
+		"Code:\n\n    | a | `b` |\n    |---|---|\n    | c | d |\n":           "",
+		"> | a | b |\n> |---|---|\n> | `c` | d |\n":                          "> | `c` | d |",
+		"| a | b |\n|---|---|\n| c | d |\n`e` and f\n":                       "`e` and f",
+		"| a | b |\n|---|---|\n| c | d |\n\n`e` is a paragraph, not a row\n": "",
+	} {
+		d := doc()
+		d.Sections = []Section{{"Description", body}}
+		d.Details = nil
+		vs := run(t, "- id: tc\n  check: table-cells-no-backticks\n", d)
+		var got []string
+		for _, v := range vs {
+			got = append(got, v.Quote)
+		}
+		if strings.Join(got, ";") != want {
+			t.Errorf("%q: found %q, want %q", body, got, want)
+		}
+	}
+}
+
 func TestTableCellsCheck(t *testing.T) {
 	d := doc()
 	d.Sections = []Section{{"Description", "Para with `ok` code.\n\n| Field | Value |\n|---|---|\n| Param | `user` |\n| Pipe | `a|b` |\n\n```\n| x | `y` |\n```\n"}}
@@ -201,6 +239,16 @@ func TestViolationCap(t *testing.T) {
 	}
 }
 
+// Q23: a built-in check's message is the admin's text and the detail, whole
+// however long the text is (up to the 4,000-character cap).
+func TestBuiltinMessageWhole(t *testing.T) {
+	text := strings.Repeat("Write every section. ", 30)
+	vs := run(t, "- id: ne\n  target: section:Impact\n  check: not-empty\n  message: '"+text+"'\n", doc())
+	if len(vs) != 1 || vs[0].Message != text+" (section:Impact is empty)" {
+		t.Fatalf("got %+v", vs)
+	}
+}
+
 func TestDisabledRule(t *testing.T) {
 	if vs := run(t, "- id: x\n  enabled: false\n  target: title\n  regex_forbid: '.'\n", doc()); len(vs) != 0 {
 		t.Fatalf("got %+v", vs)
@@ -222,6 +270,30 @@ func TestRunSection(t *testing.T) {
 	}
 	if vs := s.RunSection(doc(), config.Default(), "Description", "uses `backtick`"); len(vs) != 0 {
 		t.Fatalf("other section: %+v", vs)
+	}
+}
+
+// The editor's hints see the body as it will be saved and as the panel's
+// checks see it: line breaks as LF, no blank lines around it. A rule anchored
+// at the end finds the same in both (backlog, M5).
+func TestRunSectionSeesSavedBody(t *testing.T) {
+	s := Load(writeRules(t, map[string]string{"r.yaml": `
+- id: loc-dot
+  target: section:Location
+  regex_forbid: '\.$'
+- id: loc-cr
+  target: section:Location
+  regex_forbid: "\r"
+`}))
+	typed := "\r\n/login.\r\n\r\n"
+	vs := s.RunSection(doc(), config.Default(), "Location", typed)
+	if len(vs) != 1 || vs[0].Rule != "loc-dot" {
+		t.Fatalf("hints %+v", vs)
+	}
+	d := doc()
+	d.Sections[1].Body = "/login."
+	if panel := s.Run(context.Background(), d, config.Default(), Fast, nil); len(panel) != 1 || panel[0].Rule != "loc-dot" {
+		t.Fatalf("panel %+v", panel)
 	}
 }
 

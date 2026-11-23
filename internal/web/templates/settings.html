@@ -1,0 +1,114 @@
+{{define "content"}}
+<h1>Settings</h1>
+<div class="sgrid">
+  <nav class="snav" aria-label="Settings sections">
+    <a href="#account">Account</a>
+    <a href="#prefs">Preferences</a>
+    <a href="#password">Password</a>
+    <a href="#tokens">Tokens</a>
+    <a href="#connections">Connections</a>
+    <a href="#notifications">Notifications</a>
+    <a href="/docs">Developers</a>
+  </nav>
+  <div class="smain">
+    <form class="panel" id="account" method="post" action="/settings/account">
+      <div class="panelhead"><h2>Account</h2><div class="actions"><span class="pstate error" title="{{.Settings.AccountErr}}">{{.Settings.AccountErr}}</span><button class="btn save sm w96">Save</button></div></div>
+      <div class="fgrid two">
+        <div class="field"><span class="flabel">Username</span><span class="fvalue" title="{{.User.Username}}">{{.User.Username}}</span></div>
+        {{if simple}}<div class="field"><span class="flabel">Access</span><span class="fvalue tags">{{if .User.IsAdmin}}<span class="tag adminflag">admin</span>{{else}}<span class="muted">—</span>{{end}}</span></div>
+        {{else}}<div class="field"><span class="flabel">Roles</span><span class="fvalue tags"><span class="tag role">{{.User.Role}}</span>{{if .User.IsAdmin}}<span class="tag adminflag">admin</span>{{end}}</span></div>{{end}}
+        <label class="field span2">Email<input name="email" type="email" value="{{.User.Email}}" autocomplete="email"></label>
+      </div>
+    </form>
+
+    <form class="panel" id="prefs" method="post" action="/settings/prefs">
+      <div class="panelhead"><h2>Preferences</h2><button class="btn save sm w96">Save</button></div>
+      <div class="frows flush">
+        <div class="frow"><span class="flabel">Theme</span>
+          <div class="seg n3" role="radiogroup" aria-label="Theme">{{range .Settings.Themes}}<label><input type="radio" name="theme" value="{{.Value}}"{{if .On}} checked{{end}}><span>{{.Label}}</span></label>{{end}}</div>
+        </div>
+        <div class="frow"><span class="flabel">Keyboard shortcuts</span>
+          <div class="seg n2" role="radiogroup" aria-label="Keyboard shortcuts">{{range .Settings.Keys}}<label><input type="radio" name="keys" value="{{.Value}}"{{if .On}} checked{{end}}><span>{{.Label}}</span></label>{{end}}</div>
+        </div>
+      </div>
+    </form>
+
+    <form class="panel" id="password" method="post" action="/settings/password">
+      <div class="panelhead"><h2>Password</h2><div class="actions"><span class="pstate error" title="{{.Settings.PasswordErr}}">{{.Settings.PasswordErr}}</span><button class="btn save sm w96">Change</button></div></div>
+      <div class="fgrid three">
+        <label class="field">Current<input type="password" name="current" autocomplete="current-password" required></label>
+        <label class="field">New<input type="password" name="new" autocomplete="new-password" minlength="10" required></label>
+        <label class="field">Repeat new<input type="password" name="repeat" autocomplete="new-password" minlength="10" required></label>
+      </div>
+    </form>
+
+    <section class="panel" id="tokens">
+      <div class="panelhead"><h2>Tokens</h2><a class="btn primary sm w112" href="/settings/tokens/new" aria-keyshortcuts="N">New token</a></div>
+      {{with .Settings.NewToken}}
+      <div class="copyrow newsecret"><span class="tag shown">Shown once</span><code id="new-token" class="clip">{{.}}</code><button type="button" class="btn save sm w96" data-copy="new-token">Copy</button></div>
+      {{end}}
+      <table class="table stable tokentable" data-arrows="focus">
+        <thead><tr><th>Name</th><th class="c-can">Can</th><th class="c-date">Expires</th><th class="c-time">Last used</th><th class="c-date">Created</th><th class="c-act">Action</th></tr></thead>
+        <tbody>
+          {{range .Settings.Tokens}}
+          {{/* the name is the row the keys move to; r revokes that row only (asking); its id keeps it focused through the reload */}}
+          <tr data-rowkeys>
+            <td class="stack"><span class="strong" title="{{.Name}}" tabindex="0" data-nav id="row-token-{{.ID}}">{{.Name}}</span><span class="mono">{{.Ending}}</span></td>
+            <td class="stack"><span>{{.Kind}} · {{.Can}}</span><span class="muted" title="{{.Where}}">{{.Where}}</span></td>
+            <td class="stack"><span class="mono">{{.Expires}}</span>{{with .ExpireSoon}}<span class="soon">{{.}}</span>{{end}}</td>
+            <td class="mono">{{.LastUsed}}</td>
+            <td class="mono">{{.Created}}</td>
+            <td><form method="post" action="/settings/tokens/{{.ID}}/revoke"><button class="btn danger sm w96" data-confirm="Revoke {{if .Name}}{{.Name}}{{else}}the token {{.Ending}}{{end}}?" aria-keyshortcuts="R">Revoke</button></form></td>
+          </tr>
+          {{else}}
+          {{template "empty_row" 6}}
+          {{end}}
+        </tbody>
+      </table>
+    </section>
+
+    <section class="panel" id="connections">
+      <div class="panelhead"><h2>Connections</h2><span class="pstate error" title="{{.Settings.ConnErr}}">{{.Settings.ConnErr}}</span></div>
+      <table class="table stable conntable">
+        <thead><tr><th class="c-svc">Service</th><th>Key</th><th class="c-date">Added</th><th class="c-act2">Action</th></tr></thead>
+        <tbody>
+          {{range .Settings.Conns}}
+          <tr id="conn-{{.Service}}">
+            <td class="stack"><span class="strong">{{.Label}}</span><span class="mono" title="{{.Host}}">{{.Host}}</span></td>
+            {{if .Has}}
+            <td>{{if .Broken}}<span class="tag bad">Unreadable</span>{{else}}<span class="mono">{{.Ending}}</span>{{end}}</td>
+            <td class="mono">{{.Created}}</td>
+            <td><form method="post" action="/settings/connections/{{.Service}}/remove"><button class="btn danger sm w96" data-confirm="Remove the {{.Label}} key?">Remove</button></form></td>
+            {{else}}
+            <td colspan="3">
+              <form class="inline" method="post" action="/settings/connections">
+                <input type="hidden" name="service" value="{{.Service}}">
+                <input class="grow monoin" type="password" name="key" autocomplete="off" aria-label="{{.Label}} key · {{.Host}}" required>
+                <button class="btn primary sm w96">Add key</button>
+              </form>
+            </td>
+            {{end}}
+          </tr>
+          {{else}}{{template "empty_row" 4}}
+          {{end}}
+        </tbody>
+      </table>
+    </section>
+
+    <form class="panel" id="notifications" method="post" action="/settings/notifications">
+      <div class="panelhead"><h2>Notifications</h2><button class="btn save sm w96">Save</button></div>
+      <table class="table stable notifytable">
+        <thead><tr><th>Event</th>{{range .Settings.Channels}}<th class="c-ch">{{.Label}}</th>{{end}}</tr></thead>
+        <tbody>
+          {{range .Settings.Notify}}
+          <tr>
+            <td class="strong">{{.Label}}</td>
+            {{$ev := .Label}}{{range .Cells}}<td class="c-ch"><input type="checkbox" name="n" value="{{.Value}}"{{if .On}} checked{{end}} aria-label="{{$ev}} · {{.Label}}"></td>{{end}}
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+    </form>
+  </div>
+</div>
+{{end}}

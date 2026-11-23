@@ -17,13 +17,55 @@ import (
 	"yars/internal/gitrepo"
 )
 
+// The workflows a data folder can be set up with (yars init). The standard
+// one has roles and review (draft → verification → complete → reported);
+// the simple one has neither (draft → complete → reported).
+const (
+	WorkflowStandard = "standard"
+	WorkflowSimple   = "simple"
+)
+
 type Config struct {
-	Severities  []string   `yaml:"severities"`
-	Sections    []string   `yaml:"sections"`
-	DetailsRows []string   `yaml:"details_rows"`
-	CVSS        CVSSConfig `yaml:"cvss"`
-	AI          AIConfig   `yaml:"ai"`
+	// Workflow is the workflow yars init set up: WorkflowSimple, or ""
+	// (also WorkflowStandard) for the standard one. It is fixed after init;
+	// the standard workflow writes no key.
+	Workflow    string   `yaml:"workflow,omitempty"`
+	Severities  []string `yaml:"severities"`
+	Sections    []string `yaml:"sections"`
+	DetailsRows []string `yaml:"details_rows"`
+	// ReportSections are the engagement's report-level sections (executive
+	// summary, scope, …), stored as report/<slug>.md in the engagement.
+	ReportSections []string   `yaml:"report_sections"`
+	CVSS           CVSSConfig `yaml:"cvss"`
+	AI             AIConfig   `yaml:"ai"`
+	// BaseURL is the server's address as people open it (links in webhooks
+	// and email); "" = links are paths only.
+	BaseURL string       `yaml:"base_url"`
+	SMTP    SMTPConfig   `yaml:"smtp"`
+	Checks  ChecksConfig `yaml:"checks"`
 }
+
+// ChecksConfig bounds the stored check runs (Check, start_check, the run
+// after Fix with AI): MaxRunning run at once, the others wait in a queue.
+type ChecksConfig struct {
+	MaxRunning int `yaml:"max_running"` // at least 1
+}
+
+// DefaultMaxRunning is checks.max_running when config.yaml sets none.
+const DefaultMaxRunning = 4
+
+// SMTPConfig sends notification email. The password is read from the
+// environment variable named by PasswordEnv and never stored in the repo.
+type SMTPConfig struct {
+	Host        string `yaml:"host"`
+	Port        int    `yaml:"port"` // default 25
+	From        string `yaml:"from"`
+	Username    string `yaml:"username"`
+	PasswordEnv string `yaml:"password_env"`
+}
+
+// Configured reports whether email can be sent.
+func (s SMTPConfig) Configured() bool { return s.Host != "" && s.From != "" }
 
 // AIConfig selects the LLM used by AI rules. The key itself is read from the
 // environment variable named by APIKeyEnv and never stored in the repo.
@@ -41,6 +83,9 @@ type CVSSConfig struct {
 	Standard map[string]string `yaml:"standard"`
 }
 
+// Simple reports whether the data folder runs the simple workflow.
+func (c Config) Simple() bool { return c.Workflow == WorkflowSimple }
+
 // NonStandard reports whether value differs from the configured standard
 // for metric key. Metrics without a standard are never non-standard.
 func (c Config) NonStandard(key, value string) bool {
@@ -56,6 +101,9 @@ func defaultStandard() map[string]string {
 var RatingSeverities = []string{"critical", "high", "medium", "low", "info"}
 
 func validate(c *Config) error {
+	if w := c.Workflow; w != "" && w != WorkflowStandard && w != WorkflowSimple {
+		return fmt.Errorf("config: workflow %q must be standard or simple", w)
+	}
 	var missing []string
 	for _, r := range RatingSeverities {
 		if !slices.Contains(c.Severities, r) {
@@ -78,6 +126,19 @@ func validate(c *Config) error {
 			return fmt.Errorf("config: ai.base_url %q must use https (plain http only for localhost)", b)
 		}
 	}
+	if b := c.BaseURL; b != "" {
+		u, err := url.Parse(b)
+		if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
+			return fmt.Errorf("config: base_url %q must be an http(s) address", b)
+		}
+		c.BaseURL = strings.TrimRight(b, "/")
+	}
+	if c.SMTP.Port == 0 {
+		c.SMTP.Port = 25
+	}
+	if n := c.Checks.MaxRunning; n < 1 {
+		return fmt.Errorf("config: checks.max_running %d must be at least 1", n)
+	}
 	for k, v := range c.CVSS.Standard {
 		if !cvss.Valid(k, v) {
 			return fmt.Errorf("config: cvss.standard %s: invalid value %q", k, v)
@@ -91,6 +152,22 @@ type User struct {
 	Email        string `yaml:"email,omitempty"`
 	Role         string `yaml:"role"`
 	PasswordHash string `yaml:"password_hash"`
+	// IsAdmin opens the admin pages; it is separate from the role, which
+	// keeps the workflow powers.
+	IsAdmin bool `yaml:"is_admin,omitempty"`
+	// Disabled accounts can't log in; their sessions and tokens stop working.
+	Disabled bool `yaml:"disabled,omitempty"`
+	// Theme is the account's chosen theme: "light", "dark" or "" (system).
+	Theme string `yaml:"theme,omitempty"`
+	// Created is when the account was added (RFC 3339; from the database).
+	Created string `yaml:"-"`
+	// MustChange: the password is a temporary one an admin gave (Add user,
+	// Reset password); the user sets a new one before anything else.
+	MustChange bool `yaml:"-"`
+	// KeysOff: the account switched the keyboard shortcuts off (Settings ›
+	// Preferences); Ctrl+S, Ctrl+Enter, Ctrl+K and Esc still work, as does
+	// the Redact dialog's own Ctrl+Z.
+	KeysOff bool `yaml:"-"`
 }
 
 // GitAuthor is the account's git identity.
@@ -102,15 +179,35 @@ func (u User) GitAuthor() gitrepo.Author {
 	return gitrepo.Author{Name: u.Username, Email: email}
 }
 
+// SameEmail reports whether two emails are one address: equal once ASCII
+// letters are lowercased, as the database compares them (SQL lower()).
+// Other characters must match exactly, so a look-alike such as the Kelvin
+// sign never stands for a "k".
+func SameEmail(a, b string) bool {
+	return asciiLower(strings.TrimSpace(a)) == asciiLower(strings.TrimSpace(b))
+}
+
+func asciiLower(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r >= 'A' && r <= 'Z' {
+			return r + 'a' - 'A'
+		}
+		return r
+	}, s)
+}
+
 // Roles in increasing power; each role can do everything the ones before it can.
 var Roles = []string{"pentester", "reviewer", "director"}
 
 func Default() Config {
 	return Config{
-		Severities:  []string{"critical", "high", "medium", "low", "info"},
-		Sections:    []string{"Description", "Impact", "Steps to Reproduce", "Remediation", "References"},
-		DetailsRows: []string{"Location", "Cause", "Result", "Attack condition", "Business impact"},
-		CVSS:        CVSSConfig{Version: "3.1", Standard: defaultStandard()},
+		Severities:     []string{"critical", "high", "medium", "low", "info"},
+		Sections:       []string{"Description", "Impact", "Steps to Reproduce", "Remediation", "References"},
+		DetailsRows:    []string{"Location", "Cause", "Result", "Attack condition", "Business impact"},
+		ReportSections: []string{"Executive summary", "Scope", "Methodology"},
+		CVSS:           CVSSConfig{Version: "3.1", Standard: defaultStandard()},
+		SMTP:           SMTPConfig{Port: 25},
+		Checks:         ChecksConfig{MaxRunning: DefaultMaxRunning},
 	}
 }
 
@@ -118,15 +215,21 @@ func ConfigPath(dataDir string) string { return filepath.Join(dataDir, ".yars", 
 func UsersPath(dataDir string) string  { return filepath.Join(dataDir, ".yars", "users.yaml") }
 
 func Load(dataDir string) (Config, error) {
-	c := Config{}
 	b, err := os.ReadFile(ConfigPath(dataDir))
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return c, err
+		return Config{}, err
 	}
-	if err == nil {
-		if err := yaml.Unmarshal(b, &c); err != nil {
-			return c, err
-		}
+	return Parse(b)
+}
+
+// Parse reads a config.yaml (nil or empty: all defaults) and validates it
+// as Load does.
+func Parse(b []byte) (Config, error) {
+	// set before the YAML: only a max_running written there replaces it, so
+	// an explicit 0 is refused rather than taken for unset
+	c := Config{Checks: ChecksConfig{MaxRunning: DefaultMaxRunning}}
+	if err := yaml.Unmarshal(b, &c); err != nil {
+		return c, err
 	}
 	d := Default()
 	if len(c.Severities) == 0 {
@@ -137,6 +240,9 @@ func Load(dataDir string) (Config, error) {
 	}
 	if len(c.DetailsRows) == 0 {
 		c.DetailsRows = d.DetailsRows
+	}
+	if len(c.ReportSections) == 0 {
+		c.ReportSections = d.ReportSections
 	}
 	if c.CVSS.Version == "" {
 		c.CVSS.Version = d.CVSS.Version

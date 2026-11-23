@@ -1,24 +1,47 @@
 {{define "content"}}
-<div class="pagehead">
-  <h1>Engagements</h1>
-  {{if .CanManage}}<a class="button primary" href="/engagements/new">New engagement</a>{{end}}
+<div class="titlerow">
+  <div class="titlecol"><h1>Engagements</h1></div>
+  <div class="actions">
+    {{if .CanEngs}}<a class="btn primary w152" href="/engagements/new" aria-keyshortcuts="N">New engagement</a>{{else}}<span class="slot w152"></span>{{end}}
+  </div>
 </div>
-{{if .Engagements}}
-<ul class="englist">
-  {{range .Engagements}}
-  <li><a href="/e/{{.ID}}"><strong>{{.Name}}</strong>
-    <span class="muted">{{.Client}}</span>
-    {{if eq .Type "retest"}}<span class="pill retest">retest</span>{{end}}</a></li>
-  {{end}}
-</ul>
-{{else}}
-<p class="muted">No engagements yet.</p>
-{{end}}
+<section class="englistsec">
+  <nav class="seg small nocap" aria-label="Show">{{range .StatusFilters}}<a{{if .Active}} class="on"{{end}}{{with .Keys}} aria-keyshortcuts="{{.}}"{{end}} href="{{.URL}}">{{.Label}} · {{.Count}}</a>{{end}}</nav>
+  <table class="table englist" data-arrows>
+    <thead><tr>
+      <th>Name</th>
+      <th class="col-tag">Type</th>
+      <th class="col-tag">State</th>
+      <th class="col-dates">Dates</th>
+      <th class="col-num">Findings</th>
+      <th class="col-reported">Reported</th>
+      <th class="col-act"><span class="sr">Actions</span></th>
+    </tr></thead>
+    <tbody>
+    {{range .EngRows}}
+      {{/* data-rowkeys: a (Archive) and r (Reopen) act on the row the keys moved to only (keys.js yarsRowFire); its id keeps it focused through the reload */}}
+      <tr{{if .Archived}} class="off"{{end}} data-eng="{{.ID}}" data-rowkeys>
+        <td class="stack"><a href="/e/{{.ID}}" title="{{.Name}}" data-nav id="row-eng-{{.ID}}">{{.Name}}</a><span class="muted">{{if .Client}}{{.Client}} · {{end}}<span class="mono">{{.ID}}</span></span></td>
+        <td>{{if eq .Type "retest"}}<span class="tag etype-retest">Retest</span>{{else}}<span class="tag etype-pentest">Pentest</span>{{end}}</td>
+        <td>{{if .Archived}}<span class="tag eng-archived">Archived</span>{{else}}<span class="tag eng-active">Active</span>{{end}}</td>
+        <td class="mono" title="{{.Start}}{{if .End}} – {{.End}}{{end}}">{{dateRange .Start .End}}</td>
+        <td class="num">{{.Bars.Total}}</td>
+        <td class="mono">{{.Bars.Reported}} of {{.Bars.Total}}</td>
+        <td>{{if $.CanManage}}<form method="post" action="/e/{{.ID}}/{{if .Archived}}reopen{{else}}archive{{end}}"><input type="hidden" name="show" value="{{$.EngShow}}">{{if .Archived}}<button class="btn secondary sm w112" aria-keyshortcuts="R">Reopen</button>{{else}}<button class="btn secondary sm w112" data-confirm="Archive {{.Name}}?" aria-keyshortcuts="A">Archive</button>{{end}}</form>{{else}}<span class="slot w112"></span>{{end}}</td>
+      </tr>
+    {{else}}
+      {{template "empty_row" 7}}
+    {{end}}
+    </tbody>
+  </table>
+</section>
 {{if .CloneURL}}
-<section class="panel clonehint">
-  <h2>Work locally</h2>
-  <p class="muted small">Download everything with your YARS login: settings plus every engagement (each engagement is its own repository). Before committing inside an engagement folder, switch to its main branch; pushes are checked with the same rules as the website.</p>
-  <pre><code>git clone --recurse-submodules {{.CloneURL}}
+<section class="panel compact">
+  <div class="panelhead">
+    <h2>Clone</h2>
+    <button type="button" class="btn secondary sm w96" data-copy="clone-cmd" aria-keyshortcuts="C">Copy</button>
+  </div>
+  <pre class="flush"><code id="clone-cmd">git clone --recurse-submodules {{.CloneURL}}
 cd yars/engagements/&lt;engagement&gt; &amp;&amp; git switch main</code></pre>
 </section>
 {{end}}

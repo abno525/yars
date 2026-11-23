@@ -1,50 +1,105 @@
 {{define "content"}}
-<nav class="crumbs"><a href="/e/{{.Eng.ID}}">← {{.Eng.Name}}</a></nav>
-<form class="card" method="post" action="/e/{{.Eng.ID}}/export">
-  <h1>Export {{.Eng.Name}}</h1>
-  {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
-  {{with .ExportV}}
-  {{if .Pushed}}<p class="ok">Published to Confluence{{if .Done}}: <a href="{{.Done}}" target="_blank" rel="noopener">{{.Done}}</a>{{end}}</p>{{end}}
-  {{if .Download}}<p class="ok">Ready: <a class="button primary" href="{{.Download}}">Download {{.Filename}}</a> <span class="muted small">(link valid 10 minutes)</span></p>{{end}}
-  {{if .Marked}}<p class="ok">Marked reported: {{join .Marked ", "}}</p>{{end}}
-  {{if .Failed}}<p class="error">Not marked: {{join .Failed "; "}}</p>{{end}}
-  {{if not .Enabled}}<p class="muted">Exporting is not configured on this server.</p>{{end}}
-  {{range .LoadErrors}}<p class="error">Exporter config error: {{.}}</p>{{end}}
-  {{if .Exporters}}
-  <h2 class="subhead">Format</h2>
-  <div class="exporters">
-    {{$sel := .Selected}}
-    {{range .Exporters}}
-    <label class="exporter">
-      <input type="radio" name="exporter" value="{{.ID}}"{{if eq .ID $sel}} checked{{end}}>
-      <span><strong>{{.Name}}</strong><br><span class="muted small">{{.Type}}{{if .Format}} · {{.Format}}{{end}}{{if .Confluence}}{{if .Confluence.BaseURL}} · publishes to Confluence{{end}}{{end}}{{if .Marks}}{{if $.ExportV.CanMark}} · marks complete findings reported{{end}}{{end}}</span></span>
-    </label>
-    {{end}}
+<form class="exportpage" method="post" action="/e/{{.Eng.ID}}/export">
+  <div class="titlerow">
+    <div class="titlecol">
+      <nav class="crumbs"><a href="/e/{{.Eng.ID}}">{{.Eng.Name}}</a><span class="sep" aria-hidden="true">/</span><span class="muted">Export</span></nav>
+      <h1>Export</h1>
+    </div>
+    <div class="actions">
+      <button class="btn secondary w128" formaction="/e/{{.Eng.ID}}/export/preview" formmethod="get" aria-keyshortcuts="P">Preview</button>
+      {{if .ExportV.CanSetup}}<a class="btn secondary w128" href="/e/{{.Eng.ID}}/export/setup">Destinations</a>{{else}}<span class="slot w128"></span>{{end}}
+    </div>
   </div>
-  {{else if .Enabled}}
-  <p class="muted">No exporters configured. Add one to <code>.yars/exporters/</code>.</p>
+  <div class="alertslot">{{with .Error}}<p class="alert" role="alert" title="{{.}}">{{.}}</p>{{end}}</div>
+  {{with .ExportV.Result}}{{template "export_result" .}}{{end}}
+  {{with .ExportV}}
+  <section class="panel compact">
+    <div class="panelhead"><h2>Destination</h2></div>
+    {{range .LoadErrors}}<p class="checkerr flush" title="{{.}}">{{.}}</p>{{end}}
+    <div class="dgroups">
+      <div class="dgroup">
+        <span class="dlabel">Send to</span>
+        <div class="dgrid">
+          {{range .Dests}}<button class="destcard" name="dest" value="{{.ID}}"{{if .Disabled}} disabled{{end}}><span class="dname">{{.Name}}</span><span class="dsub" title="{{.Sub}}">{{.Sub}}</span></button>{{else}}<span class="destcard none">—</span>{{end}}
+        </div>
+      </div>
+      <div class="dgroup">
+        <span class="dlabel">Download</span>
+        <div class="dgrid">
+          {{range .Downloads}}<button class="destcard" name="download" value="{{.ID}}"{{if .Disabled}} disabled{{end}}><span class="dname">{{.Name}}</span><span class="dsub" title="{{.Sub}}">{{.Sub}}</span></button>{{end}}
+        </div>
+      </div>
+    </div>
+  </section>
+  <section class="panel compact pickpanel">
+    <div class="panelhead"><h2>Findings</h2><span class="mono selof" data-of="{{.Pickable}}">{{.Ticked}} of {{.Pickable}}</span></div>
+    <table class="table stable picktable flush">
+      <thead><tr><th class="c-pick"><span class="sr">Pick</span></th><th class="c-fid">ID</th><th>Title</th><th class="c-state">Status</th><th class="c-sent">Sent as</th></tr></thead>
+      <tbody>
+        {{range .Picks}}
+        <tr{{if .Off}} class="off"{{end}}>
+          <td><input type="checkbox" name="finding" value="{{.Dir}}" data-nav id="pick-{{.Dir}}"{{if .Off}} disabled{{else if .On}} checked{{end}} aria-label="{{.ID}}"></td>
+          <td class="fid"><label for="pick-{{.Dir}}">{{.ID}}</label></td>
+          <td class="title strong" title="{{.Title}}"><label for="pick-{{.Dir}}">{{.Title}}</label></td>
+          <td><span class="tag status-{{.Shown}}">{{statusLabel .Shown}}</span></td>
+          <td class="stack">{{if .Off}}<span>—</span>{{else}}<span>{{.Author}}</span><span class="mono{{if .OwnKey}} ownkey{{end}}" title="{{.Keys}}">{{.Keys}}</span>{{end}}</td>
+        </tr>
+        {{else}}
+        {{template "empty_row" 5}}
+        {{end}}
+      </tbody>
+    </table>
+  </section>
+  <section class="panel compact">
+    <div class="panelhead"><h2>History</h2>{{if .History}}<span class="badge">{{len .History}}</span>{{else}}<span class="badge0">0</span>{{end}}</div>
+    <table class="table stable histtable flush">
+      <thead><tr><th class="c-time">Time</th><th class="c-who">By</th><th>Destination</th><th class="c-num">Findings</th><th class="c-svc">Sent as</th><th class="c-state">Result</th><th class="c-act">Action</th></tr></thead>
+      <tbody>
+        {{range .History}}
+        <tr{{if eq .State "failed"}} class="denied"{{end}}>
+          <td class="mono">{{.When}}</td>
+          <td>{{.By}}</td>
+          <td class="clip" title="{{.Dest}}{{with .Error}} · {{.}}{{end}}">{{.Dest}}</td>
+          <td class="num">{{.N}}</td>
+          <td class="mono" title="{{.SentAs}}">{{.SentAs}}</td>
+          <td><span class="tag {{if eq .State "ok"}}status-ok{{else if eq .State "partial"}}warn{{else}}bad{{end}}" title="{{.Error}}">{{.State}}</span></td>
+          <td>{{if .RetryURL}}<button class="btn secondary sm w112" formaction="{{.RetryURL}}">Retry</button>{{else if .URL}}<a class="btn ghost sm w112" href="{{.URL}}" target="_blank" rel="noopener">Open</a>{{else}}<span class="slot w112"></span>{{end}}</td>
+        </tr>
+        {{else}}
+        {{template "empty_row" 7}}
+        {{end}}
+      </tbody>
+    </table>
+  </section>
   {{end}}
-  {{end}}
-  <h2 class="subhead">Findings</h2>
-  <table class="findings pick">
+</form>
+{{end}}
+
+{{define "export_result"}}
+<section class="panel compact result res-{{.State}}" role="status">
+  <div class="panelhead">
+    <h2><span class="tag {{if eq .State "ok"}}status-ok{{else if eq .State "partial"}}warn{{else}}bad{{end}}">{{.State}}</span><span class="clip" title="{{.Dest}}">{{.Dest}}</span></h2>
+    <span class="mono">{{.Sent}} of {{.Total}} · {{.Marked}} reported</span>
+  </div>
+  {{if .Download}}<div class="copyrow"><code title="{{.Filename}}">{{.Filename}}</code><a class="btn save sm w128" href="{{.Download}}">Download</a></div>{{end}}
+  <table class="table stable restable flush">
+    <thead><tr><th class="c-fid">ID</th><th class="c-who">Author</th><th class="c-svc">Sent as</th><th>Result</th><th class="c-change">Change</th><th class="c-acts">Action</th></tr></thead>
     <tbody>
-    {{range .Rows}}
-      <tr>
-        <td><input type="checkbox" name="finding" value="{{.Dir}}" id="pick-{{.Dir}}"{{if checkedIn $.Form "finding" .Dir}} checked{{end}}></td>
-        <td class="fid"><label for="pick-{{.Dir}}">{{.ID}}</label></td>
-        <td><label for="pick-{{.Dir}}">{{.Title}}</label></td>
-        <td>{{if .Severity}}<span class="pill sev-{{.Severity}}">{{.Severity}}</span>{{end}}</td>
-        <td><span class="pill status-{{.Status}}">{{.Status}}</span></td>
+      {{range .Items}}
+      <tr{{if not .OK}} class="denied"{{end}}>
+        <td class="fid">{{.ID}}</td>
+        <td>{{.Author}}</td>
+        <td class="mono{{if and .SentAs (ne .SentAs "server")}} ownkey{{end}}">{{if eq .SentAs ""}}—{{else if eq .SentAs "server"}}server key{{else}}own key{{end}}</td>
+        <td class="clip{{if not .OK}} error{{end}}" title="{{.Error}}">{{if .OK}}{{if .Marked}}sent · marked reported{{else}}sent{{end}}{{else}}{{.Error}}{{end}}</td>
+        <td>{{if .Action}}<span class="tag sent-{{.Action}}">{{.Action}}</span>{{else}}<span class="tag none"></span>{{end}}</td>
+        <td><div class="actions">
+          {{- if and (not .OK) (not .Retried) $.ServerURL .SentAs (ne .SentAs "server")}}<button class="btn secondary sm w136" formaction="{{$.ServerURL}}" name="dir" value="{{.Dir}}">Use server key</button>{{else}}<span class="slot w136"></span>{{end -}}
+          {{- if .URL}}<a class="btn ghost sm w112" href="{{.URL}}" target="_blank" rel="noopener">Open</a>{{else if and (not .OK) $.Renew (eq .SentAs $.Viewer)}}<a class="btn secondary sm w112" href="{{$.Renew}}">Renew key</a>{{else}}<span class="slot w112"></span>{{end -}}
+        </div></td>
       </tr>
-    {{else}}
-      <tr><td class="muted empty">No findings.</td></tr>
-    {{end}}
+      {{end}}
     </tbody>
   </table>
-  {{if not .ExportV.CanMark}}<p class="muted small">Your export is a preview; only a director marks findings reported.</p>{{end}}
-  <div class="actions">
-    <button class="primary"{{if not .ExportV.Exporters}} disabled{{end}}>Export</button>
-    <a class="button" href="/e/{{.Eng.ID}}">Cancel</a>
-  </div>
-</form>
+  {{if .RetryURL}}<div class="pfoot flush"><span class="pstate error" title="{{.State}}"></span><button class="btn secondary sm w112" formaction="{{.RetryURL}}">Retry</button></div>{{end}}
+</section>
 {{end}}

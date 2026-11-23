@@ -10,14 +10,15 @@ each finding has an attached chat, and **user-written style rules** make finding
 enough that the verification step shrinks to almost nothing.
 
 ## Goals / non-goals / anti-goals
-- Goals: engagement-scoped workflow, Markdown-in-git as the single source of truth, per-finding
-  chat, Draft→Verification→Complete→Reported flow with role enforcement, retests as new
+- Goals: engagement-scoped workflow, finding content as Markdown in git; accounts, workflow
+  state and chat in the server's database (since M10), per-finding chat, Draft→Verification→Complete→Reported flow with role enforcement, retests as new
   engagements seeded from old ones, pluggable rule engine (regex + scripts + AI), pluggable
   exporters (pandoc, Confluence HTML), MCP server for local AI editing.
 - Non-goals (v1): scanner imports, product/asset hierarchy, metrics dashboards, SSO, email
   notifications, UI rule builder (rules are files; revisit later).
 - Anti-goals: anything resembling Dojo's bloat — deep navigation, tiny form fields, a finding
-  that can exist outside an engagement, a database that drifts from git.
+  that can exist outside an engagement, a database that drifts from git. A git clone is not a
+  backup; `yars backup` is.
 
 ## Stack (user's choice: Go + htmx)
 - Single Go binary, `net/http` + `html/template` + htmx, minimal CSS (no SPA).

@@ -1,0 +1,22 @@
+{{define "content"}}
+{{template "enghead" .}}
+{{$o := .Overview}}
+<section class="panel compact">
+  <div class="panelhead"><h2>Totals</h2></div>
+  <div class="tiles">{{range $o.Tiles}}<div class="tile"><span class="tv">{{.Value}}</span><span class="tl">{{.Label}}</span></div>{{end}}</div>
+</section>
+<section class="panel compact">
+  <div class="panelhead"><h2>By severity</h2></div>
+  <div class="tiles sevtiles">{{range $o.SevTiles}}{{if .Slot}}<div class="tileslot"></div>{{else}}<div class="tile"><span class="tv">{{.Value}}</span><span class="tl">{{.Label}}</span></div>{{end}}{{end}}</div>
+</section>
+<section class="bars" aria-label="Engagement progress">
+  <div class="barcol">
+    <div class="barhead"><span class="barname">Progress</span><span class="barval">{{$o.Bars.Reported}} of {{$o.Bars.Total}} reported</span></div>
+    {{template "bar" $o.Bars.Progress}}
+  </div>
+  <div class="barcol">
+    <div class="barhead"><span class="barname">By severity</span><span class="barval">{{$o.Bars.Total}} finding{{if ne $o.Bars.Total 1}}s{{end}}</span></div>
+    {{template "bar" $o.Bars.Severity}}
+  </div>
+</section>
+{{end}}

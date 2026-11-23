@@ -1,19 +1,93 @@
+{{define "check_started"}}{{template "workflow_bar" .WF}}{{template "checks_panel" .Checks}}{{end}}
+
 {{define "checks_panel"}}
-{{if .Enabled}}
-<section class="panel checks" id="checks">
-  <div class="panelhead">
-    <h2>Checks
-      {{if .Errors}}<span class="pill sev-critical">{{.Errors}} error{{if gt .Errors 1}}s{{end}}</span>{{end}}
-      {{if .Warnings}}<span class="pill sev-medium">{{.Warnings}} warning{{if gt .Warnings 1}}s{{end}}</span>{{end}}
-      {{if not .Items}}<span class="pill status-complete">all good</span>{{end}}
-    </h2>
-    <button class="link" hx-post="{{.RunURL}}" hx-target="#checks" hx-swap="outerHTML" hx-indicator="#checks">{{if .Full}}Run again{{else}}Run all checks (scripts + AI){{end}}</button>
+{{if .Enabled}}{{if .Withdrawn}}<div id="checks" hidden hx-get="{{.URL}}" hx-trigger="sse:check, sse:content, sse:workflow, sse:resync, sse:poll" hx-swap="outerHTML" data-sse></div>{{else}}
+<details class="panel checks strip{{if .Empty}} empty{{end}}" id="checks" data-kpanel{{if .Open}} open{{end}}{{if or .Running .Fixing}} data-running{{end}} hx-get="{{.URL}}" hx-trigger="sse:check, sse:content, sse:workflow, sse:resync, sse:poll{{if .OOB}}, load{{end}}" hx-swap="outerHTML" data-sse{{if .OOB}} hx-swap-oob="true"{{end}}>
+  <summary class="panelhead">
+    <div class="panelname">
+      <h2>Checks</h2>
+      <span class="cnt">Errors {{if .Errors}}<span class="badge">{{.Errors}}</span>{{else}}<span class="badge0">0</span>{{end}}</span>
+      <span class="cnt">Warnings {{if .Warnings}}<span class="badge">{{.Warnings}}</span>{{else}}<span class="badge0">0</span>{{end}}</span>
+    </div>
+    <div class="actions">
+      {{if not .FixShow}}<span class="slot w152"></span>
+      {{else if .Fixing}}<button type="button" class="btn secondary w152 checking" disabled aria-busy="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9"></path></svg>Fixing<progress></progress></button>
+      {{else}}<button type="button" class="btn secondary w152" hx-post="{{.FixURL}}" hx-target="#workflow" hx-swap="outerHTML" id="checks-fix" data-kskip{{if not .CanFix}} disabled{{end}}>Fix with AI</button>
+      {{end}}
+      <span class="slot w152">{{if .State}}<span class="checkstate check-{{.State}}" title="{{.Progress}}{{if and .Progress .Error}} · {{end}}{{.Error}}">{{.StateLabel}}</span>{{end}}</span>
+    </div>
+  </summary>
+  <div class="checkbody flush">
+    {{if .Error}}<p class="checkerr" title="{{.Error}}">{{.Error}}</p>{{end}}
+    {{if or .Steps .AIFailed}}
+    <div class="steplist">
+      {{range .Steps}}{{template "step_row" (stepArgs . $.RetryURL)}}{{end}}
+      {{if .AIFailed}}
+      <div class="aihead"><span class="aititle">AI checks failed</span><span class="mono" title="{{.AIHead}}">{{.AIHead}}</span></div>
+      {{range .AIFailed}}{{template "step_row" (stepArgs . $.RetryURL)}}{{end}}
+      {{end}}
+    </div>
+    {{end}}
+    <table class="table checktable">
+      <thead><tr><th class="c-level">Level</th><th>Message</th><th class="c-quote">Quote</th><th class="c-where">Section</th><th class="c-act">Action</th></tr></thead>
+      <tbody>
+        {{range .Rows}}
+        <tr>
+          <td><span class="tag lvl-{{.Level}}">{{.Level}}</span></td>
+          <td title="{{.Message}} · {{.Rule}}">{{.Message}}</td>
+          <td title="{{.Quote}}">{{if .Quote}}<code>{{.Quote}}</code>{{else}}<span class="muted">—</span>{{end}}</td>
+          <td title="{{.Where}}">{{with .Where}}{{.}}{{else}}<span class="muted">—</span>{{end}}</td>
+          <td>{{if .CanDismiss}}<button type="button" class="btn ghost sm w96" aria-controls="dismiss-{{.N}}" aria-expanded="false" data-dismiss-toggle>Dismiss</button>{{else}}<span class="slot w96"></span>{{end}}</td>
+        </tr>
+        {{if .CanDismiss}}
+        <tr class="dismissrow" id="dismiss-{{.N}}" hidden>
+          <td colspan="5">
+            <form class="dismissform" hx-post="{{$.DismissURL}}" hx-target="#checks" hx-swap="outerHTML">
+              <input type="hidden" name="rule" value="{{.Rule}}"><input type="hidden" name="target" value="{{.Target}}"><input type="hidden" name="quote" value="{{.Quote}}">
+              <label class="field">Reason<input name="reason" required maxlength="500" autocomplete="off"></label>
+              <div class="dismissacts"><button type="button" class="btn ghost sm w96" data-dismiss-cancel="dismiss-{{.N}}">Cancel</button><button class="btn save sm w120" aria-keyshortcuts="Control+Enter">{{if eq .Level "error"}}Dismiss error{{else}}Dismiss{{end}}</button></div>
+            </form>
+          </td>
+        </tr>
+        {{end}}
+        {{else}}{{template "empty_row" 5}}
+        {{end}}
+      </tbody>
+    </table>
+    {{if .Dismissed}}
+    <details class="dismissed">
+      <summary>Dismissed <span class="badge">{{len .Dismissed}}</span></summary>
+      <table class="table checktable">
+        <thead><tr><th class="c-level">Level</th><th>Message</th><th class="c-reason">Reason</th><th class="c-where">Dismissed by</th><th class="c-act">Action</th></tr></thead>
+        <tbody>
+          {{range .Dismissed}}
+          <tr>
+            <td><span class="tag lvl-{{.Level}}">{{.Level}}</span></td>
+            <td title="{{.Message}} · {{.Rule}}{{with .Quote}} · {{.}}{{end}}">{{.Message}}</td>
+            <td title="{{.Reason}}">{{if .Reason}}{{.Reason}}{{else}}<span class="muted">—</span>{{end}}</td>
+            <td title="{{.At}}">{{.By}}</td>
+            <td>{{if .CanDismiss}}<form hx-post="{{$.UndismissURL}}" hx-target="#checks" hx-swap="outerHTML"><input type="hidden" name="rule" value="{{.Rule}}"><input type="hidden" name="target" value="{{.Target}}"><input type="hidden" name="quote" value="{{.Quote}}"><button class="btn ghost sm w96">Restore</button></form>{{else}}<span class="slot w96"></span>{{end}}</td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+    </details>
+    {{end}}
   </div>
-  {{if not .Full}}<p class="muted small">Regex and built-in rules. Script and AI rules run with the button above and when the finding is submitted.</p>{{end}}
-  {{template "hints" .Items}}
-</section>
+</details>
+{{end}}{{end}}
 {{end}}
-{{end}}
+
+{{define "step_row"}}{{with .Step}}
+<div class="steprow {{.State}}">
+  <span class="ruleid" title="{{.Rule}}">{{.Rule}}</span>
+  <span class="kt{{if .Fast}} fast{{end}}">{{.Kind}}</span>
+  {{if eq .State "running"}}<span class="stepstate running"><progress></progress><span class="mono">{{.Label}}</span></span>
+  {{else}}<span class="stepstate {{.State}}" title="{{.Label}}">{{.Label}}</span>{{end}}
+  {{if .CanRetry}}<form hx-post="{{$.RetryURL}}" hx-target="#workflow" hx-swap="outerHTML"><input type="hidden" name="rule" value="{{.Rule}}"><button class="btn secondary sm w80">Retry</button></form>
+  {{else}}<span class="steptime mono">{{.Time}}</span>{{end}}
+</div>
+{{end}}{{end}}
 
 {{define "hints"}}
 {{if .}}
@@ -21,7 +95,7 @@
   {{range .}}
   <li class="hint {{.Level}}">
     <span class="hint-level">{{.Level}}</span>
-    <span>{{.Message}}{{if .Quote}} — <code>{{.Quote}}</code>{{end}}</span>
+    <span class="hint-text" title="{{.Message}}{{with .Quote}} — {{.}}{{end}}">{{.Message}}{{if .Quote}} — <code>{{.Quote}}</code>{{end}}</span>
     <span class="muted hint-where">{{.Target}} · {{.Rule}}</span>
   </li>
   {{end}}
