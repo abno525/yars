@@ -23,7 +23,8 @@ func (s *Server) wireNotifications() {
 	base := func() string { return s.conf().BaseURL }
 	if s.Notifier == nil && s.Auth != nil {
 		s.Notifier = &notify.Notifier{DB: d, Users: s.Auth.Users, CanSee: s.Store.CanSee, BaseURL: base,
-			MailFor: func() notify.Mailer { return notify.NewSMTP(s.conf().SMTP) }}
+			MailFor: func() notify.Mailer { return notify.NewSMTP(s.conf().SMTP) },
+			Simple:  func() bool { return s.flow().Simple }}
 	}
 	if s.Webhooks == nil {
 		s.Webhooks = &webhook.Service{DB: d, BaseURL: base,

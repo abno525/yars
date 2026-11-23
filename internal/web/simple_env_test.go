@@ -3,6 +3,7 @@ package web
 import (
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"golang.org/x/crypto/bcrypt"
@@ -12,6 +13,7 @@ import (
 	"yars/internal/db"
 	"yars/internal/gitrepo"
 	"yars/internal/index"
+	"yars/internal/notify"
 	"yars/internal/store"
 	"yars/internal/workflow"
 )
@@ -133,5 +135,47 @@ func TestSimpleTemplateFunc(t *testing.T) {
 	}
 	if rec := e.do(t, "ben", "GET", "/admin", nil, nil); rec.Code != 403 {
 		t.Fatalf("ben /admin: %d", rec.Code)
+	}
+}
+
+// mailbox keeps the email a notifier sends.
+type mailbox struct {
+	mu   sync.Mutex
+	sent []string // subject, then body
+}
+
+func (m *mailbox) Send(_, subject, body string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.sent = append(m.sent, subject, body)
+	return nil
+}
+
+// The server's notifier names the events as its workflow does: ben
+// completing anna's finding emails her "Completed", not "Approved".
+func TestSimpleCompletedEmail(t *testing.T) {
+	e := setupSimple(t)
+	d := e.srv.Store.DB()
+	if err := d.SetEmail("anna", "anna@acme.example"); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.SetNotify("anna", notify.Approved, "email", true); err != nil {
+		t.Fatal(err)
+	}
+	m := &mailbox{}
+	e.srv.Notifier.Mail = m
+	ben := config.User{Username: "ben", Role: "director"}
+	fd := "F-001-sql-injection"
+	if err := e.srv.Store.UpdateSeverity("acme", fd, "high", "", ben); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.srv.Store.Transition("acme", fd, workflow.Complete, "", ben); err != nil {
+		t.Fatal(err)
+	}
+	e.srv.Notifier.Wait()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.sent) != 2 || m.sent[0] != "[YARS] Completed: F-001 SQL injection" || !strings.HasPrefix(m.sent[1], "Completed · ben\n") {
+		t.Fatalf("sent %q", m.sent)
 	}
 }
