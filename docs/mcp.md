@@ -41,8 +41,10 @@ A data folder set up with `yars init --simple` runs the simple workflow: draft â
 
 - `transition` takes `complete` (draft to complete; held as `approve` is, without the reviewers: by the content gate, rule errors, open checks and, with Require Check on, a missing check run of the current text; `base` refuses it if the finding changed since it was read), `reopen` (reason; complete to draft), `report`, `unreport` (reason; reported to complete), `revert`, `withdraw` (reason) and `revise`. `submit`, `return`, `clear`/`sign_off`, `approve` and `take_back` are refused with `not_allowed`: not part of the simple workflow.
 - `get_config` gives `workflow` (`simple`, or `standard` on any other server), the statuses `draft`, `complete`, `reported` and `withdrawn`, and the actions above; `list_findings` filters by those statuses.
-- `whoami` and `list_team` give no role, and `set_field reviewers` is refused with `not_allowed`.
+- `whoami` and `list_team` give no role, and `set_field reviewers` is refused with `not_allowed`; over HTTP a token needs only edit findings for it, as for any `set_field`.
 - `read_finding`'s `allowed_actions` are the simple workflow's actions of the finding's status.
+- `list_notifications` names a completion of your finding `completed` (the standard workflow's `approved`).
+- `fix_checks` works on drafts only.
 
 ## Tools
 
