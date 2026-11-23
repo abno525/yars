@@ -611,13 +611,17 @@ func (s *Server) inboxAfterBulk(u config.User, before inboxView, v bulkView) (in
 	after := inboxView{Lists: map[workflow.Inbox][]inboxRow{}, Board: before.Board, BoardTotal: before.BoardTotal,
 		Notes: before.Notes, NotesTotal: before.NotesTotal}
 	upTo := map[workflow.Inbox]int{}
+	// the findings with a row in a finding queue (Pending's); a thread row
+	// carries its finding's key but is not that row
 	placed := map[string]bool{}
 	fl := s.flow()
 	for k, rows := range before.Lists {
 		out := make([]inboxRow, len(rows))
 		for i, ir := range rows {
 			out[i] = ir
-			placed[ir.Key] = true
+			if k != workflow.InboxThreads {
+				placed[ir.Key] = true
+			}
 			if !touched[ir.Key] {
 				continue
 			}

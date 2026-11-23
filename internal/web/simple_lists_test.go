@@ -479,3 +479,41 @@ func TestSimpleInboxReportRow(t *testing.T) {
 		t.Fatal("who heads")
 	}
 }
+
+// A finding with an open thread is in two lists of its author's inbox: Ready
+// to mark reported and Open threads. Marked reported in place and reverted
+// with the row still ticked, it comes back to Ready to mark reported, ticked:
+// its thread row is not its queue's row, so no row leaves the page.
+func TestSimpleInboxRevertWithThread(t *testing.T) {
+	e := setupSimple(t)
+	e.completeAs(t, fdir, sBen)
+	if _, err := e.srv.Store.PostChat("acme", fdir, chat.Message{Text: "Is the impact real?"}, sBen); err != nil {
+		t.Fatal(err)
+	}
+	key := "acme/" + fdir
+	ticked := `aria-label="Select acme F-001" checked id="pick-report-acme-F-001"`
+	b := e.do(t, "anna", "GET", "/inbox", nil, nil).Body.String()
+	if !strings.Contains(queue(b, "report"), `value="`+key+`"`) || !strings.Contains(queue(b, "threads"), "<strong>ben</strong> · Is the impact real?") {
+		t.Fatalf("anna's inbox before the run:\n%s", b)
+	}
+	b = e.do(t, "anna", "POST", "/inbox/bulk", url.Values{"action": {"report"}, "id": {key}}, hxReq).Body.String()
+	if q := queue(b, "report"); !strings.Contains(q, "<strong>anna</strong> · reported") || !strings.Contains(q, ticked) {
+		t.Fatalf("after Mark reported:\n%s", q)
+	}
+	b = e.do(t, "anna", "POST", "/inbox/bulk", url.Values{"action": {"unreport"}, "id": {key}, "reason": {"sent too early"}}, hxReq).Body.String()
+	if e.status(t) != "complete" {
+		t.Fatalf("status %s", e.status(t))
+	}
+	q := queue(b, "report")
+	for _, want := range []string{"<strong>ben</strong> · completed", ">Mark reported</a>", ticked} {
+		if !strings.Contains(q, want) {
+			t.Errorf("after the revert, the report queue lacks %s:\n%s", want, q)
+		}
+	}
+	if !strings.Contains(b, `<span class="mv">1 moved</span>`) || !strings.Contains(b, `<span class="nsel" data-nsel>1 selected</span>`) {
+		t.Errorf("after the revert, the bar:\n%s", between(b, `class="fbulk"`, `<section class="q q-`))
+	}
+	if !strings.Contains(queue(b, "threads"), "<strong>ben</strong> · Is the impact real?") {
+		t.Errorf("after the revert, the thread:\n%s", queue(b, "threads"))
+	}
+}
