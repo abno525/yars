@@ -338,7 +338,7 @@ func cmdToken(args []string, out io.Writer) (int, error) {
 	fs := flag.NewFlagSet("token", flag.ContinueOnError)
 	data := dataFlag(fs)
 	kind := fs.String("kind", db.TokenMCP, "add: mcp (the /mcp endpoint) or git (git over HTTP, as the password)")
-	scopes := fs.String("scopes", db.ScopeAll, "add: all, read, or actions ("+strings.Join(db.TokenActions, ",")+")")
+	scopes := fs.String("scopes", db.ScopeAll, "add: all, read, or actions ("+strings.Join(db.TokenActions, ",")+"; the simple workflow has no reviewers)")
 	name := fs.String("name", "", "add: a name for the token")
 	engs := fs.String("engagements", "", "add: comma-separated engagement ids (default: all)")
 	days := fs.Int("days", 0, "add: expires after this many days (0 = never)")
@@ -392,6 +392,16 @@ func cmdToken(args []string, out io.Writer) (int, error) {
 			return 0, tk.Revoke("cli", user)
 		}
 		spec := db.TokenSpec{Name: *name, Kind: *kind, Scopes: splitList(*scopes)}
+		if slices.Contains(spec.Scopes, "reviewers") {
+			// the simple workflow (the database's workflow setting, which
+			// yars init writes) has no reviewers, so no scope to assign
+			// them: Settings › Tokens offers none either
+			if w, err := d.Setting("workflow"); err != nil {
+				return 1, err
+			} else if w == config.WorkflowSimple {
+				return 1, errors.New("token scope reviewers: the simple workflow has no reviewers")
+			}
+		}
 		spec.Engagements = splitList(*engs)
 		if *days > 0 {
 			spec.Expires = time.Now().UTC().Add(time.Duration(*days) * 24 * time.Hour).Format(time.RFC3339)
