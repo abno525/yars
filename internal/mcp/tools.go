@@ -613,7 +613,7 @@ var coreTools = []tool{
 		optional: []param{{"base", "the field's entry in field_bases from read_finding (details.*, cvss, cvss_reason.*: refused only if that one row changed since; each set_field answer gives the row's new base; after cvss, one base for the vector and every reason), or cvss_base, details_base or assets_base (assets); refuses the edit if it changed since you read it"}},
 		simple:   &toolText{desc: "Set a field: title, severity (no CVSS vector), cvss (vector or empty to clear), cvss_reason.<METRIC> (explanation for a non-standard value, e.g. cvss_reason.AC), details.<Row> (details table, e.g. details.Location), retest_result (fixed | not_fixed | partially_fixed), assets (the whole affected-asset list as JSON: [{\"host\":\"app.example\",\"url\":\"https://app.example/x\",\"port\":\"443\",\"note\":\"…\"}], [] to clear). Use transition for status."},
 		run:      setField},
-	{name: "transition", action: "status", serverOnly: true, desc: "Move a finding through the workflow: submit (draft→verification), return (verification→draft, needs reason), clear or sign_off (an assigned reviewer or a director; a director also on their own finding), approve (director, after a sign-off by an assigned reviewer other than them: verification→complete), reopen (author or director: complete→verification, needs reason), report (director: complete→reported), unreport (author or director: reported→complete, needs reason; the approval stays), revert (the step back from where the finding is: reopen or unreport), withdraw (author while draft or verification, director also when complete or reported; needs reason; takes it out of the report), revise (author or director: withdrawn→draft), take_back (author or director: verification→draft, no reason; sign-offs start over). The statuses are draft, verification, complete, reported, withdrawn. Pass base (the hash from read_finding) so a sign-off or an approval is of the version you read.",
+	{name: "transition", action: "status", serverOnly: true, desc: "Move a finding through the workflow: submit (draft→verification), return (verification→draft, needs reason), clear or sign_off (an assigned reviewer or a director; a director also on their own finding), approve (director, after a sign-off by an assigned reviewer other than them: verification→complete), reopen (author or director: complete→verification, needs reason), report (author or director: complete→reported), unreport (author or director: reported→complete, needs reason; the approval stays), revert (the step back from where the finding is: reopen or unreport), withdraw (author while draft or verification, director also when complete or reported; needs reason; takes it out of the report), revise (author or director: withdrawn→draft), take_back (author or director: verification→draft, no reason; sign-offs start over). The statuses are draft, verification, complete, reported, withdrawn. Pass base (the hash from read_finding) so a sign-off or an approval is of the version you read.",
 		required: []param{pEng, pFinding, {"action", "submit | return | clear | sign_off | approve | reopen | report | unreport | revert | withdraw | revise | take_back"}},
 		optional: []param{{"reason", "required for return, withdraw, reopen, unreport and revert"},
 			{"base", "the hash from read_finding: clear, sign_off and approve are refused if the finding changed since you read it (other actions ignore it)"}},
@@ -644,13 +644,9 @@ var coreTools = []tool{
 			if !ok {
 				return "", invalid("unknown action (%s)", actionNames(f))
 			}
-			// marking reported is a director's over MCP (the delivery to the
-			// client); taking it back is the author's or a director's, as on
-			// the website (R4)
-			if act == workflow.Report && !workflow.AtLeast(u, "director") {
-				return "", &workflow.Denied{Reason: "only a director can mark reported"}
-			}
-			// a missing reason is a missing argument, once the role and the
+			// who may take an action is the workflow's (the store asks it), as
+			// on the website: an agent follows its account's rules.
+			// A missing reason is a missing argument, once the role and the
 			// status allow the action and nothing else refuses it first (a
 			// clone, the archive: the store's own refusals come then)
 			if workflow.NeedsReason(act) && strings.TrimSpace(a.str("reason")) == "" && f.Check(u, ref.F.Meta, act) == nil &&

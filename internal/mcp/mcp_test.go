@@ -367,8 +367,8 @@ func TestMCPSignOffReportWithdraw(t *testing.T) {
 		t.Fatalf("sign_off: %s", text)
 	}
 	tr(dora, "approve", "")
-	if text, isErr := tr(alice, "report", ""); !isErr || status() != "complete" {
-		t.Fatalf("pentester reported: %s", text)
+	if text, isErr := tr(pen2, "report", ""); !isErr || status() != "complete" {
+		t.Fatalf("a pentester who is not the author reported: %s", text)
 	}
 	if text, isErr := tr(dora, "report", ""); isErr || status() != "reported" || !strings.Contains(text, "reported") {
 		t.Fatalf("director report: %s", text)
@@ -432,14 +432,15 @@ func TestMCPPermissions(t *testing.T) {
 	if text, isErr := f.call(alice, "update_section", map[string]any{"engagement": "acme", "finding": "F-001", "section": "Impact", "body": "late"}); !isErr || !strings.Contains(text, "complete") {
 		t.Fatalf("locked edit: %s", text)
 	}
-	// report is open to directors only over MCP (the author marks it on
-	// the finding page or the bulk bar)
-	for _, u := range []config.User{bob, alice} {
-		if text, isErr := f.call(u, "transition", map[string]any{"engagement": "acme", "finding": "F-001", "action": "report"}); !isErr || !strings.Contains(text, "director") {
+	// report is the author's or a director's, as on the finding page and the
+	// bulk bar
+	for _, u := range []config.User{bob, pen2} {
+		if text, isErr := f.call(u, "transition", map[string]any{"engagement": "acme", "finding": "F-001", "action": "report"}); !isErr ||
+			!strings.Contains(text, "only the author or a director can mark a finding reported") {
 			t.Fatalf("%s reported via MCP: %s", u.Username, text)
 		}
 	}
-	f.ok(dora, "transition", map[string]any{"engagement": "acme", "finding": "F-001", "action": "report"})
+	f.ok(alice, "transition", map[string]any{"engagement": "acme", "finding": "F-001", "action": "report"})
 }
 
 // R4: revert takes the finding back one step from where it is, with a

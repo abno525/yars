@@ -9,6 +9,7 @@ import (
 
 	"yars/internal/config"
 	"yars/internal/rules"
+	"yars/internal/workflow"
 )
 
 // stale is the answer to a base the finding has changed since.
@@ -83,6 +84,44 @@ func TestTransitionBase(t *testing.T) {
 	if len(tl.optional) != 2 || tl.optional[1].name != "base" || !strings.Contains(tl.optional[1].desc, "hash") ||
 		!strings.Contains(toolByName["read_finding"].desc, "hash") {
 		t.Fatalf("transition %+v", tl.optional)
+	}
+}
+
+// The author marks their own complete finding reported over MCP, as on the
+// finding page and the bulk bar: an agent follows its account's rules, which
+// the workflow decides. Another pentester is refused with the workflow's own
+// message; read_finding lists the action the same way.
+func TestTransitionReportByAuthor(t *testing.T) {
+	f := stateFx(t, "complete")
+	_, tr, status := baseFx(t, f)
+	listed := func(u config.User) workflow.Allowed {
+		var rd struct {
+			Allowed []workflow.Allowed `json:"allowed_actions"`
+		}
+		json.Unmarshal([]byte(f.ok(u, "read_finding", map[string]any{"engagement": "acme", "finding": "F-001"})), &rd)
+		for _, al := range rd.Allowed {
+			if al.Action == "report" {
+				return al
+			}
+		}
+		t.Fatalf("%s: report not listed: %+v", u.Username, rd.Allowed)
+		return workflow.Allowed{}
+	}
+	const other = "only the author or a director can mark a finding reported"
+	if al := listed(pen2); al.Enabled || al.Reason != other {
+		t.Fatalf("report listed for another pentester: %+v", al)
+	}
+	if m, isErr := tr(pen2, "report", ""); !isErr || m["code"] != "not_allowed" || !strings.HasSuffix(m["message"].(string), other) || status() != "complete" {
+		t.Fatalf("report by another pentester: %v (%s)", m, status())
+	}
+	if al := listed(alice); !al.Enabled {
+		t.Fatalf("report not enabled for the author: %+v", al)
+	}
+	if m, isErr := tr(alice, "report", ""); isErr || status() != "reported" {
+		t.Fatalf("report by the author: %v (%s)", m, status())
+	}
+	if d := toolByName["transition"].desc; strings.Contains(d, "report (director") || !strings.Contains(d, "report (author or director: complete→reported)") {
+		t.Fatalf("transition says: %s", d)
 	}
 }
 
