@@ -91,6 +91,7 @@ Only `refs/heads/main` can be pushed, and every commit in the push is checked on
 | `…/finding.md: unknown severity …` | Not in `severities` | one of the configured severities |
 | `.yars/…: only a director can change .yars` | Settings, not a director | ask a director |
 | `.yars/config.yaml: only an admin can change .yars/config.yaml and .yars/rules` | Not an admin (the website keeps Structure, AI and Rules to admins); every file under `.yars/rules/`, scripts in subfolders too | ask an admin |
+| `.yars/CONFIG.yaml: spell it .yars/config.yaml` | `config.yaml`, `rules`, `exporters` or `templates` in another case: a case-insensitive checkout takes it for the real one | `git mv` it to the lower-case name |
 | `.yars/config.yaml: Sections: "impact" twice` · `Severities: "Urgent" must be one lowercase word` · `cannot load: …` | A value Admin › Structure refuses, or a file that does not load | correct the value |
 | `.yars/config.yaml: section "Impact" is still used by: acme/F-001, … (+N more). Change those findings first, then remove the name.` | A section, severity or details row removed (or renamed) while findings of any engagement, archived ones too, or a template (`template x.md`) still use it | change those findings (or templates) first, then push again |
 | `.yars/config.yaml: cannot be deleted` | Every setting would fall back to its default | push the settings you want |

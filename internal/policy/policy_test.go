@@ -345,6 +345,29 @@ func TestPolicySettingsAdminOnly(t *testing.T) {
 	}
 }
 
+// The names the server reads under .yars are compared in any case: a
+// checkout on a case-insensitive file system takes .yars/Rules for
+// .yars/rules. A director without the admin flag can't push them; an admin
+// is asked to spell them as the server reads them, so no check is skipped
+// (CONFIG.yaml would skip config.yaml's, Exporters/ the exporters').
+func TestPolicySettingsAnyCase(t *testing.T) {
+	f := newFx(t).on("")
+	for p, want := range map[string]string{".yars/Rules/lib/x.py": "only an admin can change", ".yars/RULES/x.yaml": "only an admin can change",
+		".yars/CONFIG.yaml": "only an admin can change", ".yars/Config.yaml/x": ".yars/config.yaml must be a file"} {
+		f.reclone()
+		if ps := f.push("dan", func(d string) { write(d, p, "sections: [Description]\n") }); !has(ps, p+": "+want) {
+			t.Errorf("%s by a non-admin director: %v", p, ps)
+		}
+	}
+	for p, want := range map[string]string{".yars/CONFIG.yaml": "spell it .yars/config.yaml", ".yars/Rules/x.yaml": "spell it .yars/rules",
+		".yars/Exporters/jira.yaml": "spell it .yars/exporters", ".yars/TEMPLATES/x.md": "spell it .yars/templates", ".yars/Users.yaml": "accounts, tokens, keys and the database stay on the server"} {
+		f.reclone()
+		if ps := f.push("dora", func(d string) { write(d, p, "type: pandoc\n") }); !has(ps, p+": "+want) {
+			t.Errorf("%s by an admin: %v", p, ps)
+		}
+	}
+}
+
 // The main repo's .gitignore is a director's to change.
 func TestPolicyGitignore(t *testing.T) {
 	f := newFx(t).on("")
