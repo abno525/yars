@@ -11,17 +11,18 @@ import (
 	"yars/internal/workflow"
 )
 
-// The accounts of setupSimple, as the store sees them.
+// The accounts of setupSimple, as the store sees them (named as
+// workflow_test.go names the standard ones).
 var (
-	sAnna = config.User{Username: "anna", Role: "director", IsAdmin: true}
-	sBen  = config.User{Username: "ben", Role: "director"}
+	wAnna = config.User{Username: "anna", Role: "director", IsAdmin: true}
+	wBen  = config.User{Username: "ben", Role: "director"}
 )
 
 // ready gives the simple env's finding a severity, so Complete's gate is
 // clean.
 func (e *env) ready(t *testing.T) {
 	t.Helper()
-	if err := e.srv.Store.UpdateSeverity("acme", fdir, "high", "", sAnna); err != nil {
+	if err := e.srv.Store.UpdateSeverity("acme", fdir, "high", "", wAnna); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -30,7 +31,7 @@ func (e *env) ready(t *testing.T) {
 func (e *env) toCompleteSimple(t *testing.T) {
 	t.Helper()
 	e.ready(t)
-	if err := e.srv.Store.Transition("acme", fdir, workflow.Complete, "", sAnna); err != nil {
+	if err := e.srv.Store.Transition("acme", fdir, workflow.Complete, "", wAnna); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -50,7 +51,7 @@ func (e *env) seenForm(t *testing.T, user string) url.Values {
 // Check, on by default once rules are set, wants a run to complete).
 func (e *env) checkedSimple(t *testing.T) {
 	t.Helper()
-	if _, err := e.srv.Store.StartCheck("acme", fdir, sBen); err != nil {
+	if _, err := e.srv.Store.StartCheck("acme", fdir, wBen); err != nil {
 		t.Fatal(err)
 	}
 	e.srv.Store.WaitChecks()
@@ -80,12 +81,12 @@ func TestSimpleStepBar(t *testing.T) {
 		{func() {}, `<li class="step current">draft</li><li class="step">complete</li><li class="step">reported</li>`},
 		{func() { e.toCompleteSimple(t) }, `<li class="step done">draft</li><li class="step current">complete</li><li class="step">reported</li>`},
 		{func() {
-			if err := e.srv.Store.Transition("acme", fdir, workflow.Report, "", sAnna); err != nil {
+			if err := e.srv.Store.Transition("acme", fdir, workflow.Report, "", wAnna); err != nil {
 				t.Fatal(err)
 			}
 		}, `<li class="step done">draft</li><li class="step done">complete</li><li class="step current">reported</li>`},
 		{func() {
-			if err := e.srv.Store.Transition("acme", fdir, workflow.Withdraw, "duplicate", sAnna); err != nil {
+			if err := e.srv.Store.Transition("acme", fdir, workflow.Withdraw, "duplicate", wAnna); err != nil {
 				t.Fatal(err)
 			}
 		}, `<li class="step">draft</li><li class="step">complete</li><li class="step">reported</li>`},
@@ -134,7 +135,7 @@ func TestSimpleCompleteFromPage(t *testing.T) {
 	e := setupSimple(t)
 	e.ready(t)
 	form := e.seenForm(t, "ben")
-	if err := e.srv.Store.UpdateSection("acme", fdir, "Impact", "Changed while ben read.", "", sAnna); err != nil {
+	if err := e.srv.Store.UpdateSection("acme", fdir, "Impact", "Changed while ben read.", "", wAnna); err != nil {
 		t.Fatal(err)
 	}
 	if b := e.denied(t, "ben", fshort+"/action/complete", form); !strings.Contains(b, "the finding changed since you opened it; read it again") || e.status(t) != "draft" {
@@ -235,7 +236,7 @@ func TestSimpleCompleteOpenChecks(t *testing.T) {
 	if btn := slotButton(t, b, "complete"); !strings.Contains(btn, " disabled") || !strings.Contains(wfBar(t, b), ">1 warning open<") {
 		t.Fatalf("an open warning:\n%s", wfBar(t, b))
 	}
-	if err := e.srv.Store.Dismiss("acme", fdir, "soft", "SQL", sAnna); err != nil {
+	if err := e.srv.Store.Dismiss("acme", fdir, "soft", "SQL", wAnna); err != nil {
 		t.Fatal(err)
 	}
 	b = page()
@@ -284,7 +285,7 @@ func TestSimpleCompleteSlots(t *testing.T) {
 			t.Fatalf("%s, complete:\n%s", u, wf)
 		}
 	}
-	if err := e.srv.Store.Transition("acme", fdir, workflow.Report, "", sAnna); err != nil {
+	if err := e.srv.Store.Transition("acme", fdir, workflow.Report, "", wAnna); err != nil {
 		t.Fatal(err)
 	}
 	for _, u := range []string{"anna", "ben"} {
@@ -293,7 +294,7 @@ func TestSimpleCompleteSlots(t *testing.T) {
 			t.Fatalf("%s, reported:\n%s", u, wf)
 		}
 	}
-	if err := e.srv.Store.Transition("acme", fdir, workflow.Withdraw, "duplicate", sAnna); err != nil {
+	if err := e.srv.Store.Transition("acme", fdir, workflow.Withdraw, "duplicate", wAnna); err != nil {
 		t.Fatal(err)
 	}
 	restore := `<form method="post" action="/e/acme/f/001/action/revise" class="wf-action" data-slot="revise"><button class="btn w136 secondary" id="wf-revise" aria-keyshortcuts="Shift&#43;U" data-action="revise" title="Restore">Restore</button></form>`
