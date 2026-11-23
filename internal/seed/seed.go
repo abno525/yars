@@ -25,10 +25,14 @@ import (
 )
 
 // Options sizes the data set. Messages are spread at random over all
-// findings. Seed makes the data repeatable (0 = a fixed default).
+// findings. Seed makes the data repeatable (0 = a fixed default). Simple
+// seeds the simple workflow's accounts and states (SimpleUsers; draft,
+// complete, reported, withdrawn), for a data folder set up with yars init
+// --simple.
 type Options struct {
 	Engagements, Findings, Messages int
 	Seed                            uint64
+	Simple                          bool
 }
 
 // Password is the password of every seeded account.
@@ -39,6 +43,13 @@ var Users = []config.User{
 	{Username: "dir1", Role: "director", Email: "dir1@yars.local", IsAdmin: true},
 	{Username: "rev1", Role: "reviewer", Email: "rev1@yars.local"},
 	{Username: "pen1", Role: "pentester", Email: "pen1@yars.local"},
+}
+
+// SimpleUsers are the accounts of a simple-workflow seed: two directors, as
+// every account of that workflow is stored; dir1 is the admin.
+var SimpleUsers = []config.User{
+	{Username: "dir1", Role: "director", Email: "dir1@yars.local", IsAdmin: true},
+	{Username: "dir2", Role: "director", Email: "dir2@yars.local"},
 }
 
 // EngID is the id of the i-th seeded engagement (0-based).
@@ -99,7 +110,13 @@ func Fill(dir string, o Options) error {
 	if err != nil {
 		return err
 	}
-	for _, u := range Users {
+	// the accounts, the writer of most findings and the team besides dir1
+	// (who directs), per workflow
+	users, writer, team, state := Users, "pen1", []string{"rev1", "pen1"}, randomState
+	if o.Simple {
+		users, writer, team, state = SimpleUsers, "dir2", []string{"dir2"}, randomSimpleState
+	}
+	for _, u := range users {
 		u.PasswordHash = hash
 		if err := d.AddUser(u); err != nil {
 			return err
@@ -120,7 +137,7 @@ func Fill(dir string, o Options) error {
 		return errors.New("seed: messages need findings")
 	}
 	t0 := time.Date(2026, 1, 5, 9, 0, 0, 0, time.UTC)
-	author := gitrepo.Author{Name: "pen1", Email: "pen1@yars.local"}
+	author := gitrepo.Author{Name: writer, Email: writer + "@yars.local"}
 	gm := ""
 	paths := []string{".gitmodules"}
 	for ei := range o.Engagements {
@@ -142,7 +159,7 @@ func Fill(dir string, o Options) error {
 		for fi := range o.Findings {
 			fid := fmt.Sprintf("F-%03d", fi+1)
 			title := titles[rng.IntN(len(titles))]
-			who := "pen1"
+			who := writer
 			if rng.IntN(5) == 0 {
 				who = "dir1"
 			}
@@ -182,17 +199,17 @@ func Fill(dir string, o Options) error {
 		paths = append(paths, "engagements/"+id)
 		ts := t0
 		err = d.TxFor(id, func(tx *db.Tx) error {
-			if err := tx.AddMembers(id, "rev1", "pen1"); err != nil { // the team (dir1 directs)
+			if err := tx.AddMembers(id, team...); err != nil { // the team (dir1 directs)
 				return err
 			}
 			for _, g := range made {
-				if err := tx.PutState(id, g.fid, randomState(rng, g.hash)); err != nil {
+				if err := tx.PutState(id, g.fid, state(rng, g.hash)); err != nil {
 					return err
 				}
 				var open []string // thread roots not yet resolved
 				for range g.msgs {
 					ts = ts.Add(time.Minute)
-					m := chat.Message{ID: chat.NewID(), TS: ts, User: Users[rng.IntN(len(Users))].Username}
+					m := chat.Message{ID: chat.NewID(), TS: ts, User: users[rng.IntN(len(users))].Username}
 					switch p := rng.IntN(100); {
 					case len(open) == 0 || p < 35:
 						m.Text = "Please check the wording of this section; the impact looks overstated."
@@ -259,6 +276,22 @@ func randomState(rng *rand.Rand, hash string) db.State {
 	default:
 		st.Status, st.ApprovedHash = "reported", hash
 		st.Reviewers = []db.Reviewer{{Name: "rev1", ClearedHash: hash}}
+	}
+	return st
+}
+
+// randomSimpleState picks a state of the simple workflow: no reviewers, an
+// approval bound to the content hash as Complete binds it.
+func randomSimpleState(rng *rand.Rand, hash string) db.State {
+	st := db.State{Status: "draft"}
+	switch p := rng.IntN(100); {
+	case p < 45:
+	case p < 75:
+		st.Status, st.ApprovedHash = "complete", hash
+	case p < 90:
+		st.Status, st.ApprovedHash = "reported", hash
+	default:
+		st.Status, st.WithdrawnBy, st.WithdrawnReason = "withdrawn", "dir1", "Out of scope."
 	}
 	return st
 }
