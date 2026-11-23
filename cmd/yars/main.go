@@ -11,7 +11,7 @@
 //	yars backup --data <dir> [--key] --out <file.zip>   (works while the server runs)
 //	yars restore --from <file.zip> --data <new dir>   (--data is required: never the default)
 //	yars lint --data <dir> [--all] [<engagement>[/<finding>]]   (a finding by folder, ID or number)
-//	yars seed --data <new dir> --engagements N --findings M --messages K   (development data)
+//	yars seed [--simple] --data <new dir> --engagements N --findings M --messages K   (development data)
 //
 // Flags come before the other arguments. Without --data, a command works
 // on $YARS_DATA, else the folder set with yars use (data: in
@@ -723,7 +723,7 @@ func usage() {
   yars hook install [--data <clone>]   (a pre-commit hook in every engagement of the clone)
   yars export --data <dir> --exporter <id> <eng>
   yars mcp --data <clone> --user <name>
-  yars seed --data <new dir> [--engagements 50] [--findings 300] [--messages 10000]   (development data)`)
+  yars seed [--simple] --data <new dir> [--engagements 50] [--findings 300] [--messages 10000]   (development data)`)
 	os.Exit(2)
 }
 
@@ -825,7 +825,7 @@ func cmdInitOut(args []string, out io.Writer) error {
 }
 
 // cmdSeed builds a fresh data directory with generated data (development
-// and benchmarks): yars seed --data <dir> --engagements N --findings M --messages K
+// and benchmarks): yars seed [--simple] --data <dir> --engagements N --findings M --messages K
 func cmdSeed(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("seed", flag.ContinueOnError)
 	data := fs.String("data", "", "new data directory (must not exist or be empty)")
@@ -833,25 +833,34 @@ func cmdSeed(args []string, out io.Writer) error {
 	fs.IntVar(&o.Engagements, "engagements", 50, "engagements")
 	fs.IntVar(&o.Findings, "findings", 300, "findings per engagement")
 	fs.IntVar(&o.Messages, "messages", 10000, "chat messages in all")
+	fs.BoolVar(&o.Simple, "simple", false, "a data folder of the simple workflow (yars init --simple)")
 	fs.SetOutput(out)
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if *data == "" || fs.NArg() != 0 {
-		return fmt.Errorf("usage: yars seed --data <dir> [--engagements N] [--findings M] [--messages K]")
+		return fmt.Errorf("usage: yars seed [--simple] --data <dir> [--engagements N] [--findings M] [--messages K]")
 	}
 	if ents, err := os.ReadDir(*data); err == nil && len(ents) > 0 {
 		return fmt.Errorf("%s is not empty", *data)
 	}
 	start := time.Now()
-	if err := initData(*data); err != nil {
+	if err := initDataMode(*data, o.Simple); err != nil {
 		return err
 	}
 	if err := seed.Fill(*data, o); err != nil {
 		return err
 	}
+	users := seed.Users
+	if o.Simple {
+		users = seed.SimpleUsers
+	}
+	var names []string
+	for _, u := range users {
+		names = append(names, u.Username)
+	}
 	fmt.Fprintf(out, "seeded %s: %d engagements × %d findings, %d messages in %s; users %s (password %q)\n",
-		*data, o.Engagements, o.Findings, o.Messages, time.Since(start).Round(time.Millisecond), "dir1, rev1, pen1", seed.Password)
+		*data, o.Engagements, o.Findings, o.Messages, time.Since(start).Round(time.Millisecond), strings.Join(names, ", "), seed.Password)
 	return nil
 }
 

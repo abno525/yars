@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -11,6 +13,7 @@ import (
 
 	"yars/internal/config"
 	"yars/internal/gitrepo"
+	"yars/internal/workflow"
 )
 
 // initSimple sets up a data folder with the simple workflow.
@@ -222,6 +225,49 @@ func TestMCPRoleSimple(t *testing.T) {
 	}
 	if _, err := mcpUser(simple, true, config.User{Username: "ben", Role: "pentester"}); err == nil {
 		t.Error("simple, --role pentester accepted")
+	}
+}
+
+// yars seed --simple builds a data folder of the simple workflow that
+// starts (config.yaml and the database agree), with two directors and the
+// simple workflow's states only.
+func TestSeedSimple(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "data")
+	var out bytes.Buffer
+	if err := cmdSeed([]string{"--simple", "--data", dir, "--engagements", "2", "--findings", "12", "--messages", "10"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), `; users dir1, dir2 (password "password")`) {
+		t.Errorf("output %q", out.String())
+	}
+	r, _ := gitrepo.Open(dir)
+	cfg, d, st, err := prepareData(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	if !cfg.Simple() || !st.Flow().Simple {
+		t.Fatalf("seeded folder runs the %s workflow", st.Flow().Name())
+	}
+	users, _ := d.Users()
+	if len(users) != 2 {
+		t.Fatalf("users %+v", users)
+	}
+	for _, u := range users {
+		if u.Role != "director" || u.IsAdmin != (u.Username == "dir1") {
+			t.Errorf("user %+v", u)
+		}
+	}
+	for _, e := range []string{"e001", "e002"} {
+		refs, err := st.ListFindings(e)
+		if err != nil || len(refs) != 12 {
+			t.Fatalf("%s: %d findings %v", e, len(refs), err)
+		}
+		for _, ref := range refs {
+			if s := ref.F.Meta.Status; !slices.Contains(workflow.Flow{Simple: true}.AllStatuses(), s) || len(ref.F.Meta.Reviewers) != 0 {
+				t.Errorf("%s/%s: %s, reviewers %v", e, ref.F.Meta.ID, s, ref.F.Meta.Reviewers)
+			}
+		}
 	}
 }
 
