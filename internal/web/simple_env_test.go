@@ -26,9 +26,7 @@ import (
 // Complete waits for one). The test runs in parallel, as with setup.
 func setupSimple(t *testing.T) *env {
 	t.Helper()
-	if _, again := paralleled.LoadOrStore(t, true); !again {
-		t.Parallel()
-	}
+	parallelOnce(t)
 	hashOnce.Do(func() {
 		h, _ := bcrypt.GenerateFromPassword([]byte("pw"), bcrypt.MinCost)
 		pwHash = string(h)
@@ -44,7 +42,8 @@ func setupSimple(t *testing.T) *env {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { d.Close() })
+	// the cleanups let go of what they closed, as newEnv's do
+	t.Cleanup(func() { d.Close(); d = nil })
 	st := store.New(r, cfg, d)
 	a := gitrepo.Author{Name: "anna", Email: "anna@yars.local"}
 	if err := st.CreateEngagement(store.Engagement{ID: "acme", Name: "ACME Web"}, a); err != nil {
@@ -68,7 +67,7 @@ func setupSimple(t *testing.T) *env {
 	au := auth.New(d)
 	s := &Server{Store: st, Index: index.New(st, r), Auth: au, Cfg: cfg}
 	e := &env{srv: s, h: s.Handler(), dir: dir, toks: map[string]string{}, parallel: true}
-	t.Cleanup(s.Close)
+	t.Cleanup(func() { s.Close(); s = nil })
 	for _, u := range users {
 		tok, ok := au.Login(u.Username, "pw")
 		if !ok {
