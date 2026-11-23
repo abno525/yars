@@ -13,7 +13,9 @@ import (
 
 	"yars/internal/config"
 	"yars/internal/db"
+	"yars/internal/finding"
 	"yars/internal/gitrepo"
+	"yars/internal/rules"
 	"yars/internal/store"
 	"yars/internal/workflow"
 )
@@ -309,6 +311,98 @@ func TestHookBrokenConfigKeepsSimple(t *testing.T) {
 		if (code == 0) != ok || (!ok && !strings.Contains(out.String(), "(this server runs the simple workflow) and cannot change")) {
 			t.Errorf("repair %q: code %d\n%s", body, code, out.String())
 		}
+	}
+}
+
+// hookPush commits edit in a fresh clone of the data folder dir's main repo
+// (eng "") or of engagements/<eng>, as account as, and runs the pre-receive
+// hook on pushing it: its exit code and output.
+func hookPush(t *testing.T, dir, eng, as string, edit func(clone string)) (int, string) {
+	t.Helper()
+	repo, args := dir, []string{"pre-receive", "--data", dir}
+	if eng != "" {
+		repo, args = filepath.Join(dir, "engagements", eng), append(args, "--eng", eng)
+	}
+	run := func(in string, a ...string) string {
+		t.Helper()
+		out, err := exec.Command("git", append([]string{"-C", in, "-c", "user.name=" + as, "-c", "user.email=" + as + "@yars.local", "-c", "commit.gpgsign=false"}, a...)...).CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v %s", a, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	clone := filepath.Join(t.TempDir(), "clone")
+	run(repo, "clone", "-q", repo, clone)
+	edit(clone)
+	run(clone, "commit", "-qam", "change")
+	rev := run(clone, "rev-parse", "HEAD")
+	run(repo, "fetch", "-q", "--no-recurse-submodules", clone, "+HEAD:refs/test/candidate")
+	old, branch := run(repo, "rev-parse", "HEAD"), run(repo, "symbolic-ref", "HEAD")
+	t.Setenv("REMOTE_USER", as)
+	var out bytes.Buffer
+	code := cmdHook(args, strings.NewReader(old+" "+rev+" "+branch+"\n"), &out)
+	return code, out.String()
+}
+
+// The hook runs a push on the workflow the database records, which is the
+// one the running server keeps, not on config.yaml's: after a hand edit on
+// the server drops workflow: simple, a draft's rule error still holds back
+// Complete, and the push that puts the key back is accepted; on a standard
+// folder whose file gained workflow: simple, the push that drops it is.
+func TestHookWorkflowFromDatabase(t *testing.T) {
+	std, _ := yaml.Marshal(config.Default())
+	simple := append([]byte("workflow: simple\n"), std...)
+	setConfig := func(body []byte) func(string) {
+		return func(c string) { os.WriteFile(filepath.Join(c, ".yars", "config.yaml"), body, 0o644) }
+	}
+
+	dir := initSimple(t)
+	d := openDB(t, dir)
+	if err := d.AddUser(config.User{Username: "anna", Role: "director", IsAdmin: true}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := config.Load(dir)
+	r, _ := gitrepo.Open(dir)
+	st := store.New(r, cfg, d)
+	a := gitrepo.Author{Name: "anna", Email: "anna@yars.local"}
+	if err := st.CreateEngagement(store.Engagement{ID: "acme", Name: "ACME"}, a); err != nil {
+		t.Fatal(err)
+	}
+	ref, err := st.CreateFinding("acme", "SQL injection", a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.MkdirAll(rules.DirFor(dir), 0o755)
+	os.WriteFile(filepath.Join(rules.DirFor(dir), "style.yaml"), []byte("- id: no-todo\n  regex_forbid: TODO\n  message: No TODO left\n"), 0o644)
+	handEdit(t, dir, std)
+
+	code, out := hookPush(t, dir, "acme", "anna", func(c string) {
+		p := filepath.Join(c, "findings", ref.Dir, "finding.md")
+		b, _ := os.ReadFile(p)
+		f, err := finding.Parse(b)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.SetSection("Impact", "TODO later")
+		os.WriteFile(p, f.Bytes(), 0o644)
+	})
+	if code != 0 || !strings.Contains(out, "check no-todo (error; blocks Complete): No TODO left") {
+		t.Errorf("a draft's rule error after the hand edit: code %d\n%s", code, out)
+	}
+	if code, out := hookPush(t, dir, "", "anna", setConfig(simple)); code != 0 {
+		t.Errorf("workflow: simple put back after the hand edit: code %d\n%s", code, out)
+	}
+
+	sdir := t.TempDir()
+	if err := initData(sdir); err != nil {
+		t.Fatal(err)
+	}
+	if err := openDB(t, sdir).AddUser(config.User{Username: "dora", Role: "director", IsAdmin: true}); err != nil {
+		t.Fatal(err)
+	}
+	handEdit(t, sdir, simple)
+	if code, out := hookPush(t, sdir, "", "dora", setConfig(std)); code != 0 {
+		t.Errorf("standard folder, the hand edit's workflow: simple dropped: code %d\n%s", code, out)
 	}
 }
 

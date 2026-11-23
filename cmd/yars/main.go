@@ -516,16 +516,17 @@ func cmdHook(args []string, in io.Reader, errOut io.Writer) int {
 		return fail(err.Error())
 	}
 	defer d.Close()
-	if cfgErr != nil {
-		// the defaults keep the workflow yars init set up, which the repair
-		// may not change
-		simple, err := simpleData(d)
-		if err != nil {
-			return fail(err.Error())
-		}
-		if simple {
-			cfg.Workflow = config.WorkflowSimple
-		}
+	// the workflow is the one yars init set up, as the database records it:
+	// the running server keeps it (store.applyConfig), whatever config.yaml
+	// says now (broken, so the defaults, or changed by a hand edit), and a
+	// push is held to it
+	simple, err := simpleData(d)
+	if err != nil {
+		return fail(err.Error())
+	}
+	cfg.Workflow = ""
+	if simple {
+		cfg.Workflow = config.WorkflowSimple
 	}
 	users, err := d.Users()
 	if err != nil {
