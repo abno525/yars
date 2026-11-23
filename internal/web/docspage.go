@@ -146,7 +146,8 @@ func (s *Server) docsPage(w http.ResponseWriter, r *http.Request) {
 		v.MCPURL = base + "/mcp"
 		pv := mcp.ProtocolVersions()
 		v.Protocol, v.OlderProtocols = pv[0], strings.Join(pv[1:], " · ")
-		v.Tools = mcp.Catalog()
+		f := s.flow()
+		v.Tools = mcp.CatalogFor(f) // as the server's tools/list words them
 		byAction := map[string][]string{}
 		for _, t := range v.Tools {
 			byAction[t.Action] = append(byAction[t.Action], t.Name)
@@ -157,6 +158,9 @@ func (s *Server) docsPage(w http.ResponseWriter, r *http.Request) {
 		byAction["reviewers"] = append(byAction["reviewers"], "set_field reviewers")
 		byAction["export"] = append(byAction["export"], "transition report")
 		for _, a := range append([]string{db.ScopeRead}, db.TokenActions...) {
+			if a == "reviewers" && !f.HasReviewers() {
+				continue // the simple workflow has no reviewers to assign
+			}
 			label := tokenActionLabels[a]
 			if a == "read" {
 				label = "Read findings and chat"
