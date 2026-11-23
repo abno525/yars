@@ -132,6 +132,12 @@ func (s *Store) TransitionSeen(engID, dir string, act workflow.Action, reason, s
 	return s.transition(engID, dir, act, reason, seen, files, u, nil)
 }
 
+// hasAction reports whether the flow has act: a status it is possible in.
+func hasAction(f workflow.Flow, act workflow.Action) bool {
+	from, _ := f.Target(act)
+	return from != nil
+}
+
 // changedSince refuses a sign-off or an approval of a version the page did
 // not show.
 func changedSince() error {
@@ -150,6 +156,14 @@ func (s *Store) transition(engID, dir string, act workflow.Action, reason, seen,
 	}
 	if err := s.writable(engID); err != nil {
 		return err
+	}
+	if f := s.Flow(); !hasAction(f, act) {
+		// an action the workflow does not have (complete in the standard
+		// one, a review step in the simple one) is refused as such before
+		// the content the page showed is compared: no stale page sends the
+		// caller to read it again for an action never taken here. Check
+		// refuses it without reading the finding.
+		return f.Check(u, finding.Meta{}, act)
 	}
 	// Style rules (scripts, AI) can be slow, so they run outside the lock on
 	// a snapshot; the change is refused if the finding changed meanwhile.

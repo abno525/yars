@@ -465,6 +465,36 @@ func TestStandardCompleteRefused(t *testing.T) {
 	}
 }
 
+// An action the workflow does not have is refused as such before the
+// content the page showed is compared: a stale page is no conflict (read it
+// again and retry) for an action the server never takes. Standard:
+// complete; simple: sign off and approve. With rules and without.
+func TestActionOutsideFlowBeforeSeen(t *testing.T) {
+	const stale = "a hash the finding never had"
+	std, dir, fd := ready(t)
+	for _, withLinter := range []bool{false, true} {
+		if withLinter {
+			withRules(t, std, dir, checkRules)
+		}
+		err := std.TransitionSeen(eng, fd, workflow.Complete, "", stale, "", uDora)
+		if !denied(err) || errors.Is(err, ErrConflict) || err.Error() != `unknown action "complete"` {
+			t.Errorf("standard complete, linter %v: %v", withLinter, err)
+		}
+	}
+	s, sdir, sfd := simpleDraft(t)
+	for _, withLinter := range []bool{false, true} {
+		if withLinter {
+			withRules(t, s, sdir, checkRules)
+		}
+		for _, a := range []workflow.Action{workflow.Clear, workflow.Approve} {
+			err := s.TransitionSeen(eng, sfd, a, "", stale, "", sAnna)
+			if !denied(err) || errors.Is(err, ErrConflict) || !strings.Contains(err.Error(), "is not part of the simple workflow") {
+				t.Errorf("simple %s, linter %v: %v", a, withLinter, err)
+			}
+		}
+	}
+}
+
 // The store keeps the workflow it was created with: a configuration set,
 // pushed or reloaded with another one keeps the rest and not that.
 func TestSimpleConfigPinned(t *testing.T) {
