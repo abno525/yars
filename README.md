@@ -48,4 +48,8 @@ Draft → complete → reported. Admin or not. That's all.
 
 ## Docs
 
-[Deploy](docs/deploy.md) · [Git](docs/git.md) · [MCP](docs/mcp.md) · [Rules](docs/rules.md) · [Config](docs/config.md) · [Exporters](docs/exporters.md) · [Webhooks](docs/webhooks.md)
+[Wiki](https://github.com/abno525/yars/wiki) · [Deploy](docs/deploy.md) · [Git](docs/git.md) · [MCP](docs/mcp.md) · [Rules](docs/rules.md) · [Config](docs/config.md) · [Exporters](docs/exporters.md) · [Webhooks](docs/webhooks.md)
+
+## License
+
+[AGPL-3.0](LICENSE). Run a changed YARS for others, and you share your changes with them.
