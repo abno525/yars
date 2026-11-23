@@ -4,6 +4,7 @@
 
 | Key | Type | Default | Rule |
 |---|---|---|---|
+| `workflow` | string | — (standard) | `simple` or `standard`; set by `yars init` (`--simple`), cannot change |
 | `severities` | list | critical, high, medium, low, info | must include all five |
 | `sections` | list | Description, Impact, Steps to Reproduce, Remediation, References | — |
 | `details_rows` | list | Location, Cause, Result, Attack condition, Business impact | — |
@@ -51,6 +52,10 @@ checks:
 ```
 
 Without `smtp.host` and `smtp.from` the Email column of the notification settings is hidden.
+
+## Workflow
+
+`yars init --simple` writes `workflow: simple` at the top of the file: findings go draft → complete → reported, with no roles, reviewers or sign-off. The standard workflow (`yars init`) writes no key. Init also records the workflow in the database, and it stays as init set it: `yars serve` does not start when the file says another one ("config.yaml says workflow standard but this data folder was set up with simple (yars init); put workflow: simple back"), a push that changes the key is refused ([git.md](git.md)), and a running server keeps its workflow whatever a saved file says.
 
 ## Check runs
 

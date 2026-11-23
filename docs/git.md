@@ -82,6 +82,7 @@ Only `refs/heads/main` can be pushed, and every commit in the push is checked on
 | `.yars/config.yaml: Sections: "impact" twice` · `Severities: "Urgent" must be one lowercase word` · `cannot load: …` | A value Admin › Structure refuses, or a file that does not load | correct the value |
 | `.yars/config.yaml: section "Impact" is still used by: acme/F-001, … (+N more). Change those findings first, then remove the name.` | A section, severity or details row removed (or renamed) while findings of any engagement, archived ones too, or a template (`template x.md`) still use it | change those findings (or templates) first, then push again |
 | `.yars/config.yaml: cannot be deleted` | Every setting would fall back to its default | push the settings you want |
+| `.yars/config.yaml: workflow is set by yars init (this server runs the simple workflow) and cannot change` | The `workflow` key changed, or was removed or added | put the key back as it was (`workflow: simple`, or none for the standard workflow) |
 | `.yars/rules/x.yaml: rule invalid (x.yaml): …` | A rule Admin › Rules refuses (regex, unknown field, duplicate id); problems the folder already had don't block | correct the rule |
 | `.yars/exporters/x.yaml: …` · `address and key variables: admin only` | An exporter the export setup refuses; a service address set by a non-admin | correct it · ask an admin |
 | `.yars/users.yaml: accounts, tokens and the database stay on the server` | Server-only file | `git rm --cached .yars/users.yaml` |
@@ -102,7 +103,7 @@ Once a push passes the rules above, the server's check rules (`.yars/rules` as t
 | Output | When | Push |
 |---|---|---|
 | `commit 1a2b3c4 findings/F-005-…/finding.md: check <rule> (error): <message>` | An error on a finding in verification, complete or reported | refused; fix it in a new commit |
-| `… check <rule> (error; blocks Submit): <message>` | An error on a draft (the website saves drafts with errors too; Submit is gated) | accepted |
+| `… check <rule> (error; blocks Submit): <message>` | An error on a draft (the website saves drafts with errors too; Submit is gated); `blocks Complete` in the simple workflow | accepted |
 | `… check <rule> (warning): <message>` | A warning | accepted |
 
 Errors and warnings dismissed on the finding's Checks panel don't count. The results are not stored as a check run; press Check to see them on the finding page.

@@ -16,13 +16,27 @@ echo 'change-me' | ./yars useradd --data data --role director --admin alice
 Open <http://localhost:8080>. Further documentation is in [docs](docs); running it for a team (a service, HTTPS, backups, upgrades) is in [docs/deploy.md](docs/deploy.md).
 In a git clone, `yars hook install` has every commit checked by the server ([Check before you commit](docs/git.md#check-before-you-commit)).
 
+## Simple workflow
+
+For a solo report (OSCP-style) or a team of two:
+
+```sh
+./yars init --simple data
+echo 'change-me' | ./yars useradd --data data --admin alice
+```
+
+Findings go draft → complete → reported (plus withdraw and restore), with
+no roles, reviewers or sign-off: an account is an admin or not, and
+`useradd` takes no `--role`. The workflow is chosen at `yars init` and
+cannot change after it ([config.md](docs/config.md)).
+
 ## Default data folder
 
 `./yars use data` makes `data` the default, so `--data` can be left out:
 `./yars serve`, `./yars unlock alice`. `./yars use` shows the default and
 where it comes from. `--data` wins over `YARS_DATA`, which wins over the
 folder set with `yars use` (`data:` in `~/.config/yars/config.yaml`).
-`yars seed` always needs `--data`.
+`yars seed` always needs `--data` (`--simple` seeds the simple workflow).
 
 `./yars unlock <user>` ends a user's login lockout (after 5 wrong
 passwords), for when no admin can log in.

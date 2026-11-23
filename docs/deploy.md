@@ -32,6 +32,8 @@ echo 'change-me' | sudo -u yars yars useradd --data /srv/yars --role director --
 
 The account's home is outside the data folder: rule and exporter scripts run with it as `HOME`, and anything in the data folder goes into every backup. The last line makes the first admin; the password is read from standard input. Without it, the first visit to the website opens `/setup` to create one.
 
+For a solo reporter or a team of two, `sudo -u yars yars init --simple /srv/yars` sets up the simple workflow instead: draft → complete → reported, with no roles, reviewers or sign-off; `useradd` then takes no `--role` (`yars useradd --data /srv/yars --admin alice`), and `yars role` is refused. The workflow is fixed at init: it is written to `.yars/config.yaml` and the database, `yars serve` does not start when the two disagree, and a push cannot change it.
+
 A new data folder has no check rules. Add the ones you want in Admin › Rules, or in a clone pushed by an admin ([rules.md](rules.md)); a file put straight into the server's `.yars/rules/` is not in git.
 
 Admin › System › Restore writes the restored folder next to the data folder, so it needs `/srv` writable by `yars`. With `/srv` owned by root, restore from the shell instead (see the restore drill).
