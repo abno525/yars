@@ -20,8 +20,9 @@ import (
 )
 
 // The inbox: one layout for every role. Queues come in workflow.QueueOrder;
-// a role always sees its own (workflow.Queues), another queue only while it
-// holds something of the user's (a reviewer's own returned finding). Every
+// a role always sees its own (the workflow's Queues: in the simple one every
+// account has the same), another queue only while it holds something of
+// the user's (a reviewer's own returned finding). Every
 // row has the same columns: title | tag | engagement · ID | who · what |
 // time | one action (a link; nothing changes on GET).
 
@@ -120,14 +121,16 @@ func (s *Server) inboxFor(u config.User, engs []store.Engagement) (inboxView, er
 		return inboxView{}, err
 	}
 	v.Lists = map[workflow.Inbox][]inboxRow{}
-	// open threads are a pentester's and a reviewer's queue only
-	threads := slices.Contains(workflow.Queues(u), workflow.InboxThreads)
+	f := s.flow()
+	// open threads are a pentester's and a reviewer's queue only (in the
+	// simple workflow everyone's)
+	threads := slices.Contains(f.Queues(u), workflow.InboxThreads)
 	for _, r := range rows {
 		if r.Meta == nil {
 			continue
 		}
 		if k := workflow.Pending(u, *r.Meta); k != workflow.InboxNone {
-			v.Lists[k] = append(v.Lists[k], findingRow(k, u, r, names[r.EngID]))
+			v.Lists[k] = append(v.Lists[k], findingRowFor(f, k, u, r, names[r.EngID]))
 		}
 		if threads {
 			v.Lists[workflow.InboxThreads] = append(v.Lists[workflow.InboxThreads], threadRows(u, r, names[r.EngID])...)
@@ -166,8 +169,23 @@ func lastEvent(r index.Row, action string, ok func(user string) bool) (index.Eve
 
 func anyone(string) bool { return true }
 
-// findingRow is the row of a finding in queue k for u.
+// inboxWhoFor heads queue k's who · what column in workflow f: in the
+// simple one Ready to mark reported names who completed a finding.
+func inboxWhoFor(f workflow.Flow, k workflow.Inbox) string {
+	if f.Simple && k == workflow.InboxReport {
+		return "Completed by"
+	}
+	return inboxWho[k]
+}
+
+// findingRow is the row of a finding in queue k for u, in the standard
+// workflow.
 func findingRow(k workflow.Inbox, u config.User, r index.Row, engName string) inboxRow {
+	return findingRowFor(workflow.Flow{}, k, u, r, engName)
+}
+
+// findingRowFor is the row of a finding in queue k for u in workflow f.
+func findingRowFor(f workflow.Flow, k workflow.Inbox, u config.User, r index.Row, engName string) inboxRow {
 	ir := baseRow(r, engName)
 	m := r.Meta
 	ir.At = r.Since
@@ -198,8 +216,13 @@ func findingRow(k workflow.Inbox, u config.User, r index.Row, engName string) in
 			}
 		}
 	case workflow.InboxReport:
-		ir.Act, ir.Primary, ir.What = "Mark reported", true, "approved"
-		if ev, ok := lastEvent(r, string(workflow.Approve), anyone); ok {
+		// who approved it; in the simple workflow who completed it
+		by, what := workflow.Approve, "approved"
+		if f.Simple {
+			by, what = workflow.Complete, "completed"
+		}
+		ir.Act, ir.Primary, ir.What = "Mark reported", true, what
+		if ev, ok := lastEvent(r, string(by), anyone); ok {
 			ir.Who, ir.At = ev.User, ev.TS
 		} else {
 			// approved without an event (a migration, a seed): the
@@ -398,7 +421,7 @@ func inboxPicks(k workflow.Inbox) bool {
 func (s *Server) inboxPage(name workflow.Inbox, rows []inboxRow, off, upTo int, moved map[string]bool) inboxList {
 	off = min(max(off, 0), len(rows))
 	end := min(max(off+s.pageSize, upTo+1), len(rows))
-	l := inboxList{Name: name, Heading: inboxHeadings[name], TagHead: "Severity", WhoHead: inboxWho[name], Total: len(rows),
+	l := inboxList{Name: name, Heading: inboxHeadings[name], TagHead: "Severity", WhoHead: inboxWhoFor(s.flow(), name), Total: len(rows),
 		Rows: rows[off:end], Offset: off, PageSize: s.pageSize}
 	switch name {
 	case workflow.InboxBoard:
@@ -431,9 +454,10 @@ func without(rows []inboxRow, not []string) []inboxRow {
 	return slices.DeleteFunc(slices.Clone(rows), func(r inboxRow) bool { return r.Key != "" && slices.Contains(not, r.Key) })
 }
 
-// shownQueues are the queues of v that u sees, in the fixed order.
-func shownQueues(u config.User, v inboxView) []workflow.Inbox {
-	own := workflow.Queues(u)
+// shownQueues are the queues of v that u sees in workflow f, in the fixed
+// order.
+func shownQueues(f workflow.Flow, u config.User, v inboxView) []workflow.Inbox {
+	own := f.Queues(u)
 	var out []workflow.Inbox
 	for _, k := range workflow.QueueOrder {
 		if slices.Contains(own, k) || len(v.Lists[k]) > 0 || (k == workflow.InboxBoard && len(v.Board) > 0) {
@@ -472,7 +496,7 @@ func (s *Server) inboxListsOf(u config.User, v inboxView, upTo map[workflow.Inbo
 		b := s.inboxBar(u, rows)
 		out.Bulk = &b
 	}
-	for _, k := range shownQueues(u, v) {
+	for _, k := range shownQueues(s.flow(), u, v) {
 		l := s.inboxPage(k, queueRows(v, k), 0, upTo[k], moved)
 		// the lists are capped, the counts are not
 		switch k {
@@ -588,6 +612,7 @@ func (s *Server) inboxAfterBulk(u config.User, before inboxView, v bulkView) (in
 		Notes: before.Notes, NotesTotal: before.NotesTotal}
 	upTo := map[workflow.Inbox]int{}
 	placed := map[string]bool{}
+	fl := s.flow()
 	for k, rows := range before.Lists {
 		out := make([]inboxRow, len(rows))
 		for i, ir := range rows {
@@ -598,7 +623,7 @@ func (s *Server) inboxAfterBulk(u config.User, before inboxView, v bulkView) (in
 			}
 			upTo[k] = i
 			if f, ok := fresh[ir.Key]; ok && k != workflow.InboxThreads {
-				out[i] = movedRow(u, f, ir.EngName)
+				out[i] = movedRow(fl, u, f, ir.EngName)
 			}
 		}
 		after.Lists[k] = out
@@ -614,7 +639,7 @@ func (s *Server) inboxAfterBulk(u config.User, before inboxView, v bulkView) (in
 			continue
 		}
 		k := workflow.Pending(u, *f.Meta)
-		if k == workflow.InboxNone || !slices.Contains(workflow.Queues(u), k) {
+		if k == workflow.InboxNone || !slices.Contains(fl.Queues(u), k) {
 			continue
 		}
 		if now == nil {
@@ -663,12 +688,12 @@ func (s *Server) inboxAfterBulk(u config.User, before inboxView, v bulkView) (in
 	return l, nil
 }
 
-// movedRow is a finding's row after a run: the row of the queue it is in
-// now, or (in none) who moved it and its new state.
-func movedRow(u config.User, r index.Row, engName string) inboxRow {
+// movedRow is a finding's row after a run in workflow f: the row of the
+// queue it is in now, or (in none) who moved it and its new state.
+func movedRow(f workflow.Flow, u config.User, r index.Row, engName string) inboxRow {
 	if r.Meta != nil {
 		if k := workflow.Pending(u, *r.Meta); k != workflow.InboxNone {
-			return findingRow(k, u, r, engName)
+			return findingRowFor(f, k, u, r, engName)
 		}
 	}
 	ir := baseRow(r, engName)

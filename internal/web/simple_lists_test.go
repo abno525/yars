@@ -7,7 +7,10 @@ import (
 	"strings"
 	"testing"
 
+	"yars/internal/chat"
 	"yars/internal/config"
+	"yars/internal/finding"
+	"yars/internal/index"
 	"yars/internal/store"
 	"yars/internal/workflow"
 )
@@ -379,5 +382,100 @@ func TestSimpleBulkSubmitRefused(t *testing.T) {
 	ref, _ := e.srv.Store.Finding("acme", fdir)
 	if len(ref.F.Meta.Reviewers) != 0 {
 		t.Fatalf("reviewers %v", ref.F.Meta.Reviewers)
+	}
+}
+
+// Every account of the simple workflow has the same queues: Notifications,
+// Ready to mark reported, Open threads on my findings and New on team
+// board, under the one bar (everyone is a director); a thread is the
+// author's.
+func TestSimpleInboxQueues(t *testing.T) {
+	e := setupSimple(t)
+	st := e.srv.Store
+	if _, err := st.PostChat("acme", fdir, chat.Message{Text: "Is the impact real?"}, sBen); err != nil {
+		t.Fatal(err)
+	}
+	pages := map[string]string{}
+	for _, u := range []string{"anna", "ben"} {
+		b := e.do(t, u, "GET", "/inbox", nil, nil).Body.String()
+		pages[u] = b
+		names, _ := queues(b)
+		if got := strings.Join(names, ","); got != "Notifications,Ready to mark reported,Open threads on my findings,New on team board" {
+			t.Errorf("%s: %s", u, got)
+		}
+		bar := between(b, `class="fbulk"`, `<section class="q q-`)
+		if got := menuActs(bar); strings.Join(got, " ") != "complete report reopen unreport withdraw" {
+			t.Errorf("%s inbox menu %v", u, got)
+		}
+		for _, gone := range []string{"Assign reviewers", `name="reviewer"`, "Return"} {
+			if strings.Contains(bar, gone) {
+				t.Errorf("%s inbox bar has %q", u, gone)
+			}
+		}
+		if !strings.Contains(queue(b, "report"), "data-pick-all") || strings.Contains(queue(b, "threads"), "c-pick") {
+			t.Errorf("%s: picks in the wrong queues", u)
+		}
+	}
+	if q := queue(pages["anna"], "threads"); !strings.Contains(q, "<strong>ben</strong> · Is the impact real?") || !strings.Contains(q, `href="`+fshort+`#chat">Reply</a>`) {
+		t.Fatalf("anna's threads:\n%s", q)
+	}
+	if q := queue(pages["ben"], "threads"); strings.Contains(q, "SQL injection") {
+		t.Fatalf("ben sees a thread of a finding he did not write:\n%s", q)
+	}
+	// the nav badge counts the thread
+	if !strings.Contains(pages["anna"], `Inbox <span class="badge">1</span>`) {
+		t.Errorf("anna's badge:\n%s", between(pages["anna"], "Inbox", "</a>"))
+	}
+}
+
+// Ready to mark reported says who completed a finding: "Completed by"
+// heads the column and the row reads "ben · completed". Mark reported from
+// the inbox's bar moves it in place; reverted, it is back as completed.
+func TestSimpleInboxReportRow(t *testing.T) {
+	e := setupSimple(t)
+	e.completeAs(t, fdir, sBen)
+	for _, u := range []string{"anna", "ben"} {
+		q := queue(e.do(t, u, "GET", "/inbox", nil, nil).Body.String(), "report")
+		for _, want := range []string{`<th class="c-what">Completed by</th>`, "<strong>ben</strong> · completed", `btn primary sm w128" href="` + fshort + `">Mark reported</a>`,
+			`name="id" value="acme/` + fdir + `"`, `data-acts="report reopen withdraw"`} {
+			if !strings.Contains(q, want) {
+				t.Errorf("%s: report queue lacks %s:\n%s", u, want, q)
+			}
+		}
+		if strings.Contains(q, "Approved by") || strings.Contains(q, "approved") {
+			t.Errorf("%s: report queue says approved:\n%s", u, q)
+		}
+	}
+	key := "acme/" + fdir
+	b := e.do(t, "anna", "POST", "/inbox/bulk", url.Values{"action": {"report"}, "id": {key}}, hxReq).Body.String()
+	if q := queue(b, "report"); !strings.Contains(b, `<span class="mv">1 moved</span>`) || !strings.Contains(q, "<strong>anna</strong> · reported") || !strings.Contains(q, ">Open</a>") {
+		t.Fatalf("after Mark reported:\n%s", b)
+	}
+	if e.status(t) != "reported" {
+		t.Fatalf("status %s", e.status(t))
+	}
+	b = e.do(t, "anna", "POST", "/inbox/bulk", url.Values{"action": {"unreport"}, "id": {key}, "reason": {"sent too early"}}, hxReq).Body.String()
+	if q := queue(b, "report"); !strings.Contains(q, "<strong>ben</strong> · completed") || !strings.Contains(q, ">Mark reported</a>") {
+		t.Fatalf("after the revert:\n%s", q)
+	}
+
+	// no complete event (a migration, a seed): the muted dash of an empty
+	// value; an approve event is not the simple workflow's
+	r := index.Row{EngID: "acme", Dir: fdir, ID: "F-001", Title: "SQL injection", Meta: &finding.Meta{Status: "complete"}}
+	simple := workflow.Flow{Simple: true}
+	r.Events = []index.Event{{Action: string(workflow.Approve), User: "dora"}}
+	if ir := findingRowFor(simple, workflow.InboxReport, sAnna, r, "Acme"); ir.Who != "" || ir.What != "" || ir.Act != "Mark reported" {
+		t.Fatalf("without a complete event: %+v", ir)
+	}
+	r.Events = append(r.Events, index.Event{Action: string(workflow.Complete), User: "ben"})
+	if ir := findingRowFor(simple, workflow.InboxReport, sAnna, r, "Acme"); ir.Who != "ben" || ir.What != "completed" {
+		t.Fatalf("with the event: %+v", ir)
+	}
+	// the standard row is the approver's, as before
+	if ir := findingRow(workflow.InboxReport, wDora, r, "Acme"); ir.Who != "dora" || ir.What != "approved" {
+		t.Fatalf("standard row: %+v", ir)
+	}
+	if inboxWhoFor(simple, workflow.InboxReport) != "Completed by" || inboxWhoFor(workflow.Flow{}, workflow.InboxReport) != "Approved by" {
+		t.Fatal("who heads")
 	}
 }
