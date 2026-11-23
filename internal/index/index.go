@@ -178,7 +178,7 @@ type Summary struct {
 	ByShown    map[string]int // every shown state (signed off apart), withdrawn included
 	BySeverity map[string]int // non-withdrawn only; "" = no severity
 	Unscored   int            // non-withdrawn findings without a severity
-	Statuses   []Count        // shown states in ShownOrder, withdrawn last (Pct of Total; 0 for withdrawn)
+	Statuses   []Count        // shown states of the workflow in order (Flow.ShownAll), withdrawn last (Pct of Total; 0 for withdrawn)
 	Severities []Count        // the configured severities in order
 }
 
@@ -189,7 +189,10 @@ func pct(n, of int) int {
 	return n * 100 / of
 }
 
-func summarize(rows []Row, sevs []string) Summary {
+// summarize counts rows; Statuses follow order (the shown states of the
+// data folder's workflow, withdrawn last: Flow.ShownAll) and Severities
+// follow sevs.
+func summarize(rows []Row, sevs, order []string) Summary {
 	s := Summary{ByStatus: map[string]int{}, ByShown: map[string]int{}, BySeverity: map[string]int{}}
 	for _, r := range rows {
 		s.ByStatus[r.Status]++
@@ -206,7 +209,7 @@ func summarize(rows []Row, sevs []string) Summary {
 	}
 	s.Progress = pct(s.Done, s.Total)
 	s.Unscored = s.BySeverity[""]
-	for _, st := range ShownOrder {
+	for _, st := range order {
 		c := Count{Key: st, N: s.ByShown[st]}
 		if workflow.Active(st) {
 			c.Pct = pct(c.N, s.Total)
@@ -241,7 +244,7 @@ func (ix *Index) Summary(eng string) (Summary, error) {
 		rows = e.rows
 	}
 	ix.summaryBuilds.Add(1)
-	s := summarize(rows, ix.store.Config().Severities)
+	s := summarize(rows, ix.store.Config().Severities, ix.store.Flow().ShownAll())
 	ix.sums[eng] = s
 	return s, nil
 }
