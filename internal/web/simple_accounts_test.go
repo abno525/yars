@@ -261,11 +261,21 @@ func TestSimpleTeamPanelNoRoles(t *testing.T) {
 	if tbl := between(b, `<table class="table stable teamtable flush">`, "</table>"); !strings.Contains(tbl, `<tr class="emptyrow"><td colspan="2">—</td></tr>`) {
 		t.Fatalf("empty team:\n%s", tbl)
 	}
-	// the standard workflow keeps the roles
+	if n := checkEmptyRows(t, "simple /e/beta/settings", b); n != 1 {
+		t.Fatalf("%d empty tables", n)
+	}
+	// the standard workflow keeps the roles, and its empty row spans three
 	std := setup(t)
 	b = std.do(t, "dora", "GET", "/e/acme/settings", nil, nil).Body.String()
 	if !strings.Contains(b, `<th class="c-role">Role</th>`) || !strings.Contains(b, `<td class="muted">pentester</td>`) {
 		t.Fatal("standard team panel")
+	}
+	if err := std.srv.Store.CreateEngagement(store.Engagement{ID: "beta", Name: "Beta"}, gitrepo.Author{Name: "dora", Email: "dora@yars.local"}); err != nil {
+		t.Fatal(err)
+	}
+	b = std.do(t, "dora", "GET", "/e/beta/settings", nil, nil).Body.String()
+	if !strings.Contains(b, `<tr class="emptyrow"><td colspan="3">—</td></tr>`) || checkEmptyRows(t, "standard /e/beta/settings", b) != 1 {
+		t.Fatal("standard empty team")
 	}
 }
 

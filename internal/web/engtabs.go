@@ -58,6 +58,9 @@ type engSettingsView struct {
 	Form    store.Engagement
 	Members []option // Value = user, Label = role
 	Others  []option
+	// TeamCols is the team table's column count: User, Role, Action; the
+	// simple workflow has no Role column
+	TeamCols int
 }
 
 func (s *Server) routesEngTabs(mux *http.ServeMux) {
@@ -299,7 +302,10 @@ func (s *Server) renderEngSettings(w http.ResponseWriter, r *http.Request, statu
 		s.fail(w, err)
 		return
 	}
-	v := engSettingsView{CanEdit: canManage(p.User) && !p.Archive.On, CanTeam: canEngs(p.User) && !p.Archive.On, Error: errMsg, Form: p.Eng}
+	v := engSettingsView{CanEdit: canManage(p.User) && !p.Archive.On, CanTeam: canEngs(p.User) && !p.Archive.On, Error: errMsg, Form: p.Eng, TeamCols: 3}
+	if s.flow().Simple {
+		v.TeamCols = 2
+	}
 	if form != nil {
 		v.Form = *form
 	}
