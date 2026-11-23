@@ -53,7 +53,8 @@ func bulkAction(u config.User, name string) (workflow.Action, int, string) {
 		return "", 0, ""
 	}
 	a, ok := workflow.ParseAction(name)
-	if !ok {
+	if from, _ := workflow.Target(a); !ok || from == nil {
+		// complete, the simple workflow's, is unknown to the standard bar
 		return "", http.StatusBadRequest, "unknown bulk action"
 	}
 	if !workflow.BulkAllowed(u, a) {
