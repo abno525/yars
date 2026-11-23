@@ -49,12 +49,16 @@ func whoami(s *Server, ctx context.Context, u config.User, a args) (string, erro
 		Scopes      []string `json:"scopes"`
 		Engagements []string `json:"engagements"`
 	}
+	role := u.Role
+	if s.flow().Simple {
+		role = "" // no roles: whether one is an admin is the only difference
+	}
 	out := struct {
 		Username string `json:"username"`
-		Role     string `json:"role"`
+		Role     string `json:"role,omitempty"`
 		Admin    bool   `json:"admin"`
 		Token    *token `json:"token,omitempty"`
-	}{u.Username, u.Role, u.IsAdmin, nil}
+	}{u.Username, role, u.IsAdmin, nil}
 	if tk, ok := tokenFrom(ctx); ok {
 		out.Token = &token{append([]string{}, tk.Scopes...), append([]string{}, tk.Engagements...)}
 	}
@@ -62,13 +66,14 @@ func whoami(s *Server, ctx context.Context, u config.User, a args) (string, erro
 }
 
 func getConfig(s *Server, ctx context.Context, u config.User, a args) (string, error) {
-	c := s.conf()
+	c, f := s.conf(), s.flow()
 	actions := []string{}
-	for _, act := range workflow.Actions {
+	for _, act := range f.Actions() {
 		actions = append(actions, string(act))
 	}
 	actions = append(actions, "revert") // the step back, by status
 	return ok(struct {
+		Workflow    string            `json:"workflow"` // standard or simple, as yars init set it up
 		Sections    []string          `json:"sections"`
 		DetailsRows []string          `json:"details_rows"`
 		Severities  []string          `json:"severities"`
@@ -76,7 +81,7 @@ func getConfig(s *Server, ctx context.Context, u config.User, a args) (string, e
 		Standard    map[string]string `json:"cvss_standard"`
 		Statuses    []string          `json:"statuses"`
 		Actions     []string          `json:"actions"`
-	}{c.Sections, c.DetailsRows, c.Severities, c.CVSS.Version, c.CVSS.Standard, workflow.AllStatuses, actions})
+	}{f.Name(), c.Sections, c.DetailsRows, c.Severities, c.CVSS.Version, c.CVSS.Standard, f.AllStatuses(), actions})
 }
 
 func listTeam(s *Server, ctx context.Context, u config.User, a args) (string, error) {
@@ -91,7 +96,7 @@ func listTeam(s *Server, ctx context.Context, u config.User, a args) (string, er
 		return "", err
 	}
 	roles := map[string]string{}
-	if s.Users != nil {
+	if s.Users != nil && !s.flow().Simple { // the simple workflow has no roles
 		for _, x := range s.Users() {
 			roles[x.Username] = x.Role
 		}

@@ -1,6 +1,8 @@
 package mcp
 
 import (
+	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"reflect"
 	"regexp"
@@ -171,6 +173,70 @@ func TestSimpleToolsList(t *testing.T) {
 	for i, tl := range tools {
 		if std[i].Name != tl.name || std[i].Desc != tl.desc {
 			t.Errorf("%s: %q", tl.name, std[i].Desc)
+		}
+	}
+}
+
+// configOf is get_config's workflow, statuses and actions.
+type configOf struct {
+	Workflow string   `json:"workflow"`
+	Statuses []string `json:"statuses"`
+	Actions  []string `json:"actions"`
+}
+
+func getConfigOf(t *testing.T, f *fx) configOf {
+	t.Helper()
+	var c configOf
+	if err := json.Unmarshal([]byte(f.ok(anna, "get_config", nil)), &c); err != nil {
+		t.Fatal(err)
+	}
+	return c
+}
+
+// get_config names the workflow (in both) and gives the simple workflow's
+// statuses and actions (revert, the step back by status, too).
+func TestSimpleGetConfig(t *testing.T) {
+	c := getConfigOf(t, newSimpleFx(t))
+	if c.Workflow != "simple" || fmt.Sprint(c.Statuses) != "[draft complete reported withdrawn]" ||
+		fmt.Sprint(c.Actions) != "[complete reopen report unreport withdraw revise revert]" {
+		t.Fatalf("%+v", c)
+	}
+	std := getConfigOf(t, newFx(t))
+	if std.Workflow != "standard" || !slices.Equal(std.Statuses, workflow.AllStatuses) ||
+		fmt.Sprint(std.Actions) != "[submit return clear approve reopen report unreport withdraw revise take_back revert]" {
+		t.Fatalf("standard %+v", std)
+	}
+}
+
+// whoami gives no role in the simple workflow: whether one is an admin is
+// the only difference between accounts.
+func TestSimpleWhoamiNoRole(t *testing.T) {
+	f := newSimpleFx(t)
+	for _, u := range []config.User{anna, ben} {
+		m := object(t, "whoami", f.ok(u, "whoami", nil))
+		if _, has := m["role"]; has || m["username"] != u.Username || m["admin"] != u.IsAdmin {
+			t.Errorf("%s: %v", u.Username, m)
+		}
+	}
+	tok := db.TokenInfo{Kind: db.TokenMCP, Scopes: []string{"read"}}
+	text, _ := f.callTok(ben, tok, "whoami", nil)
+	if m := object(t, "whoami", text); m["role"] != nil || m["token"] == nil {
+		t.Errorf("with a token: %v", m)
+	}
+}
+
+// list_team names the members without roles in the simple workflow.
+func TestSimpleListTeamNoRoles(t *testing.T) {
+	f := newSimpleFx(t)
+	text := f.ok(ben, "list_team", map[string]any{"engagement": "acme"})
+	var team []map[string]any
+	itemsOf(t, text, &team)
+	if len(team) != 2 || team[0]["username"] != "anna" || team[1]["username"] != "ben" {
+		t.Fatalf("%s", text)
+	}
+	for _, m := range team {
+		if _, has := m["role"]; has {
+			t.Errorf("a role: %s", text)
 		}
 	}
 }
