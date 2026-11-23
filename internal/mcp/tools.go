@@ -554,6 +554,9 @@ var coreTools = []tool{
 				return "", err
 			}
 			act, ok := workflow.ParseAction(a.str("action"))
+			if from, _ := workflow.Target(act); ok && from == nil && !s.conf().Simple() {
+				ok = false // complete, the simple workflow's: unknown here, as before it came
+			}
 			if !ok && strings.EqualFold(strings.TrimSpace(a.str("action")), "revert") {
 				// R4: the step back from the finding's status
 				if act, ok = workflow.RevertOf(ref.F.Meta.Status); !ok {
