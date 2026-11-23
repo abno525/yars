@@ -51,14 +51,15 @@ func RevertOf(status string) (Action, bool) {
 var aliases = map[string]Action{"sign_off": Clear}
 
 // ParseAction reads an action name (case-insensitive, aliases accepted:
-// sign_off is clear).
+// sign_off is clear). It knows the actions of both workflows (Complete
+// too); whether the data folder's flow has one is Flow.Check's call.
 func ParseAction(s string) (Action, bool) {
 	s = strings.ToLower(strings.TrimSpace(s))
 	if a, ok := aliases[s]; ok {
 		return a, true
 	}
 	a := Action(s)
-	return a, slices.Contains(Actions, a)
+	return a, slices.Contains(Actions, a) || a == Complete
 }
 
 // Withdrawn is the status of a finding taken out of the report.
@@ -93,8 +94,11 @@ func (d *Denied) Unwrap() error { return d.Err }
 func deny(format string, a ...any) error { return &Denied{Reason: fmt.Sprintf(format, a...)} }
 
 // Target returns the statuses an action is possible in and the status it
-// produces.
-func Target(a Action) (from []string, to string) {
+// produces, in the standard workflow (Flow{}.Target).
+func Target(a Action) (from []string, to string) { return Flow{}.Target(a) }
+
+// standardTarget is Target of the standard workflow.
+func standardTarget(a Action) (from []string, to string) {
 	switch a {
 	case Submit:
 		return []string{"draft"}, "verification"
@@ -123,7 +127,7 @@ func Target(a Action) (from []string, to string) {
 func Label(a Action) string {
 	return map[Action]string{Submit: "Submit for verification", Return: "Return to draft", Clear: "Sign off",
 		Approve: "Approve", Reopen: "Revert", Report: "Mark reported", Unreport: "Revert", Withdraw: "Withdraw", Revise: "Restore",
-		TakeBack: "Take back"}[a]
+		TakeBack: "Take back", Complete: "Complete"}[a]
 }
 
 // AtLeast reports whether u's role is role or a stronger one. Roles only add
@@ -137,77 +141,9 @@ func manager(u config.User) bool { return AtLeast(u, "director") }
 
 func reviewer(u config.User, m finding.Meta) bool { return slices.Contains(m.Reviewers, u.Username) }
 
-// Check reports whether u may perform a on a finding with meta m.
-func Check(u config.User, m finding.Meta, a Action) error {
-	from, _ := Target(a)
-	if from == nil {
-		return deny("unknown action %q", a)
-	}
-	if !slices.Contains(from, m.Status) {
-		// both reverts are labelled Revert: say which one
-		name := map[Action]string{Reopen: "Revert to verification", Unreport: "Revert to complete"}[a]
-		if name == "" {
-			name = Label(a)
-		}
-		return deny("%s is only possible in %s (finding is %s)", name, strings.Join(from, " or "), m.Status)
-	}
-	switch a {
-	case Submit:
-		if u.Username != m.Author && !manager(u) {
-			return deny("only the author or a director can submit")
-		}
-	case Return:
-		if !reviewer(u, m) && !manager(u) {
-			return deny("only an assigned reviewer or a director can return a finding")
-		}
-	case Clear:
-		// a director signs off their own finding too (Q25); Approve still
-		// needs a sign-off by an assigned reviewer other than the approver
-		if u.Username == m.Author && !manager(u) {
-			return deny("only a director can sign off their own finding")
-		}
-		if !reviewer(u, m) && !manager(u) {
-			return deny("only an assigned reviewer or a director can clear")
-		}
-		if slices.Contains(m.ClearedBy, u.Username) {
-			return deny("you already cleared this finding")
-		}
-	case Approve:
-		if !manager(u) {
-			return deny("only a director can approve")
-		}
-		if !reviewedByOther(u, m) {
-			return deny("at least one assigned reviewer other than you must clear the finding first")
-		}
-	case Reopen, Unreport:
-		// a director can do everything; the author can always move their
-		// finding backwards (the user's answer of 2026-11-11)
-		if u.Username != m.Author && !manager(u) {
-			return deny("only the author or a director can revert a finding")
-		}
-	case Report:
-		if u.Username != m.Author && !manager(u) {
-			return deny("only the author or a director can mark a finding reported")
-		}
-	case TakeBack:
-		if u.Username != m.Author && !manager(u) {
-			return deny("only the author or a director can take a finding back")
-		}
-	case Withdraw:
-		switch {
-		case manager(u):
-		case u.Username != m.Author:
-			return deny("only the author or a director can withdraw a finding")
-		case m.Status != "draft" && m.Status != "verification":
-			return deny("only a director can withdraw a %s finding", m.Status)
-		}
-	case Revise:
-		if u.Username != m.Author && !manager(u) {
-			return deny("only the author or a director can restore a withdrawn finding")
-		}
-	}
-	return nil
-}
+// Check reports whether u may perform a on a finding with meta m, in the
+// standard workflow (Flow{}.Check).
+func Check(u config.User, m finding.Meta, a Action) error { return Flow{}.Check(u, m, a) }
 
 // Allowed is one action as u could take it now on m.
 type Allowed struct {
@@ -217,13 +153,15 @@ type Allowed struct {
 	Needs   string `json:"needs,omitempty"`  // "reason" when the action takes one
 }
 
-// AllowedActions lists every action possible in m's status, in Actions'
-// order, with whether u may take it (CheckWithGate: the role, the status
-// and the content gate) and, if not, why.
+// AllowedActions lists every action of cfg's workflow possible in m's
+// status, in the flow's order (Flow.Actions), with whether u may take it
+// (CheckWithGate: the role, the status and the content gate) and, if not,
+// why.
 func AllowedActions(u config.User, m finding.Meta, cfg config.Config) []Allowed {
 	var out []Allowed
-	for _, a := range Actions {
-		if from, _ := Target(a); !slices.Contains(from, m.Status) {
+	f := FlowOf(cfg)
+	for _, a := range f.Actions() {
+		if from, _ := f.Target(a); !slices.Contains(from, m.Status) {
 			continue
 		}
 		al := Allowed{Action: string(a), Enabled: true}
@@ -248,12 +186,14 @@ func reviewedByOther(u config.User, m finding.Meta) bool {
 	return false
 }
 
-// Gated reports whether an action must also pass Gate (content completeness).
-func Gated(a Action) bool { return a == Submit || a == Approve }
+// Gated reports whether an action must also pass Gate (content
+// completeness): Submit, Approve and Complete.
+func Gated(a Action) bool { return a == Submit || a == Approve || a == Complete }
 
-// CheckWithGate is Check plus, for submit and approve, the content Gate.
+// CheckWithGate is the Check of cfg's workflow (FlowOf) plus, for submit,
+// approve and complete, the content Gate.
 func CheckWithGate(u config.User, m finding.Meta, a Action, cfg config.Config) error {
-	if err := Check(u, m, a); err != nil {
+	if err := FlowOf(cfg).Check(u, m, a); err != nil {
 		return err
 	}
 	if Gated(a) {
@@ -264,10 +204,12 @@ func CheckWithGate(u config.User, m finding.Meta, a Action, cfg config.Config) e
 	return nil
 }
 
-// Gate lists what blocks a draft from being submitted or approved (empty = ready).
+// Gate lists what blocks a draft from being submitted, approved or
+// completed (empty = ready). The simple workflow has no reviewers to
+// assign.
 func Gate(m finding.Meta, cfg config.Config) []string {
 	var p []string
-	if len(m.Reviewers) == 0 {
+	if len(m.Reviewers) == 0 && !cfg.Simple() {
 		p = append(p, "assign at least one reviewer")
 	}
 	if strings.TrimSpace(m.Title) == "" {
@@ -363,13 +305,9 @@ var roleQueues = map[string][]Inbox{
 }
 
 // Queues are the inbox queues of u's role, in QueueOrder; everyone has
-// Notifications and New on team board.
-func Queues(u config.User) []Inbox {
-	if q, ok := roleQueues[u.Role]; ok {
-		return q
-	}
-	return []Inbox{InboxNotes, InboxBoard}
-}
+// Notifications and New on team board (the standard workflow:
+// Flow{}.Queues).
+func Queues(u config.User) []Inbox { return Flow{}.Queues(u) }
 
 // Pending classifies whether a finding needs u's attention, and in which
 // finding queue (threads and the board are classified elsewhere). An own

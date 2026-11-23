@@ -19,6 +19,25 @@ var ShownSteps = []string{"draft", "verification", SignedOff, "complete", "repor
 // ShownAll are the shown steps plus withdrawn.
 var ShownAll = append(slices.Clone(ShownSteps), Withdrawn)
 
+// ShownSteps are the flow's steps as the UI draws them: the standard
+// workflow's with signed off (ShownSteps), the simple one's as they are
+// (Statuses: no verification, so no signed off).
+func (f Flow) ShownSteps() []string {
+	if f.Simple {
+		return simpleStatuses
+	}
+	return ShownSteps
+}
+
+// ShownAll are the flow's shown steps plus withdrawn (bars, legends and the
+// status filters, in this order).
+func (f Flow) ShownAll() []string {
+	if f.Simple {
+		return simpleAll
+	}
+	return ShownAll
+}
+
 // Shown is the state the UI shows for m: its status, or SignedOff.
 func Shown(m finding.Meta) string {
 	if m.Status != "verification" || len(m.Reviewers) == 0 {
