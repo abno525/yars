@@ -81,6 +81,38 @@ type tool struct {
 	optional   []param
 	boolArgs   []param
 	run        func(s *Server, ctx context.Context, u config.User, a args) (string, error)
+	// simple is the tool's text in the simple workflow (nil: the same)
+	simple *toolText
+}
+
+// toolText is a tool's text as the simple workflow words it: its
+// description ("" keeps the tool's) and its parameters' by name (one left
+// out keeps its own).
+type toolText struct {
+	desc   string
+	params map[string]string
+}
+
+// in is t as workflow f words it: the simple workflow's text where t has
+// one, else t itself.
+func (t tool) in(f workflow.Flow) tool {
+	if !f.Simple || t.simple == nil {
+		return t
+	}
+	if t.simple.desc != "" {
+		t.desc = t.simple.desc
+	}
+	reword := func(ps []param) []param {
+		out := slices.Clone(ps) // the tool's own stay as they are
+		for i, p := range out {
+			if d, ok := t.simple.params[p.name]; ok {
+				out[i].desc = d
+			}
+		}
+		return out
+	}
+	t.required, t.optional, t.boolArgs = reword(t.required), reword(t.optional), reword(t.boolArgs)
+	return t
 }
 
 // actionOf is the token action a call needs: the tool's, except that
@@ -144,10 +176,15 @@ type ToolDoc struct {
 	Params             []ParamDoc
 }
 
-// Catalog lists the tools in the order tools/list returns them.
-func Catalog() []ToolDoc {
+// Catalog lists the tools in the order tools/list returns them, as the
+// standard workflow words them.
+func Catalog() []ToolDoc { return CatalogFor(workflow.Flow{}) }
+
+// CatalogFor lists the tools as tools/list returns them in workflow f.
+func CatalogFor(f workflow.Flow) []ToolDoc {
 	var out []ToolDoc
 	for _, t := range tools {
+		t = t.in(f)
 		d := ToolDoc{Name: t.name, Desc: t.desc, Action: actionOf(t, args{}), Also: t.also, ServerOnly: t.serverOnly}
 		for _, p := range t.required {
 			d.Params = append(d.Params, ParamDoc{p.name, "string", p.desc, true})
@@ -339,6 +376,7 @@ var coreTools = []tool{
 	{name: "list_findings", desc: "List the findings of an engagement, optionally filtered by status or severity or searched (q), most severe first, a page at a time.",
 		required: []param{pEng}, optional: []param{{"status", "one of draft, verification, complete, reported, withdrawn (withdrawn findings are listed only with this filter)"}, {"severity", "one of the configured severities (by default critical, high, medium, low, info)"},
 			{"q", "search: the findings whose ID (as written: F-002), title or an asset's host or URL holds this text, in any case"}, pLimit, pCursor},
+		simple: &toolText{params: map[string]string{"status": "one of draft, complete, reported, withdrawn (withdrawn findings are listed only with this filter)"}},
 		run: func(s *Server, ctx context.Context, u config.User, a args) (string, error) {
 			if err := a.need("engagement"); err != nil {
 				return "", err
@@ -378,6 +416,7 @@ var coreTools = []tool{
 		}},
 	{name: "read_finding", desc: "Read one finding: its workflow state (status, reviewers, clearances, return reason, retest), the raw finding.md content (YAML front matter + ## sections; workflow state is not in the file) and the file's hash (transition's base), each section's name, body and base hash for safe edits, open chat threads (an AI reply is marked ai), style-rule violations, and allowed_actions: every action of the status with whether you may take it now (enabled), why not (reason) and whether it needs a reason.",
 		required: []param{pEng, pFinding},
+		simple:   &toolText{desc: "Read one finding: its workflow state (status, withdrawal, retest), the raw finding.md content (YAML front matter + ## sections; workflow state is not in the file) and the file's hash (transition's base), each section's name, body and base hash for safe edits, open chat threads (an AI reply is marked ai), style-rule violations, and allowed_actions: every action of the status with whether you may take it now (enabled), why not (reason) and whether it needs a reason."},
 		run: func(s *Server, ctx context.Context, u config.User, a args) (string, error) {
 			ref, err := s.ref(a)
 			if err != nil {
@@ -543,11 +582,16 @@ var coreTools = []tool{
 	{name: "set_field", action: "edit", desc: "Set a field: title, severity (no CVSS vector), cvss (vector or empty to clear), cvss_reason.<METRIC> (explanation for a non-standard value, e.g. cvss_reason.AC), details.<Row> (details table, e.g. details.Location), reviewers (comma-separated usernames; replaces the whole list, so a reviewer who is not the author or a director must include the current names and cannot add themselves), retest_result (fixed | not_fixed | partially_fixed), assets (the whole affected-asset list as JSON: [{\"host\":\"app.example\",\"url\":\"https://app.example/x\",\"port\":\"443\",\"note\":\"…\"}], [] to clear). Use transition for status.",
 		required: []param{pEng, pFinding, {"field", "field name"}, {"value", "new value"}},
 		optional: []param{{"base", "the field's entry in field_bases from read_finding (details.*, cvss, cvss_reason.*: refused only if that one row changed since; each set_field answer gives the row's new base; after cvss, one base for the vector and every reason), or cvss_base, details_base or assets_base (assets); refuses the edit if it changed since you read it"}},
+		simple:   &toolText{desc: "Set a field: title, severity (no CVSS vector), cvss (vector or empty to clear), cvss_reason.<METRIC> (explanation for a non-standard value, e.g. cvss_reason.AC), details.<Row> (details table, e.g. details.Location), retest_result (fixed | not_fixed | partially_fixed), assets (the whole affected-asset list as JSON: [{\"host\":\"app.example\",\"url\":\"https://app.example/x\",\"port\":\"443\",\"note\":\"…\"}], [] to clear). Use transition for status."},
 		run:      setField},
 	{name: "transition", action: "status", serverOnly: true, desc: "Move a finding through the workflow: submit (draft→verification), return (verification→draft, needs reason), clear or sign_off (an assigned reviewer or a director; a director also on their own finding), approve (director, after a sign-off by an assigned reviewer other than them: verification→complete), reopen (author or director: complete→verification, needs reason), report (director: complete→reported), unreport (author or director: reported→complete, needs reason; the approval stays), revert (the step back from where the finding is: reopen or unreport), withdraw (author while draft or verification, director also when complete or reported; needs reason; takes it out of the report), revise (author or director: withdrawn→draft), take_back (author or director: verification→draft, no reason; sign-offs start over). The statuses are draft, verification, complete, reported, withdrawn. Pass base (the hash from read_finding) so a sign-off or an approval is of the version you read.",
 		required: []param{pEng, pFinding, {"action", "submit | return | clear | sign_off | approve | reopen | report | unreport | revert | withdraw | revise | take_back"}},
 		optional: []param{{"reason", "required for return, withdraw, reopen, unreport and revert"},
 			{"base", "the hash from read_finding: clear, sign_off and approve are refused if the finding changed since you read it (other actions ignore it)"}},
+		simple: &toolText{desc: "Move a finding through the simple workflow, draft → complete → reported: complete (draft→complete), reopen (complete→draft, needs reason), report (complete→reported), unreport (reported→complete, needs reason; the completion stays), revert (the step back from where the finding is: reopen or unreport), withdraw (from draft, complete or reported; needs reason; takes it out of the report), revise (withdrawn→draft). The statuses are draft, complete, reported, withdrawn. Pass base (the hash from read_finding) so a completion is of the version you read.",
+			params: map[string]string{"action": "complete | reopen | report | unreport | revert | withdraw | revise",
+				"reason": "required for withdraw, reopen, unreport and revert",
+				"base":   "the hash from read_finding: complete is refused if the finding changed since you read it (other actions ignore it)"}},
 		run: func(s *Server, ctx context.Context, u config.User, a args) (string, error) {
 			ref, err := s.ref(a)
 			if err != nil {
@@ -626,6 +670,7 @@ var coreTools = []tool{
 		}},
 	{name: "lint_finding", desc: "Check a finding against the team's style rules (regex and built-in checks; with all=true also script and AI rules). Violations a reviewer dismissed are marked dismissed and do not block submit or approve.",
 		required: []param{pEng, pFinding}, boolArgs: []param{{"all", "also run script and AI rules (slower)"}},
+		simple: &toolText{desc: "Check a finding against the team's style rules (regex and built-in checks; with all=true also script and AI rules). Violations someone dismissed are marked dismissed and do not block complete."},
 		run: func(s *Server, ctx context.Context, u config.User, a args) (string, error) {
 			ref, err := s.ref(a)
 			if err != nil {
@@ -727,6 +772,7 @@ var coreTools = []tool{
 		}},
 	{name: "list_notifications", serverOnly: true, desc: "Your notifications, newest first, a page at a time (the cursor is the id of the last one given, so marking some read between pages skips none): returned to you, review requested, replies, approvals, mentions, finished checks, tokens about to expire.",
 		optional: []param{pLimit, pCursor}, boolArgs: []param{{"unread", "only unread ones"}},
+		simple: &toolText{desc: "Your notifications, newest first, a page at a time (the cursor is the id of the last one given, so marking some read between pages skips none): replies, completions, mentions, finished checks, tokens about to expire."},
 		run: func(s *Server, ctx context.Context, u config.User, a args) (string, error) {
 			unread, _ := a["unread"].(bool)
 			limit, before, err := pageArgs(a)

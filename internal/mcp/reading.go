@@ -22,12 +22,14 @@ import (
 
 var readingTools = []tool{
 	{name: "whoami", desc: "Who you are here: username, role, whether you are an admin, and (over HTTP) your token's actions and engagements (an empty engagement list: every engagement of the account).",
-		run: whoami},
+		simple: &toolText{desc: "Who you are here: username, whether you are an admin, and (over HTTP) your token's actions and engagements (an empty engagement list: every engagement of the account)."},
+		run:    whoami},
 	{name: "get_config", desc: "The team's structure: the sections and details rows of a finding, the severities, the CVSS version and standard values (a different value needs a written reason), the statuses and the transition actions.",
 		run: getConfig},
 	{name: "list_team", serverOnly: true, desc: "The engagement's team: each member's username and role.",
 		required: []param{pEng}, optional: []param{pLimit, pCursor},
-		run: listTeam},
+		simple: &toolText{desc: "The engagement's team: each member's username."},
+		run:    listTeam},
 	{name: "read_chat", serverOnly: true, desc: "The finding's whole chat, oldest first, a page at a time: threads (with replies; an AI reply is marked ai, a check run's thread has kind check) and workflow events.",
 		required: []param{pEng, pFinding}, optional: []param{pLimit, pCursor},
 		run: readChat},
@@ -284,6 +286,7 @@ var writingTools = []tool{
 		run: markRead},
 	{name: "fix_checks", action: "checks", also: "edit", serverOnly: true, desc: "Fix with AI: the AI fixes the finding's open check results one by one in the background, answers each result's thread (marked AI) and a check run follows. Needs a finished check run on the current text and an AI provider; drafts and findings in verification only; a token needs run checks and edit findings. Read the outcome with get_check_results and read_chat.",
 		required: []param{pEng, pFinding},
+		simple:   &toolText{desc: "Fix with AI: the AI fixes the finding's open check results one by one in the background, answers each result's thread (marked AI) and a check run follows. Needs a finished check run on the current text and an AI provider; drafts only; a token needs run checks and edit findings. Read the outcome with get_check_results and read_chat."},
 		run:      fixChecks},
 }
 
