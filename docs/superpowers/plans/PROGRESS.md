@@ -233,4 +233,11 @@ M35 final   fix      a3f29ba (browser check: scrollbar always shown beside the t
 M35 final   change   da1399c (the user: yars init writes no rules; the example rules are test data now)
 M35 final   change   a3c4ef3 (the user: the flag beside Check is 152 × 40, as the buttons beside it)
 M35 final   change   aa9408e (the user: with no rule on, Require Check does not hold Sign off and Approve)
+M36 simple  core     c0534bd..ce37294 (workflow key, workflow.Flow, store, index, notify, web foundation; review fixes)
+M36 simple  cli      2e252e7..3c4aa0a (init --simple, serve's workflow check, useradd/role/mcp, seed --simple, push policy)
+M36 simple  mcp      0f45987..0c06376 (instructions, tool text, get_config workflow, transition/list_findings/set_field)
+M36 simple  finding  c094874..12ed620 (workflow bar, chat and history texts, key list, top bar)
+M36 simple  lists    21db10e..1fa2bce (filters, no Reviewers column, bulk menu, inbox queues)
+M36 simple  accounts e310d9a..05efc75 (Admin › Users, Settings Access, notifications, no roles shown, Require Check label)
+M36 simple  e2e      9053034 (end-to-end in the browser and with DeepSeek: author chip, bulk Complete label)
 ```

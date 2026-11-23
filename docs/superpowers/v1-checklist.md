@@ -4,7 +4,7 @@ The final test (`v1-walkthrough.md`) passed. These are the things worth doing yo
 
 ## Merge and tag
 
-1. Merge PRs #1 to #32 into `master` in order, with "Create a merge commit" (not squash), deleting each branch after it merges so GitHub moves the next PR onto `master`.
+1. Merge PRs #1 to #33 into `master` in order, with "Create a merge commit" (not squash), deleting each branch after it merges so GitHub moves the next PR onto `master`.
 2. Wait for CI to be green on `master`.
 3. Build with the version: `go build -ldflags "-X main.version=v1.0.0" ./cmd/yars`, then `yars version` prints `yars v1.0.0 (schema 24, …)`.
 4. `git tag -a v1.0.0 -m "YARS 1.0"` and push the tag.
@@ -25,6 +25,7 @@ The final test (`v1-walkthrough.md`) passed. These are the things worth doing yo
 - [ ] With your AI provider set and an AI rule on, run Check twice on an unchanged finding: the second run makes no AI call (Admin › System › AI usage stays the same), also after a restart (Q1).
 - [ ] Rules: your server's data folder keeps the rules it has. A new one (`yars init`) starts with none; add yours in Admin › Rules. While no rule is on, Sign off and Approve don't wait for a Check.
 - [ ] Your Confluence: send one finding with an image to a test page. The image should show inline and appear once in the page's attachments (Q5); it was tested against a fake server only.
+- [ ] Simple mode, five minutes: `yars init --simple /tmp/solo`, serve it, set up the first account at `/setup`, add a second user in Admin › Users (no role to pick). Write a finding, press Shift+A to complete it, then Mark reported. As the second user, edit it: it stays complete.
 - [ ] Optional: set `checks.max_running: 1` in `.yars/config.yaml`. With a slow rule, start Check on two findings: the second strip shows "Queued" until the first ends (Q3).
 
 ## Still open, by decision

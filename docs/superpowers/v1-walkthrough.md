@@ -276,3 +276,31 @@ Each fix has a test that failed first, and a reviewer read each fix; what a revi
 - Notifications' unread count beside Mark all read.
 
 ba9c7c2, 67a9a06 and 02ae98e came from the final code review of PRs #30 and #31: four reviewers, each finding verified by a second agent that reproduced it. Store, workflow, MCP and git server came back with nothing. The follow-ups came from the reviewers of the fixes.
+
+## Simple mode (2026-11-23)
+
+`yars init --simple` on a fresh folder, binary `v1.0.0-rc4` from `pr/32-simple`, served at 127.0.0.1:8099. Browser at 1440 × 900 CSS px, light and dark.
+
+| Line | Result |
+|---|---|
+| `init --simple` writes `workflow: simple` at the top of `config.yaml` and the database setting; `init` without it writes no key | pass |
+| `useradd --role pentester` and `yars role` are refused: "the simple workflow has no roles" | pass |
+| `/setup` shows only the admin tag; Admin › Users has no Role column; the add form is name, email, admin, password; both accounts are stored as directors | pass |
+| New engagement's team list and New retest's retester list show names only | pass |
+| Findings list: filters All, Draft, Complete, Reported, Withdrawn; no Reviewers column; Progress legend Draft, Complete, Reported | pass |
+| Finding bar: steps DRAFT · COMPLETE · REPORTED, the author's chip where reviewers were; Shift+A completes, Shift+P marks reported, Shift+U reverts (to complete, then "Revert to draft"), Withdraw and Restore; chat "completed it", "reverted it to draft: …" | pass |
+| ben (not admin): a temporary password to change at first login; 403 on Admin; his edit of a complete finding keeps it complete; his inbox has Notifications, Ready to mark reported ("Completed by anna"), Open threads, New on team board | pass |
+| ben completes anna's finding: anna's inbox shows a green "Completed" notification | pass |
+| Bulk Set state: Complete, Reported, Draft, Back to complete, Withdrawn; no Assign reviewers | pass |
+| Retest: Complete waits for the retest result, then for open warnings, then "Run Check first" once rules exist; Shift+C then Shift+A completes | pass |
+| Export to Confluence HTML marks both findings reported | pass |
+| MCP: `get_config` says `workflow: simple`; `whoami` has no role; `transition submit` and `set_field reviewers` are refused; `list_findings status=verification` lists the valid statuses | pass |
+| A push that removes `workflow:` is refused; a committed hand edit makes `serve` refuse to start; an uncommitted one is undone at start | pass |
+| `yars seed --simple`: two directors, one admin; no verification, no reviewers | pass |
+| Standard data on the same binary: five steps, Reviewers, Verification and Signed off filters, Role column | pass |
+
+**Agents (opencode, DeepSeek v4 pro).**
+- **Solo:** given only notes and "follow `allowed_actions`", it learned the workflow from `get_config`, wrote two findings with every section, CVSS and reasons, ran Check, completed both with `base` and marked one reported. No call was refused.
+- **Rules:** with git and MCP only, it cloned the main repository, wrote `.yars/rules/basic-checks.yaml` (a title rule and a not-empty Remediation warning), and pushed. The first push was refused for the commit's author; it set the author to anna and pushed again. `lint_finding` showed both rules, then none after it fixed the finding.
+
+**Fixed after the run:** the author's chip had the reviewer chip's empty square (it read as an unticked box); the bulk menu read "Complete · complete".

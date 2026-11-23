@@ -50,3 +50,12 @@ What the polish backlog left open (it was `docs/superpowers/deferred-minors.md` 
 | MCP `set_field assets` takes the port as a string | As documented; an agent sending a number is refused with the format and corrects it. |
 | The History page still scrolls when a selected change's diff is taller than the window | The list column fits the window; the diff panel has no height limit. |
 | The ./internal/web tests hold about 6 GB of memory while they run | Run them alone on a small machine (`go test -p 1 -parallel 2`); the server itself is not affected. |
+
+## Simple mode
+
+| Limit | Note |
+|---|---|
+| The workflow is chosen once, at `yars init`; a data folder cannot switch between simple and standard | A push that changes `workflow:` in `config.yaml` is refused; `serve` refuses to start when a committed `config.yaml` disagrees with the database; an uncommitted hand edit is undone at start. |
+| In simple mode every account has a director's rights: merge, purge, archive, retests, export setup, editing complete findings | On purpose: the simple workflow has no chain of command. Admin stays separate (Admin pages, `config.yaml` and rule pushes). |
+| A webhook consumer keyed on `approve` does not see a simple-mode finding completed | `finding.status_changed` carries the action `complete` there (`docs/webhooks.md`). |
+| No MCP tool writes rules | An agent adds rules through git: clone the main repository, add a file under `.yars/rules/`, push as an admin (tested with DeepSeek). |
