@@ -249,7 +249,7 @@ func runMCP(args []string, in io.Reader, out io.Writer) error {
 	fs := flag.NewFlagSet("mcp", flag.ContinueOnError)
 	data := fs.String("data", ".", "local clone of the data repo")
 	user := fs.String("user", "", "your YARS username (commits are authored as this user)")
-	role := fs.String("role", "pentester", "your role (pentester, reviewer, director)")
+	role := fs.String("role", "pentester", "your role (pentester, reviewer, director); the simple workflow has none")
 	email := fs.String("email", "", "git email (default <user>@yars.local, must match your YARS account)")
 	fs.SetOutput(os.Stderr)
 	if err := fs.Parse(args); err != nil {
@@ -266,11 +266,29 @@ func runMCP(args []string, in io.Reader, out io.Writer) error {
 	if err != nil {
 		return err
 	}
+	u, err := mcpUser(cfg, flagGiven(fs, "role"), config.User{Username: *user, Role: *role, Email: *email})
+	if err != nil {
+		return err
+	}
 	st := store.New(r, cfg, nil)
 	eng := rules.NewEngine(rules.DirFor(r.Dir), cfg)
 	st.Linter = eng
 	srv := mcpServer(st, index.New(st, r), eng, cfg, nil)
-	return srv.ServeStdio(context.Background(), config.User{Username: *user, Role: *role, Email: *email}, in, out)
+	return srv.ServeStdio(context.Background(), u, in, out)
+}
+
+// mcpUser is the account yars mcp serves as: u as the flags give it, but a
+// director in the simple workflow, as every account of it is stored
+// (roleGiven: --role was set, and then only director may be).
+func mcpUser(cfg config.Config, roleGiven bool, u config.User) (config.User, error) {
+	if cfg.Simple() {
+		role, err := simpleRole(roleGiven, u.Role)
+		if err != nil {
+			return config.User{}, err
+		}
+		u.Role = role
+	}
+	return u, nil
 }
 
 // mcpServer is the MCP server of yars serve and yars mcp, naming the
@@ -688,10 +706,10 @@ func usage() {
   yars init [--simple] <dir>   (--simple: draft → complete → reported, no roles; fixed after init)
   yars use [<dir>]   (set the default data folder, or show it)
   yars serve --data <dir> [--addr :8080] [--tls-cert <file> --tls-key <file>] [--https]
-  yars useradd --data <dir> --role pentester|reviewer|director [--email e] [--admin] <user>   (password from stdin)
+  yars useradd --data <dir> --role pentester|reviewer|director [--email e] [--admin] <user>   (password from stdin; no --role in the simple workflow)
   yars admin --data <dir> <user> on|off
   yars passwd --data <dir> <user>   (password from stdin)
-  yars role --data <dir> <user> pentester|reviewer|director
+  yars role --data <dir> <user> pentester|reviewer|director   (not in the simple workflow)
   yars userdel --data <dir> <user>
   yars unlock --data <dir> <user>   (end a login lockout)
   yars token add --data <dir> [--kind mcp|git] [--scopes all|read|a,b] [--engagements e1,e2] [--days N] [--name n] <user>
@@ -933,6 +951,34 @@ func accountCmd(name string, args []string, want int, setup func(*flag.FlagSet))
 	return fs, d, err
 }
 
+// errNoRoles refuses a role in the simple workflow, where every account is
+// stored as a director and only the admin flag tells accounts apart.
+var errNoRoles = errors.New("the simple workflow has no roles")
+
+// simpleRole is an account's role in the simple workflow: director, with
+// --role director or without --role (given: whether it was set); any other
+// role is refused.
+func simpleRole(given bool, role string) (string, error) {
+	if given && role != "director" {
+		return "", errNoRoles
+	}
+	return "director", nil
+}
+
+// flagGiven reports whether the command line set the flag name.
+func flagGiven(fs *flag.FlagSet, name string) bool {
+	given := false
+	fs.Visit(func(f *flag.Flag) { given = given || f.Name == name })
+	return given
+}
+
+// simpleData reports whether the data folder was set up with the simple
+// workflow, as its database records it (workflowSetting).
+func simpleData(d *db.DB) (bool, error) {
+	w, err := d.Setting(workflowSetting)
+	return w == config.WorkflowSimple, err
+}
+
 func readPassword(in io.Reader, out io.Writer) (string, error) {
 	fmt.Fprint(out, "password: ")
 	line, err := bufio.NewReader(in).ReadString('\n')
@@ -956,6 +1002,15 @@ func cmdUseradd(args []string, in io.Reader, out io.Writer) error {
 	}
 	defer d.Close()
 	name := fs.Arg(0)
+	simple, err := simpleData(d)
+	if err != nil {
+		return err
+	}
+	if simple {
+		if *role, err = simpleRole(flagGiven(fs, "role"), *role); err != nil {
+			return err
+		}
+	}
 	if !config.ValidRole(*role) {
 		return fmt.Errorf("invalid role %q (want %s)", *role, strings.Join(config.Roles, ", "))
 	}
@@ -976,10 +1031,21 @@ func cmdUseradd(args []string, in io.Reader, out io.Writer) error {
 	if *admin {
 		detail += ", admin"
 	}
+	if simple { // no roles to name: the admin flag only
+		detail = ""
+		if *admin {
+			detail = "admin"
+		}
+	}
 	d.Audit("cli", "user.add", name, detail)
-	if *admin {
+	switch {
+	case simple && *admin:
+		fmt.Fprintln(out, "\nadded", name, "(admin)")
+	case simple:
+		fmt.Fprintln(out, "\nadded", name)
+	case *admin:
 		fmt.Fprintln(out, "\nadded", name, "as", *role, "(admin)")
-	} else {
+	default:
 		fmt.Fprintln(out, "\nadded", name, "as", *role)
 	}
 	return nil
@@ -1031,6 +1097,11 @@ func cmdRole(args []string, out io.Writer) error {
 		return err
 	}
 	defer d.Close()
+	if simple, err := simpleData(d); err != nil {
+		return err
+	} else if simple {
+		return errNoRoles
+	}
 	if err := d.SetRole(fs.Arg(0), fs.Arg(1)); err != nil {
 		return err
 	}

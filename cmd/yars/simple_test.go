@@ -117,6 +117,114 @@ func TestServeRefusesWorkflowMismatch(t *testing.T) {
 	}
 }
 
+// In the simple workflow useradd stores a director, with --role director or
+// without --role; any other role is refused. Its output and audit name the
+// admin flag only.
+func TestUseraddSimple(t *testing.T) {
+	dir := initSimple(t)
+	add := func(args ...string) (string, error) {
+		var out bytes.Buffer
+		err := cmdUseradd(append([]string{"--data", dir}, args...), strings.NewReader("pw\n"), &out)
+		return out.String(), err
+	}
+	for want, args := range map[string][]string{
+		"password: \nadded anna (admin)\n": {"--admin", "anna"},
+		"password: \nadded ben\n":          {"ben"},
+		"password: \nadded dave\n":         {"--role", "director", "dave"},
+	} {
+		if out, err := add(args...); err != nil || out != want {
+			t.Errorf("%v: %q %v", args, out, err)
+		}
+	}
+	for _, args := range [][]string{{"--role", "pentester", "carl"}, {"--role", "reviewer", "--admin", "eve"}, {"--role", "admin", "fay"}} {
+		if _, err := add(args...); err == nil || err.Error() != "the simple workflow has no roles" {
+			t.Errorf("%v: %v", args, err)
+		}
+	}
+	d := openDB(t, dir)
+	for name, admin := range map[string]bool{"anna": true, "ben": false, "dave": false} {
+		if u, ok, _ := d.User(name); !ok || u.Role != "director" || u.IsAdmin != admin {
+			t.Errorf("%s: %+v", name, u)
+		}
+	}
+	for _, name := range []string{"carl", "eve", "fay"} {
+		if _, ok, _ := d.User(name); ok {
+			t.Errorf("%s added", name)
+		}
+	}
+	l, _ := d.AuditLog(10)
+	details := map[string]string{}
+	for _, e := range l {
+		if e.Action == "user.add" {
+			details[e.Target] = e.Detail
+		}
+	}
+	if len(details) != 3 || details["anna"] != "admin" || details["ben"] != "" || details["dave"] != "" {
+		t.Fatalf("audit %+v", l)
+	}
+}
+
+// yars role is refused in the simple workflow, whatever the role; the
+// account stays a director.
+func TestRoleRefusedSimple(t *testing.T) {
+	dir := initSimple(t)
+	var out bytes.Buffer
+	if err := cmdUseradd([]string{"--data", dir, "ben"}, strings.NewReader("pw\n"), &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, role := range []string{"pentester", "director"} {
+		if err := cmdRole([]string{"--data", dir, "ben", role}, &out); err == nil || err.Error() != "the simple workflow has no roles" {
+			t.Errorf("%s: %v", role, err)
+		}
+	}
+	d := openDB(t, dir)
+	if u, _, _ := d.User("ben"); u.Role != "director" {
+		t.Fatalf("ben is a %s", u.Role)
+	}
+	if l, _ := d.AuditLog(10); len(l) != 1 || l[0].Action != "user.add" {
+		t.Fatalf("audit %+v", l)
+	}
+}
+
+// yars mcp on a clone of a simple-workflow folder serves as a director: an
+// explicit --role other than director is refused; without one (the
+// standard default, pentester, is no choice) the account is a director.
+func TestMCPRoleSimple(t *testing.T) {
+	dir := initSimple(t)
+	hello := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}` + "\n"
+	var out bytes.Buffer
+	if err := runMCP([]string{"--data", dir, "--user", "ben", "--role", "reviewer"}, strings.NewReader(hello), &out); err == nil || err.Error() != "the simple workflow has no roles" {
+		t.Fatalf("--role reviewer: %v", err)
+	}
+	for _, args := range [][]string{{"--data", dir, "--user", "ben"}, {"--data", dir, "--user", "ben", "--role", "director"}} {
+		out.Reset()
+		if err := runMCP(args, strings.NewReader(hello), &out); err != nil || !strings.Contains(out.String(), `"serverInfo"`) {
+			t.Fatalf("%v: %v %s", args, err, out.String())
+		}
+	}
+	simple := config.Default()
+	simple.Workflow = config.WorkflowSimple
+	for _, c := range []struct {
+		cfg   config.Config
+		given bool
+		role  string
+		want  string
+	}{
+		{simple, false, "pentester", "director"},
+		{simple, true, "director", "director"},
+		{config.Default(), false, "pentester", "pentester"},
+		{config.Default(), true, "reviewer", "reviewer"},
+	} {
+		u, err := mcpUser(c.cfg, c.given, config.User{Username: "ben", Role: c.role, Email: "b@x"})
+		if err != nil || u.Role != c.want || u.Username != "ben" || u.Email != "b@x" {
+			t.Errorf("%s, --role %s given %v: %+v %v", c.cfg.Workflow, c.role, c.given, u, err)
+		}
+	}
+	if _, err := mcpUser(simple, true, config.User{Username: "ben", Role: "pentester"}); err == nil {
+		t.Error("simple, --role pentester accepted")
+	}
+}
+
 // yars init without --simple writes the same config.yaml as before (no
 // workflow key), no database setting, and says what it always said.
 func TestInitStandardUnchanged(t *testing.T) {
