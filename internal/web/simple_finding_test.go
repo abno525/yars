@@ -126,6 +126,84 @@ func TestSimpleDraftSlots(t *testing.T) {
 	}
 }
 
+// Complete from the page: the bar's form takes the draft to complete; the
+// chat says "completed it" and the history "completed", in green; the
+// revert says it goes back to draft. A version the page did not show is
+// refused, as a sign-off of it is.
+func TestSimpleCompleteFromPage(t *testing.T) {
+	e := setupSimple(t)
+	e.ready(t)
+	form := e.seenForm(t, "ben")
+	if err := e.srv.Store.UpdateSection("acme", fdir, "Impact", "Changed while ben read.", "", sAnna); err != nil {
+		t.Fatal(err)
+	}
+	if b := e.denied(t, "ben", fshort+"/action/complete", form); !strings.Contains(b, "the finding changed since you opened it; read it again") || e.status(t) != "draft" {
+		t.Fatalf("stale Complete: status %s", e.status(t))
+	}
+	rec := e.do(t, "ben", "POST", fshort+"/action/complete", e.seenForm(t, "ben"), nil)
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != fshort || e.status(t) != "complete" {
+		t.Fatalf("complete: code %d to %q, status %s", rec.Code, rec.Header().Get("Location"), e.status(t))
+	}
+	if got := e.events(t); got != "ben:complete" {
+		t.Fatalf("events %q", got)
+	}
+	if rec := e.do(t, "anna", "POST", fshort+"/action/reopen", url.Values{"reason": {"missed a step"}}, nil); rec.Code != http.StatusSeeOther || e.status(t) != "draft" {
+		t.Fatalf("revert: code %d, status %s", rec.Code, e.status(t))
+	}
+	b := e.do(t, "anna", "GET", fshort, nil, nil).Body.String()
+	for _, want := range []string{
+		`<div class="chatev ev-complete"><span class="what"><strong>ben</strong> completed it</span>`,
+		`<div class="chatev ev-reopen"><span class="what"><strong>anna</strong> reverted it to draft: <span class="text">missed a step</span></span>`,
+	} {
+		if !strings.Contains(b, want) {
+			t.Errorf("chat lacks %s", want)
+		}
+	}
+	h := e.do(t, "anna", "GET", fshort+"/history?show=status", nil, nil).Body.String()
+	for _, want := range []string{
+		`<span class="dot ev-complete"></span>`,
+		`<strong>ben</strong> <span class="evact">completed</span>`,
+		`<strong>anna</strong> <span class="evact">reverted to draft</span>`,
+	} {
+		if !strings.Contains(h, want) {
+			t.Errorf("history lacks %s", want)
+		}
+	}
+	css := e.do(t, "anna", "GET", "/static/style.css", nil, nil).Body.String()
+	for _, want := range []string{
+		".chatev.ev-clear::before, .chatev.ev-approve::before, .chatev.ev-complete::before { background: var(--green); }",
+		".dot.ev-clear, .dot.ev-approve, .dot.ev-complete { background: var(--green); }",
+	} {
+		if !strings.Contains(css, want) {
+			t.Errorf("style.css lacks %q", want)
+		}
+	}
+}
+
+// The standard chat and history keep their words: a revert there goes back
+// to verification, and the review events read as before in both.
+func TestStandardEventWords(t *testing.T) {
+	for _, c := range []struct {
+		ev     string
+		simple bool
+		chat   string
+		hist   string
+	}{
+		{"reopen", false, "reverted it to verification", "reverted to verification"},
+		{"approve", false, "approved it", "approved"},
+		{"unreport", true, "reverted it to complete", "reverted to complete"},
+		{"complete", true, "completed it", "completed"},
+		{"bogus", true, "bogus", "bogus"},
+	} {
+		if got := eventTextFor(c.ev, c.simple); got != c.chat {
+			t.Errorf("chat %s (simple %v): %q", c.ev, c.simple, got)
+		}
+		if got := eventLabelFor(c.ev, c.simple); got != c.hist {
+			t.Errorf("history %s (simple %v): %q", c.ev, c.simple, got)
+		}
+	}
+}
+
 // Complete waits for the content gate: without a severity it is disabled,
 // the state says what to fix, and a post is refused with the reason.
 func TestSimpleCompleteDisabledByGate(t *testing.T) {

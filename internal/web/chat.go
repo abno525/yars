@@ -110,6 +110,20 @@ var eventText = map[string]string{
 	"submit": "submitted it for verification", "return": "returned it to draft", "clear": "signed it off",
 	"approve": "approved it", "reopen": "reverted it to verification", "report": "marked it reported", "unreport": "reverted it to complete", "retest": "set the retest result",
 	"withdraw": "withdrew it", "revise": "restored it", "take_back": "took it back to draft", store.EventCheckFixed: "found a check fixed", store.EventMerge: "merged in",
+	"complete": "completed it",
+}
+
+// eventTextFor says in the chat what a workflow event did, as the workflow
+// (simple or not) names it: the simple workflow's revert goes back to
+// draft. An unknown event is its own name.
+func eventTextFor(ev string, simple bool) string {
+	if simple && ev == "reopen" {
+		return "reverted it to draft"
+	}
+	if what := eventText[ev]; what != "" {
+		return what
+	}
+	return ev
 }
 
 func (s *Server) routesChat(mux *http.ServeMux) {
@@ -190,7 +204,7 @@ func (s *Server) chatFor(ref store.FindingRef, msgs []chat.Message, stamp string
 	}
 	// the newest threads holding chatTail messages, whole; events do not
 	// count, and those older than the oldest thread shown wait with it
-	from := 0
+	from, simple := 0, s.flow().Simple
 	if !all {
 		keep, shown := len(threads), 0
 		for keep > 0 {
@@ -210,10 +224,7 @@ func (s *Server) chatFor(ref store.FindingRef, msgs []chat.Message, stamp string
 	}
 	for _, it := range items[from:] {
 		if e := it.Event; e != nil {
-			what := eventText[e.Event]
-			if what == "" {
-				what = e.Event
-			}
+			what := eventTextFor(e.Event, simple)
 			v.Items = append(v.Items, chatItem{Event: &chatEvent{User: e.User, Time: e.TS.Local().Format("2006-01-02 15:04"), What: what, Text: e.Text, Kind: e.Event}})
 			continue
 		}

@@ -86,9 +86,16 @@ func (s *Server) routesHistory(mux *http.ServeMux) {
 var eventLabels = map[string]string{
 	"submit": "submitted", "return": "returned", "clear": "signed off", "approve": "approved", "reopen": "reverted to verification",
 	"report": "marked reported", "unreport": "reverted to complete", "withdraw": "withdrew", "revise": "revised", "take_back": "took back", "retest": "set the result", store.EventMerge: "merged in",
+	"complete": "completed",
 }
 
-func eventLabel(ev string) string {
+// eventLabelFor is the history's past tense of a workflow event, as the
+// workflow (simple or not) names it: the simple workflow's revert goes back
+// to draft. An unknown event is its own name.
+func eventLabelFor(ev string, simple bool) string {
+	if simple && ev == "reopen" {
+		return "reverted to draft"
+	}
 	if l, ok := eventLabels[ev]; ok {
 		return l
 	}
@@ -162,11 +169,12 @@ func (s *Server) historyOf(r *http.Request, ref store.FindingRef) (historyView, 
 		all = append(all, histEvent{Key: ver.Hash, Kind: "content", Class: cls, Who: who, AI: ai, Act: act, Short: ver.Hash[:7],
 			at: ver.Time, before: before, after: ver.Raw})
 	}
+	simple := s.flow().Simple
 	for _, m := range msgs {
 		if m.Event == "" {
 			continue
 		}
-		all = append(all, histEvent{Key: "m-" + m.ID, Kind: "status", Class: "ev-" + m.Event, Who: m.User, Act: eventLabel(m.Event),
+		all = append(all, histEvent{Key: "m-" + m.ID, Kind: "status", Class: "ev-" + m.Event, Who: m.User, Act: eventLabelFor(m.Event, simple),
 			Text: m.Text, at: m.TS})
 	}
 	sort.SliceStable(all, func(i, j int) bool { return all[i].at.After(all[j].at) })
