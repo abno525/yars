@@ -42,7 +42,7 @@
     <a class="{{if eq .Nav "inbox"}}on{{end}}" href="/inbox" aria-keyshortcuts="I">Inbox {{with .Inbox.Count}}<span class="badge">{{.}}</span>{{else}}<span class="badge0">0</span>{{end}}</a>
     {{if .CanAdmin}}<a class="{{if eq .Nav "admin"}}on{{end}}" href="/admin">Admin</a>{{end}}
   </nav>
-  <a class="who{{if eq .Nav "settings"}} on{{end}}" href="/settings" title="{{.User.Username}} · {{.User.Role}}">{{.User.Username}}</a>
+  <a class="who{{if eq .Nav "settings"}} on{{end}}" href="/settings" title="{{.User.Username}}{{if not simple}} · {{.User.Role}}{{end}}">{{.User.Username}}</a>
   <button type="button" class="goto" data-goto aria-haspopup="dialog" aria-controls="goto"><span>Go to</span><kbd>Ctrl K</kbd></button>
   <form method="post" action="/logout"><button class="btn ghost w96 logout">Log out</button></form>
   {{else}}
@@ -128,7 +128,7 @@ keys.js hides the Finding page group where there are no panels */}}
           <div class="krow" data-keys-if=".qacts [aria-keyshortcuts~=M], form[action='/notifications/read'] [aria-keyshortcuts~=M]"><dt><kbd>m</kbd></dt><dd>Mark all read</dd></div>
           <div class="krow" data-keys-if="input[type=checkbox][name=id]"><dt><kbd>Shift+Space</kbd></dt><dd>Tick the range</dd></div>
           <div class="krow" data-keys-for="Shift+S"><dt><kbd>Shift+S</kbd></dt><dd>Submit the ticked</dd></div>
-          <div class="krow" data-keys-for="Shift+A"><dt><kbd>Shift+A</kbd></dt><dd>Approve the ticked</dd></div>
+          <div class="krow" data-keys-for="Shift+A"><dt><kbd>Shift+A</kbd></dt><dd>{{if simple}}Complete the ticked{{else}}Approve the ticked{{end}}</dd></div>
           <div class="krow" data-keys-for="Shift+P"><dt><kbd>Shift+P</kbd></dt><dd>Mark the ticked reported</dd></div>
         </dl>
       </section>
@@ -154,7 +154,7 @@ keys.js hides the Finding page group where there are no panels */}}
           <div class="krow"><dt><kbd>Enter</kbd></dt><dd>The panel's button</dd></div>
           <div class="krow" data-keys-for="Shift+S"><dt><kbd>Shift+S</kbd></dt><dd>Submit</dd></div>
           <div class="krow" data-keys-for="Shift+O"><dt><kbd>Shift+O</kbd></dt><dd>Sign off</dd></div>
-          <div class="krow" data-keys-for="Shift+A"><dt><kbd>Shift+A</kbd></dt><dd>Approve</dd></div>
+          <div class="krow" data-keys-for="Shift+A"><dt><kbd>Shift+A</kbd></dt><dd>{{if simple}}Complete{{else}}Approve{{end}}</dd></div>
           <div class="krow" data-keys-for="Shift+P"><dt><kbd>Shift+P</kbd></dt><dd>Mark reported</dd></div>
           <div class="krow" data-keys-for="Shift+R"><dt><kbd>Shift+R</kbd></dt><dd>Return</dd></div>
           <div class="krow" data-keys-for="Shift+W"><dt><kbd>Shift+W</kbd></dt><dd>Withdraw</dd></div>

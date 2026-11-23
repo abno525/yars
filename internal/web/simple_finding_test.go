@@ -345,3 +345,50 @@ func TestSimpleReviewersPostRefused(t *testing.T) {
 		}
 	}
 }
+
+// The key list names Shift+A as Complete, on the finding page and for the
+// ticked rows; the standard list keeps Approve.
+func TestSimpleKeysOverlay(t *testing.T) {
+	e := setupSimple(t)
+	b := e.do(t, "anna", "GET", fshort, nil, nil).Body.String()
+	for _, want := range []string{
+		`<div class="krow" data-keys-for="Shift+A"><dt><kbd>Shift+A</kbd></dt><dd>Complete the ticked</dd></div>`,
+		`<div class="krow" data-keys-for="Shift+A"><dt><kbd>Shift+A</kbd></dt><dd>Complete</dd></div>`,
+	} {
+		if !strings.Contains(b, want) {
+			t.Errorf("simple key list lacks %s", want)
+		}
+	}
+	if strings.Contains(b, "<dd>Approve") {
+		t.Error("simple key list names Approve")
+	}
+	std := setup(t)
+	b = std.do(t, "alice", "GET", fpath, nil, nil).Body.String()
+	for _, want := range []string{
+		`<div class="krow" data-keys-for="Shift+A"><dt><kbd>Shift+A</kbd></dt><dd>Approve the ticked</dd></div>`,
+		`<div class="krow" data-keys-for="Shift+A"><dt><kbd>Shift+A</kbd></dt><dd>Approve</dd></div>`,
+	} {
+		if !strings.Contains(b, want) {
+			t.Errorf("standard key list lacks %s", want)
+		}
+	}
+	if strings.Contains(b, "<dd>Complete") {
+		t.Error("standard key list names Complete")
+	}
+}
+
+// The top bar's account link names the account alone in the simple
+// workflow (no roles); the standard one adds the role.
+func TestSimpleTopBarNoRole(t *testing.T) {
+	e := setupSimple(t)
+	for _, p := range []string{"/", fshort, "/settings"} {
+		b := e.do(t, "ben", "GET", p, nil, nil).Body.String()
+		if !strings.Contains(b, `href="/settings" title="ben">ben</a>`) {
+			t.Fatalf("%s: top bar:\n%s", p, b)
+		}
+	}
+	std := setup(t)
+	if b := std.do(t, "alice", "GET", "/", nil, nil).Body.String(); !strings.Contains(b, `<a class="who" href="/settings" title="alice · pentester">alice</a>`) {
+		t.Fatalf("standard top bar:\n%s", b)
+	}
+}
