@@ -80,9 +80,9 @@ func (f *fx) serverRaw() []byte {
 }
 
 // The workflow is set by yars init: a push to config.yaml that changes it
-// is refused, whichever way, and one that keeps it is accepted. The
-// server's workflow is the old file's workflow key alone, so a file broken
-// otherwise (the server then runs on the defaults) still names it.
+// is refused, whichever way, and one that keeps it is accepted, also when
+// the server's file is broken (the hook then runs on the defaults, on the
+// server's workflow).
 func TestPushRefusesWorkflowChange(t *testing.T) {
 	const simpleNo = ".yars/config.yaml: workflow is set by yars init (this server runs the simple workflow) and cannot change"
 	f := newSimpleFx(t).on("")
@@ -103,11 +103,11 @@ func TestPushRefusesWorkflowChange(t *testing.T) {
 		t.Fatalf("simple server, the key kept, the sections changed: %v", ps)
 	}
 
-	// the old file does not load (Checker on the defaults, as the hook runs
-	// then): its workflow key still counts
+	// the old file does not load (Checker on the defaults, on the server's
+	// workflow, as the hook runs then)
 	write(f.srv.Dir, ".yars/config.yaml", "workflow: simple\nseverities: [critical, high]\n")
 	git(t, f.srv.Dir, "commit", "-qam", "broken")
-	f.c.Cfg, f.c.ConfigErr = config.Default(), errors.New("severities: critical, high, medium, low and info are required")
+	f.c.Cfg, f.c.ConfigErr = simpleCfg(), errors.New("severities: critical, high, medium, low and info are required")
 	f.reclone()
 	if ps := f.push("anna", func(d string) { write(d, ".yars/config.yaml", "severities: [critical, high, medium, low, info]\n") }); !has(ps, simpleNo) {
 		t.Errorf("a broken simple config repaired without the key: %v", ps)
@@ -125,6 +125,53 @@ func TestPushRefusesWorkflowChange(t *testing.T) {
 	g.reclone()
 	if ps := g.push("dora", func(d string) { write(d, ".yars/config.yaml", "workflow: standard\n") }); len(ps) != 0 {
 		t.Errorf("standard server, the standard key written: %v", ps)
+	}
+}
+
+// The workflow a pushed config.yaml must name is the one the server runs
+// (Cfg), not the one the commit's parent names: in a push of two commits,
+// one that drops the key and one that puts it back, only the first is
+// refused, naming the server's workflow; and on a server whose config.yaml
+// lost the key by a hand edit, the push that puts it back is accepted.
+func TestPushWorkflowIsTheServers(t *testing.T) {
+	const keep = "sections: [Description, Impact, Steps to Reproduce, Remediation, References, Notes]\n"
+	twoCommits := func(f *fx, as string, first, second string) (string, string, []string) {
+		t.Helper()
+		commit := func(body string) string {
+			write(f.clone, ".yars/config.yaml", body)
+			git(t, f.clone, "add", "-A")
+			git(t, f.clone, "-c", "user.name="+as, "-c", "user.email="+as+"@yars.local", "commit", "-qm", "step")
+			return short(t, f.clone, "HEAD")
+		}
+		a, b := commit(first), commit(second)
+		return a, b, f.check(as, git(t, f.clone, "rev-parse", "HEAD"))
+	}
+	no := func(w string) string {
+		return ": workflow is set by yars init (this server runs the " + w + " workflow) and cannot change"
+	}
+
+	f := newSimpleFx(t).on("")
+	a, b, ps := twoCommits(f, "anna", keep, "workflow: simple\n"+keep)
+	if !has(ps, "commit "+a+" .yars/config.yaml"+no("simple")) || has(ps, b) || has(ps, "standard") {
+		t.Errorf("simple server, the key dropped then put back: %v", ps)
+	}
+	g := newFx(t).on("")
+	a, b, ps = twoCommits(g, "dora", "workflow: simple\n"+keep, keep)
+	if !has(ps, "commit "+a+" .yars/config.yaml"+no("standard")) || has(ps, b) || has(ps, "simple workflow") {
+		t.Errorf("standard server, simple added then dropped: %v", ps)
+	}
+
+	// a hand edit on the server dropped the key; the server runs simple still
+	h := newSimpleFx(t)
+	write(h.srv.Dir, ".yars/config.yaml", keep)
+	git(t, h.srv.Dir, "commit", "-qam", "hand edit")
+	h.on("")
+	if ps := h.push("anna", func(d string) { write(d, ".yars/config.yaml", "workflow: simple\n"+keep) }); len(ps) != 0 {
+		t.Errorf("the key put back after a hand edit: %v", ps)
+	}
+	h.reclone()
+	if ps := h.push("anna", func(d string) { write(d, ".yars/config.yaml", "severities: [critical, high, medium, low, info]\n") }); !has(ps, ".yars/config.yaml"+no("simple")) {
+		t.Errorf("a change that keeps the hand edit's missing key: %v", ps)
 	}
 }
 

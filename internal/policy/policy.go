@@ -39,7 +39,7 @@ type Update struct{ Old, New, Ref string }
 type Checker struct {
 	Repo  *gitrepo.Repo // the repository being pushed to
 	Eng   string        // its engagement id; "" = the main repo
-	Cfg   config.Config
+	Cfg   config.Config // on the workflow the server runs (see workflowChange)
 	Users []config.User
 	DB    *db.DB // workflow state (nil: every finding counts as a draft)
 	// Token is the pushing token's scopes (nil: a password login, which may
@@ -48,8 +48,9 @@ type Checker struct {
 	Token *db.TokenInfo
 
 	// ConfigErr, when set, is why the server's own .yars/config.yaml did not
-	// load (Cfg is then the defaults): only a push that changes that file
-	// is accepted, so a director can repair it over git.
+	// load (Cfg is then the defaults, on the server's workflow): only a push
+	// that changes that file is accepted, so a director can repair it over
+	// git.
 	ConfigErr error
 
 	// Linter, when set, runs the server's check rules (the Check button's
@@ -532,7 +533,7 @@ func (c *Checker) file(u config.User, old, new string, ch gitrepo.Change) []stri
 			// the server applies it as soon as the push lands
 			b, _ := c.show(new, p)
 			var ps []string
-			if w := c.workflowChange(old, b); w != "" {
+			if w := c.workflowChange(b); w != "" {
 				ps = append(ps, w)
 			}
 			now, err := store.CheckConfig(b)
@@ -668,17 +669,13 @@ func (c *Checker) cfgAt(rev string) config.Config {
 }
 
 // workflowChange is why config.yaml as b may not land ("" when it may): the
-// workflow is set by yars init and cannot change. The server's workflow is
-// the old file's workflow key, read alone so the rest of that file may be
-// broken; the server's own when old has no file or not even the key reads.
-// A b whose key cannot be read is refused as a config that does not load.
-func (c *Checker) workflowChange(old string, b []byte) string {
+// workflow is set by yars init and cannot change, so b names the one the
+// server runs, Cfg's (the hook takes it from the database, whatever the
+// server's config.yaml says: broken, or changed by a hand edit), not the one
+// the commit's parent names. A b whose key cannot be read is refused as a
+// config that does not load.
+func (c *Checker) workflowChange(b []byte) string {
 	was := workflow.FlowOf(c.Cfg)
-	if ob, ok := c.show(old, ".yars/config.yaml"); ok {
-		if f, ok := workflowKey(ob); ok {
-			was = f
-		}
-	}
 	if now, ok := workflowKey(b); !ok || now == was {
 		return ""
 	}
