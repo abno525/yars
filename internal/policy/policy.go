@@ -12,6 +12,8 @@ import (
 	"strings"
 	"unicode"
 
+	"gopkg.in/yaml.v3"
+
 	"yars/internal/config"
 	"yars/internal/db"
 	"yars/internal/export"
@@ -372,12 +374,17 @@ func (c *Checker) checkChanges(u config.User, short, parent, rev string, changes
 
 // checkRules runs the check rules on each finding old..new changes, as new
 // has it, and returns the refusals: errors of a finding in verification or
-// later (the website gates Submit and Approve on them, so they can't be
-// pushed in past that), not counting the ones dismissed on the finding.
-// Warnings, and errors of drafts, go to Notes.
+// later (the website gates Submit and Approve on them, Complete in the
+// simple workflow, so they can't be pushed in past that), not counting the
+// ones dismissed on the finding. Warnings, and errors of drafts, go to
+// Notes.
 func (c *Checker) checkRules(old, new string) []string {
 	if c.Linter == nil || c.Eng == "" {
 		return nil
+	}
+	held := "Submit" // what a draft's error holds back
+	if workflow.FlowOf(c.Cfg).Simple {
+		held = "Complete"
 	}
 	changes, err := c.Repo.ChangedFiles(old, new)
 	if err != nil {
@@ -426,7 +433,7 @@ func (c *Checker) checkRules(old, new string) []string {
 			if v.Target == "rules" || v.Target == "ai" {
 				level = "could not run" // a broken rule or a missing AI provider
 			} else if level == "error" && !blocks {
-				level = "error; blocks Submit"
+				level = "error; blocks " + held
 			}
 			line := "commit " + short + " " + ch.Path + ": check " + v.Rule + " (" + level + "): " + v.Message
 			if q := strings.Join(strings.Fields(v.Quote), " "); q != "" {
@@ -524,11 +531,15 @@ func (c *Checker) file(u config.User, old, new string, ch gitrepo.Change) []stri
 			}
 			// the server applies it as soon as the push lands
 			b, _ := c.show(new, p)
+			var ps []string
+			if w := c.workflowChange(old, b); w != "" {
+				ps = append(ps, w)
+			}
 			now, err := store.CheckConfig(b)
 			if err != nil {
-				return []string{err.Error()}
+				return append(ps, err.Error())
 			}
-			return c.droppedInUse(old, new, now)
+			return append(ps, c.droppedInUse(old, new, now)...)
 		}
 		if len(seg) == 3 && seg[1] == "rules" && (strings.HasSuffix(p, ".yaml") || strings.HasSuffix(p, ".yml")) {
 			// as Admin › Rules: no load problem the folder did not have
@@ -656,6 +667,36 @@ func (c *Checker) cfgAt(rev string) config.Config {
 	return out
 }
 
+// workflowChange is why config.yaml as b may not land ("" when it may): the
+// workflow is set by yars init and cannot change. The server's workflow is
+// the old file's workflow key, read alone so the rest of that file may be
+// broken; the server's own when old has no file or not even the key reads.
+// A b whose key cannot be read is refused as a config that does not load.
+func (c *Checker) workflowChange(old string, b []byte) string {
+	was := workflow.FlowOf(c.Cfg)
+	if ob, ok := c.show(old, ".yars/config.yaml"); ok {
+		if f, ok := workflowKey(ob); ok {
+			was = f
+		}
+	}
+	if now, ok := workflowKey(b); !ok || now == was {
+		return ""
+	}
+	return fmt.Sprintf("workflow is set by yars init (this server runs the %s workflow) and cannot change", was.Name())
+}
+
+// workflowKey is the workflow config.yaml as b sets up, read through its
+// workflow key alone; ok is false when b is not YAML that key reads from.
+func workflowKey(b []byte) (workflow.Flow, bool) {
+	var k struct {
+		Workflow string `yaml:"workflow"`
+	}
+	if err := yaml.Unmarshal(b, &k); err != nil {
+		return workflow.Flow{}, false
+	}
+	return workflow.FlowOf(config.Config{Workflow: k.Workflow}), true
+}
+
 // droppedInUse refuses a config.yaml (as now) that drops a section,
 // severity or details row name that findings of any engagement, or the
 // templates as new has them, still use, against the file as old has it
@@ -740,7 +781,8 @@ const unreadable = "unreadable"
 
 // status is the finding's workflow status for content raw, from the
 // database (a complete finding whose content changed after approval counts
-// as in verification, as everywhere else).
+// as in verification, as everywhere else; in the simple workflow, which
+// reviews nothing, as a draft, and so does a stray verification).
 func (c *Checker) status(eng, fid string, raw []byte) string {
 	if c.DB == nil {
 		return "draft"
@@ -749,7 +791,14 @@ func (c *Checker) status(eng, fid string, raw []byte) string {
 	if err != nil {
 		return unreadable // fail closed: only a director may edit, and is told why
 	}
-	if (st.Status == "complete" || st.Status == "reported") && !store.Approved(st, store.ContentHash(raw)) {
+	drifted := (st.Status == "complete" || st.Status == "reported") && !store.Approved(st, store.ContentHash(raw))
+	if workflow.FlowOf(c.Cfg).Simple {
+		if drifted || st.Status == "verification" {
+			return "draft"
+		}
+		return st.Status
+	}
+	if drifted {
 		return "verification"
 	}
 	return st.Status
