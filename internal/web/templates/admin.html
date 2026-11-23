@@ -158,18 +158,20 @@
   <section class="panel">
     <div class="panelhead"><h2>Users</h2><span class="pstate error" title="{{.Error}}">{{.Error}}</span></div>
     <table class="table stable usertable" data-arrows="focus">
-      <thead><tr><th>User</th><th class="c-role">Role</th><th class="c-flag">Admin</th><th class="c-flag">Disabled</th><th class="c-date">Created</th><th class="c-num">Tokens</th><th class="c-acts">Action</th></tr></thead>
+      <thead><tr><th>User</th>{{if not simple}}<th class="c-role">Role</th>{{end}}<th class="c-flag">Admin</th><th class="c-flag">Disabled</th><th class="c-date">Created</th><th class="c-num">Tokens</th><th class="c-acts">Action</th></tr></thead>
       <tbody>
         {{range .Rows}}
         {{/* the name is the row the keys move to; u, r, d act on that row only (keys.js yarsRowFire); its id keeps it focused through the reload */}}
         <tr{{if .Disabled}} class="off"{{end}} data-rowkeys>
           <td class="stack"><span class="strong" title="{{.Username}}" tabindex="0" data-nav id="row-user-{{.Username}}">{{.Username}}</span><span class="muted" title="{{.Email}}">{{if .Email}}{{.Email}}{{else}}—{{end}}</span></td>
+          {{if not simple}}
           <td>
             <form method="post" action="/admin/users/{{.Username}}/role">
               <select name="role" aria-label="Role of {{.Username}}" data-choose>{{$r := .Role}}{{range $.Roles}}<option value="{{.}}"{{if eq . $r}} selected{{end}}>{{.}}</option>{{end}}</select>
               <noscript><button class="btn ghost sm w96">Set</button></noscript>
             </form>
           </td>
+          {{end}}
           <td>
             <form class="toggle" method="post" action="/admin/users/{{.Username}}/admin">
               <input type="hidden" name="on" value="{{if .IsAdmin}}0{{else}}1{{end}}">
@@ -195,9 +197,11 @@
     <div class="vfields">
       <label>Username<input name="username" value="{{.Form.Get "username"}}" pattern="[A-Za-z0-9._\-]+" required aria-keyshortcuts="N"></label>
       <label>Email<input name="email" type="email" value="{{.Form.Get "email"}}"></label>
+      {{if not simple}}
       <fieldset class="rf"><legend>Role</legend>
         <div class="seg fill n3">{{$r := .Form.Get "role"}}{{range .Roles}}<label><input type="radio" name="role" value="{{.}}"{{if eq . $r}} checked{{end}}><span>{{.}}</span></label>{{end}}</div>
       </fieldset>
+      {{end}}
       <label class="chk"><input type="checkbox" name="admin" value="1"{{if eq (.Form.Get "admin") "1"}} checked{{end}}>Admin</label>
       <label>Temporary password<input class="monoin" name="password" autocomplete="new-password" minlength="10" placeholder="generated"></label>
     </div>

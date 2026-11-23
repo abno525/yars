@@ -104,7 +104,8 @@ func newTempPassword() string {
 }
 
 // userAdd adds an account with a temporary password (typed or generated),
-// shown once.
+// shown once. In the simple workflow every account is a director: a posted
+// role is ignored.
 func (s *Server) userAdd(w http.ResponseWriter, r *http.Request) {
 	actor := auth.UserFrom(r.Context())
 	r.ParseForm()
@@ -115,10 +116,15 @@ func (s *Server) userAdd(w http.ResponseWriter, r *http.Request) {
 	if pw == "" {
 		pw = newTempPassword()
 	}
+	simple := s.flow().Simple
+	role := r.FormValue("role")
+	if simple {
+		role = "director"
+	}
 	switch {
 	case !store.ValidID(name):
 		v.Error = "Username: letters, digits, dot, dash, underscore"
-	case !config.ValidRole(r.FormValue("role")):
+	case !config.ValidRole(role):
 		v.Error = "Role: " + strings.Join(config.Roles, ", ")
 	case emailProblem(email) != "":
 		v.Error = emailProblem(email)
@@ -141,17 +147,21 @@ func (s *Server) userAdd(w http.ResponseWriter, r *http.Request) {
 	}
 	// the password is the admin's, given to the user: they set their own
 	// on first login
-	u := config.User{Username: name, Email: email, Role: r.FormValue("role"), PasswordHash: hash, IsAdmin: r.FormValue("admin") == "1", MustChange: true}
+	u := config.User{Username: name, Email: email, Role: role, PasswordHash: hash, IsAdmin: r.FormValue("admin") == "1", MustChange: true}
 	if err := s.Store.DB().AddUser(u); err != nil {
 		v.Error = err.Error()
 		s.usersPage(w, r, http.StatusBadRequest, v)
 		return
 	}
-	detail := u.Role
-	if u.IsAdmin {
-		detail += ", admin"
+	// "pentester, admin"; the simple workflow names the admin flag only
+	var detail []string
+	if !simple {
+		detail = append(detail, u.Role)
 	}
-	s.Store.DB().Audit(actor.Username, "user.add", name, detail)
+	if u.IsAdmin {
+		detail = append(detail, "admin")
+	}
+	s.Store.DB().Audit(actor.Username, "user.add", name, strings.Join(detail, ", "))
 	w.Header().Set("Cache-Control", "no-store")
 	s.usersPage(w, r, http.StatusOK, usersAdmin{Temp: &tempPassword{User: name, Password: pw}})
 }
@@ -169,7 +179,12 @@ func (s *Server) target(w http.ResponseWriter, r *http.Request) (config.User, bo
 	return u, ok
 }
 
+// userRole sets an account's role; the simple workflow has none to set.
 func (s *Server) userRole(w http.ResponseWriter, r *http.Request) {
+	if s.flow().Simple {
+		s.usersPage(w, r, http.StatusBadRequest, usersAdmin{Error: "The simple workflow has no roles"})
+		return
+	}
 	u, ok := s.target(w, r)
 	if !ok {
 		return
