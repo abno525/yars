@@ -1,10 +1,20 @@
-<p align="center"><img src="docs/assets/logo.svg" alt="YARS" width="280"></p>
+<p align="center"><img src="docs/assets/hero.svg" alt="YARS: pentest reports in Markdown, kept in git" width="100%"></p>
 
-<p align="center"><b>Yet Another Reporting System</b><br>Git-backed reporting for penetration tests.</p>
+<p align="center"><b>Yet Another Reporting System.</b> One finding, one Markdown file. A web app on top.</p>
 
-## Quick start
+<p align="center"><img src="docs/assets/screenshot.png" alt="An engagement's findings in YARS" width="100%"></p>
 
-Requires Go 1.27.
+## Three ways in
+
+<p align="center"><img src="docs/assets/paths.svg" alt="Git, MCP and Review" width="100%"></p>
+
+- **Git.** Each engagement is a repo. Clone it, write, push. The server checks every push. → [git.md](docs/git.md)
+- **MCP.** AI agents write and fix findings. They follow the same rules as people. → [mcp.md](docs/mcp.md)
+- **Review.** Draft → verification → signed off → complete → reported. Reviewers sign off. A director approves.
+
+## Start
+
+Needs Go 1.27.
 
 ```sh
 go build -o yars ./cmd/yars
@@ -13,45 +23,29 @@ echo 'change-me' | ./yars useradd --data data --role director --admin alice
 ./yars serve --data data
 ```
 
-Open <http://localhost:8080>. Further documentation is in [docs](docs); running it for a team (a service, HTTPS, backups, upgrades) is in [docs/deploy.md](docs/deploy.md).
-In a git clone, `yars hook install` has every commit checked by the server ([Check before you commit](docs/git.md#check-before-you-commit)).
+Open <http://localhost:8080>.
 
-## Simple workflow
+## Simple mode
 
-For a solo report (OSCP-style) or a team of two:
+Working alone, or in a team of two? Skip the roles.
 
 ```sh
 ./yars init --simple data
 echo 'change-me' | ./yars useradd --data data --admin alice
 ```
 
-Findings go draft → complete → reported (plus withdraw and restore), with
-no roles, reviewers or sign-off: an account is an admin or not, and
-`useradd` takes no `--role`. The workflow is chosen at `yars init` and
-cannot change after it ([config.md](docs/config.md)).
+Draft → complete → reported. Admin or not. That's all.
 
-## Default data folder
+## Handy commands
 
-`./yars use data` makes `data` the default, so `--data` can be left out:
-`./yars serve`, `./yars unlock alice`. `./yars use` shows the default and
-where it comes from. `--data` wins over `YARS_DATA`, which wins over the
-folder set with `yars use` (`data:` in `~/.config/yars/config.yaml`).
-`yars seed` always needs `--data` (`--simple` seeds the simple workflow).
+| Command | Does |
+|---|---|
+| `yars use data` | Makes `data` the default, so `--data` can go. |
+| `yars hook install` | In a clone: the server checks each commit. |
+| `yars unlock alice` | Ends a lockout after 5 wrong passwords. |
+| `yars backup --out yars.zip` | Backs up everything. Safe while it runs. |
+| `yars seed --data demo` | Fills a demo folder (`--simple` too). |
 
-`./yars unlock <user>` ends a user's login lockout (after 5 wrong
-passwords), for when no admin can log in.
+## Docs
 
-## Backup and restore
-
-A git clone holds the findings only. Accounts, workflow state, reviewers,
-chat and check results are in the server's database, so back up with:
-
-    ./yars backup --out /backups/yars-$(date +%F).zip
-
-Add `--key` to include the key that decrypts stored AI and personal keys.
-Run it from cron; it works while the server runs.
-
-    ./yars restore --from /backups/yars-2026-11-11.zip --data /srv/yars-restored
-    ./yars serve --data /srv/yars-restored
-
-A restore always goes into a new folder and checks it before it reports success.
+[Deploy](docs/deploy.md) · [Git](docs/git.md) · [MCP](docs/mcp.md) · [Rules](docs/rules.md) · [Config](docs/config.md) · [Exporters](docs/exporters.md) · [Webhooks](docs/webhooks.md)
