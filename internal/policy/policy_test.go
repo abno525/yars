@@ -1486,10 +1486,28 @@ func TestPolicySharedEmail(t *testing.T) {
 	}
 }
 
+// .gitattributes is an admin's: a line such as ".yars/rules/** eol=crlf" or
+// working-tree-encoding changes the rule scripts and config.yaml an admin
+// wrote as they are checked out. Its removal too.
 func TestPolicyGitattributes(t *testing.T) {
 	f := newFx(t).on("")
 	if ps := f.push("alice", func(d string) { write(d, ".gitattributes", "*.md -diff\n") }); !has(ps, ".gitattributes") {
 		t.Fatalf("pentester changed .gitattributes: %v", ps)
+	}
+	f.reclone()
+	if ps := f.push("dan", func(d string) { write(d, ".gitattributes", ".yars/rules/** eol=crlf\n") }); !has(ps, ".gitattributes: only an admin can change .gitattributes") {
+		t.Fatalf("a director without the admin flag changed .gitattributes: %v", ps)
+	}
+	f.reclone()
+	if ps := f.push("dora", func(d string) { write(d, ".gitattributes", "*.py text eol=lf\n") }); len(ps) != 0 {
+		t.Fatalf("an admin refused: %v", ps)
+	}
+	write(f.srv.Dir, ".gitattributes", "*.py text eol=lf\n")
+	git(t, f.srv.Dir, "add", "-A")
+	git(t, f.srv.Dir, "commit", "-qm", "attributes")
+	f.reclone()
+	if ps := f.push("dan", func(d string) { os.Remove(filepath.Join(d, ".gitattributes")) }); !has(ps, ".gitattributes: only an admin can change .gitattributes") {
+		t.Fatalf("a director without the admin flag removed .gitattributes: %v", ps)
 	}
 	f.on("acme")
 	if ps := f.push("dora", func(d string) { write(d, fdir+"/attachments/.gitattributes", "x\n") }); len(ps) == 0 {

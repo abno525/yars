@@ -589,6 +589,11 @@ func (c *Checker) file(u config.User, old, new string, ch gitrepo.Change) []stri
 		if !manager(u) {
 			return []string{"only a director can change .gitattributes"}
 		}
+		// eol or working-tree-encoding on .yars/rules or config.yaml would
+		// change what an admin wrote as it is checked out
+		if !u.IsAdmin {
+			return []string{"only an admin can change .gitattributes (it sets how files are checked out, .yars/rules and config.yaml too)"}
+		}
 		return nil
 	case p == "README.md" || p == "engagements/.gitkeep" || p == ".gitignore":
 		if p == ".gitignore" && !manager(u) {
