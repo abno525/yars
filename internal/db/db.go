@@ -458,7 +458,7 @@ func Open(path string) (*DB, error) {
 	} else {
 		f.Close()
 	}
-	dsn := "file:" + path + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)" +
+	dsn := fileURI(path) + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)" +
 		"&_pragma=synchronous(NORMAL)&_pragma=cache_size(-20000)&_pragma=mmap_size(134217728)&_txlock=immediate"
 	sdb, err := sql.Open("sqlite", dsn)
 	if err != nil {
@@ -478,13 +478,20 @@ func Open(path string) (*DB, error) {
 	return d, nil
 }
 
+// uriEscaper escapes what a file: URI gives a meaning to: % an escape, ? the
+// query, # the fragment. SQLite decodes them back, so it opens path itself.
+var uriEscaper = strings.NewReplacer("%", "%25", "?", "%3F", "#", "%23")
+
+// fileURI is the file: URI SQLite opens path by.
+func fileURI(path string) string { return "file:" + uriEscaper.Replace(path) }
+
 // SchemaOf reads the schema version of the database file at path without
 // migrating it (or creating it: a missing file is an error).
 func SchemaOf(path string) (int, error) {
 	if _, err := os.Stat(path); err != nil {
 		return 0, err
 	}
-	sdb, err := sql.Open("sqlite", "file:"+path+"?mode=ro")
+	sdb, err := sql.Open("sqlite", fileURI(path)+"?mode=ro")
 	if err != nil {
 		return 0, err
 	}
