@@ -3,8 +3,11 @@ package web
 import (
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
+
+	"yars/internal/db"
 )
 
 // Admin › Users of the simple workflow: no Role column, no role select in a
@@ -95,5 +98,61 @@ func TestSimpleRoleEndpointRefused(t *testing.T) {
 	// admins only, as before
 	if rec := e.do(t, "ben", "POST", "/admin/users/anna/role", url.Values{"role": {"pentester"}}, nil); rec.Code != http.StatusForbidden {
 		t.Fatalf("ben: %d", rec.Code)
+	}
+}
+
+// Settings › Account: an Access field instead of Roles: the admin tag, or a
+// muted dash.
+func TestSimpleSettingsAccess(t *testing.T) {
+	e := setupSimple(t)
+	for user, want := range map[string]string{
+		"anna": `<span class="flabel">Access</span><span class="fvalue tags"><span class="tag adminflag">admin</span></span>`,
+		"ben":  `<span class="flabel">Access</span><span class="fvalue tags"><span class="muted">—</span></span>`,
+	} {
+		b := e.do(t, user, "GET", "/settings", nil, nil).Body.String()
+		acct := between(b, `id="account"`, "</form>")
+		if !strings.Contains(acct, want) {
+			t.Errorf("%s account:\n%s", user, acct)
+		}
+		if strings.Contains(acct, ">Roles<") || strings.Contains(acct, "tag role") || strings.Contains(acct, "director") {
+			t.Errorf("%s: a role shown:\n%s", user, acct)
+		}
+	}
+	// the standard workflow keeps Roles
+	std := setup(t)
+	if b := std.do(t, "dora", "GET", "/settings", nil, nil).Body.String(); !strings.Contains(b, `<span class="flabel">Roles</span><span class="fvalue tags"><span class="tag role">director</span><span class="tag adminflag">admin</span></span>`) {
+		t.Fatal("standard Roles field")
+	}
+}
+
+// A token of the simple workflow has no Assign reviewers scope: the form
+// does not list it and a posted one is not taken.
+func TestSimpleTokenScopes(t *testing.T) {
+	e := setupSimple(t)
+	b := e.do(t, "ben", "GET", "/settings/tokens/new", nil, nil).Body.String()
+	if strings.Contains(b, `value="reviewers"`) || strings.Contains(b, "Assign reviewers") {
+		t.Fatal("the reviewers scope is listed")
+	}
+	for _, a := range db.TokenActions {
+		if a != "reviewers" && !strings.Contains(b, `name="action" value="`+a+`"`) {
+			t.Errorf("%s not listed", a)
+		}
+	}
+	f := url.Values{"name": {"bot"}, "kind": {"mcp"}, "access": {"actions"}, "engs": {"all"}, "expires": {"30"}, "action": {"reviewers"}}
+	if rec := e.do(t, "ben", "POST", "/settings/tokens/new", f, nil); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "Pick at least one action") {
+		t.Fatalf("reviewers only: %d", rec.Code)
+	}
+	f["action"] = []string{"reviewers", "status"}
+	if rec := e.do(t, "ben", "POST", "/settings/tokens/new", f, nil); rec.Code != http.StatusSeeOther {
+		t.Fatalf("create %d", rec.Code)
+	}
+	l := e.srv.Tokens.ListFor("ben")
+	if len(l) != 1 || !slices.Equal(l[0].Scopes, []string{"status"}) {
+		t.Fatalf("tokens %+v", l)
+	}
+	// the standard workflow keeps it
+	std := setup(t)
+	if b := std.do(t, "alice", "GET", "/settings/tokens/new", nil, nil).Body.String(); !strings.Contains(b, `name="action" value="reviewers"`) {
+		t.Fatal("standard scopes")
 	}
 }

@@ -15,7 +15,8 @@
       <div class="panelhead"><h2>Account</h2><div class="actions"><span class="pstate error" title="{{.Settings.AccountErr}}">{{.Settings.AccountErr}}</span><button class="btn save sm w96">Save</button></div></div>
       <div class="fgrid two">
         <div class="field"><span class="flabel">Username</span><span class="fvalue" title="{{.User.Username}}">{{.User.Username}}</span></div>
-        <div class="field"><span class="flabel">Roles</span><span class="fvalue tags"><span class="tag role">{{.User.Role}}</span>{{if .User.IsAdmin}}<span class="tag adminflag">admin</span>{{end}}</span></div>
+        {{if simple}}<div class="field"><span class="flabel">Access</span><span class="fvalue tags">{{if .User.IsAdmin}}<span class="tag adminflag">admin</span>{{else}}<span class="muted">—</span>{{end}}</span></div>
+        {{else}}<div class="field"><span class="flabel">Roles</span><span class="fvalue tags"><span class="tag role">{{.User.Role}}</span>{{if .User.IsAdmin}}<span class="tag adminflag">admin</span>{{end}}</span></div>{{end}}
         <label class="field span2">Email<input name="email" type="email" value="{{.User.Email}}" autocomplete="email"></label>
       </div>
     </form>

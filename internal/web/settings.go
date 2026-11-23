@@ -57,7 +57,16 @@ type tokenForm struct {
 var tokenActionLabels = map[string]string{"create": "Create findings", "edit": "Edit findings", "comment": "Comment and resolve",
 	"status": "Change status", "reviewers": "Assign reviewers", "checks": "Run checks", "export": "Export reports"}
 
-var tokenExpiry = []option{{Value: "30", Label: "30 days"}, {Value: "90", Label: "90 days"}, {Value: "365", Label: "1 year"}, {Value: "never", Label: "Never"}}
+// tokenActions are the actions a new token can be given: db.TokenActions,
+// less Assign reviewers in the simple workflow (it has no reviewers).
+func (s *Server) tokenActions() []string {
+	if s.flow().Simple {
+		return slices.DeleteFunc(slices.Clone(db.TokenActions), func(a string) bool { return a == "reviewers" })
+	}
+	return db.TokenActions
+}
+
+var tokenExpiry =[]option{{Value: "30", Label: "30 days"}, {Value: "90", Label: "90 days"}, {Value: "365", Label: "1 year"}, {Value: "never", Label: "Never"}}
 
 // Connections: outside services a user can keep a personal key for.
 var connServices = []option{{Value: "confluence", Label: "Confluence"}, {Value: "jira", Label: "Jira"}}
@@ -338,7 +347,7 @@ func (s *Server) tokenFormFor(r *http.Request, p *page, f tokenForm, picked []st
 		return err
 	}
 	f.Actions = nil
-	for _, a := range db.TokenActions {
+	for _, a := range s.tokenActions() {
 		f.Actions = append(f.Actions, option{Value: a, Label: tokenActionLabels[a], On: slices.Contains(picked, a)})
 	}
 	f.EngOpts = nil
@@ -383,7 +392,7 @@ func (s *Server) tokenCreate(w http.ResponseWriter, r *http.Request) {
 		Engs: r.FormValue("engs"), Expires: r.FormValue("expires")}
 	spec := db.TokenSpec{Name: f.Name, Kind: f.Kind}
 	var picked []string
-	for _, a := range db.TokenActions { // in the list's order
+	for _, a := range s.tokenActions() { // in the list's order; a hidden one is not taken
 		if slices.Contains(r.Form["action"], a) {
 			picked = append(picked, a)
 		}
