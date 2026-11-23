@@ -121,9 +121,10 @@ func (s *Store) TransitionChecked(engID, dir string, act workflow.Action, reason
 }
 
 // TransitionSeen is Transition for a page that showed the content with hash
-// seen and the attachments with AttachmentsHash files: a sign-off or an
-// approval of a finding changed since is refused (ErrConflict). seen or
-// files "" is not checked; another action: Transition.
+// seen and the attachments with AttachmentsHash files: a sign-off, an
+// approval or a Complete (SignsOff) of a finding changed since is refused
+// (ErrConflict). seen or files "" is not checked; another action:
+// Transition.
 func (s *Store) TransitionSeen(engID, dir string, act workflow.Action, reason, seen, files string, u config.User) error {
 	if !SignsOff(act) {
 		seen, files = "", ""

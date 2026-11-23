@@ -414,6 +414,28 @@ func TestSimpleWithdrawRestore(t *testing.T) {
 	}
 }
 
+// The standard workflow has no Complete: refused as an unknown action, with
+// rules or without, and its reviewers still change.
+func TestStandardCompleteRefused(t *testing.T) {
+	s, dir, fd := ready(t)
+	if s.Flow().Simple {
+		t.Fatal("standard store runs the simple workflow")
+	}
+	if err := s.Transition(eng, fd, workflow.Complete, "", uDora); !denied(err) || err.Error() != `unknown action "complete"` {
+		t.Fatalf("without rules: %v", err)
+	}
+	withRules(t, s, dir, checkRules)
+	if err := s.TransitionSeen(eng, fd, workflow.Complete, "", load(t, s, fd).Hash, "", uDora); !denied(err) || err.Error() != `unknown action "complete"` {
+		t.Fatalf("with rules: %v", err)
+	}
+	if st := stateOf(t, s, fd); st.Status != "" && st.Status != "draft" {
+		t.Fatalf("state %+v", st)
+	}
+	if err := s.AddReviewers(eng, fd, []string{"carol"}, uAlice); err != nil {
+		t.Fatalf("standard reviewers: %v", err)
+	}
+}
+
 // The store keeps the workflow it was created with: a configuration set,
 // pushed or reloaded with another one keeps the rest and not that.
 func TestSimpleConfigPinned(t *testing.T) {
