@@ -20,7 +20,7 @@ type wfAction struct {
 	Name                           string // the action (submit, return, clear, …)
 	Label, URL, Title              string
 	NeedsReason, Primary, Disabled bool
-	Gated                          bool // submit/approve: blocked by gate and rule errors
+	Gated                          bool // submit/approve/complete: blocked by gate and rule errors
 }
 
 type wfReviewer struct {
@@ -36,7 +36,9 @@ type wfCandidate struct {
 type wfView struct {
 	Status  string
 	Shown   string   // the current step: Status, or signed off (workflow.Shown)
-	Steps   []string // workflow.ShownSteps
+	Steps   []string // the flow's ShownSteps
+	Simple  bool     // the simple workflow: its slots (wfSimpleLayout), no reviewers
+	Author  string   // the one chip of the simple bar, in the reviewers' place
 	Actions []wfAction
 	Gate    []string
 	// open check errors and warnings keeping Sign off or Approve disabled
@@ -53,7 +55,7 @@ type wfView struct {
 	HasGated     bool
 	ReviewersURL string
 	URL          string // the bar alone (live refresh)
-	Seen         string // the content hash of the version shown: Sign off and Approve are for it
+	Seen         string // the content hash of the version shown: Sign off, Approve and Complete are for it
 	SeenFiles    string // and the attachments shown (store.AttachmentsHash)
 	Returned     *finding.Returned
 	Withdrawn    *finding.Returned // who withdrew the finding and why
@@ -167,6 +169,15 @@ var wfLayout = map[string][]wfSlotSpec{
 	workflow.Withdrawn: {{workflow.Revise, "w136"}},
 }
 
+// wfSimpleLayout is wfLayout for the simple workflow: Complete takes
+// Submit's slot; the other statuses keep theirs.
+var wfSimpleLayout = map[string][]wfSlotSpec{
+	"draft":            {{workflow.Complete, "w112"}, {workflow.Withdraw, "w136"}},
+	"complete":         {{workflow.Reopen, "w136"}, {workflow.Report, "w136"}, {workflow.Withdraw, "w136"}},
+	"reported":         {{workflow.Unreport, "w136"}, {workflow.Withdraw, "w136"}},
+	workflow.Withdrawn: {{workflow.Revise, "w136"}},
+}
+
 // barLabel is the short button label; the full label is its title.
 func barLabel(a workflow.Action) string {
 	switch a {
@@ -196,7 +207,11 @@ func (v *wfView) arrange(u config.User, m finding.Meta) {
 	signed := slices.Contains(m.ClearedBy, u.Username)
 	var needsSignOff bool
 	base := strings.TrimSuffix(v.URL, "/workflow") + "/action/"
-	for _, sp := range wfLayout[m.Status] {
+	f, layout := workflow.Flow{Simple: v.Simple}, wfLayout
+	if v.Simple {
+		layout = wfSimpleLayout
+	}
+	for _, sp := range layout[m.Status] {
 		name := string(sp.act)
 		sl := wfSlot{Slot: name, Width: sp.width}
 		sl.URL = base + name
@@ -231,7 +246,7 @@ func (v *wfView) arrange(u config.User, m finding.Meta) {
 				// class (the slot's button is wf-<slot>)
 				sl.PanelID = "wf-" + name + "-reason"
 				sl.PanelHead = map[workflow.Action]string{workflow.Return: "Return to draft", workflow.Withdraw: "Withdraw finding",
-					workflow.Reopen: "Revert to verification", workflow.Unreport: "Revert to complete"}[sp.act]
+					workflow.Reopen: f.RevertName(workflow.Reopen), workflow.Unreport: f.RevertName(workflow.Unreport)}[sp.act]
 				if sp.act == workflow.Reopen || sp.act == workflow.Unreport {
 					sl.Title = sl.PanelHead // both read "Revert": the title says which
 				}
@@ -294,9 +309,10 @@ func (s *Server) wfFor(ref store.FindingRef, r *http.Request) wfView {
 	m := ref.F.Meta
 	base := findingURL(ref.EngID, ref.Dir)
 	archived := s.Store.Archived(ref.EngID)
-	v := wfView{Status: m.Status, Shown: workflow.Shown(m), Steps: workflow.ShownSteps, CanAssign: workflow.CanAssign(u, m) && !archived,
+	f := s.flow()
+	v := wfView{Status: m.Status, Shown: workflow.Shown(m), Steps: f.ShownSteps(), CanAssign: f.HasReviewers() && workflow.CanAssign(u, m) && !archived,
 		ReviewersURL: base + "/reviewers", URL: base + "/workflow", Seen: ref.Hash, Returned: m.Returned, Withdrawn: m.Withdrawn,
-		IsWithdrawn: m.Status == workflow.Withdrawn, ReadOnly: archived}
+		IsWithdrawn: m.Status == workflow.Withdrawn, ReadOnly: archived, Simple: f.Simple, Author: m.Author}
 	if v.IsWithdrawn {
 		v.Returned = nil // the withdrawal is what counts now
 	}
@@ -310,8 +326,8 @@ func (s *Server) wfFor(ref store.FindingRef, r *http.Request) wfView {
 			}
 		}
 	}
-	for _, a := range workflow.Actions {
-		if archived || workflow.Check(u, m, a) != nil {
+	for _, a := range f.Actions() {
+		if archived || f.Check(u, m, a) != nil {
 			continue
 		}
 		act := wfAction{Name: string(a), Label: workflow.Label(a), URL: base + "/action/" + string(a),
@@ -446,6 +462,11 @@ func (s *Server) wfReviewers(w http.ResponseWriter, r *http.Request) {
 	}
 	r.ParseForm()
 	names := r.PostForm["reviewer"]
+	if !s.flow().HasReviewers() {
+		// no one to name: the store refuses any list, before a name is judged
+		s.wfDone(w, r, s.Store.SetReviewers(ref.EngID, ref.Dir, names, auth.UserFrom(r.Context())))
+		return
+	}
 	users := s.Auth.Users() // once per request, not per name
 	if r.PostForm.Get("all") != "" {
 		// keep whoever is assigned and add every reviewer-role account; a

@@ -8,6 +8,10 @@
   </ol>
   <div class="wfrow">
     <div class="wfrevs">
+      {{- if simple}}
+      <span class="rl">Author</span>
+      <span class="chips">{{with .Author}}<span class="rev" title="{{.}}"><span class="name">{{.}}</span></span>{{else}}<span class="none">—</span>{{end}}</span>
+      {{- else}}
       <span class="rl">Reviewers</span>
       <span class="chips">{{range .Chips}}<span class="rev{{if .Cleared}} cleared{{end}}" title="{{.Name}}"><span class="name">{{.Name}}</span></span>{{else}}<span class="none">None</span>{{end}}</span>
       {{if .More}}
@@ -32,6 +36,7 @@
         </form>
       </details>
       {{end}}
+      {{- end}}
     </div>
     {{if and .Check.On (or .StateError .OpenWarnings)}}<button type="button" class="wfstate{{if .StateError}} error{{end}}" id="wf-state" data-open-checks title="{{.State}}">{{.State}}</button>
     {{else}}<span class="wfstate{{if .StateError}} error{{end}}" id="wf-state" title="{{.State}}">{{.State}}</span>{{end}}
@@ -48,7 +53,7 @@
       {{range .Slots}}
       {{if not .Present}}<span class="slot {{.Width}}" data-slot="{{.Slot}}"></span>
       {{else if .PanelID}}<button type="button" class="btn {{.Width}} {{.Class}}" id="wf-{{.Slot}}"{{with .Key}} aria-keyshortcuts="{{.}}"{{end}} data-slot="{{.Slot}}" data-action="{{.Name}}"{{if .Disabled}} disabled{{end}} title="{{.Title}}" aria-controls="{{.PanelID}}" aria-expanded="{{if .Open}}true{{else}}false{{end}}" data-reason-toggle>{{.Label}}</button>
-      {{else}}<form method="post" action="{{.URL}}" class="wf-action" data-slot="{{.Slot}}">{{if or (eq .Slot "clear") (eq .Slot "approve")}}<input type="hidden" name="seen" value="{{$.Seen}}"><input type="hidden" name="seenfiles" value="{{$.SeenFiles}}">{{end}}<button class="btn {{.Width}} {{.Class}}" id="wf-{{.Slot}}"{{with .Key}} aria-keyshortcuts="{{.}}"{{end}} data-action="{{.Name}}"{{if .Disabled}} disabled{{end}} title="{{.Title}}"{{with .DescribedBy}} aria-describedby="{{.}}"{{end}}>{{.Label}}</button></form>
+      {{else}}<form method="post" action="{{.URL}}" class="wf-action" data-slot="{{.Slot}}">{{if or (eq .Slot "clear") (eq .Slot "approve") (eq .Slot "complete")}}<input type="hidden" name="seen" value="{{$.Seen}}"><input type="hidden" name="seenfiles" value="{{$.SeenFiles}}">{{end}}<button class="btn {{.Width}} {{.Class}}" id="wf-{{.Slot}}"{{with .Key}} aria-keyshortcuts="{{.}}"{{end}} data-action="{{.Name}}"{{if .Disabled}} disabled{{end}} title="{{.Title}}"{{with .DescribedBy}} aria-describedby="{{.}}"{{end}}>{{.Label}}</button></form>
       {{end}}
       {{end}}
     </div>
