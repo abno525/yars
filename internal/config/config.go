@@ -17,7 +17,19 @@ import (
 	"yars/internal/gitrepo"
 )
 
+// The workflows a data folder can be set up with (yars init). The standard
+// one has roles and review (draft → verification → complete → reported);
+// the simple one has neither (draft → complete → reported).
+const (
+	WorkflowStandard = "standard"
+	WorkflowSimple   = "simple"
+)
+
 type Config struct {
+	// Workflow is the workflow yars init set up: WorkflowSimple, or ""
+	// (also WorkflowStandard) for the standard one. It is fixed after init;
+	// the standard workflow writes no key.
+	Workflow    string   `yaml:"workflow,omitempty"`
 	Severities  []string `yaml:"severities"`
 	Sections    []string `yaml:"sections"`
 	DetailsRows []string `yaml:"details_rows"`
@@ -71,6 +83,9 @@ type CVSSConfig struct {
 	Standard map[string]string `yaml:"standard"`
 }
 
+// Simple reports whether the data folder runs the simple workflow.
+func (c Config) Simple() bool { return c.Workflow == WorkflowSimple }
+
 // NonStandard reports whether value differs from the configured standard
 // for metric key. Metrics without a standard are never non-standard.
 func (c Config) NonStandard(key, value string) bool {
@@ -86,6 +101,9 @@ func defaultStandard() map[string]string {
 var RatingSeverities = []string{"critical", "high", "medium", "low", "info"}
 
 func validate(c *Config) error {
+	if w := c.Workflow; w != "" && w != WorkflowStandard && w != WorkflowSimple {
+		return fmt.Errorf("config: workflow %q must be standard or simple", w)
+	}
 	var missing []string
 	for _, r := range RatingSeverities {
 		if !slices.Contains(c.Severities, r) {
