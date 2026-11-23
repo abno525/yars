@@ -347,6 +347,31 @@ func TestSimpleSetupTags(t *testing.T) {
 	}
 }
 
+// The audit of the first account names no role in the simple workflow, as
+// Admin › Users' does: "first run: admin"; the standard one keeps
+// "first run: director, admin".
+func TestSimpleSetupAudit(t *testing.T) {
+	for _, c := range []struct {
+		e    *env
+		want string
+	}{{freshSimple(t), "first run: admin"}, {fresh(t), "first run: director, admin"}} {
+		f := url.Values{"username": {"anna"}, "password": {"long enough pw"}, "repeat": {"long enough pw"}}
+		if rec := c.e.do(t, "", "POST", "/setup", f, nil); rec.Code != http.StatusSeeOther {
+			t.Fatalf("setup %d", rec.Code)
+		}
+		l, _ := c.e.srv.Store.DB().AuditLog(10)
+		var got []string
+		for _, a := range l {
+			if a.Action == "user.add" && a.Target == "anna" {
+				got = append(got, a.Detail)
+			}
+		}
+		if len(got) != 1 || got[0] != c.want {
+			t.Errorf("want %q, audit %+v", c.want, l)
+		}
+	}
+}
+
 // Admin › Rules: Require Check comes before Complete in the simple workflow.
 func TestSimpleRequireCheckLabel(t *testing.T) {
 	e := setupSimple(t)

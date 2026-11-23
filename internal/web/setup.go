@@ -111,7 +111,12 @@ func (s *Server) setup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.hasUsers.Store(true)
-	d.Audit(name, "user.add", name, "first run: director, admin")
+	// the simple workflow names the admin flag only, as Admin › Users does
+	detail := "first run: director, admin"
+	if s.flow().Simple {
+		detail = "first run: admin"
+	}
+	d.Audit(name, "user.add", name, detail)
 	tok, ok := s.Auth.Login(name, r.FormValue("password"))
 	if !ok {
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
