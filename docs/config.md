@@ -55,7 +55,7 @@ Without `smtp.host` and `smtp.from` the Email column of the notification setting
 
 ## Workflow
 
-`yars init --simple` writes `workflow: simple` at the top of the file: findings go draft → complete → reported, with no roles, reviewers or sign-off. The standard workflow (`yars init`) writes no key. Init also records the workflow in the database, and it stays as init set it: `yars serve` does not start when the file says another one ("config.yaml says workflow standard but this data folder was set up with simple (yars init); put workflow: simple back"), a push that changes the key is refused ([git.md](git.md)), and a running server keeps its workflow whatever a saved file says.
+`yars init --simple` writes `workflow: simple` at the top of the file: findings go draft → complete → reported, with no roles, reviewers or sign-off. The standard workflow (`yars init`) writes no key. Init also records the workflow in the database, and it stays as init set it: `yars serve` does not start when the file says another one ("config.yaml says workflow standard but this data folder was set up with simple (yars init); put workflow: simple back"), a push that changes the key is refused ([git.md](git.md)), and a running server keeps its workflow whatever a saved file says. A data folder whose database is missing (`yars.db` deleted, or the folder copied without it) gets a new, empty one, which takes the workflow the file names.
 
 ## Check runs
 

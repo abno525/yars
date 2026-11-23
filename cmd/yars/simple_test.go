@@ -124,6 +124,62 @@ func TestServeRefusesWorkflowMismatch(t *testing.T) {
 	}
 }
 
+// A data folder whose database is missing (yars.db deleted, or the folder
+// copied without it) gets a new one that holds no accounts or states yet:
+// it takes the workflow config.yaml names, as yars init records it. A
+// simple folder then refuses roles and starts on the simple workflow; a
+// standard one stays standard.
+func TestNewDatabaseTakesConfigWorkflow(t *testing.T) {
+	dropDB := func(dir string) {
+		for _, p := range []string{db.Path(dir), db.Path(dir) + "-wal", db.Path(dir) + "-shm"} {
+			os.Remove(p)
+		}
+		if _, err := os.Stat(db.Path(dir)); err == nil {
+			t.Fatal("yars.db still there")
+		}
+	}
+	start := func(dir string) (config.Config, *db.DB, *store.Store) {
+		t.Helper()
+		r, _ := gitrepo.Open(dir)
+		cfg, d, st, err := prepareData(r)
+		if err != nil {
+			t.Fatalf("start: %v", err)
+		}
+		t.Cleanup(func() { d.Close() })
+		return cfg, d, st
+	}
+
+	dir := initSimple(t)
+	dropDB(dir)
+	var out bytes.Buffer
+	if err := cmdUseradd([]string{"--data", dir, "--role", "pentester", "carl"}, strings.NewReader("pw\n"), &out); err == nil || err.Error() != "the simple workflow has no roles" {
+		t.Errorf("useradd --role pentester on a new database: %v", err)
+	}
+
+	dir = initSimple(t)
+	dropDB(dir)
+	cfg, d, st := start(dir)
+	if !cfg.Simple() || !st.Flow().Simple {
+		t.Errorf("a simple folder with a new database starts on %s", st.Flow().Name())
+	}
+	if w, err := d.Setting("workflow"); w != "simple" || err != nil {
+		t.Errorf("the new database's setting %q %v", w, err)
+	}
+
+	dir = t.TempDir()
+	if err := initData(dir); err != nil {
+		t.Fatal(err)
+	}
+	dropDB(dir)
+	cfg, d, st = start(dir)
+	if cfg.Simple() || st.Flow().Simple {
+		t.Errorf("a standard folder with a new database starts on %s", st.Flow().Name())
+	}
+	if w, err := d.Setting("workflow"); w != "" || err != nil {
+		t.Errorf("standard: the new database's setting %q %v", w, err)
+	}
+}
+
 // In the simple workflow useradd stores a director, with --role director or
 // without --role; any other role is refused. Its output and audit name the
 // admin flag only.

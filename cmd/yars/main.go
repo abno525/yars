@@ -234,8 +234,37 @@ const serverIgnore = "# accounts, tokens, chat and workflow state stay on the se
 // lines (cef68f5, 70f67a6).
 var oldIgnoreComments = []string{"# password hashes stay on the server", "# password hashes and API tokens stay on the server"}
 
-// dataDB opens (creating if needed) the data directory's database.
-func dataDB(dir string) (*db.DB, error) { return db.Open(db.Path(dir)) }
+// dataDB opens (creating if needed) the data directory's database. A new
+// one (yars.db missing: deleted, or the folder copied without it) holds no
+// accounts or states yet, so it takes the workflow config.yaml names and
+// records it, as yars init does (workflowSetting).
+func dataDB(dir string) (*db.DB, error) {
+	_, err := os.Stat(db.Path(dir))
+	fresh := errors.Is(err, os.ErrNotExist)
+	d, err := db.Open(db.Path(dir))
+	if err != nil || !fresh || fileWorkflow(dir) != config.WorkflowSimple {
+		return d, err
+	}
+	if err := d.SetSetting(workflowSetting, config.WorkflowSimple); err != nil {
+		d.Close()
+		return nil, err
+	}
+	return d, nil
+}
+
+// fileWorkflow is the workflow config.yaml in dir names, read through its
+// workflow key alone (the rest of the file may be broken): standard when
+// the file or the key does not read.
+func fileWorkflow(dir string) string {
+	var k struct {
+		Workflow string `yaml:"workflow"`
+	}
+	b, err := os.ReadFile(config.ConfigPath(dir))
+	if err != nil || yaml.Unmarshal(b, &k) != nil || k.Workflow != config.WorkflowSimple {
+		return config.WorkflowStandard
+	}
+	return config.WorkflowSimple
+}
 
 // existingDB opens the database only when there is one (a clone has none).
 func existingDB(dir string) (*db.DB, error) {
@@ -879,9 +908,10 @@ func cmdSeed(args []string, out io.Writer) error {
 	return nil
 }
 
-// workflowSetting is the database setting yars init --simple writes
-// (config.WorkflowSimple; unset for the standard workflow): the workflow the
-// data folder was set up with, which config.yaml's workflow key must keep.
+// workflowSetting is the database setting yars init --simple writes, and a
+// new database takes from config.yaml (dataDB) (config.WorkflowSimple; unset
+// for the standard workflow): the workflow the data folder was set up with,
+// which config.yaml's workflow key must keep.
 const workflowSetting = "workflow"
 
 // initData creates and initialises a data directory with the standard
