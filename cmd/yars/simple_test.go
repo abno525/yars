@@ -271,6 +271,45 @@ func TestSeedSimple(t *testing.T) {
 	}
 }
 
+// With the server's config.yaml broken past reading (the hook then runs on
+// the defaults), the workflow is still the one yars init set up: in a
+// simple folder a repair that keeps workflow: simple is accepted, and one
+// that drops it is refused.
+func TestHookBrokenConfigKeepsSimple(t *testing.T) {
+	dir := initSimple(t)
+	if err := openDB(t, dir).AddUser(config.User{Username: "anna", Role: "director", IsAdmin: true}); err != nil {
+		t.Fatal(err)
+	}
+	run := func(in string, args ...string) string {
+		t.Helper()
+		out, err := exec.Command("git", append([]string{"-C", in, "-c", "user.name=anna", "-c", "user.email=anna@yars.local", "-c", "commit.gpgsign=false"}, args...)...).CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	os.WriteFile(config.ConfigPath(dir), []byte("workflow: simple\nseverities: [x\n"), 0o644)
+	run(dir, "commit", "-qam", "broken")
+	old := run(dir, "rev-parse", "HEAD")
+	clone := filepath.Join(t.TempDir(), "clone")
+	if out, err := exec.Command("git", "clone", "-q", dir, clone).CombinedOutput(); err != nil {
+		t.Fatalf("clone: %v %s", err, out)
+	}
+	t.Setenv("REMOTE_USER", "anna")
+	for body, ok := range map[string]bool{"workflow: simple\n": true, "severities: [critical, high, medium, low, info]\n": false} {
+		run(clone, "reset", "-q", "--hard", old)
+		os.WriteFile(filepath.Join(clone, ".yars", "config.yaml"), []byte(body), 0o644)
+		run(clone, "commit", "-qam", "repair")
+		rev := run(clone, "rev-parse", "HEAD")
+		run(dir, "fetch", "-q", clone, "+HEAD:refs/test/candidate")
+		var out bytes.Buffer
+		code := cmdHook([]string{"pre-receive", "--data", dir}, strings.NewReader(old+" "+rev+" refs/heads/main\n"), &out)
+		if (code == 0) != ok || (!ok && !strings.Contains(out.String(), "(this server runs the simple workflow) and cannot change")) {
+			t.Errorf("repair %q: code %d\n%s", body, code, out.String())
+		}
+	}
+}
+
 // yars init without --simple writes the same config.yaml as before (no
 // workflow key), no database setting, and says what it always said.
 func TestInitStandardUnchanged(t *testing.T) {

@@ -513,6 +513,17 @@ func cmdHook(args []string, in io.Reader, errOut io.Writer) int {
 		return fail(err.Error())
 	}
 	defer d.Close()
+	if cfgErr != nil {
+		// the defaults keep the workflow yars init set up, which the repair
+		// may not change
+		simple, err := simpleData(d)
+		if err != nil {
+			return fail(err.Error())
+		}
+		if simple {
+			cfg.Workflow = config.WorkflowSimple
+		}
+	}
 	users, err := d.Users()
 	if err != nil {
 		return fail(err.Error())
