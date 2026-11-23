@@ -18,7 +18,7 @@ sudo install -m 0755 yars /usr/local/bin/yars
 yars version
 ```
 
-`yars version` prints the version, the database schema it writes and the Go release, for example `yars v1.0.0 (schema 22, go1.27.2)`. Built without `-ldflags`, it shows the git revision instead.
+`yars version` prints the version, the database schema it writes and the Go release, for example `yars v1.0.0 (schema 24, go1.27.2)`. Built without `-ldflags`, it shows the git revision instead.
 
 Create the account the service runs as, its data folder and the backup folder:
 
@@ -34,7 +34,7 @@ The account's home is outside the data folder: rule and exporter scripts run wit
 
 For a solo reporter or a team of two, `sudo -u yars yars init --simple /srv/yars` sets up the simple workflow instead: draft → complete → reported, with no roles, reviewers or sign-off; `useradd` then takes no `--role` (`yars useradd --data /srv/yars --admin alice`), and `yars role` is refused. The workflow is fixed at init: it is written to `.yars/config.yaml` and the database, `yars serve` does not start when the two disagree, and a push cannot change it.
 
-A new data folder has no check rules. Add the ones you want in Admin › Rules, or in a clone pushed by an admin ([rules.md](rules.md)); a file put straight into the server's `.yars/rules/` is not in git.
+A new data folder has no check rules. Add the ones you want in Admin › Rules, or in a clone pushed by a director with the admin flag ([rules.md](rules.md)); a file put straight into the server's `.yars/rules/` is not in git.
 
 Admin › System › Restore writes the restored folder next to the data folder, so it needs `/srv` writable by `yars`. With `/srv` owned by root, restore from the shell instead (see the restore drill).
 
@@ -126,7 +126,7 @@ Set the address people use in `.yars/config.yaml`, so links in mail and webhooks
 base_url: https://yars.example.com
 ```
 
-The file is in the main repository: an admin changes it in a clone and pushes it (see `docs/config.md`). An edit made in place on the server is undone at the next start, which resets the data folder's tree to its last commit.
+The file is in the main repository: a director with the admin flag changes it in a clone and pushes it (in the simple workflow every account is a director; see `docs/config.md`). An edit made in place on the server is undone at the next start, which resets the data folder's tree to its last commit.
 
 **Without a proxy:**
 
@@ -145,7 +145,7 @@ A git clone holds the findings only. Accounts, workflow state, reviewers, chat a
 30 2 * * * /usr/local/bin/yars backup --data /srv/yars --out /backups/yars-$(date +\%F).zip
 ```
 
-(cron needs the `%` escaped.) Add `--key` to include the key that decrypts the stored AI and personal keys; keep such a backup as safe as the server. Admin › System shows the last backup and can download one.
+(cron needs the `%` escaped.) Add `--key` to include the key that decrypts the stored AI and personal keys and the webhook secrets; keep such a backup as safe as the server. Admin › System shows the last backup and can download one.
 
 ### Restore drill
 

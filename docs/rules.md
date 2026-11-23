@@ -12,7 +12,7 @@ A rule in `.yars/rules/*.yaml` names a script file in `.yars/rules`. The script 
 
 ## Rule files
 
-A new data folder (`yars init`) has no rules. **Admin › Rules** writes them. To write them by hand, change `.yars/rules/` in a clone of the main repository and push it as an admin ([git.md](git.md)).
+A new data folder (`yars init`) has no rules. **Admin › Rules** writes them. To write them by hand, change `.yars/rules/` in a clone of the main repository and push it as a director with the admin flag ([git.md](git.md)); in the simple workflow every account is a director, so the admin flag is enough.
 
 With **Require Check** on (Admin › Rules, the default), Sign off and Approve wait for a finished Check on the finding's current text. While no rule is on, they don't wait.
 

@@ -49,7 +49,6 @@ What the polish backlog left open (it was `docs/superpowers/deferred-minors.md` 
 | In the inbox and Go to, a long engagement ID is cut at 96 px, the whole one on hover | Two date-prefixed IDs (2026-11-acme-webapp, 2026-11-acme-api) can look alike there. |
 | MCP `set_field assets` takes the port as a string | As documented; an agent sending a number is refused with the format and corrects it. |
 | The History page still scrolls when a selected change's diff is taller than the window | The list column fits the window; the diff panel has no height limit. |
-| The ./internal/web tests hold about 6 GB of memory while they run | Run them alone on a small machine (`go test -p 1 -parallel 2`); the server itself is not affected. |
 
 ## Simple mode
 

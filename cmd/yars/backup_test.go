@@ -288,7 +288,7 @@ func TestRestoreCommandRoundTrip(t *testing.T) {
 	}
 	openDB(t, dest)
 	for _, want := range []string{"schema v", "1 engagement\n", "1 finding\n", "secret key: no\n",
-		"stored AI and personal keys must be entered again\n", "next: yars serve --data " + dest + "\n"} {
+		"stored AI and personal keys must be entered again, and webhooks added again (their secrets cannot be read)\n", "next: yars serve --data " + dest + "\n"} {
 		if !strings.Contains(log.String(), want) {
 			t.Fatalf("output lacks %q:\n%s", want, log.String())
 		}

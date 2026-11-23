@@ -16,7 +16,7 @@ import (
 
 // Options says what a backup holds beyond the data.
 type Options struct {
-	WithKey bool // .yars/secret.key, which decrypts stored AI and personal keys
+	WithKey bool // .yars/secret.key, which decrypts stored AI and personal keys and webhook secrets
 }
 
 // Locker is what Write holds while it copies a repository; nil copies without
