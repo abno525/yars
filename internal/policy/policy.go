@@ -520,8 +520,9 @@ func (c *Checker) file(u config.User, old, new string, ch gitrepo.Change) []stri
 		if strings.HasPrefix(p, ".yars/config.yaml/") {
 			return []string{".yars/config.yaml must be a file"}
 		}
-		if p == ".yars/config.yaml" || (len(seg) == 3 && seg[1] == "rules") {
-			// on the website: Admin › Structure, AI, Rules
+		if p == ".yars/config.yaml" || (len(seg) > 1 && seg[1] == "rules") {
+			// on the website: Admin › Structure, AI, Rules; at any depth: a
+			// rule may run a script kept in a subfolder
 			if !u.IsAdmin {
 				return []string{"only an admin can change .yars/config.yaml and .yars/rules (on the website: Admin › Structure, AI and Rules)"}
 			}

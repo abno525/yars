@@ -315,15 +315,20 @@ func TestPolicyConfigDropsUsedName(t *testing.T) {
 }
 
 // What the website keeps to admins a director without the admin flag can't
-// push either: config.yaml (Admin › Structure, AI), rule files (Admin ›
-// Rules), and an exporter's service address and key variables.
+// push either: config.yaml (Admin › Structure, AI), anything in the rules
+// folder (Admin › Rules), its subfolders too (a rule may run a script kept
+// there), and an exporter's service address and key variables.
 func TestPolicySettingsAdminOnly(t *testing.T) {
 	f := newFx(t).on("")
-	for _, p := range []string{".yars/config.yaml", ".yars/rules/x.yaml"} {
+	for _, p := range []string{".yars/config.yaml", ".yars/rules/x.yaml", ".yars/rules/check.py", ".yars/rules/lib/x.py", ".yars/rules/lib/deep/x.yaml", ".yars/rules"} {
 		f.reclone()
 		if ps := f.push("dan", func(d string) { write(d, p, "sections: [Description]\n") }); !has(ps, p+": only an admin can change") {
 			t.Errorf("%s by a non-admin director: %v", p, ps)
 		}
+	}
+	f.reclone()
+	if ps := f.push("dora", func(d string) { write(d, ".yars/rules/lib/x.py", "print([])\n") }); len(ps) != 0 {
+		t.Fatalf("a script in a rules subfolder by an admin: %v", ps)
 	}
 	jira := "type: jira\njira:\n  base_url: https://attacker.example\n  project: X\n  issue_type: Bug\n  user_env: JIRA_USER\n  token_env: JIRA_TOKEN\n"
 	f.reclone()
