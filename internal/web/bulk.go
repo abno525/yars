@@ -42,22 +42,37 @@ const (
 	bulkTime      = 2 * time.Minute
 )
 
-// bulkAction reads the posted action: "reviewers" or a workflow action on
-// u's bulk menu. An unknown name is 400, one u's role may not run in bulk
-// 403.
-func bulkAction(u config.User, name string) (workflow.Action, int, string) {
+// bulkAction reads the posted action in workflow f: "reviewers" or an
+// action on u's bulk menu. An unknown name is 400; one u's role may not run
+// in bulk 403, and in the simple workflow so are reviewers and the standard
+// workflow's actions, as it words them.
+func bulkAction(f workflow.Flow, u config.User, name string) (workflow.Action, int, string) {
 	if name == "reviewers" {
-		if !workflow.BulkAssign(u) {
+		switch {
+		case !f.HasReviewers():
+			return "", http.StatusForbidden, "the simple workflow has no reviewers"
+		case !f.BulkAssign(u):
 			return "", http.StatusForbidden, "only a reviewer or a director can assign reviewers to several findings"
 		}
 		return "", 0, ""
 	}
 	a, ok := workflow.ParseAction(name)
-	if from, _ := workflow.Target(a); !ok || from == nil {
+	if !ok {
+		return "", http.StatusBadRequest, "unknown bulk action"
+	}
+	if from, _ := f.Target(a); from == nil {
+		if f.Simple {
+			// submit, sign off, approve…: not part of the simple workflow
+			return "", http.StatusForbidden, f.Check(u, finding.Meta{}, a).Error()
+		}
 		// complete, the simple workflow's, is unknown to the standard bar
 		return "", http.StatusBadRequest, "unknown bulk action"
 	}
-	if !workflow.BulkAllowed(u, a) {
+	if !f.BulkAllowed(u, a) {
+		if f.Simple {
+			// one menu for every account: no role to name
+			return "", http.StatusForbidden, f.BulkCheck(u, finding.Meta{}, a).Error()
+		}
 		return "", http.StatusForbidden, "a " + u.Role + " cannot " + strings.ToLower(workflow.Label(a)) + " several findings"
 	}
 	return a, 0, ""
@@ -89,7 +104,8 @@ func (s *Server) bulk(w http.ResponseWriter, r *http.Request) {
 	u := auth.UserFrom(r.Context())
 	r.ParseForm()
 	action, ids := r.PostForm.Get("action"), r.PostForm["id"]
-	act, code, msg := bulkAction(u, action)
+	f := s.flow()
+	act, code, msg := bulkAction(f, u, action)
 	switch {
 	case code == http.StatusBadRequest:
 		bulkBad(w, r, msg)
@@ -183,12 +199,12 @@ func (s *Server) bulk(w http.ResponseWriter, r *http.Request) {
 			default:
 				// the bulk menu's own limits, then the store's checks; both
 				// again on the finding as it is inside the change
-				if err = workflow.BulkCheck(u, ref.F.Meta, act); err == nil {
+				if err = f.BulkCheck(u, ref.F.Meta, act); err == nil {
 					if workflow.Gated(act) || store.SignsOff(act) {
 						s.lintDeadline(w) // each row may run every rule
 					}
 					err = s.Store.TransitionChecked(e, ref.Dir, act, reason, u, func(m finding.Meta) error {
-						return workflow.BulkCheck(u, m, act)
+						return f.BulkCheck(u, m, act)
 					})
 				}
 			}
@@ -262,13 +278,14 @@ type bulkBar struct {
 type bulkMenuItem struct {
 	workflow.BulkOption
 	Reason, Enabled bool
-	Key             string // aria-keyshortcuts: the bar's key, for Submit, Approve and Mark reported only
+	Key             string // aria-keyshortcuts: the bar's key, for Submit, Approve, Complete and Mark reported only
 }
 
 // menuItem is o's Set state entry.
 func menuItem(o workflow.BulkOption) bulkMenuItem {
 	it := bulkMenuItem{BulkOption: o, Reason: workflow.NeedsReason(o.Action)}
-	if o.Action == workflow.Submit || o.Action == workflow.Approve || o.Action == workflow.Report {
+	switch o.Action {
+	case workflow.Submit, workflow.Approve, workflow.Complete, workflow.Report:
 		it.Key = wfKeys[o.Action]
 	}
 	return it
@@ -276,21 +293,22 @@ func menuItem(o workflow.BulkOption) bulkMenuItem {
 
 // bulkBarFor builds the bar for the rows of an open engagement.
 func (s *Server) bulkBarFor(u config.User, eng, query string, rows []index.Row) bulkBar {
-	b := bulkBar{On: true, URL: "/e/" + eng + "/bulk", Assign: workflow.BulkAssign(u),
+	f := s.flow()
+	b := bulkBar{On: true, URL: "/e/" + eng + "/bulk", Assign: f.BulkAssign(u),
 		Pick: map[string]bool{}, Acts: map[string]string{}}
 	if query != "" {
 		b.URL += "?" + query
 	}
-	opts := workflow.BulkOptions(u)
+	opts := f.BulkOptions(u)
 	for _, o := range opts {
 		b.Options = append(b.Options, menuItem(o))
 	}
 	var blocked map[string]bool
-	if workflow.BulkAllowed(u, workflow.Clear) || workflow.BulkAllowed(u, workflow.Approve) {
-		blocked = s.gatedRows(rows)
+	if f.BulkAllowed(u, workflow.Clear) || f.BulkAllowed(u, workflow.Approve) || f.BulkAllowed(u, workflow.Complete) {
+		blocked = s.gatedRows(f, rows)
 	}
 	for _, row := range rows {
-		b.addRow(u, row, opts, blocked[row.EngID+"/"+row.Dir])
+		b.addRow(f, u, row, opts, blocked[row.EngID+"/"+row.Dir])
 	}
 	if b.Assign {
 		for _, c := range s.Auth.Users() {
@@ -313,36 +331,41 @@ func (b *bulkBar) key(eng, dir string) string {
 	return dir
 }
 
-// addRow makes row pickable when u may tick it, with the menu actions it
-// can take; a gated row (an open check, or no current check) takes neither
-// Sign off nor Approve.
-func (b *bulkBar) addRow(u config.User, row index.Row, opts []workflow.BulkOption, gated bool) {
-	if row.Meta == nil || !workflow.BulkPick(u, *row.Meta) {
+// addRow makes row pickable when u may tick it in workflow f, with the menu
+// actions it can take; a gated row (an open check, or no current check)
+// takes none that signs off (Sign off, Approve, Complete).
+func (b *bulkBar) addRow(f workflow.Flow, u config.User, row index.Row, opts []workflow.BulkOption, gated bool) {
+	if row.Meta == nil || !f.BulkPick(u, *row.Meta) {
 		return
 	}
 	k := b.key(row.EngID, row.Dir)
 	b.Pick[k] = true
 	var acts []string
 	for _, o := range opts {
-		if gated && (o.Action == workflow.Clear || o.Action == workflow.Approve) {
+		if gated && store.SignsOff(o.Action) {
 			continue
 		}
-		if workflow.BulkCheck(u, *row.Meta, o.Action) == nil {
+		if f.BulkCheck(u, *row.Meta, o.Action) == nil {
 			acts = append(acts, string(o.Action))
 		}
 	}
 	b.Acts[k] = strings.Join(acts, " ")
 }
 
-// gatedRows are the rows in verification ("eng/dir") whose Sign off and
-// Approve the store would refuse now, read as Ready to approve reads them
-// (withoutOpenChecks): open checks, or with Require Check on no finished
-// check on the content (Q12). When they cannot be read, every row in
-// verification counts as gated.
-func (s *Server) gatedRows(rows []index.Row) map[string]bool {
+// gatedRows are the rows ("eng/dir") whose sign-off the store would refuse
+// now (in workflow f: Sign off and Approve of a row in verification, or in
+// the simple workflow Complete of a draft), read as Ready to approve reads
+// them (withoutOpenChecks): open checks, or with Require Check on no
+// finished check on the content (Q12). When they cannot be read, every such
+// row counts as gated.
+func (s *Server) gatedRows(f workflow.Flow, rows []index.Row) map[string]bool {
+	from, what := "verification", "Sign off and Approve"
+	if f.Simple {
+		from, what = "draft", "Complete"
+	}
 	var cand []index.Row
 	for _, r := range rows {
-		if r.Status == "verification" {
+		if r.Status == from {
 			cand = append(cand, r)
 		}
 	}
@@ -351,7 +374,7 @@ func (s *Server) gatedRows(rows []index.Row) map[string]bool {
 	}
 	gated := map[string]bool{}
 	all := func(err error) map[string]bool {
-		log.Printf("bulk bar: Sign off and Approve left out of %d rows: %v", len(cand), err)
+		log.Printf("bulk bar: %s left out of %d rows: %v", what, len(cand), err)
 		for _, r := range cand {
 			gated[r.EngID+"/"+r.Dir] = true
 		}

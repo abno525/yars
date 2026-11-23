@@ -492,14 +492,17 @@ func (s *Server) inboxListsOf(u config.User, v inboxView, upTo map[workflow.Inbo
 // inboxBar is the director's bar for the findings of the pick queues, keyed
 // by "eng/dir" (the inbox spans engagements).
 func (s *Server) inboxBar(u config.User, rows []index.Row) bulkBar {
-	b := bulkBar{On: true, URL: "/inbox/bulk", Cross: true, Assign: workflow.BulkAssign(u),
+	f := s.flow()
+	b := bulkBar{On: true, URL: "/inbox/bulk", Cross: true, Assign: f.BulkAssign(u),
 		Pick: map[string]bool{}, Acts: map[string]string{}}
-	opts := workflow.BulkOptions(u)
+	opts := f.BulkOptions(u)
 	for _, o := range opts {
 		b.Options = append(b.Options, menuItem(o))
 	}
 	for _, r := range rows {
-		b.addRow(u, r, opts, false) // Ready to approve is already filtered (withoutOpenChecks)
+		// Ready to approve is already filtered (withoutOpenChecks); Ready to
+		// mark reported holds complete findings, past any sign-off
+		b.addRow(f, u, r, opts, false)
 	}
 	if b.Assign {
 		// across engagements: anyone who may review; each row checks its own team

@@ -55,9 +55,9 @@
     <span class="bsum" role="status">{{if .Ran}}<span class="mv">{{.Moved}} moved</span> <span class="sk">· {{.Skip}} skipped</span>{{end}}</span>
     <button type="button" class="btn sm w96 bclear" data-bulk-clear{{if not (or .Selected .Ran)}} disabled{{end}}>Clear</button>
     <section class="bdlg" role="dialog" aria-labelledby="bulk-reason-head" hidden>
-      <h2 id="bulk-reason-head" data-bulk-head>Return {{.Selected}} findings</h2>
+      <h2 id="bulk-reason-head" data-bulk-head>{{/* the entry that opens the panel names its verb (app.js); until then the simple workflow, which has no Return, says Withdraw */}}{{$verb := "Return"}}{{if simple}}{{$verb = "Withdraw"}}{{end}}{{$verb}} {{.Selected}} findings</h2>
       <label>Reason<textarea name="reason" rows="3" maxlength="4000" required disabled></textarea></label>
-      <div class="acts"><button class="btn danger w112" name="action" value="return" data-bulk-go aria-keyshortcuts="Control+Enter">Return</button><button type="button" class="btn secondary w96" data-bulk-cancel>Cancel</button></div>
+      <div class="acts"><button class="btn danger w112" name="action" value="{{if simple}}withdraw{{else}}return{{end}}" data-bulk-go aria-keyshortcuts="Control+Enter">{{$verb}}</button><button type="button" class="btn secondary w96" data-bulk-cancel>Cancel</button></div>
     </section>
   </div>
 {{end}}
