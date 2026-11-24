@@ -630,28 +630,31 @@ func (s *Server) home(w http.ResponseWriter, r *http.Request) {
 // repository names every engagement as a submodule, and git stops a
 // recursive clone at the first one the account may not fetch (403), so only
 // an account that sees all of them clones recursively; the others check out
-// their own by path.
+// their own by path. Each line but the last ends with &&: a paste stops at
+// the first failure (a clone refused, a yars folder in the way) instead of
+// running the rest in the current folder.
 func mainClone(url string, all bool, engs []store.Engagement) string {
-	const onMain = "\ngit submodule foreach -q git switch -q main"
+	const onMain = " &&\ngit submodule foreach -q git switch -q main"
 	switch {
 	case all:
 		return "git clone --recurse-submodules " + url + " && cd yars" + onMain
 	case len(engs) == 0:
 		return "git clone " + url
 	}
-	return "git clone " + url + " && cd yars\ngit submodule update --init " + engPaths(engs) + onMain
+	return "git clone " + url + " && cd yars &&\ngit submodule update --init " + engPaths(engs) + onMain
 }
 
 // mainCloneLine is mainClone on one line, into findings/, for Developers ›
-// Git (which puts the engagements on main on a line of its own).
+// Git (which puts the engagements on main on a line of its own, run in
+// findings/).
 func mainCloneLine(url string, all bool, engs []store.Engagement) string {
 	switch {
 	case all:
-		return "git clone --recurse-submodules " + url + " findings"
+		return "git clone --recurse-submodules " + url + " findings && cd findings"
 	case len(engs) == 0:
-		return "git clone " + url + " findings"
+		return "git clone " + url + " findings && cd findings"
 	}
-	return "git clone " + url + " findings && git -C findings submodule update --init " + engPaths(engs)
+	return "git clone " + url + " findings && cd findings && git submodule update --init " + engPaths(engs)
 }
 
 // engPaths are the engagements' folders in the main repository.

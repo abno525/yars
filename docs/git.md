@@ -1,6 +1,6 @@
 # Git
 
-Everything YARS keeps as content is in git: the main repository (`/git/yars`) holds the settings (`.yars/`) and one submodule per engagement; each engagement is its own repository (`/git/e/<id>`) with its findings. Sign in with your YARS username and password, or with a token made for Git (Settings › Tokens) as the password.
+Everything YARS keeps as content is in git: the main repository (`/git/yars`) holds the settings (`.yars/`) and one submodule per engagement; each engagement is its own repository (`/git/e/<id>`) with its findings. Sign in with your YARS username and password, or with a token made for Git (Settings › Tokens) as the password. A token restricted to some engagements cannot clone the main repository: clone each engagement alone (`/git/e/<id>`).
 
 ## Layout
 
@@ -31,21 +31,23 @@ A sign-off covers a finding's text and its attachments. A push that changes eith
 Directors and admins (in the simple workflow, every account) see every engagement and clone them all:
 
 ```sh
-git clone --recurse-submodules https://<server>/git/yars findings && cd findings
+git clone --recurse-submodules https://<server>/git/yars findings && cd findings &&
 git submodule foreach -q git switch -q main
 ```
 
 A pentester or reviewer may fetch only the engagements whose team they are on, and git stops a recursive clone at the first one they are not on. So they name their own, as the Clone panel on the Engagements page does for them; the other engagements stay empty folders:
 
 ```sh
-git clone https://<server>/git/yars findings && cd findings
-git submodule update --init engagements/<id> engagements/<id2>
+git clone https://<server>/git/yars findings && cd findings &&
+git submodule update --init engagements/<id> engagements/<id2> &&
 git submodule foreach -q git switch -q main
 ```
 
-Git checks submodules out on a detached HEAD: a commit made there is on no branch, and the push of `main` leaves it out. The last line puts every engagement on `main`. To pull, run `git pull` in the top folder, then `git submodule foreach -q git pull -q`: each engagement pulls its `main`. `git pull --recurse-submodules` (and `git submodule update`) detaches them again, and switching back to `main` after it lands on the `main` of the previous pull: pull there too. A pull touches only the engagements the clone checked out.
+Each line but the last ends with `&&`, so a paste stops at the first failure instead of running the rest in the current folder. Git checks submodules out on a detached HEAD: a commit made there is on no branch, and the push of `main` leaves it out. The last line puts every engagement on `main`. To pull, run `git pull` in the top folder, then `git submodule foreach -q git pull -q`: each engagement pulls its `main`. `git pull --recurse-submodules` (and `git submodule update`) detaches them again, and switching back to `main` after it lands on the `main` of the previous pull: pull there too. A pull touches only the engagements the clone checked out.
 
-A new engagement is checked out with `git submodule update --init engagements/<id>` (a director or an admin may leave out the path), then switched to `main` as above. Without the path, a pentester's or reviewer's `git submodule update --init` stops at the first engagement they are not on, and every later pull tries that one again; `git submodule deinit engagements/<id>` takes it out (it warns that it could not unset `core.worktree`, which does no harm).
+A new engagement is checked out with `git submodule update --init engagements/<id>` (a director or an admin may leave out the path), then switched to `main` as above. Without the path, a pentester's or reviewer's `git submodule update --init` stops at the first engagement they are not on. A plain `git pull` leaves that one alone, but `git pull --recurse-submodules` and `git submodule update` try it again each time.
+
+An engagement you were taken off, while checked out, stops `git submodule foreach -q git pull -q`, and `git pull` fails each time it moves. Take out such an engagement, or one registered by mistake, with `git submodule deinit engagements/<id>` (it may warn that it could not unset `core.worktree`, which does no harm). For one you were taken off, also delete `.git/modules/engagements/<id>`, with any commits not pushed in it: git keeps fetching it while that repository is there.
 
 With a clone URL that holds your user name, as Developers › Git shows it, git prints `warning: redirecting to …/git/yars/`: it compares the URL it was given with the one it reached, which has no user name. Nothing is redirected, and the clone is whole.
 

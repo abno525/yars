@@ -24,9 +24,9 @@ Content changes are committed on the server immediately, authored by you; workfl
 ## Local: work on your clone
 
 ```sh
-git clone https://alice:…@yars.example.com/git/yars findings && cd findings
-git submodule update --init engagements/<id>  # each engagement you are on
-git submodule foreach -q git switch -q main   # each engagement is its own repo; work on its main branch
+git clone https://alice:…@yars.example.com/git/yars findings && cd findings &&
+git submodule update --init engagements/<id> &&  # each engagement you are on
+git submodule foreach -q git switch -q main      # each engagement is its own repo; work on its main branch
 claude mcp add yars -- yars mcp --data . --user alice
 ```
 
