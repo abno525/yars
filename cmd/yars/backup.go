@@ -164,7 +164,7 @@ func cmdRestore(args []string, out io.Writer) error {
 	}
 	fmt.Fprintf(out, "schema v%d\n%s\n%s\nsecret key: %s\n", rep.Schema, count(rep.Engagements, "engagement"), count(rep.Findings, "finding"), key)
 	if !rep.HasKey {
-		fmt.Fprintln(out, "stored AI and personal keys must be entered again, and webhooks added again (their secrets cannot be read)")
+		fmt.Fprintln(out, "stored AI and personal keys must be entered again; delete the webhooks and add them again (their secrets cannot be read)")
 	}
 	fmt.Fprintf(out, "next: yars serve --data %s\n", *data)
 	return nil

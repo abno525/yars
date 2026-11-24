@@ -109,7 +109,7 @@ A stored result is deleted after the days set for check runs on **Admin › Syst
 | Quote | 80 characters |
 | Message | 4,000 characters · the page cuts it to one line with …, the whole text on hover |
 | Environment | `PATH`, `HOME` |
-| Working directory | `.yars/rules` |
+| Working directory | the script's own folder (`.yars/rules`, or `.yars/rules/lib` for `lib/x.py`) |
 | Script path | inside `.yars/rules` · symlinks resolved · executable |
 | Runs | Check button · `start_check` and `lint_finding all=true` (MCP) · `yars lint` · git push |
 
