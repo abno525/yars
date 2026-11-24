@@ -368,6 +368,83 @@ func TestPolicySettingsAnyCase(t *testing.T) {
 	}
 }
 
+// .yars pushed as a file is refused by name, never as a server error.
+func TestPolicyYarsFile(t *testing.T) {
+	for _, u := range []string{"dan", "dora"} {
+		f := newFx(t).on("")
+		ps := f.push(u, func(d string) { os.RemoveAll(filepath.Join(d, ".yars")); write(d, ".yars", "x\n") })
+		if !has(ps, ".yars: .yars must be a folder") {
+			t.Errorf("%s: %v", u, ps)
+		}
+	}
+}
+
+// A .yars name is plain ASCII without ~, so lower case is how every
+// checkout compares it: HFS+ ignores U+200C (zero width non-joiner), APFS
+// folds ſ to s, NTFS reads CONFIG~1.YAM as config.yaml. An extension the server reads is spelled as
+// it reads it: jira.YAML would skip the exporter's checks (and replace
+// jira.yaml on a case-insensitive checkout).
+func TestPolicySettingsPlainNames(t *testing.T) {
+	const plainOnly = ".yars names are plain ASCII, without ~"
+	f := newFx(t).on("")
+	jira := "type: jira\njira:\n  base_url: https://attacker.example\n  project: X\n  issue_type: Bug\n  user_env: JIRA_USER\n  token_env: JIRA_TOKEN\n"
+	for _, c := range []struct{ u, p, want string }{
+		{"dan", ".yars/ru" + string(rune(0x200c)) + "les/x.yaml", plainOnly},
+		{"dora", ".yars/ru" + string(rune(0x200c)) + "les/x.yaml", plainOnly},
+		{"dan", ".yars/ruleſ/x.yaml", plainOnly},
+		{"dora", ".yars/ruleſ/x.yaml", plainOnly},
+		{"dan", ".yars/CONFIG~1.YAM", plainOnly},
+		{"dan", ".yars/uſers.yaml", plainOnly},
+		{"dan", ".yars/templates/" + string(rune(0xfb01)) + "x.md", plainOnly}, // the ligature fi
+		{"dan", ".yars/exporters/jira.YAML", "spell it .yaml"},
+		{"dora", ".yars/templates/x.MD", "spell it .md"},
+		{"dora", ".yars/rules/x.Yml", "spell it .yml"},
+	} {
+		f.reclone()
+		if ps := f.push(c.u, func(d string) { write(d, c.p, jira) }); !has(ps, c.p+": "+c.want) {
+			t.Errorf("%s by %s: %v", c.p, c.u, ps)
+		}
+	}
+}
+
+// A name the older rules let in can be removed, or moved to the server's
+// spelling (git mv: a deletion and an addition): a deletion puts nothing on
+// a checkout to mistake. What may be .yars/rules or config.yaml on a
+// checkout still takes the admin flag to delete.
+func TestPolicySettingsOddNameRemoved(t *testing.T) {
+	f := newFx(t).on("")
+	odd := []string{".yars/Templates/x.md", ".yars/Exporters/x.yaml", ".yars/exporters/x.YAML", ".yars/Rules/x.py", ".yars/ruleſ/x.py", ".yars/Config.yaml/x", ".yars/CONFIG~1.YAM"}
+	for _, p := range odd {
+		write(f.srv.Dir, p, "x\n")
+	}
+	git(t, f.srv.Dir, "add", "-A")
+	git(t, f.srv.Dir, "commit", "-qm", "older rules")
+	gone := func(ps ...string) func(string) {
+		return func(d string) {
+			for _, p := range ps {
+				os.Remove(filepath.Join(d, p))
+			}
+		}
+	}
+	f.reclone()
+	if ps := f.push("dan", func(d string) {
+		gone(odd[:3]...)(d)
+		write(d, ".yars/templates/x.md", "---\ntitle: X\n---\n\n## Impact\n\nfirst\n")
+	}); len(ps) != 0 {
+		t.Fatalf("older spellings removed by a director: %v", ps)
+	}
+	for _, p := range odd[3:] {
+		f.reclone()
+		if ps := f.push("dan", gone(p)); !has(ps, p+": only an admin can change") {
+			t.Errorf("%s removed by a non-admin director: %v", p, ps)
+		}
+	}
+	f.reclone()
+	if ps := f.push("dora", gone(odd[3:]...)); len(ps) != 0 {
+		t.Fatalf("removed by an admin: %v", ps)
+	}
+}
+
 // The main repo's .gitignore is a director's to change.
 func TestPolicyGitignore(t *testing.T) {
 	f := newFx(t).on("")
