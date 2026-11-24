@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"net/http"
 	"sync"
 	"time"
@@ -65,13 +66,26 @@ func (a *Auth) Lookup(name string) (config.User, bool) {
 	return u, true
 }
 
-// MinPassword is the shortest password YARS accepts, in characters: on the
-// website (setup, Admin › Users, a password change) and from yars useradd
-// and yars passwd.
-const MinPassword = 10
+// MinPassword is the shortest password YARS accepts, in characters, and
+// MaxPasswordBytes the longest, in bytes (bcrypt's limit): on the website
+// (setup, Admin › Users, a password change) and from yars useradd and yars
+// passwd.
+const (
+	MinPassword      = 10
+	MaxPasswordBytes = 72
+)
 
-// PasswordTooShort reports whether pw has fewer than MinPassword characters.
-func PasswordTooShort(pw string) bool { return utf8.RuneCountInString(pw) < MinPassword }
+// PasswordProblem says what is wrong with pw as a new password ("" = fine),
+// for the reader to prefix: "at least 10 characters" or "at most 72 bytes".
+func PasswordProblem(pw string) string {
+	switch {
+	case utf8.RuneCountInString(pw) < MinPassword:
+		return fmt.Sprintf("at least %d characters", MinPassword)
+	case len(pw) > MaxPasswordBytes:
+		return fmt.Sprintf("at most %d bytes", MaxPasswordBytes)
+	}
+	return ""
+}
 
 func HashPassword(pw string) (string, error) {
 	h, err := bcrypt.GenerateFromPassword([]byte(pw), cost)

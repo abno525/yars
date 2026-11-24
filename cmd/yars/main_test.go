@@ -283,15 +283,22 @@ func TestUserCommands(t *testing.T) {
 	}
 }
 
-// useradd and passwd ask for the website's shortest password, 10 characters
-// (characters, not bytes): a shorter one is refused and changes nothing.
+// useradd and passwd ask for a password as the website does: 10 characters
+// at least (characters, not bytes) and 72 bytes at most (bcrypt's limit);
+// another is refused with the reason and changes nothing.
 func TestCLIPasswordLength(t *testing.T) {
 	dir := t.TempDir()
 	if err := cmdInit([]string{dir}); err != nil {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	const short = "password too short: at least 10 characters"
+	const short, long = "password: at least 10 characters", "password: at most 72 bytes"
+	pw72 := strings.Repeat("abcdefghi", 8)
+	for _, pw := range []string{pw72 + "x", strings.Repeat("ä", 37)} {
+		if err := cmdUseradd([]string{"--data", dir, "bob"}, strings.NewReader(pw+"\n"), &out); err == nil || err.Error() != long {
+			t.Fatalf("useradd with %d bytes: %v", len(pw), err)
+		}
+	}
 	if err := cmdUseradd([]string{"--data", dir, "bob"}, strings.NewReader("change-me\n"), &out); err == nil || err.Error() != short {
 		t.Fatalf("useradd with 9 characters: %v", err)
 	}
@@ -314,8 +321,18 @@ func TestCLIPasswordLength(t *testing.T) {
 	if err := cmdPasswd([]string{"--data", dir, "bob"}, strings.NewReader("1234567890\n"), &out); err != nil {
 		t.Fatalf("passwd with 10 characters: %v", err)
 	}
-	if u3, _, _ := d.User("bob"); u3.PasswordHash == u.PasswordHash {
+	u3, _, _ := d.User("bob")
+	if u3.PasswordHash == u.PasswordHash {
 		t.Fatal("password unchanged")
+	}
+	if err := cmdPasswd([]string{"--data", dir, "bob"}, strings.NewReader(pw72+"x\n"), &out); err == nil || err.Error() != long {
+		t.Fatalf("passwd with 73 bytes: %v", err)
+	}
+	if u4, _, _ := d.User("bob"); u4.PasswordHash != u3.PasswordHash {
+		t.Fatal("password changed to a long one")
+	}
+	if err := cmdPasswd([]string{"--data", dir, "bob"}, strings.NewReader(pw72+"\n"), &out); err != nil {
+		t.Fatalf("passwd with 72 bytes: %v", err)
 	}
 }
 

@@ -2,6 +2,7 @@ package web
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"path/filepath"
 	"strings"
@@ -89,6 +90,51 @@ func TestFirstRun(t *testing.T) {
 	}
 	if rec := e.do(t, "", "GET", "/", nil, nil); rec.Header().Get("Location") != "/login" {
 		t.Fatalf("after setup, logged out: %q", rec.Header().Get("Location"))
+	}
+}
+
+// bcrypt takes at most 72 bytes: a longer new password is refused with the
+// form's message (not a 500); 72 bytes are taken.
+const (
+	msgTooLong = "Password: at most 72 bytes"
+	pw72       = "abcdefghij" + "abcdefghij" + "abcdefghij" + "abcdefghij" + "abcdefghij" + "abcdefghij" + "abcdefghij" + "ab"
+	pw73       = pw72 + "x"
+)
+
+// refusedLong checks a form's answer to a password of 73 bytes.
+func refusedLong(t *testing.T, what string, rec *httptest.ResponseRecorder) {
+	t.Helper()
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), msgTooLong) {
+		t.Errorf("%s with 73 bytes: %d\n%s", what, rec.Code, rec.Body.String())
+	}
+}
+
+func TestSetupPasswordAtMost72Bytes(t *testing.T) {
+	e := fresh(t)
+	refusedLong(t, "setup", e.do(t, "", "POST", "/setup", url.Values{"username": {"dir1"}, "password": {pw73}, "repeat": {pw73}}, nil))
+	if rec := e.do(t, "", "POST", "/setup", url.Values{"username": {"dir1"}, "password": {pw72}, "repeat": {pw72}}, nil); rec.Code != http.StatusSeeOther {
+		t.Fatalf("setup with 72 bytes: %d", rec.Code)
+	}
+}
+
+// Settings › Account, Admin › Users and the first login's new password.
+func TestPasswordAtMost72Bytes(t *testing.T) {
+	e := setup(t)
+	refusedLong(t, "settings", e.do(t, "alice", "POST", "/settings/password", url.Values{"current": {"pw"}, "new": {pw73}, "repeat": {pw73}}, nil))
+	refusedLong(t, "admin add", e.do(t, "dora", "POST", "/admin/users", url.Values{"username": {"pen3"}, "role": {"pentester"}, "password": {pw73}}, nil))
+	if rec := e.do(t, "dora", "POST", "/admin/users", url.Values{"username": {"pen3"}, "role": {"pentester"}, "password": {pw72}}, nil); rec.Code != 200 {
+		t.Fatalf("admin add with 72 bytes: %d", rec.Code)
+	}
+	if res := e.loginAs(t, "pen3", pw72); res.StatusCode != http.StatusSeeOther {
+		t.Fatalf("login %d", res.StatusCode)
+	}
+	refusedLong(t, "first login", e.do(t, "pen3", "POST", "/password", url.Values{"new": {pw73}, "repeat": {pw73}}, nil))
+	other := "z" + pw72[1:]
+	if rec := e.do(t, "pen3", "POST", "/password", url.Values{"new": {other}, "repeat": {other}}, nil); rec.Code != http.StatusSeeOther {
+		t.Fatalf("first login with 72 bytes: %d", rec.Code)
+	}
+	if rec := e.do(t, "alice", "POST", "/settings/password", url.Values{"current": {"pw"}, "new": {pw72}, "repeat": {pw72}}, nil); rec.Code != http.StatusSeeOther {
+		t.Fatalf("settings with 72 bytes: %d", rec.Code)
 	}
 }
 

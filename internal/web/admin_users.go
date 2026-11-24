@@ -128,8 +128,8 @@ func (s *Server) userAdd(w http.ResponseWriter, r *http.Request) {
 		v.Error = "Role: " + strings.Join(config.Roles, ", ")
 	case emailProblem(email) != "":
 		v.Error = emailProblem(email)
-	case auth.PasswordTooShort(pw):
-		v.Error = tooShort
+	case newPasswordProblem(pw) != "":
+		v.Error = newPasswordProblem(pw)
 	}
 	if v.Error == "" {
 		if _, ok, _ := s.Store.DB().User(name); ok {

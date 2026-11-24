@@ -30,7 +30,7 @@ sudo -u yars yars init /srv/yars
 echo 'change-me-now' | sudo -u yars yars useradd --data /srv/yars --role director --admin alice
 ```
 
-The account's home is outside the data folder: rule and exporter scripts run with it as `HOME`, and anything in the data folder goes into every backup. The last line makes the first admin; the password (at least 10 characters, as on the website) is read from standard input. Without it, the first visit to the website opens `/setup` to create one.
+The account's home is outside the data folder: rule and exporter scripts run with it as `HOME`, and anything in the data folder goes into every backup. The last line makes the first admin; the password (at least 10 characters and at most 72 bytes, as on the website) is read from standard input. Without it, the first visit to the website opens `/setup` to create one.
 
 For a solo reporter or a team of two, `sudo -u yars yars init --simple /srv/yars` sets up the simple workflow instead: draft → complete → reported, with no roles, reviewers or sign-off; `useradd` then takes no `--role` (`yars useradd --data /srv/yars --admin alice`), and `yars role` is refused. The workflow is fixed at init: it is written to `.yars/config.yaml` and the database, `yars serve` does not start when the two disagree, and a push cannot change it.
 
