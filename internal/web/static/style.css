@@ -945,7 +945,8 @@ a.atab:hover { color: var(--ink); background: var(--panel); }
 .ruleid, .rulemsg { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ruleid { font: 500 13px var(--mono); }
 .rulemsg { font-size: 13px; color: var(--muted); }
-.ruletable form.toggle { margin: 0; display: flex; }
+/* an on/off switch's own form (Admin › Users, Rules) */
+form.flag { margin: 0; display: flex; }
 .ruletable tr.off td, .ruletable tr.off .rulemsg { color: var(--off-fg); }
 .ruletable tr.off .tag { background: transparent; color: var(--off-fg); border-color: var(--line); }
 .ruletable tr.editing td { background: var(--panel); }
@@ -1813,6 +1814,8 @@ code.plain { font: 500 13px var(--mono); color: var(--text); background: transpa
 .toggle span { width: 18px; height: 18px; background: var(--off-fg); transition: transform 0.1s; }
 .toggle.on { background: var(--navy); border-color: var(--navy); }
 .toggle.on span { background: var(--toggle-knob); transform: translateX(20px); }
+/* your own Admin and Disabled switches */
+.toggle:disabled { cursor: default; opacity: 0.4; }
 .hookform { margin: 0; padding: 16px 24px; border-top: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; gap: 12px; }
 .panel > form.hookform { margin: 0; }
 .hookrow { display: flex; align-items: flex-end; gap: 12px; }

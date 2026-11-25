@@ -120,7 +120,7 @@ func TestRequireCheckAdmin(t *testing.T) {
 		t.Fatalf("action header:\n%s", tbl)
 	}
 	if !strings.Contains(tbl, "<th>Setting</th>") || !strings.Contains(tbl, ">Require Check before Sign off and Approve<") ||
-		!strings.Contains(tbl, `action="/admin/rules/require-check"`) || !strings.Contains(tbl, `class="cbx on"`) || !strings.Contains(tbl, `aria-pressed="true"`) {
+		!strings.Contains(tbl, `action="/admin/rules/require-check"`) || !strings.Contains(tbl, `<button class="toggle on" role="switch" aria-checked="true"`) {
 		t.Fatalf("settings table:\n%s", tbl)
 	}
 	for _, u := range []string{"alice", "bob", "carol"} {
@@ -142,7 +142,7 @@ func TestRequireCheckAdmin(t *testing.T) {
 		t.Fatalf("audit %+v", l)
 	}
 	page = e.do(t, "dora", "GET", "/admin/rules", nil, nil).Body.String()
-	if tbl := between(page, `<table class="table ruletable settingtable">`, "</table>"); !strings.Contains(tbl, `aria-pressed="false"`) || !strings.Contains(tbl, `name="on" value="1"`) {
+	if tbl := between(page, `<table class="table ruletable settingtable">`, "</table>"); !strings.Contains(tbl, `<button class="toggle" role="switch" aria-checked="false"`) || !strings.Contains(tbl, `name="on" value="1"`) {
 		t.Fatalf("off:\n%s", tbl)
 	}
 }
