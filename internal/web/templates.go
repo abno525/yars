@@ -555,7 +555,8 @@ func (s *Server) saveAsTemplate(w http.ResponseWriter, r *http.Request) {
 
 // pickerView is the template picker of the new finding page: the rows
 // matching q, with pick chosen and previewed while it is among them, else
-// the first row (none when nothing matches).
+// the first row (none when nothing matches). Without a mode the page starts
+// Blank, or from Template when a template is named (pick).
 func (s *Server) pickerView(eng, q, pick, mode string) (tplView, error) {
 	v := tplView{Eng: eng, Q: q, Mode: mode}
 	var err error
@@ -563,9 +564,9 @@ func (s *Server) pickerView(eng, q, pick, mode string) (tplView, error) {
 		return v, err
 	}
 	if v.Mode != "blank" && v.Mode != "template" {
-		v.Mode = "template"
-		if v.Total == 0 {
-			v.Mode = "blank"
+		v.Mode = "blank"
+		if pick != "" && v.Total > 0 {
+			v.Mode = "template"
 		}
 	}
 	if !slices.ContainsFunc(v.Rows, func(r tplRow) bool { return r.Slug == pick }) {

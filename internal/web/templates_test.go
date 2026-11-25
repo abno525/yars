@@ -231,16 +231,26 @@ func TestNewFindingFromTemplate(t *testing.T) {
 	e.addTemplate(t, "missing-hsts", "Missing HSTS header")
 	e.addTemplate(t, "verbose-errors", "Verbose error pages")
 	b := e.do(t, "alice", "GET", "/e/acme/findings/new", nil, nil).Body.String()
-	for _, want := range []string{`name="mode" value="template" checked`, `name="mode" value="blank"`, `name="q"`, "<th", "Missing HSTS header", "Verbose error pages", `class="tplpreview`, `class="btn secondary w128"`, `class="btn primary w128"`, `>2 of 2</span>`} {
+	// a new finding starts Blank (the first template stays picked for a
+	// switch to Template); Create and Cancel sit above the preview
+	for _, want := range []string{`name="mode" value="template"><span>Template`, `name="mode" value="blank" checked`, `name="q"`, "<th", "Missing HSTS header", "Verbose error pages", `class="tplpreview`, `class="btn secondary w128"`, `class="btn primary w128"`, `>2 of 2</span>`} {
 		if !strings.Contains(b, want) {
 			t.Fatalf("missing %q:\n%s", want, b)
 		}
 	}
+	if c, p := strings.Index(b, `class="btn primary w128">Create<`), strings.Index(b, `class="tplpreview`); c < 0 || c > p {
+		t.Errorf("Create is not above the preview (%d, %d)", c, p)
+	}
 	noInline(t, "new finding", b)
-	// search narrows the list; the chosen one previews
+	// search narrows the list; the chosen one previews; a named template
+	// starts from Template
 	b = e.do(t, "alice", "GET", "/e/acme/findings/new?q=hsts&t=missing-hsts", nil, nil).Body.String()
-	if strings.Contains(b, "Verbose error pages") || !strings.Contains(b, `value="missing-hsts" checked`) || !strings.Contains(b, "The server does not send Missing HSTS header.") {
+	if strings.Contains(b, "Verbose error pages") || !strings.Contains(b, `value="missing-hsts" checked`) || !strings.Contains(b, "The server does not send Missing HSTS header.") ||
+		!strings.Contains(b, `name="mode" value="template" checked`) {
 		t.Fatalf("search/preview:\n%s", b)
+	}
+	if b := e.do(t, "alice", "GET", "/e/acme/findings/new?mode=template", nil, nil).Body.String(); !strings.Contains(b, `name="mode" value="template" checked`) {
+		t.Errorf("?mode=template does not start from Template")
 	}
 	frag := e.do(t, "alice", "GET", "/e/acme/findings/new/templates?q=verbose", nil, map[string]string{"HX-Request": "true"}).Body.String()
 	if strings.Contains(frag, "<html") || strings.Contains(frag, "Missing HSTS") || !strings.Contains(frag, "Verbose error pages") {
