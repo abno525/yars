@@ -265,7 +265,7 @@ func (s *Server) settingsAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.Store.DB().Audit(u.Username, "user.email", u.Username, email)
-	http.Redirect(w, r, "/settings#account", http.StatusSeeOther)
+	http.Redirect(w, r, "/settings", http.StatusSeeOther)
 }
 
 func (s *Server) settingsPassword(w http.ResponseWriter, r *http.Request) {
@@ -294,7 +294,7 @@ func (s *Server) settingsPassword(w http.ResponseWriter, r *http.Request) {
 	if tok, ok := s.Auth.Login(u.Username, r.FormValue("new")); ok {
 		s.Auth.SetCookie(w, tok)
 	}
-	http.Redirect(w, r, "/settings#password", http.StatusSeeOther)
+	http.Redirect(w, r, "/settings", http.StatusSeeOther)
 }
 
 // settingsPrefs saves the Preferences panel: the theme and the keyboard
@@ -331,7 +331,7 @@ func (s *Server) settingsPrefs(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	http.Redirect(w, r, "/settings#prefs", http.StatusSeeOther)
+	http.Redirect(w, r, "/settings", http.StatusSeeOther)
 }
 
 // tokenFormFor fills the New token form's choices: the actions, and the
@@ -476,7 +476,7 @@ func (s *Server) tokenRevoke(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	http.Redirect(w, r, "/settings#tokens", http.StatusSeeOther)
+	http.Redirect(w, r, "/settings", http.StatusSeeOther)
 }
 
 // connKeys are the service hosts a personal key can be kept for: those of
@@ -515,7 +515,7 @@ func (s *Server) connSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.Store.DB().Audit(u.Username, "connection.set", sv, ending(key))
-	http.Redirect(w, r, "/settings#connections", http.StatusSeeOther)
+	http.Redirect(w, r, "/settings", http.StatusSeeOther)
 }
 
 func (s *Server) connRemove(w http.ResponseWriter, r *http.Request) {
@@ -530,7 +530,7 @@ func (s *Server) connRemove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.Store.DB().Audit(u.Username, "connection.remove", sv, "")
-	http.Redirect(w, r, "/settings#connections", http.StatusSeeOther)
+	http.Redirect(w, r, "/settings", http.StatusSeeOther)
 }
 
 // notifySave replaces the user's notification choices with the ticked ones.
@@ -550,5 +550,5 @@ func (s *Server) notifySave(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	http.Redirect(w, r, "/settings#notifications", http.StatusSeeOther)
+	http.Redirect(w, r, "/settings", http.StatusSeeOther)
 }
