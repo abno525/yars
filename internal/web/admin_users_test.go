@@ -28,7 +28,10 @@ func TestFlagsAreSwitches(t *testing.T) {
 		}
 	}
 	css := e.do(t, "dora", "GET", "/static/style.css", nil, nil).Body.String()
-	wantAll(t, "style.css", css, ".toggle:disabled {", "form.flag { margin: 0; display: flex; }")
+	// the switch never shrinks (a 72 px rule column squeezed it to 40 px);
+	// the rules' On column holds it with the cell padding
+	wantAll(t, "style.css", css, ".toggle:disabled {", "form.flag { margin: 0; display: flex; }",
+		".toggle { width: 44px; height: 24px; flex: none;", ".ruletable th.c-on { width: 80px; }")
 }
 
 // Every admin page and action is for admins only (the flag, not the role).

@@ -941,7 +941,7 @@ a.atab:hover { color: var(--ink); background: var(--panel); }
 .ruletable { table-layout: fixed; border: 0; }
 .ruletable th.c-kind, .ruletable th.c-level { width: 152px; }
 .ruletable th.c-target { width: 200px; }
-.ruletable th.c-on { width: 72px; }
+.ruletable th.c-on { width: 80px; }
 .ruletable th.c-act { width: 128px; }
 .ruletable td { height: 60px; }
 .rulecell { overflow: hidden; }
@@ -1813,7 +1813,7 @@ code.plain { font: 500 13px var(--mono); color: var(--text); background: transpa
 .tag.dl-ok { background: var(--green); color: var(--on-fill); }
 .tag.dl-pending { background: var(--sev-medium); color: var(--on-pale); }
 .tag.dl-failed { background: var(--red); color: var(--on-fill); }
-.toggle { width: 44px; height: 24px; padding: 2px; border: 1px solid var(--field-line); background: var(--off-bg); cursor: pointer; display: inline-flex; }
+.toggle { width: 44px; height: 24px; flex: none; padding: 2px; border: 1px solid var(--field-line); background: var(--off-bg); cursor: pointer; display: inline-flex; }
 .toggle span { width: 18px; height: 18px; background: var(--off-fg); transition: transform 0.1s; }
 .toggle.on { background: var(--navy); border-color: var(--navy); }
 .toggle.on span { background: var(--toggle-knob); transform: translateX(20px); }
