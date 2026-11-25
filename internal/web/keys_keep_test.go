@@ -67,7 +67,7 @@ func TestRowKeysKeepTheRow(t *testing.T) {
 	if d, n := strings.Index(sub, "if (evt.target.method === 'dialog') return;"), strings.Index(sub, "yarsKeepNext = null;"); d < 0 || d > n {
 		t.Errorf("the confirm's own submit drops the kept row:\n%s", sub)
 	}
-	// /settings#tokens: the browser handles the fragment after
+	// an address with #panel: the browser handles the fragment after
 	// DOMContentLoaded (Chrome), jumping to the panel and taking the focus
 	// off the row; the address loses it before the row is focused
 	back := between(js, "var raw = sessionStorage.getItem(yarsRowKeep);", "\n});\n")

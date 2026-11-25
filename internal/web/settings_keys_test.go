@@ -46,12 +46,16 @@ func (s *Server) tokenRevoke(`) {
 	wantAll(t, "keys.js", js,
 		"var yarsPlaceKeep = 'yars-place-keep';",
 		"!f.closest('[data-keep-place]')",
-		"sessionStorage.setItem(yarsPlaceKeep, JSON.stringify({y: window.scrollY, sel: yarsSel, form: f.id, name: name, at: Date.now()}));",
+		// a checkbox is told by its value too (every Notifications box is "n")
+		"var value = name && (a.type === 'checkbox' || a.type === 'radio') ? a.value : '';",
+		"sessionStorage.setItem(yarsPlaceKeep, JSON.stringify({y: window.scrollY, sel: yarsSel, form: f.id, name: name, value: value, at: Date.now()}));",
+		"if (k.value) els = els.filter(function (x) { return x.type === 'radio' || x.value === k.value; });",
 		"sessionStorage.removeItem(yarsPlaceKeep);",
 		"if (!k || !(Date.now() - k.at < 10000) || !document.querySelector('[data-keep-place]')) return;",
 		// smooth scrolling (html) would animate the way back
 		"window.scrollTo({top: k.y, behavior: 'instant'});",
-		"if (p && p.hasAttribute('data-kpanel')) yarsSelect(p, false);",
+		// with the shortcuts off nothing is selected (its outline would stay)
+		"if (p && p.hasAttribute('data-kpanel') && !yarsKeysOff()) yarsSelect(p, false);",
 		// a row a key kept (Revoke) keeps the focus
 		"if (a && a !== document.body) return;",
 		"el.focus({preventScroll: true});")
@@ -79,6 +83,11 @@ func TestSettingsKeysLikeTheFindingPage(t *testing.T) {
 	enter := between(js, "function yarsEnter() {", "\n}\n")
 	if i, a := strings.Index(enter, "if (p.hasAttribute('data-kenter'))"), strings.Index(enter, "var a = document.activeElement;"); i < 0 || i > a {
 		t.Errorf("yarsEnter does not go into a Settings panel first:\n%s", enter)
+	}
+	// any focused control (a Save, a nav link, a field) keeps its Enter: the
+	// panel is gone into only with nothing focused
+	if !strings.Contains(enter, "if (cur && cur !== document.body && cur !== p) return false;") {
+		t.Errorf("yarsEnter takes Enter from a focused control:\n%s", enter)
 	}
 	wantAll(t, "keys.js", js,
 		"function yarsInto(p) {",

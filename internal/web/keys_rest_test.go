@@ -27,9 +27,9 @@ func tplHas(t *testing.T, file string, wants ...string) {
 	wantAll(t, file, string(src), wants...)
 }
 
-// Settings › Tokens: n New token (the Developers page's too); ↓ ↑ j k move
-// through the tokens and r revokes the focused one, asking first; removing
-// a connection asks too.
+// Settings › Tokens: n New token (the Developers page's too); ↓ ↑ move
+// through the tokens from a focused one (j k step Settings' panels) and r
+// revokes the focused one, asking first; removing a connection asks too.
 func TestSettingsTokenKeys(t *testing.T) {
 	e := setup(t)
 	if _, err := e.srv.Store.DB().CreateToken("alice", "h-abcd", "abcd", db.TokenSpec{Name: "laptop", Kind: db.TokenMCP, Scopes: []string{db.ScopeAll}}); err != nil {

@@ -92,13 +92,14 @@ function yarsSaveButton(form) {
 // Enter (K3) on a selected panel with no field or control focused presses
 // the panel's one button besides Comment and Edit (data-kskip); with none
 // or several, nothing. A Settings panel (data-kenter) is gone into instead,
-// unless focus is in it already.
+// only with nothing focused: a focused control anywhere (a Save, a nav
+// link, a token row) keeps its own Enter.
 function yarsEnter() {
   var p = yarsSelected();
   if (!p) return false;
   if (p.hasAttribute('data-kenter')) {
     var cur = document.activeElement;
-    if (cur && cur !== document.body && cur !== p && p.contains(cur)) return false;
+    if (cur && cur !== document.body && cur !== p) return false;
     return yarsInto(p);
   }
   var a = document.activeElement;
@@ -320,7 +321,7 @@ document.addEventListener('DOMContentLoaded', function () {
   var el = k.id ? document.getElementById(k.id) : null;
   if (rows.indexOf(el) < 0) el = rows[Math.min(Math.max(k.i, 0), rows.length - 1)];
   if (!el) return;
-  // the browser handles a fragment (Revoke's /settings#tokens) after this
+  // the browser handles a fragment (an address with #panel) after this
   // event: it would jump to the panel and take the focus off the row
   if (location.hash) history.replaceState(history.state, '', location.pathname + location.search);
   el.focus({preventScroll: true});
@@ -339,8 +340,10 @@ document.addEventListener('submit', function (evt) {
   if (evt.defaultPrevented || f.method === 'dialog' || !f.closest || !f.closest('[data-keep-place]')) return;
   var a = document.activeElement;
   var name = a && a.form === f && a.name ? a.name : '';
+  // a checkbox is told by its value too (every Notifications box is "n")
+  var value = name && (a.type === 'checkbox' || a.type === 'radio') ? a.value : '';
   try {
-    sessionStorage.setItem(yarsPlaceKeep, JSON.stringify({y: window.scrollY, sel: yarsSel, form: f.id, name: name, at: Date.now()}));
+    sessionStorage.setItem(yarsPlaceKeep, JSON.stringify({y: window.scrollY, sel: yarsSel, form: f.id, name: name, value: value, at: Date.now()}));
   } catch (e) { /* not kept */ }
 });
 document.addEventListener('DOMContentLoaded', function () {
@@ -355,13 +358,16 @@ document.addEventListener('DOMContentLoaded', function () {
   // smooth scrolling (html) would animate the way back
   window.scrollTo({top: k.y, behavior: 'instant'});
   var p = k.sel ? document.getElementById(k.sel) : null;
-  if (p && p.hasAttribute('data-kpanel')) yarsSelect(p, false);
+  // with the shortcuts off nothing is selected (its outline would stay)
+  if (p && p.hasAttribute('data-kpanel') && !yarsKeysOff()) yarsSelect(p, false);
   var a = document.activeElement;
   if (a && a !== document.body) return;
   var f = k.form ? document.getElementById(k.form) : null;
   if (!f || !k.name) return;
   var els = Array.prototype.filter.call(f.elements, function (x) { return x.name === k.name; });
-  var el = els.filter(function (x) { return x.checked; })[0] || els[0];
+  // a radio group: its checked radio; a checkbox: the one with that value
+  if (k.value) els = els.filter(function (x) { return x.type === 'radio' || x.value === k.value; });
+  var el = els.filter(function (x) { return x.type === 'radio' && x.checked; })[0] || els[0];
   if (el) el.focus({preventScroll: true});
 });
 
