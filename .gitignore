@@ -1,9 +1,27 @@
 # local tooling
 .claude/
 .superpowers/
+/.idea
+/.vscode
+/.mcp.json
+# shell and git files of a sandboxed home in the root
+/.bash_profile
+/.bashrc
+/.profile
+/.zprofile
+/.zshrc
+/.gitconfig
+/.gitmodules
+/.ripgreprc
+/.env
+# local notes
+/pre1.md
+/to-check.md
 # build output
 /yars
 *.test
 *.out
-# a local data folder
+# a local data folder, a demo folder, a backup
 /data/
+/demo/
+/*.zip
