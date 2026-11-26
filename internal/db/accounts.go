@@ -577,23 +577,45 @@ func (d *DB) CreateSession(hash, user string) error {
 // session idle for longer than the retention's session days (SessionIdle
 // when that is 0) is deleted and rejected.
 func (d *DB) SessionUser(hash string) (string, bool, error) {
-	var user, seen string
-	err := d.QueryRow("SELECT username, last_seen FROM sessions WHERE hash = ?", hash).Scan(&user, &seen)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", false, nil
-	}
-	if err != nil {
+	user, seen, found, good, err := d.session(hash)
+	if err != nil || !found {
 		return "", false, err
 	}
-	t, err := time.Parse(time.RFC3339, seen)
-	if err != nil || d.now().Sub(t) > d.sessionIdle() {
+	if !good {
 		d.DeleteSession(hash)
 		return "", false, nil
 	}
-	if d.now().Sub(t) > time.Minute {
+	if d.now().Sub(seen) > time.Minute {
 		d.Exec("UPDATE sessions SET last_seen = ? WHERE hash = ?", d.stamp(), hash)
 	}
 	return user, true, nil
+}
+
+// SessionAlive is SessionUser that writes nothing: it is no use of the
+// session, so a caller that asks again and again (an open event stream)
+// does not keep the session from going idle.
+func (d *DB) SessionAlive(hash string) (string, bool, error) {
+	user, _, found, good, err := d.session(hash)
+	if err != nil || !found || !good {
+		return "", false, err
+	}
+	return user, true, nil
+}
+
+// session reads the session stored by hash: its user, its last use, whether
+// there is one (found) and whether it still holds now (good).
+func (d *DB) session(hash string) (user string, seen time.Time, found, good bool, err error) {
+	var last string
+	err = d.QueryRow("SELECT username, last_seen FROM sessions WHERE hash = ?", hash).Scan(&user, &last)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", seen, false, false, nil
+	}
+	if err != nil {
+		return "", seen, false, false, err
+	}
+	seen, perr := time.Parse(time.RFC3339, last)
+	good = perr == nil && d.now().Sub(seen) <= d.sessionIdle()
+	return user, seen, true, good, nil
 }
 
 func (d *DB) DeleteSession(hash string) error {

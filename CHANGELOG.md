@@ -32,3 +32,4 @@ What changed for people who run or use YARS. Newest first.
 - The editor's preview takes only a finding's folder name in its address.
 - Files waiting for download after a send are limited to 256 MiB per user, dropped after 10 minutes by a timer, and served only under the engagement they were made in.
 - A reason (Return, Withdraw, Revert, dismissing a check) has at most 4,000 characters, on the finding page and over MCP as in the bulk bar.
+- Live updates of an open page end within 25 seconds of a logout, a disabled account or leaving the team. One account holds at most 20 live streams.

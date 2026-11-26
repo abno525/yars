@@ -105,9 +105,15 @@ type Server struct {
 	presence  *presence // who has which section open in an editor
 	hookOnce  sync.Once
 	heartbeat time.Duration // event stream keep-alive (0 = defaultHeartbeat)
-	pageSize  int           // board rows per page (0 = boardPage)
-	chatLoads atomic.Int64  // full chat reads, for tests of the poll shortcut
-	flash     flashes       // one-time secrets for the page after a create
+	// open event streams by username, and the most one account may hold
+	// (0 = defaultMaxStreams). On the server, never in a package variable: a
+	// finished test lets its server go.
+	streamsMu  sync.Mutex
+	streams    map[string]int
+	maxStreams int
+	pageSize   int          // board rows per page (0 = boardPage)
+	chatLoads  atomic.Int64 // full chat reads, for tests of the poll shortcut
+	flash      flashes      // one-time secrets for the page after a create
 	// lastHealth is the last run of Admin › System's checks; healthRuns
 	// counts runs (tests)
 	lastHealth atomic.Pointer[healthAdmin]

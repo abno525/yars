@@ -200,6 +200,21 @@ func (a *Auth) User(r *http.Request) (config.User, bool) {
 	return a.Lookup(name)
 }
 
+// Still is User for a request that was let in before and is still being
+// answered (an open event stream): the account as it is now, while its
+// session holds. It is no use of the session: nothing is written.
+func (a *Auth) Still(r *http.Request) (config.User, bool) {
+	c, err := r.Cookie(CookieName)
+	if err != nil {
+		return config.User{}, false
+	}
+	name, ok, _ := a.db.SessionAlive(hashSecret(c.Value))
+	if !ok {
+		return config.User{}, false
+	}
+	return a.Lookup(name)
+}
+
 func (a *Auth) Require(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		u, ok := a.User(r)
