@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/abno525/yars/internal/auth"
+	"github.com/abno525/yars/internal/cvss"
 	"github.com/abno525/yars/internal/finding"
 	"github.com/abno525/yars/internal/index"
 	"github.com/abno525/yars/internal/store"
@@ -30,6 +31,9 @@ type mergeView struct {
 	Targets              []mergeTarget
 	Parts                []mergePart
 	Error                string
+	// what the target does not take: the source's details rows and CVSS
+	Details       []detailsRow
+	Vector, Score string
 }
 
 type mergeTarget struct {
@@ -140,6 +144,17 @@ func (s *Server) renderMerge(w http.ResponseWriter, r *http.Request, status int,
 		return
 	}
 	v.Parts = []mergePart{{"Sections", nonEmptySections(ref.F)}, {"Affected assets", len(ref.F.Meta.Assets)}, {"Attachments", len(atts)}}
+	// Q10: the target keeps its own details rows and CVSS; the source's are
+	// listed, as the retest panel lists the original's
+	for _, name := range s.conf().DetailsRows {
+		if x := strings.TrimSpace(ref.F.Meta.Details[name]); x != "" {
+			v.Details = append(v.Details, detailsRow{Name: name, Value: x})
+		}
+	}
+	if vec, err := cvss.Parse(ref.F.Meta.CVSS); err == nil {
+		n, _ := cvss.Score(vec)
+		v.Vector, v.Score = vec.String(), cvss.FormatScore(n)
+	}
 	p.Merge = v
 	s.renderStatus(w, status, "merge.html", p)
 }

@@ -103,7 +103,7 @@ func encodeExtra(m map[string]any) string {
 // Only the lines of that key are rewritten (spliced into the raw text), so
 // every other line — comments, blank lines, indentation, quoting — stays
 // byte-identical. A new key is appended at the end. value may be a
-// *yaml.Node or any encodable Go value.
+// *yaml.Node or any encodable Go value. The workflow state in Meta is kept.
 func (f *Finding) SetMeta(key string, value any) error {
 	src := f.rawMeta
 	if src == "" || encodeMeta(&f.Meta) != f.metaSnap {
@@ -189,6 +189,10 @@ func (f *Finding) SetMeta(key string, value any) error {
 	if err := yaml.Unmarshal([]byte(b.String()), &meta); err != nil {
 		return err
 	}
+	// the workflow state is not in the file: it stays as it was
+	was := f.Meta
+	meta.Status, meta.Reviewers, meta.ClearedBy = was.Status, was.Reviewers, was.ClearedBy
+	meta.Returned, meta.Withdrawn, meta.Retest = was.Returned, was.Withdrawn, was.Retest
 	f.Meta, f.rawMeta = meta, b.String()
 	f.metaSnap = encodeMeta(&f.Meta)
 	return nil

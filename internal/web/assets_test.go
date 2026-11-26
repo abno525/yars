@@ -237,6 +237,34 @@ func TestMergePage(t *testing.T) {
 		t.Fatal("the finding itself is a target")
 	}
 	noInline(t, "merge page", b)
+	// what does not move is listed: none yet, so the panel holds its empty row
+	stays := between(b, `<h2>Not moved</h2>`, "</section>")
+	if !strings.Contains(stays, `class="emptyrow"`) {
+		t.Fatalf("empty Not moved panel:\n%s", stays)
+	}
+	if err := e.srv.Store.UpdateDetails("acme", src.Dir, map[string]string{"Location": "/export"}, "", a); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.srv.Store.UpdateCVSS("acme", src.Dir, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H", nil, "", a); err != nil {
+		t.Fatal(err)
+	}
+	was, _ := e.srv.Store.Finding("acme", fdir)
+	b = e.do(t, "dora", "GET", "/e/acme/f/002/merge", nil, nil).Body.String()
+	stays = between(b, `<h2>Not moved</h2>`, "</section>")
+	for _, want := range []string{`<th scope="row">Location</th><td class="text">/export</td>`, `<th scope="row">CVSS</th><td class="mono">CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H · 9.8</td>`} {
+		if !strings.Contains(stays, want) {
+			t.Fatalf("Not moved lacks %s:\n%s", want, stays)
+		}
+	}
+	if strings.Contains(stays, `class="emptyrow"`) {
+		t.Fatalf("empty row beside rows:\n%s", stays)
+	}
+	defer func() { // the target keeps its own details rows and CVSS
+		now, _ := e.srv.Store.Finding("acme", fdir)
+		if now.F.Meta.CVSS != was.F.Meta.CVSS || now.F.Meta.Details["Location"] != was.F.Meta.Details["Location"] {
+			t.Errorf("target took the source's: cvss %q details %v", now.F.Meta.CVSS, now.F.Meta.Details)
+		}
+	}()
 	if rec := e.do(t, "dora", "POST", "/e/acme/f/002/merge", url.Values{}, nil); rec.Code != http.StatusBadRequest {
 		t.Fatalf("no target %d", rec.Code)
 	}

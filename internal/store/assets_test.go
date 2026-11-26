@@ -8,10 +8,12 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
 
+	"github.com/abno525/yars/internal/config"
 	"github.com/abno525/yars/internal/finding"
 	"github.com/abno525/yars/internal/workflow"
 )
@@ -358,6 +360,56 @@ func TestMergeKeepsApproval(t *testing.T) {
 	}
 	if d.F.Meta.Status != "complete" {
 		t.Fatalf("status after merge %q, want complete", d.F.Meta.Status)
+	}
+}
+
+// The same when the source brings an asset the target lacks: writing the
+// assets key keeps the finding's state, so the approval moves on with it.
+func TestMergeWithNewAssetKeepsApproval(t *testing.T) {
+	s, _, fd := ready(t)
+	for _, step := range []struct {
+		a workflow.Action
+		u config.User
+	}{{workflow.Submit, uAlice}, {workflow.Clear, uBob}, {workflow.Approve, uDora}} {
+		if err := s.Transition(eng, fd, step.a, "", step.u); err != nil {
+			t.Fatal(err)
+		}
+	}
+	src, err := s.CreateFinding(eng, "Second", alice)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpdateAssets(eng, src.Dir, []finding.Asset{{Host: "new.example"}}, "", alice); err != nil {
+		t.Fatal(err)
+	}
+	rec := &recorder{}
+	s.OnEvent(rec.add)
+	if err := s.Merge(eng, src.Dir, fd, uDora); err != nil {
+		t.Fatal(err)
+	}
+	d, _ := s.Finding(eng, fd)
+	if !slices.ContainsFunc(d.F.Meta.Assets, func(a finding.Asset) bool { return a.Host == "new.example" }) {
+		t.Fatalf("asset not merged: %+v", d.F.Meta.Assets)
+	}
+	if d.F.Meta.Status != "complete" {
+		t.Fatalf("status after merge %q, want complete", d.F.Meta.Status)
+	}
+	// the merge's event names the finding's reviewers
+	if e := rec.last(EventUpdated); !slices.Equal(e.Reviewers, []string{"bob"}) {
+		t.Fatalf("updated event %+v", e)
+	}
+}
+
+// A metadata edit's event names the finding's reviewers, as a text edit's.
+func TestMetaEditEventKeepsReviewers(t *testing.T) {
+	s, _, fd := ready(t)
+	rec := &recorder{}
+	s.OnEvent(rec.add)
+	if err := s.UpdateSeverity(eng, fd, "low", "", alice); err != nil {
+		t.Fatal(err)
+	}
+	if e := rec.last(EventUpdated); !slices.Equal(e.Reviewers, []string{"bob"}) || e.Fid == "" {
+		t.Fatalf("updated event %+v", e)
 	}
 }
 

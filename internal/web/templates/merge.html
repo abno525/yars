@@ -34,6 +34,7 @@
         </table>
       </div>
     </section>
+    <aside class="newside">
     <section class="panel compact">
       <div class="panelhead"><h2>Moves</h2><span class="mono">{{$m.ID}}</span></div>
       <table class="table mparts flush">
@@ -44,6 +45,15 @@
         </tbody>
       </table>
     </section>
+    <section class="panel compact">
+      <div class="panelhead"><h2>Not moved</h2><span class="mono">{{$m.ID}}</span></div>
+      <table class="kv flush">{{template "kv_head"}}<tbody>
+        {{range $m.Details}}<tr><th scope="row">{{.Name}}</th><td class="text">{{.Value}}</td></tr>{{end}}
+        {{if $m.Vector}}<tr><th scope="row">CVSS</th><td class="mono">{{$m.Vector}} · {{score $m.Score}}</td></tr>{{end}}
+        {{if not (or $m.Details $m.Vector)}}{{template "empty_row" 2}}{{end}}
+      </tbody></table>
+    </section>
+    </aside>
   </div>
 </form>
 {{end}}
