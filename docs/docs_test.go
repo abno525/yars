@@ -118,6 +118,31 @@ func TestDocsAgree(t *testing.T) {
 	}
 }
 
+// The deploy guide makes the data folders private, hardens the unit without
+// cutting off what the service writes, prunes backups, names the git it
+// needs, and says what the admin flag and the simple workflow mean and how
+// to take the data out.
+func TestDeployGuideHardening(t *testing.T) {
+	b, err := os.ReadFile("deploy.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := string(b)
+	for _, want := range []string{
+		"install -d -o yars -g yars -m 0700 /srv/yars\n", "install -d -o yars -g yars -m 0700 /srv/yars-restored\n",
+		"NoNewPrivileges=yes", "ProtectSystem=strict", "ReadWritePaths=/srv/yars /var/lib/yars", "PrivateTmp=yes",
+		"-mtime +30 -delete", "another machine",
+		"git 2.28 or later", "git filter-branch",
+		"can run commands on the server",
+		"the Team panel does not limit who sees an engagement",
+		"## Uninstall", "yars backup --data /srv/yars --key --out",
+	} {
+		if !strings.Contains(g, want) {
+			t.Errorf("the deploy guide lacks %q", want)
+		}
+	}
+}
+
 // The git guide tells the holder of a clone from before engagements had
 // repositories of their own what to do with commits not pushed yet
 // (backlog, M11).
