@@ -16,6 +16,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/abno525/yars/internal/logs"
 	"github.com/abno525/yars/internal/notify"
@@ -66,6 +67,9 @@ func TestNoPrivateTextInLog(t *testing.T) {
 			// with the ring of Admin › System and yars status, as yars serve
 			ring := logs.NewRing()
 			e := newEnvLog(t, slog.New(logs.HandlerRing(&out, format, slog.LevelDebug, ring)))
+			// no request is a slow one, however slow the machine: a slow
+			// request is a warn line, and the ring below must hold none
+			e.srv.slowAfter = time.Hour
 			// every part that logs has the server's logger
 			if e.srv.Store.Logger == nil || e.srv.Auth.Logger == nil || e.srv.Logger == nil || e.srv.Webhooks.Logger == nil || e.srv.Notifier.Logger == nil {
 				t.Fatal("a part of the server has no logger")

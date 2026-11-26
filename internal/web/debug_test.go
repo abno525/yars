@@ -164,7 +164,7 @@ func TestDebugEndsByItself(t *testing.T) {
 	}
 	wait := func(what string, ok func() bool) {
 		t.Helper()
-		deadline := time.Now().Add(5 * time.Second)
+		deadline := time.Now().Add(time.Minute)
 		for !ok() {
 			if time.Now().After(deadline) {
 				t.Fatalf("%s: level %v, audit %+v", what, lv.Level(), debugRows(t, e))
@@ -180,22 +180,35 @@ func TestDebugEndsByItself(t *testing.T) {
 	}
 
 	// twice: one period, from the second
-	e.srv.debugFor = 400 * time.Millisecond
+	// (no sleep between the two: the first period's timer is run by hand, so
+	// a slow machine changes nothing)
+	period := func() (int, time.Time) {
+		e.srv.debugMu.Lock()
+		defer e.srv.debugMu.Unlock()
+		return e.srv.debugGen, e.srv.debugUntil
+	}
+	e.srv.debugFor = time.Hour
 	on()
-	time.Sleep(250 * time.Millisecond)
+	first, until := period()
 	on()
-	time.Sleep(250 * time.Millisecond) // the first period is over, the second is not
+	if _, again := period(); again.Before(until) {
+		t.Fatalf("the second period ends at %v, before the first (%v)", again, until)
+	}
+	e.srv.debugEnd(first) // the first period's timer, had it fired late
 	if lv.Level() != slog.LevelDebug || ended() != 1 {
 		t.Fatalf("the first period's timer ended the second: level %v, %d ends", lv.Level(), ended())
 	}
-	wait("the second period does not end", func() bool { return lv.Level() == slog.LevelWarn && ended() == 2 })
+	e.srv.debugFor = 30 * time.Millisecond
+	on()
+	wait("the last period does not end", func() bool { return lv.Level() == slog.LevelWarn && ended() == 2 })
 
 	// off early: the late timer changes nothing
-	e.srv.debugFor = 40 * time.Millisecond
+	e.srv.debugFor = time.Hour
 	on()
+	late, _ := period()
 	e.do(t, "dora", "POST", "/admin/system/debug", url.Values{"on": {"0"}}, nil)
 	lv.Set(slog.LevelInfo) // as if something else had set a level meanwhile
-	time.Sleep(120 * time.Millisecond)
+	e.srv.debugEnd(late)
 	if lv.Level() != slog.LevelInfo || ended() != 2 {
 		t.Fatalf("a timer fired after off: level %v, %d ends", lv.Level(), ended())
 	}
@@ -203,11 +216,12 @@ func TestDebugEndsByItself(t *testing.T) {
 	// a server that stops ends the period without an audit row
 	lv.Set(slog.LevelWarn)
 	on()
+	late, _ = period()
 	e.srv.Close()
 	if lv.Level() != slog.LevelWarn {
 		t.Fatalf("the level after the stop: %v", lv.Level())
 	}
-	time.Sleep(120 * time.Millisecond)
+	e.srv.debugEnd(late)
 	if ended() != 2 {
 		t.Fatalf("the stop is audited as an end: %+v", debugRows(t, e))
 	}
