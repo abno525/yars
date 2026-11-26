@@ -1840,6 +1840,8 @@ func TestPolicySymlinkAndSeverity(t *testing.T) {
 // result are in the database.
 func TestRetestContentPush(t *testing.T) {
 	f := newFx(t)
+	// only what was delivered is retested
+	f.st.DB().Tx(func(tx *db.Tx) error { return tx.PutState("acme", "F-001", db.State{Status: "complete"}) })
 	if err := f.st.CreateRetest(store.Engagement{ID: "rt", Name: "RT"}, "acme", []string{"F-001-sqli"}, "", user("dora")); err != nil {
 		t.Fatal(err)
 	}

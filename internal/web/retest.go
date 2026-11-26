@@ -122,8 +122,16 @@ func (s *Server) retestPage(r *http.Request) (*page, bool, error) {
 	if !p.CanManage {
 		return p, false, nil
 	}
-	if p.Rows, err = s.Index.Rows(index.Query{EngID: p.Eng.ID}); err != nil {
+	rows, err := s.Index.Rows(index.Query{EngID: p.Eng.ID})
+	if err != nil {
 		return nil, false, err
+	}
+	// Q11: only what was delivered is retested; the table lists what can be
+	// picked, so its count and the ticked rows are of those
+	for _, row := range rows {
+		if row.Status == "complete" || row.Status == "reported" {
+			p.Rows = append(p.Rows, row)
+		}
 	}
 	return p, true, nil
 }
@@ -145,9 +153,7 @@ func (s *Server) retestForm(w http.ResponseWriter, r *http.Request) {
 	}
 	p.Form = map[string][]string{"id": {id}, "name": {p.Eng.Name + " — retest"}, "client": {p.Eng.Client}}
 	for _, row := range p.Rows {
-		if row.Status == "complete" || row.Status == "reported" {
-			p.Form["finding"] = append(p.Form["finding"], row.Dir)
-		}
+		p.Form["finding"] = append(p.Form["finding"], row.Dir)
 	}
 	p.Users = s.Auth.Users()
 	s.render(w, "new_retest.html", p)

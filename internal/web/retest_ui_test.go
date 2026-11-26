@@ -41,18 +41,18 @@ func TestNewRetestFreeID(t *testing.T) {
 		if !strings.Contains(b, `name="id" value="`+want+`"`) {
 			t.Fatalf("%d: want ID %s:\n%s", i, want, between(b, `name="id"`, ">"))
 		}
-		if err := st.CreateRetest(store.Engagement{ID: want, Name: "RT"}, "acme", []string{fdir}, "", wDora); err != nil {
-			t.Fatal(err)
-		}
+		e.whileComplete(t, func() {
+			if err := st.CreateRetest(store.Engagement{ID: want, Name: "RT"}, "acme", []string{fdir}, "", wDora); err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }
 
 // D4: on a retest the Original starts collapsed; its head keeps Open.
 func TestRetestOriginalCollapsed(t *testing.T) {
 	e := setup(t)
-	if err := e.srv.Store.CreateRetest(store.Engagement{ID: "rt", Name: "RT"}, "acme", []string{fdir}, "", wDora); err != nil {
-		t.Fatal(err)
-	}
+	e.retestOfTest(t, "rt")
 	b := e.do(t, "alice", "GET", "/e/rt/f/"+fdir, nil, nil).Body.String()
 	i := strings.Index(b, `<details class="panel compact orig"`)
 	if i < 0 {
@@ -82,9 +82,7 @@ func TestRetestSideBySide(t *testing.T) {
 		t.Fatal(err)
 	}
 	st.UpdateDetails("acme", fdir, map[string]string{"Location": "POST /login"}, "", e.authorOf(wAlice))
-	if err := st.CreateRetest(store.Engagement{ID: "rt", Name: "RT"}, "acme", []string{fdir}, "", wDora); err != nil {
-		t.Fatal(err)
-	}
+	e.retestOfTest(t, "rt")
 	b := e.do(t, "alice", "GET", "/e/rt/f/"+fdir, nil, nil).Body.String()
 	for _, want := range []string{`class="retestgrid"`, "<h2>Original</h2>", `class="btn secondary sm w96" href="/e/acme/f/001"`, "POST /login", "<code>user=admin", `src="/e/acme/f/001/attachments/shot.png?v=`, `class="seg result-seg"`, ">Fixed<", ">Partially fixed<", ">Not fixed<", "Needs result"} {
 		if !strings.Contains(b, want) {

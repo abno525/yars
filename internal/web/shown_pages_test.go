@@ -7,7 +7,8 @@ import (
 )
 
 // A signed-off finding shows as signed off on every page that tags its
-// state, not only on the findings list: export, merge, duplicates, retest.
+// state, not only on the findings list: export, merge, duplicates. (The New
+// retest page lists complete and reported findings only.)
 func TestSignedOffShownOnOtherPages(t *testing.T) {
 	e := setup(t)
 	e.toVerification(t)
@@ -21,7 +22,6 @@ func TestSignedOffShownOnOtherPages(t *testing.T) {
 		"export": "/e/acme/export",
 		"merge":  findingURL("acme", f2.Dir) + "/merge",
 		"dups":   findingURL("acme", f2.Dir),
-		"retest": "/e/acme/retest/new",
 	} {
 		b := e.do(t, "dora", "GET", path, nil, nil).Body.String()
 		if !strings.Contains(b, tag) || strings.Contains(b, `<span class="tag status-verification">verification</span>`) {

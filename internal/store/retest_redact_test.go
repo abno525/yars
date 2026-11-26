@@ -31,9 +31,13 @@ func shotFixture(t *testing.T) (*Store, string) {
 
 func retestOf(t *testing.T, s *Store, id, source string) {
 	t.Helper()
-	if err := s.CreateRetest(Engagement{ID: id, Name: "Retest " + id}, source, []string{"F-003-csrf"}, "", uDora); err != nil {
-		t.Fatal(err)
-	}
+	// Q11: only a complete finding is retested. The tests here go on to
+	// redact the original as its author, so it is complete for the copy only.
+	whileComplete(t, s, source, "F-003", func() {
+		if err := s.CreateRetest(Engagement{ID: id, Name: "Retest " + id}, source, []string{"F-003-csrf"}, "", uDora); err != nil {
+			t.Fatal(err)
+		}
+	})
 }
 
 func shotIn(t *testing.T, s *Store, id string) []byte {
