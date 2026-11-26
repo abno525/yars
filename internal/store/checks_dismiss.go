@@ -14,12 +14,27 @@ import (
 
 // CanDismiss reports whether u may dismiss (or restore) a violation of the
 // given level on a finding: warnings need edit rights, errors also the
-// reviewer role or more.
-func CanDismiss(u config.User, m finding.Meta, level string) bool {
-	if !workflow.CanEdit(u, m) {
-		return false
+// reviewer role or more, and in the standard workflow another person than
+// the finding's author (dismissRefusal).
+func (s *Store) CanDismiss(u config.User, m finding.Meta, level string) bool {
+	return s.dismissRefusal(u, m, level) == ""
+}
+
+// dismissRefusal is why u may not dismiss (or restore) a violation of the
+// given level on the finding ("" when u may). An error on one's own finding
+// is another person's to dismiss, whatever the author's role, a director's
+// too; the simple workflow, where a team can be one person, keeps it the
+// author's.
+func (s *Store) dismissRefusal(u config.User, m finding.Meta, level string) string {
+	switch {
+	case !workflow.CanEdit(u, m) && level != "error":
+		return "only someone who may edit the finding can dismiss a warning"
+	case !workflow.CanEdit(u, m), level == "error" && !workflow.AtLeast(u, "reviewer"):
+		return "only a reviewer or a director can dismiss an error"
+	case level == "error" && !s.Flow().Simple && u.Username == m.Author:
+		return "an error on your own finding is dismissed by another reviewer or a director"
 	}
-	return level != "error" || workflow.AtLeast(u, "reviewer")
+	return ""
 }
 
 // DismissWhy marks the finding's violation (rule, target, quote) as not
@@ -61,8 +76,8 @@ func (s *Store) DismissWhy(engID, dir, rule, target, quote, reason string, u con
 	if level == "" {
 		return fmt.Errorf("%w: no violation %s with that quote", ErrInvalidValue, rule)
 	}
-	if !CanDismiss(u, ref.F.Meta, level) {
-		return &workflow.Denied{Reason: dismissDenied(level)}
+	if why := s.dismissRefusal(u, ref.F.Meta, level); why != "" {
+		return &workflow.Denied{Reason: why}
 	}
 	fid := ref.F.Meta.ID
 	k := db.DismissKey(rule, qh)
@@ -131,13 +146,6 @@ func dismissDetail(rule, level, target string) string {
 	return rule + " · " + level + " · " + target
 }
 
-func dismissDenied(level string) string {
-	if level == "error" {
-		return "only a reviewer or a director can dismiss an error"
-	}
-	return "only someone who may edit the finding can dismiss a warning"
-}
-
 // Undismiss makes a dismissed violation (rule, target, quote) count again;
 // the same people who may dismiss it may do this. It asks for no reason;
 // like a dismissal it leaves a row in the audit log.
@@ -177,8 +185,8 @@ func (s *Store) Undismiss(engID, dir, rule, target, quote string, u config.User)
 	if !ok {
 		return nil
 	}
-	if !CanDismiss(u, ref.F.Meta, d.Level) {
-		return &workflow.Denied{Reason: dismissDenied(d.Level)}
+	if why := s.dismissRefusal(u, ref.F.Meta, d.Level); why != "" {
+		return &workflow.Denied{Reason: why}
 	}
 	seq, err := s.db.TxForSeq(engID, func(tx *db.Tx) error {
 		if err := archivedIn(tx, engID); err != nil {

@@ -260,11 +260,11 @@ func (s *Server) checksFor(r *http.Request, ref store.FindingRef) checksView {
 		row := checkRow{N: n, Rule: it.Rule, Level: it.Level, Message: it.Message, Quote: it.Quote, Where: where(it.Target), Target: it.Target}
 		if d, ok := dismissed(it); ok && !notice {
 			row.By, row.At, row.Reason = d.By, stamp(d.At), d.Reason
-			row.CanDismiss = !v.ReadOnly && store.CanDismiss(u, ref.F.Meta, d.Level)
+			row.CanDismiss = !v.ReadOnly && s.Store.CanDismiss(u, ref.F.Meta, d.Level)
 			v.Dismissed = append(v.Dismissed, row)
 			continue
 		}
-		row.CanDismiss = !v.ReadOnly && !notice && store.CanDismiss(u, ref.F.Meta, it.Level)
+		row.CanDismiss = !v.ReadOnly && !notice && s.Store.CanDismiss(u, ref.F.Meta, it.Level)
 		switch {
 		case notice && it.Level != "error": // listed, not counted: the gate does not count it
 		case it.Level == "error": // a broken rule file's too: Submit refuses it

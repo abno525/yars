@@ -60,6 +60,7 @@ A result that is right to ignore can be dismissed. A dismissal needs a reason. R
 
 - A warning: anyone who may edit the finding.
 - An error: the same, and the reviewer role or more.
+- An error on your own finding: another reviewer or a director dismisses it, whatever your role, and restores it. A team needs a second person with the reviewer role or more for that. In the simple workflow you dismiss it yourself.
 - A dismissal covers one result: that rule, that place and that quote. The same quote in another place still counts.
 - In an archived engagement nothing is dismissed or restored.
 - Each dismissal and each restore is a row in the audit log (Admin › Activity): who, the finding, the rule, its level and place, and the reason. The quote is not in it.
