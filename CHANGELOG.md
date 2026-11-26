@@ -32,7 +32,7 @@ What changed for people who run or use YARS. Newest first.
 - Standard workflow: an error on your own finding is dismissed, and restored, by another reviewer or a director, whatever your role. Warnings and the simple workflow are unchanged. Dismissals made before stay.
 - `yars useradd` and `yars passwd` on a terminal ask for the password twice and do not show it. A password piped to them is a temporary one: the next login asks for a new one, and until then the account's git logins and tokens are refused.
 - `yars token add` makes a token that expires after 90 days (before: never). `--days N` or `--expires YYYY-MM-DD` sets another end, `--expires never` or `--days 0` none. A past date is refused. The printed line names the expiry.
-- `yars export` writes its file `0600` and does not replace a file that is there. `--force` replaces it.
+- `yars export` writes its file `0600` and does not replace a file that is there. `--force` replaces it. A device or a pipe named by `--out` (`/dev/stdout` into a pipe, a FIFO) is written into as before.
 
 ### Fixed
 

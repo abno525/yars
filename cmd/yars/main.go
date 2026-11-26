@@ -71,7 +71,7 @@ func exportRunner(dataDir string) *export.Runner {
 //	yars export --data <dir> --exporter <id> [--out file] [--force] [--mark --as <user>] <eng> [<finding-dir>…]
 //
 // The file is written for the user alone (0600) and replaces none without
-// --force.
+// --force. A device or a pipe named by --out is written into.
 func cmdExport(args []string, out io.Writer) (int, error) {
 	fs := flag.NewFlagSet("export", flag.ContinueOnError)
 	data := dataFlag(fs)
@@ -119,7 +119,7 @@ func cmdExport(args []string, out io.Writer) (int, error) {
 	// a file that is there is not replaced: said before anything runs (a
 	// destination that publishes writes no file)
 	if *outPath != "" && !*force && !ex.Service() {
-		if _, err := os.Lstat(*outPath); err == nil {
+		if _, err := os.Lstat(*outPath); err == nil && !writesThrough(*outPath) {
 			return 2, existsErr(*outPath)
 		}
 	}
@@ -246,12 +246,38 @@ func existsErr(file string) error {
 	return fmt.Errorf("%s exists already (use --force to replace it)", file)
 }
 
+// writesThrough says dst names something that is there and is no file to
+// protect or replace: a device, a pipe or a socket (/dev/null, a FIFO,
+// /dev/stdout into a pipe or a terminal). A link is followed here, so a
+// link to a file or a folder is not one of them.
+func writesThrough(dst string) bool {
+	info, err := os.Stat(dst)
+	return err == nil && !info.Mode().IsRegular() && !info.IsDir()
+}
+
 // writeExport writes an export file for the user alone (0600). It replaces
 // no file; with force it does, through a new file renamed into place, so
 // the old file's mode is not kept and a link is replaced, not followed.
+// A device or a pipe is written into, with or without force, and stays
+// what it is.
 func writeExport(dst string, data []byte, force bool) error {
 	var f *os.File
 	var err error
+	if writesThrough(dst) {
+		if f, err = os.OpenFile(dst, os.O_WRONLY, 0); err != nil {
+			return err
+		}
+		// a file put there since the look is not written into
+		if info, serr := f.Stat(); serr != nil || info.Mode().IsRegular() || info.IsDir() {
+			f.Close()
+			return existsErr(dst)
+		}
+		_, err = f.Write(data)
+		if cerr := f.Close(); err == nil {
+			err = cerr
+		}
+		return err
+	}
 	if force {
 		f, err = os.CreateTemp(filepath.Dir(dst), "."+filepath.Base(dst)+".*") // 0600
 	} else if f, err = os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600); os.IsExist(err) {

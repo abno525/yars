@@ -103,7 +103,7 @@ The Confluence HTML download has no page to attach to: its pictures stay inside 
 
 A Confluence or Jira destination sends its key and the findings to the destination's own address only. A redirect to another host, another port or from `https` to `http` is refused, and the send fails with `redirect to <host> refused`. Set the destination's `base_url` to the final address.
 
-`yars export` writes a file destination's result to `--out`, or to the engagement's name in the current folder, readable by you alone (`0600`). It does not replace a file that is there: `--force` does.
+`yars export` writes a file destination's result to `--out`, or to the engagement's name in the current folder, readable by you alone (`0600`). It does not replace a file that is there: `--force` does. A device or a pipe (`--out /dev/stdout` into a pipe, `/dev/null`, a FIFO) is written into, with or without `--force`.
 
 ## HTTPS
 
