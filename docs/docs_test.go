@@ -273,8 +273,8 @@ func TestInstallPathIsGoModsModule(t *testing.T) {
 	if !strings.Contains(d, strings.TrimSuffix(install, "\n")) {
 		t.Errorf("the deploy guide lacks %q", install)
 	}
-	// a go install build has no git revision to show
-	if strings.Contains(d, "it shows the git revision instead") || !strings.Contains(d, "Built in a clone without `-ldflags`, it shows the git revision; installed with `go install` without them, `dev`.") {
+	// a go install build has no git revision to show: it shows its release
+	if strings.Contains(d, "it shows the git revision instead") || !strings.Contains(d, "Built in a clone without `-ldflags`, it shows the git revision; installed with `go install` without them, the release it installed, such as `v1.0.0`.") {
 		t.Error("the deploy guide does not say what version a go install build shows")
 	}
 }

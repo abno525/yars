@@ -17,22 +17,36 @@ var version = ""
 // A changed build names its own: go build -ldflags "-X main.source=https://…".
 var source = "https://github.com/abno525/yars"
 
-// buildVersion is version, else the VCS revision from debug.ReadBuildInfo
-// (first 12 characters, with "+dirty" when modified), else "dev".
+// buildVersion is version, else what debug.ReadBuildInfo gives: the VCS
+// revision (first 12 characters, with "+dirty" when modified), else the
+// module version, else "dev".
 func buildVersion() string {
 	if version != "" {
 		return version
 	}
+	info, _ := debug.ReadBuildInfo()
+	return infoVersion(info)
+}
+
+// infoVersion is the version a build's own info gives: the VCS revision, as
+// revision writes it (a build in a clone); without one, the module version
+// (a go install build, from the module cache); without either, "dev".
+func infoVersion(info *debug.BuildInfo) string {
+	if info == nil {
+		return "dev"
+	}
 	rev, modified := "", false
-	if info, ok := debug.ReadBuildInfo(); ok {
-		for _, s := range info.Settings {
-			switch s.Key {
-			case "vcs.revision":
-				rev = s.Value
-			case "vcs.modified":
-				modified = s.Value == "true"
-			}
+	for _, s := range info.Settings {
+		switch s.Key {
+		case "vcs.revision":
+			rev = s.Value
+		case "vcs.modified":
+			modified = s.Value == "true"
 		}
+	}
+	// "(devel)" is what Go writes when the main module has no version
+	if mv := info.Main.Version; rev == "" && mv != "" && mv != "(devel)" {
+		return mv
 	}
 	return revision(rev, modified)
 }
