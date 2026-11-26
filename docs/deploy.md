@@ -139,9 +139,9 @@ server {
 }
 ```
 
-The proxy must keep the `Host` header (YARS refuses cross-origin form posts by it, and builds clone URLs from it) and send `X-Forwarded-Proto`. The live-update stream asks nginx not to buffer it (`X-Accel-Buffering: no`) and sends a ping every 25 seconds.
+The proxy must keep the `Host` header: YARS refuses cross-origin form posts by it. YARS does not read `X-Forwarded-Proto`. The clone and MCP addresses on the pages come from `base_url` (below). Without `base_url` they use the request's `Host` header, with `https` only when the server runs with `--https` or a certificate; `yars serve` then logs at the start that `base_url` is not set. The live-update stream asks nginx not to buffer it (`X-Accel-Buffering: no`) and sends a ping every 25 seconds.
 
-Set the address people use in `.yars/config.yaml`, so links in mail and webhooks are whole:
+Set the address people use in `.yars/config.yaml`, so links in mail and webhooks are whole and the pages show the right clone and MCP addresses:
 
 ```yaml
 base_url: https://yars.example.com

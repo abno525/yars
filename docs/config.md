@@ -15,7 +15,7 @@
 | `ai.base_url` | string | — | https; plain http only for localhost |
 | `ai.model` | string | — | — |
 | `ai.api_key_env` | string | — | name of the environment variable holding the key; must start with `YARS_` |
-| `base_url` | string | — | the server's address; links in webhooks and email |
+| `base_url` | string | — | the server's address; links in webhooks and email, and the clone and MCP addresses on the pages |
 | `smtp.host` | string | — | set with `smtp.from` to send notification email |
 | `smtp.port` | number | 25 | — |
 | `smtp.from` | string | — | sender address |

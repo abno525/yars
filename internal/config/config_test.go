@@ -142,10 +142,10 @@ func TestLoadSMTPAndBaseURL(t *testing.T) {
 func TestEnvNamesNeedThePrefix(t *testing.T) {
 	for body, key := range map[string]string{
 		"ai:\n  provider: openai\n  base_url: https://x.example/v1\n  api_key_env: AWS_SECRET_ACCESS_KEY\n": "ai.api_key_env",
-		"smtp:\n  host: mail.example\n  from: a@x\n  password_env: HOME\n":                                 "smtp.password_env",
-		"ai:\n  api_key_env: yars_ai_key\n":                                                                "ai.api_key_env",
-		"smtp:\n  password_env: YARS_\n":                                                                   "smtp.password_env",
-		"smtp:\n  password_env: \"YARS_A B\"\n":                                                            "smtp.password_env",
+		"smtp:\n  host: mail.example\n  from: a@x\n  password_env: HOME\n":                                  "smtp.password_env",
+		"ai:\n  api_key_env: yars_ai_key\n":                                                                 "ai.api_key_env",
+		"smtp:\n  password_env: YARS_\n":                                                                    "smtp.password_env",
+		"smtp:\n  password_env: \"YARS_A B\"\n":                                                             "smtp.password_env",
 	} {
 		_, err := Parse([]byte(body))
 		if err == nil {

@@ -629,7 +629,7 @@ func (s *Server) home(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.Git != nil {
-		p.CloneURL = gitBase(r) + "/git/yars"
+		p.CloneURL = s.gitBase(r) + "/git/yars"
 		p.CloneCmd = mainClone(p.CloneURL, store.SeesAll(p.User), p.Engagements)
 	}
 	if err = s.engList(p, r.URL.Query().Get("show")); err != nil {
@@ -680,10 +680,17 @@ func engPaths(engs []store.Engagement) string {
 	return strings.Join(paths, " ")
 }
 
-// gitBase is the server's base URL as the browser sees it.
-func gitBase(r *http.Request) string {
+// gitBase is the server's address for the clone and MCP addresses a page
+// shows: config.yaml's base_url when it is set (read per request: it can
+// change while the server runs). Without it the scheme is the server's own
+// (--https, or a certificate) and the host is the request's Host header; no
+// X-Forwarded-Proto is read, since any client can send one.
+func (s *Server) gitBase(r *http.Request) string {
+	if b := s.conf().BaseURL; b != "" {
+		return b
+	}
 	scheme := "http"
-	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+	if s.HTTPS || r.TLS != nil {
 		scheme = "https"
 	}
 	return scheme + "://" + r.Host
@@ -724,7 +731,7 @@ func (s *Server) engagement(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.Git != nil {
-		p.CloneURL = gitBase(r) + "/git/e/" + p.Eng.ID
+		p.CloneURL = s.gitBase(r) + "/git/e/" + p.Eng.ID
 	}
 	if err := s.tabsFor(p, "findings"); err != nil {
 		s.fail(w, err)
