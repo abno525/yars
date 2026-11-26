@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"yars/internal/db"
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 const softRule = "- id: soft\n  target: title\n  regex_forbid: 'SQL'\n  level: warning\n  message: say what SQL means\n"

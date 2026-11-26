@@ -3,7 +3,7 @@ package policy
 import (
 	"testing"
 
-	"yars/internal/db"
+	"github.com/abno525/yars/internal/db"
 )
 
 // A git token's scopes: a new finding (and its files) needs "create";

@@ -3,10 +3,10 @@ package web
 import (
 	"time"
 
-	"yars/internal/config"
-	"yars/internal/db"
-	"yars/internal/notify"
-	"yars/internal/store"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/notify"
+	"github.com/abno525/yars/internal/store"
 )
 
 // Inbox section "Notifications": the user's unread notices, less the events

@@ -4,7 +4,7 @@ import (
 	"slices"
 	"testing"
 
-	"yars/internal/finding"
+	"github.com/abno525/yars/internal/finding"
 )
 
 // A finding in verification whose every assigned reviewer has signed off

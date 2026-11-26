@@ -10,11 +10,11 @@ import (
 	"strings"
 	"unicode"
 
-	"yars/internal/config"
-	"yars/internal/db"
-	"yars/internal/finding"
-	"yars/internal/gitrepo"
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/finding"
+	"github.com/abno525/yars/internal/gitrepo"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 // CheckTitle accepts a finding title: one line of 1–200 characters once

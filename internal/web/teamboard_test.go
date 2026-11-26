@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"yars/internal/config"
-	"yars/internal/store"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/store"
 )
 
 // outsider adds eve, a pentester on no team.

@@ -9,10 +9,10 @@ import (
 	"strings"
 	"testing"
 
-	"yars/internal/config"
-	"yars/internal/db"
-	"yars/internal/gitrepo"
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/gitrepo"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 var (

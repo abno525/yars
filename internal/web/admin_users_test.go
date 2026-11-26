@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"yars/internal/config"
+	"github.com/abno525/yars/internal/config"
 )
 
 // The on/off cells of Admin › Users and Admin › Rules are the webhooks'

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"yars/internal/config"
-	"yars/internal/export"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/export"
 )
 
 // A destination whose pandoc format is not one of the editor's (written by

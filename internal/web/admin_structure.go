@@ -11,13 +11,13 @@ import (
 	"strconv"
 	"strings"
 
-	"yars/internal/auth"
-	"yars/internal/config"
-	"yars/internal/cvss"
-	"yars/internal/finding"
-	"yars/internal/gitrepo"
-	"yars/internal/index"
-	"yars/internal/store"
+	"github.com/abno525/yars/internal/auth"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/cvss"
+	"github.com/abno525/yars/internal/finding"
+	"github.com/abno525/yars/internal/gitrepo"
+	"github.com/abno525/yars/internal/index"
+	"github.com/abno525/yars/internal/store"
 )
 
 // structList is one editable list of Admin › Structure.

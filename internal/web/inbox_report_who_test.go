@@ -3,9 +3,9 @@ package web
 import (
 	"testing"
 
-	"yars/internal/finding"
-	"yars/internal/index"
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/finding"
+	"github.com/abno525/yars/internal/index"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 // A complete finding with no approve event (a migration, a seed) names no

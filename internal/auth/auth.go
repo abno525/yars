@@ -17,8 +17,8 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 
-	"yars/internal/config"
-	"yars/internal/db"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/db"
 )
 
 const CookieName = "yars_session"

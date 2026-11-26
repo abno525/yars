@@ -13,8 +13,8 @@ import (
 	"strings"
 	"testing"
 
-	"yars/internal/auth"
-	"yars/internal/gitrepo"
+	"github.com/abno525/yars/internal/auth"
+	"github.com/abno525/yars/internal/gitrepo"
 )
 
 // mainCommit formats the newest commit of the main repo.

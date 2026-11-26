@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"yars/internal/db"
+	"github.com/abno525/yars/internal/db"
 )
 
 // stepOf finds a rule's step in a status.

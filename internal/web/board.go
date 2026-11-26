@@ -5,9 +5,9 @@ import (
 	"strconv"
 	"time"
 
-	"yars/internal/index"
-	"yars/internal/store"
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/index"
+	"github.com/abno525/yars/internal/store"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 // barSeg is one part of a stacked bar: X and W are percentages of the bar.

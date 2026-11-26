@@ -5,8 +5,8 @@ import (
 	"strings"
 	"unicode"
 
-	"yars/internal/finding"
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/finding"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 // Grams is a set of trigrams.

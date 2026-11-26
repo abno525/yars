@@ -4,8 +4,8 @@ import (
 	"slices"
 	"testing"
 
-	"yars/internal/finding"
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/finding"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 // AddReviewers merges with the list as it is inside the change: a reviewer

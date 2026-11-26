@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"yars/internal/auth"
-	"yars/internal/store"
+	"github.com/abno525/yars/internal/auth"
+	"github.com/abno525/yars/internal/store"
 )
 
 // redacted gives the test finding two images, shot.png redacted after its

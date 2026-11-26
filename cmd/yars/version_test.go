@@ -2,12 +2,13 @@ package main
 
 import (
 	"bytes"
+	"os"
 	"runtime"
 	"strconv"
 	"strings"
 	"testing"
 
-	"yars/internal/db"
+	"github.com/abno525/yars/internal/db"
 )
 
 // yars version names the build, the database schema it writes and the Go
@@ -34,6 +35,20 @@ func TestVersionCommand(t *testing.T) {
 	}
 	if err := cmdVersion([]string{"x"}, &b); err == nil {
 		t.Fatal("an argument is accepted")
+	}
+}
+
+// The Source link is the module's own address: go.mod's module path, over
+// https.
+func TestSourceIsTheModulePath(t *testing.T) {
+	b, err := os.ReadFile("../../go.mod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, _, _ := strings.Cut(string(b), "\n")
+	mod, ok := strings.CutPrefix(first, "module ")
+	if !ok || source != "https://"+mod {
+		t.Fatalf("source is %q, go.mod's first line %q", source, first)
 	}
 }
 

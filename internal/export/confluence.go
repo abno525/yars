@@ -26,7 +26,7 @@ import (
 	"strconv"
 	"strings"
 
-	"yars/internal/finding"
+	"github.com/abno525/yars/internal/finding"
 
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"

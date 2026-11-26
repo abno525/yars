@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"yars/internal/auth"
-	"yars/internal/db"
-	"yars/internal/notify"
-	"yars/internal/secret"
+	"github.com/abno525/yars/internal/auth"
+	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/notify"
+	"github.com/abno525/yars/internal/secret"
 )
 
 // settingsView is the account's own settings page and the New token page.

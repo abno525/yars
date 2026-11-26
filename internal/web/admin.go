@@ -4,9 +4,9 @@ import (
 	"net/http"
 	"strconv"
 
-	"yars/internal/auth"
-	"yars/internal/config"
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/auth"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 // canAdmin reports whether u may open the admin pages: the admin flag,

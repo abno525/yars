@@ -21,9 +21,9 @@ import (
 	"testing"
 	"time"
 
-	"yars/internal/config"
-	"yars/internal/finding"
-	"yars/internal/store"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/finding"
+	"github.com/abno525/yars/internal/store"
 )
 
 func mk(t *testing.T, id, title, sev, status string, sections map[string]string) *finding.Finding {

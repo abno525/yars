@@ -7,9 +7,9 @@ import (
 	"strconv"
 	"strings"
 
-	"yars/internal/auth"
-	"yars/internal/finding"
-	"yars/internal/store"
+	"github.com/abno525/yars/internal/auth"
+	"github.com/abno525/yars/internal/finding"
+	"github.com/abno525/yars/internal/store"
 )
 
 // assetsView is the Affected assets panel and its editor.

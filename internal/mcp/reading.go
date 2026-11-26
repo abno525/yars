@@ -9,11 +9,11 @@ import (
 	"strings"
 	"time"
 
-	"yars/internal/chat"
-	"yars/internal/config"
-	"yars/internal/history"
-	"yars/internal/store"
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/chat"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/history"
+	"github.com/abno525/yars/internal/store"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 // The reading tools of MCP v2 (M32 task 5): who the caller is, the

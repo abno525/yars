@@ -3,7 +3,7 @@ package db
 import (
 	"testing"
 
-	"yars/internal/config"
+	"github.com/abno525/yars/internal/config"
 )
 
 // Deleting an account takes its board read state with it: a new account of

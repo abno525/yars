@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"time"
 
-	"yars/internal/chat"
+	"github.com/abno525/yars/internal/chat"
 )
 
 // Reviewer is an assigned reviewer; ClearedHash is the hash of finding.md

@@ -8,10 +8,10 @@ import (
 	"sort"
 	"strings"
 
-	"yars/internal/cvss"
-	"yars/internal/db"
-	"yars/internal/finding"
-	"yars/internal/gitrepo"
+	"github.com/abno525/yars/internal/cvss"
+	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/finding"
+	"github.com/abno525/yars/internal/gitrepo"
 )
 
 // RenameNames renames sections, details rows and severities (list:

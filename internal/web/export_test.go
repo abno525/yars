@@ -20,11 +20,11 @@ import (
 	"testing"
 	"time"
 
-	"yars/internal/auth"
-	"yars/internal/config"
-	"yars/internal/export"
-	"yars/internal/gitrepo"
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/auth"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/export"
+	"github.com/abno525/yars/internal/gitrepo"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 const fakePandoc = `#!/bin/sh

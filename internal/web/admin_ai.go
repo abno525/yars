@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"yars/internal/auth"
-	"yars/internal/config"
-	"yars/internal/db"
-	"yars/internal/rules"
+	"github.com/abno525/yars/internal/auth"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/rules"
 )
 
 // aiAdmin is Admin › AI: the provider, address and model used by AI rules,

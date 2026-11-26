@@ -10,11 +10,11 @@ import (
 	"strings"
 	"testing"
 
-	"yars/internal/config"
-	"yars/internal/db"
-	"yars/internal/rules"
-	"yars/internal/store"
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/rules"
+	"github.com/abno525/yars/internal/store"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 // object parses a tool's text as one JSON object.

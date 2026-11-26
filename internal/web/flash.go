@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"yars/internal/auth"
+	"github.com/abno525/yars/internal/auth"
 )
 
 // flashTTL is how long a one-time secret waits for the page after the

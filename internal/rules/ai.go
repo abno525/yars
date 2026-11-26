@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"yars/internal/config"
+	"github.com/abno525/yars/internal/config"
 )
 
 // promptVersion is part of the AI results' key: a hash of systemPrompt and

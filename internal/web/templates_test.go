@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"yars/internal/finding"
-	"yars/internal/gitrepo"
-	"yars/internal/store"
+	"github.com/abno525/yars/internal/finding"
+	"github.com/abno525/yars/internal/gitrepo"
+	"github.com/abno525/yars/internal/store"
 )
 
 // addTemplate stores a template with a description and a low severity.

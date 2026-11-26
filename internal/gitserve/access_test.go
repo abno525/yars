@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"yars/internal/auth"
-	"yars/internal/db"
+	"github.com/abno525/yars/internal/auth"
+	"github.com/abno525/yars/internal/db"
 )
 
 func status(t *testing.T, method, url, user, pw string) int {

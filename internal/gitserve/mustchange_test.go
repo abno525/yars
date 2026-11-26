@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"yars/internal/auth"
-	"yars/internal/db"
+	"github.com/abno525/yars/internal/auth"
+	"github.com/abno525/yars/internal/db"
 )
 
 func statusBody(t *testing.T, url, user, pw string) (int, string) {

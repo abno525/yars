@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"yars/internal/auth"
-	"yars/internal/db"
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/auth"
+	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 // cssWidth is the px width a one-line rule of style.css gives (selector as

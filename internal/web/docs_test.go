@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"yars/docs"
-	"yars/internal/mcp"
+	"github.com/abno525/yars/docs"
+	"github.com/abno525/yars/internal/mcp"
 )
 
 func TestDeveloperDocs(t *testing.T) {

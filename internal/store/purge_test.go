@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 // redacted makes a finding (ready to submit) with an image redacted once:

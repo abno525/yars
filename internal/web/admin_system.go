@@ -14,10 +14,10 @@ import (
 	"syscall"
 	"time"
 
-	"yars/internal/auth"
-	"yars/internal/backup"
-	"yars/internal/db"
-	"yars/internal/rules"
+	"github.com/abno525/yars/internal/auth"
+	"github.com/abno525/yars/internal/backup"
+	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/rules"
 )
 
 // systemAdmin is Admin › System: the health checks, the backup download,

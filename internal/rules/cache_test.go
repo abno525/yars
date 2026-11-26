@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"yars/internal/config"
+	"github.com/abno525/yars/internal/config"
 )
 
 // memResults is a ResultStore in memory (the database's rule_cache).

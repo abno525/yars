@@ -3,7 +3,7 @@ package web
 import (
 	"net/http"
 
-	"yars/internal/auth"
+	"github.com/abno525/yars/internal/auth"
 )
 
 // D26: an account with a temporary password (an admin's Add user or Reset

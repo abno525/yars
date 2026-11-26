@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"yars/internal/chat"
-	"yars/internal/finding"
+	"github.com/abno525/yars/internal/chat"
+	"github.com/abno525/yars/internal/finding"
 )
 
 // R5: a finding without a severity shows "—" in the board's Severity

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"yars/internal/config"
+	"github.com/abno525/yars/internal/config"
 )
 
 // The page shell: new header, toast area, no inline styles.

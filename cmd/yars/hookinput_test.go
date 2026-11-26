@@ -8,7 +8,7 @@ import (
 	"testing"
 	"testing/iotest"
 
-	"yars/internal/config"
+	"github.com/abno525/yars/internal/config"
 )
 
 // The pre-receive hook refuses a push whose input it cannot read whole: a

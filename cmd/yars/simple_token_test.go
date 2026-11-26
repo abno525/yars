@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"yars/internal/config"
+	"github.com/abno525/yars/internal/config"
 )
 
 // yars token add on a data folder of the simple workflow (its database's

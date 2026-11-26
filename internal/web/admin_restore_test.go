@@ -15,9 +15,9 @@ import (
 	"testing"
 	"time"
 
-	"yars/internal/auth"
-	"yars/internal/db"
-	"yars/internal/gitrepo"
+	"github.com/abno525/yars/internal/auth"
+	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/gitrepo"
 )
 
 // uploadFile posts one file as the multipart field.

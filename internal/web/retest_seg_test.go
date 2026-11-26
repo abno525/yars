@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"yars/internal/store"
+	"github.com/abno525/yars/internal/store"
 )
 
 // The retest result control is a segmented control like the others (40 px

@@ -16,11 +16,11 @@ import (
 	"strings"
 	"time"
 
-	"yars/internal/chat"
-	"yars/internal/config"
-	"yars/internal/db"
-	"yars/internal/finding"
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/chat"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/finding"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 // MaxAttachment is the largest file a finding may get as an attachment.

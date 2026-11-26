@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"yars/internal/cvss"
-	"yars/internal/finding"
+	"github.com/abno525/yars/internal/cvss"
+	"github.com/abno525/yars/internal/finding"
 )
 
 // kvHead heads the two-column label/value tables in the web preview

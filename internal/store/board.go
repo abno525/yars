@@ -10,10 +10,10 @@ import (
 	"strconv"
 	"strings"
 
-	"yars/internal/chat"
-	"yars/internal/config"
-	"yars/internal/db"
-	"yars/internal/finding"
+	"github.com/abno525/yars/internal/chat"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/finding"
 )
 
 // The team board: an engagement's notes ("leads") and their analysis

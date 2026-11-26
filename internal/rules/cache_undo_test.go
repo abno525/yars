@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"yars/internal/config"
+	"github.com/abno525/yars/internal/config"
 )
 
 // Stamp moves on a change undone (the same bytes written again), which the

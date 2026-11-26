@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"yars/internal/db"
-	"yars/internal/finding"
-	"yars/internal/rules"
+	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/finding"
+	"github.com/abno525/yars/internal/rules"
 )
 
 // gateLinter holds each check run (every rule kind) until a token comes on

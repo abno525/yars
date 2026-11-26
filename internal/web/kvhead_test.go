@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"yars/internal/store"
+	"github.com/abno525/yars/internal/store"
 )
 
 // tablesWithoutHead lists the opening tags of tables in b that have no

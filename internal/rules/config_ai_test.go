@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"yars/internal/config"
+	"github.com/abno525/yars/internal/config"
 )
 
 // A new configuration (saved or pushed) brings its ai: settings to the AI

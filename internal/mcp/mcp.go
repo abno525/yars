@@ -16,12 +16,12 @@ import (
 	"slices"
 	"sync"
 
-	"yars/internal/config"
-	"yars/internal/history"
-	"yars/internal/index"
-	"yars/internal/rules"
-	"yars/internal/store"
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/history"
+	"github.com/abno525/yars/internal/index"
+	"github.com/abno525/yars/internal/rules"
+	"github.com/abno525/yars/internal/store"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 type Server struct {

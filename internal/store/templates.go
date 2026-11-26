@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"yars/internal/finding"
-	"yars/internal/gitrepo"
+	"github.com/abno525/yars/internal/finding"
+	"github.com/abno525/yars/internal/gitrepo"
 )
 
 // TemplatesDir holds finding templates in the main repo: one finding file

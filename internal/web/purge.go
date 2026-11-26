@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"strings"
 
-	"yars/internal/auth"
-	"yars/internal/gitrepo"
-	"yars/internal/store"
+	"github.com/abno525/yars/internal/auth"
+	"github.com/abno525/yars/internal/gitrepo"
+	"github.com/abno525/yars/internal/store"
 )
 
 // purgeView is the Purge from history confirm page (D28).

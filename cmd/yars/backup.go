@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"strings"
 
-	"yars/internal/backup"
-	"yars/internal/db"
+	"github.com/abno525/yars/internal/backup"
+	"github.com/abno525/yars/internal/db"
 )
 
 // backupTries is how often cmdBackup takes the backup again when Verify

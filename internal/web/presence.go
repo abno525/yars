@@ -7,9 +7,9 @@ import (
 	"sync"
 	"time"
 
-	"yars/internal/auth"
-	"yars/internal/events"
-	"yars/internal/store"
+	"github.com/abno525/yars/internal/auth"
+	"github.com/abno525/yars/internal/events"
+	"github.com/abno525/yars/internal/store"
 )
 
 // presenceTTL is how long an editor counts as open without a heartbeat

@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"yars/internal/chat"
-	"yars/internal/db"
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/chat"
+	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 func (e *env) chatIDs(t *testing.T) []string {

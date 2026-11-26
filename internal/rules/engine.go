@@ -14,8 +14,8 @@ import (
 	"sync"
 	"time"
 
-	"yars/internal/config"
-	"yars/internal/finding"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/finding"
 )
 
 // Engine binds a rules directory, config and slow runner, reloading the rule

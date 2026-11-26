@@ -14,11 +14,11 @@ import (
 	"testing"
 	"time"
 
-	"yars/internal/auth"
-	"yars/internal/backup"
-	"yars/internal/config"
-	"yars/internal/db"
-	"yars/internal/secret"
+	"github.com/abno525/yars/internal/auth"
+	"github.com/abno525/yars/internal/backup"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/secret"
 )
 
 func zipNames(t *testing.T, body []byte) map[string][]byte {

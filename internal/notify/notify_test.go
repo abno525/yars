@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"yars/internal/config"
-	"yars/internal/db"
-	"yars/internal/store"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/store"
 )
 
 type mail struct{ to, subject, body string }

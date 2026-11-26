@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"yars/internal/config"
+	"github.com/abno525/yars/internal/config"
 )
 
 // at is a stored time, as the database writes it.

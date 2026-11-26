@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"time"
 
-	"yars/internal/auth"
-	"yars/internal/db"
+	"github.com/abno525/yars/internal/auth"
+	"github.com/abno525/yars/internal/db"
 )
 
 // activityAdmin is Admin › Activity: the audit log (filtered, a page at a

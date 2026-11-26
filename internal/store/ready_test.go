@@ -5,10 +5,10 @@ import (
 	"strings"
 	"testing"
 
-	"yars/internal/db"
-	"yars/internal/finding"
-	"yars/internal/rules"
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/finding"
+	"github.com/abno525/yars/internal/rules"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 // D25: a finding reaches a director only clean. An open warning (not only an

@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"yars/internal/config"
-	"yars/internal/db"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/db"
 )
 
 // Admin › Activity shows a new token's actions as the other lists there

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"yars/internal/chat"
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/chat"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 // between returns the HTML from the first from to the next to after it.

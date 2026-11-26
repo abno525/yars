@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"yars/internal/config"
+	"github.com/abno525/yars/internal/config"
 )
 
 func TestScriptFailureMarked(t *testing.T) {

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"yars/internal/chat"
+	"github.com/abno525/yars/internal/chat"
 )
 
 // The excerpt drops Markdown structure only, never the text's own

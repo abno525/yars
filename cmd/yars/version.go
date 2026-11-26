@@ -7,7 +7,7 @@ import (
 	"runtime"
 	"runtime/debug"
 
-	"yars/internal/db"
+	"github.com/abno525/yars/internal/db"
 )
 
 // version is set at build time: go build -ldflags "-X main.version=v1.0.0".

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"yars/internal/config"
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 // wfSection is the workflow bar of a finding page or fragment.

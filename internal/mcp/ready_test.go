@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"yars/internal/config"
-	"yars/internal/rules"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/rules"
 )
 
 // D25 through MCP: Sign off and Approve go through the store's gate, so an

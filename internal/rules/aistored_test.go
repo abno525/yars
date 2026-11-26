@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"testing"
 
-	"yars/internal/config"
+	"github.com/abno525/yars/internal/config"
 )
 
 // Settings saved on the admin page override config.yaml; the environment

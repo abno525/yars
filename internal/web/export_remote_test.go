@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 // Sending a finding again updates its issue instead of making another; an

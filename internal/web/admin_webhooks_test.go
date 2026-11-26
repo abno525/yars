@@ -11,9 +11,9 @@ import (
 	"sync"
 	"testing"
 
-	"yars/internal/db"
-	"yars/internal/store"
-	"yars/internal/webhook"
+	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/store"
+	"github.com/abno525/yars/internal/webhook"
 )
 
 type hookSink struct {

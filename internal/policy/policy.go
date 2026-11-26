@@ -14,15 +14,15 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"yars/internal/config"
-	"yars/internal/db"
-	"yars/internal/export"
-	"yars/internal/finding"
-	"yars/internal/gitrepo"
-	"yars/internal/history"
-	"yars/internal/rules"
-	"yars/internal/store"
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/export"
+	"github.com/abno525/yars/internal/finding"
+	"github.com/abno525/yars/internal/gitrepo"
+	"github.com/abno525/yars/internal/history"
+	"github.com/abno525/yars/internal/rules"
+	"github.com/abno525/yars/internal/store"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 // zero reports whether id is git's zero id (no commit): 40 zeros, or 64 in

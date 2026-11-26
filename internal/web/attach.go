@@ -11,8 +11,8 @@ import (
 	"strconv"
 	"strings"
 
-	"yars/internal/auth"
-	"yars/internal/store"
+	"github.com/abno525/yars/internal/auth"
+	"github.com/abno525/yars/internal/store"
 )
 
 // attachView is the attachment strip of a section editor and the finding

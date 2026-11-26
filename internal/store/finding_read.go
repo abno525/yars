@@ -10,9 +10,9 @@ import (
 	"strconv"
 	"strings"
 
-	"yars/internal/db"
-	"yars/internal/finding"
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/finding"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 // ContentHash identifies a version of finding.md; a clearance counts only

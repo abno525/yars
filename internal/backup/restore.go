@@ -10,8 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"yars/internal/db"
-	"yars/internal/gitrepo"
+	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/gitrepo"
 )
 
 // Report says what a backup holds.

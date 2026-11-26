@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"yars/internal/gitrepo"
-	"yars/internal/store"
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/gitrepo"
+	"github.com/abno525/yars/internal/store"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 // second adds F-002 to acme, written by author.

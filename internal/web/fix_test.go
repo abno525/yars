@@ -8,8 +8,8 @@ import (
 	"sync"
 	"testing"
 
-	"yars/internal/db"
-	"yars/internal/rules"
+	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/rules"
 )
 
 // webFixer is the test's rules engine with a programmed Fix and a provider.

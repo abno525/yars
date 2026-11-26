@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"yars/internal/config"
+	"github.com/abno525/yars/internal/config"
 )
 
 // fixReply is an OpenAI-compatible reply whose content is content.

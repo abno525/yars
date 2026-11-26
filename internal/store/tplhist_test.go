@@ -3,7 +3,7 @@ package store
 import (
 	"testing"
 
-	"yars/internal/gitrepo"
+	"github.com/abno525/yars/internal/gitrepo"
 )
 
 // Each template's versions come from git: newest first, numbered from the

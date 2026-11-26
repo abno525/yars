@@ -12,8 +12,8 @@ import (
 	"sync"
 	"testing"
 
-	"yars/internal/finding"
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/finding"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 func pngBytes(t *testing.T, c color.Color) []byte {

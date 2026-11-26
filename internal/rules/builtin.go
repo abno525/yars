@@ -10,8 +10,8 @@ import (
 	east "github.com/yuin/goldmark/extension/ast"
 	"github.com/yuin/goldmark/text"
 
-	"yars/internal/config"
-	"yars/internal/cvss"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/cvss"
 )
 
 func (r Rule) builtin(d Doc, cfg config.Config) []Violation {

@@ -9,9 +9,9 @@ import (
 	"slices"
 	"strings"
 
-	"yars/internal/auth"
-	"yars/internal/config"
-	"yars/internal/db"
+	"github.com/abno525/yars/internal/auth"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/db"
 )
 
 const maxBody = 2 << 20

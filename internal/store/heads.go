@@ -10,7 +10,7 @@ import (
 	"sort"
 	"strings"
 
-	"yars/internal/gitrepo"
+	"github.com/abno525/yars/internal/gitrepo"
 )
 
 // errMoved is returned when HEAD moved (e.g. a git push landed) between

@@ -4,7 +4,7 @@ import (
 	"slices"
 	"testing"
 
-	"yars/internal/rules"
+	"github.com/abno525/yars/internal/rules"
 )
 
 // A configuration a git push applies (Store.SetConfig, from ReceivePush)

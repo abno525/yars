@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 // BlockingNow words what would refuse an action as Transition does, with

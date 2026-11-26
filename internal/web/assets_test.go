@@ -6,11 +6,11 @@ import (
 	"strings"
 	"testing"
 
-	"yars/internal/config"
-	"yars/internal/finding"
-	"yars/internal/gitrepo"
-	"yars/internal/store"
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/finding"
+	"github.com/abno525/yars/internal/gitrepo"
+	"github.com/abno525/yars/internal/store"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 // assetsBase is the current asset base of F-001.

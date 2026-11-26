@@ -7,9 +7,9 @@ import (
 	"slices"
 	"strings"
 
-	"yars/internal/config"
-	"yars/internal/cvss"
-	"yars/internal/finding"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/cvss"
+	"github.com/abno525/yars/internal/finding"
 )
 
 type Action string

@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"yars/internal/config"
-	"yars/internal/finding"
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/finding"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 // The shared content rules, as the website and git pushes use them.

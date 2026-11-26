@@ -4,8 +4,8 @@ import (
 	"slices"
 	"testing"
 
-	"yars/internal/config"
-	"yars/internal/finding"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/finding"
 )
 
 // The bulk Set state menu of each role, in board order.

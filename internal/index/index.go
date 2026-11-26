@@ -18,12 +18,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"yars/internal/chat"
-	"yars/internal/cvss"
-	"yars/internal/finding"
-	"yars/internal/gitrepo"
-	"yars/internal/store"
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/chat"
+	"github.com/abno525/yars/internal/cvss"
+	"github.com/abno525/yars/internal/finding"
+	"github.com/abno525/yars/internal/gitrepo"
+	"github.com/abno525/yars/internal/store"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 // Row is one finding in the table. Severity is derived from a valid CVSS

@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"yars/internal/config"
-	"yars/internal/db"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/db"
 )
 
 func retentionForm(audit, runs, sessions string) url.Values {

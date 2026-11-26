@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"yars/internal/config"
+	"github.com/abno525/yars/internal/config"
 )
 
 // A rules file rewritten with the same size inside one tick of the file

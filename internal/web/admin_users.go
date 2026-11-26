@@ -6,9 +6,9 @@ import (
 	"net/url"
 	"strings"
 
-	"yars/internal/auth"
-	"yars/internal/config"
-	"yars/internal/store"
+	"github.com/abno525/yars/internal/auth"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/store"
 )
 
 // usersAdmin is Admin › Users: every account with its role, flags and

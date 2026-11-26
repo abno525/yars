@@ -9,11 +9,11 @@ import (
 	"strconv"
 	"strings"
 
-	"yars/internal/auth"
-	"yars/internal/config"
-	"yars/internal/finding"
-	"yars/internal/store"
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/auth"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/finding"
+	"github.com/abno525/yars/internal/store"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 type wfAction struct {

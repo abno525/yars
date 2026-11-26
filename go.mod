@@ -1,4 +1,4 @@
-module yars
+module github.com/abno525/yars
 
 go 1.27.2
 

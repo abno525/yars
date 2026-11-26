@@ -6,11 +6,11 @@ import (
 	"slices"
 	"strings"
 
-	"yars/docs"
-	"yars/internal/db"
-	"yars/internal/mcp"
-	"yars/internal/store"
-	"yars/internal/webhook"
+	"github.com/abno525/yars/docs"
+	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/mcp"
+	"github.com/abno525/yars/internal/store"
+	"github.com/abno525/yars/internal/webhook"
 )
 
 // docsTabs are the developer pages, in the rail's order.
