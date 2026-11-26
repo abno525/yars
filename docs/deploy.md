@@ -5,7 +5,7 @@ Running YARS for a team: one server, one data folder, a proxy for HTTPS.
 ## Requirements
 
 - **git 2.30 or later**, on the server's `PATH`. An older git lacks an option YARS reads refs with. YARS keeps every engagement in a git repository and serves clones and pushes itself. Removing a file from history (Purge) uses `git filter-branch`; some small images package it apart from git.
-- **Go 1.27.2 or later**, to build the binary.
+- **Go 1.27.2 or later**, to build the binary. Build with the newest patch release: it has the security fixes of Go's own packages, which end up in the binary.
 - **pandoc** (optional), for the PDF, Word and other pandoc downloads and destinations. Without it, those are refused; the ZIP downloads and the Confluence HTML destination still work.
   - Some packaged pandoc builds cannot load their own data files under `--sandbox`. YARS then runs pandoc without the sandbox: what it is given is already sanitised, and images are already inlined. A static release from pandoc's website keeps the sandbox.
 - **xelatex** (optional), for PDF: the report theme is a LaTeX template. It needs the LaTeX packages fontspec, xcolor, geometry, graphicx, longtable, booktabs, array, calc, etoolbox, fancyhdr, fvextra and hyperref, and looks as designed with the IBM Plex fonts installed (else TeX Gyre). Without xelatex, PDFs fail with pandoc's message, and the other formats still work.

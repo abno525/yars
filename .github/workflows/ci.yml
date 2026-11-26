@@ -62,9 +62,12 @@ jobs:
           git config --global init.defaultBranch main
       - name: race
         run: go test -race -p 1 ./internal/...
-  # known vulnerabilities in the Go release of go.mod and in the modules, as
-  # far as the code calls them. Not on PRs: a new advisory would fail every
-  # unrelated change the day it is published. The version is pinned here
+  # known vulnerabilities in the modules and in the newest Go release, as far
+  # as the code calls them. Not the Go release of go.mod: that is the oldest
+  # one that builds, and an advisory fixed in a later patch release is no
+  # fault of the code (the deploy guide asks for the newest patch release).
+  # Not on PRs: a new advisory would fail every unrelated change the day it
+  # is published. The version is pinned here
   vuln:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
@@ -73,6 +76,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
+          go-version: stable
+          check-latest: true
       - name: govulncheck
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.10.0 ./...

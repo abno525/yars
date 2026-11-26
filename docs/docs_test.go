@@ -144,6 +144,55 @@ func TestDeployGuideHardening(t *testing.T) {
 	}
 }
 
+// ciJob returns one job of the CI workflow: from its name to the next job's.
+func ciJob(t *testing.T, name string) string {
+	t.Helper()
+	b, err := os.ReadFile("../.github/workflows/ci.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	y := string(b)
+	i := strings.Index(y, "\n  "+name+":\n")
+	if i < 0 {
+		t.Fatalf("ci.yml has no job %s", name)
+	}
+	job := y[i+1:]
+	for _, l := range strings.SplitAfter(job, "\n")[1:] {
+		// the next job's name, or the comment above it, at the jobs' indent
+		if strings.HasPrefix(l, "  ") && !strings.HasPrefix(l, "   ") {
+			return job[:strings.Index(job, "\n"+l)+1]
+		}
+	}
+	return job
+}
+
+// The vulnerability job builds with the newest Go release, not with go.mod's
+// minimum: an advisory against the standard library of the minimum, fixed in
+// a later patch release, does not turn master red. The deploy guide tells
+// the operator to build with that release too.
+func TestCIVulnJobUsesTheNewestGo(t *testing.T) {
+	j := ciJob(t, "vuln")
+	if !strings.Contains(j, "govulncheck@v") {
+		t.Fatalf("the vuln job: %s", j)
+	}
+	if strings.Contains(j, "go-version-file") || !strings.Contains(j, "go-version: stable\n") || !strings.Contains(j, "check-latest: true\n") {
+		t.Errorf("the vuln job does not set up the newest Go release:\n%s", j)
+	}
+	// the other jobs keep go.mod's release
+	for _, n := range []string{"test", "race"} {
+		if !strings.Contains(ciJob(t, n), "go-version-file: go.mod\n") {
+			t.Errorf("the %s job does not use go.mod's Go release", n)
+		}
+	}
+	b, err := os.ReadFile("deploy.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), "Build with the newest patch release") {
+		t.Error("the deploy guide does not ask for the newest patch release")
+	}
+}
+
 // The git guide tells the holder of a clone from before engagements had
 // repositories of their own what to do with commits not pushed yet
 // (backlog, M11).
