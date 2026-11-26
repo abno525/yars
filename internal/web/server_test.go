@@ -2,6 +2,7 @@ package web
 
 import (
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -121,6 +122,16 @@ func (e *env) serialOnly(t *testing.T, what string) {
 
 func newEnv(t *testing.T) *env {
 	t.Helper()
+	lg, logged := logs.NewRecorder()
+	e := newEnvLog(t, lg)
+	e.log = logged
+	return e
+}
+
+// newEnvLog is newEnv with the logger the server, its store and its
+// accounts write to (newEnv keeps the records; e.log is nil here).
+func newEnvLog(t *testing.T, lg *slog.Logger) *env {
+	t.Helper()
 	// minimum cost: a login check reads the cost from the stored hash, so the
 	// four logins below are fast; production hashes stay at 12
 	hashOnce.Do(func() {
@@ -142,7 +153,6 @@ func newEnv(t *testing.T) *env {
 	// (TestFinishedTestsLetTheirServerGo)
 	t.Cleanup(func() { d.Close(); d = nil })
 	st := store.New(r, cfg, d)
-	lg, logged := logs.NewRecorder()
 	st.Logger = lg
 	a := gitrepo.Author{Name: "alice", Email: "alice@yars.local"}
 	if err := st.CreateEngagement(store.Engagement{ID: "acme", Name: "ACME Web"}, a); err != nil {
@@ -169,7 +179,7 @@ func newEnv(t *testing.T) *env {
 	au := auth.New(d)
 	au.Logger = lg
 	s := &Server{Store: st, Index: index.New(st, r), Auth: au, Cfg: cfg, Logger: lg}
-	e := &env{srv: s, h: s.Handler(), dir: dir, toks: map[string]string{}, log: logged}
+	e := &env{srv: s, h: s.Handler(), dir: dir, toks: map[string]string{}}
 	t.Cleanup(func() { s.Close(); s = nil })
 	for _, u := range users {
 		tok, ok := au.Login(u.Username, "pw")

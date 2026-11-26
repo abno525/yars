@@ -105,6 +105,11 @@ func (s *Server) requestLine(rq *logs.Request, method string, status int, took t
 	if route == "" {
 		route = "-"
 	}
+	switch method { // a method is a client's word
+	case http.MethodGet, http.MethodHead, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete, http.MethodOptions:
+	default:
+		method = "-"
+	}
 	known := rq.Attrs() // req first
 	attrs := make([]slog.Attr, 0, len(known)+4)
 	attrs = append(attrs, known[0], slog.String("method", method), slog.String("route", route),

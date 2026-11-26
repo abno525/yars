@@ -71,6 +71,12 @@ func TestRequestLineWithoutRoute(t *testing.T) {
 	if l := e.requests(); len(l) != 1 || l[0].Str("route") != "-" || l[0].Str("status") != "404" || l[0].Str("user") != "alice" || strings.Contains(e.log.Text(), "zqpath7f3kq") {
 		t.Fatalf("unknown path:\n%s", e.log.Text())
 	}
+	// a method is a client's word: one the server does not know is "-"
+	e.log.Reset()
+	e.do(t, "alice", "ZQMETHOD7F3KQ", "/e/acme", nil, nil)
+	if l := e.requests(); len(l) != 1 || l[0].Str("method") != "-" || strings.Contains(e.log.Text(), "ZQMETHOD7F3KQ") {
+		t.Fatalf("unknown method:\n%s", e.log.Text())
+	}
 	e.log.Reset()
 	e.do(t, "", "GET", "/e/acme/f/F-001-sql-injection", nil, nil)
 	if l := e.requests(); len(l) != 1 || l[0].Has("user") || l[0].Str("status") != "303" || strings.Contains(e.log.Text(), "sql-injection") {

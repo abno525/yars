@@ -48,8 +48,14 @@ func ValidFormat(s string) bool { return s == "" || s == Text || s == JSON }
 // msg key=value …) or, with format json, one JSON object a line, from level
 // up. level is read on every line, so a slog.LevelVar changes it while the
 // server runs. Everything that reads the server's records (the stream on
-// stderr, later a ring in memory) is built behind this one function.
+// stderr, later a ring in memory) is built behind this one function, and so
+// behind Redact: no line holds a password, a token's value or text.
 func Handler(w io.Writer, format string, level slog.Leveler) slog.Handler {
+	return Redact(output(w, format, level))
+}
+
+// output writes records to w as they are given.
+func output(w io.Writer, format string, level slog.Leveler) slog.Handler {
 	opts := &slog.HandlerOptions{Level: level, ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
 		// an Always line reads as the info line it is
 		if lv, ok := a.Value.Any().(slog.Level); ok && a.Key == slog.LevelKey && len(groups) == 0 && lv == Always {
