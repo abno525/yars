@@ -213,6 +213,52 @@ func TestDebugEndsByItself(t *testing.T) {
 	}
 }
 
+// The audit row is written without the switch's lock. With the database
+// busy (another write holds it) the switch waits for its row, and yars
+// status and Admin › System answer meanwhile: Status returns before the
+// audit gave up.
+func TestDebugAuditDoesNotHoldStatus(t *testing.T) {
+	e, lv, out := debugEnv(t, slog.LevelWarn)
+	// busy holds the database's write lock while change runs, asks for the
+	// status once the level is want, and lets the audit row through after
+	busy := func(what string, want slog.Level, level string, change func()) {
+		t.Helper()
+		tx, err := e.srv.Store.DB().Begin() // immediate: it holds the write lock
+		if err != nil {
+			t.Fatal(err)
+		}
+		done := make(chan struct{})
+		go func() { defer close(done); change() }()
+		deadline := time.Now().Add(time.Minute)
+		for lv.Level() != want {
+			if time.Now().After(deadline) {
+				tx.Rollback()
+				t.Fatalf("%s: the level stays %v", what, lv.Level())
+			}
+			time.Sleep(time.Millisecond)
+		}
+		st := e.srv.Status()
+		waited := strings.Contains(out.String(), "the debug switch is not audited")
+		tx.Rollback()
+		<-done
+		if waited || st.Level != level {
+			t.Fatalf("%s: the status waited for the audit row (level %q):\n%s", what, st.Level, out.String())
+		}
+	}
+	busy("on", slog.LevelDebug, "debug", func() { e.srv.setDebug(true, "dora") })
+	busy("off", slog.LevelWarn, "warn", func() { e.srv.setDebug(false, "dora") })
+	e.srv.setDebug(true, "dora")
+	e.srv.debugMu.Lock()
+	gen := e.srv.debugGen
+	e.srv.debugMu.Unlock()
+	busy("the end", slog.LevelWarn, "warn", func() { e.srv.debugEnd(gen) })
+	// each row came once the database was free
+	rows := debugRows(t, e)
+	if len(rows) != 4 || rows[0].Actor != "yars" || rows[0].Detail != "off · ended by itself" || rows[2].Detail != "off" {
+		t.Fatalf("audit %+v", rows)
+	}
+}
+
 // A server that started at debug stays at debug when the period ends.
 func TestDebugKeepsTheStartLevel(t *testing.T) {
 	e, lv, _ := debugEnv(t, slog.LevelDebug)

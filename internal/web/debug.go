@@ -37,21 +37,30 @@ func (s *Server) debugSwitch(w http.ResponseWriter, r *http.Request) {
 // while it is on, the period starts again (one timer). Off, the level is the
 // one the server started with, also when that is not info. Each change is
 // audited. Nothing is stored: after a restart the level is the configured
-// one. A server without LogLevel has no switch to move.
+// one. A server without LogLevel has no switch to move. The audit row is
+// written after debugMu is let go: a busy database must not hold the status
+// (debugState) for as long as the row waits.
 func (s *Server) setDebug(on bool, by string) {
 	if s.LogLevel == nil {
 		return
 	}
+	if detail := s.switchDebug(on, by); detail != "" {
+		s.auditDebug(by, detail)
+	}
+}
+
+// switchDebug is setDebug's change under debugMu; it returns the detail of
+// the audit row to write, "" when nothing changed.
+func (s *Server) switchDebug(on bool, by string) (detail string) {
 	s.debugMu.Lock()
 	defer s.debugMu.Unlock()
 	if !on {
 		if s.debugUntil.IsZero() {
-			return
+			return ""
 		}
 		s.log().Info("log: the debug level is switched off", "user", by)
 		s.debugOff()
-		s.auditDebug(by, "off")
-		return
+		return "off"
 	}
 	if s.debugUntil.IsZero() {
 		s.debugBase = s.LogLevel.Level()
@@ -65,7 +74,7 @@ func (s *Server) setDebug(on bool, by string) {
 	s.LogLevel.Set(slog.LevelDebug)
 	s.debugTimer = time.AfterFunc(period, func() { s.debugEnd(gen) })
 	s.log().Info("log: the debug level is switched on", "user", by, "minutes", int(period.Minutes()))
-	s.auditDebug(by, "on · until "+s.debugUntil.Format("15:04"))
+	return "on · until " + s.debugUntil.Format("15:04")
 }
 
 // debugOff puts the level back to the one before the switch (debugMu held).
@@ -81,15 +90,17 @@ func (s *Server) debugOff() {
 
 // debugEnd is the timer of period gen: the debug level ends by itself,
 // audited as yars. A timer of a period that was switched off or started
-// again meanwhile changes nothing.
+// again meanwhile changes nothing. The audit row is written after debugMu
+// is let go, as in setDebug.
 func (s *Server) debugEnd(gen int) {
 	s.debugMu.Lock()
-	defer s.debugMu.Unlock()
 	if gen != s.debugGen || s.debugUntil.IsZero() {
+		s.debugMu.Unlock()
 		return
 	}
 	s.log().Info("log: the debug level ended by itself")
 	s.debugOff()
+	s.debugMu.Unlock()
 	select {
 	case <-s.stop: // the database closes with the server
 		return
