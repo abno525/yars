@@ -146,7 +146,7 @@ func TestSimpleTokenScopes(t *testing.T) {
 			t.Errorf("%s not listed", a)
 		}
 	}
-	f := url.Values{"name": {"bot"}, "kind": {"mcp"}, "access": {"actions"}, "engs": {"all"}, "expires": {"30"}, "action": {"reviewers"}}
+	f := url.Values{"name": {"bot"}, "kind": {"mcp"}, "access": {"actions"}, "engs": {"all"}, "expires": {"30"}, "action": {"reviewers"}, "password": {"pw"}}
 	if rec := e.do(t, "ben", "POST", "/settings/tokens/new", f, nil); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "Pick at least one action") {
 		t.Fatalf("reviewers only: %d", rec.Code)
 	}

@@ -17,6 +17,7 @@ What changed for people who run or use YARS. Newest first.
 - `docs/deploy.md`: a `0700` data folder, systemd hardening, backup pruning, the minimum git version, uninstalling.
 - `docs/rules.md` covers every kind of rule, its limits and its failures.
 - `docs/known-limits.md` lists today's limits by subject.
+- Settings › Tokens › New token asks for your password. `yars token add` does not.
 - Only a finding's author or a director sends it to a destination. The export page ticks the findings you may send. Downloads and the preview stay open to the team.
 
 ### Fixed

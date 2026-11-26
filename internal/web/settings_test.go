@@ -106,7 +106,7 @@ func TestTokenCreatedOnce(t *testing.T) {
 		t.Fatalf("form %d", rec.Code)
 	}
 	form := url.Values{"name": {"laptop"}, "kind": {"mcp"}, "access": {"actions"}, "action": {"comment", "edit"},
-		"engs": {"selected"}, "eng": {"acme"}, "expires": {"30"}}
+		"engs": {"selected"}, "eng": {"acme"}, "expires": {"30"}, "password": {"pw"}}
 	rec := e.do(t, "alice", "POST", "/settings/tokens/new", form, nil)
 	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/settings#tokens" {
 		t.Fatalf("create %d %q", rec.Code, rec.Header().Get("Location"))
@@ -147,7 +147,7 @@ func TestTokenCreatedOnce(t *testing.T) {
 		t.Fatalf("token not listed by its ending:\n%s", b)
 	}
 	// read only, every engagement, never expires
-	rec = e.do(t, "alice", "POST", "/settings/tokens/new", url.Values{"name": {"ro"}, "kind": {"git"}, "access": {"read"}, "engs": {"all"}, "expires": {"never"}}, nil)
+	rec = e.do(t, "alice", "POST", "/settings/tokens/new", url.Values{"name": {"ro"}, "kind": {"git"}, "access": {"read"}, "engs": {"all"}, "expires": {"never"}, "password": {"pw"}}, nil)
 	_, info, ok = tokens.Verify(secretRe.FindString(e.follow(t, "alice", rec)), db.TokenGit)
 	if !ok || !info.ReadOnly() || info.Restricted() || info.Expires != "" {
 		t.Fatalf("read-only token %+v", info)
@@ -174,6 +174,87 @@ func TestTokenCreatedOnce(t *testing.T) {
 	}
 	if l := tokens.ListFor("alice"); len(l) != 1 {
 		t.Fatalf("tokens left %d", len(l))
+	}
+}
+
+// The New token form asks for the account's password: a session alone (a
+// stolen one) makes no token. With the password the token is made and works,
+// and it keeps working after the password changes.
+func TestTokenNeedsPassword(t *testing.T) {
+	e := setup(t)
+	tokens := auth.NewTokens(e.srv.Store.DB())
+	b := e.do(t, "alice", "GET", "/settings/tokens/new", nil, nil).Body.String()
+	if !strings.Contains(b, `<label class="frow"><span class="flabel">Password</span><input class="w360" type="password" name="password" autocomplete="current-password" required></label>`) {
+		t.Fatalf("no password field:\n%s", b)
+	}
+	form := func(pw ...string) url.Values {
+		f := url.Values{"name": {"laptop"}, "kind": {"mcp"}, "access": {"actions"}, "action": {"comment"}, "engs": {"selected"}, "eng": {"acme"}, "expires": {"30"}}
+		if len(pw) > 0 {
+			f.Set("password", pw[0])
+		}
+		return f
+	}
+	for name, f := range map[string]url.Values{"no password": form(), "empty password": form(""), "wrong password": form("not-the-password")} {
+		rec := e.do(t, "alice", "POST", "/settings/tokens/new", f, nil)
+		body := rec.Body.String()
+		if rec.Code != http.StatusBadRequest || !strings.Contains(body, `title="Password is wrong">Password is wrong</span>`) {
+			t.Fatalf("%s: %d\n%s", name, rec.Code, body)
+		}
+		if secretRe.MatchString(body) || strings.Contains(body, "not-the-password") || len(tokens.ListFor("alice")) != 0 {
+			t.Fatalf("%s: a token was made, or the password is back in the form", name)
+		}
+		// the other choices are kept
+		if !strings.Contains(body, `name="name" value="laptop"`) || !strings.Contains(body, `name="action" value="comment" checked`) || !strings.Contains(body, `name="eng" value="acme" checked`) {
+			t.Fatalf("%s: the form lost its choices:\n%s", name, body)
+		}
+	}
+	if secretRe.MatchString(e.do(t, "alice", "GET", "/settings", nil, nil).Body.String()) {
+		t.Fatal("a refused form left a secret to show")
+	}
+	// a mistake in the form is told first and costs no login attempt: five
+	// such posts with a wrong password do not lock the account
+	for range 6 {
+		f := form("not-the-password")
+		f.Set("name", "")
+		if rec := e.do(t, "alice", "POST", "/settings/tokens/new", f, nil); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "Name is required") {
+			t.Fatalf("form mistake with a wrong password: %d", rec.Code)
+		}
+	}
+	// the right password: one token, and it works
+	rec := e.do(t, "alice", "POST", "/settings/tokens/new", form("pw"), nil)
+	tok := secretRe.FindString(e.follow(t, "alice", rec))
+	if u, info, ok := tokens.Verify(tok, db.TokenMCP); !ok || u.Username != "alice" || info.Name != "laptop" || len(tokens.ListFor("alice")) != 1 {
+		t.Fatalf("token with the password: %v %+v", ok, info)
+	}
+	// Q2: the token stays after a password change
+	if rec := e.do(t, "alice", "POST", "/settings/password", url.Values{"current": {"pw"}, "new": {"long enough pw"}, "repeat": {"long enough pw"}}, nil); rec.Code != http.StatusSeeOther {
+		t.Fatalf("password change %d", rec.Code)
+	}
+	if _, _, ok := tokens.Verify(tok, db.TokenMCP); !ok {
+		t.Fatal("the token was revoked by the password change")
+	}
+}
+
+// The token form's password goes through the login lockout, so a stolen
+// session cannot try passwords without limit there.
+func TestTokenPasswordCountsAttempts(t *testing.T) {
+	e := setup(t)
+	f := url.Values{"name": {"x"}, "kind": {"mcp"}, "access": {"read"}, "engs": {"all"}, "expires": {"30"}, "password": {"guess"}}
+	for range 5 {
+		if rec := e.do(t, "alice", "POST", "/settings/tokens/new", f, nil); rec.Code != http.StatusBadRequest {
+			t.Fatalf("wrong password: %d", rec.Code)
+		}
+	}
+	// locked: the right password is refused now, here and at the login
+	f.Set("password", "pw")
+	if rec := e.do(t, "alice", "POST", "/settings/tokens/new", f, nil); rec.Code != http.StatusBadRequest {
+		t.Fatalf("after five wrong passwords the right one made a token: %d", rec.Code)
+	}
+	if _, ok := e.srv.Auth.Check("alice", "pw"); ok {
+		t.Fatal("five wrong passwords on the token form did not count as login attempts")
+	}
+	if n := len(auth.NewTokens(e.srv.Store.DB()).ListFor("alice")); n != 0 {
+		t.Fatalf("%d tokens", n)
 	}
 }
 
