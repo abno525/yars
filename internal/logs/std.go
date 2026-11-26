@@ -11,7 +11,10 @@ import (
 // StdHandler makes the lines of a library that writes free text through the
 // standard logger (net/http's ErrorLog, net/http/cgi) lines of l: each
 // becomes one record with the constant message msg and the library's text
-// in err. Use it as slog.NewLogLogger(logs.StdHandler(l, msg), level).
+// in err. net/http writes a handler's panic and its stack trace in one
+// text: the trace goes in stack, which holds a whole trace (stackMax) where
+// err is cut as any value. Use it as
+// slog.NewLogLogger(logs.StdHandler(l, msg), level).
 func StdHandler(l *slog.Logger, msg string) slog.Handler { return stdHandler{Or(l), msg} }
 
 type stdHandler struct {
@@ -21,7 +24,13 @@ type stdHandler struct {
 
 func (h stdHandler) Enabled(ctx context.Context, lv slog.Level) bool { return h.to.Enabled(ctx, lv) }
 func (h stdHandler) Handle(ctx context.Context, r slog.Record) error {
-	h.to.LogAttrs(ctx, r.Level, h.msg, slog.String("err", strings.TrimSpace(r.Message)))
+	text := strings.TrimSpace(r.Message)
+	// a trace starts on a line of its own: goroutine 52 [running]:
+	if i := strings.Index(text, "\ngoroutine "); i >= 0 {
+		h.to.LogAttrs(ctx, r.Level, h.msg, slog.String("err", strings.TrimSpace(text[:i])), slog.String(stackKey, text[i+1:]))
+		return nil
+	}
+	h.to.LogAttrs(ctx, r.Level, h.msg, slog.String("err", text))
 	return nil
 }
 func (h stdHandler) WithAttrs([]slog.Attr) slog.Handler { return h }

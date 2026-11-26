@@ -251,7 +251,7 @@ func clearDeadlines(w http.ResponseWriter) {
 // HTTPServer is the http.Server for addr with the request timeouts; the
 // event stream and git routes lift them per request. What net/http itself
 // logs (a failed TLS handshake, a handler's panic) goes to the server's
-// logger, a line each at warn.
+// logger, a line each at warn; a panic's line has the whole trace in stack.
 func (s *Server) HTTPServer(addr string) *http.Server {
 	return &http.Server{
 		Addr:              addr,

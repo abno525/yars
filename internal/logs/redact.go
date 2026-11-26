@@ -95,6 +95,9 @@ func clean(a slog.Attr) (slog.Attr, bool) {
 	default:
 		s = fmt.Sprint(x)
 	}
+	if a.Key == stackKey {
+		return slog.String(a.Key, scrubTo(s, stackMax)), true
+	}
 	return slog.String(a.Key, scrub(s)), true
 }
 
@@ -149,6 +152,14 @@ func secretKey(key string) bool {
 // valueMax is the most of one value a line holds.
 const valueMax = 1024
 
+// stackMax is the most of a stack trace (the attribute stack) a line holds:
+// what net/http keeps of a panicking handler's trace.
+const stackMax = 64 << 10
+
+// stackKey is the attribute that holds a stack trace: cleaned as any value,
+// cut at stackMax.
+const stackKey = "stack"
+
 var (
 	// a finding's folder is its ID and a slug of its title: F-001-sql-injection
 	slugRe = regexp.MustCompile(`\bF-(\d{1,9})-[^/"'\s:]*`)
@@ -165,13 +176,16 @@ var (
 // attachment's file name is left out, an address loses its login, query and
 // fragment, what a parser quotes between backticks goes, and the value is
 // cut at valueMax bytes.
-func scrub(s string) string {
+func scrub(s string) string { return scrubTo(s, valueMax) }
+
+// scrubTo is scrub with the cut at max bytes.
+func scrubTo(s string, max int) string {
 	s = quotedRe.ReplaceAllString(s, "`-`")
 	s = slugRe.ReplaceAllString(s, "F-$1")
 	s = attachRe.ReplaceAllString(s, "${1}-")
 	s = urlRe.ReplaceAllString(s, "$1$3")
-	if len(s) > valueMax {
-		s = strings.ToValidUTF8(s[:valueMax], "") + "…"
+	if len(s) > max {
+		s = strings.ToValidUTF8(s[:max], "") + "…"
 	}
 	return s
 }
