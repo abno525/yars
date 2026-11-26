@@ -625,8 +625,10 @@ func (c *Checker) file(u config.User, old, new string, ch gitrepo.Change) []stri
 		}
 		return nil
 	case p == "README.md" || p == "engagements/.gitkeep" || p == ".gitignore":
-		if p == ".gitignore" && !manager(u) {
-			return []string{"only a director can change .gitignore"}
+		// these land in every colleague's clone, where their tools and agents
+		// read them: a director's to change, add or delete
+		if !manager(u) {
+			return []string{"only a director can change " + p}
 		}
 		return nil
 	case len(seg) < 3 || seg[0] != "engagements" || !store.ValidID(seg[1]):

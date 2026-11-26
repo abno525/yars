@@ -94,6 +94,7 @@ Only `refs/heads/main` can be pushed, and every commit in the push is checked on
 | `…/finding.md: author cannot change` | Edited author | restore the author |
 | `…/finding.md: unknown severity …` | Not in `severities` | one of the configured severities |
 | `.yars/…: only a director can change .yars` | Settings, not a director | ask a director |
+| `README.md: only a director can change README.md` | The main repository's `README.md` or `.gitignore`, not a director: both land in every clone | ask a director |
 | `.yars/config.yaml: only an admin can change .yars/config.yaml and .yars/rules` | Not an admin (the website keeps Structure, AI and Rules to admins); every file under `.yars/rules/`, scripts in subfolders too | ask an admin |
 | `.gitattributes: only an admin can change .gitattributes` | Not an admin: its lines set how files are checked out, the rule scripts and `config.yaml` too | ask an admin |
 | `.yars/CONFIG.yaml: spell it .yars/config.yaml` · `.yars/exporters/jira.YAML: spell it .yaml` | `config.yaml`, `rules`, `exporters` or `templates`, or the extension the server reads there (`.yaml`, `.yml`, `.md`), in another case: a case-insensitive checkout takes it for the real one (removing such a file is accepted) | fix the commit itself (`git commit --amend`, or `git rebase -i` for an earlier one); every commit is checked on its own, so a rename in a later commit does not save it |
