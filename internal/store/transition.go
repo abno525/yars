@@ -306,9 +306,11 @@ func (s *Store) transition(engID, dir string, act workflow.Action, reason, seen,
 }
 
 // MarkExported marks a complete finding reported because u sent it to a
-// destination that marks what it gets (mark_reported). It is the
-// destination's doing, not u's workflow power, so any sender may; the
-// event's text names the destination. Not complete: *workflow.Denied.
+// destination that marks what it gets (mark_reported). Only the finding's
+// author or a director sends it, so only they mark it, as with Mark
+// reported (workflow.CanReport, checked on the finding as it is inside the
+// change); the event's text names the destination. Another sender, or a
+// finding not complete: *workflow.Denied.
 func (s *Store) MarkExported(engID, dir, destination string, u config.User) error {
 	if s.db == nil {
 		return ErrNoDB
@@ -318,6 +320,9 @@ func (s *Store) MarkExported(engID, dir, destination string, u config.User) erro
 	}
 	var done Event
 	err := s.changeState(engID, dir, func(ref FindingRef, st *db.State, _ string) ([]chat.Message, error) {
+		if !workflow.CanReport(u, ref.F.Meta) {
+			return nil, &workflow.Denied{Reason: "only the author or a director can mark a finding reported"}
+		}
 		from, to := s.Flow().Target(workflow.Report)
 		if !slices.Contains(from, ref.F.Meta.Status) {
 			return nil, &workflow.Denied{Reason: ref.F.Meta.ID + " is " + ref.F.Meta.Status + ", not complete"}

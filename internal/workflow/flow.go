@@ -116,6 +116,14 @@ func notSimple(a Action) error {
 	return deny("%s is not part of the simple workflow (draft → complete → reported)", Label(a))
 }
 
+// CanReport reports whether u may report a finding with meta m, whatever its
+// status: mark it reported, or send it to a destination (which may mark it,
+// and sends a reported one again). The finding's author and a director may;
+// in the simple workflow every account is a director.
+func CanReport(u config.User, m finding.Meta) bool {
+	return u.Username == m.Author || manager(u)
+}
+
 // Check reports whether u may perform a on a finding with meta m in this
 // flow. An action the flow does not have is refused: a standard one in the
 // simple workflow says so.
@@ -170,7 +178,7 @@ func (f Flow) Check(u config.User, m finding.Meta, a Action) error {
 			return deny("only the author or a director can revert a finding")
 		}
 	case Report:
-		if u.Username != m.Author && !manager(u) {
+		if !CanReport(u, m) {
 			return deny("only the author or a director can mark a finding reported")
 		}
 	case TakeBack:

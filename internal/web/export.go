@@ -281,7 +281,9 @@ func (s *Server) exportPage(r *http.Request, form url.Values) (*page, error) {
 		if form != nil {
 			pr.On = !pr.Off && checkedIn(form, "finding", row.Dir)
 		} else {
-			pr.On = row.Status == "complete"
+			// by default what the viewer may send: a colleague's finding
+			// would refuse the whole send
+			pr.On = row.Status == "complete" && workflow.CanReport(p.User, finding.Meta{Author: row.Author})
 		}
 		if !pr.Off {
 			v.Pickable++
@@ -419,6 +421,19 @@ func (s *Server) picked(eng string, dirs []string, statuses []string) ([]store.F
 	return refs, ""
 }
 
+// maySend refuses a send to a destination when one of refs is not u's to
+// send: only a finding's author or a director sends it (and so marks it
+// reported). One such finding refuses the whole send, before any key is read
+// and anything leaves. Downloads and the preview are the team's.
+func maySend(u config.User, refs []store.FindingRef) string {
+	for _, ref := range refs {
+		if !workflow.CanReport(u, ref.F.Meta) {
+			return ref.F.Meta.ID + ": only the author or a director can send a finding"
+		}
+	}
+	return ""
+}
+
 // reportTexts reads the engagement's report-level sections (Report tab).
 func reportTexts(st *store.Store, eng string, names []string) []export.ReportText {
 	var out []export.ReportText
@@ -502,6 +517,10 @@ func (s *Server) exportRun(w http.ResponseWriter, r *http.Request) {
 	refs, msg := s.picked(p.Eng.ID, r.PostForm["finding"], ex.Statuses)
 	if msg != "" {
 		fail(http.StatusBadRequest, msg)
+		return
+	}
+	if msg := maySend(p.User, refs); msg != "" {
+		fail(http.StatusForbidden, msg)
 		return
 	}
 	s.sendAndShow(w, r, p, ex, refs, false)
@@ -757,6 +776,11 @@ func (s *Server) resend(w http.ResponseWriter, r *http.Request, serverKey bool) 
 	refs, msg := s.picked(p.Eng.ID, dirs, ex.Statuses)
 	if msg != "" {
 		fail(http.StatusBadRequest, msg)
+		return
+	}
+	// before the claim: a refused sender leaves the retry to the author
+	if msg := maySend(p.User, refs); msg != "" {
+		fail(http.StatusForbidden, msg)
 		return
 	}
 	// claim them first: a second click or another user finds them retried
