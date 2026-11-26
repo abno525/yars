@@ -6,7 +6,8 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"log"
+	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -22,6 +23,7 @@ import (
 	"github.com/abno525/yars/internal/gitrepo"
 	"github.com/abno525/yars/internal/gitserve"
 	"github.com/abno525/yars/internal/index"
+	"github.com/abno525/yars/internal/logs"
 	"github.com/abno525/yars/internal/rules"
 	"github.com/abno525/yars/internal/secret"
 	"github.com/abno525/yars/internal/store"
@@ -47,41 +49,60 @@ func backfillTeams(st *store.Store, d *db.DB) error {
 	return d.BackfillTeams(ids)
 }
 
-// prepareData readies a data folder the way every start does, before the
-// first request: a push cut off mid-way leaves no tree behind, the database
-// is opened (and migrated), config.yaml's workflow is checked against the
-// one yars init set up, teams are backfilled, board claims a stop cut off
-// are reset, server files are git-ignored and the engagement pointers follow
-// their repositories. The upgrade test runs it on old data.
-func prepareData(r *gitrepo.Repo) (config.Config, *db.DB, *store.Store, error) {
+// startConfig is the first step of every start: a push cut off mid-way
+// leaves no tree behind, then config.yaml is loaded (and checked). The
+// service log is built from it (serverLog), so nothing is logged before.
+func startConfig(r *gitrepo.Repo) (config.Config, error) {
 	if err := gitserve.RestoreTrees(r); err != nil {
-		return config.Config{}, nil, nil, fmt.Errorf("restore work trees: %w", err)
+		return config.Config{}, fmt.Errorf("restore work trees: %w", err)
 	}
-	cfg, err := config.Load(r.Dir)
-	if err != nil {
-		return config.Config{}, nil, nil, err
+	return config.Load(r.Dir)
+}
+
+// serverLog is the service log of yars serve on w (stderr): config.yaml's
+// log.format, and its log.level unless --log-level (flagLevel, "" = not
+// given) names another. Both were checked before. The level sits in a
+// slog.LevelVar, so it can change while the server runs.
+func serverLog(w io.Writer, cfg config.Config, flagLevel string) (*slog.Logger, *slog.LevelVar) {
+	word := cfg.Log.Level
+	if flagLevel != "" {
+		word = flagLevel
 	}
+	lv := new(slog.LevelVar)
+	level, _ := logs.ParseLevel(word)
+	lv.Set(level)
+	return logs.New(w, cfg.Log.Format, lv), lv
+}
+
+// prepareData readies a data folder the way every start does, after
+// startConfig and before the first request: the database is opened (and
+// migrated), config.yaml's workflow is checked against the one yars init
+// set up, teams are backfilled, board claims a stop cut off are reset,
+// server files are git-ignored and the engagement pointers follow their
+// repositories. The store logs to lg. The upgrade test runs it on old data.
+func prepareData(r *gitrepo.Repo, cfg config.Config, lg *slog.Logger) (*db.DB, *store.Store, error) {
 	if items := legacyItems(r.Dir); len(items) > 0 {
-		return config.Config{}, nil, nil, fmt.Errorf("this data directory still keeps accounts, workflow state or chat in files (%s); run: yars migrate --data %s", strings.Join(items, ", "), r.Dir)
+		return nil, nil, fmt.Errorf("this data directory still keeps accounts, workflow state or chat in files (%s); run: yars migrate --data %s", strings.Join(items, ", "), r.Dir)
 	}
 	d, err := dataDB(r.Dir)
 	if err != nil {
-		return config.Config{}, nil, nil, err
+		return nil, nil, err
 	}
 	if err := checkWorkflow(cfg, d); err != nil {
 		d.Close()
-		return config.Config{}, nil, nil, err
+		return nil, nil, err
 	}
 	// accounts from before such names were refused: both keep working
 	if clashes, err := d.UsernameClashes(); err == nil {
 		for _, c := range clashes {
-			log.Printf("accounts whose usernames differ only in the case of letters: %s", c)
+			logs.Or(lg).Warn("accounts whose usernames differ only in the case of letters", "users", c)
 		}
 	}
 	st := store.New(r, cfg, d)
-	fail := func(what string, err error) (config.Config, *db.DB, *store.Store, error) {
+	st.Logger = lg
+	fail := func(what string, err error) (*db.DB, *store.Store, error) {
 		d.Close()
-		return config.Config{}, nil, nil, fmt.Errorf("%s: %w", what, err)
+		return nil, nil, fmt.Errorf("%s: %w", what, err)
 	}
 	if err := backfillTeams(st, d); err != nil {
 		return fail("team backfill", err)
@@ -96,7 +117,7 @@ func prepareData(r *gitrepo.Repo) (config.Config, *db.DB, *store.Store, error) {
 	if err := st.SyncPointers(); err != nil {
 		return fail("update engagement pointers", err)
 	}
-	return cfg, d, st, nil
+	return d, st, nil
 }
 
 // checkWorkflow refuses a config.yaml whose workflow is not the one the
@@ -118,11 +139,13 @@ func checkWorkflow(cfg config.Config, d *db.DB) error {
 
 // firstRunCode is the setup code of a start that finds no account: /setup
 // asks for it before it makes the first admin, so whoever reaches the port
-// first cannot take the server. It is logged once, with the way to make the
-// admin from the shell instead (no code there), and kept in memory only. A
-// start that finds an account (or cannot read them) makes none: "" keeps
-// /setup closed, also when every account is deleted while the server runs.
-func firstRunCode(d *db.DB, cfg config.Config, dir string) string {
+// first cannot take the server. It is logged once (setup_code), with the way
+// to make the admin from the shell instead (no code there), and kept in
+// memory only. The line is written whatever log.level says: without it
+// /setup cannot be used. A start that finds an account (or cannot read them)
+// makes none: "" keeps /setup closed, also when every account is deleted
+// while the server runs.
+func firstRunCode(d *db.DB, cfg config.Config, dir string, lg *slog.Logger) string {
 	if users, err := d.Users(); err != nil || len(users) > 0 {
 		return ""
 	}
@@ -131,17 +154,17 @@ func firstRunCode(d *db.DB, cfg config.Config, dir string) string {
 		role = ""
 	}
 	code := web.NewSetupCode()
-	log.Println("no accounts yet: open the web page and set up the first admin with the setup code below (/setup), or run: yars useradd --data", dir, role+"--admin <name>")
-	log.Println("setup code: " + code)
+	logs.Or(lg).Log(context.Background(), logs.Always, "no accounts yet: open the web page and set up the first admin with the setup code (/setup), or run the command",
+		"setup_code", code, "command", "yars useradd --data "+dir+" "+role+"--admin <name>")
 	return code
 }
 
 // warnNoBaseURL logs, at the start, that config.yaml sets no base_url: the
 // clone and MCP addresses on the pages then take their host from each
 // request, which a client chooses.
-func warnNoBaseURL(cfg config.Config) {
+func warnNoBaseURL(cfg config.Config, lg *slog.Logger) {
 	if cfg.BaseURL == "" {
-		log.Println("base_url is not set in .yars/config.yaml: the clone and MCP addresses shown on the pages take their host from each request's Host header; set base_url to the address people open")
+		logs.Or(lg).Warn("base_url is not set in .yars/config.yaml: the clone and MCP addresses shown on the pages take their host from each request's Host header; set base_url to the address people open")
 	}
 }
 
@@ -152,11 +175,16 @@ func cmdServe(args []string) error {
 	cert := fs.String("tls-cert", "", "serve HTTPS with this certificate file (needs --tls-key)")
 	key := fs.String("tls-key", "", "the certificate's private key file (needs --tls-cert)")
 	https := fs.Bool("https", false, "a proxy in front serves HTTPS: Secure cookies and HSTS")
+	logLevel := fs.String("log-level", "", "log lines from this level up: debug, info, warn or error (default: log.level in config.yaml, else info)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if (*cert == "") != (*key == "") {
 		return fmt.Errorf("--tls-cert and --tls-key go together")
+	}
+	// a level that is no level stops the start before anything changes
+	if _, ok := logs.ParseLevel(*logLevel); !ok {
+		return fmt.Errorf("--log-level %q must be debug, info, warn or error", *logLevel)
 	}
 	secure := *https || *cert != ""
 	// a certificate that does not load stops the start before anything changes
@@ -172,40 +200,27 @@ func cmdServe(args []string) error {
 	if err != nil {
 		return err
 	}
-	cfg, d, st, err := prepareData(r)
+	cfg, err := startConfig(r)
 	if err != nil {
 		return err
 	}
-	warnNoBaseURL(cfg)
-	setupCode := firstRunCode(d, cfg, r.Dir)
-	eng := rules.NewEngine(rules.DirFor(r.Dir), cfg)
-	st.Linter = eng
-	au := auth.New(d)
-	au.Secure = secure
+	lg, _ := serverLog(os.Stderr, cfg, *logLevel)
+	d, st, err := prepareData(r, cfg, lg)
+	if err != nil {
+		return err
+	}
+	warnNoBaseURL(cfg, lg)
+	setupCode := firstRunCode(d, cfg, r.Dir, lg)
 	exe, err := os.Executable()
 	if err != nil {
+		d.Close()
 		return err
 	}
-	hub := events.New()
-	// after a push: drop the cached HEAD, then tell open pages
-	invalidate := func(eng string) {
-		st.Invalidate(eng)
-		hub.Publish(events.Event{Eng: eng, Kind: events.Push})
-	}
-	tokens := auth.NewTokens(d)
-	gs := gitServer(r, au, tokens, st, exe, invalidate)
-	if err := gs.Setup(); err != nil {
-		return fmt.Errorf("git setup: %w", err)
-	}
-	ix := index.New(st, r)
-	mcpSrv := mcpServer(st, ix, eng, cfg, au.Users)
-	box, err := secret.Open(r.Dir)
+	srv, err := serverParts(r, cfg, d, st, lg, exe, secure, setupCode)
 	if err != nil {
-		return fmt.Errorf("secret key: %w", err)
+		d.Close()
+		return err
 	}
-	srv := &web.Server{Store: st, Index: ix, Auth: au, Cfg: cfg, Rules: eng, Git: gs.Handler(), Export: exportRunner(r.Dir),
-		MCP: mcpSrv.HTTPHandler(tokens), Events: hub, Tokens: tokens, Secret: box, HTTPS: secure, Version: buildVersion(), Source: source,
-		MigrateStatus: func() []string { return legacyItems(r.Dir) }, SetupCode: setupCode}
 	hs := srv.HTTPServer(*addr)
 	hs.TLSConfig = tlsCfg
 	ln, err := net.Listen("tcp", *addr)
@@ -217,8 +232,42 @@ func cmdServe(args []string) error {
 	// after the first signal a second one ends the process at once (a stop
 	// can take up to twice stopGrace)
 	context.AfterFunc(ctx, stop)
-	log.Printf("yars serving %s on %s", r.Dir, *addr)
+	lg.Info("yars serving", "data", r.Dir, "addr", *addr)
 	return serve(ctx, ln, hs, srv, st, d)
+}
+
+// serverParts builds the server on prepared data: the rules, the accounts,
+// the git and MCP endpoints and the website, each logging to lg (the store
+// got it in prepareData). exe is the yars binary the push hook runs; secure:
+// the site is served over HTTPS; setupCode: firstRunCode's.
+func serverParts(r *gitrepo.Repo, cfg config.Config, d *db.DB, st *store.Store, lg *slog.Logger, exe string, secure bool, setupCode string) (*web.Server, error) {
+	eng := rules.NewEngine(rules.DirFor(r.Dir), cfg)
+	eng.SetLogger(lg)
+	st.Linter = eng
+	au := auth.New(d)
+	au.Secure, au.Logger = secure, lg
+	hub := events.New()
+	// after a push: drop the cached HEAD, then tell open pages
+	invalidate := func(eng string) {
+		st.Invalidate(eng)
+		hub.Publish(events.Event{Eng: eng, Kind: events.Push})
+	}
+	tokens := auth.NewTokens(d)
+	gs := gitServer(r, au, tokens, st, exe, invalidate)
+	gs.Logger = lg
+	if err := gs.Setup(); err != nil {
+		return nil, fmt.Errorf("git setup: %w", err)
+	}
+	ix := index.New(st, r)
+	mcpSrv := mcpServer(st, ix, eng, cfg, au.Users)
+	mcpSrv.Logger = lg
+	box, err := secret.Open(r.Dir)
+	if err != nil {
+		return nil, fmt.Errorf("secret key: %w", err)
+	}
+	return &web.Server{Store: st, Index: ix, Auth: au, Cfg: cfg, Rules: eng, Git: gs.Handler(), Export: exportRunner(r.Dir),
+		MCP: mcpSrv.HTTPHandler(tokens), Events: hub, Tokens: tokens, Secret: box, HTTPS: secure, Version: buildVersion(), Source: source,
+		MigrateStatus: func() []string { return legacyItems(r.Dir) }, SetupCode: setupCode, Logger: lg}, nil
 }
 
 // gitServer is the git endpoint of yars serve. The push hook it runs gets no
@@ -241,6 +290,7 @@ func serve(ctx context.Context, ln net.Listener, hs *http.Server, srv *web.Serve
 	// Shutdown does not wait for open event streams: they end (and the pages
 	// reconnect) when the stop begins, with the workers
 	hs.RegisterOnShutdown(srv.Close)
+	lg := logs.Or(srv.Logger)
 	served := make(chan error, 1)
 	go func() {
 		if hs.TLSConfig != nil {
@@ -254,13 +304,13 @@ func serve(ctx context.Context, ln net.Listener, hs *http.Server, srv *web.Serve
 	case err = <-served: // could not serve at all
 		st.StopChecks()
 	case <-ctx.Done():
-		log.Println("yars stopping")
+		lg.Info("yars stopping")
 		// before the requests' grace: no queued check starts in it, and a
 		// check asked for meanwhile fails at once
 		st.StopChecks()
 		sctx, cancel := context.WithTimeout(context.Background(), stopGrace)
 		if serr := hs.Shutdown(sctx); serr != nil {
-			log.Printf("stop: requests still running after %s: %v", stopGrace, serr)
+			lg.Warn("stop: requests still running after the grace", "grace", stopGrace.String(), "err", serr)
 			hs.Close()
 		}
 		cancel()
@@ -275,11 +325,11 @@ func serve(ctx context.Context, ln net.Listener, hs *http.Server, srv *web.Serve
 	select {
 	case <-checks:
 	case <-time.After(stopGrace):
-		log.Printf("stop: checks still running after %s", stopGrace)
+		lg.Warn("stop: checks still running after the grace", "grace", stopGrace.String())
 	}
 	d.Close()
 	if errors.Is(err, http.ErrServerClosed) {
-		log.Println("yars stopped")
+		lg.Info("yars stopped")
 		return nil
 	}
 	return err

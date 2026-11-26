@@ -29,6 +29,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -45,6 +46,7 @@ import (
 	"github.com/abno525/yars/internal/finding"
 	"github.com/abno525/yars/internal/gitrepo"
 	"github.com/abno525/yars/internal/index"
+	"github.com/abno525/yars/internal/logs"
 	"github.com/abno525/yars/internal/mcp"
 	"github.com/abno525/yars/internal/outbound"
 	"github.com/abno525/yars/internal/policy"
@@ -149,6 +151,7 @@ func cmdExport(args []string, out io.Writer) (int, error) {
 		marker = u
 	}
 	st := store.New(r, cfg, d)
+	st.Logger = termLogger()
 	e, err := st.Engagement(fs.Arg(0))
 	if err != nil {
 		return 2, err
@@ -339,6 +342,13 @@ func fileWorkflow(dir string) string {
 	return config.WorkflowSimple
 }
 
+// termLogger is the logger of a command run at a terminal (export, lint,
+// mcp): what the store and the rules would write to the service log of yars
+// serve (a finding or an engagement skipped because it does not read) goes
+// to stderr as text, warnings and errors only. The command's own answers
+// stay plain lines on stdout and stderr.
+func termLogger() *slog.Logger { return logs.New(os.Stderr, logs.Text, slog.LevelWarn) }
+
 // existingDB opens the database only when there is one (a clone has none).
 func existingDB(dir string) (*db.DB, error) {
 	if _, err := os.Stat(db.Path(dir)); err != nil {
@@ -375,10 +385,15 @@ func runMCP(args []string, in io.Reader, out io.Writer) error {
 	if err != nil {
 		return err
 	}
+	// stdout speaks the protocol: what the parts log goes to stderr
+	lg := termLogger()
 	st := store.New(r, cfg, nil)
+	st.Logger = lg
 	eng := rules.NewEngine(rules.DirFor(r.Dir), cfg)
+	eng.SetLogger(lg)
 	st.Linter = eng
 	srv := mcpServer(st, index.New(st, r), eng, cfg, nil)
+	srv.Logger = lg
 	return srv.ServeStdio(context.Background(), u, in, out)
 }
 
@@ -805,7 +820,9 @@ func cmdLint(args []string, out io.Writer) (int, error) {
 		defer d.Close()
 	}
 	st := store.New(r, cfg, d)
+	st.Logger = termLogger()
 	eng := rules.NewEngine(rules.DirFor(r.Dir), cfg)
+	eng.SetLogger(st.Logger)
 	kinds := rules.Fast
 	if *all {
 		kinds = rules.All

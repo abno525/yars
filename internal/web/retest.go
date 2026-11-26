@@ -3,7 +3,6 @@ package web
 import (
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"slices"
 	"strings"
@@ -201,7 +200,7 @@ func (s *Server) retestCreate(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, store.ErrBusy):
 			status, msg = http.StatusConflict, store.ErrBusy.Error()
 		default:
-			log.Printf("retest of %s: %v", p.Eng.ID, err)
+			s.log().Error("retest: the engagement could not be created", "eng", p.Eng.ID, "user", p.User.Username, "err", err)
 		}
 		p.Error, p.Users = msg, s.Auth.Users()
 		// the head counts the ticked rows: drop picks no longer listed, and

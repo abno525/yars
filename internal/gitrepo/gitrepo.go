@@ -52,15 +52,30 @@ func (r *Repo) runWithin(timeout time.Duration, env []string, args ...string) (s
 	spawned.Add(1)
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
-			return "", fmt.Errorf("git %s: timed out after %s", strings.Join(args, " "), timeout)
+			return "", fmt.Errorf("git %s: timed out after %s", shown(args), timeout)
 		}
 		msg := strings.TrimSpace(stderr.String())
 		if msg == "" { // some commands say what is wrong on stdout (fsck)
 			msg, _, _ = strings.Cut(strings.TrimSpace(stdout.String()), "\n")
 		}
-		return "", fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, msg)
+		return "", fmt.Errorf("git %s: %w: %s", shown(args), err, msg)
 	}
 	return stdout.String(), nil
+}
+
+// shown is a command line as an error names it: without -m and the commit
+// message after it. The message holds what a person typed (an attachment's
+// name, a section, a template), and the error is logged.
+func shown(args []string) string {
+	kept := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		if args[i] == "-m" {
+			i++
+			continue
+		}
+		kept = append(kept, args[i])
+	}
+	return strings.Join(kept, " ")
 }
 
 // Open returns the repo whose work tree root is exactly dir.

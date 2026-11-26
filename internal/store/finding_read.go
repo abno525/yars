@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"io/fs"
-	"log"
 	"path"
 	"regexp"
 	"sort"
@@ -148,7 +147,8 @@ func (s *Store) ListFindings(engID string) ([]FindingRef, error) {
 		ref, _, err := s.read(engID, e.Name(), states)
 		if err != nil {
 			if !errors.Is(err, ErrNotFound) {
-				log.Printf("skip %s/%s: %v", engID, e.Name(), err)
+				// the folder's name holds the title's slug: the ID only
+				s.Log().Warn("skip finding", "eng", engID, "finding", LogID(e.Name()), "err", err)
 			}
 			continue
 		}
@@ -170,6 +170,22 @@ func ShortID(dir string) string {
 		return m[1]
 	}
 	return dir
+}
+
+var logNumRe = regexp.MustCompile(`^\d{1,9}$`)
+
+// LogID is a finding as a log line names it: its ID alone, "F-001" for the
+// folder F-001-sql-injection, the ID F-001 or the number 001. The rest of a
+// folder's name is a slug of the title, which no log line holds; a name that
+// is none of the three is "?".
+func LogID(dir string) string {
+	if m := shortRe.FindStringSubmatch(dir); m != nil && len(m[1]) <= 9 {
+		return "F-" + m[1]
+	}
+	if logNumRe.MatchString(dir) {
+		return "F-" + dir
+	}
+	return "?"
 }
 
 // Finding loads a finding by directory name or by number ("001" or "1"),

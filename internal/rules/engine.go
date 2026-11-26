@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
@@ -36,6 +37,14 @@ type Engine struct {
 
 func NewEngine(dir string, cfg config.Config) *Engine {
 	return &Engine{Dir: dir, Cfg: cfg, Runner: NewRunner(dir, cfg.AI), Budget: 90 * time.Second}
+}
+
+// SetLogger gives the engine's runner the logger its lines go to (yars
+// serve, before the first request).
+func (e *Engine) SetLogger(l *slog.Logger) {
+	if rn, ok := e.Runner.(*Runner); ok {
+		rn.Logger = l
+	}
 }
 
 // conf is the current configuration.

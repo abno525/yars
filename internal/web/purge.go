@@ -2,7 +2,6 @@ package web
 
 import (
 	"errors"
-	"log"
 	"net/http"
 	"strings"
 
@@ -159,7 +158,7 @@ func (s *Server) purgePost(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, store.ErrPurgeIncomplete):
 		// the original is out of the history; what failed after it is for
 		// the server's log, and a second Purge finishes it
-		log.Printf("purge %s/%s/%s: %v", ref.EngID, ref.Dir, name, err)
+		s.log().Error("purge: purged from history, but not finished", "eng", ref.EngID, "finding", ref.F.Meta.ID, "err", err)
 		s.renderPurge(w, r, http.StatusInternalServerError, "Purged from history, but not finished (see the server log); Purge again to finish")
 		return
 	case err != nil:

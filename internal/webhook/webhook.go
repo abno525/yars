@@ -15,7 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"slices"
@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/logs"
 	"github.com/abno525/yars/internal/outbound"
 	"github.com/abno525/yars/internal/store"
 )
@@ -53,11 +54,15 @@ type Service struct {
 	Client  *http.Client     // default: outbound.Client, 10 s timeout
 	Now     func() time.Time // default time.Now
 	BaseURL func() string    // links in payloads ("" = paths)
+	// Logger takes the service's log lines; nil writes none.
+	Logger *slog.Logger
 
 	kickOnce sync.Once
 	kick     chan struct{}
 	runMu    sync.Mutex
 }
+
+func (s *Service) log() *slog.Logger { return logs.Or(s.Logger) }
 
 func (s *Service) kicks() chan struct{} {
 	s.kickOnce.Do(func() { s.kick = make(chan struct{}, 1) })
@@ -213,7 +218,7 @@ func (s *Service) Handle(e store.Event) {
 	}
 	hooks, err := s.DB.HooksFor(e.Kind)
 	if err != nil {
-		log.Printf("webhooks: %v", err)
+		s.log().Error("webhooks: the webhooks of an event are not read", "event", e.Kind, "err", err)
 		return
 	}
 	if len(hooks) == 0 {
@@ -222,7 +227,7 @@ func (s *Service) Handle(e store.Event) {
 	body := string(s.Payload(e))
 	for _, h := range hooks {
 		if _, err := s.DB.EnqueueDelivery(h.ID, e.Kind, body, s.now()); err != nil {
-			log.Printf("webhook %d: queue: %v", h.ID, err)
+			s.log().Error("webhooks: a delivery is not queued", "webhook", h.ID, "event", e.Kind, "err", err)
 		}
 	}
 	s.wake()
@@ -331,7 +336,7 @@ func (s *Service) Run(stop <-chan struct{}) {
 	defer t.Stop()
 	for {
 		if _, err := s.RunDue(); err != nil {
-			log.Printf("webhooks: %v", err)
+			s.log().Error("webhooks: sending stopped until the next pass", "err", err)
 		}
 		select {
 		case <-stop:

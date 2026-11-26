@@ -12,13 +12,14 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"log"
+	"log/slog"
 	"slices"
 	"sync"
 
 	"github.com/abno525/yars/internal/config"
 	"github.com/abno525/yars/internal/history"
 	"github.com/abno525/yars/internal/index"
+	"github.com/abno525/yars/internal/logs"
 	"github.com/abno525/yars/internal/rules"
 	"github.com/abno525/yars/internal/store"
 	"github.com/abno525/yars/internal/workflow"
@@ -34,10 +35,14 @@ type Server struct {
 	Users func() []config.User
 	// Version is the build's, as initialize names it ("" says dev).
 	Version string
+	// Logger takes the server's log lines; nil writes none.
+	Logger *slog.Logger
 
 	histOnce sync.Once
 	hist     *history.Cache // list_history, per engagement HEAD
 }
+
+func (s *Server) log() *slog.Logger { return logs.Or(s.Logger) }
 
 // conf is the current configuration: the store's, which Admin › Structure
 // replaces when it saves.
@@ -227,9 +232,26 @@ func (s *Server) Handle(ctx context.Context, u config.User, msg []byte) []byte {
 			text, err = t.run(s, ctx, u, args(p.Arguments))
 		}
 		res := map[string]any{"content": []map[string]any{{"type": "text", "text": text}}}
+		// over HTTP every call answers 200: the request's log line names the
+		// tool and the code of its answer, the engagement and the finding
+		if rq := logs.RequestFrom(ctx); rq != nil {
+			code := "ok"
+			if err != nil {
+				code = codeOf(err)
+			}
+			rq.SetTool(t.name, code)
+			a := args(p.Arguments)
+			if eng := a.str("engagement"); store.ValidID(eng) && len(eng) <= 64 {
+				rq.SetTarget(eng, "")
+			}
+			if fid := store.LogID(a.str("finding")); fid != "?" {
+				rq.SetTarget("", fid)
+			}
+		}
 		if err != nil {
 			if codeOf(err) == "server_error" {
-				log.Printf("mcp %s as %s: %v", p.Name, u.Username, err) // as the website logs its internal errors
+				// as the website logs its internal errors
+				s.log().Error("mcp: a tool failed", "req", logs.ReqID(ctx), "tool", t.name, "user", u.Username, "err", err)
 			}
 			res["content"] = []map[string]any{{"type": "text", "text": fail(err)}}
 			res["isError"] = true

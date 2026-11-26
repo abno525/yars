@@ -12,6 +12,7 @@ import (
 	"github.com/abno525/yars/internal/auth"
 	"github.com/abno525/yars/internal/config"
 	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/logs"
 )
 
 const maxBody = 2 << 20
@@ -64,6 +65,11 @@ func (s *Server) HTTPHandler(tokens *auth.Tokens) http.Handler {
 			w.Header().Set("WWW-Authenticate", `Bearer realm="yars"`)
 			http.Error(w, "a valid YARS MCP token is required", http.StatusUnauthorized)
 			return
+		}
+		// who asks, on the request's log line: the account and the token's ID
+		if rq := logs.RequestFrom(r.Context()); rq != nil {
+			rq.SetUser(user.Username)
+			rq.SetToken(info.ID)
 		}
 		// MCP 2025-06-18: a version the server does not speak is refused
 		if v := r.Header.Get("MCP-Protocol-Version"); v != "" && !slices.Contains(protocols, v) {

@@ -30,6 +30,7 @@ func (e *env) rules(t *testing.T, yaml string, scripts map[string]string) {
 		os.WriteFile(filepath.Join(rd, name), []byte("#!/bin/sh\n"+body), 0o755)
 	}
 	eng := rules.NewEngine(rd, e.srv.Cfg)
+	eng.SetLogger(e.srv.Logger)
 	e.srv.Rules = eng
 	e.srv.Store.Linter = eng
 }

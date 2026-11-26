@@ -1,11 +1,10 @@
 package mcp
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"maps"
 	"os"
 	"path/filepath"
@@ -14,6 +13,7 @@ import (
 
 	"github.com/abno525/yars/internal/config"
 	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/logs"
 	"github.com/abno525/yars/internal/rules"
 	"github.com/abno525/yars/internal/store"
 	"github.com/abno525/yars/internal/workflow"
@@ -279,14 +279,26 @@ func TestClientMistakesStayInvalid(t *testing.T) {
 	}
 }
 
-// serverLog collects what the server logs during the test.
-func serverLog(t *testing.T) *bytes.Buffer {
-	t.Helper()
-	var buf bytes.Buffer
-	old := log.Writer()
-	log.SetOutput(&buf)
-	t.Cleanup(func() { log.SetOutput(old) })
-	return &buf
+// serverLog collects what s logs from now on.
+func serverLog(s *Server) *logs.Recorder {
+	lg, rec := logs.NewRecorder()
+	s.Logger = lg
+	return rec
+}
+
+// failure is the one record of tool failing for user in what the server
+// logged, and whether there is exactly one.
+func failure(rec *logs.Recorder, msg, tool, user string) (logs.Record, bool) {
+	var got []logs.Record
+	for _, r := range rec.With(msg) {
+		if r.Str("tool") == tool && r.Str("user") == user {
+			got = append(got, r)
+		}
+	}
+	if len(got) != 1 {
+		return logs.Record{}, false
+	}
+	return got[0], true
 }
 
 // Q9: a failure of the server itself (its database closed under it, a data
@@ -298,7 +310,7 @@ func TestServerFailureIsServerError(t *testing.T) {
 		t.Skip("root writes into a read-only folder")
 	}
 	f := newFx(t)
-	logged := serverLog(t)
+	logged := serverLog(f.s)
 	dir := filepath.Join(f.dir, "engagements", "acme", "findings", "F-001-sql-injection")
 	if err := os.Chmod(dir, 0o555); err != nil {
 		t.Fatal(err)
@@ -311,8 +323,8 @@ func TestServerFailureIsServerError(t *testing.T) {
 	if strings.Contains(text, "permission denied") || strings.Contains(text, f.dir) || strings.Contains(text, "yars-tmp") {
 		t.Fatalf("the answer has the server's words: %s", text)
 	}
-	if l := logged.String(); !strings.Contains(l, "mcp update_section as alice: ") || !strings.Contains(l, "permission denied") {
-		t.Fatalf("the log lacks the failure: %q", l)
+	if r, ok := failure(logged, "mcp: a tool failed", "update_section", "alice"); !ok || !strings.Contains(r.Str("err"), "permission denied") || r.Level != slog.LevelError {
+		t.Fatalf("the log lacks the failure: %q", logged.Text())
 	}
 	os.Chmod(dir, 0o755)
 
@@ -333,8 +345,8 @@ func TestServerFailureIsServerError(t *testing.T) {
 		if m := object(t, c.tool, text); !isErr || m["code"] != "server_error" || m["message"] != "internal error" || strings.Contains(text, "closed") {
 			t.Errorf("%s with the database closed: %s", c.tool, text)
 		}
-		if l := logged.String(); !strings.Contains(l, "mcp "+c.tool+" as "+c.u.Username+": ") || !strings.Contains(l, "closed") {
-			t.Errorf("%s with the database closed: the log has %q", c.tool, l)
+		if r, ok := failure(logged, "mcp: a tool failed", c.tool, c.u.Username); !ok || !strings.Contains(r.Str("err"), "closed") {
+			t.Errorf("%s with the database closed: the log has %q", c.tool, logged.Text())
 		}
 	}
 }
@@ -344,7 +356,7 @@ func TestServerFailureIsServerError(t *testing.T) {
 // error", not the database's words, and the log has them (pre1 2.29).
 func TestAllowedActionsHideServerErrors(t *testing.T) {
 	f := newFx(t)
-	logged := serverLog(t)
+	logged := serverLog(f.s)
 	// alice's own draft, ready to submit but for a rule's error: Submit's
 	// gate reads the dismissals
 	rd := filepath.Join(t.TempDir(), "rules")
@@ -366,8 +378,10 @@ func TestAllowedActionsHideServerErrors(t *testing.T) {
 	if !strings.Contains(text, `"reason":"internal error"`) {
 		t.Fatalf("no action says internal error: %s", text)
 	}
-	if l := logged.String(); !strings.Contains(l, "mcp read_finding as alice: ") || !strings.Contains(l, "dismissals") {
-		t.Fatalf("the log lacks the failure: %q", l)
+	recs := logged.With("mcp: a finding's allowed action is not worked out")
+	if len(recs) == 0 || recs[0].Str("tool") != "read_finding" || recs[0].Str("user") != "alice" || recs[0].Str("eng") != "acme" ||
+		recs[0].Str("finding") != "F-001" || !strings.Contains(recs[0].Str("err"), "dismissals") {
+		t.Fatalf("the log lacks the failure: %q", logged.Text())
 	}
 }
 

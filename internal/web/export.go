@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
-	"log"
 	"net/http"
 	"net/url"
 	"slices"
@@ -546,7 +545,8 @@ func reportTexts(st *store.Store, eng string, names []string) []export.ReportTex
 	for _, n := range names {
 		body, err := st.ReportSection(eng, n)
 		if err != nil {
-			log.Printf("report section %s/%s: %v", eng, n, err)
+			// the section's name is the team's text: the engagement says where
+			st.Log().Error("export: a report section is not read", "eng", eng, "err", err)
 			continue
 		}
 		out = append(out, export.ReportText{Name: n, Body: body})
@@ -684,7 +684,7 @@ func (s *Server) senderKey(author, service string) (creds *export.Creds, sentAs 
 	}
 	key, err := box.Decrypt(enc)
 	if err != nil || key == "" {
-		log.Printf("export: %s's %s key can't be read; sending as the server", author, service)
+		s.log().Warn("export: a personal key can't be read; sending as the server", "user", author)
 		return nil, "server"
 	}
 	if user, tok, found := strings.Cut(key, ":"); found && user != "" && tok != "" {
@@ -735,7 +735,7 @@ func (s *Server) send(ctx context.Context, u config.User, eng store.Engagement, 
 				if d != nil {
 					rm := db.ExportRemote{Destination: ex.ID, Eng: eng.ID, Finding: fid, Target: ex.Target(), RemoteID: it.Remote.ID, Version: it.Remote.Version, URL: it.URL}
 					if err := d.SetExportRemote(rm); err != nil {
-						log.Printf("export: remember %s at %s: %v", fid, ex.ID, err)
+						s.log().Error("export: the page or issue a finding became is not remembered", "eng", eng.ID, "finding", fid, "destination", ex.ID, "err", err)
 					}
 				}
 			}
@@ -759,7 +759,7 @@ func (s *Server) send(ctx context.Context, u config.User, eng store.Engagement, 
 				continue
 			}
 			if err := s.Store.MarkExported(eng.ID, ref.Dir, ex.Name, u); err != nil {
-				log.Printf("export: mark %s reported: %v", ref.F.Meta.ID, err)
+				s.log().Error("export: a finding is not marked reported", "eng", eng.ID, "finding", ref.F.Meta.ID, "user", u.Username, "err", err)
 				continue
 			}
 			items[i].Marked = true
@@ -805,7 +805,7 @@ func (s *Server) record(u config.User, eng, dest string, refs []store.FindingRef
 	rec.Findings = string(b)
 	id, derr := d.AddExport(rec)
 	if derr != nil {
-		log.Printf("export history: %v", derr)
+		s.log().Error("export: the history entry is not written", "eng", eng, "user", u.Username, "err", derr)
 	}
 	d.Audit(u.Username, "export", eng, fmt.Sprintf("%s, %d findings", strings.TrimPrefix(dest, "download:"), len(refs)))
 	if !strings.HasPrefix(dest, "download:") { // sent to a destination

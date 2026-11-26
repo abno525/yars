@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"log"
 	"net/http"
 	"net/url"
 	"path"
@@ -327,7 +326,7 @@ func (s *Store) changeFilesLocked(engID, dir string, who Actor, fn func(ref Find
 	}
 	if after != nil {
 		if err := after(ref); err != nil {
-			log.Printf("after %s %s: %v", engID, ref.F.Meta.ID, err)
+			s.Log().Error("after a finding's commit", "eng", engID, "finding", ref.F.Meta.ID, "err", err)
 		}
 	}
 	fp := findingPath(engID, ref.Dir)
@@ -487,20 +486,21 @@ func (s *Store) redactRetests(src FindingRef, name string, data []byte, a Actor)
 	var rd Redaction
 	fid := src.F.Meta.ID
 	vers, err := s.earlierVersions(src.EngID, "findings/"+src.Dir+"/attachments/"+name, fid, name)
+	// the attachment's name is never logged: the engagement and finding say where
 	if err != nil {
-		log.Printf("redact %s/%s/%s in its retests: %v", src.EngID, fid, name, err)
+		s.Log().Error("redact an attachment in its retests", "eng", src.EngID, "finding", fid, "err", err)
 		return rd
 	}
 	copies, err := s.retestCopies(src.EngID, fid)
 	if err != nil {
-		log.Printf("redact %s/%s/%s in its retests: %v", src.EngID, fid, name, err)
+		s.Log().Error("redact an attachment in its retests", "eng", src.EngID, "finding", fid, "err", err)
 	}
 	u, isUser := a.(config.User)
 	for _, c := range copies {
 		b, err := s.attachBlob(c.EngID, c.Dir, name)
 		switch {
 		case err != nil:
-			log.Printf("redact %s/%s/%s: %v", c.EngID, c.Dir, name, err)
+			s.Log().Error("redact an attachment in a retest", "eng", c.EngID, "finding", LogID(c.Dir), "err", err)
 			if isUser && !s.CanSee(u, c.EngID) { // not named to them, failed or not
 				rd.Hidden = append(rd.Hidden, c.EngID)
 			} else {
@@ -524,7 +524,7 @@ func (s *Store) redactRetests(src FindingRef, name string, data []byte, a Actor)
 		case errors.As(err, &d): // locked: only a director edits it
 			rd.Locked = append(rd.Locked, c.EngID)
 		case err != nil:
-			log.Printf("redact %s/%s/%s: %v", c.EngID, c.Dir, name, err)
+			s.Log().Error("redact an attachment in a retest", "eng", c.EngID, "finding", LogID(c.Dir), "err", err)
 			rd.Failed = append(rd.Failed, c.EngID)
 		case done:
 			rd.Redacted = append(rd.Redacted, c.EngID)
@@ -579,7 +579,7 @@ func (s *Store) Merge(engID, srcDir, dstDir string, u config.User) error {
 	srcID, err := s.mergeContent(engID, src.Dir, dst.Dir, u)
 	if err != nil {
 		if rerr := s.unwithdraw(engID, src.Dir, prev, dstID, u); rerr != nil {
-			log.Printf("merge %s/%s: putting the source back: %v", engID, src.Dir, rerr)
+			s.Log().Error("merge: the source is not put back", "eng", engID, "finding", src.F.Meta.ID, "err", rerr)
 		}
 		return err
 	}
@@ -587,7 +587,7 @@ func (s *Store) Merge(engID, srcDir, dstDir string, u config.User) error {
 		return []chat.Message{{ID: chat.NewID(), TS: time.Now().UTC().Truncate(time.Second), User: u.Username, Event: EventMerge, Text: srcID}}, nil
 	})
 	if err != nil { // the merge itself is done; only its event is missing
-		log.Printf("merge %s/%s: event: %v", engID, dst.Dir, err)
+		s.Log().Error("merge: the event is not written", "eng", engID, "finding", dstID, "err", err)
 	}
 	return nil
 }

@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"os/exec"
 	"sort"
@@ -263,7 +262,7 @@ func (s *Server) backup(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		// headers are gone: the download ends broken rather than silently short
-		log.Printf("backup: %v", err)
+		s.log().Error("backup: the download ended part way", "user", auth.UserFrom(r.Context()).Username, "err", err)
 		panic(http.ErrAbortHandler)
 	}
 	detail := "without key"

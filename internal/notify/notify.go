@@ -5,7 +5,7 @@ package notify
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"mime"
 	"net/smtp"
 	"os"
@@ -17,6 +17,7 @@ import (
 
 	"github.com/abno525/yars/internal/config"
 	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/logs"
 	"github.com/abno525/yars/internal/store"
 )
 
@@ -105,8 +106,12 @@ type Notifier struct {
 	// Simple reports whether the data folder runs the simple workflow, whose
 	// email names the events as it does (LabelFor); nil = standard.
 	Simple func() bool
+	// Logger takes the notifier's log lines; nil writes none.
+	Logger *slog.Logger
 	wg     sync.WaitGroup
 }
+
+func (n *Notifier) log() *slog.Logger { return logs.Or(n.Logger) }
 
 // label is an event's name in email.
 func (n *Notifier) label(key string) string {
@@ -237,7 +242,7 @@ func (n *Notifier) Handle(e store.Event) {
 func (n *Notifier) deliver(u config.User, note db.Notification, mail Mailer) {
 	if n.DB.Wants(u.Username, note.Event, "app") {
 		if _, err := n.DB.AddNotification(note); err != nil {
-			log.Printf("notify %s: %v", u.Username, err)
+			n.log().Error("notification not stored", "user", u.Username, "eng", note.Eng, "finding", note.Fid, "err", err)
 		}
 	}
 	n.email(u, note, mail)
@@ -252,7 +257,7 @@ func (n *Notifier) email(u config.User, note db.Notification, mail Mailer) {
 		go func() {
 			defer n.wg.Done()
 			if err := mail.Send(u.Email, subject, body); err != nil {
-				log.Printf("notify %s by email: %v", u.Username, err)
+				n.log().Warn("notification email not sent", "user", u.Username, "eng", note.Eng, "finding", note.Fid, "err", err)
 			}
 		}()
 	}

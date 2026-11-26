@@ -9,7 +9,7 @@ import (
 	"html/template"
 	"io"
 	"io/fs"
-	"log"
+	"log/slog"
 	"maps"
 	"net/http"
 	"net/url"
@@ -29,6 +29,7 @@ import (
 	"github.com/abno525/yars/internal/gitrepo"
 	"github.com/abno525/yars/internal/history"
 	"github.com/abno525/yars/internal/index"
+	"github.com/abno525/yars/internal/logs"
 	"github.com/abno525/yars/internal/notify"
 	"github.com/abno525/yars/internal/render"
 	"github.com/abno525/yars/internal/rules"
@@ -83,6 +84,9 @@ type Server struct {
 	// when nil and subscribed to the store's events.
 	Webhooks *webhook.Service
 	Notifier *notify.Notifier
+	// Logger takes the server's log lines; nil writes none. The webhook
+	// service and the notifier Handler makes log through it too.
+	Logger *slog.Logger
 
 	stop      chan struct{} // closes the background workers (Close)
 	stopOnce  sync.Once
@@ -122,6 +126,9 @@ type Server struct {
 	bulkBudget time.Duration
 	// boardRead runs once the team board's content is read (tests)
 	boardRead func()
+	// slowAfter is how long a request may take before its log line is a
+	// warning (0 = defaultSlow)
+	slowAfter time.Duration
 }
 
 // boardPage is how many findings the board shows before "Load more".
@@ -261,6 +268,9 @@ func colspan(p *page) int {
 	return n
 }
 
+// log is the server's logger (Logger, or one that writes nothing).
+func (s *Server) log() *slog.Logger { return logs.Or(s.Logger) }
+
 // findingURL is a finding's page: /e/<eng>/f/<number>.
 func findingURL(eng, dir string) string { return "/e/" + eng + "/f/" + store.ShortID(dir) }
 
@@ -349,7 +359,7 @@ func (s *Server) Handler() http.Handler {
 	root.HandleFunc("GET /favicon.ico", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, staticPrefix()+"/favicon.svg", http.StatusMovedPermanently)
 	})
-	root.Handle("/", s.Auth.Require(s.mustChangeGate(s.teamGate(private))))
+	root.Handle("/", s.Auth.Require(signedIn(private, s.mustChangeGate(s.teamGate(routed(private))))))
 	if s.Git != nil {
 		root.Handle("/git/", longLived(s.Git)) // HTTP Basic auth, no cookies; big pushes and clones take time
 	}
@@ -357,7 +367,9 @@ func (s *Server) Handler() http.Handler {
 		root.Handle("/mcp", s.lintLived(s.MCP)) // Bearer tokens, no cookies; lint and transition run every rule
 	}
 	// Reject cross-origin state-changing requests (CSRF, incl. login CSRF).
-	return gzipHandler(secureHeaders(s.HTTPS, http.NewCrossOriginProtection().Handler(limitBody(s.firstRun(root)))))
+	// The request log is outermost: it sees the status of every layer (a
+	// refused origin, a body over the limit).
+	return s.logRequests(gzipHandler(secureHeaders(s.HTTPS, http.NewCrossOriginProtection().Handler(limitBody(s.firstRun(routed(root)))))))
 }
 
 // formMax caps a request body on the website, as MCP caps its requests (a
@@ -450,8 +462,8 @@ func (s *Server) exec(w http.ResponseWriter, name, tmpl string, data any) {
 func (s *Server) execStatus(w http.ResponseWriter, status int, name, tmpl string, data any) {
 	var buf bytes.Buffer
 	if err := s.pages[name].ExecuteTemplate(&buf, tmpl, data); err != nil {
-		log.Printf("template %s/%s: %v", name, tmpl, err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
+		s.log().Error("template error", "req", w.Header().Get(logs.HeaderID), "page", name, "template", tmpl, "err", err)
+		internalError(w)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -477,8 +489,10 @@ func (s *Server) fail(w http.ResponseWriter, err error) {
 		http.Error(w, store.ErrBusy.Error(), http.StatusConflict)
 		return
 	}
-	log.Printf("error: %v", err)
-	http.Error(w, "internal error", http.StatusInternalServerError)
+	// the request's ID is on the response already (logRequests): the line
+	// and the page name the same request
+	s.log().Error("request failed", "req", w.Header().Get(logs.HeaderID), "err", err)
+	internalError(w)
 }
 
 func canManage(u config.User) bool { return workflow.AtLeast(u, "director") }
@@ -536,12 +550,12 @@ func (s *Server) base(r *http.Request, eng string) (*page, error) {
 	// (the error is logged); a page that needs the index fails on its own.
 	engs, err := s.Index.EngagementsFor(vis) // cached with the index
 	if err != nil {
-		log.Printf("index: %v", err)
+		s.log().Error("the engagements are not read from the index", "user", u.Username, "err", err)
 	}
 	p := &page{User: u, Engagements: engs, CanManage: canManage(u), CanEngs: canEngs(u), CanAdmin: canAdmin(u), engsErr: err, inboxErr: err}
 	if err == nil {
 		if err := s.badges(p, u, engs); err != nil {
-			log.Printf("inbox badges: %v", err)
+			s.log().Error("the inbox badges are not read", "user", u.Username, "err", err)
 			p.Inbox, p.inboxErr = inboxView{}, err
 		}
 	}

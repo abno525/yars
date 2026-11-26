@@ -1,12 +1,11 @@
 package rules
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -19,6 +18,7 @@ import (
 	"time"
 
 	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/logs"
 )
 
 func script(t *testing.T, dir, name, body string) {
@@ -294,23 +294,24 @@ func TestAIErrorShowsStatusOnly(t *testing.T) {
 // and nothing of the error body: a provider can echo the request there (the
 // finding's text) or the key.
 func TestAIErrorLogHasNoBody(t *testing.T) {
-	var logged bytes.Buffer
-	log.SetOutput(&logged)
-	t.Cleanup(func() { log.SetOutput(os.Stderr) })
-	for _, provider := range []string{"anthropic", "openai"} {
+	lg, logged := logs.NewRecorder()
+	for i, provider := range []string{"anthropic", "openai"} {
 		f := &fakeAI{status: 500, body: func(map[string]any) string {
 			return "invalid key: secret\nfake log line\nyou sent: The admin password is hunter2"
 		}}
 		srv := f.server(t)
-		vs := aiRunner(t, provider, srv.URL).AI(context.Background(), acr, "title", "The admin password is hunter2")
+		rn := aiRunner(t, provider, srv.URL)
+		rn.Logger = lg
+		vs := rn.AI(context.Background(), acr, "title", "The admin password is hunter2")
 		if len(vs) != 1 || vs[0].Message != "AI check failed: HTTP 500" {
 			t.Fatalf("%s: got %+v", provider, vs)
 		}
-		if !strings.Contains(logged.String(), "ai: HTTP 500 from "+strings.TrimPrefix(srv.URL, "http://")+"\n") {
-			t.Fatalf("%s: log:\n%s", provider, logged.String())
+		recs := logged.With("ai: the provider refused a call")
+		if len(recs) != i+1 || recs[i].Str("status") != "500" || recs[i].Str("host") != strings.TrimPrefix(srv.URL, "http://") || recs[i].Level != slog.LevelWarn {
+			t.Fatalf("%s: log:\n%s", provider, logged.Text())
 		}
 	}
-	if out := logged.String(); strings.Contains(out, "secret") || strings.Contains(out, "hunter2") || strings.Contains(out, "fake log line") || strings.Count(out, "\n") != 2 {
+	if out := logged.Text(); strings.Contains(out, "secret") || strings.Contains(out, "hunter2") || strings.Contains(out, "fake log line") || len(logged.Records()) != 2 {
 		t.Fatalf("log:\n%s", out)
 	}
 }

@@ -1,7 +1,6 @@
 package store
 
 import (
-	"log"
 	"path"
 	"reflect"
 	"slices"
@@ -106,7 +105,7 @@ func (s *Store) ReceivePush(eng string, u config.User, serve func()) {
 		s.Invalidate("")
 		after, err := s.freshHead("")
 		if err == nil && after == before {
-			restoreTree("the main repo", s.repo)
+			s.restoreTree("", s.repo)
 		}
 		s.mainMu.Unlock()
 		if err == nil && after != before {
@@ -126,7 +125,7 @@ func (s *Store) ReceivePush(eng string, u config.User, serve func()) {
 	after, err := s.freshHead(eng)
 	if err == nil && after == before {
 		if r, rerr := s.EngRepo(eng); rerr == nil {
-			restoreTree(eng, r)
+			s.restoreTree(eng, r)
 		}
 	}
 	var evs []Event
@@ -135,11 +134,11 @@ func (s *Store) ReceivePush(eng string, u config.User, serve func()) {
 		// pushed commits
 		ps, err := s.pushedFindings(eng, before, after)
 		if err != nil {
-			log.Printf("push to %s: %v", eng, err)
+			s.Log().Error("push: the pushed findings are not read", "eng", eng, "user", u.Username, "err", err)
 		} else {
 			s.pushState(eng, u, ps)
 			if evs, err = s.pushEvents(eng, u.Username, ps); err != nil {
-				log.Printf("push to %s: events: %v", eng, err)
+				s.Log().Error("push: its events are not made", "eng", eng, "user", u.Username, "err", err)
 			}
 		}
 	}
@@ -152,12 +151,13 @@ func (s *Store) ReceivePush(eng string, u config.User, serve func()) {
 
 // restoreTree puts r's work tree back to HEAD after a push that did not
 // move the branch: git checks a pushed tree out before it updates the ref,
-// so a failed ref update must not leave that tree behind.
-func restoreTree(name string, r *gitrepo.Repo) {
+// so a failed ref update must not leave that tree behind. eng is "" for the
+// main repo.
+func (s *Store) restoreTree(eng string, r *gitrepo.Repo) {
 	if reset, err := r.RestoreHead(); err != nil {
-		log.Printf("push to %s: restore work tree: %v", name, err)
+		s.Log().Error("push: the work tree is not put back", "eng", eng, "err", err)
 	} else if reset {
-		log.Printf("push to %s: work tree put back to HEAD after a failed push", name)
+		s.Log().Warn("push: work tree put back to HEAD after a failed push", "eng", eng)
 	}
 }
 
@@ -282,14 +282,14 @@ func (s *Store) pushState(eng string, u config.User, ps []pushedFinding) {
 				old := ApprovalHash(pf.prev)
 				if may(of.Meta.ID, func(st db.State) bool { return Approved(st, old) && st.ApprovedHash != "" }) {
 					if err := carryApprovalDB(s.db, eng, of.Meta.ID, old, ApprovalHash(pf.raw)); err != nil {
-						log.Printf("push to %s: approval of %s: %v", eng, of.Meta.ID, err)
+						s.Log().Error("push: the approval is not carried over", "eng", eng, "finding", LogID(of.Meta.ID), "err", err)
 					}
 				}
 			}
 		}
 		if pf.files && may(pf.cur.Meta.ID, signedOff) {
 			if err := dropSignOffs(s.db, eng, pf.cur.Meta.ID); err != nil {
-				log.Printf("push to %s: sign-offs of %s: %v", eng, pf.cur.Meta.ID, err)
+				s.Log().Error("push: the sign-offs are not dropped", "eng", eng, "finding", LogID(pf.cur.Meta.ID), "err", err)
 			}
 		}
 	}

@@ -80,7 +80,11 @@ document.addEventListener('htmx:responseError', function (evt) {
     text = (doc.body && doc.body.textContent || '').trim();
   }
   if (text.length > 300) text = text.slice(0, 300) + '…';
-  yarsToast(text || ('Error ' + (xhr ? xhr.status : '')), true);
+  text = text || ('Error ' + (xhr ? xhr.status : ''));
+  // a server error names its request, as the service log does
+  var req = xhr && xhr.status >= 500 && xhr.getResponseHeader('X-Request-ID');
+  if (req && text.indexOf(req) < 0) text += '\nRequest ' + req;
+  yarsToast(text, true);
 });
 document.addEventListener('htmx:sendError', function () { yarsToast('Connection lost', true); });
 

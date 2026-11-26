@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"regexp"
 	"strings"
@@ -226,7 +225,7 @@ func (rn *Runner) post(ctx context.Context, url string, body any, hdr map[string
 	if resp.StatusCode/100 != 2 {
 		// the body can echo the key, the account or the request (the
 		// finding's text): users and the server log get the status only
-		log.Printf("ai: HTTP %d from %s", resp.StatusCode, req.URL.Host)
+		rn.log().Warn("ai: the provider refused a call", "status", resp.StatusCode, "host", req.URL.Host)
 		return fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 	return json.Unmarshal(data, out)

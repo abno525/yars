@@ -5,12 +5,15 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"io/fs"
+	"log/slog"
 	"mime"
 	"net/http"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/abno525/yars/internal/logs"
 )
 
 // staticHash identifies the embedded static files; it is part of their URLs
@@ -246,7 +249,9 @@ func clearDeadlines(w http.ResponseWriter) {
 }
 
 // HTTPServer is the http.Server for addr with the request timeouts; the
-// event stream and git routes lift them per request.
+// event stream and git routes lift them per request. What net/http itself
+// logs (a failed TLS handshake, a handler's panic) goes to the server's
+// logger, a line each at warn; a panic's line has the whole trace in stack.
 func (s *Server) HTTPServer(addr string) *http.Server {
 	return &http.Server{
 		Addr:              addr,
@@ -255,5 +260,6 @@ func (s *Server) HTTPServer(addr string) *http.Server {
 		ReadTimeout:       60 * time.Second,
 		WriteTimeout:      60 * time.Second,
 		IdleTimeout:       120 * time.Second,
+		ErrorLog:          slog.NewLogLogger(logs.StdHandler(s.Logger, "http server"), slog.LevelWarn),
 	}
 }

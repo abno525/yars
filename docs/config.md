@@ -22,6 +22,8 @@
 | `smtp.username` | string | — | empty = no login |
 | `smtp.password_env` | string | — | name of the environment variable holding the password; must start with `YARS_` |
 | `checks.max_running` | number | 4 | at least 1; check runs the server runs at once |
+| `log.level` | string | info | `debug`, `info`, `warn` or `error`; read at the start |
+| `log.format` | string | text | `text` or `json`; read at the start |
 
 ## Example
 
@@ -49,6 +51,9 @@ smtp:
   password_env: YARS_SMTP_PASSWORD
 checks:
   max_running: 4
+log:
+  level: info
+  format: text
 ```
 
 Without `smtp.host` and `smtp.from` the Email column of the notification settings is hidden.
@@ -63,6 +68,14 @@ A file that names another variable is refused: on Admin › Structure, on a push
 2. Set the new name in `.yars/config.yaml` in the data folder.
 3. Commit it there as the service account: `git -C /srv/yars commit .yars/config.yaml -m config`. An edit that is not committed is undone at the next start.
 4. Start the service.
+
+## Log
+
+`yars serve` writes its log to stderr, one line for each thing that happened. `log.format: text` writes `time=… level=… msg=… key=value …`. `log.format: json` writes one JSON object a line. `log.level` is the lowest level written. `yars serve --log-level debug` goes over the file's level for one start.
+
+Both keys are read when the server starts. A file saved or pushed later changes neither until the next start. A word that is no level or no format is refused: on Admin › Structure, on a push, and at the start. `yars serve` then does not start and names the key.
+
+The setup code of a first start is written at every level.
 
 ## Workflow
 

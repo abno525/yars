@@ -11,7 +11,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"io/fs"
-	"log"
+	"log/slog"
 	"os"
 	"path"
 	"regexp"
@@ -23,6 +23,7 @@ import (
 	"github.com/abno525/yars/internal/db"
 	"github.com/abno525/yars/internal/finding"
 	"github.com/abno525/yars/internal/gitrepo"
+	"github.com/abno525/yars/internal/logs"
 	"github.com/abno525/yars/internal/rules"
 	"github.com/abno525/yars/internal/workflow"
 )
@@ -133,6 +134,10 @@ type Store struct {
 	// submit and approve (unless dismissed).
 	Linter Linter
 
+	// Logger takes the store's log lines; nil writes none. yars serve sets
+	// it before the first request.
+	Logger *slog.Logger
+
 	// checksMu makes starting a check one at a time (held across its
 	// database writes, so never taken inside a transaction)
 	checksMu sync.Mutex
@@ -172,6 +177,10 @@ func New(r *gitrepo.Repo, cfg config.Config, d *db.DB) *Store {
 	return &Store{repo: r, db: d, cfg: cfg, workflowKey: cfg.Workflow, root: root, rootErr: err}
 }
 
+// Log is the store's logger (Logger, or one that writes nothing): the
+// index, which is built on the store, logs through it too.
+func (s *Store) Log() *slog.Logger { return logs.Or(s.Logger) }
+
 // DB is the database (nil on a local clone).
 func (s *Store) DB() *db.DB { return s.db }
 
@@ -199,8 +208,8 @@ func (s *Store) SetConfig(c config.Config) {
 // is set by yars init): one c switches is logged and replaced.
 func (s *Store) applyConfig(c config.Config) config.Config {
 	if pinned := (config.Config{Workflow: s.workflowKey}); c.Simple() != pinned.Simple() {
-		log.Printf("config: workflow %q not applied: this data folder runs the %s workflow (set by yars init)",
-			c.Workflow, workflow.FlowOf(pinned).Name())
+		s.Log().Warn("config: the workflow is not applied: this data folder keeps the one yars init set",
+			"workflow", workflow.FlowOf(pinned).Name())
 		c.Workflow = s.workflowKey
 	}
 	s.cfgMu.Lock()
@@ -243,7 +252,7 @@ func (s *Store) OnConfig(fn func(config.Config)) {
 // checks refuse those, so it is only logged.
 func (s *Store) reloadConfig() {
 	if _, err := s.ReloadConfig(); err != nil {
-		log.Printf("push to the main repo: config.yaml not applied: %v", err)
+		s.Log().Error("push to the main repo: config.yaml not applied", "err", err)
 	}
 }
 func (s *Store) Repo() *gitrepo.Repo { return s.repo }

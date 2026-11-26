@@ -9,6 +9,10 @@ What changed for people who run or use YARS. Newest first.
 - Settings › About shows the version, the license and a link to the source.
 - The licence texts of the vendored fonts and htmx ship with the binary; `NOTICE` lists all third-party work.
 - `SECURITY.md`, `CONTRIBUTING.md` and issue templates.
+- `log.level` (`debug`, `info`, `warn`, `error`) and `log.format` (`text`, `json`) in `.yars/config.yaml`, and `yars serve --log-level`, set what the service log holds and how it is written ([docs/config.md](docs/config.md)). Both keys are read at the start.
+- The service log has one line for each request to the website, the git endpoint and MCP: an ID, the method, the route, the status, the time taken, the account, the token's ID, the engagement and the finding. A request over 2 s is a warning. Static files are logged at `debug`. A handler's panic is one line with the whole stack trace in `stack`.
+- The service log holds IDs and usernames, never text: an attribute named like a password, a token's value, a key, a cookie, a title, a reason or other text is dropped, and an error's text loses a finding's folder name (its ID stays), an attachment's name, and the login and query of an address. The error of a failed git command leaves out the commit message.
+- Every response carries its request's ID as `X-Request-ID`. An internal error shows it on the page and in the toast (`Request 4f2a9c1b`), and the error's log line has the same ID.
 
 ### Changed
 
@@ -33,6 +37,8 @@ What changed for people who run or use YARS. Newest first.
 - Standard workflow: an error on your own finding is dismissed, and restored, by another reviewer or a director, whatever your role. Warnings and the simple workflow are unchanged. Dismissals made before stay.
 - `yars useradd` and `yars passwd` on a terminal ask for the password twice and do not show it. A password piped to them is a temporary one: the next login asks for a new one, and until then the account's git logins and tokens are refused.
 - `yars token add` makes a token that expires after 90 days (before: never). `--days N` or `--expires YYYY-MM-DD` sets another end, `--expires never` or `--days 0` none. A past date is refused. The printed line names the expiry.
+- The service log of `yars serve` has a new form: every line is `time=… level=… msg=… key=value …` on stderr (before: free text). A filter on the old text must change. A failed login is now `msg="login failed" user=… remote=…` (git: `msg="git login failed"`), a lockout `msg="login locked"`, the setup code `setup_code=…`. What `git http-backend` and the web server itself report are lines of the same form.
+- `yars export`, `yars lint` and `yars mcp` write a finding or an engagement they skip to stderr in the same form.
 - `yars export` writes its file `0600` and does not replace a file that is there. `--force` replaces it. A device or a pipe named by `--out` (`/dev/stdout` into a pipe, a FIFO) is written into as before.
 
 ### Fixed

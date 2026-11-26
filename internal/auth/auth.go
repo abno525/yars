@@ -10,7 +10,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"sync"
 	"time"
@@ -20,6 +20,7 @@ import (
 
 	"github.com/abno525/yars/internal/config"
 	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/logs"
 )
 
 const CookieName = "yars_session"
@@ -29,10 +30,14 @@ type ctxKey struct{}
 type Auth struct {
 	// Secure marks the session cookie Secure (the site is served over HTTPS).
 	Secure bool
+	// Logger takes the failed-login and lockout lines; nil writes none.
+	Logger *slog.Logger
 
 	db    *db.DB
 	dummy []byte
 }
+
+func (a *Auth) log() *slog.Logger { return logs.Or(a.Logger) }
 
 // defaultCost is the bcrypt cost of every stored password and of the dummy
 // hash. Nothing outside this package can change cost: no flag, env var,
@@ -154,7 +159,7 @@ func (a *Auth) verify(username, pw string) (config.User, bool) {
 	if locked, until, err := a.db.LoginDone(username, good); err == nil && locked {
 		a.db.Audit(username, "login.lockout", username, until.Format(time.RFC3339))
 		// the caller logs the failure with its address (LogFailedLogin)
-		log.Printf("login locked: user %q until %s", logCut(username, 64), until.Format(time.RFC3339))
+		a.log().Warn("login locked", "user", logCut(username, 64), "until", until.Format(time.RFC3339))
 	}
 	if !good {
 		return config.User{}, false
@@ -162,8 +167,8 @@ func (a *Auth) verify(username, pw string) (config.User, bool) {
 	return u, true
 }
 
-// logCut cuts a client's text to n characters for a log line (written with
-// %q, which keeps it on one line).
+// logCut cuts a client's text to n characters for a log line (the log's
+// handlers quote it, which keeps it on one line).
 func logCut(s string, n int) string {
 	if r := []rune(s); len(r) > n {
 		return string(r[:n]) + "…"
@@ -173,18 +178,26 @@ func logCut(s string, n int) string {
 
 // LogFailedLogin writes a refused password login (what: "login" on the
 // website, "git login" over git) to the service log, where fail2ban or a
-// log collector reads it: the name as typed, quoted and cut, and the
-// address the request came from. Behind a proxy that address is the
-// proxy's; the X-Forwarded-For header is added, labelled, only when the
-// server was started as one behind a proxy or with a certificate (Secure):
-// a client can send the header too, so it is never shown as the address.
-// The password is never logged.
+// log collector reads it, as "login failed" or "git login failed": the name
+// as typed, cut (user), and the address the request came from (remote).
+// Behind a proxy that address is the proxy's; the X-Forwarded-For header is
+// added, labelled (forwarded_for), only when the server was started as one
+// behind a proxy or with a certificate (Secure): a client can send the
+// header too, so it is never shown as the address. The password is never
+// logged.
 func (a *Auth) LogFailedLogin(what, username string, r *http.Request) {
-	line := fmt.Sprintf("%s failed: user %q from %s", what, logCut(username, 64), r.RemoteAddr)
+	attrs := []any{"user", logCut(username, 64), "remote", r.RemoteAddr}
 	if f := r.Header.Get("X-Forwarded-For"); a.Secure && f != "" {
-		line += fmt.Sprintf(" forwarded-for %q", logCut(f, 100))
+		attrs = append(attrs, "forwarded_for", logCut(f, 100))
 	}
-	log.Print(line)
+	if id := logs.ReqID(r.Context()); id != "" { // the request's own line has the same
+		attrs = append(attrs, "req", id)
+	}
+	if what == "git login" {
+		a.log().Warn("git login failed", attrs...)
+		return
+	}
+	a.log().Warn("login failed", attrs...)
 }
 
 // LockedUntil reports whether username is locked out of password logins

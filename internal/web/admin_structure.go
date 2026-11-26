@@ -3,7 +3,6 @@ package web
 import (
 	"errors"
 	"io/fs"
-	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -232,13 +231,13 @@ func (s *Server) diskStructure() (config.Config, string) {
 	c := s.conf()
 	raw, err := os.ReadFile(config.ConfigPath(dir))
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		log.Printf("structure: %v", err)
+		s.log().Error("structure: config.yaml is not read", "err", err)
 		return c, ""
 	}
 	// loaded after the bytes were hashed: at worst newer than the base,
 	// which makes a save a conflict, never an overwrite
 	if l, err := config.Load(dir); err != nil {
-		log.Printf("structure: %v", err)
+		s.log().Error("structure: config.yaml does not load", "err", err)
 	} else {
 		c.Sections, c.DetailsRows, c.Severities, c.ReportSections, c.CVSS = l.Sections, l.DetailsRows, l.Severities, l.ReportSections, l.CVSS
 	}
@@ -409,7 +408,7 @@ func (s *Server) structurePost(w http.ResponseWriter, r *http.Request) {
 	// renamed report sections keep their text in every engagement
 	if rn := renamesOf(was, loaded.ReportSections); len(rn) > 0 {
 		if err := s.Store.RenameReportSections(rn, author(u)); err != nil {
-			log.Printf("rename report sections: %v", err)
+			s.log().Error("structure: report sections are not renamed", "user", u.Username, "err", err)
 		}
 	}
 	// Q10: renamed sections, details rows and severities are renamed inside

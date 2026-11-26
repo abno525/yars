@@ -3,7 +3,6 @@ package web
 import (
 	"encoding/json"
 	"errors"
-	"log"
 	"net/http"
 	"slices"
 	"strconv"
@@ -359,7 +358,7 @@ func (s *Server) wfGated(r *http.Request, ref store.FindingRef) (wfView, checksV
 	if signs {
 		open, err := s.Store.OpenChecks(ref.EngID, ref.Dir)
 		if err != nil {
-			log.Printf("open checks of %s/%s: %v", ref.EngID, ref.Dir, err)
+			s.log().Error("workflow bar: the open checks are not read", "eng", ref.EngID, "finding", ref.F.Meta.ID, "err", err)
 		}
 		for _, v := range open {
 			if v.Level == "warning" {
@@ -372,13 +371,13 @@ func (s *Server) wfGated(r *http.Request, ref store.FindingRef) (wfView, checksV
 		// own gate)
 		gate, gerr := s.Store.CheckGate(ref.EngID, ref.Dir)
 		if gerr != nil {
-			log.Printf("check gate of %s/%s: %v", ref.EngID, ref.Dir, gerr)
+			s.log().Error("workflow bar: the check gate is not read", "eng", ref.EngID, "finding", ref.F.Meta.ID, "err", gerr)
 		}
 		wf.NeedsCheck = gate != "" || gerr != nil
 		// a sign-off covers the attachments shown too
 		files, ferr := s.Store.AttachmentsHash(ref.EngID, ref.Dir)
 		if ferr != nil {
-			log.Printf("attachments of %s/%s: %v", ref.EngID, ref.Dir, ferr)
+			s.log().Error("workflow bar: the attachments are not read", "eng", ref.EngID, "finding", ref.F.Meta.ID, "err", ferr)
 		}
 		wf.SeenFiles = files
 		for i, a := range wf.Actions {

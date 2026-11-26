@@ -3,7 +3,6 @@ package mcp
 import (
 	"context"
 	"fmt"
-	"log"
 	"path"
 	"slices"
 	"strconv"
@@ -13,6 +12,7 @@ import (
 	"github.com/abno525/yars/internal/chat"
 	"github.com/abno525/yars/internal/config"
 	"github.com/abno525/yars/internal/history"
+	"github.com/abno525/yars/internal/logs"
 	"github.com/abno525/yars/internal/store"
 	"github.com/abno525/yars/internal/workflow"
 )
@@ -387,7 +387,8 @@ func (s *Server) allowedActions(ctx context.Context, u config.User, ref store.Fi
 			if why, err = s.Store.BlockingNow(ref.EngID, ref.Dir, act, u); err != nil {
 				// the transition would fail the same way, and say the same
 				if codeOf(err) == "server_error" {
-					log.Printf("mcp read_finding as %s: %s on %s/%s: %v", u.Username, al.Action, ref.EngID, ref.Dir, err)
+					s.log().Error("mcp: a finding's allowed action is not worked out", "req", logs.ReqID(ctx), "tool", "read_finding", "user", u.Username,
+						"action", al.Action, "eng", ref.EngID, "finding", store.LogID(ref.Dir), "err", err)
 				}
 				why = wording(err)
 			}

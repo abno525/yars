@@ -5,7 +5,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -21,10 +21,25 @@ import (
 	"github.com/abno525/yars/internal/finding"
 	"github.com/abno525/yars/internal/gitrepo"
 	"github.com/abno525/yars/internal/index"
+	"github.com/abno525/yars/internal/logs"
 	"github.com/abno525/yars/internal/rules"
 	"github.com/abno525/yars/internal/store"
 	"github.com/abno525/yars/internal/web"
 )
+
+// startData readies a data folder as a start of yars serve does, without a
+// log: startConfig, then prepareData.
+func startData(r *gitrepo.Repo) (config.Config, *db.DB, *store.Store, error) {
+	cfg, err := startConfig(r)
+	if err != nil {
+		return config.Config{}, nil, nil, err
+	}
+	d, st, err := prepareData(r, cfg, nil)
+	if err != nil {
+		return config.Config{}, nil, nil, err
+	}
+	return cfg, d, st, nil
+}
 
 // A certificate needs its key and the key its certificate.
 func TestServeTLSFlagsNeedBoth(t *testing.T) {
@@ -54,25 +69,34 @@ func TestServeSetupCode(t *testing.T) {
 		t.Fatal(err)
 	}
 	d := openDB(t, dir)
-	var out bytes.Buffer
-	log.SetOutput(&out)
-	t.Cleanup(func() { log.SetOutput(os.Stderr) })
-	code := firstRunCode(d, config.Default(), dir)
-	if len(code) != 14 || !strings.Contains(out.String(), "setup code: "+code+"\n") {
-		t.Fatalf("code %q, log:\n%s", code, out.String())
+	lg, out := logs.NewRecorder()
+	code := firstRunCode(d, config.Default(), dir, lg)
+	recs := out.Records()
+	if len(code) != 14 || len(recs) != 1 || recs[0].Str("setup_code") != code {
+		t.Fatalf("code %q, log:\n%s", code, out.Text())
 	}
-	if !strings.Contains(out.String(), "/setup") || !strings.Contains(out.String(), "yars useradd --data "+dir+" --role director --admin <name>") {
-		t.Fatalf("log:\n%s", out.String())
+	if !strings.Contains(recs[0].Msg, "/setup") || recs[0].Str("command") != "yars useradd --data "+dir+" --role director --admin <name>" {
+		t.Fatalf("log:\n%s", out.Text())
 	}
-	if again := firstRunCode(d, config.Default(), dir); again == code {
+	if again := firstRunCode(d, config.Default(), dir, lg); again == code {
 		t.Fatal("two starts made the same code")
 	}
 	// the simple workflow has no roles
 	out.Reset()
 	simple := config.Default()
 	simple.Workflow = config.WorkflowSimple
-	if firstRunCode(d, simple, dir); strings.Contains(out.String(), "--role") || !strings.Contains(out.String(), "--admin <name>") {
-		t.Fatalf("simple log:\n%s", out.String())
+	if firstRunCode(d, simple, dir, lg); strings.Contains(out.Text(), "--role") || !strings.Contains(out.Text(), "--admin <name>") {
+		t.Fatalf("simple log:\n%s", out.Text())
+	}
+	// the code is written whatever log.level says: /setup needs it
+	var stderr bytes.Buffer
+	cfg := config.Default()
+	cfg.Log.Level = "error"
+	quiet, _ := serverLog(&stderr, cfg, "")
+	quiet.Warn("hidden at error")
+	code = firstRunCode(d, cfg, dir, quiet)
+	if got := stderr.String(); strings.Contains(got, "hidden") || !strings.Contains(got, "setup_code="+code) || strings.Count(got, "\n") != 1 {
+		t.Fatalf("log.level error: code %q, log:\n%s", code, got)
 	}
 	// the first admin made from the shell, as the README has it: no code
 	pw, err := auth.HashPassword("long enough pw")
@@ -83,25 +107,98 @@ func TestServeSetupCode(t *testing.T) {
 		t.Fatal(err)
 	}
 	out.Reset()
-	if code := firstRunCode(d, config.Default(), dir); code != "" || out.Len() != 0 {
-		t.Fatalf("with an account: code %q, log:\n%s", code, out.String())
+	if code := firstRunCode(d, config.Default(), dir, lg); code != "" || len(out.Records()) != 0 {
+		t.Fatalf("with an account: code %q, log:\n%s", code, out.Text())
 	}
 }
 
 // A start without base_url says so once, naming the key; with it, nothing.
 func TestServeWarnsWithoutBaseURL(t *testing.T) {
-	var out bytes.Buffer
-	log.SetOutput(&out)
-	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	lg, out := logs.NewRecorder()
 	cfg := config.Default()
-	warnNoBaseURL(cfg)
-	if strings.Count(out.String(), "\n") != 1 || !strings.Contains(out.String(), "base_url is not set in .yars/config.yaml") {
-		t.Fatalf("log:\n%s", out.String())
+	warnNoBaseURL(cfg, lg)
+	if recs := out.Records(); len(recs) != 1 || recs[0].Level != slog.LevelWarn || !strings.Contains(recs[0].Msg, "base_url is not set in .yars/config.yaml") {
+		t.Fatalf("log:\n%s", out.Text())
 	}
 	out.Reset()
 	cfg.BaseURL = "https://yars.example.com"
-	if warnNoBaseURL(cfg); out.Len() != 0 {
-		t.Fatalf("with base_url:\n%s", out.String())
+	if warnNoBaseURL(cfg, lg); len(out.Records()) != 0 {
+		t.Fatalf("with base_url:\n%s", out.Text())
+	}
+}
+
+// log.level and log.format of config.yaml shape the service log; --log-level
+// goes over the file's level. A word that is no level stops the start with
+// the key (or the flag) in the message, before the database is opened.
+func TestServeLogLevelAndFormat(t *testing.T) {
+	line := func(cfg config.Config, flag string) string {
+		var buf bytes.Buffer
+		lg, _ := serverLog(&buf, cfg, flag)
+		lg.Debug("d")
+		lg.Info("i")
+		lg.Warn("w")
+		return buf.String()
+	}
+	cfg := config.Default()
+	if got := line(cfg, ""); strings.Contains(got, "msg=d") || !strings.Contains(got, "level=INFO msg=i") {
+		t.Errorf("default: %q", got)
+	}
+	cfg.Log.Level = "warn"
+	if got := line(cfg, ""); strings.Contains(got, "msg=i") || !strings.Contains(got, "level=WARN msg=w") {
+		t.Errorf("log.level warn: %q", got)
+	}
+	if got := line(cfg, "debug"); !strings.Contains(got, "msg=d") {
+		t.Errorf("--log-level debug over log.level warn: %q", got)
+	}
+	cfg.Log.Format = "json"
+	if got := line(cfg, ""); !strings.HasPrefix(got, "{") || !strings.Contains(got, `"msg":"w"`) {
+		t.Errorf("log.format json: %q", got)
+	}
+
+	// a bad flag: before the data folder is read
+	err := cmdServe([]string{"--data", t.TempDir(), "--log-level", "loud"})
+	if err == nil || err.Error() != `--log-level "loud" must be debug, info, warn or error` {
+		t.Fatalf("--log-level loud: %v", err)
+	}
+	// a bad key in config.yaml: the start stops and names it
+	dir := t.TempDir()
+	if err := initData(dir); err != nil {
+		t.Fatal(err)
+	}
+	r, err := gitrepo.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for body, want := range map[string]string{
+		"log:\n  level: loud\n":  `config: log.level "loud" must be debug, info, warn or error`,
+		"log:\n  format: xml\n":  `config: log.format "xml" must be text or json`,
+		"log:\n  level: DEBUG\n": `config: log.level "DEBUG" must be debug, info, warn or error`,
+	} {
+		if err := os.WriteFile(config.ConfigPath(dir), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := r.Commit([]string{".yars/config.yaml"}, "config", system); err != nil {
+			t.Fatal(err)
+		}
+		err := cmdServe([]string{"--data", dir, "--addr", "127.0.0.1:0"})
+		if err == nil || err.Error() != want {
+			t.Fatalf("%q: %v", body, err)
+		}
+	}
+}
+
+// What net/http itself logs goes to the server's logger, never to the
+// process-wide standard one.
+func TestServeHTTPErrorLog(t *testing.T) {
+	lg, out := logs.NewRecorder()
+	hs := (&web.Server{Auth: auth.New(nil), Logger: lg}).HTTPServer("127.0.0.1:0")
+	if hs.ErrorLog == nil {
+		t.Fatal("the http.Server has no ErrorLog")
+	}
+	hs.ErrorLog.Print("http: TLS handshake error from 192.0.2.1:1: EOF\n")
+	recs := out.With("http server")
+	if len(recs) != 1 || recs[0].Level != slog.LevelWarn || recs[0].Str("err") != "http: TLS handshake error from 192.0.2.1:1: EOF" {
+		t.Fatalf("log:\n%s", out.Text())
 	}
 }
 
@@ -137,7 +234,11 @@ func TestServeRefusesOtherEnvNames(t *testing.T) {
 		}
 	}
 	commit("YARS_OPENAI_API_KEY")
-	cfg, d, _, err := prepareData(r)
+	cfg, err := startConfig(r)
+	if err != nil {
+		t.Fatalf("after the fix: %v", err)
+	}
+	d, _, err := prepareData(r, cfg, nil)
 	if err != nil {
 		t.Fatalf("after the fix: %v", err)
 	}

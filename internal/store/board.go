@@ -3,7 +3,6 @@ package store
 import (
 	"errors"
 	"fmt"
-	"log"
 	"net/url"
 	"regexp"
 	"slices"
@@ -333,7 +332,7 @@ func (s *Store) MakeFinding(eng string, num int, u config.User) (FindingRef, err
 	// the finding exists now: the claim must not be given back (a restart
 	// would offer Make finding again), so the link is tried twice
 	if err = s.db.LinkNote(eng, num, u.Username, ref.F.Meta.ID); err != nil {
-		log.Printf("board %s/%s: link to %s: %v (retrying)", eng, NoteID(num), ref.F.Meta.ID, err)
+		s.Log().Warn("team board: a note's link to its finding is tried again", "eng", eng, "note", NoteID(num), "finding", ref.F.Meta.ID, "err", err)
 		err = s.db.LinkNote(eng, num, u.Username, ref.F.Meta.ID)
 	}
 	return ref, err
