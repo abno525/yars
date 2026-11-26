@@ -1,9 +1,44 @@
 package docs
 
 import (
+	"io/fs"
+	"slices"
 	"strings"
 	"testing"
 )
+
+// The binary carries the pages of Pages and no other file of docs/: a
+// planning note or an operator's page beside them is not compiled in.
+func TestOnlyTheNamedPagesAreEmbedded(t *testing.T) {
+	ents, err := fs.ReadDir(FS, ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, e := range ents {
+		if e.IsDir() {
+			t.Errorf("a folder is embedded: %s", e.Name())
+		}
+		got = append(got, e.Name())
+	}
+	var want []string
+	for _, p := range Pages {
+		want = append(want, p+".md")
+		if s, err := Page(p); err != nil || s == "" {
+			t.Errorf("Page(%q): %v", p, err)
+		}
+	}
+	slices.Sort(got)
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
+		t.Errorf("embedded %v, want %v", got, want)
+	}
+	for _, p := range []string{"open-decisions-2026-11-07", "deploy", "known-limits"} {
+		if _, err := Page(p); err == nil {
+			t.Errorf("%s.md is embedded", p)
+		}
+	}
+}
 
 // The git guide tells the holder of a clone from before engagements had
 // repositories of their own what to do with commits not pushed yet

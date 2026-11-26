@@ -2,9 +2,11 @@ package web
 
 import (
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
+	"yars/docs"
 	"yars/internal/mcp"
 )
 
@@ -21,6 +23,12 @@ func TestDeveloperDocs(t *testing.T) {
 		"git":       {"--recurse-submodules", "/git/e/acme", "/git/yars"},
 		"config":    {"severities", "details_rows", "smtp", "password_env", "base_url"},
 		"webhooks":  {"finding.status_changed", "finding.created", "chat.posted", "export.sent", "check.finished", "X-YARS-Signature", "sha256="},
+	}
+	// every tab has its page in the binary, so a new tab cannot be a 404
+	for _, tab := range docsTabs {
+		if !slices.Contains(docs.Pages, tab.Key) {
+			t.Errorf("the %s tab has no embedded page", tab.Key)
+		}
 	}
 	for name, wants := range pages {
 		rec := e.do(t, "alice", "GET", "/docs/"+name, nil, nil)
