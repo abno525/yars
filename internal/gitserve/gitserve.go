@@ -73,9 +73,11 @@ type Server struct {
 	// is spooled to a temporary file; 0 = DefaultMaxBody.
 	MaxBody int64
 	// Lint, when set, answers POST /git/e/<id>/lint: it checks a posted
-	// finding.md with every rule and stores no commit and no check run
-	// (yars lint --staged).
-	Lint func(ctx context.Context, eng string, raw []byte) ([]rules.Violation, error)
+	// finding.md with the rules of kinds and stores no commit and no check
+	// run (yars lint --staged). kinds is rules.All for a password login and
+	// for a token with the Run checks action, rules.Fast for any other
+	// token: scripts and AI do not run on a body such a token picks.
+	Lint func(ctx context.Context, eng string, raw []byte, kinds rules.Kind) ([]rules.Violation, error)
 
 	mu      sync.Mutex
 	cache   map[string]cached
@@ -383,8 +385,16 @@ func (s *Server) Handler() http.Handler {
 		}
 		if eng != "" && r.URL.Path == root+"/lint" {
 			// answered here, after the login, the team and the token's
-			// engagements: a read-only token may lint (it only reads)
-			s.lint(w, r, u, eng)
+			// engagements. Any token may lint, a read-only one too (the
+			// pre-commit hook works with it), but scripts and AI run on the
+			// posted body only for a token with the Run checks action, as
+			// over MCP; a password login is the account itself and runs
+			// every rule, as its Check button does.
+			kinds := rules.All
+			if tok != nil && !tok.Allows("checks") {
+				kinds = rules.Fast
+			}
+			s.lint(w, r, u, eng, kinds)
 			return
 		}
 		if gitErr != nil {
@@ -492,9 +502,10 @@ type lintViolation struct {
 
 // lint answers POST /git/e/<eng>/lint: the body is a finding.md as it would
 // be committed; the answer is {"violations":[…]} (an empty list when clean),
-// 422 {"error":…} for a file that does not parse. Nothing is stored. The
-// rules' AI calls are recorded under u (D24).
-func (s *Server) lint(w http.ResponseWriter, r *http.Request, u config.User, eng string) {
+// 422 {"error":…} for a file that does not parse. Nothing is stored. kinds
+// are the rules that run (Server.Lint). The rules' AI calls are recorded under
+// u (D24).
+func (s *Server) lint(w http.ResponseWriter, r *http.Request, u config.User, eng string, kinds rules.Kind) {
 	if s.Lint == nil {
 		http.NotFound(w, r)
 		return
@@ -532,7 +543,7 @@ func (s *Server) lint(w http.ResponseWriter, r *http.Request, u config.User, eng
 		return
 	}
 	ctx := rules.WithCaller(r.Context(), rules.Caller{User: u.Username, Eng: eng})
-	vs, err := s.Lint(ctx, eng, raw)
+	vs, err := s.Lint(ctx, eng, raw, kinds)
 	answer := func(code int, v any) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(code)

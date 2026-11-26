@@ -94,6 +94,7 @@ Only `refs/heads/main` can be pushed, and every commit in the push is checked on
 | `…/finding.md: author cannot change` | Edited author | restore the author |
 | `…/finding.md: unknown severity …` | Not in `severities` | one of the configured severities |
 | `.yars/…: only a director can change .yars` | Settings, not a director | ask a director |
+| `README.md: only a director can change README.md` | The main repository's `README.md` or `.gitignore`, not a director: both land in every clone | ask a director |
 | `.yars/config.yaml: only an admin can change .yars/config.yaml and .yars/rules` | Not an admin (the website keeps Structure, AI and Rules to admins); every file under `.yars/rules/`, scripts in subfolders too | ask an admin |
 | `.gitattributes: only an admin can change .gitattributes` | Not an admin: its lines set how files are checked out, the rule scripts and `config.yaml` too | ask an admin |
 | `.yars/CONFIG.yaml: spell it .yars/config.yaml` · `.yars/exporters/jira.YAML: spell it .yaml` | `config.yaml`, `rules`, `exporters` or `templates`, or the extension the server reads there (`.yaml`, `.yml`, `.md`), in another case: a case-insensitive checkout takes it for the real one (removing such a file is accepted) | fix the commit itself (`git commit --amend`, or `git rebase -i` for an earlier one); every commit is checked on its own, so a rename in a later commit does not save it |
@@ -103,7 +104,7 @@ Only `refs/heads/main` can be pushed, and every commit in the push is checked on
 | `.yars/config.yaml: cannot be deleted` | Every setting would fall back to its default | push the settings you want |
 | `.yars/config.yaml: workflow is set by yars init (this server runs the simple workflow) and cannot change` | The pushed file's `workflow` key is not the workflow the server runs: changed, removed or added (each commit is held to the server's workflow, not to its parent's file) | put the key back to the server's workflow (`workflow: simple`, or none for the standard workflow) |
 | `.yars/rules/x.yaml: rule invalid (x.yaml): …` | A rule Admin › Rules refuses (regex, unknown field, duplicate id); problems the folder already had don't block | correct the rule |
-| `.yars/exporters/x.yaml: …` · `address and key variables: admin only` | An exporter the export setup refuses; a service address set by a non-admin | correct it · ask an admin |
+| `.yars/exporters/x.yaml: …` · `address, space, parent page, project, issue type and key variables: admin only` | An exporter the export setup refuses; a service's address, key variables or target set by a non-admin | correct it · ask an admin |
 | `.yars/users.yaml: accounts, tokens and the database stay on the server` | Server-only file | `git rm --cached .yars/users.yaml` |
 | `…: only regular files are allowed (no symlinks or submodules)` | Symlink | copy the file |
 | `…/finding.md: only a director can delete a finding` | Deleted finding | `git checkout HEAD~1 -- <path>` |
@@ -136,6 +137,8 @@ yars hook install --data <clone>
 Run it once in each clone (a main clone or an engagement clone), and again after a new engagement is checked out in a main clone (`git submodule update --init engagements/<id>`): it puts a `pre-commit` hook in every engagement repository. Each commit then sends the `finding.md` files it adds or changes (as staged, not the work tree) to the server, which checks them as the Check button does, with the same rules, AI rules included, and the finding's workflow state, so a commit can take as long as a Check does (at most two minutes). Nothing of it is kept on the server (no commit, no check run) except what Check keeps too: the AI usage records, under your account, and the stored script and AI results (Script rules › Stored results).
 
 The hook signs in with the login git has saved for the clone and never asks for one: the login in the clone URL (a Git token from Settings › Tokens works there, and failed tokens never lock the account), or the one git's credential helper keeps. Stock git keeps none: set a helper once (`git config --global credential.helper store`, or `cache`, or your system's keyring helper), then `git fetch` once to save the login. A login the server refuses is forgotten by the helper, as git does. The hook reaches the server as git does (`http.sslCAInfo`, `http.sslVerify`, `http.proxy`).
+
+Signed in with a token, the check runs script and AI rules only when the token has the Run checks action. With any other token, a read-only one too, the server runs the pattern and built-in rules and leaves the others out of the answer.
 
 | Output | When |
 |---|---|

@@ -46,10 +46,10 @@
       <div class="t t-service">
         <label class="rf">Address<input class="monoin" name="base_url" value="{{.BaseURL}}"{{if not $.CanAdmin}} readonly{{end}}></label>
         <div class="rgrid">
-          <label class="rf s-confluence">Space<input class="monoin" name="space" value="{{.Space}}"></label>
-          <label class="rf s-confluence">Parent page<input class="monoin" name="parent_id" value="{{.ParentID}}"></label>
-          <label class="rf s-jira">Project<input class="monoin" name="project" value="{{.Project}}"></label>
-          <label class="rf s-jira">Issue type<input class="monoin" name="issue_type" value="{{.IssueType}}"></label>
+          <label class="rf s-confluence">Space<input class="monoin" name="space" value="{{.Space}}"{{if not $.CanAdmin}} readonly{{end}}></label>
+          <label class="rf s-confluence">Parent page<input class="monoin" name="parent_id" value="{{.ParentID}}"{{if not $.CanAdmin}} readonly{{end}}></label>
+          <label class="rf s-jira">Project<input class="monoin" name="project" value="{{.Project}}"{{if not $.CanAdmin}} readonly{{end}}></label>
+          <label class="rf s-jira">Issue type<input class="monoin" name="issue_type" value="{{.IssueType}}"{{if not $.CanAdmin}} readonly{{end}}></label>
         </div>
         <div class="rgrid">
           <label class="rf">User env<input class="monoin" name="user_env" value="{{.UserEnv}}"{{if not $.CanAdmin}} readonly{{end}}></label>

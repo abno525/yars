@@ -110,6 +110,26 @@ func checkWorkflow(cfg config.Config, d *db.DB) error {
 	return nil
 }
 
+// firstRunCode is the setup code of a start that finds no account: /setup
+// asks for it before it makes the first admin, so whoever reaches the port
+// first cannot take the server. It is logged once, with the way to make the
+// admin from the shell instead (no code there), and kept in memory only. A
+// start that finds an account (or cannot read them) makes none: "" keeps
+// /setup closed, also when every account is deleted while the server runs.
+func firstRunCode(d *db.DB, cfg config.Config, dir string) string {
+	if users, err := d.Users(); err != nil || len(users) > 0 {
+		return ""
+	}
+	role := "--role director " // the simple workflow has no roles
+	if cfg.Simple() {
+		role = ""
+	}
+	code := web.NewSetupCode()
+	log.Println("no accounts yet: open the web page and set up the first admin with the setup code below (/setup), or run: yars useradd --data", dir, role+"--admin <name>")
+	log.Println("setup code: " + code)
+	return code
+}
+
 func cmdServe(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	data := dataFlag(fs)
@@ -141,13 +161,7 @@ func cmdServe(args []string) error {
 	if err != nil {
 		return err
 	}
-	if users, _ := d.Users(); len(users) == 0 {
-		role := "--role director " // the simple workflow has no roles
-		if cfg.Simple() {
-			role = ""
-		}
-		log.Println("no accounts yet: open the web page to set up the first admin (/setup), or run: yars useradd --data", r.Dir, role+"--admin <name>")
-	}
+	setupCode := firstRunCode(d, cfg, r.Dir)
 	eng := rules.NewEngine(rules.DirFor(r.Dir), cfg)
 	st.Linter = eng
 	au := auth.New(d)
@@ -175,7 +189,7 @@ func cmdServe(args []string) error {
 	}
 	srv := &web.Server{Store: st, Index: ix, Auth: au, Cfg: cfg, Rules: eng, Git: gs.Handler(), Export: exportRunner(r.Dir),
 		MCP: mcpSrv.HTTPHandler(tokens), Events: hub, Tokens: tokens, Secret: box, HTTPS: secure, Version: buildVersion(), Source: source,
-		MigrateStatus: func() []string { return legacyItems(r.Dir) }}
+		MigrateStatus: func() []string { return legacyItems(r.Dir) }, SetupCode: setupCode}
 	hs := srv.HTTPServer(*addr)
 	hs.TLSConfig = tlsCfg
 	ln, err := net.Listen("tcp", *addr)
@@ -193,7 +207,8 @@ func cmdServe(args []string) error {
 
 // gitServer is the git endpoint of yars serve. The push hook it runs gets no
 // AI key: AI rules do not run on a push (pushRunner). The lint endpoint runs
-// in the server itself, with every rule (AI included), as Check does.
+// in the server itself, with every rule (AI included), as Check does; for a
+// token without the Run checks action, with the fast rules only.
 func gitServer(r *gitrepo.Repo, au *auth.Auth, tokens *auth.Tokens, st *store.Store, exe string, invalidate func(string)) *gitserve.Server {
 	return &gitserve.Server{Repo: r, Auth: au, HookCmd: hookCmd(exe, r.Dir), Sync: st.SyncPointers, Invalidate: invalidate,
 		Receive: st.ReceivePush, Tokens: tokens, CanSee: st.CanSee, Lint: st.LintContent}

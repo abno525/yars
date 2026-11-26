@@ -2,10 +2,13 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"errors"
+	"log"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -42,6 +45,49 @@ func TestServeTLSFlagsNeedBoth(t *testing.T) {
 	}
 }
 
+// A start without accounts makes a setup code and logs it, with the way to
+// make the first admin from the shell (which needs no code); a start with an
+// account makes none and logs nothing, so /setup stays closed.
+func TestServeSetupCode(t *testing.T) {
+	dir := t.TempDir()
+	if err := initData(dir); err != nil {
+		t.Fatal(err)
+	}
+	d := openDB(t, dir)
+	var out bytes.Buffer
+	log.SetOutput(&out)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	code := firstRunCode(d, config.Default(), dir)
+	if len(code) != 14 || !strings.Contains(out.String(), "setup code: "+code+"\n") {
+		t.Fatalf("code %q, log:\n%s", code, out.String())
+	}
+	if !strings.Contains(out.String(), "/setup") || !strings.Contains(out.String(), "yars useradd --data "+dir+" --role director --admin <name>") {
+		t.Fatalf("log:\n%s", out.String())
+	}
+	if again := firstRunCode(d, config.Default(), dir); again == code {
+		t.Fatal("two starts made the same code")
+	}
+	// the simple workflow has no roles
+	out.Reset()
+	simple := config.Default()
+	simple.Workflow = config.WorkflowSimple
+	if firstRunCode(d, simple, dir); strings.Contains(out.String(), "--role") || !strings.Contains(out.String(), "--admin <name>") {
+		t.Fatalf("simple log:\n%s", out.String())
+	}
+	// the first admin made from the shell, as the README has it: no code
+	pw, err := auth.HashPassword("long enough pw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := d.AddUser(config.User{Username: "ann", Role: "director", IsAdmin: true, PasswordHash: pw}); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if code := firstRunCode(d, config.Default(), dir); code != "" || out.Len() != 0 {
+		t.Fatalf("with an account: code %q, log:\n%s", code, out.String())
+	}
+}
+
 // The push hook gets no AI key: AI rules do not run on a push.
 func TestHookEnvHasNoAIKey(t *testing.T) {
 	dir := t.TempDir()
@@ -66,7 +112,7 @@ func TestHookEnvHasNoAIKey(t *testing.T) {
 	if gs.Lint == nil {
 		t.Fatal("the git server has no lint endpoint")
 	}
-	if _, err := gs.Lint(context.Background(), "nope", []byte("---\nid: F-001\ntitle: x\n---\n")); !errors.Is(err, store.ErrNotFound) {
+	if _, err := gs.Lint(context.Background(), "nope", []byte("---\nid: F-001\ntitle: x\n---\n"), rules.All); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("lint of an unknown engagement: %v", err)
 	}
 }

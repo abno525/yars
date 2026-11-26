@@ -199,8 +199,8 @@ func (s *Server) destSave(w http.ResponseWriter, r *http.Request) {
 	case !f.New && !found:
 		msg = "destination " + f.ID + " not found"
 	case export.NeedsAdmin(prevOf(cur, found), ex) && !p.CanAdmin:
-		// the address gets the server's and the authors' keys
-		msg = "address and key variables: admin only"
+		// where a service sends the keys and the findings
+		msg = export.AdminOnly
 	}
 	if msg == "" {
 		data, err := yaml.Marshal(ex)

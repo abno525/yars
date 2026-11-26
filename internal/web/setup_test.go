@@ -31,8 +31,87 @@ func fresh(t *testing.T) *env {
 	t.Cleanup(func() { d.Close() })
 	cfg := config.Default()
 	st := store.New(r, cfg, d)
-	s := &Server{Store: st, Index: index.New(st, r), Auth: auth.New(d), Cfg: cfg}
+	s := &Server{Store: st, Index: index.New(st, r), Auth: auth.New(d), Cfg: cfg, SetupCode: setupCode}
 	return &env{srv: s, h: s.Handler(), dir: dir, toks: map[string]string{}}
+}
+
+// setupCode is the setup code of fresh's server (yars serve prints its own).
+const setupCode = "k3Qw-9fZp-Lm2x"
+
+// first is a good /setup form but for the code.
+func first(code ...string) url.Values {
+	f := url.Values{"username": {"dir1"}, "email": {"d@x.test"}, "password": {"long enough pw"}, "repeat": {"long enough pw"}}
+	if len(code) > 0 {
+		f.Set("code", code[0])
+	}
+	return f
+}
+
+// /setup makes the first account only for a visitor who has the setup code
+// yars serve printed: the first visitor of an open port does not become the
+// admin. The code is never shown by the page.
+func TestSetupNeedsCode(t *testing.T) {
+	e := fresh(t)
+	b := e.do(t, "", "GET", "/setup", nil, nil).Body.String()
+	if !strings.Contains(b, `<label>Setup code<input name="code" autocomplete="off" required autofocus></label>`) || strings.Contains(b, setupCode) {
+		t.Fatalf("setup form:\n%s", b)
+	}
+	for name, f := range map[string]url.Values{
+		"no code": first(), "an empty code": first(""), "a wrong code": first("k3Qw-9fZp-Lm2y"), "a prefix": first(setupCode[:8]),
+		"the code in the address": first(), // below: ?code= is not read
+	} {
+		path := "/setup"
+		if name == "the code in the address" {
+			path += "?code=" + setupCode
+		}
+		rec := e.do(t, "", "POST", path, f, nil)
+		body := rec.Body.String()
+		if rec.Code != http.StatusForbidden || !strings.Contains(body, `<div class="alert" role="alert">Setup code is wrong</div>`) {
+			t.Fatalf("%s: %d\n%s", name, rec.Code, body)
+		}
+		if n, _ := e.srv.Store.DB().UserCount(); n != 0 || len(rec.Result().Cookies()) != 0 {
+			t.Fatalf("%s: %d accounts, cookies %v", name, n, rec.Result().Cookies())
+		}
+		if strings.Contains(body, setupCode) || strings.Contains(body, "k3Qw-9fZp-Lm2y") {
+			t.Fatalf("%s: a code is in the answer", name)
+		}
+	}
+	// the right code: the admin director, signed in
+	rec := e.do(t, "", "POST", "/setup", first(setupCode), nil)
+	if rec.Code != http.StatusSeeOther || len(rec.Result().Cookies()) == 0 {
+		t.Fatalf("setup with the code: %d", rec.Code)
+	}
+	if u, ok := e.srv.Auth.Lookup("dir1"); !ok || u.Role != "director" || !u.IsAdmin {
+		t.Fatalf("first user %+v", u)
+	}
+	// the code is good once: with an account, /setup is gone
+	if rec := e.do(t, "", "POST", "/setup", first(setupCode), nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("/setup with the code afterwards: %d", rec.Code)
+	}
+}
+
+// A server that was given no setup code (it started with accounts, or was
+// built without one) makes no first account at all: an empty code is not a
+// code.
+func TestSetupWithoutCodeIsClosed(t *testing.T) {
+	e := fresh(t)
+	e.srv.SetupCode = ""
+	for name, f := range map[string]url.Values{"an empty code": first(""), "no code": first(), "a guess": first("x")} {
+		if rec := e.do(t, "", "POST", "/setup", f, nil); rec.Code != http.StatusForbidden {
+			t.Fatalf("%s: %d", name, rec.Code)
+		}
+	}
+	if n, _ := e.srv.Store.DB().UserCount(); n != 0 {
+		t.Fatalf("%d accounts", n)
+	}
+}
+
+// NewSetupCode is random and typeable: three groups of four.
+func TestNewSetupCode(t *testing.T) {
+	a, b := NewSetupCode(), NewSetupCode()
+	if a == b || len(a) != 14 || strings.Count(a, "-") != 2 {
+		t.Fatalf("codes %q %q", a, b)
+	}
 }
 
 // With no account, every page leads to /setup, which creates the first
@@ -54,15 +133,15 @@ func TestFirstRun(t *testing.T) {
 		t.Fatalf("setup form %d:\n%s", rec.Code, b)
 	}
 	for _, f := range []url.Values{
-		{"username": {"dir1"}, "email": {"d@x.test"}, "password": {"long enough pw"}, "repeat": {"different pw"}},
-		{"username": {"dir1"}, "email": {"d@x.test"}, "password": {"short"}, "repeat": {"short"}},
-		{"username": {"bad name"}, "email": {"d@x.test"}, "password": {"long enough pw"}, "repeat": {"long enough pw"}},
+		{"code": {setupCode}, "username": {"dir1"}, "email": {"d@x.test"}, "password": {"long enough pw"}, "repeat": {"different pw"}},
+		{"code": {setupCode}, "username": {"dir1"}, "email": {"d@x.test"}, "password": {"short"}, "repeat": {"short"}},
+		{"code": {setupCode}, "username": {"bad name"}, "email": {"d@x.test"}, "password": {"long enough pw"}, "repeat": {"long enough pw"}},
 	} {
 		if rec := e.do(t, "", "POST", "/setup", f, nil); rec.Code != http.StatusBadRequest {
 			t.Fatalf("%v: %d", f, rec.Code)
 		}
 	}
-	rec = e.do(t, "", "POST", "/setup", url.Values{"username": {"dir1"}, "email": {"d@x.test"}, "password": {"long enough pw"}, "repeat": {"long enough pw"}}, nil)
+	rec = e.do(t, "", "POST", "/setup", first(setupCode), nil)
 	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/" {
 		t.Fatalf("setup %d %q", rec.Code, rec.Header().Get("Location"))
 	}
@@ -111,8 +190,8 @@ func refusedLong(t *testing.T, what string, rec *httptest.ResponseRecorder) {
 
 func TestSetupPasswordAtMost72Bytes(t *testing.T) {
 	e := fresh(t)
-	refusedLong(t, "setup", e.do(t, "", "POST", "/setup", url.Values{"username": {"dir1"}, "password": {pw73}, "repeat": {pw73}}, nil))
-	if rec := e.do(t, "", "POST", "/setup", url.Values{"username": {"dir1"}, "password": {pw72}, "repeat": {pw72}}, nil); rec.Code != http.StatusSeeOther {
+	refusedLong(t, "setup", e.do(t, "", "POST", "/setup", url.Values{"code": {setupCode}, "username": {"dir1"}, "password": {pw73}, "repeat": {pw73}}, nil))
+	if rec := e.do(t, "", "POST", "/setup", url.Values{"code": {setupCode}, "username": {"dir1"}, "password": {pw72}, "repeat": {pw72}}, nil); rec.Code != http.StatusSeeOther {
 		t.Fatalf("setup with 72 bytes: %d", rec.Code)
 	}
 }

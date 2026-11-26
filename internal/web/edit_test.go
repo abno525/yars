@@ -1,6 +1,7 @@
 package web
 
 import (
+	"html/template"
 	"net/http"
 	"net/url"
 	"os"
@@ -153,6 +154,35 @@ func TestPreview(t *testing.T) {
 	rec := e.do(t, "alice", "POST", "/e/acme/preview", url.Values{"body": {"# Hi\n<script>x</script>"}}, nil)
 	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "<h1") || strings.Contains(rec.Body.String(), "<script>") {
 		t.Fatalf("code %d body %s", rec.Code, rec.Body.String())
+	}
+}
+
+// The preview's f parameter names the finding whose attachments the links
+// point at. It goes into src= and href= of the answer, so only a finding
+// folder's name is taken: any other value is left out, and the links stay as
+// written.
+func TestPreviewFindingParamEscaped(t *testing.T) {
+	e := setup(t)
+	form := url.Values{"body": {"![x](attachments/a.png) [log](attachments/b.txt)"}}
+	for _, evil := range []string{`"><img src=x onerror=alert(1)>`, `x" onerror="alert(1)`, `../../other`, `a/b`, `<script>`} {
+		rec := e.do(t, "alice", "POST", "/e/acme/preview?f="+url.QueryEscape(evil)+"&s=Impact", form, nil)
+		b := rec.Body.String()
+		if rec.Code != 200 || strings.Contains(b, evil) || strings.Contains(b, "onerror") || strings.Contains(b, "<script>") || strings.Contains(b, "/e/acme/f/") {
+			t.Errorf("f=%q: %d\n%s", evil, rec.Code, b)
+		}
+		if !strings.Contains(b, `src="attachments/a.png"`) || !strings.Contains(b, `href="attachments/b.txt"`) {
+			t.Errorf("f=%q: the links were rewritten:\n%s", evil, b)
+		}
+	}
+	// a finding's folder: the links point at its attachments
+	b := e.do(t, "alice", "POST", "/e/acme/preview?f="+fdir+"&s=Impact", form, nil).Body.String()
+	if !strings.Contains(b, `src="`+fshort+`/attachments/a.png"`) || !strings.Contains(b, `href="`+fshort+`/attachments/b.txt"`) {
+		t.Fatalf("a finding's preview:\n%s", b)
+	}
+	// the sink itself refuses a folder that is not a name
+	in := template.HTML(`<img src="attachments/a.png">`)
+	if out := e.srv.linkAttachments(in, store.FindingRef{EngID: "acme", Dir: `x" onerror="alert(1)`}); out != in {
+		t.Fatalf("linkAttachments took a bad folder: %s", out)
 	}
 }
 

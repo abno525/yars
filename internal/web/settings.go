@@ -388,6 +388,7 @@ func (s *Server) tokenNewPage(w http.ResponseWriter, r *http.Request) {
 }
 
 // tokenCreate makes a scoped token for the user and shows its secret once.
+// The form carries the account's password.
 func (s *Server) tokenCreate(w http.ResponseWriter, r *http.Request) {
 	p, err := s.base(r, "")
 	if err != nil {
@@ -452,6 +453,18 @@ func (s *Server) tokenCreate(w http.ResponseWriter, r *http.Request) {
 			spec.Expires = time.Now().Add(time.Duration(n) * 24 * time.Hour).UTC().Format(time.RFC3339)
 		default:
 			f.Error = "Expires: 30 days, 90 days, 1 year or never"
+		}
+	}
+	// The account's password, asked last: a session alone (a stolen one)
+	// makes no token, and a mistake in the form costs no login attempt. It
+	// is a login check (Auth.Check counts it towards the lockout), so the
+	// form is no unlimited oracle for the password. It never goes back into
+	// the form.
+	if f.Error == "" {
+		if pw := r.PostFormValue("password"); pw == "" {
+			f.Error = "Password is wrong"
+		} else if _, ok := s.Auth.Check(p.User.Username, pw); !ok {
+			f.Error = "Password is wrong"
 		}
 	}
 	if f.Error != "" {

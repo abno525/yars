@@ -56,6 +56,10 @@ type Server struct {
 	// HTTPS: the site is served over HTTPS (TLS here or at a proxy), so
 	// responses carry Strict-Transport-Security.
 	HTTPS bool
+	// SetupCode is the code /setup asks for before it makes the first
+	// account (NewSetupCode; yars serve prints it while no account exists).
+	// "" makes no first account at all: an empty code is never accepted.
+	SetupCode string
 	// Events carries live changes to open pages (GET /events); created by
 	// Handler when nil. Whoever else changes data (the git server after a
 	// push) publishes to the same hub.
@@ -94,6 +98,7 @@ type Server struct {
 	aiTest    atomic.Pointer[aiTestResult] // the last Test on the AI page
 	hasUsers  atomic.Bool                  // an account exists (first run is over)
 	exports   exportCache
+	sweepOnce sync.Once // the export cache's sweep worker is started
 	inboxes   inboxCache
 	openCache openCache // Ready to approve and the bulk bar: which findings have open checks
 	md        *render.Markdown

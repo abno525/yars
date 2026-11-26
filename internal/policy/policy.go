@@ -625,8 +625,10 @@ func (c *Checker) file(u config.User, old, new string, ch gitrepo.Change) []stri
 		}
 		return nil
 	case p == "README.md" || p == "engagements/.gitkeep" || p == ".gitignore":
-		if p == ".gitignore" && !manager(u) {
-			return []string{"only a director can change .gitignore"}
+		// these land in every colleague's clone, where their tools and agents
+		// read them: a director's to change, add or delete
+		if !manager(u) {
+			return []string{"only a director can change " + p}
 		}
 		return nil
 	case len(seg) < 3 || seg[0] != "engagements" || !store.ValidID(seg[1]):
@@ -792,7 +794,8 @@ func (c *Checker) ruleSet(rev string) *rules.Set {
 }
 
 // exporterProblems checks a pushed exporter file as the export setup
-// saves one: its id, its settings, and an admin for a service address.
+// saves one: its id, its settings, and an admin for what export.NeedsAdmin
+// keeps to one (a service's address, key variables and target).
 func (c *Checker) exporterProblems(u config.User, old, new, p, file string) []string {
 	if !export.IDRe.MatchString(strings.TrimSuffix(file, ".yaml")) {
 		return []string{"exporter ids are lowercase letters, digits, - and _ (the file is <id>.yaml)"}
@@ -809,8 +812,8 @@ func (c *Checker) exporterProblems(u config.User, old, new, p, file string) []st
 		}
 	}
 	if export.NeedsAdmin(prev, ex) && !u.IsAdmin {
-		// the address gets the server's and the authors' keys
-		return []string{"address and key variables: admin only"}
+		// where a service sends the keys and the findings
+		return []string{export.AdminOnly}
 	}
 	return nil
 }

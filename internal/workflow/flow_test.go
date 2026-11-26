@@ -41,6 +41,40 @@ func TestFlowOf(t *testing.T) {
 	}
 }
 
+// A finding is reported (marked, or sent to a destination) by its author or
+// a director, in any status; every account of the simple workflow is a
+// director, so there anyone may.
+func TestCanReport(t *testing.T) {
+	for _, status := range []string{"complete", "reported"} {
+		m := finding.Meta{ID: "F-001", Status: status, Author: "alice", Reviewers: []string{"bob"}}
+		for _, c := range []struct {
+			u    config.User
+			want bool
+		}{
+			{config.User{Username: "alice", Role: "pentester"}, true},
+			{config.User{Username: "pen2", Role: "pentester"}, false},
+			{config.User{Username: "bob", Role: "reviewer"}, false},
+			{config.User{Username: "ann", Role: "pentester", IsAdmin: true}, false},
+			{config.User{Username: "dora", Role: "director"}, true},
+		} {
+			if got := CanReport(c.u, m); got != c.want {
+				t.Errorf("%s, %s: CanReport %v, want %v", status, c.u.Username, got, c.want)
+			}
+		}
+		if !CanReport(ben, smeta(status)) {
+			t.Errorf("%s: an account of the simple workflow can't report a colleague's finding", status)
+		}
+	}
+	// Check's Report is the same rule, in complete only
+	m := finding.Meta{Status: "complete", Author: "alice"}
+	if err := Check(config.User{Username: "pen2", Role: "pentester"}, m, Report); err == nil {
+		t.Error("a colleague may mark reported")
+	}
+	if err := Check(config.User{Username: "alice", Role: "pentester"}, m, Report); err != nil {
+		t.Errorf("the author: %v", err)
+	}
+}
+
 // The simple workflow's steps and actions; the zero Flow is the standard
 // one, as the package-level values are.
 func TestSimpleStatuses(t *testing.T) {

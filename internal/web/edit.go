@@ -411,12 +411,18 @@ func (s *Server) preview(w http.ResponseWriter, r *http.Request) {
 	body := r.FormValue("body")
 	var buf strings.Builder
 	h := s.renderMD(body)
-	if fid := r.URL.Query().Get("f"); fid != "" {
+	// f names the finding's folder. It ends up in the answer's src= and
+	// href=, so anything that is not a folder name is no finding at all.
+	fid := r.URL.Query().Get("f")
+	if !store.ValidID(fid) {
+		fid = ""
+	}
+	if fid != "" {
 		h = s.linkAttachments(h, store.FindingRef{EngID: r.PathValue("eng"), Dir: fid})
 	}
 	buf.WriteString(string(h))
 	// Live style hints for the section being edited (fast rules only).
-	if fid, sec := r.URL.Query().Get("f"), r.URL.Query().Get("s"); s.Rules != nil && fid != "" && sec != "" {
+	if sec := r.URL.Query().Get("s"); s.Rules != nil && fid != "" && sec != "" {
 		if ref, err := s.Store.Finding(r.PathValue("eng"), fid); err == nil {
 			if vs := s.Rules.LintSection(ref.F, sec, body); len(vs) > 0 {
 				var hb bytes.Buffer

@@ -245,12 +245,13 @@ func (s *Store) Dismissals(engID, fid string) (map[string]db.Dismissal, error) {
 var lintFidRe = regexp.MustCompile(`^F-[0-9]{3,6}$`)
 
 // LintContent checks raw (a finding.md as it would be committed to
-// engagement engID) with every rule, as a check run does, and returns the
+// engagement engID) with the rules of kinds (rules.All: every rule, as a
+// check run does; rules.Fast: no script and no AI rule) and returns the
 // violations that are not dismissed on that finding. Nothing is stored. A
 // file that does not parse is ErrInvalidValue with the parser's message; an
 // unknown engagement is ErrNotFound. The rules' AI calls are recorded under
 // the caller ctx carries and this finding (D24).
-func (s *Store) LintContent(ctx context.Context, engID string, raw []byte) ([]rules.Violation, error) {
+func (s *Store) LintContent(ctx context.Context, engID string, raw []byte, kinds rules.Kind) ([]rules.Violation, error) {
 	f, err := finding.Parse(raw)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalidValue, err)
@@ -276,7 +277,7 @@ func (s *Store) LintContent(ctx context.Context, engID string, raw []byte) ([]ru
 	if lintFidRe.MatchString(f.Meta.ID) {
 		c.Fid = f.Meta.ID // only a finding id is recorded (the text is the poster's)
 	}
-	vs, err := s.undismissed(engID, f.Meta.ID, s.Linter.Lint(rules.WithCaller(ctx, c), f, rules.All))
+	vs, err := s.undismissed(engID, f.Meta.ID, s.Linter.Lint(rules.WithCaller(ctx, c), f, kinds))
 	if vs == nil {
 		vs = []rules.Violation{}
 	}
