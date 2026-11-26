@@ -116,20 +116,64 @@ var downloads = []struct {
 // exportable statuses: only finished findings leave YARS.
 var exportable = []string{"complete", "reported"}
 
-// exportCache keeps finished files for 10 minutes so the result page can
-// offer the download; only the exporting user may fetch it.
+// exportKeep is how long a finished file waits for its download.
+const exportKeep = 10 * time.Minute
+
+// exportUserMax is how many bytes of finished files one user may have
+// waiting (one file is at most 100 MiB, export's own limit).
+const exportUserMax = 256 << 20
+
+// exportSweepEvery is how often expired files are dropped.
+const exportSweepEvery = time.Minute
+
+// exportCache keeps finished files for exportKeep so the result page can
+// offer the download. Only the exporting user may fetch a file, and only
+// under the engagement it was made in. A user's files are capped in bytes
+// (the oldest go first), and expired ones are dropped by sweep, which the
+// server runs on a timer.
 type exportCache struct {
 	mu    sync.Mutex
 	items map[string]cachedExport
+	seq   uint64           // counts puts: the order of a user's files
+	now   func() time.Time // tests; nil = time.Now
+	max   int64            // tests; 0 = exportUserMax
 }
 
 type cachedExport struct {
-	user string
-	res  export.Result
-	exp  time.Time
+	user, eng string
+	res       export.Result
+	exp       time.Time
+	seq       uint64
 }
 
-func (c *exportCache) put(user string, res export.Result) string {
+func (c *exportCache) clock() time.Time {
+	if c.now != nil {
+		return c.now()
+	}
+	return time.Now()
+}
+
+// sweepLocked drops the expired files; the caller holds the lock.
+func (c *exportCache) sweepLocked() {
+	now := c.clock()
+	for k, v := range c.items {
+		if now.After(v.exp) {
+			delete(c.items, k)
+		}
+	}
+}
+
+// sweep drops the expired files.
+func (c *exportCache) sweep() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.sweepLocked()
+}
+
+// put keeps res for user under eng and returns its token. When the user's
+// files are over the cap, their oldest are dropped; the new one always
+// stays, since its send has happened.
+func (c *exportCache) put(user, eng string, res export.Result) string {
 	b := make([]byte, 16)
 	rand.Read(b)
 	tok := hex.EncodeToString(b)
@@ -138,23 +182,85 @@ func (c *exportCache) put(user string, res export.Result) string {
 	if c.items == nil {
 		c.items = map[string]cachedExport{}
 	}
-	for k, v := range c.items {
-		if time.Now().After(v.exp) {
-			delete(c.items, k)
-		}
+	c.sweepLocked()
+	c.seq++
+	c.items[tok] = cachedExport{user, eng, res, c.clock().Add(exportKeep), c.seq}
+	max := c.max
+	if max <= 0 {
+		max = exportUserMax
 	}
-	c.items[tok] = cachedExport{user, res, time.Now().Add(10 * time.Minute)}
-	return tok
+	for {
+		var total int64
+		oldest := tok
+		for k, v := range c.items {
+			if v.user != user {
+				continue
+			}
+			total += int64(len(v.res.Data))
+			if v.seq < c.items[oldest].seq {
+				oldest = k
+			}
+		}
+		if total <= max || oldest == tok {
+			return tok
+		}
+		delete(c.items, oldest)
+	}
 }
 
-func (c *exportCache) get(user, tok string) (export.Result, bool) {
+// get is the file tok names, for the user who made it and under the
+// engagement it was made in; anything else (another user, another
+// engagement, expired, unknown) is not found, all alike.
+func (c *exportCache) get(user, eng, tok string) (export.Result, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	it, ok := c.items[tok]
-	if !ok || it.user != user || time.Now().After(it.exp) {
+	if !ok || it.user != user || it.eng != eng || c.clock().After(it.exp) {
 		return export.Result{}, false
 	}
 	return it.res, true
+}
+
+// len is the number of files kept, expired ones not yet swept included.
+func (c *exportCache) len() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.items)
+}
+
+// bytes is how much user's files hold.
+func (c *exportCache) bytes(user string) int64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var n int64
+	for _, v := range c.items {
+		if v.user == user {
+			n += int64(len(v.res.Data))
+		}
+	}
+	return n
+}
+
+// keepExport caches a finished file for its download and starts the sweep
+// worker with the first one (once; it ends on Close and holds only the
+// cache while it waits).
+func (s *Server) keepExport(user, eng string, res export.Result) string {
+	s.sweepOnce.Do(func() {
+		stop, c := s.stop, &s.exports
+		go func() {
+			t := time.NewTicker(exportSweepEvery)
+			defer t.Stop()
+			for {
+				select {
+				case <-stop:
+					return
+				case <-t.C:
+					c.sweep()
+				}
+			}
+		}()
+	})
+	return s.exports.put(user, eng, res)
 }
 
 func (s *Server) routesExport(mux *http.ServeMux) {
@@ -168,7 +274,7 @@ func (s *Server) routesExport(mux *http.ServeMux) {
 }
 
 func (s *Server) exportDownload(w http.ResponseWriter, r *http.Request) {
-	res, ok := s.exports.get(auth.UserFrom(r.Context()).Username, r.PathValue("tok"))
+	res, ok := s.exports.get(auth.UserFrom(r.Context()).Username, r.PathValue("eng"), r.PathValue("tok"))
 	if !ok {
 		http.NotFound(w, r)
 		return
@@ -388,7 +494,7 @@ func (s *Server) exportForm(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			if tok := r.URL.Query().Get("dl"); tok != "" {
-				if f, ok := s.exports.get(p.User.Username, tok); ok {
+				if f, ok := s.exports.get(p.User.Username, p.Eng.ID, tok); ok {
 					res.Download, res.Filename = "/e/"+p.Eng.ID+"/export/download/"+tok, f.Filename
 				}
 			}
@@ -644,7 +750,7 @@ func (s *Server) send(ctx context.Context, u config.User, eng store.Engagement, 
 			}
 		}
 		if err == nil {
-			tok = s.exports.put(u.Username, res)
+			tok = s.keepExport(u.Username, eng.ID, res)
 		}
 	}
 	if ex.Marks() {

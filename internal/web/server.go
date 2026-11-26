@@ -98,6 +98,7 @@ type Server struct {
 	aiTest    atomic.Pointer[aiTestResult] // the last Test on the AI page
 	hasUsers  atomic.Bool                  // an account exists (first run is over)
 	exports   exportCache
+	sweepOnce sync.Once // the export cache's sweep worker is started
 	inboxes   inboxCache
 	openCache openCache // Ready to approve and the bulk bar: which findings have open checks
 	md        *render.Markdown
