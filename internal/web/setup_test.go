@@ -53,7 +53,7 @@ func first(code ...string) url.Values {
 func TestSetupNeedsCode(t *testing.T) {
 	e := fresh(t)
 	b := e.do(t, "", "GET", "/setup", nil, nil).Body.String()
-	if !strings.Contains(b, `<label>Setup code<input name="code" autocomplete="off" required></label>`) || strings.Contains(b, setupCode) {
+	if !strings.Contains(b, `<label>Setup code<input name="code" autocomplete="off" required autofocus></label>`) || strings.Contains(b, setupCode) {
 		t.Fatalf("setup form:\n%s", b)
 	}
 	for name, f := range map[string]url.Values{
