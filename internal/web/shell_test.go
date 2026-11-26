@@ -212,6 +212,28 @@ func TestShellTags(t *testing.T) {
 	}
 }
 
+// The vendored fonts and htmx travel with their licence texts: the OFL
+// asks for the copyright line and the licence in each copy.
+func TestStaticCarriesLicences(t *testing.T) {
+	e := setup(t)
+	for path, wants := range map[string][]string{
+		"/static/fonts/OFL-IBM-Plex.txt": {`IBM Corp. with Reserved Font Name "Plex"`, "SIL OPEN FONT LICENSE Version 1.1"},
+		"/static/fonts/OFL-Bungee.txt":   {"The Bungee Project Authors", "SIL OPEN FONT LICENSE Version 1.1"},
+		"/static/htmx.LICENSE.txt":       {"Zero-Clause BSD", "htmx 2.0.4"},
+	} {
+		rec := e.do(t, "alice", "GET", path, nil, nil)
+		if rec.Code != http.StatusOK {
+			t.Errorf("%s: %d", path, rec.Code)
+			continue
+		}
+		for _, w := range wants {
+			if !strings.Contains(rec.Body.String(), w) {
+				t.Errorf("%s lacks %q", path, w)
+			}
+		}
+	}
+}
+
 func TestShellAssets(t *testing.T) {
 	e := setup(t)
 	css := e.do(t, "alice", "GET", "/static/style.css", nil, nil).Body.String()
