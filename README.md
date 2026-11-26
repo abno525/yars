@@ -44,7 +44,9 @@ Draft → complete → reported. Admin or not. That's all.
 | `yars hook install` | In a clone: the server checks each commit. |
 | `yars unlock alice` | Ends a lockout after 5 wrong passwords. |
 | `yars backup --out yars.zip` | Backs up everything. Safe while it runs. |
-| `yars seed --data demo` | Fills a demo folder (`--simple` too). |
+| `yars seed --data demo --engagements 2 --findings 20 --messages 50` | Fills a demo folder (`--simple` too). |
+
+The demo accounts are `dir1` (admin), `rev1` and `pen1`; with `--simple`, `dir1` (admin) and `dir2`. Every password is `password`. For demos only: never run a seeded folder on an address others can reach. Without the three numbers, `seed` makes 50 engagements of 300 findings.
 
 ## Docs
 
