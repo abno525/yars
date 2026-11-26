@@ -12,6 +12,7 @@ What changed for people who run or use YARS. Newest first.
 
 ### Changed
 
+- The Go module is `github.com/abno525/yars`: `go install github.com/abno525/yars/cmd/yars@latest` builds the binary.
 - The binary embeds the six developer pages only.
 - `docs/deploy.md`: a `0700` data folder, systemd hardening, backup pruning, the minimum git version, uninstalling.
 - `docs/rules.md` covers every kind of rule, its limits and its failures.

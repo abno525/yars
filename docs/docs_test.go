@@ -250,6 +250,35 @@ func TestCIRaceJobSetsItsTimeouts(t *testing.T) {
 	}
 }
 
+// go.mod names the module by the repository's address, and the README and
+// the deploy guide install the command from that path: the documented
+// `go install` works only while the two agree.
+func TestInstallPathIsGoModsModule(t *testing.T) {
+	read := func(name string) string {
+		b, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	first, _, _ := strings.Cut(read("../go.mod"), "\n")
+	if first != "module github.com/abno525/yars" {
+		t.Fatalf("go.mod's first line: %q", first)
+	}
+	install := "go install " + strings.TrimPrefix(first, "module ") + "/cmd/yars@latest\n"
+	if !strings.Contains(read("../README.md"), install) {
+		t.Errorf("README lacks %q", install)
+	}
+	d := read("deploy.md")
+	if !strings.Contains(d, strings.TrimSuffix(install, "\n")) {
+		t.Errorf("the deploy guide lacks %q", install)
+	}
+	// a go install build has no git revision to show
+	if strings.Contains(d, "it shows the git revision instead") || !strings.Contains(d, "Built in a clone without `-ldflags`, it shows the git revision; installed with `go install` without them, `dev`.") {
+		t.Error("the deploy guide does not say what version a go install build shows")
+	}
+}
+
 // NOTICE names every module of go.mod at go.mod's version, and no other:
 // a dependency update that leaves NOTICE behind fails here.
 func TestNoticeListsGoModsModules(t *testing.T) {
