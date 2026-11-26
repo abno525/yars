@@ -146,14 +146,31 @@ func codeOf(err error) string {
 	return "server_error"
 }
 
+// internalError is what a caller is told of a failure of the server itself,
+// as the website says it: the error's own words can hold a path of the
+// server or a statement of its database, and go to the server's log only.
+const internalError = "internal error"
+
+// wording is the message a caller gets for err: what explain says, but for
+// a server_error only internalError. A finding file that does not parse
+// keeps its words (its folder and the parser's complaint about the file's
+// own text): the caller needs them to repair it.
+func wording(err error) string {
+	var bad *store.UnreadableError
+	if codeOf(err) == "server_error" && !errors.As(err, &bad) {
+		return internalError
+	}
+	return explain(err)
+}
+
 // fail renders a refusal and its code from an error; the message is what
-// explain says.
+// wording says.
 func fail(err error) string {
 	b, _ := json.Marshal(struct {
 		OK      bool   `json:"ok"`
 		Code    string `json:"code"`
 		Message string `json:"message"`
-	}{false, codeOf(err), explain(err)})
+	}{false, codeOf(err), wording(err)})
 	return string(b)
 }
 

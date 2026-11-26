@@ -195,7 +195,8 @@ func TestUseraddSimple(t *testing.T) {
 		"password: \nadded ben\n":          {"ben"},
 		"password: \nadded dave\n":         {"--role", "director", "dave"},
 	} {
-		if out, err := add(args...); err != nil || out != want {
+		// a piped password is a temporary one (pre1 2.24)
+		if out, err := add(args...); err != nil || out != want+"the first login asks for a new password\n" {
 			t.Errorf("%v: %q %v", args, out, err)
 		}
 	}

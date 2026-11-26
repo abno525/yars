@@ -92,7 +92,7 @@ func (s *Store) UpdateReportSection(eng, name, body, base string, a gitrepo.Auth
 	if string(prev) == next {
 		return nil
 	}
-	if err := s.root.MkdirAll(path.Dir(rel), 0o755); err != nil {
+	if err := s.root.MkdirAll(path.Dir(rel), 0o700); err != nil {
 		return err
 	}
 	if err := s.writeFile(rel, []byte(next)); err != nil {

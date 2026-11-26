@@ -94,7 +94,7 @@ func Restore(zipPath, destDir string) (Report, error) {
 		return rep, fmt.Errorf("%w (schema %d, this yars writes %d); upgrade yars first", ErrNewer, rep.Schema, db.SchemaVersion)
 	}
 
-	if err := os.MkdirAll(destDir, 0o755); err != nil {
+	if err := os.MkdirAll(destDir, 0o700); err != nil {
 		return rep, err
 	}
 	undo := func() {
@@ -183,8 +183,10 @@ func schemaIn(f *zip.File) (int, error) {
 // maxGitConfig is the most a ZIP's git config is read for its settings.
 const maxGitConfig = 1 << 20
 
-// unpack writes every entry under dest, keeping file modes. Of a git folder
-// it leaves the hooks out and writes the config again from its kept
+// unpack writes every entry under dest, for the owner alone: folders 0700,
+// files with the owner's bits of the ZIP's mode (so a script stays one) and
+// none for the group or others, whatever the backed-up folder had. Of a git
+// folder it leaves the hooks out and writes the config again from its kept
 // settings (gitconfig.go), so nothing unpacked makes git run a program.
 func unpack(files []*zip.File, dest string) error {
 	for _, f := range files {
@@ -194,7 +196,7 @@ func unpack(files []*zip.File, dest string) error {
 			continue
 		}
 		if inGit && len(part) == 1 && part[0] == "config" && !f.Mode().IsDir() {
-			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
 				return err
 			}
 			rc, err := f.Open()
@@ -206,23 +208,23 @@ func unpack(files []*zip.File, dest string) error {
 			if err != nil {
 				return fmt.Errorf("%s: %w", f.Name, err)
 			}
-			if err := os.WriteFile(target, cleanGitConfig(b), 0o644); err != nil {
+			if err := os.WriteFile(target, cleanGitConfig(b), 0o600); err != nil {
 				return err
 			}
 			continue
 		}
 		if f.Mode().IsDir() {
-			if err := os.MkdirAll(target, f.Mode().Perm()|0o700); err != nil {
+			if err := os.MkdirAll(target, 0o700); err != nil {
 				return err
 			}
 			continue
 		}
-		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
 			return err
 		}
-		perm := f.Mode().Perm()
+		perm := f.Mode().Perm()&0o700 | 0o600
 		if f.Name == dbEntry || f.Name == ".yars/secret.key" {
-			perm = 0o600 // private whatever the ZIP says
+			perm = 0o600 // never executable
 		}
 		if err := extract(f, target, perm); err != nil {
 			return fmt.Errorf("%s: %w", f.Name, err)

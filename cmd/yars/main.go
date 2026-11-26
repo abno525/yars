@@ -3,8 +3,10 @@
 //
 //	yars init [--simple] <dir>   (--simple: the simple workflow, fixed after init)
 //	yars use [<dir>]   (set or show the default data folder)
-//	yars useradd --data <dir> --role <role> [--email e] <username>   (password read from stdin)
+//	yars useradd --data <dir> --role <role> [--email e] <username>
 //	yars passwd|userdel|unlock --data <dir> <username>; yars role --data <dir> <username> <role>
+//	  (useradd, passwd: the password is asked twice on a terminal, unseen; a
+//	  piped one must be changed at the next login)
 //	yars admin --data <dir> <username> on|off
 //	yars serve --data <dir> [--addr :8080] [--tls-cert <file> --tls-key <file>] [--https]
 //	yars migrate --data <dir>   (move state and chat from files into the database)
@@ -27,7 +29,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -45,6 +46,7 @@ import (
 	"github.com/abno525/yars/internal/gitrepo"
 	"github.com/abno525/yars/internal/index"
 	"github.com/abno525/yars/internal/mcp"
+	"github.com/abno525/yars/internal/outbound"
 	"github.com/abno525/yars/internal/policy"
 	"github.com/abno525/yars/internal/rules"
 	"github.com/abno525/yars/internal/secret"
@@ -55,20 +57,27 @@ import (
 
 var system = gitrepo.Author{Name: "yars", Email: "yars@yars.local"}
 
+// exportRunner runs the destinations of a data folder. Its HTTP client
+// sends a destination's key and the findings to the configured address
+// only: a redirect to another host is refused (outbound.Client).
 func exportRunner(dataDir string) *export.Runner {
 	pandoc, _ := exec.LookPath("pandoc")
 	return &export.Runner{Dir: filepath.Join(dataDir, ".yars", "exporters"), PandocPath: pandoc,
-		HTTP: &http.Client{Timeout: 60 * time.Second}, Getenv: os.Getenv}
+		HTTP: outbound.Client(60 * time.Second), Getenv: os.Getenv}
 }
 
 // cmdExport runs an exporter from the command line:
 //
-//	yars export --data <dir> --exporter <id> [--out file] [--mark --as <user>] <eng> [<finding-dir>…]
+//	yars export --data <dir> --exporter <id> [--out file] [--force] [--mark --as <user>] <eng> [<finding-dir>…]
+//
+// The file is written for the user alone (0600) and replaces none without
+// --force. A device or a pipe named by --out is written into.
 func cmdExport(args []string, out io.Writer) (int, error) {
 	fs := flag.NewFlagSet("export", flag.ContinueOnError)
 	data := dataFlag(fs)
 	exID := fs.String("exporter", "", "exporter id (file name in .yars/exporters without .yaml)")
 	outPath := fs.String("out", "", "output file (default: <engagement>.<ext> in the current directory)")
+	force := fs.Bool("force", false, "replace the output file when it exists")
 	mark := fs.Bool("mark", false, "mark exported complete findings reported")
 	as := fs.String("as", "", "director account used with --mark")
 	fs.SetOutput(out)
@@ -106,6 +115,13 @@ func cmdExport(args []string, out io.Writer) (int, error) {
 			}
 		}
 		return 2, fmt.Errorf("unknown exporter %q", *exID)
+	}
+	// a file that is there is not replaced: said before anything runs (a
+	// destination that publishes writes no file)
+	if *outPath != "" && !*force && !ex.Service() {
+		if _, err := os.Lstat(*outPath); err == nil && !writesThrough(*outPath) {
+			return 2, existsErr(*outPath)
+		}
 	}
 	d, err := existingDB(r.Dir)
 	if err != nil {
@@ -202,7 +218,7 @@ func cmdExport(args []string, out io.Writer) (int, error) {
 		if dst == "" {
 			dst = res.Filename
 		}
-		if err := os.WriteFile(dst, res.Data, 0o644); err != nil {
+		if err := writeExport(dst, res.Data, *force); err != nil {
 			return 1, err
 		}
 		fmt.Fprintln(out, "wrote", dst)
@@ -224,6 +240,63 @@ func cmdExport(args []string, out io.Writer) (int, error) {
 		}
 	}
 	return code, nil
+}
+
+func existsErr(file string) error {
+	return fmt.Errorf("%s exists already (use --force to replace it)", file)
+}
+
+// writesThrough says dst names something that is there and is no file to
+// protect or replace: a device, a pipe or a socket (/dev/null, a FIFO,
+// /dev/stdout into a pipe or a terminal). A link is followed here, so a
+// link to a file or a folder is not one of them.
+func writesThrough(dst string) bool {
+	info, err := os.Stat(dst)
+	return err == nil && !info.Mode().IsRegular() && !info.IsDir()
+}
+
+// writeExport writes an export file for the user alone (0600). It replaces
+// no file; with force it does, through a new file renamed into place, so
+// the old file's mode is not kept and a link is replaced, not followed.
+// A device or a pipe is written into, with or without force, and stays
+// what it is.
+func writeExport(dst string, data []byte, force bool) error {
+	var f *os.File
+	var err error
+	if writesThrough(dst) {
+		if f, err = os.OpenFile(dst, os.O_WRONLY, 0); err != nil {
+			return err
+		}
+		// a file put there since the look is not written into
+		if info, serr := f.Stat(); serr != nil || info.Mode().IsRegular() || info.IsDir() {
+			f.Close()
+			return existsErr(dst)
+		}
+		_, err = f.Write(data)
+		if cerr := f.Close(); err == nil {
+			err = cerr
+		}
+		return err
+	}
+	if force {
+		f, err = os.CreateTemp(filepath.Dir(dst), "."+filepath.Base(dst)+".*") // 0600
+	} else if f, err = os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600); os.IsExist(err) {
+		return existsErr(dst)
+	}
+	if err != nil {
+		return err
+	}
+	_, err = f.Write(data)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil && force {
+		err = os.Rename(f.Name(), dst)
+	}
+	if err != nil {
+		os.Remove(f.Name())
+	}
+	return err
 }
 
 // serverIgnore keeps server-only files out of git: the database (accounts,
@@ -341,11 +414,19 @@ func cmdToken(args []string, out io.Writer) (int, error) {
 	scopes := fs.String("scopes", db.ScopeAll, "add: all, read, or actions ("+strings.Join(db.TokenActions, ",")+"; the simple workflow has no reviewers)")
 	name := fs.String("name", "", "add: a name for the token")
 	engs := fs.String("engagements", "", "add: comma-separated engagement ids (default: all)")
-	days := fs.Int("days", 0, "add: expires after this many days (0 = never)")
+	days := fs.Int("days", tokenDays, "add: expires after this many days (0 = never)")
+	expires := fs.String("expires", "", "add: expires at the end of this day, YYYY-MM-DD in UTC, or never (instead of --days)")
 	id := fs.Int64("id", 0, "revoke: only this token (default: every token of the user)")
 	fs.SetOutput(out)
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2, err
+	}
+	expiry := ""
+	if args[0] == "add" { // a mistake in the flags makes no token and touches nothing
+		var err error
+		if expiry, err = tokenExpiry(*days, *expires, flagGiven(fs, "days"), flagGiven(fs, "expires"), time.Now().UTC()); err != nil {
+			return 2, err
+		}
 	}
 	r, err := openData(fs, *data)
 	if err != nil {
@@ -403,17 +484,51 @@ func cmdToken(args []string, out io.Writer) (int, error) {
 			}
 		}
 		spec.Engagements = splitList(*engs)
-		if *days > 0 {
-			spec.Expires = time.Now().UTC().Add(time.Duration(*days) * 24 * time.Hour).Format(time.RFC3339)
-		}
+		spec.Expires = expiry
 		tok, info, err := tk.Create("cli", user, spec)
 		if err != nil {
 			return 1, err
 		}
-		fmt.Fprintf(out, "token #%d for %s (%s; shown once; active immediately):\n%s\n", info.ID, user, info.Kind, tok)
+		until := "never expires"
+		if info.Expires != "" {
+			until = "expires " + strings.Replace(info.Expires, "T", " ", 1)
+		}
+		fmt.Fprintf(out, "token #%d for %s (%s; %s; shown once; active immediately):\n%s\n", info.ID, user, info.Kind, until, tok)
 		return 0, nil
 	}
 	return 2, fmt.Errorf("unknown token command %q", args[0])
+}
+
+// tokenDays is how long a token of yars token add lives when no flag says
+// otherwise: the choice Settings › Tokens › New token starts with.
+const tokenDays = 90
+
+// tokenExpiry is the expiry yars token add stores (RFC 3339, "" for
+// never): --days N from now (the default, tokenDays; 0 is never), or
+// --expires, a day (YYYY-MM-DD, to its end in UTC) or never. Both flags
+// together, a day that is past and one that does not read are refused.
+func tokenExpiry(days int, expires string, daysGiven, expiresGiven bool, now time.Time) (string, error) {
+	switch {
+	case daysGiven && expiresGiven:
+		return "", errors.New("give --days or --expires, not both")
+	case expiresGiven && expires == "never":
+		return "", nil
+	case expiresGiven:
+		day, err := time.Parse("2006-01-02", expires)
+		if err != nil {
+			return "", fmt.Errorf("--expires: %q is not a date (YYYY-MM-DD) or never", expires)
+		}
+		end := day.Add(24*time.Hour - time.Second)
+		if end.Before(now) {
+			return "", fmt.Errorf("--expires: %s is in the past", expires)
+		}
+		return end.Format(time.RFC3339), nil
+	case days < 0:
+		return "", errors.New("--days: 0 or more (0 = never)")
+	case days == 0:
+		return "", nil
+	}
+	return now.Add(time.Duration(days) * 24 * time.Hour).Format(time.RFC3339), nil
 }
 
 // splitList splits a comma-separated flag value (empty items dropped).
@@ -451,7 +566,7 @@ func writeIgnore(dir string) (bool, error) {
 	if next == string(b) {
 		return false, nil
 	}
-	return true, os.WriteFile(gi, []byte(next), 0o644)
+	return true, os.WriteFile(gi, []byte(next), 0o600)
 }
 
 // ensureIgnored makes sure server-only files are ignored and not tracked,
@@ -760,13 +875,14 @@ func usage() {
   yars init [--simple] <dir>   (--simple: draft → complete → reported, no roles; fixed after init)
   yars use [<dir>]   (set the default data folder, or show it)
   yars serve --data <dir> [--addr :8080] [--tls-cert <file> --tls-key <file>] [--https]
-  yars useradd --data <dir> --role pentester|reviewer|director [--email e] [--admin] <user>   (password from stdin; no --role in the simple workflow)
+  yars useradd --data <dir> --role pentester|reviewer|director [--email e] [--admin] <user>   (no --role in the simple workflow)
   yars admin --data <dir> <user> on|off
-  yars passwd --data <dir> <user>   (password from stdin)
+  yars passwd --data <dir> <user>
+      (useradd, passwd: the password is asked twice on a terminal; a piped one must be changed at the next login)
   yars role --data <dir> <user> pentester|reviewer|director   (not in the simple workflow)
   yars userdel --data <dir> <user>
   yars unlock --data <dir> <user>   (end a login lockout)
-  yars token add --data <dir> [--kind mcp|git] [--scopes all|read|a,b] [--engagements e1,e2] [--days N] [--name n] <user>
+  yars token add --data <dir> [--kind mcp|git] [--scopes all|read|a,b] [--engagements e1,e2] [--days N | --expires YYYY-MM-DD|never] [--name n] <user>   (90 days without either; --days 0 = never)
   yars token list --data <dir>
   yars token revoke --data <dir> [--id N] <user>
   yars migrate --data <dir>
@@ -775,15 +891,36 @@ func usage() {
   yars lint --data <dir> [--all] [eng[/finding]]
   yars lint --staged [--warn-only] [--data <engagement clone>]   (the server checks what is being committed)
   yars hook install [--data <clone>]   (a pre-commit hook in every engagement of the clone)
-  yars export --data <dir> --exporter <id> <eng>
+  yars export --data <dir> --exporter <id> [--out <file>] [--force] <eng> [<finding>…]   (--force: replace the file)
   yars mcp --data <clone> --user <name>
   yars seed [--simple] --data <new dir> [--engagements 2] [--findings 20] [--messages 50]   (development data; prints the accounts' password)`)
 	os.Exit(2)
 }
 
+// serverSide reports whether a command (args: its name and what follows)
+// works on the server's data folder, where everything it and its git child
+// processes write is the service user's alone (privateUmask). The commands
+// of a user's own clone (mcp, lint, hook install, use) keep the user's umask.
+func serverSide(args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+	switch args[0] {
+	case "hook":
+		return len(args) > 1 && args[1] == "pre-receive"
+	case "init", "serve", "useradd", "passwd", "role", "userdel", "admin", "unlock", "token",
+		"migrate", "backup", "restore", "seed", "export":
+		return true
+	}
+	return false
+}
+
 func main() {
 	if len(os.Args) < 2 {
 		usage()
+	}
+	if serverSide(os.Args[1:]) {
+		privateUmask()
 	}
 	var err error
 	switch os.Args[1] {
@@ -946,10 +1083,11 @@ func initDataMode(dir string, simple bool) error {
 	if _, err := os.Stat(config.ConfigPath(dir)); err == nil {
 		return fmt.Errorf("%s is already initialised", dir)
 	}
-	if err := os.MkdirAll(filepath.Join(dir, "engagements"), 0o755); err != nil {
+	// folders 0700 and files 0600: the data is the service user's alone
+	if err := os.MkdirAll(filepath.Join(dir, "engagements"), 0o700); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(config.ConfigPath(dir)), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(config.ConfigPath(dir)), 0o700); err != nil {
 		return err
 	}
 	cfg := config.Default()
@@ -963,16 +1101,16 @@ func initDataMode(dir string, simple bool) error {
 		filepath.Join(dir, "engagements", ".gitkeep"): nil,
 	}
 	for p, c := range files {
-		if err := os.WriteFile(p, c, 0o644); err != nil {
+		if err := os.WriteFile(p, c, 0o600); err != nil {
 			return err
 		}
 	}
 	exDir := filepath.Join(dir, ".yars", "exporters")
-	if err := os.MkdirAll(exDir, 0o755); err != nil {
+	if err := os.MkdirAll(exDir, 0o700); err != nil {
 		return err
 	}
 	for name, body := range exampleExporters {
-		if err := os.WriteFile(filepath.Join(exDir, name), []byte(body), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(exDir, name), []byte(body), 0o600); err != nil {
 			return err
 		}
 	}
@@ -1048,17 +1186,43 @@ func simpleData(d *db.DB) (bool, error) {
 	return w == config.WorkflowSimple, err
 }
 
-func readPassword(in io.Reader, out io.Writer) (string, error) {
+// hiddenLine reads a line from a terminal without showing it; typed is
+// false when in is no terminal (a test replaces it).
+var hiddenLine = termLine
+
+// readPassword reads the new password of useradd and passwd and returns its
+// hash. On a terminal it is typed twice and not shown (typed true). Piped,
+// it is the first line of in: such a password passed through a shell line
+// or a script, so the caller makes the account set a new one.
+func readPassword(in io.Reader, out io.Writer) (hash string, typed bool, err error) {
 	fmt.Fprint(out, "password: ")
-	line, err := bufio.NewReader(in).ReadString('\n')
-	pw := strings.TrimRight(line, "\r\n")
-	if pw == "" {
-		return "", fmt.Errorf("empty password (%v)", err)
+	pw, typed, err := hiddenLine(in)
+	if err != nil {
+		return "", typed, err
+	}
+	if !typed {
+		line, rerr := bufio.NewReader(in).ReadString('\n')
+		if pw = strings.TrimRight(line, "\r\n"); pw == "" {
+			return "", false, fmt.Errorf("empty password (%v)", rerr)
+		}
+	} else if pw == "" {
+		return "", true, errors.New("empty password")
 	}
 	if p := auth.PasswordProblem(pw); p != "" { // as the website asks
-		return "", errors.New("password: " + p)
+		return "", typed, errors.New("password: " + p)
 	}
-	return auth.HashPassword(pw)
+	if typed {
+		fmt.Fprint(out, "\nrepeat password: ")
+		again, _, err := hiddenLine(in)
+		if err != nil {
+			return "", true, err
+		}
+		if again != pw {
+			return "", true, errors.New("the two passwords differ")
+		}
+	}
+	hash, err = auth.HashPassword(pw)
+	return hash, typed, err
 }
 
 func cmdUseradd(args []string, in io.Reader, out io.Writer) error {
@@ -1092,11 +1256,12 @@ func cmdUseradd(args []string, in io.Reader, out io.Writer) error {
 	if _, ok, _ := d.User(name); ok {
 		return fmt.Errorf("user %s already exists", name)
 	}
-	hash, err := readPassword(in, out)
+	hash, typed, err := readPassword(in, out)
 	if err != nil {
 		return err
 	}
-	if err := d.AddUser(config.User{Username: name, Email: *email, Role: *role, PasswordHash: hash, IsAdmin: *admin}); err != nil {
+	// a piped password is a temporary one, the first admin's too
+	if err := d.AddUser(config.User{Username: name, Email: *email, Role: *role, PasswordHash: hash, IsAdmin: *admin, MustChange: !typed}); err != nil {
 		return err
 	}
 	detail := "role " + *role
@@ -1119,6 +1284,9 @@ func cmdUseradd(args []string, in io.Reader, out io.Writer) error {
 		fmt.Fprintln(out, "\nadded", name, "as", *role, "(admin)")
 	default:
 		fmt.Fprintln(out, "\nadded", name, "as", *role)
+	}
+	if !typed {
+		fmt.Fprintln(out, "the first login asks for a new password")
 	}
 	return nil
 }
@@ -1151,15 +1319,24 @@ func cmdPasswd(args []string, in io.Reader, out io.Writer) error {
 	if _, ok, _ := d.User(fs.Arg(0)); !ok {
 		return fmt.Errorf("no user %s", fs.Arg(0))
 	}
-	hash, err := readPassword(in, out)
+	hash, typed, err := readPassword(in, out)
 	if err != nil {
 		return err
 	}
-	if err := d.SetPassword(fs.Arg(0), hash); err != nil {
+	// a piped password is a temporary one (ResetPassword); one typed here
+	// leaves the account's need for a new password as it was
+	set := d.ResetPassword
+	if typed {
+		set = d.SetPassword
+	}
+	if err := set(fs.Arg(0), hash); err != nil {
 		return err
 	}
 	d.Audit("cli", "user.password", fs.Arg(0), "")
 	fmt.Fprintln(out, "\npassword changed for", fs.Arg(0))
+	if !typed {
+		fmt.Fprintln(out, "the next login asks for a new password")
+	}
 	return nil
 }
 

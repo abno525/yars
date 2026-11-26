@@ -582,7 +582,7 @@
 {{define "bench"}}
 <section class="panel compact bench" id="bench">
   <div class="panelhead"><h2>Test bench</h2></div>
-  <form class="benchform" action="/admin/rules/bench" hx-get="/admin/rules/bench" hx-target="#bench-out" hx-swap="outerHTML">
+  <form class="benchform" method="post" action="/admin/rules/bench" hx-post="/admin/rules/bench" hx-target="#bench-out" hx-swap="outerHTML">
     <label class="rf flush">Rule<select name="rule">{{range .Rules}}<option value="{{.Value}}"{{if .On}} selected{{end}}>{{.Label}}</option>{{end}}</select></label>
     <div class="rgrid flush">
       <label class="rf">Engagement<select name="eng" hx-get="/admin/rules/bench/findings" hx-trigger="change" hx-target="#bench-fid" hx-swap="outerHTML">{{range .Engs}}<option value="{{.Value}}"{{if .On}} selected{{end}}>{{.Label}}</option>{{end}}</select></label>

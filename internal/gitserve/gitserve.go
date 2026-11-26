@@ -199,10 +199,10 @@ func (s *Server) setupRepo(r *gitrepo.Repo) error {
 			cmd += " --eng " + filepath.Base(r.Dir)
 		}
 		hook = filepath.Join(hooks, "pre-receive")
-		if err := os.MkdirAll(hooks, 0o755); err != nil {
+		if err := os.MkdirAll(hooks, 0o700); err != nil {
 			return err
 		}
-		if err := os.WriteFile(hook, []byte("#!/bin/sh\nexec "+cmd+"\n"), 0o755); err != nil {
+		if err := os.WriteFile(hook, []byte("#!/bin/sh\nexec "+cmd+"\n"), 0o700); err != nil {
 			return err
 		}
 	}

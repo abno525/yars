@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/outbound"
 	"github.com/abno525/yars/internal/store"
 )
 
@@ -49,7 +50,7 @@ type Sealer interface {
 type Service struct {
 	DB      *db.DB
 	Secrets func() (Sealer, error)
-	Client  *http.Client     // default: 10 s timeout
+	Client  *http.Client     // default: outbound.Client, 10 s timeout
 	Now     func() time.Time // default time.Now
 	BaseURL func() string    // links in payloads ("" = paths)
 
@@ -303,10 +304,15 @@ func (s *Service) send(d db.Delivery) (int, string) {
 	req.Header.Set("X-YARS-Signature", Sign(sec, body))
 	c := s.Client
 	if c == nil {
-		c = &http.Client{Timeout: 10 * time.Second}
+		// the signed payload goes to the webhook's own address only
+		c = outbound.Client(10 * time.Second)
 	}
 	resp, err := c.Do(req)
 	if err != nil {
+		var moved *outbound.Refused
+		if errors.As(err, &moved) {
+			return 0, moved.Error()
+		}
 		return 0, "no answer"
 	}
 	defer resp.Body.Close()

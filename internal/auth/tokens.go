@@ -43,7 +43,8 @@ func (t *Tokens) Create(actor, user string, spec db.TokenSpec) (string, db.Token
 	return tok, info, nil
 }
 
-// Add creates a token with every right for the MCP endpoint (yars token add).
+// Add creates a token with every right for the MCP endpoint that never
+// expires (tests; yars token add goes through Create with its flags).
 func (t *Tokens) Add(user string) (string, error) {
 	tok, _, err := t.Create("cli", user, db.TokenSpec{Kind: db.TokenMCP, Scopes: []string{db.ScopeAll}})
 	return tok, err

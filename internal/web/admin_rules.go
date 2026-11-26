@@ -97,7 +97,9 @@ func (s *Server) routesAdminRules(mux *http.ServeMux) {
 	mux.HandleFunc("POST /admin/rules/toggle", h(s.ruleToggle))
 	mux.HandleFunc("POST /admin/rules/delete", h(s.ruleDelete))
 	mux.HandleFunc("POST /admin/rules/require-check", h(s.requireCheckToggle))
-	mux.HandleFunc("GET /admin/rules/bench", h(s.ruleBench))
+	// a run starts scripts and AI calls: a POST (no link starts one), with
+	// the write deadline of a lint run
+	mux.Handle("POST /admin/rules/bench", s.lintLived(h(s.ruleBench)))
 	mux.HandleFunc("GET /admin/rules/bench/findings", h(s.benchFindings))
 }
 
@@ -537,19 +539,18 @@ func (s *Server) ruleDelete(w http.ResponseWriter, r *http.Request) {
 
 // ruleBench runs one saved rule on one finding and answers the result; it
 // stores no check run (script and AI results are kept as a check keeps
-// them).
+// them). Its values are the posted form's: none is read from the address.
 func (s *Server) ruleBench(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query()
-	x, ok := s.Rules.Rule(q.Get("rule"))
+	x, ok := s.Rules.Rule(r.PostFormValue("rule"))
 	if !ok {
 		http.NotFound(w, r)
 		return
 	}
-	if q.Get("all") == "1" {
-		s.ruleBenchAll(w, r, x, q.Get("eng"))
+	if r.PostFormValue("all") == "1" {
+		s.ruleBenchAll(w, r, x, r.PostFormValue("eng"))
 		return
 	}
-	ref, err := s.Store.Finding(q.Get("eng"), q.Get("fid"))
+	ref, err := s.Store.Finding(r.PostFormValue("eng"), r.PostFormValue("fid"))
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -593,6 +594,7 @@ func (s *Server) ruleBenchAll(w http.ResponseWriter, r *http.Request, x rules.Ru
 			return
 		}
 		f := benchFinding{ID: row.ID, Title: row.Title, URL: findingURL(eng, row.Dir)}
+		s.lintDeadline(w) // each finding may take a whole run, as a bulk row
 		for _, it := range s.Rules.RunRule(benchCaller(r, ref), x, rules.DocOf(ref.F)) {
 			if f.Hits == 0 {
 				f.Quote = it.Quote

@@ -308,7 +308,7 @@ func (s *Store) changeFilesLocked(engID, dir string, who Actor, fn func(ref Find
 		prev[p] = old
 		if dirp := path.Dir(p); old == nil {
 			if _, err := s.root.Lstat(dirp); err != nil {
-				if err := s.root.MkdirAll(dirp, 0o755); err != nil {
+				if err := s.root.MkdirAll(dirp, 0o700); err != nil {
 					return ref, err
 				}
 				made = append(made, dirp)

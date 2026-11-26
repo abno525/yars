@@ -236,7 +236,7 @@ func TestSimpleCompleteOpenChecks(t *testing.T) {
 	if btn := slotButton(t, b, "complete"); !strings.Contains(btn, " disabled") || !strings.Contains(wfBar(t, b), ">1 warning open<") {
 		t.Fatalf("an open warning:\n%s", wfBar(t, b))
 	}
-	if err := e.srv.Store.Dismiss("acme", fdir, "soft", "SQL", wAnna); err != nil {
+	if err := e.srv.Store.DismissWhy("acme", fdir, "soft", "", "SQL", "fine here", wAnna); err != nil {
 		t.Fatal(err)
 	}
 	b = page()

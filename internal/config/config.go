@@ -315,7 +315,7 @@ func LoadUsers(dataDir string) ([]User, error) {
 }
 
 func SaveUsers(dataDir string, users []User) error {
-	if err := os.MkdirAll(filepath.Dir(UsersPath(dataDir)), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(UsersPath(dataDir)), 0o700); err != nil {
 		return err
 	}
 	b, err := yaml.Marshal(users)

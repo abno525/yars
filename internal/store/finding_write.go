@@ -143,7 +143,7 @@ func (s *Store) createLocked(engID, title string, a gitrepo.Author, build func(i
 	if err != nil {
 		return FindingRef{}, err
 	}
-	if err := s.root.MkdirAll(path.Join(fdir, dir), 0o755); err != nil {
+	if err := s.root.MkdirAll(path.Join(fdir, dir), 0o700); err != nil {
 		return FindingRef{}, err
 	}
 	rel := findingPath(engID, dir)

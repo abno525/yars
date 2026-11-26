@@ -84,6 +84,7 @@ func TestRulesGuideCoversEveryKind(t *testing.T) {
 		"`yars lint` runs the pattern and built-in rules", "`yars lint --all`", "90 s", "the rules as they are now",
 		"`(?m)`", "Code blocks and tables are matched", "skips a part with no text",
 		"## Dismissing a result", "the reviewer role", "that rule, that place and that quote",
+		"An error on your own finding: another reviewer or a director dismisses it", "A dismissal needs a reason", "a row in the audit log",
 		"not executable", "64 KB", "even when the script exits 0",
 		"does not compile", "unknown check", "unknown target", "is not a configured section name",
 		"AI rules skipped: no AI provider configured", "AI checks failed",
@@ -145,6 +146,8 @@ func TestDeployGuideHardening(t *testing.T) {
 		"can run commands on the server",
 		"the Team panel does not limit who sees an engagement",
 		"## Uninstall", "yars backup --data /srv/yars --key --out",
+		// the umask of 077 is the scripts' and pandoc's too, not only git's
+		"rule scripts, script destinations and pandoc", "sets its own umask",
 	} {
 		if !strings.Contains(g, want) {
 			t.Errorf("the deploy guide lacks %q", want)

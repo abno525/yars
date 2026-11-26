@@ -36,6 +36,17 @@ func (e *env) ruleFile(t *testing.T, name string) string {
 	return string(b)
 }
 
+// bench posts the test bench's form as dora: one rule on acme's finding
+// dir, or with all on every finding of acme.
+func (e *env) bench(t *testing.T, rule, dir string, all bool) *httptest.ResponseRecorder {
+	t.Helper()
+	form := url.Values{"rule": {rule}, "eng": {"acme"}, "fid": {dir}}
+	if all {
+		form.Set("all", "1")
+	}
+	return e.do(t, "dora", "POST", "/admin/rules/bench", form, nil)
+}
+
 // upload posts a multipart form with one file field "script".
 func (e *env) upload(t *testing.T, user, path string, fields map[string]string, name, body string) *httptest.ResponseRecorder {
 	t.Helper()
@@ -62,7 +73,7 @@ func TestAdminDirectorsOnly(t *testing.T) {
 	e.rules(t, styleRules, nil)
 	for _, u := range []string{"alice", "bob"} {
 		for _, r := range []struct{ method, path string }{
-			{"GET", "/admin"}, {"GET", "/admin/rules"}, {"GET", "/admin/rules/bench?rule=title-word&eng=acme&fid=" + fdir},
+			{"GET", "/admin"}, {"GET", "/admin/rules"}, {"POST", "/admin/rules/bench"},
 			{"GET", "/admin/rules/bench/findings?eng=acme"}, {"POST", "/admin/rules/save"}, {"POST", "/admin/rules/toggle"}, {"POST", "/admin/rules/delete"},
 		} {
 			if rec := e.do(t, u, r.method, r.path, url.Values{"id": {"title-word"}}, nil); rec.Code != http.StatusForbidden {
@@ -225,7 +236,7 @@ func TestAdminRuleScriptUpload(t *testing.T) {
 	if !ok || r.Script != "evidence.sh" {
 		t.Fatalf("engine %+v", r)
 	}
-	b := e.do(t, "dora", "GET", "/admin/rules/bench?rule=evidence&eng=acme&fid="+fdir, nil, nil).Body.String()
+	b := e.bench(t, "evidence", fdir, false).Body.String()
 	if !strings.Contains(b, "no screenshot") {
 		t.Fatalf("bench:\n%s", b)
 	}
@@ -279,7 +290,7 @@ func TestAdminRuleBench(t *testing.T) {
 	if !strings.Contains(f, `id="bench-fid"`) || !strings.Contains(f, `value="`+fdir+`"`) {
 		t.Fatalf("findings select:\n%s", f)
 	}
-	rec := e.do(t, "dora", "GET", "/admin/rules/bench?rule=title-word&eng=acme&fid="+fdir, nil, nil)
+	rec := e.bench(t, "title-word", fdir, false)
 	b := rec.Body.String()
 	if rec.Code != 200 || !strings.Contains(b, `id="bench-out"`) || !strings.Contains(b, "Avoid the word injection") || !strings.Contains(b, "<code>injection</code>") {
 		t.Fatalf("%d\n%s", rec.Code, b)
@@ -296,10 +307,10 @@ func TestAdminRuleBench(t *testing.T) {
 		t.Fatalf("chat %+v", msgs)
 	}
 	// a rule with no hits shows a black 0
-	if b := e.do(t, "dora", "GET", "/admin/rules/bench?rule=scripted&eng=acme&fid="+fdir, nil, nil).Body.String(); !strings.Contains(b, `<span class="badge0">0</span>`) {
+	if b := e.bench(t, "scripted", fdir, false).Body.String(); !strings.Contains(b, `<span class="badge0">0</span>`) {
 		t.Fatalf("no hits:\n%s", b)
 	}
-	if rec := e.do(t, "dora", "GET", "/admin/rules/bench?rule=nope&eng=acme&fid="+fdir, nil, nil); rec.Code != http.StatusNotFound {
+	if rec := e.bench(t, "nope", fdir, false); rec.Code != http.StatusNotFound {
 		t.Fatalf("unknown rule %d", rec.Code)
 	}
 }
@@ -316,7 +327,7 @@ func TestAdminRuleBenchEngagement(t *testing.T) {
 	if !regexp.MustCompile(`<button class="btn primary sm w176" name="all" value="1"[^>]*>Run on engagement</button>`).MatchString(page) {
 		t.Fatalf("no Run on engagement:\n%s", page)
 	}
-	rec := e.do(t, "dora", "GET", "/admin/rules/bench?rule=title-word&eng=acme&fid="+fdir+"&all=1", nil, nil)
+	rec := e.bench(t, "title-word", fdir, true)
 	b := rec.Body.String()
 	if rec.Code != 200 || !strings.Contains(b, "1 hit in 1 of 2 findings") {
 		t.Fatalf("%d\n%s", rec.Code, b)

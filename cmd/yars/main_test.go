@@ -371,8 +371,9 @@ func TestExportCLI(t *testing.T) {
 	if err := d.TxFor("acme", func(tx *db.Tx) error { return tx.PutState("acme", "F-001", db.State{Status: workflow.Withdrawn}) }); err != nil {
 		t.Fatal(err)
 	}
-	if code, err := cmdExport([]string{"--data", dir, "--exporter", "confluence", "--out", out, "acme", "F-001-sql-injection"}, &log); code == 0 || err == nil {
-		t.Fatal("withdrawn finding exported")
+	out2 := filepath.Join(t.TempDir(), "r.html")
+	if code, err := cmdExport([]string{"--data", dir, "--exporter", "confluence", "--out", out2, "acme", "F-001-sql-injection"}, &log); code == 0 || err == nil || strings.Contains(err.Error(), "exists") {
+		t.Fatalf("withdrawn finding exported: %v", err)
 	}
 }
 

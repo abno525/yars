@@ -907,9 +907,49 @@ setInterval(function () {
 }, 20000);
 
 // Session expired (an htmx request or a heartbeat got 401): every editor's
-// unsaved text is kept in localStorage under "yars-draft:<save URL>", and
-// the editor offers it back (Restore) when it is opened again.
-function yarsDraftKey(form) { return 'yars-draft:' + (form.getAttribute('hx-post') || ''); }
+// unsaved text is kept in localStorage under "yars-draft:<user>:<save URL>",
+// and the editor offers it back (Restore) when it is opened again. The key
+// names the account, so another account on this browser is never offered
+// it; Log out removes the account's drafts (an expired session does not:
+// that is when a draft is written), and a draft older than 14 days goes at
+// the next page load, whoever is signed in.
+function yarsUser() { return document.documentElement.getAttribute('data-user') || ''; }
+function yarsDraftKey(form) { return 'yars-draft:' + yarsUser() + ':' + (form.getAttribute('hx-post') || ''); }
+// yarsForget removes the localStorage entries whose key starts with prefix.
+function yarsForget(prefix) {
+  try {
+    for (var i = localStorage.length - 1; i >= 0; i--) {
+      var k = localStorage.key(i);
+      if (k && k.indexOf(prefix) === 0) localStorage.removeItem(k);
+    }
+  } catch (e) { /* no storage: nothing kept */ }
+}
+// Left by an earlier version: htmx's page snapshots (none are kept now:
+// historyCacheSize 0) and drafts stored without an account ("yars-draft:"
+// followed by the save URL's "/").
+try { localStorage.removeItem('htmx-history-cache'); } catch (e) { /* no storage */ }
+yarsForget('yars-draft:/');
+// A draft is kept 14 days from the time it carries. Each page load removes
+// the older ones of every account, so the draft of an account that never
+// comes back to this browser does not stay for good.
+var yarsDraftDays = 14;
+function yarsDraftSweep() {
+  try {
+    for (var i = localStorage.length - 1; i >= 0; i--) {
+      var k = localStorage.key(i);
+      if (!k || k.indexOf('yars-draft:') !== 0) continue;
+      var d = null;
+      try { d = JSON.parse(localStorage.getItem(k)); } catch (e) { /* not a draft: goes */ }
+      if (!d || typeof d.at !== 'number' || Date.now() - d.at > yarsDraftDays * 86400000) localStorage.removeItem(k);
+    }
+  } catch (e) { /* no storage: nothing kept */ }
+}
+yarsDraftSweep();
+document.addEventListener('submit', function (evt) {
+  if (!evt.target.matches || !evt.target.matches('form[action="/logout"]')) return;
+  try { localStorage.removeItem('htmx-history-cache'); } catch (e) { /* no storage */ }
+  if (yarsUser()) yarsForget('yars-draft:' + yarsUser() + ':');
+});
 function yarsDraft(form) {
   try { var d = JSON.parse(localStorage.getItem(yarsDraftKey(form)) || 'null'); return d && typeof d.text === 'string' ? d : null; } catch (e) { return null; }
 }
