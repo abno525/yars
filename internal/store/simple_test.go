@@ -216,7 +216,7 @@ func TestSimpleCompleteBlockedByOpenChecks(t *testing.T) {
 // Complete of a version the page did not show is refused as a conflict.
 func TestSimpleCompleteSeen(t *testing.T) {
 	s, _, fd := simpleDraft(t)
-	seen := load(t, s, fd).Hash
+	seen := load(t, s, fd).Full
 	if err := s.UpdateSection(eng, fd, "Impact", "Changed after the read.", "", sAnna); err != nil {
 		t.Fatal(err)
 	}
@@ -226,7 +226,7 @@ func TestSimpleCompleteSeen(t *testing.T) {
 	if load(t, s, fd).F.Meta.Status != "draft" {
 		t.Fatal("completed anyway")
 	}
-	if err := s.TransitionSeen(eng, fd, workflow.Complete, "", load(t, s, fd).Hash, "", sBen); err != nil {
+	if err := s.TransitionSeen(eng, fd, workflow.Complete, "", load(t, s, fd).Full, "", sBen); err != nil {
 		t.Fatalf("current seen: %v", err)
 	}
 }
@@ -454,7 +454,7 @@ func TestStandardCompleteRefused(t *testing.T) {
 		t.Fatalf("without rules: %v", err)
 	}
 	withRules(t, s, dir, checkRules)
-	if err := s.TransitionSeen(eng, fd, workflow.Complete, "", load(t, s, fd).Hash, "", uDora); !denied(err) || err.Error() != `unknown action "complete"` {
+	if err := s.TransitionSeen(eng, fd, workflow.Complete, "", load(t, s, fd).Full, "", uDora); !denied(err) || err.Error() != `unknown action "complete"` {
 		t.Fatalf("with rules: %v", err)
 	}
 	if st := stateOf(t, s, fd); st.Status != "" && st.Status != "draft" {

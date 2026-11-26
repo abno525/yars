@@ -23,10 +23,11 @@ func ContentHash(raw []byte) string { return BodyHash(string(raw)) }
 
 func contentHash(raw []byte) string { return ContentHash(raw) }
 
-// ApprovalHash is what an approval and a sign-off are bound to: the full
-// SHA-256 of finding.md, in hex. ContentHash is its first 16 digits; 64 bits
-// tell versions apart (bases, check runs) but two files can be made to share
-// them, so they bind no decision.
+// ApprovalHash is what an approval and a sign-off are bound to, and with
+// them what the deciding page says it showed (TransitionSeen) and what a
+// check run is kept under: the full SHA-256 of finding.md, in hex.
+// ContentHash is its first 16 digits; 64 bits tell versions apart (edit
+// bases) but two files can be made to share them, so they bind no decision.
 func ApprovalHash(raw []byte) string {
 	h := sha256.Sum256(raw)
 	return hex.EncodeToString(h[:])

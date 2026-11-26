@@ -483,7 +483,7 @@ func TestAttachmentChangeVoidsClearances(t *testing.T) {
 func TestSignOffBindsToViewedAttachments(t *testing.T) {
 	s, _, fd := ready(t)
 	s.Transition(eng, fd, workflow.Submit, "", uAlice)
-	seen := load(t, s, fd).Hash
+	seen := load(t, s, fd).Full
 	files, err := s.AttachmentsHash(eng, fd)
 	if err != nil || files == "" {
 		t.Fatalf("attachments hash %q: %v", files, err)

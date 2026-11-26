@@ -47,8 +47,12 @@ func TestTransitionBase(t *testing.T) {
 	f := stateFx(t, "verification")
 	hash, tr, status := baseFx(t, f)
 	h1 := hash(dora)
-	if ref, _ := f.s.Store.Finding("acme", "001"); h1 == "" || h1 != ref.Hash {
-		t.Fatalf("hash %q, the finding's %q", h1, ref.Hash)
+	if ref, _ := f.s.Store.Finding("acme", "001"); len(h1) != 64 || h1 != ref.Full {
+		t.Fatalf("hash %q, the finding's full digest %q", h1, ref.Full)
+	}
+	// the first 16 digits are not the content: no sign-off for them
+	if m, isErr := tr(bob, "sign_off", h1[:16]); !isErr || m["code"] != "conflict" || m["message"] != stale {
+		t.Fatalf("sign_off with the short hash: %v", m)
 	}
 	// the author edits after the director and the reviewer read it
 	f.ok(alice, "update_section", map[string]any{"engagement": "acme", "finding": "F-001", "section": "Impact", "body": "Changed after the read."})

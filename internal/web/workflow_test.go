@@ -378,6 +378,19 @@ func TestSignOffBindsToViewedVersion(t *testing.T) {
 	if ref, _ := e.srv.Store.Finding("acme", fdir); len(ref.F.Meta.ClearedBy) != 0 {
 		t.Fatal("bob signed off a version he did not see")
 	}
+	// the bar names the version by its full SHA-256; the first 16 digits,
+	// which another file can be made to share, are not that version
+	now := seenOf("bob")
+	if ref, _ := e.srv.Store.Finding("acme", fdir); len(now) != 64 || now != ref.Full {
+		t.Fatalf("the bar sends %q, the finding's digest is %q", now, ref.Full)
+	}
+	b = e.denied(t, "bob", fshort+"/action/clear", url.Values{"seen": {now[:16]}})
+	if !strings.Contains(b, "the finding changed since you opened it; read it again") {
+		t.Fatal("no refusal of the short hash on the page")
+	}
+	if ref, _ := e.srv.Store.Finding("acme", fdir); len(ref.F.Meta.ClearedBy) != 0 {
+		t.Fatal("bob signed off with the first 16 digits")
+	}
 	if rec := e.do(t, "bob", "POST", fshort+"/action/clear", url.Values{"seen": {seenOf("bob")}}, nil); rec.Code != http.StatusSeeOther {
 		t.Fatalf("sign off on the current version: %d", rec.Code)
 	}

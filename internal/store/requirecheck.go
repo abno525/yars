@@ -77,8 +77,8 @@ func (s *Store) rulesOn() bool {
 }
 
 // checkGate is why Sign off and Approve must wait for a check run on the
-// finding fid of engID with content hash ("" = they need not): the latest
-// run must have finished, not failed, on this content.
+// finding fid of engID with content hash, its ApprovalHash ("" = they need
+// not): the latest run must have finished, not failed, on this content.
 func (s *Store) checkGate(engID, fid, hash string) (string, error) {
 	if !s.gating() {
 		return "", nil
@@ -167,7 +167,7 @@ func gateOf(state, runHash, hash string, running, aiFailed bool, runRules, nowRu
 		return GateRunning
 	case state == db.RunRunning:
 		return GateInterrupted
-	case runHash != hash:
+	case !db.SameContent(runHash, hash):
 		return GateStale
 	case RulesChanged(runRules, nowRules):
 		return GateRules
@@ -188,11 +188,11 @@ func (s *Store) CheckGate(engID, dir string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return s.checkGate(engID, ref.F.Meta.ID, contentHash(raw))
+	return s.checkGate(engID, ref.F.Meta.ID, ApprovalHash(raw))
 }
 
 // GateKey names a finding for CheckGates: its engagement, id and content
-// hash.
+// (the ApprovalHash of finding.md, FindingRef.Full).
 type GateKey struct{ Eng, Fid, Hash string }
 
 // CheckGates is checkGate for many findings at once (Ready to approve), by

@@ -2,6 +2,7 @@ package db
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -92,6 +93,44 @@ func TestMoveHashAndRenameChatSection(t *testing.T) {
 	ms, _ := d.Messages("acme", "F-001")
 	if len(ms) != 2 || ms[0].Section != "Business impact" || ms[1].Section != "Description" {
 		t.Fatalf("messages %+v", ms)
+	}
+}
+
+// Check runs are kept under the full digest of the content. A run stored
+// under its first 16 digits (before the full digest was kept) still counts
+// for that content and moves with a rename; a run under another digest that
+// shares those 16 digits is another content's.
+func TestCheckRunsByFullDigest(t *testing.T) {
+	d, _ := open(t)
+	full := "0123456789abcdef" + strings.Repeat("1", 48)
+	twin := "0123456789abcdef" + strings.Repeat("2", 48)
+	if !SameContent(full, full) || !SameContent(full[:16], full) || SameContent(twin, full) || SameContent(full, full[:16]) || SameContent("0123", full) {
+		t.Fatal("SameContent")
+	}
+	done := func(hash string) int64 {
+		t.Helper()
+		id, err := d.StartRun("acme", "F-001", hash, "bob", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := d.TxFor("acme", func(tx *Tx) error { return tx.FinishRun(id, RunDone, "", nil) }); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	legacy, other, own := done(full[:16]), done(twin), done(full)
+	runs, err := d.FinishedRuns("acme", "F-001", full, 10)
+	if err != nil || len(runs) != 2 || runs[0].ID != own || runs[1].ID != legacy {
+		t.Fatalf("runs on the content: %+v %v", runs, err)
+	}
+	next := "fedcba9876543210" + strings.Repeat("3", 48)
+	if err := d.TxFor("acme", func(tx *Tx) error { return tx.MoveHash("acme", "F-001", full, next) }); err != nil {
+		t.Fatal(err)
+	}
+	for id, want := range map[int64]string{legacy: next, own: next, other: twin} {
+		if r, _ := d.Run(id); r.ContentHash != want {
+			t.Errorf("run %d under %q, want %q", id, r.ContentHash, want)
+		}
 	}
 }
 

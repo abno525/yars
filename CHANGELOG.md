@@ -35,7 +35,7 @@ What changed for people who run or use YARS. Newest first.
 - The editor's preview takes only a finding's folder name in its address.
 - Files waiting for download after a send are limited to 256 MiB per user, dropped after 10 minutes by a timer, and served only under the engagement they were made in.
 - A reason (Return, Withdraw, Revert, dismissing a check) has at most 4,000 characters, on the finding page and over MCP as in the bulk bar.
-- An approval and a sign-off are bound to the full SHA-256 of the finding's file (before: its first 64 bits). Approvals and sign-offs given before the upgrade keep counting.
+- An approval and a sign-off are bound to the full SHA-256 of the finding's file (before: its first 64 bits), and so are the version a Sign off, Approve or Complete button names and the check run they wait for. Approvals, sign-offs and check runs from before the upgrade keep counting. A finding page left open across the upgrade must be loaded again before Sign off or Approve. Over MCP, `read_finding`'s `hash` is the full digest.
 - The service log has a line for each failed password login (website and git), with the name and the address, and one for a lockout. A failed AI call logs its status and the provider's host only, no longer the start of the provider's answer.
 - A restore takes no git hook from the ZIP and writes each repository's git config again with its basic settings only. A ZIP whose `.git` is a file or holds no `HEAD`, or that holds a git folder (`HEAD`, `objects`, `refs`) outside `.git`, is refused.
 - Fix with AI sends the section between the same delimiters as an AI check, so text in a finding cannot pass as the rule.

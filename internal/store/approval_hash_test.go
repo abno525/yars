@@ -3,6 +3,7 @@ package store
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -77,6 +78,98 @@ func TestApprovalBoundToFullDigest(t *testing.T) {
 	}
 	if st := load(t, s, fd).F.Meta.Status; st != "verification" {
 		t.Fatalf("after an edit outside YARS: %s", st)
+	}
+}
+
+// The click is bound to the full digest too. A sign-off or an approval names
+// the content its page showed by the full digest, and the check run it waits
+// for is kept under that digest: a file that shares the first 64 bits with
+// the one read, or with the one checked, is another content at the moment
+// of the decision.
+func TestSeenAndCheckRunBoundToFullDigest(t *testing.T) {
+	s, dir, fd := ready(t)
+	withRules(t, s, dir, "- id: none\n  target: title\n  regex_forbid: 'zzz'\n")
+	if err := s.Transition(eng, fd, workflow.Submit, "", uAlice); err != nil {
+		t.Fatal(err)
+	}
+	full := ApprovalHash(rawFile(t, dir, fd))
+	short := full[:16]
+	other := short + strings.Repeat("0", 46) + "ff" // of a file sharing 64 bits
+	fid := load(t, s, fd).F.Meta.ID
+	checkNow(t, s, fd)
+	if run, ok, err := s.DB().LatestRun(eng, fid); err != nil || !ok || run.ContentHash != full {
+		t.Errorf("check run kept under %q, want the full digest %s (%v)", run.ContentHash, full, err)
+	}
+	// what a page that showed a file sharing 64 bits sends
+	for _, seen := range []string{short, other} {
+		if err := s.TransitionSeen(eng, fd, workflow.Clear, "", seen, "", uBob); !errors.Is(err, ErrConflict) {
+			t.Errorf("sign-off with seen %q: %v, want the changed-since refusal", seen, err)
+		}
+	}
+	if c := load(t, s, fd).F.Meta.ClearedBy; len(c) != 0 {
+		t.Fatalf("signed off content the page did not show: %v", c)
+	}
+	// a finished run on a file sharing 64 bits is no run on this one
+	id, err := s.DB().StartRun(eng, fid, other, "bob", s.RulesVersion())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DB().TxFor(eng, func(tx *db.Tx) error { return tx.FinishRun(id, db.RunDone, "", nil) }); err != nil {
+		t.Fatal(err)
+	}
+	if g, err := s.CheckGate(eng, fd); err != nil || g != GateStale {
+		t.Errorf("gate with a run on other content: %q %v", g, err)
+	}
+	if st, err := s.CheckStatus(eng, fd); err != nil || !st.Stale {
+		t.Errorf("status with a run on other content: stale %v %v", st.Stale, err)
+	}
+	if gs, err := s.CheckGates([]GateKey{{eng, fid, full}}); err != nil || gs[eng+"/"+fid] != GateStale {
+		t.Errorf("gates with a run on other content: %v %v", gs, err)
+	}
+	if err := s.TransitionSeen(eng, fd, workflow.Clear, "", full, "", uBob); !denied(err) || !strings.Contains(err.Error(), GateStale) {
+		t.Errorf("sign-off with a run on other content: %v", err)
+	}
+	// the page's own digest, after a run on this content
+	checkNow(t, s, fd)
+	if err := s.TransitionSeen(eng, fd, workflow.Clear, "", full, "", uBob); err != nil {
+		t.Fatalf("sign-off of the content shown: %v", err)
+	}
+	if err := s.TransitionSeen(eng, fd, workflow.Approve, "", short, "", uDora); !errors.Is(err, ErrConflict) {
+		t.Errorf("approval with the short hash: %v", err)
+	}
+	if err := s.TransitionSeen(eng, fd, workflow.Approve, "", full, "", uDora); err != nil {
+		t.Fatalf("approval of the content shown: %v", err)
+	}
+	if st := stateOf(t, s, fd); st.ApprovedHash != full {
+		t.Fatalf("approval %q", st.ApprovedHash)
+	}
+}
+
+// A check run stored before the full digest was kept holds its first 16
+// digits: it still counts for that content after the upgrade, and not once
+// the file changed.
+func TestShortStoredCheckRunStillCounts(t *testing.T) {
+	s, dir, fd := ready(t)
+	withRules(t, s, dir, "- id: none\n  target: title\n  regex_forbid: 'zzz'\n")
+	ref := load(t, s, fd)
+	id, err := s.DB().StartRun(eng, ref.F.Meta.ID, ref.Hash, "bob", s.RulesVersion())
+	if err != nil || len(ref.Hash) != 16 {
+		t.Fatalf("run under %q: %v", ref.Hash, err)
+	}
+	if err := s.DB().TxFor(eng, func(tx *db.Tx) error { return tx.FinishRun(id, db.RunDone, "", nil) }); err != nil {
+		t.Fatal(err)
+	}
+	if g, err := s.CheckGate(eng, fd); err != nil || g != "" {
+		t.Fatalf("gate with a legacy run: %q %v", g, err)
+	}
+	if st, err := s.CheckStatus(eng, fd); err != nil || st.Stale {
+		t.Fatalf("status with a legacy run: stale %v %v", st.Stale, err)
+	}
+	if err := s.UpdateSection(eng, fd, "Impact", "Changed.", "", uAlice); err != nil {
+		t.Fatal(err)
+	}
+	if g, err := s.CheckGate(eng, fd); err != nil || g != GateStale {
+		t.Fatalf("gate after an edit: %q %v", g, err)
 	}
 }
 

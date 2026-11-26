@@ -343,7 +343,7 @@ func (s *Server) withoutOpenChecks(v inboxView) (inboxView, error) {
 	// change counter, and the setting can change)
 	keys := make([]store.GateKey, 0, len(rows))
 	for _, r := range rows {
-		keys = append(keys, store.GateKey{Eng: r.EngID, Fid: r.row.ID, Hash: r.row.Hash})
+		keys = append(keys, store.GateKey{Eng: r.EngID, Fid: r.row.ID, Hash: r.row.Full})
 	}
 	gates, err := s.Store.CheckGates(keys)
 	if err != nil {

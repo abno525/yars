@@ -487,7 +487,7 @@ var coreTools = []tool{
 				Dir         string             `json:"dir"`
 				State       state              `json:"state"`
 				Markdown    string             `json:"finding_md"`
-				Hash        string             `json:"hash"` // the file's as stored: transition's base
+				Hash        string             `json:"hash"` // the file's as stored, its full SHA-256: transition's base
 				Sections    []sec              `json:"sections"`
 				CVSSBase    string             `json:"cvss_base"`
 				DetailsBase string             `json:"details_base"`
@@ -498,7 +498,7 @@ var coreTools = []tool{
 				Threads     []thread           `json:"open_threads"`
 				Violations  []rules.Violation  `json:"violations"`
 				Allowed     []workflow.Allowed `json:"allowed_actions"`
-			}{Engagement: ref.EngID, Dir: ref.Dir, State: st, Markdown: string(ref.F.Bytes()), Hash: ref.Hash, CVSSBase: store.CVSSHash(ref.F.Meta),
+			}{Engagement: ref.EngID, Dir: ref.Dir, State: st, Markdown: string(ref.F.Bytes()), Hash: ref.Full, CVSSBase: store.CVSSHash(ref.F.Meta),
 				DetailsBase: store.DetailsHash(ref.F.Meta), Assets: append([]finding.Asset{}, ref.F.Meta.Assets...), AssetsBase: store.AssetsHash(ref.F.Meta),
 				CanEdit: workflow.CanEdit(u, ref.F.Meta), Threads: []thread{}, Violations: []rules.Violation{}, Bases: s.fieldBases(ref.F.Meta)}
 			// the group bases carry each row's own: sent again with every

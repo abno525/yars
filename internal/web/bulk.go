@@ -382,7 +382,7 @@ func (s *Server) gatedRows(f workflow.Flow, rows []index.Row) map[string]bool {
 	}
 	keys := make([]store.GateKey, 0, len(cand))
 	for _, r := range cand {
-		keys = append(keys, store.GateKey{Eng: r.EngID, Fid: r.ID, Hash: r.Hash})
+		keys = append(keys, store.GateKey{Eng: r.EngID, Fid: r.ID, Hash: r.Full})
 	}
 	gates, err := s.Store.CheckGates(keys)
 	if err != nil {

@@ -40,6 +40,7 @@ type Row struct {
 	Updated                                         time.Time // last chat line of any kind (zero = none)
 	Modified                                        time.Time // finding.md last changed on disk (zero = unknown)
 	Hash                                            string    // store.ContentHash of finding.md
+	Full                                            string    // its store.ApprovalHash: what check runs are kept under
 	// Threads are the open threads, oldest first, each with its last
 	// message; Events the workflow events in order (the inbox reads both).
 	// Shared between copies of the row: read only.
@@ -93,7 +94,7 @@ func rowOf(engID string, ref store.FindingRef, msgs []chat.Message) Row {
 	m := ref.F.Meta
 	txt, sc := scoreOf(m.CVSS)
 	r := Row{EngID: engID, Dir: ref.Dir, ID: m.ID, Title: m.Title, Status: m.Status, Shown: workflow.Shown(m),
-		Severity: cvss.Derive(m.CVSS, m.Severity), Author: m.Author, Reviewers: m.Reviewers, Hash: ref.Hash, Modified: ref.Modified,
+		Severity: cvss.Derive(m.CVSS, m.Severity), Author: m.Author, Reviewers: m.Reviewers, Hash: ref.Hash, Full: ref.Full, Modified: ref.Modified,
 		Score: txt, score: sc, Meta: &m, tgrams: Trigrams(m.Title), agrams: assetGrams(m.Assets), hay: hayOf(m)}
 	if m.Retest != nil {
 		r.IsRetest, r.RetestResult = true, m.Retest.Result
