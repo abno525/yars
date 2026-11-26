@@ -101,6 +101,8 @@ The account behind the key needs permission, in the space, to view it, add pages
 
 The Confluence HTML download has no page to attach to: its pictures stay inside the file.
 
+A Confluence or Jira destination sends its key and the findings to the destination's own address only. A redirect to another host, another port or from `https` to `http` is refused, and the send fails with `redirect to <host> refused`. Set the destination's `base_url` to the final address.
+
 `yars export` writes a file destination's result to `--out`, or to the engagement's name in the current folder, readable by you alone (`0600`). It does not replace a file that is there: `--force` does.
 
 ## HTTPS

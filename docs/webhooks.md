@@ -58,6 +58,7 @@ def valid(secret: str, body: bytes, header: str) -> bool:
 ## Delivery
 
 - A 2xx answer within 10 s counts as delivered; anything else is retried.
+- A redirect is followed only on the webhook's own scheme, host and port. A redirect to another host is refused and counts as a failed try: the delivery's error is `redirect to <host> refused`. Give the webhook the final URL.
 - Retries wait 10 s, 20 s, 40 s, 80 s and 160 s; after 6 tries the delivery is given up.
 - Each webhook shows its last delivery; **Redeliver** sends a delivery again.
 - A disabled webhook gets nothing; events are not kept for it.

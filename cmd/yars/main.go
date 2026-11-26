@@ -29,7 +29,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -47,6 +46,7 @@ import (
 	"github.com/abno525/yars/internal/gitrepo"
 	"github.com/abno525/yars/internal/index"
 	"github.com/abno525/yars/internal/mcp"
+	"github.com/abno525/yars/internal/outbound"
 	"github.com/abno525/yars/internal/policy"
 	"github.com/abno525/yars/internal/rules"
 	"github.com/abno525/yars/internal/secret"
@@ -57,10 +57,13 @@ import (
 
 var system = gitrepo.Author{Name: "yars", Email: "yars@yars.local"}
 
+// exportRunner runs the destinations of a data folder. Its HTTP client
+// sends a destination's key and the findings to the configured address
+// only: a redirect to another host is refused (outbound.Client).
 func exportRunner(dataDir string) *export.Runner {
 	pandoc, _ := exec.LookPath("pandoc")
 	return &export.Runner{Dir: filepath.Join(dataDir, ".yars", "exporters"), PandocPath: pandoc,
-		HTTP: &http.Client{Timeout: 60 * time.Second}, Getenv: os.Getenv}
+		HTTP: outbound.Client(60 * time.Second), Getenv: os.Getenv}
 }
 
 // cmdExport runs an exporter from the command line:
