@@ -50,12 +50,14 @@ func (s *Server) startHooks() {
 	s.hooksOnce.Do(func() { go s.Webhooks.Run(s.stop) })
 }
 
-// Close stops the background workers.
+// Close stops the background workers, and a debug period of the log with
+// them (its timer would hold the server).
 func (s *Server) Close() {
 	s.stopOnce.Do(func() {
 		if s.stop != nil {
 			close(s.stop)
 		}
+		s.stopDebug()
 	})
 }
 

@@ -67,7 +67,7 @@ func TestStatusCommand(t *testing.T) {
 		t.Fatal(err)
 	}
 	var stderr lockedBuf
-	lg, _, ring := serverLogRing(&stderr, cfg, "")
+	lg, level, ring := serverLogRing(&stderr, cfg, "")
 	d, st, err := prepareData(r, cfg, lg)
 	if err != nil {
 		t.Fatal(err)
@@ -78,7 +78,7 @@ func TestStatusCommand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv.LogRing = ring
+	srv.LogRing, srv.LogLevel = ring, level
 	srv.HTTPServer("127.0.0.1:0")
 	defer srv.Close()
 	stop := startStatus(dir, srv, lg)
@@ -100,7 +100,7 @@ func TestStatusCommand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("status: %v\n%s", err, stderr.String())
 	}
-	for _, want := range []string{"yars " + buildVersion(), "schema " + strconv.Itoa(db.SchemaVersion), " · up ", "checks: 0 running, 0 queued",
+	for _, want := range []string{"yars " + buildVersion(), "schema " + strconv.Itoa(db.SchemaVersion), " · up ", "log level: info\n", "checks: 0 running, 0 queued",
 		"fixes: 0 running", "webhook deliveries: 0 waiting", "mails: 0 being sent", "event streams: none", "locks: none",
 		"last warnings and errors: 1", ` WARN  msg="login failed" user=`, "remote=198.51.100.7:1"} {
 		if !strings.Contains(out, want) {

@@ -166,6 +166,12 @@ func printStatus(out io.Writer, st web.Status) {
 		deliveries = strconv.Itoa(st.Deliveries)
 	}
 	fmt.Fprintf(out, "yars %s · schema %s · up %s\n", word(st.Version), schema, span(st.UptimeMS))
+	switch {
+	case !st.DebugUntil.IsZero():
+		fmt.Fprintf(out, "log level: debug until %s\n", st.DebugUntil.Local().Format("15:04"))
+	case st.Level != "":
+		fmt.Fprintf(out, "log level: %s\n", word(st.Level))
+	}
 	fmt.Fprintf(out, "checks: %d running, %d queued\n", st.ChecksRunning, st.ChecksQueued)
 	fmt.Fprintf(out, "fixes: %d running\n", st.Fixes)
 	fmt.Fprintf(out, "webhook deliveries: %s waiting\n", deliveries)

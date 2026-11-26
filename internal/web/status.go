@@ -21,6 +21,10 @@ type Status struct {
 	Schema   int       `json:"schema"` // 0: the database did not say
 	Started  time.Time `json:"started"`
 	UptimeMS int64     `json:"uptime_ms"`
+	// the log's level now (debug, info, warn, error; "" when it cannot
+	// change) and when a debug period ends (zero: none runs)
+	Level      string    `json:"level"`
+	DebugUntil time.Time `json:"debug_until"`
 	// the check runs holding a slot, the ones waiting for one, the fixes
 	// with AI under way
 	ChecksRunning int `json:"checks_running"`
@@ -65,6 +69,7 @@ func (s *Server) Status() Status {
 	if !s.started.IsZero() {
 		st.UptimeMS = time.Since(s.started).Milliseconds()
 	}
+	st.Level, st.DebugUntil = s.debugState()
 	if s.Store != nil {
 		w := s.Store.Work()
 		st.ChecksRunning, st.ChecksQueued, st.Fixes = w.ChecksRunning, w.ChecksQueued, w.Fixes
@@ -144,6 +149,10 @@ type stateView struct {
 	Streams                                   []StreamCount
 	Locks                                     []lockRow
 	Lines                                     []lineRow // newest first
+	// the debug switch: whether it can be moved (the log's level can
+	// change), whether it is on, and when it ends ("—" while off)
+	CanDebug, DebugOn bool
+	DebugUntil        string
 }
 
 // lockRow is a repository lock on the page.
@@ -160,7 +169,10 @@ type lineRow struct {
 // stateViewOf is st as the page shows it.
 func stateViewOf(st Status) stateView {
 	v := stateView{ChecksRunning: st.ChecksRunning, ChecksQueued: st.ChecksQueued, Fixes: st.Fixes, Mails: st.Mails,
-		Deliveries: "—", Streams: st.Streams}
+		Deliveries: "—", Streams: st.Streams, CanDebug: st.Level != "", DebugOn: !st.DebugUntil.IsZero(), DebugUntil: "—"}
+	if v.DebugOn {
+		v.DebugUntil = st.DebugUntil.Local().Format("15:04")
+	}
 	if st.Deliveries >= 0 {
 		v.Deliveries = strconv.Itoa(st.Deliveries)
 	}

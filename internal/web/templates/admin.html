@@ -431,6 +431,21 @@
 <section class="panel sys" id="syslog">
   <div class="panelhead"><h2>Log <span class="{{if .Lines}}qcnt{{else}}qcnt zero{{end}}">{{len .Lines}}</span></h2></div>
   <div class="pbody flush">
+    <table class="table ruletable settingtable">
+      <thead><tr><th>Setting</th><th class="c-on">On</th><th class="c-act">Until</th></tr></thead>
+      <tbody>
+        <tr>
+          <td class="setname">Debug level for 15 minutes</td>
+          <td>
+            <form class="flag" method="post" action="/admin/system/debug">
+              <input type="hidden" name="on" value="{{if .DebugOn}}0{{else}}1{{end}}">
+              <button class="toggle{{if .DebugOn}} on{{end}}" role="switch" aria-checked="{{if .DebugOn}}true{{else}}false{{end}}" aria-label="Debug level for 15 minutes"{{if not .CanDebug}} disabled{{end}}><span></span></button>
+            </form>
+          </td>
+          <td><span class="slot w96 mono">{{.DebugUntil}}</span></td>
+        </tr>
+      </tbody>
+    </table>
     <table class="table stable healthtable">
       <thead><tr><th class="c-time">Time</th><th class="c-flag">Level</th><th>Line</th></tr></thead>
       <tbody>

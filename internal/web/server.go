@@ -91,6 +91,21 @@ type Server struct {
 	// own ring, made with it by yars serve), which Admin › System and yars
 	// status show; nil shows none.
 	LogRing *logs.Ring
+	// LogLevel is the service log's level (the logger reads it on every
+	// line): Admin › System sets it to debug for 15 minutes and back to what
+	// it was. nil leaves that switch disabled.
+	LogLevel *slog.LevelVar
+
+	// the debug switch: one period at a time. debugUntil is when it ends
+	// (zero: off), debugBase the level to go back to, debugGen tells a late
+	// timer that its period is over, debugFor is the period (0 =
+	// defaultDebugFor)
+	debugMu    sync.Mutex
+	debugTimer *time.Timer
+	debugUntil time.Time
+	debugBase  slog.Level
+	debugGen   int
+	debugFor   time.Duration
 
 	stop      chan struct{} // closes the background workers (Close)
 	stopOnce  sync.Once

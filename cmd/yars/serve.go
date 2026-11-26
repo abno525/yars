@@ -213,7 +213,7 @@ func cmdServe(args []string) error {
 	if err != nil {
 		return err
 	}
-	lg, _, ring := serverLogRing(os.Stderr, cfg, *logLevel)
+	lg, level, ring := serverLogRing(os.Stderr, cfg, *logLevel)
 	d, st, err := prepareData(r, cfg, lg)
 	if err != nil {
 		return err
@@ -230,7 +230,9 @@ func cmdServe(args []string) error {
 		d.Close()
 		return err
 	}
-	srv.LogRing = ring
+	// the log's ring and its level are the server's to show and to switch
+	// (Admin › System: the last lines, debug for 15 minutes)
+	srv.LogRing, srv.LogLevel = ring, level
 	hs := srv.HTTPServer(*addr)
 	hs.TLSConfig = tlsCfg
 	ln, err := net.Listen("tcp", *addr)

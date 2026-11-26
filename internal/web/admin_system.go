@@ -85,6 +85,9 @@ func (s *Server) routesAdminSystem(mux *http.ServeMux) {
 	mux.HandleFunc("POST /admin/system/sync", s.adminOnly(s.systemOp("sync")))
 	mux.HandleFunc("POST /admin/system/reindex", s.adminOnly(s.systemOp("reindex")))
 	mux.HandleFunc("POST /admin/system/migrate", s.adminOnly(s.systemOp("migrate")))
+	// the log at debug for 15 minutes: a POST only, so the cross-origin check
+	// covers it
+	mux.HandleFunc("POST /admin/system/debug", s.adminOnly(s.debugSwitch))
 	// Health is part of the System page
 	mux.HandleFunc("GET /admin/health", s.adminOnly(func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/admin/system", http.StatusSeeOther)
