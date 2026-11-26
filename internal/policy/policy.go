@@ -801,7 +801,8 @@ func (c *Checker) ruleSet(rev string) *rules.Set {
 
 // exporterProblems checks a pushed exporter file as the export setup
 // saves one: its id, its settings, and an admin for what export.NeedsAdmin
-// keeps to one (a service's address and target, a script, a template).
+// keeps to one (a service's address and target, a script, a template, a
+// pandoc --variable).
 func (c *Checker) exporterProblems(u config.User, old, new, p, file string) []string {
 	if !export.IDRe.MatchString(strings.TrimSuffix(file, ".yaml")) {
 		return []string{"exporter ids are lowercase letters, digits, - and _ (the file is <id>.yaml)"}

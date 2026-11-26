@@ -202,7 +202,7 @@ func Parse(file string, b []byte) (Exporter, error) {
 
 // AdminOnly is the refusal of a save NeedsAdmin keeps to admins (the export
 // setup and a push say the same).
-const AdminOnly = "address, space, parent page, project, issue type, key variables, script and template: admin only"
+const AdminOnly = "address, space, parent page, project, issue type, key variables, script, template and pandoc --variable: admin only"
 
 // adminPart is everything of a destination that is an admin's to set ("" for
 // one that has nothing of it):
@@ -213,7 +213,9 @@ const AdminOnly = "address, space, parent page, project, issue type, key variabl
 //   - a script destination's script: it runs on the server as the service
 //     account.
 //   - a pandoc destination's template: a file of the server that pandoc (for
-//     a PDF, LaTeX) reads.
+//     a PDF, LaTeX) reads; and its --variable arguments: their values reach
+//     that template, the built-in PDF theme too, as they are, so LaTeX in
+//     one reads a file of the server into the report as a template would.
 func (e Exporter) adminPart() string {
 	const sep = "\x00"
 	switch {
@@ -224,17 +226,35 @@ func (e Exporter) adminPart() string {
 		return e.Endpoint() + sep + e.Target() + sep + issueType(e.Jira.IssueType)
 	case e.Service():
 		return e.Endpoint() + sep + e.Target() + sep + e.Confluence.ParentID
-	case e.Type == "pandoc" && e.Template != "":
-		return "template" + sep + e.Template
+	case e.Type == "pandoc":
+		vars := e.rawArgs()
+		if e.Template == "" && len(vars) == 0 {
+			return ""
+		}
+		return "template" + sep + e.Template + sep + strings.Join(vars, sep)
 	}
 	return ""
+}
+
+// rawArgs are the pandoc arguments whose value goes into the template as it
+// is, in their order: --variable (pandoc escapes a --metadata value for the
+// output format, a variable's not, and a variable wins over the metadata of
+// the same name).
+func (e Exporter) rawArgs() []string {
+	var out []string
+	for _, a := range e.Args {
+		if strings.HasPrefix(a, "--variable=") {
+			out = append(out, a)
+		}
+	}
+	return out
 }
 
 // NeedsAdmin reports whether saving ex over prev (nil: a new exporter)
 // takes an admin: ex has a part that is an admin's to set (adminPart) and
 // prev did not have that same part. Name, statuses, mark_reported, a pandoc
-// format and its arguments, a script's extension, and taking such a part
-// away are a director's.
+// format and its other arguments, a script's extension, and taking such a
+// part away are a director's.
 func NeedsAdmin(prev *Exporter, ex Exporter) bool {
 	part := ex.adminPart()
 	return part != "" && (prev == nil || prev.adminPart() != part)

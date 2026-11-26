@@ -1,11 +1,15 @@
 package export
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 // What a destination sends to, and what it runs or reads on the server, is
 // an admin's to set: a service's address, key variables, project or space,
 // parent page and issue type; a script destination's script; a pandoc
-// destination's template. The rest is a director's.
+// destination's template and its --variable arguments. The rest is a
+// director's.
 func TestNeedsAdmin(t *testing.T) {
 	jira := func(mod func(*Exporter)) Exporter {
 		e := Exporter{ID: "jira", Name: "Jira", Type: "jira", Statuses: []string{"complete"},
@@ -26,6 +30,10 @@ func TestNeedsAdmin(t *testing.T) {
 	script := Exporter{ID: "csv", Name: "CSV", Type: "script", Script: "csv.py", Extension: "csv"}
 	pandoc := Exporter{ID: "word", Name: "Word", Type: "pandoc", Format: "docx"}
 	styled := Exporter{ID: "word", Name: "Word", Type: "pandoc", Format: "docx", Template: "firm.docx"}
+	// pandoc puts a --variable value into the template as it is: LaTeX in it
+	// reads a file of the server into the PDF, as a template would
+	raw := Exporter{ID: "pdf", Name: "PDF", Type: "pandoc", Format: "pdf", Args: []string{"--toc", `--variable=title:\input{/etc/passwd}`}}
+	plainPDF := Exporter{ID: "pdf", Name: "PDF", Type: "pandoc", Format: "pdf", Args: []string{"--toc"}}
 	file := Exporter{ID: "html", Name: "HTML", Type: "confluence"}
 	no := false
 	p := func(e Exporter) *Exporter { return &e }
@@ -55,8 +63,17 @@ func TestNeedsAdmin(t *testing.T) {
 		{"jira turned into confluence at the same address", p(jira(nil)), conf(func(e *Exporter) { e.Confluence.BaseURL = "https://jira.firm.example" }), true},
 		{"a template added", p(pandoc), styled, true},
 		{"another template", p(styled), Exporter{ID: "word", Name: "Word", Type: "pandoc", Format: "docx", Template: "other.docx"}, true},
+		{"a new pandoc with a variable", nil, raw, true},
+		{"a variable added", p(plainPDF), raw, true},
+		{"another variable", p(raw), Exporter{ID: "pdf", Name: "PDF", Type: "pandoc", Format: "pdf", Args: []string{"--toc", `--variable=title:\input{/etc/shadow}`}}, true},
+		{"a second variable", p(raw), Exporter{ID: "pdf", Name: "PDF", Type: "pandoc", Format: "pdf", Args: append(slices.Clone(raw.Args), "--variable=mainfont:Arial")}, true},
+		{"a variable added beside a template", p(styled), Exporter{ID: "word", Name: "Word", Type: "pandoc", Format: "docx", Template: "firm.docx", Args: []string{"--variable=k:v"}}, true},
 		// a director's
 		{"a new pandoc", nil, pandoc, false},
+		{"a new pandoc with plain args", nil, plainPDF, false},
+		{"pandoc metadata, which pandoc escapes", p(plainPDF), Exporter{ID: "pdf", Name: "PDF", Type: "pandoc", Format: "pdf", Args: []string{"--metadata=lang:de", "--toc-depth=2"}}, false},
+		{"name, format and other args with the variable kept", p(raw), Exporter{ID: "pdf", Name: "Report", Type: "pandoc", Format: "latex", Args: []string{"--number-sections", `--variable=title:\input{/etc/passwd}`}}, false},
+		{"a variable removed", p(raw), plainPDF, false},
 		{"a new confluence file", nil, file, false},
 		{"jira name, statuses and mark", p(jira(nil)), jira(func(e *Exporter) {
 			e.Name, e.Statuses, e.MarkReported = "Jira PEN", []string{"complete", "reported"}, &no

@@ -446,6 +446,9 @@ func TestPolicyExporterTargetsAdminOnly(t *testing.T) {
 		"pandoc into script":     put(".yars/exporters/word.yaml", "name: Word\ntype: script\nscript: csv.sh\nextension: docx\n"),
 		"another script":         sub(".yars/exporters/csv.yaml", script, "script: csv.sh", "script: firm.latex"),
 		"a template":             put(".yars/exporters/word.yaml", "name: Word\ntype: pandoc\nformat: pdf\ntemplate: firm.latex\n"),
+		// pandoc puts a variable's value into the PDF theme as it is
+		"a new pandoc variable": put(".yars/exporters/pdf.yaml", "type: pandoc\nformat: pdf\nargs: ['--variable=title:\\input{/etc/passwd}']\n"),
+		"a variable added":      put(".yars/exporters/word.yaml", "name: Word\ntype: pandoc\nformat: pdf\nargs: [--toc, '--variable=title:\\input{/etc/passwd}']\n"),
 		"a new script file": func(d string) {
 			write(d, ".yars/exporters/x.sh", "#!/bin/sh\nid\n")
 			os.Chmod(filepath.Join(d, ".yars/exporters/x.sh"), 0o755)
@@ -471,13 +474,14 @@ func TestPolicyExporterTargetsAdminOnly(t *testing.T) {
 		}
 	}
 	for name, edit := range map[string]func(string){
-		"jira name, statuses, mark":    put(".yars/exporters/jira.yaml", strings.Replace(jira, "name: Jira\n", "name: Jira PEN\nstatuses: [complete, reported]\nmark_reported: false\n", 1)),
-		"confluence name, mark":        put(".yars/exporters/wiki.yaml", strings.Replace(wiki, "name: Wiki\n", "name: Client wiki\nmark_reported: false\n", 1)),
-		"script name, extension":       put(".yars/exporters/csv.yaml", "name: Summary\ntype: script\nscript: csv.sh\nextension: tsv\nmark_reported: false\n"),
-		"pandoc format and args":       put(".yars/exporters/word.yaml", "name: Word\ntype: pandoc\nformat: odt\nargs: [--toc]\n"),
-		"a new pandoc destination":     put(".yars/exporters/pdf.yaml", "type: pandoc\nformat: pdf\n"),
-		"a destination deleted":        rm(".yars/exporters/jira.yaml"),
-		"a script destination deleted": rm(".yars/exporters/csv.yaml"),
+		"jira name, statuses, mark":      put(".yars/exporters/jira.yaml", strings.Replace(jira, "name: Jira\n", "name: Jira PEN\nstatuses: [complete, reported]\nmark_reported: false\n", 1)),
+		"confluence name, mark":          put(".yars/exporters/wiki.yaml", strings.Replace(wiki, "name: Wiki\n", "name: Client wiki\nmark_reported: false\n", 1)),
+		"script name, extension":         put(".yars/exporters/csv.yaml", "name: Summary\ntype: script\nscript: csv.sh\nextension: tsv\nmark_reported: false\n"),
+		"pandoc format and args":         put(".yars/exporters/word.yaml", "name: Word\ntype: pandoc\nformat: odt\nargs: [--toc]\n"),
+		"a new pandoc destination":       put(".yars/exporters/pdf.yaml", "type: pandoc\nformat: pdf\n"),
+		"pandoc metadata and plain args": put(".yars/exporters/pdf.yaml", "type: pandoc\nformat: pdf\nargs: [--toc, '--metadata=lang:de']\n"),
+		"a destination deleted":          rm(".yars/exporters/jira.yaml"),
+		"a script destination deleted":   rm(".yars/exporters/csv.yaml"),
 	} {
 		f.reclone()
 		if ps := f.push("dan", edit); len(ps) != 0 {
