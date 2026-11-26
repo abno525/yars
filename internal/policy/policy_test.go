@@ -635,6 +635,42 @@ func TestPolicyDuplicateSectionTemplate(t *testing.T) {
 	}
 }
 
+// rawFinding rewrites the pushed finding.md as text.
+func rawFinding(dir string, fn func(string) string) {
+	p := filepath.Join(dir, fdir, "finding.md")
+	b, _ := os.ReadFile(p)
+	os.WriteFile(p, []byte(fn(string(b))), 0o644)
+}
+
+// Text before the first section heading is on no page: a pushed finding
+// and a pushed template with such text are refused.
+func TestPolicyPreambleRefused(t *testing.T) {
+	f := newFx(t)
+	const want = "text before the first section heading"
+	note := func(s string) string { return strings.Replace(s, "---\n\n## ", "---\nHidden note.\n\n## ", 1) }
+	if ps := f.push("alice", func(d string) { rawFinding(d, note) }); !hasLine(ps, "commit "+short(t, f.clone, "HEAD")+" "+fdir+"/finding.md: ", want) {
+		t.Fatalf("finding with text before the first heading: %v", ps)
+	}
+	// a finding the server already holds that way takes another edit
+	rawFinding(f.repo().Dir, note)
+	if b, _ := os.ReadFile(filepath.Join(f.repo().Dir, fdir, "finding.md")); !strings.Contains(string(b), "Hidden note.") {
+		t.Fatalf("fixture not written:\n%s", b)
+	}
+	git(t, f.repo().Dir, "commit", "-qam", "old push without checks")
+	f.reclone()
+	if ps := f.push("alice", func(d string) {
+		editMeta(d, func(fd *finding.Finding) { fd.SetSection("Impact", "better words") })
+	}); len(ps) != 0 {
+		t.Fatalf("edit of another part refused: %v", ps)
+	}
+	f = newFx(t).on("")
+	if ps := f.push("dora", func(d string) {
+		write(d, ".yars/templates/sqli.md", "---\ntitle: SQLi\n---\nHidden note.\n\n## Impact\n\nfirst\n")
+	}); !has(ps, want) {
+		t.Fatalf("template with text before the first heading: %v", ps)
+	}
+}
+
 // A template is checked against config.yaml as its commit has it: a push
 // that adds a severity and uses it in a template is accepted, in one
 // commit or two; a template before the commit that adds it is refused.

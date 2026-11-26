@@ -97,9 +97,24 @@ func SectionProblems(f *finding.Finding) []string {
 	return ps
 }
 
+// preambleProblem is the refusal for text between the front matter and the
+// first section heading ("" when there are only blank lines): no page shows
+// it and no export carries it. An unclosed code fence there hides every
+// heading after it, so the file has no sections at all.
+func preambleProblem(f *finding.Finding) string {
+	if strings.TrimSpace(f.Preamble) == "" {
+		return ""
+	}
+	p := "text before the first section heading is not shown or exported; move it under a ## heading"
+	if err := finding.ValidateBody(f.Preamble); err != nil && len(f.Sections) == 0 {
+		p += " (it has an " + err.Error() + ", which hides the headings after it)"
+	}
+	return p
+}
+
 // FindingProblems checks a finding file's content against the rules the
-// website saves by: workflow keys, title, CVSS, severity, assets and
-// sections. With old (the previous version of the file), only the parts
+// website saves by: workflow keys, title, CVSS, severity, assets, text
+// before the first heading and sections. With old (the previous version of the file), only the parts
 // that changed are checked, so an edit of one part is never refused for a
 // problem another part already had.
 func FindingProblems(cfg config.Config, f, old *finding.Finding) []string {
@@ -130,6 +145,11 @@ func FindingProblems(cfg config.Config, f, old *finding.Finding) []string {
 	}
 	if old == nil || !reflect.DeepEqual(n.Assets, o.Assets) {
 		add(CheckAssets(n.Assets))
+	}
+	if old == nil || f.Preamble != old.Preamble {
+		if p := preambleProblem(f); p != "" {
+			ps = append(ps, p)
+		}
 	}
 	for _, p := range SectionProblems(f) {
 		if old != nil && !sectionProblemNew(p, old) {

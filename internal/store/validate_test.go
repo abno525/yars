@@ -75,6 +75,43 @@ func TestSectionWithoutNameRefused(t *testing.T) {
 	}
 }
 
+// Text before the first section heading is on no page and in no export:
+// the shared check refuses it. Blank lines pass, a file that already has
+// such text takes an edit of another part, and an unclosed code fence
+// there, which hides every heading after it, is named as this problem.
+func TestPreambleRefused(t *testing.T) {
+	parse := func(body string) *finding.Finding {
+		t.Helper()
+		f, err := finding.Parse([]byte("---\nid: F-001\ntitle: X\n---\n" + body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return f
+	}
+	const want = "text before the first section heading"
+	ps := FindingProblems(config.Default(), parse("Hidden note.\n\n## Description\n\nText.\n"), nil)
+	if len(ps) != 1 || !strings.Contains(ps[0], want) {
+		t.Fatalf("problems %q", ps)
+	}
+	if ps := FindingProblems(config.Default(), parse("\n\n## Description\n\nText.\n"), nil); len(ps) != 0 {
+		t.Fatalf("blank lines refused: %q", ps)
+	}
+	old := parse("Hidden note.\n\n## Description\n\nText.\n")
+	if ps := FindingProblems(config.Default(), parse("Hidden note.\n\n## Description\n\nBetter text.\n"), old); len(ps) != 0 {
+		t.Fatalf("edit of another part refused: %q", ps)
+	}
+	if ps := FindingProblems(config.Default(), parse("Another note.\n\n## Description\n\nText.\n"), old); len(ps) != 1 || !strings.Contains(ps[0], want) {
+		t.Fatalf("changed preamble: %q", ps)
+	}
+	if ps := FindingProblems(config.Default(), parse("\n## Description\n\nText.\n"), old); len(ps) != 0 {
+		t.Fatalf("removing it refused: %q", ps)
+	}
+	ps = FindingProblems(config.Default(), parse("```\nopen\n\n## Description\n\nText.\n\n## Impact\n\nMore.\n"), nil)
+	if len(ps) != 1 || !strings.Contains(ps[0], want) || !strings.Contains(ps[0], "unclosed code fence") {
+		t.Fatalf("unclosed fence: %q", ps)
+	}
+}
+
 // The website's own writes go through the same rules: a pentest's type
 // stays when its settings are saved.
 func TestEngagementSettingsKeepType(t *testing.T) {
