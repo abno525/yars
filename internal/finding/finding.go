@@ -198,6 +198,62 @@ func (f *Finding) SetMeta(key string, value any) error {
 	return nil
 }
 
+// RawMeta is the front matter text as the file had it (or as SetMeta left
+// it); "" for a finding that was not parsed.
+func (f *Finding) RawMeta() string { return f.rawMeta }
+
+// MetaProblem says why SetMeta cannot edit the front matter as the file has
+// it, in words for the person who wrote it ("" when it can). Parse reads
+// more forms than SetMeta's line splice can rewrite: the whole mapping
+// between { }, a top-level key that is indented, a value continued on a
+// line that starts at the first column, a comment at the first column
+// inside a value.
+func (f *Finding) MetaProblem() string {
+	src := f.rawMeta
+	if strings.TrimSpace(src) == "" {
+		return ""
+	}
+	if !strings.HasSuffix(src, "\n") {
+		src += "\n"
+	}
+	var doc yaml.Node
+	if err := yaml.Unmarshal([]byte(src), &doc); err != nil || doc.Kind == 0 || len(doc.Content) == 0 {
+		return "" // Parse says what is wrong with it
+	}
+	m := doc.Content[0]
+	if m.Kind != yaml.MappingNode || m.Style&yaml.FlowStyle != 0 {
+		return "the front matter must be written one key per line (title: X), not between { }"
+	}
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		if k := m.Content[i]; k.Column != 1 {
+			return "front matter key " + k.Value + " is indented; start every top-level key at the first column"
+		}
+	}
+	// each key's lines as SetMeta finds them: they must reach the next key
+	// with nothing but blank lines and comments in between, and not pass it
+	lines := strings.SplitAfter(src, "\n")
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		k := m.Content[i]
+		next := len(lines)
+		if i+2 < len(m.Content) {
+			next = m.Content[i+2].Line - 1
+		}
+		end := k.Line
+		for end < len(lines) && lines[end] != "" && strings.ContainsRune(" \t-\n", rune(lines[end][0])) {
+			end++
+		}
+		bad := end > next
+		for j := end; j < next && !bad; j++ {
+			t := strings.TrimSpace(lines[j])
+			bad = t != "" && !strings.HasPrefix(t, "#")
+		}
+		if bad {
+			return "front matter key " + k.Value + ": indent every line of its value after the first (a list item may start at the first column with -), and keep comments out of it"
+		}
+	}
+	return ""
+}
+
 // OrderedMap builds a string mapping node with keys in the given order
 // (absent keys skipped), followed by remaining keys of m sorted. Multi-line
 // values use literal block style.

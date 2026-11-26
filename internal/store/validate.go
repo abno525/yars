@@ -146,6 +146,12 @@ func FindingProblems(cfg config.Config, f, old *finding.Finding) []string {
 	if old == nil || !reflect.DeepEqual(n.Assets, o.Assets) {
 		add(CheckAssets(n.Assets))
 	}
+	// a front matter the website's own edits cannot rewrite (SetMeta)
+	if old == nil || f.RawMeta() != old.RawMeta() {
+		if p := f.MetaProblem(); p != "" {
+			ps = append(ps, p)
+		}
+	}
 	if old == nil || f.Preamble != old.Preamble {
 		if p := preambleProblem(f); p != "" {
 			ps = append(ps, p)

@@ -128,6 +128,67 @@ func TestSetMetaOnNew(t *testing.T) {
 	}
 }
 
+// MetaProblem names every front matter Parse reads but SetMeta cannot
+// edit, and no other: it is what a push is held to.
+func TestMetaProblem(t *testing.T) {
+	bad := []struct{ name, meta, key string }{
+		{"flow mapping", "{id: F-001, title: X, author: alice}\n", "title"},
+		{"indented keys", "  id: F-001\n  title: X\n", "title"},
+		{"value closed at the first column", "id: F-001\nassets: [\n  {host: a}\n]\ntitle: X\n", "assets"},
+		{"comment inside a value", "id: F-001\nassets:\n    - host: a\n# note\n    - host: b\ntitle: X\n", "assets"},
+	}
+	for _, c := range bad {
+		f, err := Parse([]byte("---\n" + c.meta + "---\n\n## Description\n\nx\n"))
+		if err != nil {
+			t.Fatalf("%s: Parse: %v", c.name, err)
+		}
+		if p := f.MetaProblem(); p == "" {
+			t.Errorf("%s: no problem named", c.name)
+		}
+		var v any = "Y"
+		if c.key == "assets" {
+			v = []Asset{{Host: "z"}}
+		}
+		if err := f.SetMeta(c.key, v); err == nil {
+			// SetMeta did not refuse: then it wrote a file that reads otherwise
+			g, perr := Parse(f.Bytes())
+			if perr == nil && (c.key == "title" && g.Meta.Title == "Y" || c.key == "assets" && reflect.DeepEqual(g.Meta.Assets, []Asset{{Host: "z"}})) {
+				t.Errorf("%s: SetMeta edits it; it is no problem", c.name)
+			}
+		}
+	}
+	good := []string{
+		"",
+		"id: F-001\n# owner note\ntitle: SQLi\ncustom_key: keep me   # trailing comment\nseverity: high\n",
+		"id: F-001\ntitle: |\n    two\n\n    lines\nseverity: high\n",
+		"id: F-001\nassets: [{host: a}, {host: b}]\ntitle: X\n",
+		"id: F-001\nassets:\n- host: a\n  port: \"443\"\n- host: b\ntitle: X\n",
+		"id: F-001\nassets:\n    - host: a\n    # note\n    - host: b\n\ntitle: X\n# end\n",
+		"\"id\": F-001\ndetails:\n    Location: /x\n    CWE: \"89\"\n",
+	}
+	for _, meta := range good {
+		f, err := Parse([]byte("---\n" + meta + "---\n\n## Description\n\nx\n"))
+		if err != nil {
+			t.Fatalf("Parse %q: %v", meta, err)
+		}
+		if p := f.MetaProblem(); p != "" {
+			t.Errorf("%q: %s", meta, p)
+		}
+		if err := f.SetMeta("title", "Y"); err != nil {
+			t.Errorf("%q: SetMeta: %v", meta, err)
+		}
+		if err := f.SetMeta("assets", []Asset{{Host: "z"}}); err != nil {
+			t.Errorf("%q: SetMeta assets: %v", meta, err)
+		}
+		if g, err := Parse(f.Bytes()); err != nil || g.Meta.Title != "Y" || len(g.Meta.Assets) != 1 || g.Meta.Assets[0].Host != "z" {
+			t.Errorf("%q: after SetMeta %v:\n%s", meta, err, f.Bytes())
+		}
+	}
+	if New("F-001", "T", "a", nil).MetaProblem() != "" {
+		t.Error("a new finding has a problem")
+	}
+}
+
 func TestOrderedMapMultiline(t *testing.T) {
 	m := map[string]string{"B": "a\nb", "A": "plain", "Z": "extra2", "Y": "extra1"}
 	f := New("F-001", "T", "a", nil)

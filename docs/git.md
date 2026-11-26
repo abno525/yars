@@ -89,6 +89,7 @@ Only `refs/heads/main` can be pushed, and every commit in the push is checked on
 | `…: F-005 is complete; only a director can change it` | Approved, reported or withdrawn, text and attachments | ask a director |
 | `…/finding.md: workflow state is managed in YARS, not in the file` | Workflow keys in the file | delete the keys |
 | `…/finding.md: text before the first section heading is not shown or exported; move it under a ## heading` | Text between the front matter and the first `## ` heading (a template too); an unclosed code fence there hides every heading after it | move the text under a heading · close the fence |
+| `…/finding.md: the front matter must be written one key per line (title: X), not between { }` · `front matter key title is indented; …` · `front matter key assets: indent every line of its value after the first …` | A front matter the website cannot edit (a template too): the whole of it between `{ }`, an indented top-level key, a value that goes on at the first column, a comment at the first column inside a value. A value on one line may use `[ ]` or `{ }` | one `key: value` per line from the first column; indent the lines of a longer value |
 | `…/finding.md: id F-005 does not match the directory …` | id ≠ folder | rename the folder or the id |
 | `…/finding.md: duplicate id …` | Two folders, one id | use the next free number |
 | `…/finding.md: author must be you` | New finding, other author | `author: <you>` |
