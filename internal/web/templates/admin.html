@@ -401,6 +401,61 @@
     {{- end}}
   </div>
 </section>
+{{with .State}}
+<section class="panel sys" id="state">
+  <div class="panelhead"><h2>Current state</h2></div>
+  <div class="pbody flush">
+    <div class="stats">
+      <div class="st"><span class="sl">Checks running</span><span class="sv">{{.ChecksRunning}}</span></div>
+      <div class="st"><span class="sl">Checks queued</span><span class="sv">{{.ChecksQueued}}</span></div>
+      <div class="st"><span class="sl">Fixes running</span><span class="sv">{{.Fixes}}</span></div>
+      <div class="st"><span class="sl">Deliveries waiting</span><span class="sv">{{.Deliveries}}</span></div>
+      <div class="st"><span class="sl">Mails being sent</span><span class="sv">{{.Mails}}</span></div>
+    </div>
+    <table class="table stable usagetable">
+      <thead><tr><th>Account</th><th class="c-num">Event streams</th></tr></thead>
+      <tbody>
+        {{range .Streams}}<tr><td class="clip" title="{{.User}}">{{.User}}</td><td class="num">{{.Open}}</td></tr>
+        {{else}}{{template "empty_row" 2}}{{end}}
+      </tbody>
+    </table>
+    <table class="table stable usagetable">
+      <thead><tr><th>Repository lock</th><th class="c-num">Held for</th><th class="c-num">Waiting</th></tr></thead>
+      <tbody>
+        {{range .Locks}}<tr><td class="clip" title="{{.Repo}}">{{.Repo}}</td><td class="num">{{.Held}}</td><td class="num">{{.Waiting}}</td></tr>
+        {{else}}{{template "empty_row" 3}}{{end}}
+      </tbody>
+    </table>
+  </div>
+</section>
+<section class="panel sys" id="syslog">
+  <div class="panelhead"><h2>Log <span class="{{if .Lines}}qcnt{{else}}qcnt zero{{end}}">{{len .Lines}}</span></h2></div>
+  <div class="pbody flush">
+    <table class="table ruletable settingtable">
+      <thead><tr><th>Setting</th><th class="c-on">On</th><th class="c-act">Until</th></tr></thead>
+      <tbody>
+        <tr>
+          <td class="setname">Debug level for 15 minutes</td>
+          <td>
+            <form class="flag" method="post" action="/admin/system/debug">
+              <input type="hidden" name="on" value="{{if .DebugOn}}0{{else}}1{{end}}">
+              <button class="toggle{{if .DebugOn}} on{{end}}" role="switch" aria-checked="{{if .DebugOn}}true{{else}}false{{end}}" aria-label="Debug level for 15 minutes"{{if not .CanDebug}} disabled{{end}}><span></span></button>
+            </form>
+          </td>
+          <td><span class="slot w96 mono">{{.DebugUntil}}</span></td>
+        </tr>
+      </tbody>
+    </table>
+    <table class="table stable healthtable">
+      <thead><tr><th class="c-time">Time</th><th class="c-state">Level</th><th>Line</th></tr></thead>
+      <tbody>
+        {{range .Lines}}<tr><td class="mono">{{.Time}}</td><td><span class="tag {{.State}}">{{.Level}}</span></td><td class="dt clip" title="{{.Text}}">{{.Text}}</td></tr>
+        {{else}}{{template "empty_row" 3}}{{end}}
+      </tbody>
+    </table>
+  </div>
+</section>
+{{end}}
 {{end}}
 
 {{define "admin_activity"}}

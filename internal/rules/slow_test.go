@@ -290,9 +290,10 @@ func TestAIErrorShowsStatusOnly(t *testing.T) {
 	}
 }
 
-// The server log gets the status and the provider's host, one line a call,
-// and nothing of the error body: a provider can echo the request there (the
-// finding's text) or the key.
+// The server log gets one warn line for a call the provider refused, the
+// call's own, with the status and the provider's host, and nothing of the
+// error body: a provider can echo the request there (the finding's text) or
+// the key.
 func TestAIErrorLogHasNoBody(t *testing.T) {
 	lg, logged := logs.NewRecorder()
 	for i, provider := range []string{"anthropic", "openai"} {
@@ -306,13 +307,71 @@ func TestAIErrorLogHasNoBody(t *testing.T) {
 		if len(vs) != 1 || vs[0].Message != "AI check failed: HTTP 500" {
 			t.Fatalf("%s: got %+v", provider, vs)
 		}
-		recs := logged.With("ai: the provider refused a call")
-		if len(recs) != i+1 || recs[i].Str("status") != "500" || recs[i].Str("host") != strings.TrimPrefix(srv.URL, "http://") || recs[i].Level != slog.LevelWarn {
+		recs := logged.With("ai call failed")
+		if len(recs) != i+1 || recs[i].Str("status") != "500" || recs[i].Str("host") != strings.TrimPrefix(srv.URL, "http://") || recs[i].Level != slog.LevelWarn ||
+			recs[i].Str("err") != "HTTP 500" || recs[i].Str("rule") != acr.ID || recs[i].Str("provider") != provider {
 			t.Fatalf("%s: log:\n%s", provider, logged.Text())
 		}
 	}
-	if out := logged.Text(); strings.Contains(out, "secret") || strings.Contains(out, "hunter2") || strings.Contains(out, "fake log line") || len(logged.Records()) != 2 {
+	if out := logged.Text(); strings.Contains(out, "secret") || strings.Contains(out, "hunter2") || strings.Contains(out, "fake log line") ||
+		len(logged.With("ai call failed")) != 2 || len(logged.Records()) != 2 {
 		t.Fatalf("log:\n%s", out)
+	}
+}
+
+// Every provider call writes one line when it ends: info with what it was
+// for, the rule, the provider and model, who asked and on which finding, the
+// tokens and the time; warn with a few words when it failed. A reply that is
+// no JSON is a warning of its own. No line holds the address, the rule's
+// text, the finding's text or the reply.
+func TestAICallIsLogged(t *testing.T) {
+	lg, logged := logs.NewRecorder()
+	reply := `{"choices":[{"message":{"content":"{\"violations\":[{\"quote\":\"zqquote7f3kq\",\"message\":\"zqreply7f3kq\"}]}"}}],"usage":{"prompt_tokens":7,"completion_tokens":3}}`
+	f := &fakeAI{body: func(map[string]any) string { return reply }}
+	srv := f.server(t)
+	rn := aiRunner(t, "openai", srv.URL)
+	rn.Logger = lg
+	ctx := WithCaller(context.Background(), Caller{User: "alice", Eng: "acme", Fid: "F-002"})
+	if vs := rn.AI(ctx, acr, "title", "zqtext7f3kq zqquote7f3kq"); len(vs) != 1 {
+		t.Fatalf("got %+v", vs)
+	}
+	recs := logged.With("ai call finished")
+	if len(recs) != 1 || len(logged.Records()) != 1 {
+		t.Fatalf("log:\n%s", logged.Text())
+	}
+	r := recs[0]
+	if r.Level != slog.LevelInfo || r.Str("purpose") != "rule" || r.Str("rule") != acr.ID || r.Str("provider") != "openai" || r.Str("model") == "" ||
+		r.Str("user") != "alice" || r.Str("eng") != "acme" || r.Str("finding") != "F-002" || r.Str("in") != "7" || r.Str("out") != "3" || !r.Has("ms") {
+		t.Fatalf("line: %s", r)
+	}
+
+	// a call that gets no answer: a warning, without the address
+	logged.Reset()
+	srv.Close()
+	down := aiRunner(t, "openai", strings.Replace(srv.URL, "http://", "http://zquser7f3kq:zqpass7f3kq@", 1)+"/zqpath7f3kq")
+	down.Logger = lg
+	// a folder's name in place of an ID is not logged
+	ctx = WithCaller(context.Background(), Caller{User: "alice", Eng: "acme", Fid: "F-002-zqslug7f3kq"})
+	if vs := down.AI(ctx, acr, "title", "zqother7f3kq"); len(vs) != 1 || vs[0].Target != "ai" {
+		t.Fatalf("got %+v", vs)
+	}
+	failed := logged.With("ai call failed")
+	if len(failed) != 1 || failed[0].Level != slog.LevelWarn || failed[0].Str("err") != "no answer" || failed[0].Str("rule") != acr.ID || failed[0].Str("finding") != "?" {
+		t.Fatalf("log:\n%s", logged.Text())
+	}
+
+	// a reply that is no JSON
+	f2 := &fakeAI{body: func(map[string]any) string {
+		return `{"choices":[{"message":{"content":"zqprose7f3kq"}}]}`
+	}}
+	bad := aiRunner(t, "openai", f2.server(t).URL)
+	bad.Logger = lg
+	bad.AI(context.Background(), acr, "title", "zqthird7f3kq")
+	if recs := logged.With("ai: a rule's reply is not read"); len(recs) != 1 || recs[0].Level != slog.LevelWarn || recs[0].Str("rule") != acr.ID {
+		t.Fatalf("log:\n%s", logged.Text())
+	}
+	if out := logged.Text(); strings.Contains(out, "zq") || strings.Contains(out, acr.AI) {
+		t.Fatalf("the log holds text:\n%s", out)
 	}
 }
 

@@ -116,9 +116,41 @@ func (s *Store) StopChecks() {
 	}
 }
 
-// dropCheck ends run j without running it, failed for reason.
+// WorkState is the background work of the store now: check runs holding a
+// slot, check runs waiting for one, and fixes with AI under way.
+type WorkState struct {
+	ChecksRunning, ChecksQueued, Fixes int
+}
+
+// Work is the store's background work now, read from memory (no database
+// call: it answers when the database does not).
+func (s *Store) Work() WorkState {
+	s.queueMu.Lock()
+	w := WorkState{ChecksRunning: s.active, ChecksQueued: len(s.queue)}
+	s.queueMu.Unlock()
+	s.runningMu.Lock()
+	for _, id := range s.running {
+		if id == fixRun {
+			w.Fixes++
+		}
+	}
+	s.runningMu.Unlock()
+	return w
+}
+
+// dropInterrupted is the reason of a run dropped at a stop.
+const dropInterrupted = "interrupted"
+
+// dropCheck ends run j without running it, failed for reason. Its log line
+// says which of the two it was: interrupted (the server stops) or archived
+// (the engagement closed while the run waited).
 func (s *Store) dropCheck(j checkJob, reason string) {
 	eng, fid := j.ref.EngID, j.ref.F.Meta.ID
+	outcome := "archived"
+	if reason == dropInterrupted {
+		outcome = dropInterrupted
+	}
+	s.Log().Info("check run dropped", "eng", eng, "finding", LogID(fid), "user", j.by, "outcome", outcome)
 	s.db.FailRun(j.id, reason)
 	s.setRunning(checkKey(eng, fid), 0, true)
 	s.notify(Change{Eng: eng, Fid: fid, Kind: ChangeCheck})

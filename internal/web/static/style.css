@@ -1254,6 +1254,7 @@ form.addrow { padding: 12px 32px 12px 16px; gap: 32px; border-top: 1px solid var
 .sfc .chk input { width: 18px; height: 18px; accent-color: var(--ink); }
 .healthtable th.c-check { width: 240px; }
 .healthtable th.c-result { width: 360px; }
+.healthtable th.c-time { width: 192px; }
 .healthtable td a.lk { color: var(--ink); font-weight: 400; text-decoration: underline; }
 .healthtable td.dt, .pbody td.dt { font: 500 13px var(--mono); color: var(--muted); }
 .healthtable .tag.good { background: var(--surface); color: var(--green); border-color: var(--ok-line); }

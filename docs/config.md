@@ -75,7 +75,11 @@ A file that names another variable is refused: on Admin › Structure, on a push
 
 Both keys are read when the server starts. A file saved or pushed later changes neither until the next start. A word that is no level or no format is refused: on Admin › Structure, on a push, and at the start. `yars serve` then does not start and names the key.
 
+Admin › System can set `debug` for 15 minutes without a restart. After that the level is the one of the start again.
+
 The setup code of a first start is written at every level.
+
+How to read the log, its fields and what a line never holds: [deploy.md](deploy.md#logs).
 
 ## Workflow
 

@@ -64,6 +64,14 @@ func startConfig(r *gitrepo.Repo) (config.Config, error) {
 // given) names another. Both were checked before. The level sits in a
 // slog.LevelVar, so it can change while the server runs.
 func serverLog(w io.Writer, cfg config.Config, flagLevel string) (*slog.Logger, *slog.LevelVar) {
+	lg, lv, _ := serverLogRing(w, cfg, flagLevel)
+	return lg, lv
+}
+
+// serverLogRing is serverLog with the ring that keeps the log's last warn
+// and error lines in memory (Admin › System, yars status): behind the same
+// redaction as w, and at its own level whatever log.level is.
+func serverLogRing(w io.Writer, cfg config.Config, flagLevel string) (*slog.Logger, *slog.LevelVar, *logs.Ring) {
 	word := cfg.Log.Level
 	if flagLevel != "" {
 		word = flagLevel
@@ -71,7 +79,8 @@ func serverLog(w io.Writer, cfg config.Config, flagLevel string) (*slog.Logger, 
 	lv := new(slog.LevelVar)
 	level, _ := logs.ParseLevel(word)
 	lv.Set(level)
-	return logs.New(w, cfg.Log.Format, lv), lv
+	ring := logs.NewRing()
+	return slog.New(logs.HandlerRing(w, cfg.Log.Format, lv, ring)), lv, ring
 }
 
 // prepareData readies a data folder the way every start does, after
@@ -204,7 +213,7 @@ func cmdServe(args []string) error {
 	if err != nil {
 		return err
 	}
-	lg, _ := serverLog(os.Stderr, cfg, *logLevel)
+	lg, level, ring := serverLogRing(os.Stderr, cfg, *logLevel)
 	d, st, err := prepareData(r, cfg, lg)
 	if err != nil {
 		return err
@@ -221,19 +230,37 @@ func cmdServe(args []string) error {
 		d.Close()
 		return err
 	}
+	// the log's ring and its level are the server's to show and to switch
+	// (Admin › System: the last lines, debug for 15 minutes)
+	srv.LogRing, srv.LogLevel = ring, level
 	hs := srv.HTTPServer(*addr)
 	hs.TLSConfig = tlsCfg
 	ln, err := net.Listen("tcp", *addr)
 	if err != nil {
 		return err
 	}
+	// yars status reads this server on a socket in the data folder; it is
+	// opened once the address is this server's, and closed when it stops
+	defer startStatus(r.Dir, srv, lg)()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	// after the first signal a second one ends the process at once (a stop
 	// can take up to twice stopGrace)
 	context.AfterFunc(ctx, stop)
-	lg.Info("yars serving", "data", r.Dir, "addr", *addr)
+	logStart(lg, srv, cfg, r.Dir, *addr, secure)
 	return serve(ctx, ln, hs, srv, st, d)
+}
+
+// logStart writes the line of a start, once the server is built: the
+// version, the schema, the workflow, the address it listens on and whether
+// it serves HTTPS, the data folder, and which optional parts are on: AI (a
+// provider and a key are set), SMTP and pandoc. Each of the three is yes or
+// no: never a key, a variable's name, a host or a login.
+func logStart(lg *slog.Logger, srv *web.Server, cfg config.Config, dir, addr string, secure bool) {
+	ai := srv.Rules != nil && srv.Rules.AIConfigured()
+	pandoc := srv.Export != nil && srv.Export.PandocPath != ""
+	logs.Or(lg).Info("yars serving", "version", buildVersion(), "schema", db.SchemaVersion, "workflow", workflow.FlowOf(cfg).Name(),
+		"addr", addr, "https", secure, "data", dir, "ai", ai, "smtp", cfg.SMTP.Configured(), "pandoc", pandoc)
 }
 
 // serverParts builds the server on prepared data: the rules, the accounts,

@@ -50,11 +50,20 @@ func (s *Server) daily(d *db.DB) {
 			return false
 		}
 	}
-	if _, err := s.prune(d); err != nil && !stopping() {
+	start := time.Now()
+	switch p, err := s.prune(d); {
+	case err == nil:
+		s.log().Info("retention: the daily prune finished", "audit", p.Audit, "check_runs", p.CheckRuns, "sessions", p.Sessions,
+			"ai_calls", p.AIUsage, "rule_results", p.RuleResults, "ms", time.Since(start).Milliseconds())
+	case !stopping():
 		s.log().Error("retention: the daily prune failed", "err", err)
 	}
 	if s.Notifier != nil {
-		if err := s.Notifier.Tokens(time.Now()); err != nil && !stopping() {
+		start = time.Now()
+		switch err := s.Notifier.Tokens(time.Now()); {
+		case err == nil:
+			s.log().Info("token notices: the daily run finished", "ms", time.Since(start).Milliseconds())
+		case !stopping():
 			s.log().Error("token notices: the daily run failed", "err", err)
 		}
 	}

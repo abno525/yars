@@ -44,6 +44,8 @@ type systemAdmin struct {
 	RestoreError                       string
 	Restored                           *restoreResult
 	LastRestore, RestoreBy, RestoreDir string
+	// State is what the server does now and the last lines of its log
+	State stateView
 }
 
 // healthAdmin is the System page's Health panel: one row per check.
@@ -83,6 +85,9 @@ func (s *Server) routesAdminSystem(mux *http.ServeMux) {
 	mux.HandleFunc("POST /admin/system/sync", s.adminOnly(s.systemOp("sync")))
 	mux.HandleFunc("POST /admin/system/reindex", s.adminOnly(s.systemOp("reindex")))
 	mux.HandleFunc("POST /admin/system/migrate", s.adminOnly(s.systemOp("migrate")))
+	// the log at debug for 15 minutes: a POST only, so the cross-origin check
+	// covers it
+	mux.HandleFunc("POST /admin/system/debug", s.adminOnly(s.debugSwitch))
 	// Health is part of the System page
 	mux.HandleFunc("GET /admin/health", s.adminOnly(func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/admin/system", http.StatusSeeOther)
@@ -182,6 +187,7 @@ func (s *Server) systemPageStatus(w http.ResponseWriter, r *http.Request, status
 			return err
 		}
 		s.restoreView(r, &v)
+		v.State = stateViewOf(s.Status())
 		if js := s.flash.take(r, "sysop"); js != "" {
 			var op sysOp
 			if json.Unmarshal([]byte(js), &op) == nil {
@@ -246,6 +252,7 @@ func (s *Server) runOp(op string) sysOp {
 func (s *Server) backup(w http.ResponseWriter, r *http.Request) {
 	withKey := r.PostFormValue("key") == "1"
 	dir := s.Store.Repo().Dir
+	start := time.Now()
 	http.NewResponseController(w).SetWriteDeadline(time.Now().Add(time.Hour))
 	name := "yars-backup-" + time.Now().Format("2006-01-02-1504") + ".zip"
 	w.Header().Set("Content-Type", "application/zip")
@@ -270,6 +277,7 @@ func (s *Server) backup(w http.ResponseWriter, r *http.Request) {
 		detail = "with key"
 	}
 	s.Store.DB().Audit(auth.UserFrom(r.Context()).Username, "backup", "", detail+" · "+size(n))
+	s.log().Info("backup downloaded", "user", auth.UserFrom(r.Context()).Username, "bytes", n, "with_key", withKey, "ms", time.Since(start).Milliseconds())
 }
 
 // lastHealthOr is the last run of the health checks, which the System page

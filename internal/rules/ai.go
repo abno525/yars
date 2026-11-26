@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -111,12 +113,78 @@ func (rn *Runner) ask(ctx context.Context, c config.AIConfig, key, system, user,
 	} else {
 		content, in, out, err = rn.openai(ctx, c, key, system, user)
 	}
+	took := max(time.Since(start), time.Nanosecond)
+	who := CallerOf(ctx)
 	if rn.OnUsage != nil {
-		who := CallerOf(ctx)
 		rn.OnUsage(Usage{Purpose: purpose, Provider: c.Provider, Model: c.Model, Rule: rule, User: who.User, Eng: who.Eng, Fid: who.Fid,
-			In: in, Out: out, Took: max(time.Since(start), time.Nanosecond), OK: err == nil})
+			In: in, Out: out, Took: took, OK: err == nil})
 	}
+	rn.logCall(ctx, who, c, purpose, rule, in, out, took, err)
 	return content, err
+}
+
+// logCall writes a provider call's one line when it ends: what it was for
+// (rule, fix or test), the rule's ID, the provider and model, who asked and
+// on which finding, the tokens and the time; a call that failed is a warning
+// with what failed in a few words (callErr), and with the status and the
+// provider's host when the provider refused it. Never the rest of the
+// address, the prompt or the reply.
+func (rn *Runner) logCall(ctx context.Context, who Caller, c config.AIConfig, purpose, rule string, in, out int, took time.Duration, err error) {
+	attrs := []slog.Attr{slog.String("purpose", purpose)}
+	if rule != "" {
+		attrs = append(attrs, slog.String("rule", rule))
+	}
+	attrs = append(attrs, slog.String("provider", c.Provider), slog.String("model", c.Model))
+	if who.User != "" {
+		attrs = append(attrs, slog.String("user", who.User))
+	}
+	if who.Eng != "" {
+		attrs = append(attrs, slog.String("eng", who.Eng))
+	}
+	if who.Fid != "" {
+		attrs = append(attrs, slog.String("finding", logFinding(who.Fid)))
+	}
+	attrs = append(attrs, slog.Int("in", in), slog.Int("out", out), slog.Int64("ms", took.Milliseconds()))
+	if err != nil {
+		var ref *refused
+		if errors.As(err, &ref) {
+			attrs = append(attrs, slog.Int("status", ref.status), slog.String("host", ref.host))
+		}
+		attrs = append(attrs, slog.String("err", callErr(err)))
+		rn.log().LogAttrs(ctx, slog.LevelWarn, "ai call failed", attrs...)
+		return
+	}
+	rn.log().LogAttrs(ctx, slog.LevelInfo, "ai call finished", attrs...)
+}
+
+// findingID is the form of a finding's ID.
+var findingID = regexp.MustCompile(`^F-\d{1,9}$`)
+
+// logFinding is a finding as a log line names it: its ID, or "?" for a
+// value that is none (the folder's name holds the title).
+func logFinding(id string) string {
+	if findingID.MatchString(id) {
+		return id
+	}
+	return "?"
+}
+
+// callErr is a failed provider call in a few words for the log: "timeout" or
+// "no answer" for a call that got no reply (the error names the address,
+// which can hold a login), else the error's own text (the HTTP status, an
+// empty or cut reply, a reply that is no JSON: none quotes the reply).
+func callErr(err error) string {
+	var ue *url.Error
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return "timeout"
+	case errors.As(err, &ue):
+		if ue.Timeout() {
+			return "timeout"
+		}
+		return "no answer"
+	}
+	return err.Error()
 }
 
 // Ping sends a minimal request to the provider in use and returns how long
@@ -173,7 +241,11 @@ func (rn *Runner) AI(ctx context.Context, r Rule, target, text string) []Violati
 		defer cancel()
 		content, err := rn.ask(ctx, c, key, systemPrompt, aiUser(r.AI, target, text), "rule", r.ID, ruleTokens)
 		if err == nil {
-			err = parseAI(content, &res)
+			if err = parseAI(content, &res); err != nil {
+				// the call worked (its own line says so), the reply is not
+				// the JSON asked for; the error quotes one character at most
+				rn.log().Warn("ai: a rule's reply is not read", "rule", r.ID, "provider", c.Provider, "model", c.Model, "err", err)
+			}
 		}
 		if err != nil {
 			return aiWarning(r, "AI check failed: "+quote(err.Error()))
@@ -225,11 +297,19 @@ func (rn *Runner) post(ctx context.Context, url string, body any, hdr map[string
 	if resp.StatusCode/100 != 2 {
 		// the body can echo the key, the account or the request (the
 		// finding's text): users and the server log get the status only
-		rn.log().Warn("ai: the provider refused a call", "status", resp.StatusCode, "host", req.URL.Host)
-		return fmt.Errorf("HTTP %d", resp.StatusCode)
+		return &refused{status: resp.StatusCode, host: req.URL.Host}
 	}
 	return json.Unmarshal(data, out)
 }
+
+// refused is a provider's answer whose status is not 2xx: the status and
+// the host asked, for the call's log line. Its text is the status alone.
+type refused struct {
+	status int
+	host   string
+}
+
+func (e *refused) Error() string { return fmt.Sprintf("HTTP %d", e.status) }
 
 // openai asks an OpenAI-compatible provider; in and out are the tokens it
 // reported (usage.prompt_tokens, usage.completion_tokens).

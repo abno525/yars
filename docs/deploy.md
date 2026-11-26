@@ -226,18 +226,154 @@ Admin › System:
 - **Run integrity** runs the full checks: the database's `integrity_check`, `git fsck` on every repository, and a test call to the AI provider.
 - **Server** shows the version, the uptime, the database size and the counts.
 - **Operations** has the schema and the last index build. Its buttons sync the engagement pointers, rebuild the index and list what still needs `yars migrate`.
+- **Current state** shows what the server does now: the checks running and queued, the fixes running, the webhook deliveries waiting, the mails being sent, the open event streams by account, and each repository lock that is held or waited for.
+- **Log** shows the last 200 warnings and errors of the service log, newest first, and has the switch **Debug level for 15 minutes**.
 
-The service log (`journalctl -u yars`) has every error the pages answered with "internal error".
+The same state is on the command line (see [Logs](#logs)):
 
-It also has one line for each failed password login, on the website and over git, and one when a name is locked out:
-
-```
-login failed: user "alice" from 127.0.0.1:53412 forwarded-for "203.0.113.9"
-git login failed: user "alice" from 127.0.0.1:53418 forwarded-for "203.0.113.9"
-login locked: user "alice" until 2026-11-26T14:15:00Z
+```sh
+sudo -u yars yars status --data /srv/yars
 ```
 
-The address after `from` is the one that connected: behind a proxy, the proxy's. The `forwarded-for` part is the `X-Forwarded-For` header, shown only when the server runs with `--https` or a certificate. A client can send that header too: trust it only when your proxy sets it, as the nginx example does. A failed AI call logs its status and the provider's host, never the provider's answer.
+## Logs
+
+YARS writes its log to stderr. The journal of systemd keeps it. YARS writes no log file and rotates nothing.
+
+```sh
+journalctl -u yars -f                                  # follow the log
+journalctl -u yars --since "1 hour ago"
+journalctl -u yars | grep -E 'level=(WARN|ERROR)'      # warnings and errors
+journalctl -u yars | grep req=4f2a9c1b                 # the lines of one request
+```
+
+### Format and levels
+
+A line is `time=… level=… msg=… key=value …`. A value with a space is in quotes. With `log.format: json` a line is one JSON object ([config.md](config.md)).
+
+`log.level` sets the lowest level written. The default is `info`.
+
+| Level | For | Examples |
+|---|---|---|
+| `error` | a request or a job failed; someone should look | a commit failed, a template error, a check run crashed |
+| `warn` | it went on, but not as it should | a failed login, a failed AI call, a webhook tried again, a slow request |
+| `info` | one line for each thing that happened | a request, a check run, an export, a push, start and stop |
+| `debug` | detail for one problem | static files, the heartbeat of a live stream |
+
+The same field has the same name on every line:
+
+| Field | Holds |
+|---|---|
+| `req` | the request's ID, 8 characters |
+| `user` | the account's username |
+| `token` | the ID of the token used, never its value |
+| `eng` | the engagement's ID |
+| `finding` | the finding's ID, such as `F-002` |
+| `route` | the route's pattern, never the address with its query |
+| `status` | the HTTP status |
+| `ms` | the time taken, in milliseconds |
+| `err` | what failed |
+
+A line never holds finding text, a title, chat, a reason, a file's name, a password, a token's value, a key, an AI prompt or answer, a request body or a query string. It holds IDs and usernames. An error's text is cleaned the same way. There is one exception: the setup code of a first start.
+
+### One request, one line
+
+```
+time=2026-11-26T14:00:03.000Z level=INFO msg=request req=4f2a9c1b method=GET route="GET /e/{eng}/f/{fid}" status=200 ms=12 user=alice eng=acme finding=F-002
+```
+
+The website, the git endpoint and MCP each write this line. A request over 2 seconds is a `warn` line.
+
+Every response carries the ID as the `X-Request-ID` header. An internal error shows it on the page and in the toast: `Request 4f2a9c1b`. The error's own line has the same `req`, so one `grep` finds both.
+
+### Background work
+
+Each job writes one line when it ends, with `ms` and its outcome.
+
+| `msg` | When |
+|---|---|
+| `yars serving` | the start: version, schema, workflow, address, and whether AI, SMTP and pandoc are on |
+| `yars stopping`, `yars stopped` | the stop |
+| `check run finished` | a check run ended: its state and the counts of errors and warnings |
+| `check run crashed` | a check run failed inside the server (`error`) |
+| `check run dropped` | a waiting check run was not run: the server stops (`interrupted`) or the engagement was archived (`archived`) |
+| `fix with AI finished` | a Fix with AI ended: how many were fixed |
+| `ai call finished`, `ai call failed` | one call to the AI provider: the rule, the model, the tokens (`warn` when it failed) |
+| `export finished` | a download or a send: the destination's ID and the counts (`warn` when a finding failed) |
+| `webhook delivered` | a webhook delivery arrived |
+| `webhook delivery failed; it is tried again` | a delivery failed and waits for its next try (`warn`) |
+| `webhook delivery given up` | the last try failed (`warn`) |
+| `webhook delivery dropped` | the webhook was turned off with this delivery waiting |
+| `notification email sent`, `notification email not sent` | one mail; a refusal is named by its SMTP code (`warn`) |
+| `push accepted`, `push refused` | a git push, with who pushed |
+| `backup downloaded` | a backup download from Admin › System |
+| `restore: an uploaded backup is restored into a new folder` | a restore upload on Admin › System, with the counts of engagements and findings |
+| `restore: an uploaded backup is refused` | a restore upload was refused (`warn`) |
+| `retention: the daily prune finished` | the daily prune, with what it deleted |
+| `token notices: the daily run finished` | the daily notices about tokens that expire soon |
+| `log: the debug level is switched on`, `log: the debug level is switched off` | an admin moved the debug switch |
+| `log: the debug level ended by itself` | the 15 minutes of debug are over |
+| `lock: a long wait for a repository's lock` | a write waited over 5 seconds for another one (`warn`) |
+
+A webhook delivery that got no HTTP answer has `status=0` and one word in `err`: `no answer`, `redirect refused`, `secret`, `address`, `removed`, `disabled` or `database`. The line never holds the webhook's address.
+
+### Failed logins
+
+One `warn` line for each failed password login, on the website and over git, and one when a name is locked out:
+
+```
+time=2026-11-26T14:00:03.000Z level=WARN msg="login failed" user=alice remote=127.0.0.1:53412 forwarded_for=203.0.113.9 req=7c1e0b3a
+time=2026-11-26T14:00:03.000Z level=WARN msg="git login failed" user=alice remote=127.0.0.1:53418 forwarded_for=203.0.113.9 req=0d5f9a21
+time=2026-11-26T14:00:03.000Z level=WARN msg="login locked" user=alice until=2026-11-26T14:15:00Z
+```
+
+`remote` is the address that connected: behind a proxy, the proxy's. `forwarded_for` is the `X-Forwarded-For` header, written only when the server runs with `--https` or a certificate. A client can send that header too: trust it only when your proxy sets it, as the nginx example does. `user` is what was typed, cut at 64 characters; a name with a space or a quote is in quotes.
+
+### fail2ban
+
+An example filter. It needs `log.format: text`, the default. The name comes before the address and is the client's own text, so the pattern reads it as a whole, quoted or not.
+
+`/etc/fail2ban/filter.d/yars.conf`:
+
+```ini
+[INCLUDES]
+before = common.conf
+
+[Definition]
+_daemon = yars
+failregex = ^%(__prefix_line)stime=\S+ level=WARN msg="(?:git )?login failed" user=(?:"(?:[^"\\]|\\.)*"|[^\s"=]+) remote=<HOST>:\d+(?: |$)
+```
+
+`/etc/fail2ban/jail.d/yars.conf`:
+
+```ini
+[yars]
+enabled = true
+backend = systemd
+journalmatch = _SYSTEMD_UNIT=yars.service
+ignoreip = 127.0.0.1/8 ::1
+```
+
+Behind a proxy `remote` is the proxy. Keep the proxy in `ignoreip`, and match `forwarded_for` instead. Do this only when the proxy sets the header itself, as the nginx example does: a proxy that adds to the client's header passes on what the client claimed.
+
+```ini
+failregex = ^%(__prefix_line)stime=\S+ level=WARN msg="(?:git )?login failed" user=(?:"(?:[^"\\]|\\.)*"|[^\s"=]+) remote=\S+ forwarded_for=<HOST>(?: |$)
+```
+
+Test a filter before you rely on it: `fail2ban-regex systemd-journal /etc/fail2ban/filter.d/yars.conf`.
+
+### What the server does now
+
+```sh
+sudo -u yars yars status --data /srv/yars
+```
+
+It prints the version, the schema, the uptime, the log level, the checks running and queued, the webhook deliveries waiting, the open event streams, the repository locks, and the last 200 warnings and errors. It asks the running server over a socket in the data folder (`.yars/status.sock`) that only the service account opens: run it as that account. It needs no password, and it answers when the database is locked.
+
+Admin › System shows the same in **Current state** and **Log**. The 200 lines are kept in memory: they are lost at a restart, and the journal has every line.
+
+### Debug for 15 minutes
+
+Admin › System › Log has the switch **Debug level for 15 minutes**. It sets the log to `debug` without a restart and shows when it ends. After 15 minutes the level is the one the server started with. Each change is in Admin › Activity as `system.debug`. It changes the level only: a `debug` line holds no more text than any other line.
 
 ## Uninstall
 

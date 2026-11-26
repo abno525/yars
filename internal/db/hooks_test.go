@@ -70,6 +70,10 @@ func TestWebhooksAndDeliveries(t *testing.T) {
 	if due, _ := d.DueDeliveries(now.Add(2*time.Minute), 10); len(due) != 1 || due[0].Attempts != 1 {
 		t.Fatalf("due after %+v", due)
 	}
+	// both wait: one for its next try, one for its time
+	if n, err := d.PendingDeliveries(); err != nil || n != 2 {
+		t.Fatalf("pending %d %v", n, err)
+	}
 	// success
 	if err := d.FinishAttempt(did, 204, "", time.Time{}, now); err != nil {
 		t.Fatal(err)
@@ -80,6 +84,9 @@ func TestWebhooksAndDeliveries(t *testing.T) {
 	}
 	// given up: no next try
 	d.FinishAttempt(later, 0, "connection refused", time.Time{}, now)
+	if n, err := d.PendingDeliveries(); err != nil || n != 0 {
+		t.Fatalf("pending after both ended: %d %v", n, err)
+	}
 	if dl, _ := d.Delivery(later); dl.State != DeliveryFailed || dl.Error != "connection refused" {
 		t.Fatalf("%+v", dl)
 	}

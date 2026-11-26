@@ -255,10 +255,17 @@ func TestQueuedRunCountsAsRunning(t *testing.T) {
 	if g, err := s.CheckGate(eng, fd); err != nil || g != GateRunning {
 		t.Fatalf("gate %q %v", g, err)
 	}
+	// what the System panel and yars status show of it
+	if w := s.Work(); w != (WorkState{ChecksRunning: 1, ChecksQueued: 1}) {
+		t.Fatalf("work with one run under way and one queued: %+v", w)
+	}
 	close(l.release)
 	waitAll(t, s)
 	if st, err := s.CheckStatus(eng, fd); err != nil || st.Running || st.Queued || st.Run.State != db.RunDone {
 		t.Fatalf("after %+v %v", st, err)
+	}
+	if w := s.Work(); w != (WorkState{}) {
+		t.Fatalf("work after the runs ended: %+v", w)
 	}
 }
 

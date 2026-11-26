@@ -270,13 +270,24 @@ func (s *Store) runCheck(j checkJob) {
 		s.dropCheck(j, err.Error())
 		return
 	}
+	start := time.Now()
 	defer func() {
 		if p := recover(); p != nil {
+			// the panic's value is free text: in err only
+			s.Log().Error("check run crashed", "eng", eng, "finding", LogID(fid), "user", j.by, "err", fmt.Sprint(p))
 			s.db.FailRun(id, fmt.Sprint("crashed: ", p))
 		}
 		s.setRunning(checkKey(eng, fid), 0, true)
 		s.notify(Change{Eng: eng, Fid: fid, Kind: ChangeCheck})
-		s.emitCheck(id, ref)
+		ev, ok := s.emitCheck(id, ref)
+		// the run's end, in one line: its state and counts, never why it
+		// failed (a script's or a provider's own words)
+		state := "unknown"
+		if ok {
+			state = ev.State
+		}
+		s.Log().Info("check run finished", "eng", eng, "finding", LogID(fid), "user", j.by, "state", state,
+			"errors", ev.Errors, "warnings", ev.Warnings, "ms", time.Since(start).Milliseconds())
 	}()
 	// it runs the rules of now, not of when it was asked for (it may have
 	// waited); changed while it runs (also changed and changed back: the
@@ -327,13 +338,15 @@ func (s *Store) runCheck(j checkJob) {
 	s.notify(Change{Eng: eng, Fid: fid, Kind: ChangeChat, Seq: seq})
 }
 
-// emitCheck tells the subscribers that run id of ref ended, with its counts.
-func (s *Store) emitCheck(id int64, ref FindingRef) {
+// emitCheck tells the subscribers that run id of ref ended, with its counts,
+// and returns the event; ok is false when the run could not be read (nothing
+// is told then).
+func (s *Store) emitCheck(id int64, ref FindingRef) (ev Event, ok bool) {
 	run, err := s.db.Run(id)
 	if err != nil {
-		return
+		return Event{}, false
 	}
-	ev := findingEvent(EventCheck, run.By, ref)
+	ev = findingEvent(EventCheck, run.By, ref)
 	ev.State = run.State
 	dis, _ := s.db.Dismissals(ref.EngID, ref.F.Meta.ID)
 	if res, err := s.db.RunResults(id); err == nil {
@@ -353,6 +366,7 @@ func (s *Store) emitCheck(id int64, ref FindingRef) {
 		}
 	}
 	s.Emit(ev)
+	return ev, true
 }
 
 // checkText is the comment for a violation: its message and the quote.

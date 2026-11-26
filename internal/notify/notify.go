@@ -4,15 +4,18 @@
 package notify
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"mime"
 	"net/smtp"
+	"net/textproto"
 	"os"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/abno525/yars/internal/config"
@@ -109,7 +112,13 @@ type Notifier struct {
 	// Logger takes the notifier's log lines; nil writes none.
 	Logger *slog.Logger
 	wg     sync.WaitGroup
+	// sending counts the mails being sent now (there is no queue: each mail
+	// is sent on its own, once)
+	sending atomic.Int32
 }
+
+// Sending is how many mails are being sent now.
+func (n *Notifier) Sending() int { return int(n.sending.Load()) }
 
 func (n *Notifier) log() *slog.Logger { return logs.Or(n.Logger) }
 
@@ -254,13 +263,41 @@ func (n *Notifier) email(u config.User, note db.Notification, mail Mailer) {
 	if mail != nil && u.Email != "" && n.DB.Wants(u.Username, note.Event, "email") {
 		subject, body := n.mailFor(note)
 		n.wg.Add(1)
+		n.sending.Add(1)
 		go func() {
 			defer n.wg.Done()
-			if err := mail.Send(u.Email, subject, body); err != nil {
-				n.log().Warn("notification email not sent", "user", u.Username, "eng", note.Eng, "finding", note.Fid, "err", err)
+			defer n.sending.Add(-1)
+			start := time.Now()
+			err := mail.Send(u.Email, subject, body)
+			// a token's notice has no engagement and no finding
+			attrs := []any{"user", u.Username}
+			if note.Eng != "" {
+				attrs = append(attrs, "eng", note.Eng)
 			}
+			if note.Fid != "" {
+				attrs = append(attrs, "finding", note.Fid)
+			}
+			attrs = append(attrs, "event", note.Event, "ms", time.Since(start).Milliseconds())
+			if err != nil {
+				n.log().Warn("notification email not sent", append(attrs, "err", mailErr(err))...)
+				return
+			}
+			n.log().Info("notification email sent", attrs...)
 		}()
 	}
+}
+
+// mailErr is a mail that was not sent, in a few words for the log: the SMTP
+// reply code when the server refused it, else that it was not delivered. A
+// server's own words are left out: a refusal quotes the recipient's address
+// ("550 5.1.1 <name@client.example>: Recipient address rejected"), and an
+// account's address is not for the log. The mail is not sent again.
+func mailErr(err error) string {
+	var reply *textproto.Error
+	if errors.As(err, &reply) {
+		return "SMTP " + strconv.Itoa(reply.Code)
+	}
+	return "not delivered"
 }
 
 // TokenSoon is how long before its expiry a token's owner is told, once;

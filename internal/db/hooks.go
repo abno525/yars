@@ -180,6 +180,13 @@ func (d *DB) DueDeliveries(now time.Time, limit int) ([]Delivery, error) {
 	return d.deliveries("WHERE state = ? AND next_at <= ? ORDER BY next_at, id LIMIT ?", DeliveryPending, stampAt(now), limit)
 }
 
+// PendingDeliveries counts the deliveries waiting to be sent or tried again.
+func (d *DB) PendingDeliveries() (int, error) {
+	var n int
+	err := d.QueryRow("SELECT count(*) FROM webhook_deliveries WHERE state = ?", DeliveryPending).Scan(&n)
+	return n, err
+}
+
 // FinishAttempt records a try of delivery id: status is the HTTP status (0
 // = no answer), errText "" means it was delivered. A failed try is retried
 // at next; a zero next gives up.

@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -184,6 +185,61 @@ func TestServeLogLevelAndFormat(t *testing.T) {
 		if err == nil || err.Error() != want {
 			t.Fatalf("%q: %v", body, err)
 		}
+	}
+}
+
+// The line of a start names the version, the schema, the workflow, the
+// address and which optional parts are on (AI, SMTP, pandoc), as yes or no:
+// never a key, a variable's name or value, a host or a login.
+func TestServeStartLine(t *testing.T) {
+	dir := t.TempDir()
+	if err := initData(dir); err != nil {
+		t.Fatal(err)
+	}
+	r, err := gitrepo.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := func(body string) logs.Record {
+		t.Helper()
+		if err := os.WriteFile(config.ConfigPath(dir), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := r.Commit([]string{".yars/config.yaml"}, "config", system); err != nil {
+			t.Fatal(err)
+		}
+		cfg, d, st, err := startData(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer d.Close()
+		srv, err := serverParts(r, cfg, d, st, nil, "yars", true, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		srv.HTTPServer("127.0.0.1:0")
+		defer srv.Close()
+		lg, out := logs.NewRecorder()
+		logStart(lg, srv, cfg, dir, "127.0.0.1:8443", true)
+		recs := out.With("yars serving")
+		if len(recs) != 1 || len(out.Records()) != 1 || recs[0].Level != slog.LevelInfo {
+			t.Fatalf("log:\n%s", out.Text())
+		}
+		if text := out.Text(); strings.Contains(text, "zq") || strings.Contains(text, "YARS_TEST") {
+			t.Fatalf("the start line holds a key, a name or a host:\n%s", text)
+		}
+		return recs[0]
+	}
+	t.Setenv("YARS_TEST_AI_KEY", "zqaikey7f3kq")
+	t.Setenv("YARS_TEST_SMTP_PW", "zqsmtppw7f3kq")
+	on := start("ai:\n  provider: openai\n  base_url: https://zqaihost7f3kq.example/v1\n  model: zqmodel7f3kq\n  api_key_env: YARS_TEST_AI_KEY\n" +
+		"smtp:\n  host: zqsmtphost7f3kq.example\n  port: 587\n  from: yars@zqfrom7f3kq.example\n  username: zqsmtpuser7f3kq\n  password_env: YARS_TEST_SMTP_PW\n")
+	if on.Str("version") != buildVersion() || on.Str("schema") != strconv.Itoa(db.SchemaVersion) || on.Str("workflow") != "standard" ||
+		on.Str("addr") != "127.0.0.1:8443" || on.Str("data") != dir || on.Attrs["https"] != true || on.Attrs["ai"] != true || on.Attrs["smtp"] != true || !on.Has("pandoc") {
+		t.Fatalf("line: %s", on)
+	}
+	if off := start("base_url: https://yars.example.com\n"); off.Attrs["ai"] != false || off.Attrs["smtp"] != false {
+		t.Fatalf("line without AI and SMTP: %s", off)
 	}
 }
 

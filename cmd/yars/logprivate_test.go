@@ -177,10 +177,13 @@ func TestNoPrivateTextInLogMCPAndPush(t *testing.T) {
 				}
 			}
 			wants := []string{`setup_code=` + code, `msg=request `, `user=alice`, `user=dora`, `eng=acme`, `finding=F-001`, `tool=update_section`, `code=server_error`,
-				`msg="mcp: a tool failed"`, "permission denied", `route="git receive-pack"`}
+				`msg="mcp: a tool failed"`, "permission denied", `route="git receive-pack"`,
+				// the two pushes, each with its one line
+				`msg="push accepted" eng=acme user=alice`, `msg="push refused" eng=acme user=alice`}
 			if format == logs.JSON {
 				wants = []string{`"setup_code":"` + code + `"`, `"msg":"request"`, `"user":"alice"`, `"user":"dora"`, `"eng":"acme"`, `"finding":"F-001"`, `"tool":"update_section"`,
-					`"code":"server_error"`, `"msg":"mcp: a tool failed"`, "permission denied", `"route":"git receive-pack"`}
+					`"code":"server_error"`, `"msg":"mcp: a tool failed"`, "permission denied", `"route":"git receive-pack"`,
+					`"msg":"push accepted","eng":"acme","user":"alice"`, `"msg":"push refused","eng":"acme","user":"alice"`}
 			}
 			for _, want := range wants {
 				if !strings.Contains(got, want) {

@@ -9,6 +9,7 @@
 //	  piped one must be changed at the next login)
 //	yars admin --data <dir> <username> on|off
 //	yars serve --data <dir> [--addr :8080] [--tls-cert <file> --tls-key <file>] [--https]
+//	yars status --data <dir>   (what the running server does now, read over a socket in the data folder)
 //	yars migrate --data <dir>   (move state and chat from files into the database)
 //	yars backup --data <dir> [--key] --out <file.zip>   (works while the server runs)
 //	yars restore --from <file.zip> --data <new dir>   (--data is required: never the default)
@@ -891,7 +892,8 @@ func usage() {
   yars version
   yars init [--simple] <dir>   (--simple: draft → complete → reported, no roles; fixed after init)
   yars use [<dir>]   (set the default data folder, or show it)
-  yars serve --data <dir> [--addr :8080] [--tls-cert <file> --tls-key <file>] [--https]
+  yars serve --data <dir> [--addr :8080] [--tls-cert <file> --tls-key <file>] [--https] [--log-level debug|info|warn|error]
+  yars status --data <dir>   (what the running server does now; run it as the server's account)
   yars useradd --data <dir> --role pentester|reviewer|director [--email e] [--admin] <user>   (no --role in the simple workflow)
   yars admin --data <dir> <user> on|off
   yars passwd --data <dir> <user>
@@ -967,6 +969,8 @@ func main() {
 		err = cmdRestore(os.Args[2:], os.Stdout)
 	case "serve":
 		err = cmdServe(os.Args[2:])
+	case "status":
+		err = cmdStatus(os.Args[2:], os.Stdout)
 	case "export":
 		code, xerr := cmdExport(os.Args[2:], os.Stdout)
 		if xerr != nil {

@@ -182,7 +182,13 @@ func (s *Store) runFix(engID, dir, fid string, list, all []db.CheckResult, u con
 	job, cancel := context.WithTimeout(base, fixJobLimit)
 	defer cancel()
 	ctx := rules.WithCaller(job, rules.Caller{User: u.Username, Eng: engID, Fid: fid})
+	start := time.Now()
 	nFixed, nSkipped := 0, 0
+	// the job's end, in one line (also when it crashed: the counts so far)
+	defer func() {
+		s.Log().Info("fix with AI finished", "eng", engID, "finding", LogID(fid), "user", u.Username,
+			"fixed", nFixed, "not_fixed", nSkipped, "ms", time.Since(start).Milliseconds())
+	}()
 	for _, r := range list {
 		if s.writable(engID) != nil {
 			break // archived meanwhile: nothing more is written there
