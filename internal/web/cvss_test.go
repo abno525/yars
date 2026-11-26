@@ -221,6 +221,61 @@ func TestCVSSReasonKeptWhenToggled(t *testing.T) {
 	}
 }
 
+// A stored reason explains the stored value. The editor does not offer it
+// for another value: the field is empty and counted as missing, and a Save
+// that posts the old words for the new value stores no reason. Back at the
+// stored value the reason shows again and a Save keeps it; words typed for
+// the new value are kept, also the same words.
+func TestCVSSEditorReasonGoesWithItsValue(t *testing.T) {
+	e := setup(t)
+	form := func(over map[string]string) url.Values {
+		f := vecForm(map[string]string{"PR": "L", "reason_PR": "low account", "reason_AC": "race", "reason_C": "c", "reason_I": "i"})
+		for k, v := range over {
+			f.Set(k, v)
+		}
+		return f
+	}
+	if rec := e.do(t, "alice", "POST", fpath+"/cvss", form(nil), nil); rec.Code != 200 || !strings.Contains(e.meta(t), "PR: low account") {
+		t.Fatalf("first save %d:\n%s", rec.Code, e.meta(t))
+	}
+	const mark = `<input type="hidden" name="reasoncut_PR" value="1">`
+	// PR:L to PR:H, the page sends the stored words along
+	b := e.do(t, "alice", "POST", fpath+"/cvss/calc", form(map[string]string{"PR": "H"}), nil).Body.String()
+	if !strings.Contains(b, `<textarea name="reason_PR" rows="2" aria-invalid="true" placeholder="Required"></textarea>`) || !strings.Contains(b, `<span class="pstate error">1 reason missing</span>`) || !strings.Contains(b, mark) {
+		t.Fatalf("the old reason is offered for the new value:\n%s", between(b, `<div class="reasoning flush">`, "</form>"))
+	}
+	if !strings.Contains(b, `<textarea name="reason_AC" rows="2">race</textarea>`) {
+		t.Fatal("the reason of a metric that did not change is gone")
+	}
+	// back to PR:L with the emptied field: the stored reason shows again
+	back := map[string]string{"reason_PR": "", "reasoncut_PR": "1"}
+	b = e.do(t, "alice", "POST", fpath+"/cvss/calc", form(back), nil).Body.String()
+	if !strings.Contains(b, `<textarea name="reason_PR" rows="2">low account</textarea>`) || strings.Contains(b, "reasoncut_PR") || strings.Contains(b, "missing</span>") {
+		t.Fatalf("the stored reason did not come back:\n%s", between(b, `<div class="reasoning flush">`, "</form>"))
+	}
+	// and a Save from there keeps it
+	if rec := e.do(t, "alice", "POST", fpath+"/cvss", form(back), nil); rec.Code != 200 || !strings.Contains(e.meta(t), "PR: low account") {
+		t.Fatalf("there and back lost the reason (%d):\n%s", rec.Code, e.meta(t))
+	}
+	// words typed into the emptied field are the user's, also the same words
+	typed := map[string]string{"PR": "H", "reasoncut_PR": "1"}
+	b = e.do(t, "alice", "POST", fpath+"/cvss/calc", form(typed), nil).Body.String()
+	if !strings.Contains(b, `<textarea name="reason_PR" rows="2">low account</textarea>`) || !strings.Contains(b, mark) {
+		t.Fatalf("typed words were emptied:\n%s", between(b, `<div class="reasoning flush">`, "</form>"))
+	}
+	if rec := e.do(t, "alice", "POST", fpath+"/cvss", form(typed), nil); rec.Code != 200 || !strings.Contains(e.meta(t), "PR:H/") || !strings.Contains(e.meta(t), "PR: low account") {
+		t.Fatalf("typed reason not saved (%d):\n%s", rec.Code, e.meta(t))
+	}
+	// a Save that changes the value and posts the stored words: no reason
+	rec := e.do(t, "alice", "POST", fpath+"/cvss", form(nil), nil)
+	if m := e.meta(t); rec.Code != 200 || !strings.Contains(m, "PR:L/") || strings.Contains(m, "low account") || !strings.Contains(m, "AC: race") {
+		t.Fatalf("the old reason was saved for the new value (%d):\n%s", rec.Code, m)
+	}
+	if !strings.Contains(rec.Body.String(), "reason missing") {
+		t.Fatalf("the panel does not say the reason is missing:\n%s", rec.Body.String())
+	}
+}
+
 func TestCVSSEditorUIGuards(t *testing.T) {
 	e := setup(t)
 	e.do(t, "alice", "POST", fpath+"/cvss", vecForm(nil), nil)

@@ -82,6 +82,7 @@
       <button type="button" class="btn secondary w96" hx-post="{{.CalcURL}}" hx-include="closest form" hx-target="#cvss" hx-swap="outerHTML">Apply</button>
     </div>
     {{range .Metrics}}{{if and (not .NonStandard) .Reason}}<input type="hidden" name="reason_{{.Key}}" value="{{.Reason}}">{{end}}{{end}}
+    {{range .Metrics}}{{if .Cut}}<input type="hidden" name="reasoncut_{{.Key}}" value="1">{{end}}{{end}}
     {{if .Reasons}}
     <div class="reasoning flush">
       <h3 class="subhead">Reasoning</h3>
