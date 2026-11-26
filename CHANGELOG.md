@@ -24,6 +24,7 @@ What changed for people who run or use YARS. Newest first.
 - `yars seed` gives its accounts a random password and prints it. Without the size flags it makes 2 engagements of 20 findings with 50 messages (before: 50 of 300, with 10,000).
 - `/setup` asks for a setup code. `yars serve` logs the code at each start while there is no account. `yars useradd --admin` needs no code.
 - Settings › Tokens › New token asks for your password. `yars token add` does not.
+- `ai.api_key_env` and `smtp.password_env` in `.yars/config.yaml` must name a variable that starts with `YARS_`. A file that names another one is refused on save and on push, and `yars serve` does not start with it. Rename the variable in the service's environment, set the new name in `.yars/config.yaml` in the data folder and commit it there ([docs/config.md](docs/config.md)).
 - Only a finding's author or a director sends it to a destination. The export page ticks the findings you may send. Downloads and the preview stay open to the team.
 
 ### Fixed

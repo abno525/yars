@@ -135,9 +135,41 @@ func TestLoadSMTPAndBaseURL(t *testing.T) {
 	}
 }
 
+// config.yaml names only environment variables that start with YARS_: the
+// key goes to ai.base_url and the password to smtp.host, so any other name
+// would send that variable of the server out. The refusal names the key,
+// the value and the fix.
+func TestEnvNamesNeedThePrefix(t *testing.T) {
+	for body, key := range map[string]string{
+		"ai:\n  provider: openai\n  base_url: https://x.example/v1\n  api_key_env: AWS_SECRET_ACCESS_KEY\n": "ai.api_key_env",
+		"smtp:\n  host: mail.example\n  from: a@x\n  password_env: HOME\n":                                 "smtp.password_env",
+		"ai:\n  api_key_env: yars_ai_key\n":                                                                "ai.api_key_env",
+		"smtp:\n  password_env: YARS_\n":                                                                   "smtp.password_env",
+		"smtp:\n  password_env: \"YARS_A B\"\n":                                                            "smtp.password_env",
+	} {
+		_, err := Parse([]byte(body))
+		if err == nil {
+			t.Fatalf("accepted:\n%s", body)
+		}
+		for _, want := range []string{key, "YARS_", "data folder", "commit"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Fatalf("%q lacks %q", err, want)
+			}
+		}
+	}
+	if _, err := Parse([]byte("ai:\n  api_key_env: AWS_SECRET_ACCESS_KEY\n")); err == nil || !strings.Contains(err.Error(), `"AWS_SECRET_ACCESS_KEY"`) || !strings.Contains(err.Error(), "YARS_AWS_SECRET_ACCESS_KEY") {
+		t.Fatalf("the value and the new name: %v", err)
+	}
+	for _, body := range []string{"ai:\n  api_key_env: YARS_AI_KEY\nsmtp:\n  password_env: YARS_SMTP_PASSWORD\n", "ai:\n  api_key_env: \"\"\n", ""} {
+		if _, err := Parse([]byte(body)); err != nil {
+			t.Fatalf("%q: %v", body, err)
+		}
+	}
+}
+
 func TestLoadAIConfig(t *testing.T) {
-	c, err := Load(writeCfg(t, "ai:\n  provider: anthropic\n  model: claude-haiku-5-5\n  api_key_env: K\n"))
-	if err != nil || c.AI.Provider != "anthropic" || c.AI.Model != "claude-haiku-5-5" || c.AI.APIKeyEnv != "K" {
+	c, err := Load(writeCfg(t, "ai:\n  provider: anthropic\n  model: claude-haiku-5-5\n  api_key_env: YARS_K\n"))
+	if err != nil || c.AI.Provider != "anthropic" || c.AI.Model != "claude-haiku-5-5" || c.AI.APIKeyEnv != "YARS_K" {
 		t.Fatalf("%+v %v", c.AI, err)
 	}
 	if _, err := Load(writeCfg(t, "ai:\n  provider: gemini\n")); err == nil || !strings.Contains(err.Error(), "gemini") {

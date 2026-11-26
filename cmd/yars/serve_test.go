@@ -88,6 +88,48 @@ func TestServeSetupCode(t *testing.T) {
 	}
 }
 
+// A config.yaml that names a variable without the YARS_ prefix stops the
+// start, before the database is opened, with the key and the fix; the fix
+// committed in the data folder (as the message says) starts.
+func TestServeRefusesOtherEnvNames(t *testing.T) {
+	dir := t.TempDir()
+	if err := initData(dir); err != nil {
+		t.Fatal(err)
+	}
+	r, err := gitrepo.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	commit := func(name string) {
+		t.Helper()
+		if err := os.WriteFile(config.ConfigPath(dir), []byte("ai:\n  provider: openai\n  base_url: https://llm.example/v1\n  api_key_env: "+name+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := r.Commit([]string{".yars/config.yaml"}, "config", system); err != nil {
+			t.Fatal(err)
+		}
+	}
+	commit("OPENAI_API_KEY")
+	err = cmdServe([]string{"--data", dir, "--addr", "127.0.0.1:0"})
+	if err == nil {
+		t.Fatal("served")
+	}
+	for _, want := range []string{"ai.api_key_env", `"OPENAI_API_KEY"`, "YARS_OPENAI_API_KEY", "commit"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("%q lacks %q", err, want)
+		}
+	}
+	commit("YARS_OPENAI_API_KEY")
+	cfg, d, _, err := prepareData(r)
+	if err != nil {
+		t.Fatalf("after the fix: %v", err)
+	}
+	d.Close()
+	if cfg.AI.APIKeyEnv != "YARS_OPENAI_API_KEY" {
+		t.Fatalf("config %+v", cfg.AI)
+	}
+}
+
 // The push hook gets no AI key: AI rules do not run on a push.
 func TestHookEnvHasNoAIKey(t *testing.T) {
 	dir := t.TempDir()

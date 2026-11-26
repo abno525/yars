@@ -66,7 +66,8 @@ Group=yars
 ExecStart=/usr/local/bin/yars serve --data /srv/yars --addr 127.0.0.1:8080 --https
 Restart=on-failure
 # keys for Confluence and Jira destinations, the mail password and the AI
-# key, under the names the settings give; owned by root, mode 0600
+# key, under the names the settings give (the mail password and the AI key
+# under names that start with YARS_); owned by root, mode 0600
 EnvironmentFile=-/etc/yars/env
 # the service writes to its data folder and its home, nowhere else
 NoNewPrivileges=yes
