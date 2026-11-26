@@ -9,6 +9,7 @@ import (
 
 	"github.com/abno525/yars/internal/auth"
 	"github.com/abno525/yars/internal/events"
+	"github.com/abno525/yars/internal/logs"
 	"github.com/abno525/yars/internal/store"
 )
 
@@ -114,6 +115,8 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			ok = send(": ping\n\n")
+			// the stream's one request line is written when it ends
+			s.log().Debug("event stream heartbeat", "req", logs.ReqID(r.Context()), "user", u.Username)
 		case <-sub.Lost():
 			ok = resync()
 		case e := <-sub.C():

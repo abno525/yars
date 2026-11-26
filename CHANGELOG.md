@@ -10,6 +10,8 @@ What changed for people who run or use YARS. Newest first.
 - The licence texts of the vendored fonts and htmx ship with the binary; `NOTICE` lists all third-party work.
 - `SECURITY.md`, `CONTRIBUTING.md` and issue templates.
 - `log.level` (`debug`, `info`, `warn`, `error`) and `log.format` (`text`, `json`) in `.yars/config.yaml`, and `yars serve --log-level`, set what the service log holds and how it is written ([docs/config.md](docs/config.md)). Both keys are read at the start.
+- The service log has one line for each request to the website, the git endpoint and MCP: an ID, the method, the route, the status, the time taken, the account, the token's ID, the engagement and the finding. A request over 2 s is a warning. Static files are logged at `debug`.
+- Every response carries its request's ID as `X-Request-ID`. An internal error shows it on the page and in the toast (`Request 4f2a9c1b`), and the error's log line has the same ID.
 
 ### Changed
 

@@ -232,10 +232,26 @@ func (s *Server) Handle(ctx context.Context, u config.User, msg []byte) []byte {
 			text, err = t.run(s, ctx, u, args(p.Arguments))
 		}
 		res := map[string]any{"content": []map[string]any{{"type": "text", "text": text}}}
+		// over HTTP every call answers 200: the request's log line names the
+		// tool and the code of its answer, the engagement and the finding
+		if rq := logs.RequestFrom(ctx); rq != nil {
+			code := "ok"
+			if err != nil {
+				code = codeOf(err)
+			}
+			rq.SetTool(t.name, code)
+			a := args(p.Arguments)
+			if eng := a.str("engagement"); store.ValidID(eng) && len(eng) <= 64 {
+				rq.SetTarget(eng, "")
+			}
+			if fid := store.LogID(a.str("finding")); fid != "?" {
+				rq.SetTarget("", fid)
+			}
+		}
 		if err != nil {
 			if codeOf(err) == "server_error" {
 				// as the website logs its internal errors
-				s.log().Error("mcp: a tool failed", "tool", t.name, "user", u.Username, "err", err)
+				s.log().Error("mcp: a tool failed", "req", logs.ReqID(ctx), "tool", t.name, "user", u.Username, "err", err)
 			}
 			res["content"] = []map[string]any{{"type": "text", "text": fail(err)}}
 			res["isError"] = true

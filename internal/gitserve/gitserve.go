@@ -337,10 +337,36 @@ func (s *Server) route(p string) (*gitrepo.Repo, string, string, bool) {
 	return r, "/git/e/" + id, id, true
 }
 
+// routeWord is the route of a git request as its log line names it: one of
+// a few fixed words for the kind of request, never the path (the engagement
+// has its own field).
+func routeWord(p string) string {
+	switch {
+	case strings.HasSuffix(p, "/info/refs"):
+		return "git info/refs"
+	case strings.HasSuffix(p, "/git-upload-pack"):
+		return "git upload-pack"
+	case strings.HasSuffix(p, "/git-receive-pack"):
+		return "git receive-pack"
+	case strings.HasSuffix(p, "/lint"):
+		return "git lint"
+	case strings.HasSuffix(p, "/HEAD"):
+		return "git HEAD"
+	case strings.Contains(p, "/objects/"):
+		return "git objects"
+	}
+	return "git -"
+}
+
 // Handler serves /git/yars/... and /git/e/<id>/... via git http-backend.
 func (s *Server) Handler() http.Handler {
 	gitPath, gitErr := exec.LookPath("git")
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// the request's log line: a fixed word for the kind of request, then
+		// who asks and the engagement once they are known. The name a refused
+		// request gave is a client's text and stays out of it.
+		rq := logs.RequestFrom(r.Context())
+		rq.SetRoute(routeWord(r.URL.Path))
 		// authenticate first: without a login nothing reveals which
 		// engagements exist
 		name, pw, ok := r.BasicAuth()
@@ -372,11 +398,16 @@ func (s *Server) Handler() http.Handler {
 			http.Error(w, "authentication required", http.StatusUnauthorized)
 			return
 		}
+		rq.SetUser(u.Username)
+		if tok != nil {
+			rq.SetToken(tok.ID)
+		}
 		repo, root, eng, ok := s.route(r.URL.Path)
 		if !ok {
 			http.NotFound(w, r)
 			return
 		}
+		rq.SetTarget(eng, "") // an engagement that exists ("" = the main repo)
 		if eng != "" && s.CanSee != nil && !s.CanSee(u, eng) {
 			http.Error(w, "not a member of this engagement", http.StatusForbidden)
 			return

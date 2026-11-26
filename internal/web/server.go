@@ -126,6 +126,9 @@ type Server struct {
 	bulkBudget time.Duration
 	// boardRead runs once the team board's content is read (tests)
 	boardRead func()
+	// slowAfter is how long a request may take before its log line is a
+	// warning (0 = defaultSlow)
+	slowAfter time.Duration
 }
 
 // boardPage is how many findings the board shows before "Load more".
@@ -356,7 +359,7 @@ func (s *Server) Handler() http.Handler {
 	root.HandleFunc("GET /favicon.ico", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, staticPrefix()+"/favicon.svg", http.StatusMovedPermanently)
 	})
-	root.Handle("/", s.Auth.Require(s.mustChangeGate(s.teamGate(private))))
+	root.Handle("/", s.Auth.Require(signedIn(private, s.mustChangeGate(s.teamGate(routed(private))))))
 	if s.Git != nil {
 		root.Handle("/git/", longLived(s.Git)) // HTTP Basic auth, no cookies; big pushes and clones take time
 	}
@@ -364,7 +367,9 @@ func (s *Server) Handler() http.Handler {
 		root.Handle("/mcp", s.lintLived(s.MCP)) // Bearer tokens, no cookies; lint and transition run every rule
 	}
 	// Reject cross-origin state-changing requests (CSRF, incl. login CSRF).
-	return gzipHandler(secureHeaders(s.HTTPS, http.NewCrossOriginProtection().Handler(limitBody(s.firstRun(root)))))
+	// The request log is outermost: it sees the status of every layer (a
+	// refused origin, a body over the limit).
+	return s.logRequests(gzipHandler(secureHeaders(s.HTTPS, http.NewCrossOriginProtection().Handler(limitBody(s.firstRun(routed(root)))))))
 }
 
 // formMax caps a request body on the website, as MCP caps its requests (a
@@ -457,8 +462,8 @@ func (s *Server) exec(w http.ResponseWriter, name, tmpl string, data any) {
 func (s *Server) execStatus(w http.ResponseWriter, status int, name, tmpl string, data any) {
 	var buf bytes.Buffer
 	if err := s.pages[name].ExecuteTemplate(&buf, tmpl, data); err != nil {
-		s.log().Error("template error", "page", name, "template", tmpl, "err", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
+		s.log().Error("template error", "req", w.Header().Get(logs.HeaderID), "page", name, "template", tmpl, "err", err)
+		internalError(w)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -484,8 +489,10 @@ func (s *Server) fail(w http.ResponseWriter, err error) {
 		http.Error(w, store.ErrBusy.Error(), http.StatusConflict)
 		return
 	}
-	s.log().Error("request failed", "err", err)
-	http.Error(w, "internal error", http.StatusInternalServerError)
+	// the request's ID is on the response already (logRequests): the line
+	// and the page name the same request
+	s.log().Error("request failed", "req", w.Header().Get(logs.HeaderID), "err", err)
+	internalError(w)
 }
 
 func canManage(u config.User) bool { return workflow.AtLeast(u, "director") }

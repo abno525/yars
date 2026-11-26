@@ -211,7 +211,12 @@ func cmdServe(args []string) error {
 	}
 	warnNoBaseURL(cfg, lg)
 	setupCode := firstRunCode(d, cfg, r.Dir, lg)
-	srv, err := serverParts(r, cfg, d, st, lg, secure, setupCode)
+	exe, err := os.Executable()
+	if err != nil {
+		d.Close()
+		return err
+	}
+	srv, err := serverParts(r, cfg, d, st, lg, exe, secure, setupCode)
 	if err != nil {
 		d.Close()
 		return err
@@ -233,18 +238,14 @@ func cmdServe(args []string) error {
 
 // serverParts builds the server on prepared data: the rules, the accounts,
 // the git and MCP endpoints and the website, each logging to lg (the store
-// got it in prepareData). secure: the site is served over HTTPS; setupCode:
-// firstRunCode's.
-func serverParts(r *gitrepo.Repo, cfg config.Config, d *db.DB, st *store.Store, lg *slog.Logger, secure bool, setupCode string) (*web.Server, error) {
+// got it in prepareData). exe is the yars binary the push hook runs; secure:
+// the site is served over HTTPS; setupCode: firstRunCode's.
+func serverParts(r *gitrepo.Repo, cfg config.Config, d *db.DB, st *store.Store, lg *slog.Logger, exe string, secure bool, setupCode string) (*web.Server, error) {
 	eng := rules.NewEngine(rules.DirFor(r.Dir), cfg)
 	eng.SetLogger(lg)
 	st.Linter = eng
 	au := auth.New(d)
 	au.Secure, au.Logger = secure, lg
-	exe, err := os.Executable()
-	if err != nil {
-		return nil, err
-	}
 	hub := events.New()
 	// after a push: drop the cached HEAD, then tell open pages
 	invalidate := func(eng string) {

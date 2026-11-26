@@ -190,6 +190,9 @@ func (a *Auth) LogFailedLogin(what, username string, r *http.Request) {
 	if f := r.Header.Get("X-Forwarded-For"); a.Secure && f != "" {
 		attrs = append(attrs, "forwarded_for", logCut(f, 100))
 	}
+	if id := logs.ReqID(r.Context()); id != "" { // the request's own line has the same
+		attrs = append(attrs, "req", id)
+	}
 	if what == "git login" {
 		a.log().Warn("git login failed", attrs...)
 		return
