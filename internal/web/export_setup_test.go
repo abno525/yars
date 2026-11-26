@@ -95,11 +95,11 @@ func TestDestAddressAdminOnly(t *testing.T) {
 	}
 }
 
-// A director without the admin flag does not retarget a destination: where a
-// service publishes (project, issue type, space, parent page), the script a
-// script destination runs and the template pandoc reads are an admin's to
-// set, as the address is. The director still edits the name and
-// mark_reported of each; an admin changes all of it.
+// A director without the admin flag does not retarget a service destination:
+// where it publishes (project, issue type, space, parent page) is an admin's
+// to set, as the address is. The director still edits the name and
+// mark_reported of each, and all of a script or pandoc destination: its
+// script, its template and its arguments. An admin changes all of it.
 func TestDestTargetAdminOnly(t *testing.T) {
 	e := setupSerial(t)
 	e.exporters(t, fakePandoc)
@@ -143,10 +143,11 @@ func TestDestTargetAdminOnly(t *testing.T) {
 		}
 		return string(b)
 	}
-	// the editor shows a director what is an admin's read-only
+	// the editor shows a director what is an admin's read-only; the script
+	// and the template are the director's to write
 	b := e.do(t, "dir2", "GET", "/e/acme/export/setup?edit=jira", nil, nil).Body.String()
 	for _, want := range []string{`name="project" value="PEN" readonly`, `name="issue_type" value="Bug" readonly`, `name="space" value="" readonly`,
-		`name="parent_id" value="" readonly`, `name="script" value="" readonly`, `name="template" value="" readonly`} {
+		`name="parent_id" value="" readonly`, `name="script" value="">`, `name="template" value="">`} {
 		if !strings.Contains(b, want) {
 			t.Errorf("a director's editor lacks %s", want)
 		}
@@ -154,20 +155,15 @@ func TestDestTargetAdminOnly(t *testing.T) {
 	if b := e.do(t, "dora", "GET", "/e/acme/export/setup?edit=jira", nil, nil).Body.String(); !strings.Contains(b, `name="project" value="PEN">`) || !strings.Contains(b, `name="script" value="">`) || !strings.Contains(b, `name="template" value="">`) {
 		t.Error("an admin's editor has read-only fields")
 	}
-	refused := []struct {
+	type edit struct {
 		name, id string
 		form     url.Values
-	}{
+	}
+	refused := []edit{
 		{"jira project", "jira", with("jira", "project", "PUBLIC")},
 		{"jira issue type", "jira", with("jira", "issue_type", "Epic")},
 		{"confluence space", "wiki", with("wiki", "space", "PUBLIC")},
 		{"confluence parent page", "wiki", with("wiki", "parent_id", "1")},
-		{"another script", "csv", with("csv", "script", "other.sh")},
-		{"pandoc turned into a script", "docx", with("docx", "type", "script", "script", "csv.sh", "extension", "docx")},
-		{"a template", "docx", with("docx", "template", "firm.docx")},
-		{"another template", "styled", with("styled", "template", "other.docx")},
-		{"a new script destination", "run", with("csv", "new", "1", "id", "run")},
-		{"a new pandoc destination with a template", "tpl", with("styled", "new", "1", "id", "tpl")},
 	}
 	for _, c := range refused {
 		before := file(c.id)
@@ -194,17 +190,43 @@ func TestDestTargetAdminOnly(t *testing.T) {
 	if rec := e.do(t, "dir2", "POST", "/e/acme/export/setup", with("docx", "new", "1", "id", "odt", "format", "odt"), nil); rec.Code != http.StatusSeeOther {
 		t.Fatalf("a director's new pandoc destination: %d", rec.Code)
 	}
+	// a director's too: scripts, templates and pandoc arguments
+	for _, c := range []edit{
+		{"another script", "csv", with("csv", "script", "other.sh")},
+		{"a new script destination", "run", with("csv", "new", "1", "id", "run")},
+		{"pandoc turned into a script", "odt", with("docx", "id", "odt", "type", "script", "script", "csv.sh", "extension", "odt")},
+		{"a template", "docx", with("docx", "template", "firm.docx")},
+		{"another template", "styled", with("styled", "template", "other.docx")},
+		{"a new pandoc destination with a template", "tpl", with("styled", "new", "1", "id", "tpl")},
+	} {
+		if rec := e.do(t, "dir2", "POST", "/e/acme/export/setup", c.form, nil); rec.Code != http.StatusSeeOther {
+			t.Errorf("%s by a director without the admin flag: %d\n%s", c.name, rec.Code, between(rec.Body.String(), `class="pstate error"`, "</span>"))
+		}
+	}
+	es, _ := export.Load(dir)
+	if ex, _ := findExporter(es, "csv"); ex.Script != "other.sh" {
+		t.Errorf("the director's script: %+v", ex)
+	}
+	if ex, _ := findExporter(es, "run"); ex.Type != "script" || ex.Script != "csv.sh" {
+		t.Errorf("the director's script destination: %+v", ex)
+	}
+	if ex, _ := findExporter(es, "odt"); ex.Type != "script" || ex.Script != "csv.sh" {
+		t.Errorf("the director's pandoc turned into a script: %+v", ex)
+	}
+	if ex, _ := findExporter(es, "styled"); ex.Template != "other.docx" {
+		t.Errorf("the director's template: %+v", ex)
+	}
+	if ex, _ := findExporter(es, "tpl"); ex.Type != "pandoc" || ex.Template != "firm.docx" {
+		t.Errorf("the director's pandoc destination with a template: %+v", ex)
+	}
 	// an admin sets all of it
 	for _, c := range refused {
 		if rec := e.do(t, "dora", "POST", "/e/acme/export/setup", c.form, nil); rec.Code != http.StatusSeeOther {
 			t.Errorf("%s by an admin: %d\n%s", c.name, rec.Code, between(rec.Body.String(), `class="pstate error"`, "</span>"))
 		}
 	}
-	es, _ := export.Load(dir)
+	es, _ = export.Load(dir)
 	if ex, _ := findExporter(es, "jira"); ex.Jira == nil || ex.Jira.IssueType != "Epic" {
 		t.Fatalf("the admin's jira: %+v", ex.Jira)
-	}
-	if ex, _ := findExporter(es, "run"); ex.Type != "script" || ex.Script != "csv.sh" {
-		t.Fatalf("the admin's script destination: %+v", ex)
 	}
 }

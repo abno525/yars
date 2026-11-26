@@ -40,7 +40,7 @@
       <div class="t t-pandoc">
         <div class="rgrid">
           <label class="rf">Format<select name="format">{{$f := .Format}}{{range $.ExportV.Setup.Formats}}<option{{if eq . $f}} selected{{end}}>{{.}}</option>{{end}}</select></label>
-          <label class="rf">Template<input class="monoin" name="template" value="{{.Template}}"{{if not $.CanAdmin}} readonly{{end}}></label>
+          <label class="rf">Template<input class="monoin" name="template" value="{{.Template}}"></label>
         </div>
       </div>
       <div class="t t-service">
@@ -58,7 +58,7 @@
       </div>
       <div class="t t-script">
         <div class="rgrid">
-          <label class="rf">Script<input class="monoin" name="script" value="{{.Script}}"{{if not $.CanAdmin}} readonly{{end}}></label>
+          <label class="rf">Script<input class="monoin" name="script" value="{{.Script}}"></label>
           <label class="rf">Extension<input class="monoin" name="extension" value="{{.Extension}}"></label>
         </div>
       </div>

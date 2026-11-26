@@ -558,12 +558,6 @@ func (c *Checker) file(u config.User, old, new string, ch gitrepo.Change) []stri
 				return []string{"only an admin can change .yars/config.yaml and .yars/rules (on the website: Admin › Structure, AI and Rules)"}
 			}
 		}
-		if name == "exporters" && !(len(seg) == 3 && strings.HasSuffix(strings.ToLower(seg[2]), ".yaml")) && !u.IsAdmin {
-			// what is not a destination's own <id>.yaml: the scripts a script
-			// destination runs on the server and the templates pandoc reads.
-			// Adding, changing or deleting one is an admin's, as .yars/rules.
-			return []string{"only an admin can change the scripts and templates in .yars/exporters (a destination runs or reads them on the server); a destination's own <id>.yaml is a director's"}
-		}
 		if add && name != seg[1] && slices.Contains(yarsNames, name) {
 			// the server reads one spelling; another would skip its checks
 			return []string{"spell it .yars/" + name + ": a name that differs only in case clashes with it on a case-insensitive checkout"}
@@ -801,8 +795,7 @@ func (c *Checker) ruleSet(rev string) *rules.Set {
 
 // exporterProblems checks a pushed exporter file as the export setup
 // saves one: its id, its settings, and an admin for what export.NeedsAdmin
-// keeps to one (a service's address and target, a script, a template, a
-// pandoc --variable).
+// keeps to one (a service's address, key variables and target).
 func (c *Checker) exporterProblems(u config.User, old, new, p, file string) []string {
 	if !export.IDRe.MatchString(strings.TrimSuffix(file, ".yaml")) {
 		return []string{"exporter ids are lowercase letters, digits, - and _ (the file is <id>.yaml)"}
@@ -819,8 +812,7 @@ func (c *Checker) exporterProblems(u config.User, old, new, p, file string) []st
 		}
 	}
 	if export.NeedsAdmin(prev, ex) && !u.IsAdmin {
-		// where a service sends the keys and the findings, and what a
-		// script or pandoc destination runs or reads on the server
+		// where a service sends the keys and the findings
 		return []string{export.AdminOnly}
 	}
 	return nil

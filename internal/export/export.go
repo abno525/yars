@@ -202,59 +202,33 @@ func Parse(file string, b []byte) (Exporter, error) {
 
 // AdminOnly is the refusal of a save NeedsAdmin keeps to admins (the export
 // setup and a push say the same).
-const AdminOnly = "address, space, parent page, project, issue type, key variables, script, template and pandoc --variable: admin only"
+const AdminOnly = "address, space, parent page, project, issue type and key variables: admin only"
 
 // adminPart is everything of a destination that is an admin's to set ("" for
-// one that has nothing of it):
-//   - a service's address and key variables (it gets the server's and the
-//     authors' keys) and where it publishes there: the project and issue
-//     type, or the space and parent page. Another project or space of the
-//     same server may be one outsiders read.
-//   - a script destination's script: it runs on the server as the service
-//     account.
-//   - a pandoc destination's template: a file of the server that pandoc (for
-//     a PDF, LaTeX) reads; and its --variable arguments: their values reach
-//     that template, the built-in PDF theme too, as they are, so LaTeX in
-//     one reads a file of the server into the report as a template would.
+// one that has nothing of it): a service's address and key variables (it
+// gets the server's and the authors' keys) and where it publishes there: the
+// project and issue type, or the space and parent page. Another project or
+// space of the same server may be one outsiders read.
+//
+// A script destination and a pandoc destination have no such part: scripts,
+// templates and pandoc arguments are a director's.
 func (e Exporter) adminPart() string {
 	const sep = "\x00"
 	switch {
-	case e.Type == "script":
-		return "script" + sep + e.Script
 	case e.Type == "jira" && e.Jira != nil:
 		// as it is read: a file that names no issue type means Bug
 		return e.Endpoint() + sep + e.Target() + sep + issueType(e.Jira.IssueType)
 	case e.Service():
 		return e.Endpoint() + sep + e.Target() + sep + e.Confluence.ParentID
-	case e.Type == "pandoc":
-		vars := e.rawArgs()
-		if e.Template == "" && len(vars) == 0 {
-			return ""
-		}
-		return "template" + sep + e.Template + sep + strings.Join(vars, sep)
 	}
 	return ""
 }
 
-// rawArgs are the pandoc arguments whose value goes into the template as it
-// is, in their order: --variable (pandoc escapes a --metadata value for the
-// output format, a variable's not, and a variable wins over the metadata of
-// the same name).
-func (e Exporter) rawArgs() []string {
-	var out []string
-	for _, a := range e.Args {
-		if strings.HasPrefix(a, "--variable=") {
-			out = append(out, a)
-		}
-	}
-	return out
-}
-
 // NeedsAdmin reports whether saving ex over prev (nil: a new exporter)
 // takes an admin: ex has a part that is an admin's to set (adminPart) and
-// prev did not have that same part. Name, statuses, mark_reported, a pandoc
-// format and its other arguments, a script's extension, and taking such a
-// part away are a director's.
+// prev did not have that same part. Name, statuses, mark_reported, a script
+// destination, a pandoc destination with its template and arguments, and
+// turning a service into one of those are a director's.
 func NeedsAdmin(prev *Exporter, ex Exporter) bool {
 	part := ex.adminPart()
 	return part != "" && (prev == nil || prev.adminPart() != part)

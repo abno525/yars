@@ -199,8 +199,7 @@ func (s *Server) destSave(w http.ResponseWriter, r *http.Request) {
 	case !f.New && !found:
 		msg = "destination " + f.ID + " not found"
 	case export.NeedsAdmin(prevOf(cur, found), ex) && !p.CanAdmin:
-		// where a service sends the keys and the findings, and what a
-		// script or pandoc destination runs or reads on the server
+		// where a service sends the keys and the findings
 		msg = export.AdminOnly
 	}
 	if msg == "" {

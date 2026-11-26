@@ -18,7 +18,7 @@ What changed for people who run or use YARS. Newest first.
 - `docs/rules.md` covers every kind of rule, its limits and its failures.
 - `docs/known-limits.md` lists today's limits by subject.
 - The team of an archived engagement cannot change. Reopen the engagement first.
-- Only an admin sets where a service destination publishes (project, issue type, space, parent page), a script destination's script, a pandoc template and pandoc `--variable` arguments. Only an admin pushes scripts and templates to `.yars/exporters`.
+- Only an admin sets where a service destination publishes (project, issue type, space, parent page).
 - Only a director pushes `README.md` to the main repository, as `.gitignore`.
 - The pre-commit check (`yars lint --staged`) with a Git token runs script and AI rules only when the token has the Run checks action. Other tokens get the pattern and built-in rules.
 - `yars seed` gives its accounts a random password and prints it. Without the size flags it makes 2 engagements of 20 findings with 50 messages (before: 50 of 300, with 10,000).
