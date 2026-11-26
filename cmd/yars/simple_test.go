@@ -95,7 +95,7 @@ func TestServeRefusesWorkflowMismatch(t *testing.T) {
 	dir := initSimple(t)
 	handEdit(t, dir, std)
 	r, _ := gitrepo.Open(dir)
-	if _, _, _, err := prepareData(r); err == nil || err.Error() != "config.yaml says workflow standard but this data folder was set up with simple (yars init); put workflow: simple back" {
+	if _, _, _, err := startData(r); err == nil || err.Error() != "config.yaml says workflow standard but this data folder was set up with simple (yars init); put workflow: simple back" {
 		t.Fatalf("simple folder, standard config: %v", err) // fatal: yars serve below would serve
 	}
 	// through yars serve: it stops before it listens
@@ -109,12 +109,12 @@ func TestServeRefusesWorkflowMismatch(t *testing.T) {
 	}
 	handEdit(t, dir, simple)
 	r, _ = gitrepo.Open(dir)
-	if _, _, _, err := prepareData(r); err == nil || err.Error() != "config.yaml says workflow simple but this data folder was set up with standard (yars init); put workflow: standard back" {
+	if _, _, _, err := startData(r); err == nil || err.Error() != "config.yaml says workflow simple but this data folder was set up with standard (yars init); put workflow: standard back" {
 		t.Errorf("standard folder, simple config: %v", err)
 	}
 
 	r, _ = gitrepo.Open(initSimple(t))
-	cfg, d, st, err := prepareData(r)
+	cfg, d, st, err := startData(r)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +141,7 @@ func TestNewDatabaseTakesConfigWorkflow(t *testing.T) {
 	start := func(dir string) (config.Config, *db.DB, *store.Store) {
 		t.Helper()
 		r, _ := gitrepo.Open(dir)
-		cfg, d, st, err := prepareData(r)
+		cfg, d, st, err := startData(r)
 		if err != nil {
 			t.Fatalf("start: %v", err)
 		}
@@ -302,7 +302,7 @@ func TestSeedSimple(t *testing.T) {
 		t.Errorf("output %q", out.String())
 	}
 	r, _ := gitrepo.Open(dir)
-	cfg, d, st, err := prepareData(r)
+	cfg, d, st, err := startData(r)
 	if err != nil {
 		t.Fatal(err)
 	}

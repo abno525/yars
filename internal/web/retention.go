@@ -2,7 +2,6 @@ package web
 
 import (
 	"fmt"
-	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -43,19 +42,20 @@ func (s *Server) startRetention() {
 func (s *Server) daily(d *db.DB) {
 	s.dailyMu.Lock()
 	defer s.dailyMu.Unlock()
-	logErr := func(what string, err error) {
+	stopping := func() bool {
 		select {
 		case <-s.stop: // the database closes with the server
+			return true
 		default:
-			log.Printf("%s: %v", what, err)
+			return false
 		}
 	}
-	if _, err := s.prune(d); err != nil {
-		logErr("retention", err)
+	if _, err := s.prune(d); err != nil && !stopping() {
+		s.log().Error("retention: the daily prune failed", "err", err)
 	}
 	if s.Notifier != nil {
-		if err := s.Notifier.Tokens(time.Now()); err != nil {
-			logErr("token notices", err)
+		if err := s.Notifier.Tokens(time.Now()); err != nil && !stopping() {
+			s.log().Error("token notices: the daily run failed", "err", err)
 		}
 	}
 }

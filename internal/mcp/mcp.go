@@ -12,13 +12,14 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"log"
+	"log/slog"
 	"slices"
 	"sync"
 
 	"github.com/abno525/yars/internal/config"
 	"github.com/abno525/yars/internal/history"
 	"github.com/abno525/yars/internal/index"
+	"github.com/abno525/yars/internal/logs"
 	"github.com/abno525/yars/internal/rules"
 	"github.com/abno525/yars/internal/store"
 	"github.com/abno525/yars/internal/workflow"
@@ -34,10 +35,14 @@ type Server struct {
 	Users func() []config.User
 	// Version is the build's, as initialize names it ("" says dev).
 	Version string
+	// Logger takes the server's log lines; nil writes none.
+	Logger *slog.Logger
 
 	histOnce sync.Once
 	hist     *history.Cache // list_history, per engagement HEAD
 }
+
+func (s *Server) log() *slog.Logger { return logs.Or(s.Logger) }
 
 // conf is the current configuration: the store's, which Admin › Structure
 // replaces when it saves.
@@ -229,7 +234,8 @@ func (s *Server) Handle(ctx context.Context, u config.User, msg []byte) []byte {
 		res := map[string]any{"content": []map[string]any{{"type": "text", "text": text}}}
 		if err != nil {
 			if codeOf(err) == "server_error" {
-				log.Printf("mcp %s as %s: %v", p.Name, u.Username, err) // as the website logs its internal errors
+				// as the website logs its internal errors
+				s.log().Error("mcp: a tool failed", "tool", t.name, "user", u.Username, "err", err)
 			}
 			res["content"] = []map[string]any{{"type": "text", "text": fail(err)}}
 			res["isError"] = true

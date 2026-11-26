@@ -3,7 +3,6 @@ package store
 import (
 	"errors"
 	"fmt"
-	"log"
 	"slices"
 	"strings"
 
@@ -102,7 +101,7 @@ func (s *Store) PurgeFromHistory(engID, dir, name string, u config.User) error {
 		}
 		s.Invalidate(engID)
 		if derr := s.db.DropPurgedBlobs(engID, added); derr != nil {
-			log.Printf("purge %s %s: forgetting the blob ids: %v", engID, p, derr)
+			s.Log().Error("purge: the blob ids are not forgotten", "eng", engID, "finding", fid, "err", derr)
 		}
 		return err
 	}
@@ -210,7 +209,7 @@ func (s *Store) RetestHolders(engID, dir, name string) (held []FindingRef, unrea
 			blobs, err = cr.BlobsWhere(versionPaths(cp, fid, name))
 		}
 		if err != nil {
-			log.Printf("retests holding %s/%s/%s: %s: %v", engID, fid, name, e.ID, err)
+			s.Log().Error("purge: a retest's copies are not read", "eng", e.ID, "source", engID, "finding", fid, "err", err)
 			unread = append(unread, e.ID)
 			continue
 		}

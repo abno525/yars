@@ -24,10 +24,10 @@ func (s *Server) wireNotifications() {
 	if s.Notifier == nil && s.Auth != nil {
 		s.Notifier = &notify.Notifier{DB: d, Users: s.Auth.Users, CanSee: s.Store.CanSee, BaseURL: base,
 			MailFor: func() notify.Mailer { return notify.NewSMTP(s.conf().SMTP) },
-			Simple:  func() bool { return s.flow().Simple }}
+			Simple:  func() bool { return s.flow().Simple }, Logger: s.Logger}
 	}
 	if s.Webhooks == nil {
-		s.Webhooks = &webhook.Service{DB: d, BaseURL: base,
+		s.Webhooks = &webhook.Service{DB: d, BaseURL: base, Logger: s.Logger,
 			Secrets: func() (webhook.Sealer, error) { return s.secrets() }}
 	}
 	s.Store.OnEvent(func(e store.Event) {

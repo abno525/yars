@@ -21,6 +21,7 @@ import (
 	"github.com/abno525/yars/internal/db"
 	"github.com/abno525/yars/internal/gitrepo"
 	"github.com/abno525/yars/internal/index"
+	"github.com/abno525/yars/internal/logs"
 	"github.com/abno525/yars/internal/store"
 )
 
@@ -36,6 +37,8 @@ type env struct {
 	h    http.Handler
 	dir  string
 	toks map[string]string
+	// log keeps what the server, its store and its accounts log
+	log *logs.Recorder
 	// parallel is set by setup: the test runs beside other parallel tests
 	parallel bool
 }
@@ -139,6 +142,8 @@ func newEnv(t *testing.T) *env {
 	// (TestFinishedTestsLetTheirServerGo)
 	t.Cleanup(func() { d.Close(); d = nil })
 	st := store.New(r, cfg, d)
+	lg, logged := logs.NewRecorder()
+	st.Logger = lg
 	a := gitrepo.Author{Name: "alice", Email: "alice@yars.local"}
 	if err := st.CreateEngagement(store.Engagement{ID: "acme", Name: "ACME Web"}, a); err != nil {
 		t.Fatal(err)
@@ -162,8 +167,9 @@ func newEnv(t *testing.T) *env {
 		t.Fatal(err)
 	}
 	au := auth.New(d)
-	s := &Server{Store: st, Index: index.New(st, r), Auth: au, Cfg: cfg}
-	e := &env{srv: s, h: s.Handler(), dir: dir, toks: map[string]string{}}
+	au.Logger = lg
+	s := &Server{Store: st, Index: index.New(st, r), Auth: au, Cfg: cfg, Logger: lg}
+	e := &env{srv: s, h: s.Handler(), dir: dir, toks: map[string]string{}, log: logged}
 	t.Cleanup(func() { s.Close(); s = nil })
 	for _, u := range users {
 		tok, ok := au.Login(u.Username, "pw")

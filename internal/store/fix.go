@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"regexp"
 	"slices"
 	"strings"
@@ -172,7 +171,7 @@ func (s *Store) runFix(engID, dir, fid string, list, all []db.CheckResult, u con
 	cleared := false
 	defer func() {
 		if p := recover(); p != nil {
-			log.Printf("fix %s/%s crashed: %v", engID, fid, p)
+			s.Log().Error("fix with AI crashed", "eng", engID, "finding", fid, "err", fmt.Sprint(p))
 		}
 		if !cleared {
 			s.setRunning(key, 0, true)
@@ -208,7 +207,7 @@ func (s *Store) runFix(engID, dir, fid string, list, all []db.CheckResult, u con
 		return // the server is stopping, or the engagement was archived
 	}
 	if _, err := s.StartCheck(engID, dir, u); err != nil && !errors.Is(err, ErrBusy) {
-		log.Printf("check after the fix of %s/%s: %v", engID, fid, err)
+		s.Log().Error("check after a fix with AI not started", "eng", engID, "finding", fid, "err", err)
 	}
 }
 
@@ -226,7 +225,7 @@ func (s *Store) replyAI(engID, fid, thread string, u config.User, text string) {
 		return // archived meanwhile, as a chat post would be refused
 	}
 	if err != nil {
-		log.Printf("AI reply on %s/%s: %v", engID, fid, err)
+		s.Log().Error("fix with AI: the reply is not written", "eng", engID, "finding", fid, "err", err)
 		return
 	}
 	s.notify(Change{Eng: engID, Fid: fid, Kind: ChangeChat, Seq: seq})
@@ -237,7 +236,7 @@ func (s *Store) replyAI(engID, fid, thread string, u config.User, text string) {
 func (s *Store) fixItem(ctx context.Context, engID, dir string, r db.CheckResult, all []db.CheckResult, u config.User) (row FixRow) {
 	defer func() {
 		if p := recover(); p != nil {
-			log.Printf("fix of %s on %s/%s crashed: %v", r.Rule, engID, dir, p)
+			s.Log().Error("fix with AI: one fix crashed", "eng", engID, "finding", LogID(dir), "rule", r.Rule, "err", fmt.Sprint(p))
 			row = FixRow{Rule: r.Rule, Target: r.Target, Quote: r.Quote, Outcome: "not fixed: the fix crashed"}
 		}
 	}()

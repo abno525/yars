@@ -2,7 +2,6 @@ package web
 
 import (
 	"errors"
-	"log"
 	"net/http"
 	"slices"
 	"strconv"
@@ -218,7 +217,7 @@ func (s *Server) bulk(w http.ResponseWriter, r *http.Request) {
 			it.OK = true
 			v.OK++
 		} else {
-			it.Reason = bulkSkip(err)
+			it.Reason = s.bulkSkip(err)
 			v.Denied++
 		}
 		v.Items = append(v.Items, it)
@@ -374,7 +373,7 @@ func (s *Server) gatedRows(f workflow.Flow, rows []index.Row) map[string]bool {
 	}
 	gated := map[string]bool{}
 	all := func(err error) map[string]bool {
-		log.Printf("bulk bar: %s left out of %d rows: %v", what, len(cand), err)
+		s.log().Error("bulk bar: an action is left out of its rows", "action", what, "rows", len(cand), "err", err)
 		for _, r := range cand {
 			gated[r.EngID+"/"+r.Dir] = true
 		}
@@ -449,7 +448,7 @@ func (b *bulkBar) ran(v bulkView) {
 // bulkSkip is why a row was skipped. Every per-row error is a skip, so a
 // finding that changed or went away since the page was drawn never stops the
 // run halfway with rows already moved.
-func bulkSkip(err error) string {
+func (s *Server) bulkSkip(err error) string {
 	var d *workflow.Denied
 	switch {
 	case errors.As(err, &d):
@@ -461,7 +460,7 @@ func bulkSkip(err error) string {
 	case errors.Is(err, store.ErrConflict):
 		return "changed since the page was loaded; reload and try again"
 	}
-	log.Printf("bulk: %v", err)
+	s.log().Error("bulk: a row could not be changed", "err", err)
 	return "could not be changed; try again"
 }
 

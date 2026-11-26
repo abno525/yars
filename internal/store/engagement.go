@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"log"
 	"path"
 	"slices"
 	"strings"
@@ -46,7 +45,7 @@ func (s *Store) ListEngagements() ([]Engagement, error) {
 		eng, err := s.Engagement(id)
 		if err != nil {
 			if !errors.Is(err, ErrNotFound) {
-				log.Printf("skip engagement %s: %v", id, err)
+				s.Log().Warn("skip engagement", "eng", id, "err", err)
 			}
 			continue
 		}
@@ -275,7 +274,7 @@ func (s *Store) copyIn(e Engagement, fid string) (ref FindingRef, ok bool) {
 	ref, err := s.Finding(e.ID, fid)
 	if err != nil {
 		if !errors.Is(err, ErrNotFound) {
-			log.Printf("retest copy %s/%s: %v", e.ID, fid, err)
+			s.Log().Error("retest copy not read", "eng", e.ID, "finding", fid, "err", err)
 		}
 		return FindingRef{}, false
 	}

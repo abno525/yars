@@ -15,6 +15,7 @@ import (
 
 	"github.com/abno525/yars/internal/cvss"
 	"github.com/abno525/yars/internal/gitrepo"
+	"github.com/abno525/yars/internal/logs"
 )
 
 // The workflows a data folder can be set up with (yars init). The standard
@@ -43,6 +44,15 @@ type Config struct {
 	BaseURL string       `yaml:"base_url"`
 	SMTP    SMTPConfig   `yaml:"smtp"`
 	Checks  ChecksConfig `yaml:"checks"`
+	Log     LogConfig    `yaml:"log,omitempty"`
+}
+
+// LogConfig shapes the service log of yars serve (stderr). Both keys are
+// read when the server starts; a config.yaml saved or pushed later changes
+// neither until the next start.
+type LogConfig struct {
+	Level  string `yaml:"level,omitempty"`  // debug | info | warn | error ("" = info)
+	Format string `yaml:"format,omitempty"` // text | json ("" = text)
 }
 
 // ChecksConfig bounds the stored check runs (Check, start_check, the run
@@ -141,6 +151,12 @@ func validate(c *Config) error {
 	}
 	if c.SMTP.Port == 0 {
 		c.SMTP.Port = 25
+	}
+	if _, ok := logs.ParseLevel(c.Log.Level); !ok {
+		return fmt.Errorf("config: log.level %q must be debug, info, warn or error", c.Log.Level)
+	}
+	if !logs.ValidFormat(c.Log.Format) {
+		return fmt.Errorf("config: log.format %q must be text or json", c.Log.Format)
 	}
 	if n := c.Checks.MaxRunning; n < 1 {
 		return fmt.Errorf("config: checks.max_running %d must be at least 1", n)

@@ -1,7 +1,6 @@
 package web
 
 import (
-	"log"
 	"regexp"
 	"strconv"
 	"time"
@@ -76,12 +75,12 @@ func (s *Server) aiUsageFor(d *db.DB) (aiUsageView, error) {
 }
 
 // recordAI stores one provider call (Runner.OnUsage).
-func recordAI(d *db.DB) func(rules.Usage) {
+func (s *Server) recordAI(d *db.DB) func(rules.Usage) {
 	return func(u rules.Usage) {
 		err := d.AddAIUsage(db.AIUsage{User: u.User, Purpose: u.Purpose, Provider: u.Provider, Model: u.Model, Eng: u.Eng, Fid: u.Fid, Rule: u.Rule,
 			In: u.In, Out: u.Out, MS: int(u.Took / time.Millisecond), OK: u.OK})
 		if err != nil {
-			log.Printf("ai usage: %v", err)
+			s.log().Error("ai usage: a call is not recorded", "user", u.User, "eng", u.Eng, "finding", u.Fid, "err", err)
 		}
 	}
 }

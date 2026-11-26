@@ -102,7 +102,7 @@ func TestUpgradeFromM11Data(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg, d, st, err := prepareData(r)
+	cfg, d, st, err := startData(r)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -8,7 +8,6 @@ package index
 import (
 	"cmp"
 	"errors"
-	"log"
 	"maps"
 	"slices"
 	"sort"
@@ -373,7 +372,7 @@ func (ix *Index) reload() error {
 		e, err := ix.load(id, head, seqs[id])
 		if err != nil {
 			if !errors.Is(err, store.ErrNotFound) {
-				log.Printf("index: skip engagement %s: %v", id, err)
+				ix.store.Log().Warn("index: skip engagement", "eng", id, "err", err)
 			}
 			continue
 		}

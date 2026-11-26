@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/logs"
 	"github.com/abno525/yars/internal/lru"
 )
 
@@ -36,12 +38,16 @@ type Runner struct {
 	// Results, when set, keeps script and AI results across restarts; nil
 	// keeps them in memory only (the push hook, yars lint).
 	Results ResultStore
+	// Logger takes the runner's log lines; nil writes none.
+	Logger *slog.Logger
 
 	cacheOnce sync.Once
 	cache     *lru.Cache[string, aiResult]    // AI replies by prompt, provider, model, rule and text
 	scripts   *lru.Cache[string, []Violation] // script results by rules, rule and input
 	aiMu      sync.RWMutex                    // guards AIConf once SetAIConf replaces it
 }
+
+func (rn *Runner) log() *slog.Logger { return logs.Or(rn.Logger) }
 
 // SetAIConf replaces config.yaml's AI settings (a saved or pushed
 // config.yaml).

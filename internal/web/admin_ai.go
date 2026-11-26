@@ -75,7 +75,7 @@ func (s *Server) wireAI() {
 		rn.Stored = s.aiStored
 	}
 	if rn.OnUsage == nil {
-		rn.OnUsage = recordAI(s.Store.DB())
+		rn.OnUsage = s.recordAI(s.Store.DB())
 	}
 	if rn.Results == nil {
 		rn.Results = s.Store.DB()

@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"log"
 
 	"github.com/abno525/yars/internal/lru"
 )
@@ -66,7 +65,7 @@ func (rn *Runner) stored(key string, v any) bool {
 		err = json.Unmarshal([]byte(s), v)
 	}
 	if err != nil {
-		log.Printf("rules: stored result: %v", err)
+		rn.log().Error("rules: a stored result is not read", "err", err)
 		return false
 	}
 	return ok
@@ -82,6 +81,6 @@ func (rn *Runner) keep(key, kind string, v any) {
 		err = rn.Results.PutRuleResult(key, kind, string(b))
 	}
 	if err != nil {
-		log.Printf("rules: store result: %v", err)
+		rn.log().Error("rules: a result is not stored", "err", err)
 	}
 }

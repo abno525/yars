@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/cgi"
 	"os"
@@ -26,6 +27,7 @@ import (
 	"github.com/abno525/yars/internal/config"
 	"github.com/abno525/yars/internal/db"
 	"github.com/abno525/yars/internal/gitrepo"
+	"github.com/abno525/yars/internal/logs"
 	"github.com/abno525/yars/internal/policy"
 	"github.com/abno525/yars/internal/rules"
 	"github.com/abno525/yars/internal/store"
@@ -78,6 +80,9 @@ type Server struct {
 	// for a token with the Run checks action, rules.Fast for any other
 	// token: scripts and AI do not run on a body such a token picks.
 	Lint func(ctx context.Context, eng string, raw []byte, kinds rules.Kind) ([]rules.Violation, error)
+	// Logger takes what git http-backend and its CGI wrapper write to
+	// stderr, a line each; nil writes none.
+	Logger *slog.Logger
 
 	mu      sync.Mutex
 	cache   map[string]cached
@@ -426,6 +431,10 @@ func (s *Server) Handler() http.Handler {
 			// the hook checks each change against the token's scopes
 			env = append(env, policy.TokenScopesEnv+"="+strings.Join(tok.Scopes, ","))
 		}
+		// what git http-backend writes to stderr, and the CGI wrapper's own
+		// errors, are lines of the service log
+		stderr := logs.NewLineWriter(s.Logger, slog.LevelWarn, "git http-backend", slog.String("eng", eng), slog.String("user", u.Username))
+		defer stderr.Flush()
 		h := &cgi.Handler{
 			Path:       gitPath,
 			Root:       root,
@@ -433,6 +442,8 @@ func (s *Server) Handler() http.Handler {
 			Dir:        repo.Dir,
 			Env:        env,
 			InheritEnv: s.inherit(),
+			Logger:     slog.NewLogLogger(logs.StdHandler(s.Logger, "git http-backend: CGI error"), slog.LevelWarn),
+			Stderr:     stderr,
 		}
 		// the identity travels as REMOTE_USER; don't leak the password into
 		// the environment of git and the hook (HTTP_AUTHORIZATION)

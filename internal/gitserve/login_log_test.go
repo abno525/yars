@@ -1,41 +1,20 @@
 package gitserve
 
 import (
-	"bytes"
-	"log"
+	"log/slog"
 	"net/http"
-	"os"
 	"strings"
-	"sync"
 	"testing"
+
+	"github.com/abno525/yars/internal/logs"
 )
-
-// syncBuf is a log output written by the server's goroutines.
-type syncBuf struct {
-	mu sync.Mutex
-	b  bytes.Buffer
-}
-
-func (s *syncBuf) Write(p []byte) (int, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.b.Write(p)
-}
-
-func (s *syncBuf) String() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.b.String()
-}
 
 // A wrong password over git is a failed login in the service log, with the
 // name and the address; a request without credentials (git's first) and a
 // good password write nothing, and the password is never logged.
 func TestFailedGitPasswordReachesTheServiceLog(t *testing.T) {
-	srv, _, _ := setupDB(t)
-	var out syncBuf
-	log.SetOutput(&out)
-	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	lg, out := logs.NewRecorder()
+	srv, _, _ := setupServer(t, func(gs *Server) { gs.Logger, gs.Auth.Logger = lg, lg })
 	get := func(user, pw string) int {
 		t.Helper()
 		req, _ := http.NewRequest("GET", srv.URL+"/git/e/acme/info/refs?service=git-upload-pack", nil)
@@ -49,17 +28,34 @@ func TestFailedGitPasswordReachesTheServiceLog(t *testing.T) {
 		res.Body.Close()
 		return res.StatusCode
 	}
-	if code := get("", ""); code != http.StatusUnauthorized || out.String() != "" {
-		t.Fatalf("no credentials: %d, log %q", code, out.String())
+	if code := get("", ""); code != http.StatusUnauthorized || len(out.Records()) != 0 {
+		t.Fatalf("no credentials: %d, log %q", code, out.Text())
 	}
-	if code := get("alice", "pw"); code != http.StatusOK || out.String() != "" {
-		t.Fatalf("a good password: %d, log %q", code, out.String())
+	if code := get("alice", "pw"); code != http.StatusOK || len(out.Records()) != 0 {
+		t.Fatalf("a good password: %d, log %q", code, out.Text())
 	}
 	if code := get("alice", "wrong-secret"); code != http.StatusUnauthorized {
 		t.Fatalf("a wrong password: %d", code)
 	}
-	got := out.String()
-	if strings.Count(got, "\n") != 1 || !strings.Contains(got, `git login failed: user "alice" from 127.0.0.1:`) || strings.Contains(got, "wrong-secret") {
-		t.Fatalf("log %q", got)
+	recs := out.Records()
+	if len(recs) != 1 || recs[0].Msg != "git login failed" || recs[0].Str("user") != "alice" || recs[0].Level < slog.LevelInfo ||
+		!strings.HasPrefix(recs[0].Str("remote"), "127.0.0.1:") || strings.Contains(out.Text(), "wrong-secret") {
+		t.Fatalf("log %q", out.Text())
+	}
+}
+
+// What git http-backend writes to stderr is a line of the service log each,
+// with the engagement and the account, never free text on the process's own
+// stderr.
+func TestGitBackendStderrIsLogged(t *testing.T) {
+	lg, out := logs.NewRecorder()
+	w := logs.NewLineWriter(lg, slog.LevelWarn, "git http-backend", slog.String("eng", "acme"), slog.String("user", "alice"))
+	w.Write([]byte("fatal: bad ob"))
+	w.Write([]byte("ject\nerror: second\nlast"))
+	w.Flush()
+	recs := out.With("git http-backend")
+	if len(recs) != 3 || recs[0].Str("err") != "fatal: bad object" || recs[1].Str("err") != "error: second" || recs[2].Str("err") != "last" ||
+		recs[0].Str("eng") != "acme" || recs[0].Str("user") != "alice" || recs[0].Level != slog.LevelWarn {
+		t.Fatalf("log:\n%s", out.Text())
 	}
 }
