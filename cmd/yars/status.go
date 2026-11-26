@@ -27,6 +27,18 @@ import (
 // file in the data folder's .yars, the service account's alone (0600).
 func statusSocket(dataDir string) string { return filepath.Join(dataDir, ".yars", "status.sock") }
 
+// otherServer reports whether another yars serve answers on the data
+// folder's status socket. No socket, or a stale one, is no server.
+func otherServer(dataDir string) bool {
+	c, err := net.DialTimeout("unix", statusSocket(dataDir), 2*time.Second)
+	if err == nil {
+		c.Close()
+	}
+	// a server too busy to take the connection in time is still a server
+	var ne net.Error
+	return err == nil || (errors.As(err, &ne) && ne.Timeout())
+}
+
 // startStatus serves srv's status (web.Server.StatusHandler: one GET route,
 // nothing else of the website) on the data folder's socket, and returns the
 // function that stops it and removes the socket. Whoever can open the socket
@@ -38,13 +50,7 @@ func statusSocket(dataDir string) string { return filepath.Join(dataDir, ".yars"
 // that cannot be made is one warn line too.
 func startStatus(dataDir string, srv *web.Server, lg *slog.Logger) (stop func()) {
 	path := statusSocket(dataDir)
-	c, err := net.DialTimeout("unix", path, 2*time.Second)
-	if err == nil {
-		c.Close()
-	}
-	// a server too busy to take the connection in time is still a server
-	var ne net.Error
-	if err == nil || (errors.As(err, &ne) && ne.Timeout()) {
+	if otherServer(dataDir) {
 		logs.Or(lg).Warn("status: the status socket is in use by another server; this server runs without it")
 		return func() {}
 	}

@@ -473,10 +473,39 @@ func (r *Repo) RestoreHead() (bool, error) {
 	if err != nil || strings.TrimSpace(out) == "" {
 		return false, err
 	}
+	// no commit yet (a stop while the repository was made): there is no HEAD
+	// to go back to, and the reset would fail
+	if h, err := r.Head(); err != nil || h == "" {
+		return false, err
+	}
 	if _, err := r.run(nil, "reset", "-q", "--hard", "HEAD"); err != nil {
 		return false, err
 	}
 	return true, nil
+}
+
+// CleanUntracked removes what is under dir (relative to the root) and in no
+// commit and not staged: files and folders, also ones an ignore rule
+// matches (the account's own core.excludesFile, .git/info/exclude). It
+// returns how many files and folders it removed. A nested repository is
+// left alone, and so is a repository without a commit: nothing in it is
+// committed, so nothing tells a leftover from the rest.
+func (r *Repo) CleanUntracked(dir string) (int, error) {
+	if h, err := r.Head(); err != nil || h == "" {
+		return 0, err
+	}
+	// git's own words, to count its lines
+	out, err := r.run([]string{"LC_ALL=C", "LANGUAGE="}, "clean", "-fdx", "--", dir)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, l := range strings.Split(out, "\n") {
+		if strings.HasPrefix(l, "Removing ") {
+			n++
+		}
+	}
+	return n, nil
 }
 
 // Head returns the current commit hash, or "" if there are no commits yet.

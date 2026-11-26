@@ -84,7 +84,8 @@ func serverLogRing(w io.Writer, cfg config.Config, flagLevel string) (*slog.Logg
 }
 
 // prepareData readies a data folder the way every start does, after
-// startConfig and before the first request: the database is opened (and
+// startConfig and before the first request: files a stop left uncommitted
+// in the findings folders are removed, the database is opened (and
 // migrated), config.yaml's workflow is checked against the one yars init
 // set up, teams are backfilled, board claims a stop cut off are reset,
 // server files are git-ignored and the engagement pointers follow their
@@ -93,6 +94,7 @@ func prepareData(r *gitrepo.Repo, cfg config.Config, lg *slog.Logger) (*db.DB, *
 	if items := legacyItems(r.Dir); len(items) > 0 {
 		return nil, nil, fmt.Errorf("this data directory still keeps accounts, workflow state or chat in files (%s); run: yars migrate --data %s", strings.Join(items, ", "), r.Dir)
 	}
+	cleanLeftovers(r, lg)
 	d, err := dataDB(r.Dir)
 	if err != nil {
 		return nil, nil, err
@@ -127,6 +129,27 @@ func prepareData(r *gitrepo.Repo, cfg config.Config, lg *slog.Logger) (*db.DB, *
 		return fail("update engagement pointers", err)
 	}
 	return d, st, nil
+}
+
+// cleanLeftovers removes what a stop between a write and its commit left
+// in the engagements' findings folders (gitserve.CleanLeftovers), before
+// anything reads them, and logs a line per engagement: its ID and a count,
+// never a name. While another server answers on the data folder (a second
+// yars serve started by mistake) nothing is removed: that server's files
+// between write and commit look the same. A failure is logged and the start
+// goes on.
+func cleanLeftovers(r *gitrepo.Repo, lg *slog.Logger) {
+	if otherServer(r.Dir) {
+		logs.Or(lg).Warn("start: another server runs on this data folder; uncommitted files in the findings folders are left")
+		return
+	}
+	cleaned, err := gitserve.CleanLeftovers(r)
+	for _, c := range cleaned {
+		logs.Or(lg).Warn("start: uncommitted files were removed from an engagement's findings folder", "eng", c.Eng, "count", c.N)
+	}
+	if err != nil {
+		logs.Or(lg).Error("start: uncommitted files are not removed", "err", err)
+	}
 }
 
 // checkWorkflow refuses a config.yaml whose workflow is not the one the
