@@ -431,7 +431,13 @@ func (s *Server) wfDone(w http.ResponseWriter, r *http.Request, err error) {
 		// back to the finding's own URL (a reload re-posts nothing), with the
 		// error and the typed reason kept for it
 		to := findingURL(r.PathValue("eng"), r.PathValue("fid"))
-		js, _ := json.Marshal(wfDenial{Path: to, Act: r.PathValue("act"), Reason: r.FormValue("reason"), Error: d.Reason})
+		// kept up to the store's cap: a reason refused for its length is not
+		// parked here whole
+		reason := r.FormValue("reason")
+		if rs := []rune(reason); len(rs) > store.MaxReason {
+			reason = string(rs[:store.MaxReason])
+		}
+		js, _ := json.Marshal(wfDenial{Path: to, Act: r.PathValue("act"), Reason: reason, Error: d.Reason})
 		s.flash.put(r, "wfdenied", string(js))
 		http.Redirect(w, r, to, http.StatusSeeOther)
 	default:

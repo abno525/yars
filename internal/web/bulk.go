@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/abno525/yars/internal/auth"
 	"github.com/abno525/yars/internal/config"
@@ -32,14 +33,13 @@ type bulkView struct {
 }
 
 // A bulk run takes at most maxBulkIDs findings (each moved row sends its
-// notifications) and a reason of at most maxBulkReason bytes (copied into
-// every row's chat). It starts new rows for at most bulkTime (submit and
-// approve run every rule, AI too, per row); the rows after that are skipped,
-// to run again.
+// notifications) and a reason of at most store.MaxReason characters (the
+// store's cap, refused here once for the whole run). It starts new rows for
+// at most bulkTime (submit and approve run every rule, AI too, per row); the
+// rows after that are skipped, to run again.
 const (
-	maxBulkIDs    = 500
-	maxBulkReason = 4000
-	bulkTime      = 2 * time.Minute
+	maxBulkIDs = 500
+	bulkTime   = 2 * time.Minute
 )
 
 // bulkAction reads the posted action in workflow f: "reviewers" or an
@@ -128,8 +128,8 @@ func (s *Server) bulk(w http.ResponseWriter, r *http.Request) {
 	case act != "" && workflow.NeedsReason(act) && reason == "":
 		bulkBad(w, r, "give a reason")
 		return
-	case len(reason) > maxBulkReason:
-		bulkBad(w, r, "the reason is longer than "+strconv.Itoa(maxBulkReason)+" characters")
+	case utf8.RuneCountInString(reason) > store.MaxReason:
+		bulkBad(w, r, "the reason is longer than "+strconv.Itoa(store.MaxReason)+" characters")
 		return
 	}
 	eng := r.PathValue("eng")

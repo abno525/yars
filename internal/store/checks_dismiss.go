@@ -38,6 +38,9 @@ func (s *Store) Dismiss(engID, dir, rule, quote string, u config.User) error {
 // the quote's one place (placeOf).
 func (s *Store) DismissWhy(engID, dir, rule, target, quote, reason string, u config.User) error {
 	reason = strings.TrimSpace(reason)
+	if msg := reasonTooLong(reason); msg != "" {
+		return fmt.Errorf("%w: %s", ErrInvalidValue, msg)
+	}
 	if s.db == nil {
 		return ErrNoDB
 	}

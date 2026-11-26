@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/abno525/yars/internal/chat"
 	"github.com/abno525/yars/internal/config"
@@ -144,12 +145,31 @@ func changedSince() error {
 	return &workflow.Denied{Reason: "the finding changed since you opened it; read it again", Err: ErrConflict}
 }
 
+// MaxReason is the most characters a reason may have: of Return, Withdraw
+// and the reverts, and of a dismissal. A reason is copied into the chat,
+// notifications, webhooks and mail.
+const MaxReason = 4000
+
+// reasonTooLong is the refusal's text when reason is over MaxReason
+// characters, else "".
+func reasonTooLong(reason string) string {
+	if utf8.RuneCountInString(reason) <= MaxReason {
+		return ""
+	}
+	return fmt.Sprintf("the reason is longer than %d characters", MaxReason)
+}
+
 func (s *Store) transition(engID, dir string, act workflow.Action, reason, seen, files string, u config.User, check func(finding.Meta) error) error {
 	if check == nil {
 		check = func(finding.Meta) error { return nil }
 	}
 	if !workflow.NeedsReason(act) {
 		reason = "" // only Return, Withdraw and the reverts carry one
+	}
+	reason = strings.TrimSpace(reason)
+	if msg := reasonTooLong(reason); msg != "" {
+		// first: before the rules run and before anything is read
+		return &workflow.Denied{Reason: msg}
 	}
 	if s.db == nil {
 		return ErrNoDB
