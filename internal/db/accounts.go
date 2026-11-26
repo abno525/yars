@@ -16,6 +16,27 @@ import (
 // retention setting is 0 (Retention.SessionDays sets it otherwise).
 const SessionIdle = 14 * 24 * time.Hour
 
+// SessionMax is how long a session lives from its login at most, however
+// much it is used: a cookie someone took stops working then.
+const SessionMax = 30 * 24 * time.Hour
+
+// SessionLeft is how long the session stored by hash holds from now if it
+// is used now and not again: the idle time, or what is left of SessionMax
+// when that is less (the session cookie's lifetime). Without such a session
+// it is the idle time.
+func (d *DB) SessionLeft(hash string) time.Duration {
+	idle := d.sessionIdle()
+	var created string
+	if err := d.QueryRow("SELECT created FROM sessions WHERE hash = ?", hash).Scan(&created); err != nil {
+		return idle
+	}
+	made, err := time.Parse(time.RFC3339, created)
+	if err != nil {
+		return idle
+	}
+	return max(min(idle, SessionMax-d.now().Sub(made)), 0)
+}
+
 // Themes a user can choose ("" follows the system).
 var Themes = []string{"", "light", "dark"}
 
@@ -614,7 +635,7 @@ func (d *DB) CreateSession(hash, user string) error {
 
 // SessionUser returns the session's user and refreshes its last use; a
 // session idle for longer than the retention's session days (SessionIdle
-// when that is 0) is deleted and rejected.
+// when that is 0), or older than SessionMax, is deleted and rejected.
 func (d *DB) SessionUser(hash string) (string, bool, error) {
 	user, seen, found, good, err := d.session(hash)
 	if err != nil || !found {
@@ -642,10 +663,11 @@ func (d *DB) SessionAlive(hash string) (string, bool, error) {
 }
 
 // session reads the session stored by hash: its user, its last use, whether
-// there is one (found) and whether it still holds now (good).
+// there is one (found) and whether it still holds now (good): used within
+// the idle time, and made no longer than SessionMax ago.
 func (d *DB) session(hash string) (user string, seen time.Time, found, good bool, err error) {
-	var last string
-	err = d.QueryRow("SELECT username, last_seen FROM sessions WHERE hash = ?", hash).Scan(&user, &last)
+	var last, created string
+	err = d.QueryRow("SELECT username, last_seen, created FROM sessions WHERE hash = ?", hash).Scan(&user, &last, &created)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", seen, false, false, nil
 	}
@@ -653,7 +675,8 @@ func (d *DB) session(hash string) (user string, seen time.Time, found, good bool
 		return "", seen, false, false, err
 	}
 	seen, perr := time.Parse(time.RFC3339, last)
-	good = perr == nil && d.now().Sub(seen) <= d.sessionIdle()
+	made, cerr := time.Parse(time.RFC3339, created)
+	good = perr == nil && cerr == nil && d.now().Sub(seen) <= d.sessionIdle() && d.now().Sub(made) <= SessionMax
 	return user, seen, true, good, nil
 }
 

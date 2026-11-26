@@ -157,6 +157,10 @@ yars serve --data /srv/yars --addr :443 --tls-cert /etc/ssl/yars/fullchain.pem -
 
 Binding port 443 needs `AmbientCapabilities=CAP_NET_BIND_SERVICE` in the unit, and the `yars` account must be able to read the key. The certificate is read at the start: restart the service after renewing it. A certificate that does not load stops the start before anything changes.
 
+## Sessions
+
+A login ends when it is not used for the number of days set under Admin › System › Retention (Sessions): 14 by default, and 0 means 14 too. It ends 30 days after the login at the latest, however much it is used. The session cookie lives as long as its session.
+
 ## Backup
 
 A git clone holds the findings only. Accounts, workflow state, reviewers, chat and check results are in the server's database, so back up with `yars backup`. It works while the server runs.

@@ -26,6 +26,7 @@ What changed for people who run or use YARS. Newest first.
 - Settings › Tokens › New token asks for your password. `yars token add` does not.
 - `ai.api_key_env` and `smtp.password_env` in `.yars/config.yaml` must name a variable that starts with `YARS_`. A file that names another one is refused on save and on push, and `yars serve` does not start with it. Rename the variable in the service's environment, set the new name in `.yars/config.yaml` in the data folder and commit it there ([docs/config.md](docs/config.md)).
 - The clone and MCP addresses on the pages come from `base_url`. Without it they use the request's host, and `https` only when the server runs with `--https` or a certificate: the `X-Forwarded-Proto` header is no longer read. A server behind a TLS proxy that runs without `--https` and without `base_url` now shows `http` addresses: set `base_url`. `yars serve` logs at the start when `base_url` is not set.
+- A login ends 30 days after it was made at the latest, however much it is used: sessions older than that end at the upgrade. The session cookie lives as long as its session (before: always 14 days, whatever Admin › System › Retention said). Sessions set to 0 days there means the default 14; such sessions are now deleted when they end.
 - Only a finding's author or a director sends it to a destination. The export page ticks the findings you may send. Downloads and the preview stay open to the team.
 
 ### Fixed

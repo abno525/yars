@@ -228,7 +228,7 @@ func (a *Auth) Require(next http.Handler) http.Handler {
 			return
 		}
 		// a page load renews the cookie: an active session does not expire
-		// SessionIdle after login (htmx requests from an open page do not)
+		// its idle time after login (htmx requests from an open page do not)
 		if r.Method == http.MethodGet && r.Header.Get("HX-Request") != "true" {
 			if c, err := r.Cookie(CookieName); err == nil {
 				a.SetCookie(w, c.Value)
@@ -243,10 +243,18 @@ func UserFrom(ctx context.Context) config.User {
 	return u
 }
 
-// SetCookie writes the session cookie for token (Secure over HTTPS).
+// SetCookie writes the session cookie for token (Secure over HTTPS). The
+// cookie lives as long as the session would without another use: the
+// retention's session days, or what is left of the session's absolute limit
+// when that is less (db.SessionLeft).
 func (a *Auth) SetCookie(w http.ResponseWriter, token string) {
+	left := db.SessionIdle
+	if a.db != nil {
+		left = a.db.SessionLeft(hashSecret(token))
+	}
+	// at least a second: a Max-Age of 0 would make it a browser-session cookie
 	http.SetCookie(w, &http.Cookie{Name: CookieName, Value: token, Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode,
-		Secure: a.Secure, MaxAge: int(db.SessionIdle.Seconds())})
+		Secure: a.Secure, MaxAge: max(int(left.Seconds()), 1)})
 }
 
 // ClearCookie removes the session cookie (with the attributes it was set with).
