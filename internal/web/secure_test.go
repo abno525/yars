@@ -220,6 +220,23 @@ func TestBrowserStorageIsPerAccount(t *testing.T) {
 			t.Errorf("app.js lacks %s", want)
 		}
 	}
+	// a draft whose account never comes back to this browser does not stay
+	// for good: at load, every account's drafts older than 14 days go, by
+	// the time the draft carries
+	sweep := between(js, "function yarsDraftSweep()", "\n}\n")
+	for _, want := range []string{"var yarsDraftDays = 14;", "\nyarsDraftSweep();\n"} {
+		if !strings.Contains(js, want) {
+			t.Errorf("app.js lacks %q", want)
+		}
+	}
+	for _, want := range []string{"indexOf('yars-draft:') !== 0", "typeof d.at !== 'number'", "yarsDraftDays * 86400000", "localStorage.removeItem(k)"} {
+		if !strings.Contains(sweep, want) {
+			t.Errorf("the sweep of old drafts lacks %s", want)
+		}
+	}
+	if strings.Contains(sweep, "yarsUser()") {
+		t.Error("the sweep of old drafts looks at one account only")
+	}
 	// the draft is written when the session has expired: a 401 must not be
 	// what removes it
 	i := strings.Index(js, "function yarsExpired()")
