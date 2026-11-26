@@ -269,12 +269,20 @@ func (n *Notifier) email(u config.User, note db.Notification, mail Mailer) {
 			defer n.sending.Add(-1)
 			start := time.Now()
 			err := mail.Send(u.Email, subject, body)
-			ms := time.Since(start).Milliseconds()
+			// a token's notice has no engagement and no finding
+			attrs := []any{"user", u.Username}
+			if note.Eng != "" {
+				attrs = append(attrs, "eng", note.Eng)
+			}
+			if note.Fid != "" {
+				attrs = append(attrs, "finding", note.Fid)
+			}
+			attrs = append(attrs, "event", note.Event, "ms", time.Since(start).Milliseconds())
 			if err != nil {
-				n.log().Warn("notification email not sent", "user", u.Username, "eng", note.Eng, "finding", note.Fid, "event", note.Event, "ms", ms, "err", mailErr(err))
+				n.log().Warn("notification email not sent", append(attrs, "err", mailErr(err))...)
 				return
 			}
-			n.log().Info("notification email sent", "user", u.Username, "eng", note.Eng, "finding", note.Fid, "event", note.Event, "ms", ms)
+			n.log().Info("notification email sent", attrs...)
 		}()
 	}
 }

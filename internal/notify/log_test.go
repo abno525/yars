@@ -7,7 +7,9 @@ import (
 	"net/textproto"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/abno525/yars/internal/db"
 	"github.com/abno525/yars/internal/logs"
 	"github.com/abno525/yars/internal/store"
 )
@@ -54,6 +56,38 @@ func TestMailIsLogged(t *testing.T) {
 		}
 		if text := out.Text(); strings.Contains(text, "acme.example") || strings.Contains(text, "zqreason7f3kq") || strings.Contains(text, "SQL injection") {
 			t.Fatalf("the log holds an address or text:\n%s", text)
+		}
+	}
+}
+
+// A token notice is about no engagement and no finding: its mail line has
+// neither field, sent or not.
+func TestTokenMailLineHasNoEmptyFields(t *testing.T) {
+	n, d, _ := newNotifier(t)
+	lg, out := logs.NewRecorder()
+	n.Logger = lg
+	now := time.Now()
+	for i, hash := range []string{"h-abcd", "h-wxyz"} {
+		if i == 1 {
+			n.Mail = refusingMailer{&textproto.Error{Code: 550, Msg: "refused"}}
+		}
+		exp := now.Add(24 * time.Hour).UTC().Format(time.RFC3339)
+		if _, err := d.CreateToken("pen1", hash, hash[len(hash)-4:], db.TokenSpec{Name: "laptop", Kind: db.TokenMCP, Scopes: []string{db.ScopeAll}, Expires: exp}); err != nil {
+			t.Fatal(err)
+		}
+		d.SetNotify("pen1", Token, "email", true)
+		if err := n.Tokens(now); err != nil {
+			t.Fatal(err)
+		}
+		n.Wait()
+	}
+	recs := append(out.With("notification email sent"), out.With("notification email not sent")...)
+	if len(recs) != 2 {
+		t.Fatalf("log:\n%s", out.Text())
+	}
+	for _, r := range recs {
+		if r.Has("eng") || r.Has("finding") || r.Str("user") != "pen1" || r.Str("event") != Token || !r.Has("ms") {
+			t.Errorf("line: %s", r)
 		}
 	}
 }
