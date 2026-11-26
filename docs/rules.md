@@ -1,20 +1,10 @@
-# Script rules
+# Rules
 
-A rule in `.yars/rules/*.yaml` names a script file in `.yars/rules`. The script reads the finding as JSON on stdin and runs with a clean environment:
-
-```yaml
-- id: no-internal-hosts
-  level: error            # error | warning
-  message: Internal host name in client-facing text
-  script: no_internal_hosts.py
-  enabled: true
-```
+A rule checks a finding's text and reports what breaks it. There are four kinds: a pattern (a regular expression), a built-in check, a script and an AI instruction. This page covers all four; the script contract and the AI rules have their own sections below.
 
 ## Rule files
 
 A new data folder (`yars init`) has no rules. **Admin › Rules** writes them. To write them by hand, change `.yars/rules/` in a clone of the main repository and push it as a director with the admin flag ([git.md](git.md)); in the simple workflow every account is a director, so the admin flag is enough.
-
-With **Require Check** on (Admin › Rules, the default), Sign off and Approve wait for a finished Check on the finding's current text. While no rule is on, they don't wait.
 
 Every `*.yaml` or `*.yml` file in `.yars/rules/` is a list of rules:
 
@@ -33,7 +23,7 @@ and exactly one check:
 | `regex_forbid` | a Go (RE2) regular expression; each match in the target is a hit |
 | `regex_require` | a regular expression each part of the target must match; an empty part is skipped unless `require_nonempty: true` |
 | `check` | built-in: `table-cells-no-backticks` (no backticks in table cells and details rows), `cvss-explained` (a CVSS value other than the standard one in `config.yaml` needs a reason), `not-empty` (each part of the target has text) |
-| `script` | a program in `.yars/rules` (below) |
+| `script` | a program in `.yars/rules` (Script rules, below) |
 | `ai` | an instruction for the AI provider (AI rules, below) |
 
 ```yaml
@@ -43,7 +33,48 @@ and exactly one check:
   message: The title must not end with a dot
 ```
 
-## stdin: the finding (rules.Doc)
+## Patterns
+
+A pattern is matched against one part at a time: the title, a section's body or a details row.
+
+- `^` and `$` are the start and the end of the whole part, not of a line. Write `(?m)` at the start of the pattern to make them match at each line.
+- The part is the Markdown as written. Code blocks and tables are matched too.
+- `regex_forbid` reports up to 20 matches per part, and a rule up to 20 hits per finding.
+
+## When rules run
+
+Pattern and built-in rules run wherever a finding is checked. Scripts and AI rules take longer and run in fewer places:
+
+- The Check button, `start_check` and `lint_finding all=true` (MCP), the pre-commit check and the Test bench on **Admin › Rules** run every rule.
+- A git push runs scripts, not AI rules.
+- `yars lint` runs the pattern and built-in rules only. `yars lint --all` adds scripts and AI rules.
+
+One check of a finding has 90 s for all its scripts and AI questions together. A rule that has not finished by then fails.
+
+With **Require Check** on (Admin › Rules, the default), Sign off and Approve wait for a finished Check on the finding's current text and on the rules as they are now: after a rule changes, the finding is checked again. While no rule is on, they don't wait.
+
+## Dismissing a result
+
+A result that is right to ignore can be dismissed, with a reason.
+
+- A warning: anyone who may edit the finding.
+- An error: the same, and the reviewer role or more.
+- A dismissal covers one result: that rule, that place and that quote. The same quote in another place still counts.
+- In an archived engagement nothing is dismissed or restored.
+
+## Script rules
+
+A script rule names a file in `.yars/rules`. The script reads the finding as JSON on stdin, writes its violations to stdout and runs with a clean environment:
+
+```yaml
+- id: no-internal-hosts
+  level: error            # error | warning
+  message: Internal host name in client-facing text
+  script: no_internal_hosts.py
+  enabled: true
+```
+
+### stdin: the finding (rules.Doc)
 
 | Field | Type | Value |
 |---|---|---|
@@ -60,7 +91,7 @@ and exactly one check:
 | `retest_result` | string | `fixed`, `partially_fixed`, `not_fixed` or `""` |
 | `attachments` | []string | files of `attachments/` the sections use |
 
-## stdout: the violations
+### stdout: the violations
 
 A JSON array; `[]` means the finding passes.
 
@@ -70,7 +101,7 @@ A JSON array; `[]` means the finding passes.
 | `quote` | string | the offending text, cut to 80 characters + … |
 | `target` | string | `title`, `section:<Name>`, `details:<Row>`, `cvss`, or empty (`finding`) |
 
-## Example: no_internal_hosts.py
+### Example: no_internal_hosts.py
 
 ```python
 #!/usr/bin/env python3
@@ -102,7 +133,7 @@ A stored result is deleted after the days set for check runs on **Admin › Syst
 
 | Limit | Value |
 |---|---|
-| Timeout | 10 s · kill wait 1 s |
+| Timeout | 10 s per script · kill wait 1 s · 90 s for one check's scripts and AI questions together |
 | stdout | 1 MB |
 | stderr | 64 KB · first 80 characters shown |
 | Hits per rule | 20 |
@@ -111,24 +142,41 @@ A stored result is deleted after the days set for check runs on **Admin › Syst
 | Environment | `PATH`, `HOME` |
 | Working directory | the script's own folder (`.yars/rules`, or `.yars/rules/lib` for `lib/x.py`) |
 | Script path | inside `.yars/rules` · symlinks resolved · executable |
-| Runs | Check button · `start_check` and `lint_finding all=true` (MCP) · `yars lint` · git push |
+| Runs | Check button · `start_check` and `lint_finding all=true` (MCP) · pre-commit check · Test bench · `yars lint --all` · git push |
 
 ## Failures
 
-A rule that can't run reports a violation with target `rules` at the rule's level:
+A script that can't run reports a violation with target `rules` at the rule's level:
 
 | Message | Cause |
 |---|---|
 | `rule failed: script outside rules dir` | Path |
-| `rule failed: timed out` | Over 10 s |
+| `rule failed: <the system's message>` | The file is missing or not executable (`… no such file or directory`, `… permission denied`). The message can show a path on the server |
+| `rule failed: timed out` | Over 10 s, or the check's 90 s ran out |
 | `rule failed: output too large (limit 1 MB)` | stdout |
 | `rule failed: <stderr>` | Non-zero exit |
+| `rule failed: <stderr>` or `rule failed: output too large` | stderr over 64 KB: the rule fails even when the script exits 0 |
 | `rule failed: invalid output (want a JSON array): …` | Not a JSON array |
-| `rule invalid (hosts.yaml): …` | The YAML file: unknown keys, duplicate id, not exactly one of `regex_forbid`, `regex_require`, `check`, `script`, `ai` |
+
+A rules file with a mistake reports `rule invalid (<file>): …`, always as an error, whatever the rule's level:
+
+| Cause | Message ends with |
+|---|---|
+| The file is not a YAML list | the YAML error |
+| An unknown key | `unknown field(s) <names>` |
+| No `id` | `rule without id` |
+| An id used twice | `duplicate rule id <id>` |
+| A `level` other than `error` or `warning` | `level "<level>" must be error or warning` |
+| None or several of the checks | `needs exactly one of regex_forbid, regex_require, check, script, ai` |
+| A regular expression that does not compile | the expression's error |
+| A built-in check that does not exist | `unknown check "<name>"` |
+| A target of another form | `unknown target "<target>" (use title, text, sections, details, section:<Name> or details:<Row>)` |
+
+A target that is well formed but names a section or details row the config lacks is a warning: `rule target section:<Name> (<file>) is not a configured section name; check the spelling`.
 
 ## AI rules
 
-A rule with `ai:` asks the AI provider (**Admin › AI**, or `ai.*` in `config.yaml`) whether a text follows the instruction. Each part the target covers (the title, each section, each details row) is one question. The model answers with the violations it finds: a quote from the text and a message.
+A rule with `ai:` asks the AI provider (**Admin › AI**, or `ai.*` in `config.yaml`) whether a text follows the instruction. Each part the target covers (the title, each section, each details row) is one question; an AI rule skips a part with no text. The model answers with the violations it finds: a quote from the text and a message.
 
 ```yaml
 - id: expand-acronyms
@@ -137,7 +185,7 @@ A rule with `ai:` asks the AI provider (**Admin › AI**, or `ai.*` in `config.y
   ai: Expand every acronym on first use.
 ```
 
-AI rules run where script rules run, except on a git push. Without a provider or a key they are skipped with a warning.
+AI rules run where script rules run, except on a git push. Without a provider or a key an AI rule does not run: it reports the warning `AI rules skipped: no AI provider configured`, and the finding shows an "AI checks failed" badge after Check. Sign off and Approve are not held by it.
 
 ### Unchanged text is not sent again
 
@@ -153,7 +201,7 @@ A model can still be talked into passing a text. Keep AI rules at `level: warnin
 
 | Limit | Value |
 |---|---|
-| Time per question | 60 s |
+| Time per question | 60 s · 90 s for one check's scripts and AI questions together |
 | Reply | 4,096 tokens (Anthropic) |
 | Quote, message | as script rules |
 | Stored results | 2,000 in memory per kind · 50,000 in the database, script and AI together; the oldest go first · deleted after the check run days |

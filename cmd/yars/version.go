@@ -13,6 +13,10 @@ import (
 // version is set at build time: go build -ldflags "-X main.version=v1.0.0".
 var version = ""
 
+// source is where this build's source code is; Settings › About links it.
+// A changed build names its own: go build -ldflags "-X main.source=https://…".
+var source = "https://github.com/abno525/yars"
+
 // buildVersion is version, else the VCS revision from debug.ReadBuildInfo
 // (first 12 characters, with "+dirty" when modified), else "dev".
 func buildVersion() string {

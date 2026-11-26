@@ -43,6 +43,8 @@ git submodule update --init engagements/<id> engagements/<id2> &&
 git submodule foreach -q git switch -q main
 ```
 
+The Clone panel clones into `yars`, git's default name for that address; the examples here use `findings`. Either name works.
+
 Each line but the last ends with `&&`, so a paste stops at the first failure instead of running the rest in the current folder. Git checks submodules out on a detached HEAD: a commit made there is on no branch, and the push of `main` leaves it out. The last line puts every engagement on `main`. To pull, run `git pull` in the top folder, then `git submodule foreach -q git pull -q`: each engagement pulls its `main`. `git pull --recurse-submodules` (and `git submodule update`) detaches them again, and switching back to `main` after it lands on the `main` of the previous pull: pull there too. A pull touches only the engagements the clone checked out.
 
 A new engagement is checked out with `git submodule update --init engagements/<id>` (a director or an admin may leave out the path), then switched to `main` as above. Without the path, a pentester's or reviewer's `git submodule update --init` stops at the first engagement they are not on. A plain `git pull` leaves that one alone, but `git pull --recurse-submodules` and `git submodule update` try it again each time.

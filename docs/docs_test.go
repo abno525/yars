@@ -1,9 +1,327 @@
 package docs
 
 import (
+	"io/fs"
+	"os"
+	"slices"
 	"strings"
 	"testing"
 )
+
+// The binary carries the pages of Pages and no other file of docs/: a
+// planning note or an operator's page beside them is not compiled in.
+func TestOnlyTheNamedPagesAreEmbedded(t *testing.T) {
+	ents, err := fs.ReadDir(FS, ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, e := range ents {
+		if e.IsDir() {
+			t.Errorf("a folder is embedded: %s", e.Name())
+		}
+		got = append(got, e.Name())
+	}
+	var want []string
+	for _, p := range Pages {
+		want = append(want, p+".md")
+		if s, err := Page(p); err != nil || s == "" {
+			t.Errorf("Page(%q): %v", p, err)
+		}
+	}
+	slices.Sort(got)
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
+		t.Errorf("embedded %v, want %v", got, want)
+	}
+	for _, p := range []string{"open-decisions-2026-11-07", "deploy", "known-limits"} {
+		if _, err := Page(p); err == nil {
+			t.Errorf("%s.md is embedded", p)
+		}
+	}
+}
+
+// The limits page states limits: no planning file, milestone, decision
+// number or commit of the project's history.
+func TestKnownLimitsArePlain(t *testing.T) {
+	b, err := os.ReadFile("known-limits.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := string(b)
+	for _, bad := range []string{"superpowers", "M34", "M30", "M10", "M6", "Q25", "aca92e8", "Decided", "backlog", "chat.jsonl", "DeepSeek"} {
+		if strings.Contains(g, bad) {
+			t.Errorf("the limits page names %q", bad)
+		}
+	}
+	for _, want := range []string{"## Checks and rules", "## Simple workflow", "AI rules skipped: no AI provider configured",
+		// as the rules guide has it: a push runs scripts and no AI rule, and
+		// only `yars lint --all` runs either
+		"| A git push and `yars lint --all` run every script each time, and `yars lint --all` sends the text to the AI provider each time |"} {
+		if !strings.Contains(g, want) {
+			t.Errorf("the limits page lacks %q", want)
+		}
+	}
+	for _, bad := range []string{"`yars lint` run scripts", "push hook"} {
+		if strings.Contains(g, bad) {
+			t.Errorf("the limits page says %q: a push runs no AI rule and the plain yars lint no script", bad)
+		}
+	}
+}
+
+// The rules guide covers every kind of rule: what the plain `yars lint`
+// leaves out, the time one check has, how a pattern is anchored, who may
+// dismiss, and each way a rule or its file can fail.
+func TestRulesGuideCoversEveryKind(t *testing.T) {
+	g, err := Page("rules")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(g, "# Rules\n") {
+		t.Errorf("the title: %.30q", g)
+	}
+	for _, want := range []string{
+		"`yars lint` runs the pattern and built-in rules", "`yars lint --all`", "90 s", "the rules as they are now",
+		"`(?m)`", "Code blocks and tables are matched", "skips a part with no text",
+		"## Dismissing a result", "the reviewer role", "that rule, that place and that quote",
+		"not executable", "64 KB", "even when the script exits 0",
+		"does not compile", "unknown check", "unknown target", "is not a configured section name",
+		"AI rules skipped: no AI provider configured", "AI checks failed",
+	} {
+		if !strings.Contains(g, want) {
+			t.Errorf("the guide lacks %q", want)
+		}
+	}
+	// the plain lint is not listed where scripts run
+	if i := strings.Index(g, "| Runs |"); i < 0 || strings.Contains(g[i:i+strings.Index(g[i:], "\n")], "`yars lint` ·") {
+		t.Error("the Runs row lists the plain yars lint")
+	}
+}
+
+// The other pages agree with the code and with each other: the Go release,
+// the data folder's path, what an unknown config key does, and where the
+// Clone panel's command differs from the git guide's.
+func TestDocsAgree(t *testing.T) {
+	read := func(name string) string {
+		b, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	if r := read("../README.md"); !strings.Contains(r, "Needs Go 1.27.2 or later.") || !strings.Contains(r, "[Wiki](https://github.com/abno525/yars/wiki)") {
+		t.Error("README: the Go release or the wiki link")
+	}
+	if m := read("mcp.md"); strings.Contains(m, "/srv/yars-data") || !strings.Contains(m, "yars token add --data /srv/yars alice") {
+		t.Error("mcp.md does not use deploy.md's data folder")
+	}
+	if c := read("config.md"); strings.Contains(c, "Unknown values are rejected") || !strings.Contains(c, "A key YARS does not know is ignored") {
+		t.Error("config.md: what an unknown key does")
+	}
+	if g := read("git.md"); !strings.Contains(g, "The Clone panel clones into `yars`") {
+		t.Error("git.md does not say where the Clone panel's folder name differs")
+	}
+	if d := read("deploy.md"); strings.Contains(d, "`docs/config.md`") || !strings.Contains(d, "[config.md](config.md)") {
+		t.Error("deploy.md names config.md as text, not as a link")
+	}
+}
+
+// The deploy guide makes the data folders private, hardens the unit without
+// cutting off what the service writes, prunes backups, names the git it
+// needs, and says what the admin flag and the simple workflow mean and how
+// to take the data out.
+func TestDeployGuideHardening(t *testing.T) {
+	b, err := os.ReadFile("deploy.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := string(b)
+	for _, want := range []string{
+		"install -d -o yars -g yars -m 0700 /srv/yars\n", "install -d -o yars -g yars -m 0700 /srv/yars-restored\n",
+		"NoNewPrivileges=yes", "ProtectSystem=strict", "ReadWritePaths=/srv/yars /var/lib/yars", "PrivateTmp=yes",
+		"-mtime +30 -delete", "another machine",
+		// rev-parse knows --end-of-options (Repo.Ref) from git 2.30 on
+		"git 2.30 or later", "git filter-branch",
+		"can run commands on the server",
+		"the Team panel does not limit who sees an engagement",
+		"## Uninstall", "yars backup --data /srv/yars --key --out",
+	} {
+		if !strings.Contains(g, want) {
+			t.Errorf("the deploy guide lacks %q", want)
+		}
+	}
+}
+
+// Uninstalling copies the final backup out of the backup folder with a
+// command, and the command that removes the data does not remove the
+// backups with it: pasted in order, the blocks leave a copy. /etc/yars is
+// optional, so its removal does not fail where it was never made.
+func TestDeployGuideUninstallKeepsTheBackup(t *testing.T) {
+	b, err := os.ReadFile("deploy.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := string(b)
+	i := strings.Index(g, "\n## Uninstall\n")
+	if i < 0 {
+		t.Fatal("no Uninstall section")
+	}
+	sec := g[i:]
+	out := strings.Index(sec, "--out /backups/yars-final.zip\n")
+	cp := strings.Index(sec, "sudo install -m 0600 /backups/yars-final.zip /root/yars-final.zip\n")
+	rm := strings.Index(sec, "sudo rm -r /srv/yars\n")
+	last := strings.Index(sec, "sudo rm -r /backups\n")
+	if out < 0 || cp < out || rm < cp || last < rm {
+		t.Fatalf("the order is not backup (%d), copy (%d), remove the data (%d), remove the backups (%d)", out, cp, rm, last)
+	}
+	// the backups go in a block of their own, after a sentence in between
+	if !strings.Contains(sec[rm:last], "```\n\n") || !strings.Contains(sec[rm:last], "another machine") {
+		t.Error("the backup folder is removed in the same block as the data")
+	}
+	if !strings.Contains(sec, "sudo rm -rf /etc/yars\n") {
+		t.Error("removing /etc/yars fails where it was never made")
+	}
+	for _, l := range strings.Split(sec, "\n") {
+		if strings.Contains(l, " rm ") && strings.Contains(l, "/backups") && l != "sudo rm -r /backups" {
+			t.Errorf("a removal names the backup folder among others: %s", l)
+		}
+	}
+}
+
+// ciJob returns one job of the CI workflow: from its name to the next job's.
+func ciJob(t *testing.T, name string) string {
+	t.Helper()
+	b, err := os.ReadFile("../.github/workflows/ci.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	y := string(b)
+	i := strings.Index(y, "\n  "+name+":\n")
+	if i < 0 {
+		t.Fatalf("ci.yml has no job %s", name)
+	}
+	job := y[i+1:]
+	for _, l := range strings.SplitAfter(job, "\n")[1:] {
+		// the next job's name, or the comment above it, at the jobs' indent
+		if strings.HasPrefix(l, "  ") && !strings.HasPrefix(l, "   ") {
+			return job[:strings.Index(job, "\n"+l)+1]
+		}
+	}
+	return job
+}
+
+// The vulnerability job builds with the newest Go release, not with go.mod's
+// minimum: an advisory against the standard library of the minimum, fixed in
+// a later patch release, does not turn master red. The deploy guide tells
+// the operator to build with that release too.
+func TestCIVulnJobUsesTheNewestGo(t *testing.T) {
+	j := ciJob(t, "vuln")
+	if !strings.Contains(j, "govulncheck@v") {
+		t.Fatalf("the vuln job: %s", j)
+	}
+	if strings.Contains(j, "go-version-file") || !strings.Contains(j, "go-version: stable\n") || !strings.Contains(j, "check-latest: true\n") {
+		t.Errorf("the vuln job does not set up the newest Go release:\n%s", j)
+	}
+	// the other jobs keep go.mod's release
+	for _, n := range []string{"test", "race"} {
+		if !strings.Contains(ciJob(t, n), "go-version-file: go.mod\n") {
+			t.Errorf("the %s job does not use go.mod's Go release", n)
+		}
+	}
+	b, err := os.ReadFile("deploy.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), "Build with the newest patch release") {
+		t.Error("the deploy guide does not ask for the newest patch release")
+	}
+}
+
+// The race job gives one package more than go test's ten minutes (the web
+// package alone may need them under the detector), and the job more than
+// its packages one after the other.
+func TestCIRaceJobSetsItsTimeouts(t *testing.T) {
+	j := ciJob(t, "race")
+	if !strings.Contains(j, "run: go test -race -p 1 -timeout 45m ./internal/...\n") {
+		t.Errorf("the race step has no timeout of its own:\n%s", j)
+	}
+	if !strings.Contains(j, "timeout-minutes: 120\n") {
+		t.Errorf("the race job's own limit:\n%s", j)
+	}
+}
+
+// NOTICE names every module of go.mod at go.mod's version, and no other:
+// a dependency update that leaves NOTICE behind fails here.
+func TestNoticeListsGoModsModules(t *testing.T) {
+	read := func(name string) []string {
+		b, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.Split(string(b), "\n")
+	}
+	var mods []string
+	in := false
+	for _, l := range read("../go.mod") {
+		f := strings.Fields(l)
+		switch {
+		case len(f) == 2 && f[0] == "require" && f[1] == "(":
+			in = true
+		case len(f) == 1 && f[0] == ")":
+			in = false
+		case len(f) >= 3 && f[0] == "require":
+			mods = append(mods, f[1]+" "+f[2])
+		case in && len(f) >= 2:
+			mods = append(mods, f[0]+" "+f[1])
+		}
+	}
+	if len(mods) == 0 {
+		t.Fatal("no module read from go.mod")
+	}
+	var listed []string
+	for _, l := range read("../NOTICE") {
+		// a module line: "<host.tld/path> v<version>", at the start of the line
+		f := strings.Fields(l)
+		if len(f) == 2 && !strings.HasPrefix(l, " ") && strings.Contains(f[0], ".") && strings.Contains(f[0], "/") && strings.HasPrefix(f[1], "v") {
+			listed = append(listed, l)
+		}
+	}
+	for _, m := range mods {
+		if !slices.Contains(listed, m) {
+			t.Errorf("NOTICE lacks %q of go.mod", m)
+		}
+	}
+	for _, l := range listed {
+		if !slices.Contains(mods, l) {
+			t.Errorf("NOTICE names %q, which go.mod does not", l)
+		}
+	}
+}
+
+// CONTRIBUTING lists every command CI's test job runs on a pull request,
+// staticcheck at CI's pinned version among them: what passes there passes
+// in CI.
+func TestContributingListsCIsCommands(t *testing.T) {
+	b, err := os.ReadFile("../CONTRIBUTING.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := string(b)
+	n := 0
+	for _, l := range strings.Split(ciJob(t, "test"), "\n") {
+		cmd, ok := strings.CutPrefix(strings.TrimSpace(l), "run: ")
+		if !ok || cmd == "|" {
+			continue
+		}
+		n++
+		if !strings.Contains(c, "\n"+cmd+"\n") {
+			t.Errorf("CONTRIBUTING lacks CI's command %q", cmd)
+		}
+	}
+	if n < 5 || !strings.Contains(c, "staticcheck@v") {
+		t.Errorf("%d commands read from the test job; staticcheck must be one", n)
+	}
+}
 
 // The git guide tells the holder of a clone from before engagements had
 // repositories of their own what to do with commits not pushed yet

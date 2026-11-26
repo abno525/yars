@@ -68,6 +68,9 @@ type Server struct {
 	Secret *secret.Box
 	// Version is the running build's version (Admin › System); "" shows —.
 	Version string
+	// Source is the address of this build's source code (Settings › About);
+	// "" shows no link.
+	Source string
 	// MigrateStatus lists what in the data directory still needs `yars
 	// migrate` (the admin's Migrate status button); nil = nothing known.
 	MigrateStatus func() []string

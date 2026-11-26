@@ -7,7 +7,7 @@ YARS speaks the Model Context Protocol, so Claude Code (or any MCP client) can r
 Create a token in YARS under **Settings › Tokens › New token** (use: MCP). Pick what it may do (read only, or a list of actions) and which engagements it is valid for; the token is shown once. Whoever has shell access to the server can also create one:
 
 ```sh
-yars token add --data /srv/yars-data alice     # prints yars_… once; active immediately
+yars token add --data /srv/yars alice     # prints yars_… once; active immediately
 ```
 
 Then connect Claude Code:

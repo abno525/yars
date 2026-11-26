@@ -109,8 +109,9 @@ func Report(in Input) string {
 		kicker = "Retest report"
 	}
 	counts := in.Counts()
-	// the summary counts the findings with a severity (R10): a draft without
-	// one is in the body if selected, not in the totals
+	// the summary counts the findings with a severity (R10): one without is
+	// in the body, not in the totals. No draft gets here: a destination takes
+	// complete and reported findings only
 	total := 0
 	for _, c := range counts {
 		total += c.N

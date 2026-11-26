@@ -210,6 +210,7 @@ func CheckStructure(c config.Config) error {
 	for _, x := range c.ReportSections {
 		f := ReportFile(x)
 		if o, ok := files[f]; ok && !strings.EqualFold(o, x) {
+			//lint:ignore ST1005 the message starts with the panel's name, as the page shows it
 			return fmt.Errorf("Report sections: %q and %q share a file name", o, x)
 		}
 		files[f] = x

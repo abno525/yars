@@ -153,7 +153,7 @@ func TestAssetsAddRemoveKeepUnsaved(t *testing.T) {
 	}
 	// every saved row removed: the fields are empty, the form says unsaved
 	// (app.js counts it so, whatever the fields hold)
-	b = post(url.Values{"base": {e.assetsBase(t)}, "n": {"2"}, "host_0": {"a.example"}, "host_1": {"b.example"}, "op": {"del-0"}})
+	post(url.Values{"base": {e.assetsBase(t)}, "n": {"2"}, "host_0": {"a.example"}, "host_1": {"b.example"}, "op": {"del-0"}})
 	b = post(url.Values{"base": {e.assetsBase(t)}, "n": {"1"}, "host_0": {"b.example"}, "op": {"del-0"}})
 	if !strings.Contains(b, `data-guard data-unsaved>`) {
 		t.Fatalf("all rows removed, the form is not unsaved:\n%s", b)
