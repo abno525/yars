@@ -54,9 +54,17 @@ func TestKnownLimitsArePlain(t *testing.T) {
 			t.Errorf("the limits page names %q", bad)
 		}
 	}
-	for _, want := range []string{"## Checks and rules", "## Simple workflow", "AI rules skipped: no AI provider configured"} {
+	for _, want := range []string{"## Checks and rules", "## Simple workflow", "AI rules skipped: no AI provider configured",
+		// as the rules guide has it: a push runs scripts and no AI rule, and
+		// only `yars lint --all` runs either
+		"| A git push and `yars lint --all` run every script each time, and `yars lint --all` sends the text to the AI provider each time |"} {
 		if !strings.Contains(g, want) {
 			t.Errorf("the limits page lacks %q", want)
+		}
+	}
+	for _, bad := range []string{"`yars lint` run scripts", "push hook"} {
+		if strings.Contains(g, bad) {
+			t.Errorf("the limits page says %q: a push runs no AI rule and the plain yars lint no script", bad)
 		}
 	}
 }
