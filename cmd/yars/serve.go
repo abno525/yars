@@ -72,6 +72,12 @@ func prepareData(r *gitrepo.Repo) (config.Config, *db.DB, *store.Store, error) {
 		d.Close()
 		return config.Config{}, nil, nil, err
 	}
+	// accounts from before such names were refused: both keep working
+	if clashes, err := d.UsernameClashes(); err == nil {
+		for _, c := range clashes {
+			log.Printf("accounts whose usernames differ only in the case of letters: %s", c)
+		}
+	}
 	st := store.New(r, cfg, d)
 	fail := func(what string, err error) (config.Config, *db.DB, *store.Store, error) {
 		d.Close()

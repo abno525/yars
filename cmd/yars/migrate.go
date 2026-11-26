@@ -136,7 +136,11 @@ func cmdMigrate(args []string, out io.Writer) error {
 			return err
 		} else if !ok {
 			u.IsAdmin = u.IsAdmin || u.Role == "director"
-			if err := d.AddUser(u); err != nil {
+			if err := d.AddUser(u); errors.Is(err, db.ErrUserExists) {
+				// two names of users.yaml that differ only in case: the accounts
+				// before this one are in the database, and a second run skips them
+				return fmt.Errorf("account %s: %w; rename one of the two in .yars/users.yaml and run yars migrate again", u.Username, err)
+			} else if err != nil {
 				return fmt.Errorf("account %s: %w", u.Username, err)
 			}
 			for _, eng := range engs {

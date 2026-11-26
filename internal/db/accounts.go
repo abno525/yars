@@ -26,6 +26,16 @@ func b2i(b bool) int {
 	return 0
 }
 
+// ErrUserExists: AddUser found the username taken, as written or in another
+// case of its ASCII letters.
+var ErrUserExists = errors.New("user exists")
+
+// userExists is an ErrUserExists with its own text for the reader.
+type userExists string
+
+func (e userExists) Error() string        { return string(e) }
+func (e userExists) Is(target error) bool { return target == ErrUserExists }
+
 func (d *DB) AddUser(u config.User) error {
 	if !config.ValidRole(u.Role) {
 		return fmt.Errorf("invalid role %q (want %s)", u.Role, strings.Join(config.Roles, ", "))
@@ -33,19 +43,48 @@ func (d *DB) AddUser(u config.User) error {
 	if !slices.Contains(Themes, u.Theme) {
 		return fmt.Errorf("invalid theme %q", u.Theme)
 	}
-	if _, ok, err := d.User(u.Username); err != nil {
-		return err
-	} else if ok {
-		return fmt.Errorf("user %s already exists", u.Username)
-	}
 	return d.Tx(func(tx *Tx) error {
+		// in the transaction (write transactions are one at a time): no two
+		// requests both find the name free. lower() folds ASCII letters only,
+		// as the email comparison does; Ä and ä stay two names.
+		var taken string
+		err := tx.QueryRow("SELECT username FROM users WHERE lower(username) = lower(?) ORDER BY username = ? DESC, username LIMIT 1", u.Username, u.Username).Scan(&taken)
+		switch {
+		case err == nil && taken == u.Username:
+			return userExists(fmt.Sprintf("user %s already exists", u.Username))
+		case err == nil:
+			return userExists(fmt.Sprintf("user %s already exists as %s (only the case of letters differs)", u.Username, taken))
+		case !errors.Is(err, sql.ErrNoRows):
+			return err
+		}
 		if err := emailFree(tx, u.Username, u.Email); err != nil {
 			return err
 		}
-		_, err := tx.Exec("INSERT INTO users(username, email, role, password_hash, created, is_admin, disabled, theme, must_change, keys_off) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		_, err = tx.Exec("INSERT INTO users(username, email, role, password_hash, created, is_admin, disabled, theme, must_change, keys_off) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 			u.Username, u.Email, u.Role, u.PasswordHash, d.stamp(), b2i(u.IsAdmin), b2i(u.Disabled), u.Theme, b2i(u.MustChange), b2i(u.KeysOff))
 		return err
 	})
+}
+
+// UsernameClashes lists the accounts whose usernames differ only in the
+// case of ASCII letters, one entry per name ("Alice, alice"): accounts made
+// before AddUser refused that.
+func (d *DB) UsernameClashes() ([]string, error) {
+	rows, err := d.Query(`SELECT group_concat(username, ', ') FROM (SELECT username FROM users ORDER BY username)
+		GROUP BY lower(username) HAVING count(*) > 1 ORDER BY lower(username)`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var s string
+		if err := rows.Scan(&s); err != nil {
+			return nil, err
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
 }
 
 const userCols = "username, email, role, password_hash, is_admin, disabled, theme, created, must_change, keys_off"

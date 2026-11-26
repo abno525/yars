@@ -422,6 +422,23 @@ var migrations = []migration{
 		result  TEXT NOT NULL,
 		created INTEGER NOT NULL
 	);`},
+	// v25: no two usernames that differ only in the case of ASCII letters
+	// (uniqueUsernames, in Go: a database that holds such a pair keeps both
+	// accounts and gets no index; AddUser refuses new ones either way)
+	{name: "025-usernames-unique-without-case", fn: uniqueUsernames},
+}
+
+// uniqueUsernames makes the usernames unique without the case of their
+// ASCII letters, unless two accounts already share a name that way: refusing
+// to open such a database would lock its operator out of the commands that
+// could fix it, so both accounts stay (UsernameClashes lists them).
+func uniqueUsernames(tx *sql.Tx) error {
+	var n int
+	if err := tx.QueryRow("SELECT count(*) FROM (SELECT 1 FROM users GROUP BY lower(username) HAVING count(*) > 1)").Scan(&n); err != nil || n > 0 {
+		return err
+	}
+	_, err := tx.Exec("CREATE UNIQUE INDEX IF NOT EXISTS users_username_nocase ON users(lower(username))")
+	return err
 }
 
 // addExpiryNoted adds tokens.expiry_noted unless it is there.
