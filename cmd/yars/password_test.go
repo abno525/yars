@@ -47,7 +47,7 @@ func TestTypedPasswordAskedTwice(t *testing.T) {
 	if err := cmdUseradd([]string{"--data", dir, "--role", "reviewer", "bob"}, strings.NewReader(""), &out); err == nil || err.Error() != "password: at least 10 characters" || *read != 1 {
 		t.Fatalf("a short entry: %v after %d entries", err, *read)
 	}
-	read = typing(t, "")
+	typing(t, "")
 	if err := cmdUseradd([]string{"--data", dir, "--role", "reviewer", "bob"}, strings.NewReader(""), &out); err == nil || err.Error() != "empty password" {
 		t.Fatalf("an empty entry: %v", err)
 	}
