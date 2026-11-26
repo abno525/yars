@@ -2,6 +2,7 @@ package docs
 
 import (
 	"io/fs"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -36,6 +37,26 @@ func TestOnlyTheNamedPagesAreEmbedded(t *testing.T) {
 	for _, p := range []string{"open-decisions-2026-11-07", "deploy", "known-limits"} {
 		if _, err := Page(p); err == nil {
 			t.Errorf("%s.md is embedded", p)
+		}
+	}
+}
+
+// The limits page states limits: no planning file, milestone, decision
+// number or commit of the project's history.
+func TestKnownLimitsArePlain(t *testing.T) {
+	b, err := os.ReadFile("known-limits.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := string(b)
+	for _, bad := range []string{"superpowers", "M34", "M30", "M10", "M6", "Q25", "aca92e8", "Decided", "backlog", "chat.jsonl", "DeepSeek"} {
+		if strings.Contains(g, bad) {
+			t.Errorf("the limits page names %q", bad)
+		}
+	}
+	for _, want := range []string{"## Checks and rules", "## Simple workflow", "AI rules skipped: no AI provider configured"} {
+		if !strings.Contains(g, want) {
+			t.Errorf("the limits page lacks %q", want)
 		}
 	}
 }
