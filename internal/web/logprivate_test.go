@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -104,6 +105,26 @@ func TestNoPrivateTextInLog(t *testing.T) {
 			if rec := e.sendFile(t, "alice", fp+"/attachments", mark("filename")+".txt", []byte(mark("filecontent"))); rec.Code != 200 {
 				t.Fatalf("attachment %d %s", rec.Code, rec.Body.String())
 			}
+			// a commit that fails: git's error names its command line, and the
+			// commit message holds the attachment's name
+			engDir := filepath.Join(e.dir, "engagements", "acme")
+			hp, err := exec.Command("git", "-C", engDir, "rev-parse", "--git-path", "hooks/pre-commit").Output()
+			if err != nil {
+				t.Fatal(err)
+			}
+			hook := strings.TrimSpace(string(hp))
+			if !filepath.IsAbs(hook) {
+				hook = filepath.Join(engDir, hook)
+			}
+			os.MkdirAll(filepath.Dir(hook), 0o755)
+			if err := os.WriteFile(hook, []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			refused := e.sendFile(t, "alice", fp+"/attachments", mark("failedfile")+".txt", []byte(mark("failedcontent")))
+			os.Remove(hook)
+			if refused.Code != http.StatusInternalServerError {
+				t.Fatalf("an attachment whose commit fails: %d %s", refused.Code, refused.Body.String())
+			}
 			do("alice", "POST", fp+"/chat", url.Values{"text": {mark("chat")}})
 			do("alice", "GET", "/e/acme?q="+mark("search"), nil)
 			do("alice", "GET", fp+"?x="+mark("query"), nil)
@@ -178,9 +199,9 @@ func TestNoPrivateTextInLog(t *testing.T) {
 				}
 			}
 			// what a line may hold is there: a discarding logger does not pass
-			wants := []string{`msg=request `, `user=alice`, `eng=acme`, `finding=F-002`, `msg="login failed"`, `msg="request failed"`, `route="POST /e/{eng}/f/{fid}/s/{section}"`, `status=500`, "permission denied"}
+			wants := []string{`msg=request `, `user=alice`, `eng=acme`, `finding=F-002`, `msg="login failed"`, `msg="request failed"`, `route="POST /e/{eng}/f/{fid}/s/{section}"`, `status=500`, "permission denied", "git commit -q --only -- "}
 			if format == logs.JSON {
-				wants = []string{`"msg":"request"`, `"user":"alice"`, `"eng":"acme"`, `"finding":"F-002"`, `"msg":"login failed"`, `"msg":"request failed"`, `"route":"POST /e/{eng}/f/{fid}/s/{section}"`, `"status":500`, "permission denied"}
+				wants = []string{`"msg":"request"`, `"user":"alice"`, `"eng":"acme"`, `"finding":"F-002"`, `"msg":"login failed"`, `"msg":"request failed"`, `"route":"POST /e/{eng}/f/{fid}/s/{section}"`, `"status":500`, "permission denied", "git commit -q --only -- "}
 			}
 			for _, want := range wants {
 				if !strings.Contains(got, want) {
