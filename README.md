@@ -19,7 +19,7 @@ Needs Go 1.27.
 ```sh
 go build -o yars ./cmd/yars
 ./yars init data
-echo 'change-me' | ./yars useradd --data data --role director --admin alice
+echo 'change-me-now' | ./yars useradd --data data --role director --admin alice
 ./yars serve --data data
 ```
 
@@ -31,7 +31,7 @@ Working alone, or in a team of two? Skip the roles.
 
 ```sh
 ./yars init --simple data
-echo 'change-me' | ./yars useradd --data data --admin alice
+echo 'change-me-now' | ./yars useradd --data data --admin alice
 ```
 
 Draft → complete → reported. Admin or not. That's all.
@@ -48,4 +48,8 @@ Draft → complete → reported. Admin or not. That's all.
 
 ## Docs
 
-[Deploy](docs/deploy.md) · [Git](docs/git.md) · [MCP](docs/mcp.md) · [Rules](docs/rules.md) · [Config](docs/config.md) · [Exporters](docs/exporters.md) · [Webhooks](docs/webhooks.md)
+[Wiki](https://github.com/abno525/yars/wiki) · [Deploy](docs/deploy.md) · [Git](docs/git.md) · [MCP](docs/mcp.md) · [Rules](docs/rules.md) · [Config](docs/config.md) · [Exporters](docs/exporters.md) · [Webhooks](docs/webhooks.md)
+
+## License
+
+[AGPL-3.0](LICENSE). Run a changed YARS for others, and you share your changes with them.

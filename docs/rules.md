@@ -12,7 +12,7 @@ A rule in `.yars/rules/*.yaml` names a script file in `.yars/rules`. The script 
 
 ## Rule files
 
-A new data folder (`yars init`) has no rules. **Admin › Rules** writes them. To write them by hand, change `.yars/rules/` in a clone of the main repository and push it as an admin ([git.md](git.md)).
+A new data folder (`yars init`) has no rules. **Admin › Rules** writes them. To write them by hand, change `.yars/rules/` in a clone of the main repository and push it as a director with the admin flag ([git.md](git.md)); in the simple workflow every account is a director, so the admin flag is enough.
 
 With **Require Check** on (Admin › Rules, the default), Sign off and Approve wait for a finished Check on the finding's current text. While no rule is on, they don't wait.
 
@@ -109,7 +109,7 @@ A stored result is deleted after the days set for check runs on **Admin › Syst
 | Quote | 80 characters |
 | Message | 4,000 characters · the page cuts it to one line with …, the whole text on hover |
 | Environment | `PATH`, `HOME` |
-| Working directory | `.yars/rules` |
+| Working directory | the script's own folder (`.yars/rules`, or `.yars/rules/lib` for `lib/x.py`) |
 | Script path | inside `.yars/rules` · symlinks resolved · executable |
 | Runs | Check button · `start_check` and `lint_finding all=true` (MCP) · `yars lint` · git push |
 

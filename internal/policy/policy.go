@@ -493,6 +493,20 @@ func (c *Checker) outside() string {
 	return "not allowed here; this repository holds settings (.yars); findings live in each engagement's repository (/git/e/<id>)"
 }
 
+// yarsNames are what the server reads in .yars, as it spells them.
+var yarsNames = []string{"config.yaml", "rules", "exporters", "templates"}
+
+// yarsExts are the extensions the server reads in each .yars folder.
+var yarsExts = map[string][]string{"rules": {".yaml", ".yml"}, "exporters": {".yaml"}, "templates": {".md"}}
+
+// plainName reports whether a name is ASCII without ~, which every
+// case-insensitive file system compares as strings.ToLower does: HFS+
+// ignores U+200C and its kin, APFS folds ſ to s, NTFS ı to I, and an NTFS
+// 8.3 short name (CONFIG~1.YAM) holds a ~.
+func plainName(s string) bool {
+	return !strings.ContainsFunc(s, func(r rune) bool { return r > unicode.MaxASCII || r == '~' })
+}
+
 // serverOnly are files that exist only on the server and are never in git.
 func serverOnly(p string) bool {
 	return p == ".yars/users.yaml" || p == ".yars/tokens.yaml" || p == ".yars/secret.key" || strings.HasPrefix(p, ".yars/yars.db")
@@ -511,19 +525,48 @@ func (c *Checker) file(u config.User, old, new string, ch gitrepo.Change) []stri
 		}
 	}
 	switch {
-	case serverOnly(p):
+	case serverOnly(strings.ToLower(p)):
 		return []string{"accounts, tokens, keys and the database stay on the server (yars useradd / yars token), not in git"}
 	case seg[0] == ".yars":
 		if !manager(u) {
 			return []string{"only a director can change .yars (config, rules)"}
 		}
-		if strings.HasPrefix(p, ".yars/config.yaml/") {
+		// a deletion puts nothing on a checkout to mistake: a name the older
+		// rules let in can always go (or be moved to the server's spelling)
+		add := ch.Status != 'D'
+		if len(seg) == 1 {
+			if add {
+				return []string{".yars must be a folder"}
+			}
+			return nil
+		}
+		// in any case: a checkout on a case-insensitive file system takes
+		// .yars/Rules for .yars/rules; a plain name folds as ToLower does
+		name := strings.ToLower(seg[1])
+		plain := plainName(seg[1]) && (len(seg) != 3 || yarsExts[name] == nil || plainName(seg[2]))
+		if add && !plain {
+			return []string{".yars names are plain ASCII, without ~ (a case-insensitive checkout may take another name for one the server reads)"}
+		}
+		if add && name == "config.yaml" && len(seg) > 2 {
 			return []string{".yars/config.yaml must be a file"}
 		}
-		if p == ".yars/config.yaml" || (len(seg) == 3 && seg[1] == "rules") {
-			// on the website: Admin › Structure, AI, Rules
+		if name == "config.yaml" || name == "rules" || !plainName(seg[1]) {
+			// on the website: Admin › Structure, AI, Rules; at any depth: a
+			// rule may run a script kept in a subfolder. A deletion of a name
+			// that is not plain may remove either from a checkout.
 			if !u.IsAdmin {
 				return []string{"only an admin can change .yars/config.yaml and .yars/rules (on the website: Admin › Structure, AI and Rules)"}
+			}
+		}
+		if add && name != seg[1] && slices.Contains(yarsNames, name) {
+			// the server reads one spelling; another would skip its checks
+			return []string{"spell it .yars/" + name + ": a name that differs only in case clashes with it on a case-insensitive checkout"}
+		}
+		if add && len(seg) == 3 {
+			for _, x := range yarsExts[name] {
+				if strings.HasSuffix(strings.ToLower(seg[2]), x) && !strings.HasSuffix(seg[2], x) {
+					return []string{"spell it " + x + ": an extension that differs only in case clashes with it on a case-insensitive checkout"}
+				}
 			}
 		}
 		if p == ".yars/config.yaml" {
@@ -574,6 +617,11 @@ func (c *Checker) file(u config.User, old, new string, ch gitrepo.Change) []stri
 	case p == ".gitattributes":
 		if !manager(u) {
 			return []string{"only a director can change .gitattributes"}
+		}
+		// eol or working-tree-encoding on .yars/rules or config.yaml would
+		// change what an admin wrote as it is checked out
+		if !u.IsAdmin {
+			return []string{"only an admin can change .gitattributes (it sets how files are checked out, .yars/rules and config.yaml too)"}
 		}
 		return nil
 	case p == "README.md" || p == "engagements/.gitkeep" || p == ".gitignore":

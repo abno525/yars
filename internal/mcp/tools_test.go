@@ -49,7 +49,8 @@ func TestMCPTemplates(t *testing.T) {
 }
 
 // withdraw, revise and report go through transition; report needs the
-// export action on a token, and a director.
+// export action on a token, then what the workflow asks (who and status:
+// TestTransitionReportByAuthor).
 func TestMCPWithdrawReviseReport(t *testing.T) {
 	f := newFx(t)
 	a := map[string]any{"engagement": "acme", "finding": "F-001"}
@@ -81,8 +82,8 @@ func TestMCPWithdrawReviseReport(t *testing.T) {
 		t.Fatalf("withdraw with the status scope: %s", out)
 	}
 	export := db.TokenInfo{Kind: db.TokenMCP, Scopes: []string{"export"}}
-	if out, isErr := f.callTok(alice, export, "transition", with("report", "")); !isErr || !strings.Contains(out, "director") {
-		t.Fatalf("report by a pentester: %s", out)
+	if out, isErr := f.callTok(alice, export, "transition", with("report", "")); !isErr || !strings.Contains(out, "Mark reported is only possible in complete (finding is withdrawn)") {
+		t.Fatalf("report of a withdrawn finding with the export scope: %s", out)
 	}
 }
 

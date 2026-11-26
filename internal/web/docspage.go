@@ -9,6 +9,7 @@ import (
 	"yars/docs"
 	"yars/internal/db"
 	"yars/internal/mcp"
+	"yars/internal/store"
 	"yars/internal/webhook"
 )
 
@@ -33,6 +34,8 @@ type docsView struct {
 	User                             string
 	// Git
 	MainURL, EngURL string
+	MainAll         bool   // the account sees every engagement: the main clone is recursive
+	MainCmd         string // the main clone on one line (mainCloneLine)
 	EngOpts         []option
 	// Webhooks
 	Events []string
@@ -182,6 +185,8 @@ func (s *Server) docsPage(w http.ResponseWriter, r *http.Request) {
 		who := strings.Replace(base, "://", "://"+p.User.Username+"@", 1)
 		v.MainURL = who + "/git/yars"
 		v.EngURL = who + "/git/e/"
+		v.MainAll = store.SeesAll(p.User)
+		v.MainCmd = mainCloneLine(v.MainURL, v.MainAll, p.Engagements)
 		for _, e := range p.Engagements {
 			v.EngOpts = append(v.EngOpts, option{Value: e.ID, Label: e.Name, On: e.ID == p.Eng.ID})
 		}

@@ -359,8 +359,8 @@ func fixChecks(s *Server, ctx context.Context, u config.User, a args) (string, e
 
 // allowedActions are the actions of the finding's status as u could take
 // them over MCP now, with the reason transition would give, checked in its
-// order: marking reported is a director's here, then no database (a
-// clone), the archive, the role, status and content gate, and for submit,
+// order: the token, then no database (a clone), the archive, the role,
+// status and content gate, and for submit,
 // approve, sign off and complete the store's own blocks with the fast rules
 // (script and AI rules run at the transition itself). The actions are those
 // of the data folder's workflow (AllowedActions reads it from the config).
@@ -377,8 +377,6 @@ func (s *Server) allowedActions(ctx context.Context, u config.User, ref store.Fi
 		switch need := actionOf(transition, args{"action": al.Action}); {
 		case hasTok && !tk.Allows(need):
 			why = "this token may not " + actionLabel[need] // the gate's, before the tool runs
-		case act == workflow.Report && !workflow.AtLeast(u, "director"):
-			why = "only a director can mark reported"
 		case s.Store.DB() == nil:
 			why = store.ErrNoDB.Error()
 		case s.Store.Archived(ref.EngID):

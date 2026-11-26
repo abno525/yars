@@ -71,10 +71,32 @@ func TestGitGuidePullSubmodules(t *testing.T) {
 	if j := strings.Index(sec[3:], "\n## "); j >= 0 {
 		sec = sec[:j+3]
 	}
-	// and git's "redirecting" warning for a URL with a user name (M34 review)
-	for _, want := range []string{"git clone --recurse-submodules", "git pull --recurse-submodules", "detached HEAD", "git submodule foreach git switch -q main", "warning: redirecting to", "Nothing is redirected"} {
+	// and git's "redirecting" warning for a URL with a user name (M34 review);
+	// a pentester or reviewer names their engagements, since git stops a
+	// recursive clone at the first one they may not fetch, and a pull on
+	// main keeps them there
+	for _, want := range []string{"git clone --recurse-submodules", "git pull --recurse-submodules", "detached HEAD", "git submodule foreach -q git switch -q main", "warning: redirecting to", "Nothing is redirected",
+		"git clone https://<server>/git/yars findings", "git submodule update --init engagements/<id> engagements/<id2>", "git submodule foreach -q git pull -q", "git submodule deinit engagements/<id>",
+		// each line but the last ends with &&: a paste stops at the first
+		// failure instead of running the rest in the current folder
+		"git clone --recurse-submodules https://<server>/git/yars findings && cd findings &&\ngit submodule foreach -q git switch -q main\n",
+		"git clone https://<server>/git/yars findings && cd findings &&\ngit submodule update --init engagements/<id> engagements/<id2> &&\ngit submodule foreach -q git switch -q main\n",
+		// what tries an engagement never cloned again, and an engagement the
+		// account was taken off (git fetches it while its repository is kept)
+		"`git submodule update` try it again", "you were taken off", ".git/modules/engagements/<id>"} {
 		if !strings.Contains(sec, want) {
 			t.Errorf("the section lacks %q", want)
 		}
+	}
+	// a token restricted to some engagements cannot clone the main repository
+	if !strings.Contains(g[:strings.Index(g, "\n## ")], "restricted to some engagements cannot clone the main repository") {
+		t.Error("the guide does not say a restricted token cannot clone the main repository")
+	}
+	m, err := Page("mcp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(m, "git clone https://alice:…@yars.example.com/git/yars findings && cd findings &&\ngit submodule update --init engagements/<id> &&") {
+		t.Error("the MCP guide's clone is not chained")
 	}
 }

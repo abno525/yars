@@ -96,6 +96,22 @@ func TestScriptDotDotName(t *testing.T) {
 	}
 }
 
+// A rule cannot run a script kept beside the rules folder, as in
+// .yars/exporters, which a director without the admin flag may push.
+func TestScriptInSiblingFolderRefused(t *testing.T) {
+	root := t.TempDir()
+	dir, exp := filepath.Join(root, "rules"), filepath.Join(root, "exporters")
+	os.Mkdir(dir, 0o755)
+	os.Mkdir(exp, 0o755)
+	script(t, exp, "x.sh", "echo '[{\"message\":\"ran\"}]'\n")
+	r := NewRunner(dir, config.AIConfig{})
+	for _, path := range []string{"../exporters/x.sh", "./../exporters/x.sh", "lib/../../exporters/x.sh", filepath.Join(exp, "x.sh")} {
+		if vs := r.Script(context.Background(), Rule{ID: "s", Level: "error", Script: path}, doc()); len(vs) != 1 || !strings.Contains(vs[0].Message, "outside") {
+			t.Errorf("%s: %+v", path, vs)
+		}
+	}
+}
+
 // A symlink in the rules folder that points outside it is not run, nor is
 // one inside a linked folder that leaves it; a link that stays inside is
 // (backlog, M5).

@@ -13,9 +13,6 @@ import (
 	"yars/internal/store"
 )
 
-// minPassword is the shortest password YARS accepts from a form.
-const minPassword = 10
-
 // noUsers reports whether the database has no account yet (first run).
 // Once one exists the answer is remembered (the web pages can't delete
 // accounts, so first run never comes back while the server runs).
@@ -51,11 +48,20 @@ func (s *Server) setupPage(w http.ResponseWriter, r *http.Request) {
 	s.render(w, "setup.html", &page{Bare: true})
 }
 
+// newPasswordProblem checks a new password as every form does ("" = fine):
+// its length (auth.PasswordProblem).
+func newPasswordProblem(pw string) string {
+	if p := auth.PasswordProblem(pw); p != "" {
+		return "Password: " + p
+	}
+	return ""
+}
+
 // passwordProblem checks a new password typed twice ("" = fine).
 func passwordProblem(pw, repeat string) string {
 	switch {
-	case len([]rune(pw)) < minPassword:
-		return "Password: at least 10 characters"
+	case newPasswordProblem(pw) != "":
+		return newPasswordProblem(pw)
 	case pw != repeat:
 		return "Passwords differ"
 	}

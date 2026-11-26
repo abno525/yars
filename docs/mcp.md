@@ -24,10 +24,13 @@ Content changes are committed on the server immediately, authored by you; workfl
 ## Local: work on your clone
 
 ```sh
-git clone --recurse-submodules https://alice:…@yars.example.com/git/yars findings && cd findings
-git submodule foreach git switch -q main      # each engagement is its own repo; work on its main branch
+git clone https://alice:…@yars.example.com/git/yars findings && cd findings &&
+git submodule update --init engagements/<id> &&
+git submodule foreach -q git switch -q main
 claude mcp add yars -- yars mcp --data . --user alice
 ```
+
+The second line names each engagement you are on; the third puts each on its `main` branch, since each engagement is its own repository. The Clone panel on the Engagements page shows the clone with your engagements. A pentester or reviewer names the engagements they are on: git stops a recursive clone at the first one they may not fetch. A director or an admin (in the simple workflow, every account) clones them all with `git clone --recurse-submodules` instead of the first two lines.
 
 Each engagement folder (`engagements/<id>`) is a separate git repository: commit and `git push` inside it. Settings (`.yars/`, directors only) are pushed from the top folder; `git pull` there first, because the server moves the engagement pointers itself. To work on one engagement only, clone it alone: `git clone https://alice:…@yars.example.com/git/e/<id>`.
 
@@ -57,7 +60,7 @@ A data folder set up with `yars init --simple` runs the simple workflow: draft �
 | `create_finding` | create | local + server | New draft in an engagement; `template` starts it from a template |
 | `update_section` | edit | local + server | Replace one `##` section (pass `base` from `read_finding` to avoid overwriting a colleague) |
 | `set_field` | edit (reviewers: reviewers) | local + server | `title`, `severity`, `cvss`, `cvss_reason.<METRIC>`, `details.<Row>`, `reviewers`, `retest_result`, `assets` |
-| `transition` | status (report: export) | server only | `submit`, `return` (reason), `clear`/`sign_off` (an assigned reviewer or a director; a director also on their own finding), `approve` (director, after a sign-off by an assigned reviewer other than them), `reopen` (reason; author or director: complete to verification), `report` (director), `unreport` (reason; author or director: reported to complete, the approval stays), `revert` (reason: `reopen` or `unreport`, by the finding's status), `withdraw` (reason), `revise`, `take_back` (author or director: verification to draft, sign-offs start over); `base` (the `hash` from `read_finding`) refuses `clear`/`sign_off` and `approve` if the finding changed since it was read |
+| `transition` | status (report: export) | server only | `submit`, `return` (reason), `clear`/`sign_off` (an assigned reviewer or a director; a director also on their own finding), `approve` (director, after a sign-off by an assigned reviewer other than them), `reopen` (reason; author or director: complete to verification), `report` (author or director: complete to reported), `unreport` (reason; author or director: reported to complete, the approval stays), `revert` (reason: `reopen` or `unreport`, by the finding's status), `withdraw` (reason), `revise`, `take_back` (author or director: verification to draft, sign-offs start over); `base` (the `hash` from `read_finding`) refuses `clear`/`sign_off` and `approve` if the finding changed since it was read |
 | `add_chat_message` / `resolve_thread` | comment | server only | Discuss in the finding's chat; `@name` mentions notify that person |
 | `lint_finding` | read | local + server | Style rules (regex/built-in; `all: true` also scripts and AI) |
 | `start_check` | checks | server only | Start a stored check run (every rule); results arrive as chat comments. Over the server's limit (`checks.max_running`) it waits in a queue: state `queued` |

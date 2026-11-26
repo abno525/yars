@@ -31,7 +31,7 @@ var linkFile = os.Link
 func cmdBackup(args []string, out io.Writer) error {
 	f := flag.NewFlagSet("backup", flag.ContinueOnError)
 	data := dataFlag(f)
-	withKey := f.Bool("key", false, "include .yars/secret.key (decrypts stored AI and personal keys)")
+	withKey := f.Bool("key", false, "include .yars/secret.key (decrypts stored AI and personal keys and webhook secrets)")
 	to := f.String("out", "", "the ZIP file to write (must not exist)")
 	if err := f.Parse(args); err != nil {
 		return err
@@ -164,7 +164,7 @@ func cmdRestore(args []string, out io.Writer) error {
 	}
 	fmt.Fprintf(out, "schema v%d\n%s\n%s\nsecret key: %s\n", rep.Schema, count(rep.Engagements, "engagement"), count(rep.Findings, "finding"), key)
 	if !rep.HasKey {
-		fmt.Fprintln(out, "stored AI and personal keys must be entered again")
+		fmt.Fprintln(out, "stored AI and personal keys must be entered again; delete the webhooks and add them again (their secrets cannot be read)")
 	}
 	fmt.Fprintf(out, "next: yars serve --data %s\n", *data)
 	return nil

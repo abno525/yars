@@ -1,6 +1,6 @@
 # Git
 
-Everything YARS keeps as content is in git: the main repository (`/git/yars`) holds the settings (`.yars/`) and one submodule per engagement; each engagement is its own repository (`/git/e/<id>`) with its findings. Sign in with your YARS username and password, or with a token made for Git (Settings › Tokens) as the password.
+Everything YARS keeps as content is in git: the main repository (`/git/yars`) holds the settings (`.yars/`) and one submodule per engagement; each engagement is its own repository (`/git/e/<id>`) with its findings. Sign in with your YARS username and password, or with a token made for Git (Settings › Tokens) as the password. A token restricted to some engagements cannot clone the main repository: clone each engagement alone (`/git/e/<id>`).
 
 ## Layout
 
@@ -28,12 +28,26 @@ A sign-off covers a finding's text and its attachments. A push that changes eith
 
 ## Cloning and pulling
 
+Directors and admins (in the simple workflow, every account) see every engagement and clone them all:
+
 ```sh
-git clone --recurse-submodules https://<server>/git/yars findings
-git -C findings submodule foreach git switch -q main
+git clone --recurse-submodules https://<server>/git/yars findings && cd findings &&
+git submodule foreach -q git switch -q main
 ```
 
-Git checks submodules out on a detached HEAD: a commit made there is on no branch, and the push of `main` leaves it out. The second line puts every engagement on `main`. `git pull --recurse-submodules` (and `git submodule update`) detaches them again: run the same `git submodule foreach git switch -q main` after it, or pull inside an engagement (`git -C findings/engagements/<id> pull`), which keeps it on `main`.
+A pentester or reviewer may fetch only the engagements whose team they are on, and git stops a recursive clone at the first one they are not on. So they name their own, as the Clone panel on the Engagements page does for them; the other engagements stay empty folders:
+
+```sh
+git clone https://<server>/git/yars findings && cd findings &&
+git submodule update --init engagements/<id> engagements/<id2> &&
+git submodule foreach -q git switch -q main
+```
+
+Each line but the last ends with `&&`, so a paste stops at the first failure instead of running the rest in the current folder. Git checks submodules out on a detached HEAD: a commit made there is on no branch, and the push of `main` leaves it out. The last line puts every engagement on `main`. To pull, run `git pull` in the top folder, then `git submodule foreach -q git pull -q`: each engagement pulls its `main`. `git pull --recurse-submodules` (and `git submodule update`) detaches them again, and switching back to `main` after it lands on the `main` of the previous pull: pull there too. A pull touches only the engagements the clone checked out.
+
+A new engagement is checked out with `git submodule update --init engagements/<id>` (a director or an admin may leave out the path), then switched to `main` as above. Without the path, a pentester's or reviewer's `git submodule update --init` stops at the first engagement they are not on. A plain `git pull` leaves that one alone, but `git pull --recurse-submodules` and `git submodule update` try it again each time.
+
+An engagement you were taken off, while checked out, stops `git submodule foreach -q git pull -q`, and `git pull` fails each time it moves. Take out such an engagement, or one registered by mistake, with `git submodule deinit engagements/<id>` (it may warn that it could not unset `core.worktree`, which does no harm). For one you were taken off, also delete `.git/modules/engagements/<id>`, with any commits not pushed in it: git keeps fetching it while that repository is there.
 
 With a clone URL that holds your user name, as Developers › Git shows it, git prints `warning: redirecting to …/git/yars/`: it compares the URL it was given with the one it reached, which has no user name. Nothing is redirected, and the clone is whole.
 
@@ -78,7 +92,10 @@ Only `refs/heads/main` can be pushed, and every commit in the push is checked on
 | `…/finding.md: author cannot change` | Edited author | restore the author |
 | `…/finding.md: unknown severity …` | Not in `severities` | one of the configured severities |
 | `.yars/…: only a director can change .yars` | Settings, not a director | ask a director |
-| `.yars/config.yaml: only an admin can change .yars/config.yaml and .yars/rules` | Not an admin (the website keeps Structure, AI and Rules to admins) | ask an admin |
+| `.yars/config.yaml: only an admin can change .yars/config.yaml and .yars/rules` | Not an admin (the website keeps Structure, AI and Rules to admins); every file under `.yars/rules/`, scripts in subfolders too | ask an admin |
+| `.gitattributes: only an admin can change .gitattributes` | Not an admin: its lines set how files are checked out, the rule scripts and `config.yaml` too | ask an admin |
+| `.yars/CONFIG.yaml: spell it .yars/config.yaml` · `.yars/exporters/jira.YAML: spell it .yaml` | `config.yaml`, `rules`, `exporters` or `templates`, or the extension the server reads there (`.yaml`, `.yml`, `.md`), in another case: a case-insensitive checkout takes it for the real one (removing such a file is accepted) | fix the commit itself (`git commit --amend`, or `git rebase -i` for an earlier one); every commit is checked on its own, so a rename in a later commit does not save it |
+| `.yars/ruleſ/x.yaml: .yars names are plain ASCII, without ~` | A letter outside ASCII or a `~` in a name under `.yars`: some file systems take `ſ` for `s` or `CONFIG~1.YAM` for `config.yaml` | fix the commit itself, as above |
 | `.yars/config.yaml: Sections: "impact" twice` · `Severities: "Urgent" must be one lowercase word` · `cannot load: …` | A value Admin › Structure refuses, or a file that does not load | correct the value |
 | `.yars/config.yaml: section "Impact" is still used by: acme/F-001, … (+N more). Change those findings first, then remove the name.` | A section, severity or details row removed (or renamed) while findings of any engagement, archived ones too, or a template (`template x.md`) still use it | change those findings (or templates) first, then push again |
 | `.yars/config.yaml: cannot be deleted` | Every setting would fall back to its default | push the settings you want |
@@ -114,7 +131,7 @@ Errors and warnings dismissed on the finding's Checks panel don't count. The res
 yars hook install --data <clone>
 ```
 
-Run it once in each clone (a main clone or an engagement clone), and again after a new engagement arrives in a main clone (`git submodule update --init`): it puts a `pre-commit` hook in every engagement repository. Each commit then sends the `finding.md` files it adds or changes (as staged, not the work tree) to the server, which checks them as the Check button does, with the same rules, AI rules included, and the finding's workflow state, so a commit can take as long as a Check does (at most two minutes). Nothing of it is kept on the server (no commit, no check run) except what Check keeps too: the AI usage records, under your account, and the stored script and AI results (Script rules › Stored results).
+Run it once in each clone (a main clone or an engagement clone), and again after a new engagement is checked out in a main clone (`git submodule update --init engagements/<id>`): it puts a `pre-commit` hook in every engagement repository. Each commit then sends the `finding.md` files it adds or changes (as staged, not the work tree) to the server, which checks them as the Check button does, with the same rules, AI rules included, and the finding's workflow state, so a commit can take as long as a Check does (at most two minutes). Nothing of it is kept on the server (no commit, no check run) except what Check keeps too: the AI usage records, under your account, and the stored script and AI results (Script rules › Stored results).
 
 The hook signs in with the login git has saved for the clone and never asks for one: the login in the clone URL (a Git token from Settings › Tokens works there, and failed tokens never lock the account), or the one git's credential helper keeps. Stock git keeps none: set a helper once (`git config --global credential.helper store`, or `cache`, or your system's keyring helper), then `git fetch` once to save the login. A login the server refuses is forgotten by the helper, as git does. The hook reaches the server as git does (`http.sslCAInfo`, `http.sslVerify`, `http.proxy`).
 

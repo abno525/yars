@@ -214,7 +214,8 @@ func TestCloneHint(t *testing.T) {
 		t.Fatal("hint shown without git endpoint")
 	}
 	e.srv.Git = http.NotFoundHandler()
-	if b := e.do(t, "alice", "GET", "/", nil, nil).Body.String(); !strings.Contains(b, "git clone --recurse-submodules http://example.com/git/yars") {
+	// a team member checks out their engagements by path (TestEngagementsCloneCommandPerRole)
+	if b := e.do(t, "alice", "GET", "/", nil, nil).Body.String(); !strings.Contains(b, "git clone http://example.com/git/yars") {
 		t.Fatalf("no clone hint:\n%s", b)
 	}
 	// an engagement can be cloned on its own

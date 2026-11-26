@@ -315,15 +315,20 @@ func TestPolicyConfigDropsUsedName(t *testing.T) {
 }
 
 // What the website keeps to admins a director without the admin flag can't
-// push either: config.yaml (Admin › Structure, AI), rule files (Admin ›
-// Rules), and an exporter's service address and key variables.
+// push either: config.yaml (Admin › Structure, AI), anything in the rules
+// folder (Admin › Rules), its subfolders too (a rule may run a script kept
+// there), and an exporter's service address and key variables.
 func TestPolicySettingsAdminOnly(t *testing.T) {
 	f := newFx(t).on("")
-	for _, p := range []string{".yars/config.yaml", ".yars/rules/x.yaml"} {
+	for _, p := range []string{".yars/config.yaml", ".yars/rules/x.yaml", ".yars/rules/check.py", ".yars/rules/lib/x.py", ".yars/rules/lib/deep/x.yaml", ".yars/rules"} {
 		f.reclone()
 		if ps := f.push("dan", func(d string) { write(d, p, "sections: [Description]\n") }); !has(ps, p+": only an admin can change") {
 			t.Errorf("%s by a non-admin director: %v", p, ps)
 		}
+	}
+	f.reclone()
+	if ps := f.push("dora", func(d string) { write(d, ".yars/rules/lib/x.py", "print([])\n") }); len(ps) != 0 {
+		t.Fatalf("a script in a rules subfolder by an admin: %v", ps)
 	}
 	jira := "type: jira\njira:\n  base_url: https://attacker.example\n  project: X\n  issue_type: Bug\n  user_env: JIRA_USER\n  token_env: JIRA_TOKEN\n"
 	f.reclone()
@@ -337,6 +342,106 @@ func TestPolicySettingsAdminOnly(t *testing.T) {
 	f.reclone()
 	if ps := f.push("dora", func(d string) { write(d, ".yars/exporters/jira.yaml", jira) }); len(ps) != 0 {
 		t.Fatalf("service exporter by an admin: %v", ps)
+	}
+}
+
+// The names the server reads under .yars are compared in any case: a
+// checkout on a case-insensitive file system takes .yars/Rules for
+// .yars/rules. A director without the admin flag can't push them; an admin
+// is asked to spell them as the server reads them, so no check is skipped
+// (CONFIG.yaml would skip config.yaml's, Exporters/ the exporters').
+func TestPolicySettingsAnyCase(t *testing.T) {
+	f := newFx(t).on("")
+	for p, want := range map[string]string{".yars/Rules/lib/x.py": "only an admin can change", ".yars/RULES/x.yaml": "only an admin can change",
+		".yars/CONFIG.yaml": "only an admin can change", ".yars/Config.yaml/x": ".yars/config.yaml must be a file"} {
+		f.reclone()
+		if ps := f.push("dan", func(d string) { write(d, p, "sections: [Description]\n") }); !has(ps, p+": "+want) {
+			t.Errorf("%s by a non-admin director: %v", p, ps)
+		}
+	}
+	for p, want := range map[string]string{".yars/CONFIG.yaml": "spell it .yars/config.yaml", ".yars/Rules/x.yaml": "spell it .yars/rules",
+		".yars/Exporters/jira.yaml": "spell it .yars/exporters", ".yars/TEMPLATES/x.md": "spell it .yars/templates", ".yars/Users.yaml": "accounts, tokens, keys and the database stay on the server"} {
+		f.reclone()
+		if ps := f.push("dora", func(d string) { write(d, p, "type: pandoc\n") }); !has(ps, p+": "+want) {
+			t.Errorf("%s by an admin: %v", p, ps)
+		}
+	}
+}
+
+// .yars pushed as a file is refused by name, never as a server error.
+func TestPolicyYarsFile(t *testing.T) {
+	for _, u := range []string{"dan", "dora"} {
+		f := newFx(t).on("")
+		ps := f.push(u, func(d string) { os.RemoveAll(filepath.Join(d, ".yars")); write(d, ".yars", "x\n") })
+		if !has(ps, ".yars: .yars must be a folder") {
+			t.Errorf("%s: %v", u, ps)
+		}
+	}
+}
+
+// A .yars name is plain ASCII without ~, so lower case is how every
+// checkout compares it: HFS+ ignores U+200C (zero width non-joiner), APFS
+// folds ſ to s, NTFS reads CONFIG~1.YAM as config.yaml. An extension the server reads is spelled as
+// it reads it: jira.YAML would skip the exporter's checks (and replace
+// jira.yaml on a case-insensitive checkout).
+func TestPolicySettingsPlainNames(t *testing.T) {
+	const plainOnly = ".yars names are plain ASCII, without ~"
+	f := newFx(t).on("")
+	jira := "type: jira\njira:\n  base_url: https://attacker.example\n  project: X\n  issue_type: Bug\n  user_env: JIRA_USER\n  token_env: JIRA_TOKEN\n"
+	for _, c := range []struct{ u, p, want string }{
+		{"dan", ".yars/ru" + string(rune(0x200c)) + "les/x.yaml", plainOnly},
+		{"dora", ".yars/ru" + string(rune(0x200c)) + "les/x.yaml", plainOnly},
+		{"dan", ".yars/ruleſ/x.yaml", plainOnly},
+		{"dora", ".yars/ruleſ/x.yaml", plainOnly},
+		{"dan", ".yars/CONFIG~1.YAM", plainOnly},
+		{"dan", ".yars/uſers.yaml", plainOnly},
+		{"dan", ".yars/templates/" + string(rune(0xfb01)) + "x.md", plainOnly}, // the ligature fi
+		{"dan", ".yars/exporters/jira.YAML", "spell it .yaml"},
+		{"dora", ".yars/templates/x.MD", "spell it .md"},
+		{"dora", ".yars/rules/x.Yml", "spell it .yml"},
+	} {
+		f.reclone()
+		if ps := f.push(c.u, func(d string) { write(d, c.p, jira) }); !has(ps, c.p+": "+c.want) {
+			t.Errorf("%s by %s: %v", c.p, c.u, ps)
+		}
+	}
+}
+
+// A name the older rules let in can be removed, or moved to the server's
+// spelling (git mv: a deletion and an addition): a deletion puts nothing on
+// a checkout to mistake. What may be .yars/rules or config.yaml on a
+// checkout still takes the admin flag to delete.
+func TestPolicySettingsOddNameRemoved(t *testing.T) {
+	f := newFx(t).on("")
+	odd := []string{".yars/Templates/x.md", ".yars/Exporters/x.yaml", ".yars/exporters/x.YAML", ".yars/Rules/x.py", ".yars/ruleſ/x.py", ".yars/Config.yaml/x", ".yars/CONFIG~1.YAM"}
+	for _, p := range odd {
+		write(f.srv.Dir, p, "x\n")
+	}
+	git(t, f.srv.Dir, "add", "-A")
+	git(t, f.srv.Dir, "commit", "-qm", "older rules")
+	gone := func(ps ...string) func(string) {
+		return func(d string) {
+			for _, p := range ps {
+				os.Remove(filepath.Join(d, p))
+			}
+		}
+	}
+	f.reclone()
+	if ps := f.push("dan", func(d string) {
+		gone(odd[:3]...)(d)
+		write(d, ".yars/templates/x.md", "---\ntitle: X\n---\n\n## Impact\n\nfirst\n")
+	}); len(ps) != 0 {
+		t.Fatalf("older spellings removed by a director: %v", ps)
+	}
+	for _, p := range odd[3:] {
+		f.reclone()
+		if ps := f.push("dan", gone(p)); !has(ps, p+": only an admin can change") {
+			t.Errorf("%s removed by a non-admin director: %v", p, ps)
+		}
+	}
+	f.reclone()
+	if ps := f.push("dora", gone(odd[3:]...)); len(ps) != 0 {
+		t.Fatalf("removed by an admin: %v", ps)
 	}
 }
 
@@ -1458,10 +1563,28 @@ func TestPolicySharedEmail(t *testing.T) {
 	}
 }
 
+// .gitattributes is an admin's: a line such as ".yars/rules/** eol=crlf" or
+// working-tree-encoding changes the rule scripts and config.yaml an admin
+// wrote as they are checked out. Its removal too.
 func TestPolicyGitattributes(t *testing.T) {
 	f := newFx(t).on("")
 	if ps := f.push("alice", func(d string) { write(d, ".gitattributes", "*.md -diff\n") }); !has(ps, ".gitattributes") {
 		t.Fatalf("pentester changed .gitattributes: %v", ps)
+	}
+	f.reclone()
+	if ps := f.push("dan", func(d string) { write(d, ".gitattributes", ".yars/rules/** eol=crlf\n") }); !has(ps, ".gitattributes: only an admin can change .gitattributes") {
+		t.Fatalf("a director without the admin flag changed .gitattributes: %v", ps)
+	}
+	f.reclone()
+	if ps := f.push("dora", func(d string) { write(d, ".gitattributes", "*.py text eol=lf\n") }); len(ps) != 0 {
+		t.Fatalf("an admin refused: %v", ps)
+	}
+	write(f.srv.Dir, ".gitattributes", "*.py text eol=lf\n")
+	git(t, f.srv.Dir, "add", "-A")
+	git(t, f.srv.Dir, "commit", "-qm", "attributes")
+	f.reclone()
+	if ps := f.push("dan", func(d string) { os.Remove(filepath.Join(d, ".gitattributes")) }); !has(ps, ".gitattributes: only an admin can change .gitattributes") {
+		t.Fatalf("a director without the admin flag removed .gitattributes: %v", ps)
 	}
 	f.on("acme")
 	if ps := f.push("dora", func(d string) { write(d, fdir+"/attachments/.gitattributes", "x\n") }); len(ps) == 0 {

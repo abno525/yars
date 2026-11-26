@@ -187,6 +187,7 @@ type page struct {
 	Chat          chatView
 	Checks        checksView
 	CloneURL      string
+	CloneCmd      string // the engagements list: the main clone's command for this account (mainClone)
 	Retest        *retestView
 	IsRetest      bool
 	Attach        *attachView // the finding page: its attachments (D4)
@@ -222,6 +223,8 @@ var funcs = template.FuncMap{"join": strings.Join, "checkedIn": checkedIn, "rete
 	// a read panel refetches itself when the finding changed (MCP, a push,
 	// another tab); an open editor has no trigger, so it is never replaced
 	"liveTrigger": func() string { return "sse:content, sse:resync, sse:poll" },
+	// a new password's minlength, as the server checks it
+	"minPassword": func() int { return auth.MinPassword },
 	// simple reports whether the data folder runs the simple workflow; each
 	// server sets its own (init), so any template asks {{if simple}}
 	"simple": func() bool { return false },
@@ -613,12 +616,54 @@ func (s *Server) home(w http.ResponseWriter, r *http.Request) {
 	}
 	if s.Git != nil {
 		p.CloneURL = gitBase(r) + "/git/yars"
+		p.CloneCmd = mainClone(p.CloneURL, store.SeesAll(p.User), p.Engagements)
 	}
 	if err = s.engList(p, r.URL.Query().Get("show")); err != nil {
 		s.fail(w, err)
 		return
 	}
 	s.render(w, "engagements.html", p)
+}
+
+// mainClone is the command that clones the main repository at url with the
+// engagements engs (those the account sees), each on main. The main
+// repository names every engagement as a submodule, and git stops a
+// recursive clone at the first one the account may not fetch (403), so only
+// an account that sees all of them clones recursively; the others check out
+// their own by path. Each line but the last ends with &&: a paste stops at
+// the first failure (a clone refused, a yars folder in the way) instead of
+// running the rest in the current folder.
+func mainClone(url string, all bool, engs []store.Engagement) string {
+	const onMain = " &&\ngit submodule foreach -q git switch -q main"
+	switch {
+	case all:
+		return "git clone --recurse-submodules " + url + " && cd yars" + onMain
+	case len(engs) == 0:
+		return "git clone " + url
+	}
+	return "git clone " + url + " && cd yars &&\ngit submodule update --init " + engPaths(engs) + onMain
+}
+
+// mainCloneLine is mainClone on one line, into findings/, for Developers ›
+// Git (which puts the engagements on main on a line of its own, run in
+// findings/).
+func mainCloneLine(url string, all bool, engs []store.Engagement) string {
+	switch {
+	case all:
+		return "git clone --recurse-submodules " + url + " findings && cd findings"
+	case len(engs) == 0:
+		return "git clone " + url + " findings && cd findings"
+	}
+	return "git clone " + url + " findings && cd findings && git submodule update --init " + engPaths(engs)
+}
+
+// engPaths are the engagements' folders in the main repository.
+func engPaths(engs []store.Engagement) string {
+	paths := make([]string, len(engs))
+	for i, e := range engs {
+		paths[i] = "engagements/" + e.ID
+	}
+	return strings.Join(paths, " ")
 }
 
 // gitBase is the server's base URL as the browser sees it.

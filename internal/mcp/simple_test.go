@@ -301,6 +301,20 @@ func TestSimpleTransitionComplete(t *testing.T) {
 	}
 }
 
+// In the simple workflow any account marks a complete finding reported, the
+// author's or not.
+func TestSimpleReportByAnyone(t *testing.T) {
+	f := newSimpleFx(t)
+	f.ok(anna, "set_field", f001("field", "severity", "value", "high"))
+	f.ok(anna, "transition", f001("action", "complete"))
+	if text := f.ok(ben, "transition", f001("action", "report")); message(t, text) != "report done; status is now reported" {
+		t.Fatalf("report by ben: %s", text)
+	}
+	if st, _ := simpleRead(t, f); st != "reported" {
+		t.Fatalf("status %s", st)
+	}
+}
+
 // The standard workflow's steps are refused by name, as not part of the
 // simple workflow (with a reason, without one, with a stale base: never a
 // request for a reason or a conflict); an unknown action lists the simple

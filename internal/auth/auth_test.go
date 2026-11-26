@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"yars/internal/config"
@@ -18,6 +19,22 @@ func newDB(t *testing.T) *db.DB {
 	}
 	t.Cleanup(func() { d.Close() })
 	return d
+}
+
+// A new password has 10 characters at least and 72 bytes at most (bcrypt
+// takes no more): characters for the one, bytes for the other.
+func TestPasswordProblem(t *testing.T) {
+	for pw, want := range map[string]string{
+		"123456789": "at least 10 characters", "äääääääää": "at least 10 characters", "1234567890": "", "ääääääääää": "",
+		strings.Repeat("a", 72): "", strings.Repeat("a", 73): "at most 72 bytes", strings.Repeat("ä", 36): "", strings.Repeat("ä", 37): "at most 72 bytes",
+	} {
+		if got := PasswordProblem(pw); got != want {
+			t.Errorf("%d characters, %d bytes: %q, want %q", len([]rune(pw)), len(pw), got, want)
+		}
+		if _, err := HashPassword(pw); want == "" && err != nil {
+			t.Errorf("%d bytes taken but not hashed: %v", len(pw), err)
+		}
+	}
 }
 
 func newAuth(t *testing.T) (*Auth, *db.DB) {

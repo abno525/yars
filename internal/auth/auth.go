@@ -9,9 +9,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"net/http"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"golang.org/x/crypto/bcrypt"
 
@@ -62,6 +64,27 @@ func (a *Auth) Lookup(name string) (config.User, bool) {
 		return config.User{}, false
 	}
 	return u, true
+}
+
+// MinPassword is the shortest password YARS accepts, in characters, and
+// MaxPasswordBytes the longest, in bytes (bcrypt's limit): on the website
+// (setup, Admin › Users, a password change) and from yars useradd and yars
+// passwd.
+const (
+	MinPassword      = 10
+	MaxPasswordBytes = 72
+)
+
+// PasswordProblem says what is wrong with pw as a new password ("" = fine),
+// for the reader to prefix: "at least 10 characters" or "at most 72 bytes".
+func PasswordProblem(pw string) string {
+	switch {
+	case utf8.RuneCountInString(pw) < MinPassword:
+		return fmt.Sprintf("at least %d characters", MinPassword)
+	case len(pw) > MaxPasswordBytes:
+		return fmt.Sprintf("at most %d bytes", MaxPasswordBytes)
+	}
+	return ""
 }
 
 func HashPassword(pw string) (string, error) {
