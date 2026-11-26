@@ -1,6 +1,8 @@
 package backup
 
 import (
+	"archive/zip"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -147,6 +149,137 @@ func TestRestoreRefusesGitFile(t *testing.T) {
 			gone(t, dest)
 		})
 	}
+}
+
+// rezip copies the ZIP at src, giving each entry the name rename returns
+// ("" leaves it out), and adds the entries of extra (a name ending in "/" is
+// a folder; a file gets mode 0755).
+func rezip(t *testing.T, src string, rename func(string) string, extra map[string]string) string {
+	t.Helper()
+	zr, err := zip.OpenReader(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer zr.Close()
+	p := filepath.Join(t.TempDir(), "hostile.zip")
+	out, err := os.Create(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zw := zip.NewWriter(out)
+	for _, f := range zr.File {
+		name := rename(f.Name)
+		if name == "" {
+			continue
+		}
+		h := f.FileHeader
+		h.Name = name
+		w, err := zw.CreateHeader(&h)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if f.Mode().IsDir() {
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := io.Copy(w, rc); err != nil {
+			t.Fatal(err)
+		}
+		rc.Close()
+	}
+	for name, body := range extra {
+		mode := fs.FileMode(0o755)
+		if strings.HasSuffix(name, "/") {
+			mode |= fs.ModeDir
+		}
+		w, err := zw.CreateHeader(fileHeader(name, mode))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !mode.IsDir() {
+			io.WriteString(w, body)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := out.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+// A repository laid out as a git folder itself (HEAD, objects and refs
+// directly in the folder) beside an empty .git: git finds no repository in
+// .git and takes the folder, with its config and hooks, which no clean-up of
+// .git touched. Such a ZIP is refused before anything is written, in an
+// engagement and in the data folder itself.
+func TestRestoreRefusesGitFolderOutsideDotGit(t *testing.T) {
+	for _, repo := range []string{"engagements/acme/", ""} {
+		t.Run("in "+repo, func(t *testing.T) {
+			dir, d, st := dataFolder(t, "acme")
+			marks := t.TempDir()
+			hook := "#!/bin/sh\ntouch " + filepath.Join(marks, "ran") + "\n"
+			in := repo + ".git/"
+			zipPath := rezip(t, backupFile(t, dir, d, st), func(name string) string {
+				rest, ok := strings.CutPrefix(name, in)
+				switch {
+				case !ok:
+					return name
+				case rest == "" || rest == "config" || strings.HasPrefix(rest, "hooks/"):
+					return ""
+				}
+				return repo + rest
+			}, map[string]string{
+				in:                        "",
+				in + "HEAD":               "no ref\n", // a HEAD git does not read as one
+				repo + "config":           "[core]\n\trepositoryformatversion = 0\n\tbare = false\n\tworktree = .\n",
+				repo + "hooks/pre-commit": hook,
+			})
+			dest := filepath.Join(t.TempDir(), "restored")
+			_, err := Restore(zipPath, dest)
+			if err == nil {
+				// what the server's first commit there does with it
+				where := filepath.Join(dest, filepath.FromSlash(repo))
+				r, oerr := gitrepo.Open(where)
+				if oerr == nil {
+					os.WriteFile(filepath.Join(where, "note.txt"), []byte("x"), 0o644)
+					oerr = r.Commit([]string{"note.txt"}, "note", gitrepo.Author{Name: "yars", Email: "yars@yars.local"})
+				}
+				_, serr := os.Stat(filepath.Join(marks, "ran"))
+				t.Fatalf("restored a git folder outside .git (commit: %v; the ZIP's hook ran: %v)", oerr, serr == nil)
+			}
+			want := strings.TrimSuffix(repo, "/")
+			if want == "" {
+				want = "the data folder"
+			}
+			if !strings.Contains(err.Error(), want+": a git folder outside .git") {
+				t.Fatalf("err %v", err)
+			}
+			gone(t, dest)
+		})
+	}
+}
+
+// A .git folder without HEAD is no repository: git would look for one in
+// the folders around it. Refused before anything is written.
+func TestRestoreRefusesGitFolderWithoutHead(t *testing.T) {
+	dir, d, st := dataFolder(t, "acme")
+	zipPath := rezip(t, backupFile(t, dir, d, st), func(name string) string {
+		if name == "engagements/acme/.git/HEAD" {
+			return ""
+		}
+		return name
+	}, nil)
+	dest := filepath.Join(t.TempDir(), "restored")
+	_, err := Restore(zipPath, dest)
+	if err == nil || !strings.Contains(err.Error(), "engagements/acme/.git: holds no HEAD") {
+		t.Fatalf("err %v", err)
+	}
+	gone(t, dest)
 }
 
 // The config written at a restore keeps what makes the repository readable

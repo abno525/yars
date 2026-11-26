@@ -37,7 +37,7 @@ What changed for people who run or use YARS. Newest first.
 - A reason (Return, Withdraw, Revert, dismissing a check) has at most 4,000 characters, on the finding page and over MCP as in the bulk bar.
 - An approval and a sign-off are bound to the full SHA-256 of the finding's file (before: its first 64 bits). Approvals and sign-offs given before the upgrade keep counting.
 - The service log has a line for each failed password login (website and git), with the name and the address, and one for a lockout. A failed AI call logs its status and the provider's host only, no longer the start of the provider's answer.
-- A restore takes no git hook from the ZIP and writes each repository's git config again with its basic settings only. A ZIP whose `.git` is a file is refused.
+- A restore takes no git hook from the ZIP and writes each repository's git config again with its basic settings only. A ZIP whose `.git` is a file or holds no `HEAD`, or that holds a git folder (`HEAD`, `objects`, `refs`) outside `.git`, is refused.
 - Fix with AI sends the section between the same delimiters as an AI check, so text in a finding cannot pass as the rule.
 - A new account cannot take a username that differs from another only in the case of its ASCII letters (`Alice` beside `alice`). Accounts that already do keep working; `yars serve` logs them at start. The database schema is 25.
 - Live updates of an open page end within 25 seconds of a logout, a disabled account or leaving the team. One account holds at most 20 live streams.

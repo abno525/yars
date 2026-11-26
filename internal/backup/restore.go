@@ -57,7 +57,9 @@ func Restore(zipPath, destDir string) (Report, error) {
 	}
 	defer zr.Close()
 	var dbFile *zip.File
+	var lay gitLayout
 	for _, f := range zr.File {
+		lay.note(f.Name, f.Mode().IsDir())
 		if !plain(f) {
 			return rep, fmt.Errorf("%s: not a plain file inside the data folder", f.Name)
 		}
@@ -81,6 +83,9 @@ func Restore(zipPath, destDir string) (Report, error) {
 	}
 	if dbFile == nil {
 		return rep, fmt.Errorf("%s holds no %s; it is not a YARS backup", zipPath, dbEntry)
+	}
+	if err := lay.refuse(); err != nil {
+		return rep, err
 	}
 	if rep.Schema, err = schemaIn(dbFile); err != nil {
 		return rep, fmt.Errorf("%s: %w", dbEntry, err)

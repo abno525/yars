@@ -1,6 +1,7 @@
 package backup
 
 import (
+	"errors"
 	"slices"
 	"strings"
 )
@@ -92,6 +93,69 @@ func gitPart(name string) ([]string, bool) {
 		return nil, false
 	}
 	return segs[i+1:], true
+}
+
+// gitLayout notes where a ZIP's entries would make git find a repository.
+// The clean-up of a restore covers what is under a .git folder, so that
+// must be the only place git finds one. When a .git folder is no
+// repository, git takes the folder it runs in as the git folder if that
+// holds HEAD, objects and refs, with the config and the hooks beside them,
+// and looks in the folders above otherwise.
+type gitLayout struct {
+	dotGit map[string]bool            // .git folders, by path
+	head   map[string]bool            // those that hold a file HEAD
+	bare   map[string]map[string]bool // outside .git: folder -> which of HEAD, objects, refs it holds
+}
+
+// note records the ZIP entry name (dir: a folder).
+func (l *gitLayout) note(name string, dir bool) {
+	if l.dotGit == nil {
+		l.dotGit, l.head, l.bare = map[string]bool{}, map[string]bool{}, map[string]map[string]bool{}
+	}
+	segs := strings.Split(strings.TrimSuffix(name, "/"), "/")
+	if i := slices.Index(segs, ".git"); i >= 0 {
+		p := strings.Join(segs[:i+1], "/")
+		l.dotGit[p] = true
+		if len(segs) == i+2 && segs[i+1] == "HEAD" && !dir {
+			l.head[p] = true
+		}
+		return
+	}
+	for i, seg := range segs {
+		if seg != "HEAD" && seg != "objects" && seg != "refs" {
+			continue
+		}
+		d := strings.Join(segs[:i], "/")
+		if l.bare[d] == nil {
+			l.bare[d] = map[string]bool{}
+		}
+		l.bare[d][seg] = true
+	}
+}
+
+// refuse is why the ZIP is not restored: a .git folder without HEAD, or a
+// folder outside .git that git would take as a git folder. The first by
+// name, so the message is the same each time.
+func (l *gitLayout) refuse() error {
+	var bad []string
+	for p := range l.dotGit {
+		if !l.head[p] {
+			bad = append(bad, p+": holds no HEAD; it is not a repository")
+		}
+	}
+	for d, has := range l.bare {
+		if len(has) == 3 {
+			if d == "" {
+				d = "the data folder"
+			}
+			bad = append(bad, d+": a git folder outside .git")
+		}
+	}
+	if len(bad) == 0 {
+		return nil
+	}
+	slices.Sort(bad)
+	return errors.New(bad[0])
 }
 
 // gitDropped reports whether a restore leaves the git-folder file with the
