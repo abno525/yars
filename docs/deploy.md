@@ -128,7 +128,7 @@ Set the address people use in `.yars/config.yaml`, so links in mail and webhooks
 base_url: https://yars.example.com
 ```
 
-The file is in the main repository: a director with the admin flag changes it in a clone and pushes it (in the simple workflow every account is a director; see `docs/config.md`). An edit made in place on the server is undone at the next start, which resets the data folder's tree to its last commit.
+The file is in the main repository: a director with the admin flag changes it in a clone and pushes it (in the simple workflow every account is a director; see [config.md](config.md)). An edit made in place on the server is undone at the next start, which resets the data folder's tree to its last commit.
 
 **Without a proxy:**
 

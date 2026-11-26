@@ -1,6 +1,6 @@
 # Config
 
-`.yars/config.yaml` in the main repository; admins change it under **Admin › Structure**, or by push as a director with the admin flag. Unknown values are rejected when the server loads it.
+`.yars/config.yaml` in the main repository; admins change it under **Admin › Structure**, or by push as a director with the admin flag. A value that is not valid is refused when the server loads the file. A key YARS does not know is ignored, so check the spelling of each key.
 
 | Key | Type | Default | Rule |
 |---|---|---|---|

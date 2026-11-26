@@ -61,6 +61,63 @@ func TestKnownLimitsArePlain(t *testing.T) {
 	}
 }
 
+// The rules guide covers every kind of rule: what the plain `yars lint`
+// leaves out, the time one check has, how a pattern is anchored, who may
+// dismiss, and each way a rule or its file can fail.
+func TestRulesGuideCoversEveryKind(t *testing.T) {
+	g, err := Page("rules")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(g, "# Rules\n") {
+		t.Errorf("the title: %.30q", g)
+	}
+	for _, want := range []string{
+		"`yars lint` runs the pattern and built-in rules", "`yars lint --all`", "90 s", "the rules as they are now",
+		"`(?m)`", "Code blocks and tables are matched", "skips a part with no text",
+		"## Dismissing a result", "the reviewer role", "that rule, that place and that quote",
+		"not executable", "64 KB", "even when the script exits 0",
+		"does not compile", "unknown check", "unknown target", "is not a configured section name",
+		"AI rules skipped: no AI provider configured", "AI checks failed",
+	} {
+		if !strings.Contains(g, want) {
+			t.Errorf("the guide lacks %q", want)
+		}
+	}
+	// the plain lint is not listed where scripts run
+	if i := strings.Index(g, "| Runs |"); i < 0 || strings.Contains(g[i:i+strings.Index(g[i:], "\n")], "`yars lint` ·") {
+		t.Error("the Runs row lists the plain yars lint")
+	}
+}
+
+// The other pages agree with the code and with each other: the Go release,
+// the data folder's path, what an unknown config key does, and where the
+// Clone panel's command differs from the git guide's.
+func TestDocsAgree(t *testing.T) {
+	read := func(name string) string {
+		b, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	if r := read("../README.md"); !strings.Contains(r, "Needs Go 1.27.2 or later.") || !strings.Contains(r, "[Wiki](https://github.com/abno525/yars/wiki)") {
+		t.Error("README: the Go release or the wiki link")
+	}
+	if m := read("mcp.md"); strings.Contains(m, "/srv/yars-data") || !strings.Contains(m, "yars token add --data /srv/yars alice") {
+		t.Error("mcp.md does not use deploy.md's data folder")
+	}
+	if c := read("config.md"); strings.Contains(c, "Unknown values are rejected") || !strings.Contains(c, "A key YARS does not know is ignored") {
+		t.Error("config.md: what an unknown key does")
+	}
+	if g := read("git.md"); !strings.Contains(g, "The Clone panel clones into `yars`") {
+		t.Error("git.md does not say where the Clone panel's folder name differs")
+	}
+	if d := read("deploy.md"); strings.Contains(d, "`docs/config.md`") || !strings.Contains(d, "[config.md](config.md)") {
+		t.Error("deploy.md names config.md as text, not as a link")
+	}
+}
+
 // The git guide tells the holder of a clone from before engagements had
 // repositories of their own what to do with commits not pushed yet
 // (backlog, M11).

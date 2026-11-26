@@ -14,7 +14,7 @@
 
 ## Start
 
-Needs Go 1.27.
+Needs Go 1.27.2 or later.
 
 ```sh
 go build -o yars ./cmd/yars
