@@ -25,7 +25,7 @@ yars serve --data data
 
 `go install` puts `yars` in `$(go env GOPATH)/bin`. Have that folder on your `PATH`.
 
-Open <http://localhost:8080>.
+Open <http://localhost:8080>. The first login asks for a new password.
 
 ## Simple mode
 

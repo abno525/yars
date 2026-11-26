@@ -10,6 +10,8 @@ Create a token in YARS under **Settings › Tokens › New token** (use: MCP). P
 yars token add --data /srv/yars alice     # prints yars_… once; active immediately
 ```
 
+An account whose password was piped to `yars useradd` or `yars passwd` sets a new one on the website first. Until then its tokens are refused.
+
 Then connect Claude Code:
 
 ```sh

@@ -29,6 +29,7 @@ What changed for people who run or use YARS. Newest first.
 - A login ends 30 days after it was made at the latest, however much it is used: sessions older than that end at the upgrade. The session cookie lives as long as its session (before: always 14 days, whatever Admin › System › Retention said). Sessions set to 0 days there means the default 14; such sessions are now deleted when they end.
 - Only a finding's author or a director sends it to a destination. The export page ticks the findings you may send. Downloads and the preview stay open to the team.
 - YARS writes the data folder for the service account alone: folders `0700`, files `0600`, scripts `0700`, and git runs with a umask of `077`. A restore writes these modes too. An existing data folder is not changed: `chmod -R go= <data folder>` closes it.
+- `yars useradd` and `yars passwd` on a terminal ask for the password twice and do not show it. A password piped to them is a temporary one: the next login asks for a new one, and until then the account's git logins and tokens are refused.
 - `yars export` writes its file `0600` and does not replace a file that is there. `--force` replaces it.
 
 ### Fixed

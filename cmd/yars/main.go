@@ -3,8 +3,10 @@
 //
 //	yars init [--simple] <dir>   (--simple: the simple workflow, fixed after init)
 //	yars use [<dir>]   (set or show the default data folder)
-//	yars useradd --data <dir> --role <role> [--email e] <username>   (password read from stdin)
+//	yars useradd --data <dir> --role <role> [--email e] <username>
 //	yars passwd|userdel|unlock --data <dir> <username>; yars role --data <dir> <username> <role>
+//	  (useradd, passwd: the password is asked twice on a terminal, unseen; a
+//	  piped one must be changed at the next login)
 //	yars admin --data <dir> <username> on|off
 //	yars serve --data <dir> [--addr :8080] [--tls-cert <file> --tls-key <file>] [--https]
 //	yars migrate --data <dir>   (move state and chat from files into the database)
@@ -802,9 +804,10 @@ func usage() {
   yars init [--simple] <dir>   (--simple: draft → complete → reported, no roles; fixed after init)
   yars use [<dir>]   (set the default data folder, or show it)
   yars serve --data <dir> [--addr :8080] [--tls-cert <file> --tls-key <file>] [--https]
-  yars useradd --data <dir> --role pentester|reviewer|director [--email e] [--admin] <user>   (password from stdin; no --role in the simple workflow)
+  yars useradd --data <dir> --role pentester|reviewer|director [--email e] [--admin] <user>   (no --role in the simple workflow)
   yars admin --data <dir> <user> on|off
-  yars passwd --data <dir> <user>   (password from stdin)
+  yars passwd --data <dir> <user>
+      (useradd, passwd: the password is asked twice on a terminal; a piped one must be changed at the next login)
   yars role --data <dir> <user> pentester|reviewer|director   (not in the simple workflow)
   yars userdel --data <dir> <user>
   yars unlock --data <dir> <user>   (end a login lockout)
@@ -1112,17 +1115,43 @@ func simpleData(d *db.DB) (bool, error) {
 	return w == config.WorkflowSimple, err
 }
 
-func readPassword(in io.Reader, out io.Writer) (string, error) {
+// hiddenLine reads a line from a terminal without showing it; typed is
+// false when in is no terminal (a test replaces it).
+var hiddenLine = termLine
+
+// readPassword reads the new password of useradd and passwd and returns its
+// hash. On a terminal it is typed twice and not shown (typed true). Piped,
+// it is the first line of in: such a password passed through a shell line
+// or a script, so the caller makes the account set a new one.
+func readPassword(in io.Reader, out io.Writer) (hash string, typed bool, err error) {
 	fmt.Fprint(out, "password: ")
-	line, err := bufio.NewReader(in).ReadString('\n')
-	pw := strings.TrimRight(line, "\r\n")
-	if pw == "" {
-		return "", fmt.Errorf("empty password (%v)", err)
+	pw, typed, err := hiddenLine(in)
+	if err != nil {
+		return "", typed, err
+	}
+	if !typed {
+		line, rerr := bufio.NewReader(in).ReadString('\n')
+		if pw = strings.TrimRight(line, "\r\n"); pw == "" {
+			return "", false, fmt.Errorf("empty password (%v)", rerr)
+		}
+	} else if pw == "" {
+		return "", true, errors.New("empty password")
 	}
 	if p := auth.PasswordProblem(pw); p != "" { // as the website asks
-		return "", errors.New("password: " + p)
+		return "", typed, errors.New("password: " + p)
 	}
-	return auth.HashPassword(pw)
+	if typed {
+		fmt.Fprint(out, "\nrepeat password: ")
+		again, _, err := hiddenLine(in)
+		if err != nil {
+			return "", true, err
+		}
+		if again != pw {
+			return "", true, errors.New("the two passwords differ")
+		}
+	}
+	hash, err = auth.HashPassword(pw)
+	return hash, typed, err
 }
 
 func cmdUseradd(args []string, in io.Reader, out io.Writer) error {
@@ -1156,11 +1185,12 @@ func cmdUseradd(args []string, in io.Reader, out io.Writer) error {
 	if _, ok, _ := d.User(name); ok {
 		return fmt.Errorf("user %s already exists", name)
 	}
-	hash, err := readPassword(in, out)
+	hash, typed, err := readPassword(in, out)
 	if err != nil {
 		return err
 	}
-	if err := d.AddUser(config.User{Username: name, Email: *email, Role: *role, PasswordHash: hash, IsAdmin: *admin}); err != nil {
+	// a piped password is a temporary one, the first admin's too
+	if err := d.AddUser(config.User{Username: name, Email: *email, Role: *role, PasswordHash: hash, IsAdmin: *admin, MustChange: !typed}); err != nil {
 		return err
 	}
 	detail := "role " + *role
@@ -1183,6 +1213,9 @@ func cmdUseradd(args []string, in io.Reader, out io.Writer) error {
 		fmt.Fprintln(out, "\nadded", name, "as", *role, "(admin)")
 	default:
 		fmt.Fprintln(out, "\nadded", name, "as", *role)
+	}
+	if !typed {
+		fmt.Fprintln(out, "the first login asks for a new password")
 	}
 	return nil
 }
@@ -1215,15 +1248,24 @@ func cmdPasswd(args []string, in io.Reader, out io.Writer) error {
 	if _, ok, _ := d.User(fs.Arg(0)); !ok {
 		return fmt.Errorf("no user %s", fs.Arg(0))
 	}
-	hash, err := readPassword(in, out)
+	hash, typed, err := readPassword(in, out)
 	if err != nil {
 		return err
 	}
-	if err := d.SetPassword(fs.Arg(0), hash); err != nil {
+	// a piped password is a temporary one (ResetPassword); one typed here
+	// leaves the account's need for a new password as it was
+	set := d.ResetPassword
+	if typed {
+		set = d.SetPassword
+	}
+	if err := set(fs.Arg(0), hash); err != nil {
 		return err
 	}
 	d.Audit("cli", "user.password", fs.Arg(0), "")
 	fmt.Fprintln(out, "\npassword changed for", fs.Arg(0))
+	if !typed {
+		fmt.Fprintln(out, "the next login asks for a new password")
+	}
 	return nil
 }
 
