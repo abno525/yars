@@ -214,6 +214,54 @@ func TestCIRaceJobSetsItsTimeouts(t *testing.T) {
 	}
 }
 
+// NOTICE names every module of go.mod at go.mod's version, and no other:
+// a dependency update that leaves NOTICE behind fails here.
+func TestNoticeListsGoModsModules(t *testing.T) {
+	read := func(name string) []string {
+		b, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.Split(string(b), "\n")
+	}
+	var mods []string
+	in := false
+	for _, l := range read("../go.mod") {
+		f := strings.Fields(l)
+		switch {
+		case len(f) == 2 && f[0] == "require" && f[1] == "(":
+			in = true
+		case len(f) == 1 && f[0] == ")":
+			in = false
+		case len(f) >= 3 && f[0] == "require":
+			mods = append(mods, f[1]+" "+f[2])
+		case in && len(f) >= 2:
+			mods = append(mods, f[0]+" "+f[1])
+		}
+	}
+	if len(mods) == 0 {
+		t.Fatal("no module read from go.mod")
+	}
+	var listed []string
+	for _, l := range read("../NOTICE") {
+		// a module line: "<host.tld/path> v<version>", at the start of the line
+		f := strings.Fields(l)
+		if len(f) == 2 && !strings.HasPrefix(l, " ") && strings.Contains(f[0], ".") && strings.Contains(f[0], "/") && strings.HasPrefix(f[1], "v") {
+			listed = append(listed, l)
+		}
+	}
+	for _, m := range mods {
+		if !slices.Contains(listed, m) {
+			t.Errorf("NOTICE lacks %q of go.mod", m)
+		}
+	}
+	for _, l := range listed {
+		if !slices.Contains(mods, l) {
+			t.Errorf("NOTICE names %q, which go.mod does not", l)
+		}
+	}
+}
+
 // CONTRIBUTING lists every command CI's test job runs on a pull request,
 // staticcheck at CI's pinned version among them: what passes there passes
 // in CI.

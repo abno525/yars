@@ -35,6 +35,7 @@ The whole test run is heavy. While you work, run the package you touched: `go te
 - A fix comes with a test that fails without it.
 - Commit messages say what is now true: `fix(web): the switch keeps its size`.
 - Behaviour that changes is changed in `docs/` too.
+- A module added or updated in `go.mod` is changed in `NOTICE` too, with its licence. A test compares the two.
 - Add a line to [CHANGELOG.md](CHANGELOG.md) under Unreleased.
 
 ## License
