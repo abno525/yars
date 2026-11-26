@@ -106,9 +106,11 @@ func (s *Server) attachmentsPanel(w http.ResponseWriter, r *http.Request) {
 }
 
 // linkAttachments points the relative attachment links of a finding's
-// rendered Markdown at the attachment route; images get their version.
+// rendered Markdown at the attachment route; images get their version. The
+// engagement and the folder are written into src= and href= as they are, so
+// a ref whose names are not plain ones (store.ValidID) changes nothing.
 func (s *Server) linkAttachments(h template.HTML, ref store.FindingRef) template.HTML {
-	if !strings.Contains(string(h), `="attachments/`) {
+	if !strings.Contains(string(h), `="attachments/`) || !store.ValidID(ref.EngID) || !store.ValidID(ref.Dir) {
 		return h
 	}
 	base := findingURL(ref.EngID, ref.Dir) + "/attachments/"

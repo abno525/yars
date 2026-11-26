@@ -27,3 +27,4 @@ What changed for people who run or use YARS. Newest first.
 ### Fixed
 
 - The cache of rendered Markdown is limited in bytes; a text over 64 KiB is not cached.
+- The editor's preview takes only a finding's folder name in its address.
