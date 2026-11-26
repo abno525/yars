@@ -77,16 +77,19 @@ func (d *DB) BackfillTeams(engs []string) error {
 // RemoveMember takes user off eng's team and deletes user's notifications
 // of eng, in one transaction.
 func (d *DB) RemoveMember(eng, user string) error {
-	return d.TxFor(eng, func(tx *Tx) error {
-		if _, err := tx.Exec("DELETE FROM engagement_members WHERE eng = ? AND username = ?", eng, user); err != nil {
-			return err
-		}
-		if _, err := tx.Exec("DELETE FROM board_seen WHERE eng = ? AND username = ?", eng, user); err != nil {
-			return err
-		}
-		_, err := tx.Exec("DELETE FROM notifications WHERE eng = ? AND username = ?", eng, user)
+	return d.TxFor(eng, func(tx *Tx) error { return tx.RemoveMember(eng, user) })
+}
+
+// RemoveMember is RemoveMember inside a transaction (one of TxFor(eng)).
+func (tx *Tx) RemoveMember(eng, user string) error {
+	if _, err := tx.Exec("DELETE FROM engagement_members WHERE eng = ? AND username = ?", eng, user); err != nil {
 		return err
-	})
+	}
+	if _, err := tx.Exec("DELETE FROM board_seen WHERE eng = ? AND username = ?", eng, user); err != nil {
+		return err
+	}
+	_, err := tx.Exec("DELETE FROM notifications WHERE eng = ? AND username = ?", eng, user)
+	return err
 }
 
 // Members lists eng's team, sorted.

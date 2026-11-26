@@ -5,7 +5,56 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/abno525/yars/internal/config"
 )
+
+// The team routes refuse an archived engagement themselves, not only the
+// page that hides the form: a director's or an admin's POST is 403 and the
+// team stays. After a reopen both routes work.
+func TestArchivedTeamRoutesRefused(t *testing.T) {
+	e := setup(t)
+	e.pen2(t) // on the team
+	e.addUser(t, config.User{Username: "pen3", Role: "pentester"})
+	dora, _ := e.srv.Auth.Lookup("dora")
+	if err := e.srv.Store.Archive("acme", dora); err != nil {
+		t.Fatal(err)
+	}
+	team := func() string {
+		t.Helper()
+		m, err := e.srv.Store.Members("acme")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.Join(m, ",")
+	}
+	before := team()
+	if rec := e.do(t, "dora", "POST", "/e/acme/settings/team", url.Values{"user": {"pen3"}}, nil); rec.Code != http.StatusForbidden {
+		t.Errorf("add on an archived engagement: %d", rec.Code)
+	}
+	if rec := e.do(t, "dora", "POST", "/e/acme/settings/team/remove", url.Values{"user": {"pen2"}}, nil); rec.Code != http.StatusForbidden {
+		t.Errorf("remove on an archived engagement: %d", rec.Code)
+	}
+	if team() != before {
+		t.Fatalf("team changed from %s to %s", before, team())
+	}
+	if rec := e.do(t, "pen3", "GET", "/e/acme", nil, nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("the account not added opens the archived engagement: %d", rec.Code)
+	}
+	// reopened: both work
+	if rec := e.do(t, "dora", "POST", "/e/acme/reopen", url.Values{}, nil); rec.Code != http.StatusSeeOther {
+		t.Fatalf("reopen %d", rec.Code)
+	}
+	if rec := e.do(t, "dora", "POST", "/e/acme/settings/team", url.Values{"user": {"pen3"}}, nil); rec.Code != http.StatusSeeOther {
+		t.Fatalf("add after reopening: %d", rec.Code)
+	}
+	if rec := e.do(t, "dora", "POST", "/e/acme/settings/team/remove", url.Values{"user": {"pen2"}}, nil); rec.Code != http.StatusSeeOther {
+		t.Fatalf("remove after reopening: %d", rec.Code)
+	}
+	if got := team(); !strings.Contains(got, "pen3") || strings.Contains(got, "pen2") {
+		t.Fatalf("team after reopening: %s", got)
+	}
+}
 
 // An archived engagement's pages are read only: its ID and an Archived tag
 // with the date show, every edit control is gone and its place kept.

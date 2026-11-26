@@ -113,6 +113,72 @@ func TestArchiveIsReadOnly(t *testing.T) {
 	}
 }
 
+// The team of an archived engagement does not change: adding a member would
+// give that account every finding of it. A director or an admin reopens it
+// first; then both changes work again.
+func TestArchivedTeamIsFixed(t *testing.T) {
+	s, _ := withEngagement(t)
+	admin := config.User{Username: "ann", Role: "pentester", IsAdmin: true}
+	if err := s.AddMembers(eng, []string{"alice"}, uDora); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Archive(eng, uDora); err != nil {
+		t.Fatal(err)
+	}
+	audit := func() int {
+		t.Helper()
+		l, err := s.DB().AuditLog(50)
+		if err != nil {
+			t.Fatal(err)
+		}
+		n := 0
+		for _, a := range l {
+			if a.Action == "eng.member.add" || a.Action == "eng.member.remove" {
+				n++
+			}
+		}
+		return n
+	}
+	before := audit()
+	for _, actor := range []config.User{uDora, admin} {
+		if err := s.AddMembers(eng, []string{"bob"}, actor); !errors.Is(err, ErrArchived) {
+			t.Errorf("%s added a member to an archived engagement: %v", actor.Username, err)
+		}
+		if err := s.RemoveMember(eng, "alice", actor); !errors.Is(err, ErrArchived) {
+			t.Errorf("%s removed a member of an archived engagement: %v", actor.Username, err)
+		}
+	}
+	if m, _ := s.Members(eng); !slices.Equal(m, []string{"alice"}) {
+		t.Fatalf("team of the archived engagement: %v", m)
+	}
+	if s.CanSee(uBob, eng) || !s.CanSee(uAlice, eng) {
+		t.Fatal("who sees the archived engagement changed")
+	}
+	if audit() != before {
+		t.Fatal("a refused team change was audited")
+	}
+	// a pentester is still told it is not theirs to change
+	if err := s.AddMembers(eng, []string{"bob"}, uAlice); !denied(err) {
+		t.Fatalf("pentester on an archived engagement: %v", err)
+	}
+	// reopened: both work
+	if err := s.Unarchive(eng, uDora); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddMembers(eng, []string{"bob"}, uDora); err != nil {
+		t.Fatalf("add after reopening: %v", err)
+	}
+	if err := s.RemoveMember(eng, "alice", admin); err != nil {
+		t.Fatalf("remove after reopening: %v", err)
+	}
+	if m, _ := s.Members(eng); !slices.Equal(m, []string{"bob"}) {
+		t.Fatalf("team after reopening: %v", m)
+	}
+	if audit() != before+2 {
+		t.Fatalf("%d team changes audited, want %d", audit(), before+2)
+	}
+}
+
 // A retest starts with the source's team plus the retester.
 func TestRetestCopiesTeam(t *testing.T) {
 	s, _, fd := newFinding(t)

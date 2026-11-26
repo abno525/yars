@@ -105,7 +105,12 @@ func (s *Store) UnreadCount(u config.User) (int, error) {
 // canManageTeam: directors and admins change teams and archive.
 func canManageTeam(u config.User) bool { return SeesAll(u) }
 
-// AddMembers puts users on eng's team as actor (directors and admins).
+// AddMembers puts users on eng's team as actor (directors and admins). An
+// archived engagement keeps its team (ErrArchived): a new member would read
+// every finding of it. The archive is checked in the write's own
+// transaction, so the change can't slip in next to an Archive. (The
+// database's own AddMembers does not check: the team backfill at start and
+// a new engagement's first team go through it.)
 func (s *Store) AddMembers(eng string, users []string, actor config.User) error {
 	if s.db == nil {
 		return ErrNoDB
@@ -116,13 +121,20 @@ func (s *Store) AddMembers(eng string, users []string, actor config.User) error 
 	if _, err := s.Engagement(eng); err != nil {
 		return err
 	}
-	if err := s.db.AddMembers(eng, users...); err != nil {
+	err := s.db.TxFor(eng, func(tx *db.Tx) error {
+		if err := archivedIn(tx, eng); err != nil {
+			return err
+		}
+		return tx.AddMembers(eng, users...)
+	})
+	if err != nil {
 		return err
 	}
 	return s.db.Audit(actor.Username, "eng.member.add", eng, strings.Join(users, ", "))
 }
 
-// RemoveMember takes user off eng's team as actor (directors and admins).
+// RemoveMember takes user off eng's team as actor (directors and admins);
+// not on an archived engagement (ErrArchived), as AddMembers.
 func (s *Store) RemoveMember(eng, user string, actor config.User) error {
 	if s.db == nil {
 		return ErrNoDB
@@ -130,7 +142,13 @@ func (s *Store) RemoveMember(eng, user string, actor config.User) error {
 	if !canManageTeam(actor) {
 		return &workflow.Denied{Reason: "only a director or an admin can change the team"}
 	}
-	if err := s.db.RemoveMember(eng, user); err != nil {
+	err := s.db.TxFor(eng, func(tx *db.Tx) error {
+		if err := archivedIn(tx, eng); err != nil {
+			return err
+		}
+		return tx.RemoveMember(eng, user)
+	})
+	if err != nil {
 		return err
 	}
 	return s.db.Audit(actor.Username, "eng.member.remove", eng, user)

@@ -17,6 +17,7 @@ What changed for people who run or use YARS. Newest first.
 - `docs/deploy.md`: a `0700` data folder, systemd hardening, backup pruning, the minimum git version, uninstalling.
 - `docs/rules.md` covers every kind of rule, its limits and its failures.
 - `docs/known-limits.md` lists today's limits by subject.
+- The team of an archived engagement cannot change. Reopen the engagement first.
 - Only an admin sets where a service destination publishes (project, issue type, space, parent page), a script destination's script and a pandoc template. Only an admin pushes scripts and templates to `.yars/exporters`.
 - Only a director pushes `README.md` to the main repository, as `.gitignore`.
 - The pre-commit check (`yars lint --staged`) with a Git token runs script and AI rules only when the token has the Run checks action. Other tokens get the pattern and built-in rules.
