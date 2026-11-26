@@ -385,11 +385,19 @@ func cmdToken(args []string, out io.Writer) (int, error) {
 	scopes := fs.String("scopes", db.ScopeAll, "add: all, read, or actions ("+strings.Join(db.TokenActions, ",")+"; the simple workflow has no reviewers)")
 	name := fs.String("name", "", "add: a name for the token")
 	engs := fs.String("engagements", "", "add: comma-separated engagement ids (default: all)")
-	days := fs.Int("days", 0, "add: expires after this many days (0 = never)")
+	days := fs.Int("days", tokenDays, "add: expires after this many days (0 = never)")
+	expires := fs.String("expires", "", "add: expires at the end of this day, YYYY-MM-DD in UTC, or never (instead of --days)")
 	id := fs.Int64("id", 0, "revoke: only this token (default: every token of the user)")
 	fs.SetOutput(out)
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2, err
+	}
+	expiry := ""
+	if args[0] == "add" { // a mistake in the flags makes no token and touches nothing
+		var err error
+		if expiry, err = tokenExpiry(*days, *expires, flagGiven(fs, "days"), flagGiven(fs, "expires"), time.Now().UTC()); err != nil {
+			return 2, err
+		}
 	}
 	r, err := openData(fs, *data)
 	if err != nil {
@@ -447,17 +455,51 @@ func cmdToken(args []string, out io.Writer) (int, error) {
 			}
 		}
 		spec.Engagements = splitList(*engs)
-		if *days > 0 {
-			spec.Expires = time.Now().UTC().Add(time.Duration(*days) * 24 * time.Hour).Format(time.RFC3339)
-		}
+		spec.Expires = expiry
 		tok, info, err := tk.Create("cli", user, spec)
 		if err != nil {
 			return 1, err
 		}
-		fmt.Fprintf(out, "token #%d for %s (%s; shown once; active immediately):\n%s\n", info.ID, user, info.Kind, tok)
+		until := "never expires"
+		if info.Expires != "" {
+			until = "expires " + strings.Replace(info.Expires, "T", " ", 1)
+		}
+		fmt.Fprintf(out, "token #%d for %s (%s; %s; shown once; active immediately):\n%s\n", info.ID, user, info.Kind, until, tok)
 		return 0, nil
 	}
 	return 2, fmt.Errorf("unknown token command %q", args[0])
+}
+
+// tokenDays is how long a token of yars token add lives when no flag says
+// otherwise: the choice Settings › Tokens › New token starts with.
+const tokenDays = 90
+
+// tokenExpiry is the expiry yars token add stores (RFC 3339, "" for
+// never): --days N from now (the default, tokenDays; 0 is never), or
+// --expires, a day (YYYY-MM-DD, to its end in UTC) or never. Both flags
+// together, a day that is past and one that does not read are refused.
+func tokenExpiry(days int, expires string, daysGiven, expiresGiven bool, now time.Time) (string, error) {
+	switch {
+	case daysGiven && expiresGiven:
+		return "", errors.New("give --days or --expires, not both")
+	case expiresGiven && expires == "never":
+		return "", nil
+	case expiresGiven:
+		day, err := time.Parse("2006-01-02", expires)
+		if err != nil {
+			return "", fmt.Errorf("--expires: %q is not a date (YYYY-MM-DD) or never", expires)
+		}
+		end := day.Add(24*time.Hour - time.Second)
+		if end.Before(now) {
+			return "", fmt.Errorf("--expires: %s is in the past", expires)
+		}
+		return end.Format(time.RFC3339), nil
+	case days < 0:
+		return "", errors.New("--days: 0 or more (0 = never)")
+	case days == 0:
+		return "", nil
+	}
+	return now.Add(time.Duration(days) * 24 * time.Hour).Format(time.RFC3339), nil
 }
 
 // splitList splits a comma-separated flag value (empty items dropped).
@@ -811,7 +853,7 @@ func usage() {
   yars role --data <dir> <user> pentester|reviewer|director   (not in the simple workflow)
   yars userdel --data <dir> <user>
   yars unlock --data <dir> <user>   (end a login lockout)
-  yars token add --data <dir> [--kind mcp|git] [--scopes all|read|a,b] [--engagements e1,e2] [--days N] [--name n] <user>
+  yars token add --data <dir> [--kind mcp|git] [--scopes all|read|a,b] [--engagements e1,e2] [--days N | --expires YYYY-MM-DD|never] [--name n] <user>   (90 days without either; --days 0 = never)
   yars token list --data <dir>
   yars token revoke --data <dir> [--id N] <user>
   yars migrate --data <dir>

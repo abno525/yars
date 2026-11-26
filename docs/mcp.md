@@ -10,6 +10,8 @@ Create a token in YARS under **Settings › Tokens › New token** (use: MCP). P
 yars token add --data /srv/yars alice     # prints yars_… once; active immediately
 ```
 
+The token expires after 90 days. `--days N` or `--expires 2027-06-30` sets another end (the end of that day, UTC), and `--expires never` none. `--scopes` and `--engagements` limit what it may do.
+
 An account whose password was piped to `yars useradd` or `yars passwd` sets a new one on the website first. Until then its tokens are refused.
 
 Then connect Claude Code:
