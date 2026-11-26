@@ -104,7 +104,8 @@ Only `refs/heads/main` can be pushed, and every commit in the push is checked on
 | `.yars/config.yaml: cannot be deleted` | Every setting would fall back to its default | push the settings you want |
 | `.yars/config.yaml: workflow is set by yars init (this server runs the simple workflow) and cannot change` | The pushed file's `workflow` key is not the workflow the server runs: changed, removed or added (each commit is held to the server's workflow, not to its parent's file) | put the key back to the server's workflow (`workflow: simple`, or none for the standard workflow) |
 | `.yars/rules/x.yaml: rule invalid (x.yaml): …` | A rule Admin › Rules refuses (regex, unknown field, duplicate id); problems the folder already had don't block | correct the rule |
-| `.yars/exporters/x.yaml: …` · `address and key variables: admin only` | An exporter the export setup refuses; a service address set by a non-admin | correct it · ask an admin |
+| `.yars/exporters/x.yaml: …` · `address, space, parent page, project, issue type, key variables, script and template: admin only` | An exporter the export setup refuses; a service's address or target, a script or a template set by a non-admin | correct it · ask an admin |
+| `.yars/exporters/x.sh: only an admin can change the scripts and templates in .yars/exporters …` | Not an admin: any file there that is not a destination's `<id>.yaml`, in subfolders too | ask an admin |
 | `.yars/users.yaml: accounts, tokens and the database stay on the server` | Server-only file | `git rm --cached .yars/users.yaml` |
 | `…: only regular files are allowed (no symlinks or submodules)` | Symlink | copy the file |
 | `…/finding.md: only a director can delete a finding` | Deleted finding | `git checkout HEAD~1 -- <path>` |

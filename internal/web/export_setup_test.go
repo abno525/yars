@@ -71,9 +71,17 @@ func TestDestAddressAdminOnly(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(e.srv.Export.Dir, "jira2.yaml")); err == nil {
 		t.Fatal("new service destination saved")
 	}
-	// the rest is the director's
-	if rec := e.do(t, "dir2", "POST", "/e/acme/export/setup", form(func(f url.Values) { f.Set("project", "SEC") }), nil); rec.Code != http.StatusSeeOther {
-		t.Fatalf("director edit %d:\n%s", rec.Code, rec.Body.String())
+	// the rest is the director's: the name, the statuses, mark_reported
+	if rec := e.do(t, "dir2", "POST", "/e/acme/export/setup", form(func(f url.Values) {
+		f.Set("name", "Jira PEN 2")
+		f["status"] = []string{"complete", "reported"}
+		f.Del("mark_reported")
+	}), nil); rec.Code != http.StatusSeeOther {
+		t.Fatalf("director edit %d:\n%s", rec.Code, between(rec.Body.String(), `class="pstate error"`, "</span>"))
+	}
+	es, _ := export.Load(e.srv.Export.Dir)
+	if ex, _ := findExporter(es, "jira"); ex.Name != "Jira PEN 2" || ex.Marks() || len(ex.Statuses) != 2 || ex.Jira.Project != "PEN" {
+		t.Fatalf("director's edit saved as %+v %+v", ex, ex.Jira)
 	}
 	// an admin may move it
 	if rec := e.do(t, "dora", "POST", "/e/acme/export/setup", form(func(f url.Values) { f.Set("base_url", "https://jira.acme.com") }), nil); rec.Code != http.StatusSeeOther {
@@ -84,5 +92,119 @@ func TestDestAddressAdminOnly(t *testing.T) {
 	}
 	if b := e.do(t, "dora", "GET", "/e/acme/export/setup?edit=jira", nil, nil).Body.String(); !strings.Contains(b, `name="base_url" value="https://jira.acme.com">`) {
 		t.Fatal("admin editor read only")
+	}
+}
+
+// A director without the admin flag does not retarget a destination: where a
+// service publishes (project, issue type, space, parent page), the script a
+// script destination runs and the template pandoc reads are an admin's to
+// set, as the address is. The director still edits the name and
+// mark_reported of each; an admin changes all of it.
+func TestDestTargetAdminOnly(t *testing.T) {
+	e := setupSerial(t)
+	e.exporters(t, fakePandoc)
+	e.jira(t, true)
+	e.addUser(t, config.User{Username: "dir2", Role: "director"})
+	dir := e.srv.Export.Dir
+	files := map[string]string{
+		"jira.yaml":   "name: Jira\ntype: jira\njira: {base_url: https://jira.firm.example, project: PEN, issue_type: Bug, user_env: JIRA_USER, token_env: JIRA_TOKEN}\n",
+		"wiki.yaml":   "name: Wiki\ntype: confluence\nconfluence: {base_url: https://wiki.firm.example, space: PEN, parent_id: \"100\", user_env: CONFLUENCE_USER, token_env: CONFLUENCE_TOKEN}\n",
+		"csv.yaml":    "name: CSV\ntype: script\nscript: csv.sh\nextension: csv\n",
+		"styled.yaml": "name: Styled\ntype: pandoc\nformat: docx\ntemplate: firm.docx\n",
+	}
+	for name, body := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	forms := map[string]url.Values{
+		"jira": {"id": {"jira"}, "name": {"Jira"}, "type": {"jira"}, "base_url": {"https://jira.firm.example"}, "project": {"PEN"}, "issue_type": {"Bug"},
+			"user_env": {"JIRA_USER"}, "token_env": {"JIRA_TOKEN"}, "status": {"complete"}, "mark_reported": {"1"}},
+		"wiki": {"id": {"wiki"}, "name": {"Wiki"}, "type": {"confluence"}, "base_url": {"https://wiki.firm.example"}, "space": {"PEN"}, "parent_id": {"100"},
+			"user_env": {"CONFLUENCE_USER"}, "token_env": {"CONFLUENCE_TOKEN"}, "status": {"complete"}, "mark_reported": {"1"}},
+		"csv":    {"id": {"csv"}, "name": {"CSV"}, "type": {"script"}, "script": {"csv.sh"}, "extension": {"csv"}, "status": {"complete"}, "mark_reported": {"1"}},
+		"styled": {"id": {"styled"}, "name": {"Styled"}, "type": {"pandoc"}, "format": {"docx"}, "template": {"firm.docx"}, "status": {"complete"}, "mark_reported": {"1"}},
+		"docx":   {"id": {"docx"}, "name": {"Client report (DOCX)"}, "type": {"pandoc"}, "format": {"docx"}, "status": {"complete"}, "mark_reported": {"1"}},
+	}
+	with := func(id string, kv ...string) url.Values {
+		f := url.Values{}
+		for k, v := range forms[id] {
+			f[k] = v
+		}
+		for i := 0; i < len(kv); i += 2 {
+			f.Set(kv[i], kv[i+1])
+		}
+		return f
+	}
+	file := func(id string) string {
+		b, err := os.ReadFile(filepath.Join(dir, id+".yaml"))
+		if err != nil {
+			return ""
+		}
+		return string(b)
+	}
+	// the editor shows a director what is an admin's read-only
+	b := e.do(t, "dir2", "GET", "/e/acme/export/setup?edit=jira", nil, nil).Body.String()
+	for _, want := range []string{`name="project" value="PEN" readonly`, `name="issue_type" value="Bug" readonly`, `name="space" value="" readonly`,
+		`name="parent_id" value="" readonly`, `name="script" value="" readonly`, `name="template" value="" readonly`} {
+		if !strings.Contains(b, want) {
+			t.Errorf("a director's editor lacks %s", want)
+		}
+	}
+	if b := e.do(t, "dora", "GET", "/e/acme/export/setup?edit=jira", nil, nil).Body.String(); !strings.Contains(b, `name="project" value="PEN">`) || !strings.Contains(b, `name="script" value="">`) || !strings.Contains(b, `name="template" value="">`) {
+		t.Error("an admin's editor has read-only fields")
+	}
+	refused := []struct {
+		name, id string
+		form     url.Values
+	}{
+		{"jira project", "jira", with("jira", "project", "PUBLIC")},
+		{"jira issue type", "jira", with("jira", "issue_type", "Epic")},
+		{"confluence space", "wiki", with("wiki", "space", "PUBLIC")},
+		{"confluence parent page", "wiki", with("wiki", "parent_id", "1")},
+		{"another script", "csv", with("csv", "script", "other.sh")},
+		{"pandoc turned into a script", "docx", with("docx", "type", "script", "script", "csv.sh", "extension", "docx")},
+		{"a template", "docx", with("docx", "template", "firm.docx")},
+		{"another template", "styled", with("styled", "template", "other.docx")},
+		{"a new script destination", "run", with("csv", "new", "1", "id", "run")},
+		{"a new pandoc destination with a template", "tpl", with("styled", "new", "1", "id", "tpl")},
+	}
+	for _, c := range refused {
+		before := file(c.id)
+		rec := e.do(t, "dir2", "POST", "/e/acme/export/setup", c.form, nil)
+		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), export.AdminOnly) {
+			t.Errorf("%s by a director without the admin flag: %d", c.name, rec.Code)
+		}
+		if file(c.id) != before {
+			t.Errorf("%s: the file changed:\n%s", c.name, file(c.id))
+		}
+	}
+	// a director's own: name and mark_reported of each, a new pandoc one
+	for _, id := range []string{"jira", "wiki", "csv", "styled", "docx"} {
+		f := with(id, "name", "Renamed "+id)
+		f.Del("mark_reported")
+		if rec := e.do(t, "dir2", "POST", "/e/acme/export/setup", f, nil); rec.Code != http.StatusSeeOther {
+			t.Fatalf("a director's edit of %s: %d\n%s", id, rec.Code, between(rec.Body.String(), `class="pstate error"`, "</span>"))
+		}
+		es, _ := export.Load(dir)
+		if ex, ok := findExporter(es, id); !ok || ex.Name != "Renamed "+id || ex.Marks() {
+			t.Errorf("a director's edit of %s saved as %+v", id, ex)
+		}
+	}
+	if rec := e.do(t, "dir2", "POST", "/e/acme/export/setup", with("docx", "new", "1", "id", "odt", "format", "odt"), nil); rec.Code != http.StatusSeeOther {
+		t.Fatalf("a director's new pandoc destination: %d", rec.Code)
+	}
+	// an admin sets all of it
+	for _, c := range refused {
+		if rec := e.do(t, "dora", "POST", "/e/acme/export/setup", c.form, nil); rec.Code != http.StatusSeeOther {
+			t.Errorf("%s by an admin: %d\n%s", c.name, rec.Code, between(rec.Body.String(), `class="pstate error"`, "</span>"))
+		}
+	}
+	es, _ := export.Load(dir)
+	if ex, _ := findExporter(es, "jira"); ex.Jira == nil || ex.Jira.IssueType != "Epic" {
+		t.Fatalf("the admin's jira: %+v", ex.Jira)
+	}
+	if ex, _ := findExporter(es, "run"); ex.Type != "script" || ex.Script != "csv.sh" {
+		t.Fatalf("the admin's script destination: %+v", ex)
 	}
 }

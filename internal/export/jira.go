@@ -20,10 +20,16 @@ func validJira(j *JiraConf) error {
 	case !strings.HasPrefix(j.UserEnv, "JIRA_") || !strings.HasPrefix(j.TokenEnv, "JIRA_"):
 		return errors.New("jira user_env/token_env must start with JIRA_ (other server secrets are off limits)")
 	}
-	if j.IssueType == "" {
-		j.IssueType = "Bug"
-	}
+	j.IssueType = issueType(j.IssueType)
 	return nil
+}
+
+// issueType is a Jira destination's issue type: Bug when none is written.
+func issueType(t string) string {
+	if t == "" {
+		return "Bug"
+	}
+	return t
 }
 
 // priorities maps severities to Jira's default priority names.

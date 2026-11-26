@@ -11,6 +11,8 @@ statuses: [complete, reported]
 mark_reported: false
 ```
 
+The script runs on the server as the service account. So only an admin makes a script destination, names its script, or adds, changes or deletes a script file in `.yars/exporters`. A director without the admin flag still edits its name, extension, statuses and `mark_reported`.
+
 ## stdin
 
 | Field | Shape |

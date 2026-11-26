@@ -200,12 +200,44 @@ func Parse(file string, b []byte) (Exporter, error) {
 	return e, err
 }
 
+// AdminOnly is the refusal of a save NeedsAdmin keeps to admins (the export
+// setup and a push say the same).
+const AdminOnly = "address, space, parent page, project, issue type, key variables, script and template: admin only"
+
+// adminPart is everything of a destination that is an admin's to set ("" for
+// one that has nothing of it):
+//   - a service's address and key variables (it gets the server's and the
+//     authors' keys) and where it publishes there: the project and issue
+//     type, or the space and parent page. Another project or space of the
+//     same server may be one outsiders read.
+//   - a script destination's script: it runs on the server as the service
+//     account.
+//   - a pandoc destination's template: a file of the server that pandoc (for
+//     a PDF, LaTeX) reads.
+func (e Exporter) adminPart() string {
+	const sep = "\x00"
+	switch {
+	case e.Type == "script":
+		return "script" + sep + e.Script
+	case e.Type == "jira" && e.Jira != nil:
+		// as it is read: a file that names no issue type means Bug
+		return e.Endpoint() + sep + e.Target() + sep + issueType(e.Jira.IssueType)
+	case e.Service():
+		return e.Endpoint() + sep + e.Target() + sep + e.Confluence.ParentID
+	case e.Type == "pandoc" && e.Template != "":
+		return "template" + sep + e.Template
+	}
+	return ""
+}
+
 // NeedsAdmin reports whether saving ex over prev (nil: a new exporter)
-// takes an admin: a destination that publishes to a service gets the
-// server's and the authors' keys, so its address and key variables are
-// an admin's to set.
+// takes an admin: ex has a part that is an admin's to set (adminPart) and
+// prev did not have that same part. Name, statuses, mark_reported, a pandoc
+// format and its arguments, a script's extension, and taking such a part
+// away are a director's.
 func NeedsAdmin(prev *Exporter, ex Exporter) bool {
-	return ex.Service() && (prev == nil || prev.Endpoint() != ex.Endpoint())
+	part := ex.adminPart()
+	return part != "" && (prev == nil || prev.adminPart() != part)
 }
 
 var safeWord = regexp.MustCompile(`^[a-z0-9_]+$`)

