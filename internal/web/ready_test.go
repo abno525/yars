@@ -36,7 +36,7 @@ func TestOpenWarningDisablesSignOffAndApprove(t *testing.T) {
 		t.Fatalf("state:\n%s", wfBar(t, b))
 	}
 	st := e.srv.Store
-	if err := st.Dismiss("acme", fdir, "soft", "SQL", wBob); err != nil {
+	if err := st.DismissWhy("acme", fdir, "soft", "", "SQL", "fine here", wBob); err != nil {
 		t.Fatal(err)
 	}
 	e.checked(t, "acme", fdir)
@@ -67,7 +67,7 @@ func TestBulkApproveSkipsOpenChecks(t *testing.T) {
 	// alice's two findings: "SQL injection" warns until dismissed, "CSRF"
 	// is clean
 	e.toVerification(t)
-	if err := st.Dismiss("acme", fdir, "soft", "SQL", wBob); err != nil {
+	if err := st.DismissWhy("acme", fdir, "soft", "", "SQL", "fine here", wBob); err != nil {
 		t.Fatal(err)
 	}
 	e.checked(t, "acme", fdir)
@@ -99,7 +99,7 @@ func TestReadyToApproveCached(t *testing.T) {
 	e.rules(t, softRule, nil)
 	e.toVerification(t)
 	st := e.srv.Store
-	st.Dismiss("acme", fdir, "soft", "SQL", wBob)
+	st.DismissWhy("acme", fdir, "soft", "", "SQL", "fine here", wBob)
 	e.checked(t, "acme", fdir)
 	if err := st.Transition("acme", fdir, workflow.Clear, "", wBob); err != nil {
 		t.Fatal(err)

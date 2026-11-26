@@ -29,7 +29,7 @@ func TestMCPSignOffRefusedWithOpenWarning(t *testing.T) {
 	if text, isErr := tr(bob, "sign_off"); !isErr || !strings.Contains(text, "say what SQL means") {
 		t.Fatalf("sign off with an open warning: %v %s", isErr, text)
 	}
-	if err := f.s.Store.Dismiss("acme", "001", "soft", "SQL", bob); err != nil {
+	if err := f.s.Store.DismissWhy("acme", "001", "soft", "", "SQL", "fine here", bob); err != nil {
 		t.Fatal(err)
 	}
 	// R1: Require Check (on by default) wants a check run on this content

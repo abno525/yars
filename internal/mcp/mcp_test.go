@@ -576,7 +576,7 @@ func TestMCPLintMarksDismissed(t *testing.T) {
 	os.WriteFile(filepath.Join(rd, "r.yaml"), []byte("- id: no-sql\n  target: title\n  regex_forbid: 'SQL'\n- id: no-inj\n  target: title\n  regex_forbid: 'injection'\n"), 0o644)
 	eng := rules.NewEngine(rd, f.s.Cfg)
 	f.s.Rules, f.s.Store.Linter = eng, eng
-	if err := f.s.Store.Dismiss("acme", "F-001-sql-injection", "no-sql", "SQL", bob); err != nil {
+	if err := f.s.Store.DismissWhy("acme", "F-001-sql-injection", "no-sql", "", "SQL", "fine here", bob); err != nil {
 		t.Fatal(err)
 	}
 	var vs []map[string]any

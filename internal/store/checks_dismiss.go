@@ -22,22 +22,19 @@ func CanDismiss(u config.User, m finding.Meta, level string) bool {
 	return level != "error" || workflow.AtLeast(u, "reviewer")
 }
 
-// Dismiss marks the finding's violation (rule, quote) as not counting: the
-// submit/approve gate ignores it and check runs post no comment for it; its
-// open comment is resolved. Warnings need edit rights, errors also the
-// reviewer role (CanDismiss). The quote must be in one place only (placeOf);
-// DismissWhy takes the place.
-func (s *Store) Dismiss(engID, dir, rule, quote string, u config.User) error {
-	return s.DismissWhy(engID, dir, rule, "", quote, "", u)
-}
-
-// DismissWhy is Dismiss of the violation (rule, target, quote) with the
-// reason: it is kept with the dismissal and posted as u's reply in the
-// violation's open thread before it is resolved. It covers that one result
-// row: the same quote in another place still counts. An empty target is
-// the quote's one place (placeOf).
+// DismissWhy marks the finding's violation (rule, target, quote) as not
+// counting: the submit/approve gate ignores it and check runs post no
+// comment for it; its open comment is resolved. Warnings need edit rights,
+// errors also the reviewer role (CanDismiss). The reason is required: it is
+// kept with the dismissal and posted as u's reply in the violation's open
+// thread before it is resolved. It covers that one result row: the same
+// quote in another place still counts. An empty target is the quote's one
+// place (placeOf).
 func (s *Store) DismissWhy(engID, dir, rule, target, quote, reason string, u config.User) error {
 	reason = strings.TrimSpace(reason)
+	if reason == "" { // asked here, not only by the page
+		return fmt.Errorf("%w: Reason is required", ErrInvalidValue)
+	}
 	if msg := reasonTooLong(reason); msg != "" {
 		return fmt.Errorf("%w: %s", ErrInvalidValue, msg)
 	}
@@ -114,12 +111,24 @@ func (s *Store) DismissWhy(engID, dir, rule, target, quote, reason string, u con
 	if err != nil {
 		return err
 	}
+	s.db.Audit(u.Username, "check.dismiss", engID+"/"+fid, dismissDetail(rule, level, target)+" · "+reason)
 	s.notify(Change{Eng: engID, Fid: fid, Kind: ChangeState, Seq: seq})
 	s.notify(Change{Eng: engID, Fid: fid, Kind: ChangeCheck})
 	if resolved { // the section panels' counts and the chat list follow
 		s.notify(Change{Eng: engID, Fid: fid, Kind: ChangeChat, Seq: seq})
 	}
 	return nil
+}
+
+// dismissDetail names a result row in the audit log: its rule, level and
+// place. The quote stays out: it is finding text (for a secrets rule the
+// secret itself), and the audit log is kept longer and read more widely
+// than the finding.
+func dismissDetail(rule, level, target string) string {
+	if target == "" {
+		target = "finding"
+	}
+	return rule + " · " + level + " · " + target
 }
 
 func dismissDenied(level string) string {
@@ -130,7 +139,8 @@ func dismissDenied(level string) string {
 }
 
 // Undismiss makes a dismissed violation (rule, target, quote) count again;
-// the same people who may dismiss it may do this.
+// the same people who may dismiss it may do this. It asks for no reason;
+// like a dismissal it leaves a row in the audit log.
 func (s *Store) Undismiss(engID, dir, rule, target, quote string, u config.User) error {
 	if s.db == nil {
 		return ErrNoDB
@@ -184,6 +194,12 @@ func (s *Store) Undismiss(engID, dir, rule, target, quote string, u config.User)
 	if err != nil {
 		return err
 	}
+	// the dismissal's row is gone: the audit log keeps who had made it and why
+	was := "dismissed by " + d.By
+	if d.Reason != "" {
+		was += ": " + d.Reason
+	}
+	s.db.Audit(u.Username, "check.restore", engID+"/"+fid, dismissDetail(rule, d.Level, target)+" · "+was)
 	s.notify(Change{Eng: engID, Fid: fid, Kind: ChangeState, Seq: seq})
 	s.notify(Change{Eng: engID, Fid: fid, Kind: ChangeCheck})
 	return nil
