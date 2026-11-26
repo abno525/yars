@@ -295,6 +295,7 @@ Each job writes one line when it ends, with `ms` and its outcome.
 | `yars stopping`, `yars stopped` | the stop |
 | `check run finished` | a check run ended: its state and the counts of errors and warnings |
 | `check run crashed` | a check run failed inside the server (`error`) |
+| `check run dropped` | a waiting check run was not run: the server stops (`interrupted`) or the engagement was archived (`archived`) |
 | `fix with AI finished` | a Fix with AI ended: how many were fixed |
 | `ai call finished`, `ai call failed` | one call to the AI provider: the rule, the model, the tokens (`warn` when it failed) |
 | `export finished` | a download or a send: the destination's ID and the counts (`warn` when a finding failed) |
@@ -305,7 +306,12 @@ Each job writes one line when it ends, with `ms` and its outcome.
 | `notification email sent`, `notification email not sent` | one mail; a refusal is named by its SMTP code (`warn`) |
 | `push accepted`, `push refused` | a git push, with who pushed |
 | `backup downloaded` | a backup download from Admin › System |
+| `restore: an uploaded backup is restored into a new folder` | a restore upload on Admin › System, with the counts of engagements and findings |
+| `restore: an uploaded backup is refused` | a restore upload was refused (`warn`) |
 | `retention: the daily prune finished` | the daily prune, with what it deleted |
+| `token notices: the daily run finished` | the daily notices about tokens that expire soon |
+| `log: the debug level is switched on`, `log: the debug level is switched off` | an admin moved the debug switch |
+| `log: the debug level ended by itself` | the 15 minutes of debug are over |
 | `lock: a long wait for a repository's lock` | a write waited over 5 seconds for another one (`warn`) |
 
 A webhook delivery that got no HTTP answer has `status=0` and one word in `err`: `no answer`, `redirect refused`, `secret`, `address`, `removed`, `disabled` or `database`. The line never holds the webhook's address.
@@ -324,7 +330,7 @@ time=2026-11-26T14:00:03.000Z level=WARN msg="login locked" user=alice until=202
 
 ### fail2ban
 
-An example filter. The name comes before the address and is the client's own text, so the pattern reads it as a whole, quoted or not.
+An example filter. It needs `log.format: text`, the default. The name comes before the address and is the client's own text, so the pattern reads it as a whole, quoted or not.
 
 `/etc/fail2ban/filter.d/yars.conf`:
 
