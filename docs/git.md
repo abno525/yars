@@ -137,6 +137,8 @@ Run it once in each clone (a main clone or an engagement clone), and again after
 
 The hook signs in with the login git has saved for the clone and never asks for one: the login in the clone URL (a Git token from Settings › Tokens works there, and failed tokens never lock the account), or the one git's credential helper keeps. Stock git keeps none: set a helper once (`git config --global credential.helper store`, or `cache`, or your system's keyring helper), then `git fetch` once to save the login. A login the server refuses is forgotten by the helper, as git does. The hook reaches the server as git does (`http.sslCAInfo`, `http.sslVerify`, `http.proxy`).
 
+Signed in with a token, the check runs script and AI rules only when the token has the Run checks action. With any other token, a read-only one too, the server runs the pattern and built-in rules and leaves the others out of the answer.
+
 | Output | When |
 |---|---|
 | `findings/F-005-…/finding.md error <rule>: <message> ("<quote>") [<target>]` | A rule the finding breaks; `warning` for a warning |

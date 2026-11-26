@@ -2,6 +2,7 @@ package gitserve
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -266,6 +267,49 @@ func TestLintEndpointRestrictedToken(t *testing.T) {
 	}
 	if resp, body := e.post(t, "POST", "acme", "alice", e.tokR, e.raw); resp.StatusCode != 200 || !strings.Contains(body, "title-no-trailing-dot") {
 		t.Fatalf("read-only token: %d %s", resp.StatusCode, body)
+	}
+}
+
+// A token runs script and AI rules on a posted body only with the Run checks
+// action (as MCP asks for lint_finding all=true); any other token gets the
+// fast rules, with 200, so the pre-commit hook keeps working. A password
+// login is the account itself and runs every rule, as its Check button does.
+func TestLintEndpointSlowRulesNeedChecks(t *testing.T) {
+	e := setupLint(t)
+	var got []rules.Kind
+	e.gs.Lint = func(_ context.Context, _ string, _ []byte, k rules.Kind) ([]rules.Violation, error) {
+		got = append(got, k)
+		return nil, nil
+	}
+	tk := auth.NewTokens(e.d)
+	token := func(scopes ...string) string {
+		t.Helper()
+		tok, _, err := tk.Create("alice", "alice", db.TokenSpec{Kind: db.TokenGit, Scopes: scopes, Engagements: []string{"acme"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return tok
+	}
+	for _, c := range []struct {
+		name, pw string
+		want     rules.Kind
+	}{
+		{"a read-only token", e.tokR, rules.Fast},
+		{"a token that edits", token("edit"), rules.Fast},
+		{"a token that creates, edits and comments", token("create", "edit", "comment"), rules.Fast},
+		{"a token with Run checks", token("checks"), rules.All},
+		{"a token with edit and Run checks", token("edit", "checks"), rules.All},
+		{"a token with every action", token(db.ScopeAll), rules.All},
+		{"the password", "pw", rules.All},
+	} {
+		got = nil
+		resp, body := e.post(t, "POST", "acme", "alice", c.pw, e.raw)
+		if resp.StatusCode != 200 || !strings.Contains(body, `"violations":[]`) {
+			t.Fatalf("%s: %d %s", c.name, resp.StatusCode, body)
+		}
+		if len(got) != 1 || got[0] != c.want {
+			t.Errorf("%s ran kinds %v, want %v", c.name, got, c.want)
+		}
 	}
 }
 

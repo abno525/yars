@@ -112,7 +112,7 @@ func TestHookEnvHasNoAIKey(t *testing.T) {
 	if gs.Lint == nil {
 		t.Fatal("the git server has no lint endpoint")
 	}
-	if _, err := gs.Lint(context.Background(), "nope", []byte("---\nid: F-001\ntitle: x\n---\n")); !errors.Is(err, store.ErrNotFound) {
+	if _, err := gs.Lint(context.Background(), "nope", []byte("---\nid: F-001\ntitle: x\n---\n"), rules.All); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("lint of an unknown engagement: %v", err)
 	}
 }

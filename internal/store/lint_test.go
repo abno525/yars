@@ -29,25 +29,25 @@ func withDot(t *testing.T, s *Store, fd string) []byte {
 func TestLintContent(t *testing.T) {
 	s, dir, fd := ready(t)
 	withRules(t, s, dir, dotRule)
-	vs, err := s.LintContent(context.Background(), eng, withDot(t, s, fd))
+	vs, err := s.LintContent(context.Background(), eng, withDot(t, s, fd), rules.All)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(vs) != 1 || vs[0].Rule != "title-no-trailing-dot" {
 		t.Fatalf("violations %+v", vs)
 	}
-	if vs, err := s.LintContent(context.Background(), eng, load(t, s, fd).F.Bytes()); err != nil || len(vs) != 0 {
+	if vs, err := s.LintContent(context.Background(), eng, load(t, s, fd).F.Bytes(), rules.All); err != nil || len(vs) != 0 {
 		t.Fatalf("clean: %+v %v", vs, err)
 	}
-	if _, err := s.LintContent(context.Background(), eng, []byte("---\ntitle: [\n---\n")); !errors.Is(err, ErrInvalidValue) {
+	if _, err := s.LintContent(context.Background(), eng, []byte("---\ntitle: [\n---\n"), rules.All); !errors.Is(err, ErrInvalidValue) {
 		t.Fatalf("unparseable: %v", err)
 	}
-	if _, err := s.LintContent(context.Background(), "nope", load(t, s, fd).F.Bytes()); !errors.Is(err, ErrNotFound) {
+	if _, err := s.LintContent(context.Background(), "nope", load(t, s, fd).F.Bytes(), rules.All); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("unknown engagement: %v", err)
 	}
 	// no linter: nothing to find
 	s.Linter = nil
-	if vs, err := s.LintContent(context.Background(), eng, withDot(t, s, fd)); err != nil || len(vs) != 0 {
+	if vs, err := s.LintContent(context.Background(), eng, withDot(t, s, fd), rules.All); err != nil || len(vs) != 0 {
 		t.Fatalf("no linter: %+v %v", vs, err)
 	}
 }
@@ -61,15 +61,46 @@ func TestLintContentHonoursDismissals(t *testing.T) {
 		t.Fatal(err)
 	}
 	raw := load(t, s, fd).F.Bytes()
-	vs, err := s.LintContent(context.Background(), eng, raw)
+	vs, err := s.LintContent(context.Background(), eng, raw, rules.All)
 	if err != nil || len(vs) != 1 {
 		t.Fatalf("violations %+v %v", vs, err)
 	}
 	if err := s.DismissWhy(eng, fd, vs[0].Rule, vs[0].Target, vs[0].Quote, "house style", uBob); err != nil {
 		t.Fatal(err)
 	}
-	if vs, err := s.LintContent(context.Background(), eng, raw); err != nil || len(vs) != 0 {
+	if vs, err := s.LintContent(context.Background(), eng, raw, rules.All); err != nil || len(vs) != 0 {
 		t.Fatalf("after the dismissal: %+v %v", vs, err)
+	}
+}
+
+// kindLinter keeps the kinds each lint asked for, and finds one violation
+// that only a slow rule gives.
+type kindLinter struct{ got *[]rules.Kind }
+
+func (l kindLinter) Lint(_ context.Context, _ *finding.Finding, k rules.Kind) []rules.Violation {
+	*l.got = append(*l.got, k)
+	if k&rules.Slow != 0 {
+		return []rules.Violation{{Rule: "a-script", Level: "error", Message: "from a script"}}
+	}
+	return nil
+}
+
+// The caller picks the kinds: with rules.Fast no script and no AI rule is
+// asked for (a git token without the Run checks action), with rules.All
+// every rule is.
+func TestLintContentKinds(t *testing.T) {
+	s, _, fd := ready(t)
+	var got []rules.Kind
+	s.Linter = kindLinter{&got}
+	raw := load(t, s, fd).F.Bytes()
+	if vs, err := s.LintContent(context.Background(), eng, raw, rules.Fast); err != nil || len(vs) != 0 {
+		t.Fatalf("fast: %+v %v", vs, err)
+	}
+	if vs, err := s.LintContent(context.Background(), eng, raw, rules.All); err != nil || len(vs) != 1 || vs[0].Rule != "a-script" {
+		t.Fatalf("all: %+v %v", vs, err)
+	}
+	if len(got) != 2 || got[0] != rules.Fast || got[1] != rules.All {
+		t.Fatalf("kinds %v", got)
 	}
 }
 
@@ -95,7 +126,7 @@ func TestLintContentSeesTheState(t *testing.T) {
 		t.Fatal(err)
 	}
 	raw := strings.Replace(string(ref.F.Bytes()), "title: "+ref.F.Meta.Title+"\n", "title: "+ref.F.Meta.Title+"‮\n", 1)
-	if _, err := s.LintContent(context.Background(), eng, []byte(raw)); err != nil {
+	if _, err := s.LintContent(context.Background(), eng, []byte(raw), rules.All); err != nil {
 		t.Fatal(err)
 	}
 	if len(got) != 1 || got[0].Status != "verification" || len(got[0].Reviewers) != 1 || got[0].Reviewers[0] != "bob" || got[0].Title != ref.F.Meta.Title {
@@ -104,7 +135,7 @@ func TestLintContentSeesTheState(t *testing.T) {
 	// a finding the server does not know yet is a draft
 	got = nil
 	raw = strings.Replace(string(ref.F.Bytes()), "id: "+ref.F.Meta.ID+"\n", "id: F-999\n", 1)
-	if _, err := s.LintContent(context.Background(), eng, []byte(raw)); err != nil || len(got) != 1 || got[0].Status != "draft" {
+	if _, err := s.LintContent(context.Background(), eng, []byte(raw), rules.All); err != nil || len(got) != 1 || got[0].Status != "draft" {
 		t.Fatalf("new finding: %+v %v", got, err)
 	}
 }
@@ -115,7 +146,7 @@ func TestLintContentNamesTheFinding(t *testing.T) {
 	var got []rules.Caller
 	s.Linter = callerLinter{&got}
 	ctx := rules.WithCaller(context.Background(), rules.Caller{User: "alice"})
-	if _, err := s.LintContent(ctx, eng, load(t, s, fd).F.Bytes()); err != nil {
+	if _, err := s.LintContent(ctx, eng, load(t, s, fd).F.Bytes(), rules.All); err != nil {
 		t.Fatal(err)
 	}
 	id := load(t, s, fd).F.Meta.ID
@@ -125,7 +156,7 @@ func TestLintContentNamesTheFinding(t *testing.T) {
 	// a posted id that is not a finding id is not recorded
 	raw := strings.Replace(string(load(t, s, fd).F.Bytes()), "id: "+id+"\n", "id: "+strings.Repeat("x", 300)+"\n", 1)
 	got = nil
-	if _, err := s.LintContent(ctx, eng, []byte(raw)); err != nil {
+	if _, err := s.LintContent(ctx, eng, []byte(raw), rules.All); err != nil {
 		t.Fatal(err)
 	}
 	if len(got) != 1 || got[0].Fid != "" {
