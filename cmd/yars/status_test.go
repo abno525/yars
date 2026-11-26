@@ -133,13 +133,37 @@ func TestStatusCommand(t *testing.T) {
 		t.Fatalf("after the stop: %q, %v", out, err)
 	}
 	// a socket left behind by a server that was killed is replaced at the next start
+	left, err := net.Listen("unix", statusSocket(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	left.(*net.UnixListener).SetUnlinkOnClose(false)
+	left.Close()
+	if _, err := os.Stat(statusSocket(dir)); err != nil {
+		t.Fatalf("no socket is left: %v", err)
+	}
 	stop = startStatus(dir, srv, lg)
-	stop2 := startStatus(dir, srv, lg)
 	if _, err := status(); err != nil {
-		t.Fatalf("a second start over a left socket: %v", err)
+		t.Fatalf("a start over a left socket: %v", err)
+	}
+	// a second server on the same data folder leaves the first one's socket
+	// alone, at its start and at its stop: one warn line, and it runs without
+	before := strings.Count(stderr.String(), "status: the status socket is in use")
+	stop2 := startStatus(dir, srv, lg)
+	if n := strings.Count(stderr.String(), `level=WARN msg="status: the status socket is in use`) - before; n != 1 {
+		t.Fatalf("%d lines about a socket in use:\n%s", n, stderr.String())
+	}
+	if _, err := status(); err != nil {
+		t.Fatalf("the first server's status after a second start: %v", err)
 	}
 	stop2()
+	if _, err := status(); err != nil {
+		t.Fatalf("the first server's status after the second one stopped: %v", err)
+	}
 	stop()
+	if _, err := os.Stat(statusSocket(dir)); !os.IsNotExist(err) {
+		t.Fatalf("the socket after the first server's stop: %v", err)
+	}
 }
 
 // A socket that cannot be made (here: a data folder too long for a socket's

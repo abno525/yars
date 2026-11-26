@@ -32,15 +32,33 @@ func statusSocket(dataDir string) string { return filepath.Join(dataDir, ".yars"
 // function that stops it and removes the socket. Whoever can open the socket
 // is the service's own account (or root): that is the proof, so there is no
 // password and no route on the network. A socket left by a server that was
-// killed is replaced. A socket that cannot be made is one warn line: the
-// server starts without yars status.
+// killed is replaced. A socket another server answers on (a second yars
+// serve on the same data folder) is left alone, at the start and at the
+// stop: one warn line, and this server runs without yars status. A socket
+// that cannot be made is one warn line too.
 func startStatus(dataDir string, srv *web.Server, lg *slog.Logger) (stop func()) {
 	path := statusSocket(dataDir)
+	c, err := net.DialTimeout("unix", path, 2*time.Second)
+	if err == nil {
+		c.Close()
+	}
+	// a server too busy to take the connection in time is still a server
+	var ne net.Error
+	if err == nil || (errors.As(err, &ne) && ne.Timeout()) {
+		logs.Or(lg).Warn("status: the status socket is in use by another server; this server runs without it")
+		return func() {}
+	}
 	os.Remove(path) // a stale one: a listen on an existing file fails
+	var mine os.FileInfo
 	ln, err := net.Listen("unix", path)
 	if err == nil {
+		// the stop removes the path itself, and only while it is this socket
+		ln.(*net.UnixListener).SetUnlinkOnClose(false)
 		// set, not left to the umask: only the owner connects
-		if err = os.Chmod(path, 0o600); err != nil {
+		if err = os.Chmod(path, 0o600); err == nil {
+			mine, err = os.Lstat(path)
+		}
+		if err != nil {
 			ln.Close()
 			os.Remove(path)
 		}
@@ -59,7 +77,10 @@ func startStatus(dataDir string, srv *web.Server, lg *slog.Logger) (stop func())
 		if hs.Shutdown(ctx) != nil {
 			hs.Close()
 		}
-		os.Remove(path)
+		// only the socket this server made: not one a later server put there
+		if now, err := os.Lstat(path); err == nil && os.SameFile(mine, now) {
+			os.Remove(path)
+		}
 	}
 }
 
