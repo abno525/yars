@@ -88,10 +88,14 @@ func (s *Server) restoreUpload(w http.ResponseWriter, r *http.Request) {
 	// one restore at a time: two in the same second would share the target,
 	// and the one refused would remove the other's folder
 	s.restoreMu.Lock()
+	start := time.Now()
 	target := data + ".restored-" + time.Now().Format("20060102-150405")
 	rep, err := backup.Restore(tmp, target)
 	s.restoreMu.Unlock()
+	by := auth.UserFrom(r.Context()).Username
 	if err != nil {
+		// why is on the page: the reason names files of the upload
+		s.log().Warn("restore: an uploaded backup is refused", "user", by, "ms", time.Since(start).Milliseconds())
 		// the reason names the file the admin chose, not its temporary copy
 		msg := strings.ReplaceAll(err.Error(), tmp, upload)
 		if errors.Is(err, zip.ErrFormat) {
@@ -100,7 +104,9 @@ func (s *Server) restoreUpload(w http.ResponseWriter, r *http.Request) {
 		fail(http.StatusBadRequest, msg)
 		return
 	}
-	s.Store.DB().Audit(auth.UserFrom(r.Context()).Username, "restore.upload", target, "")
+	s.Store.DB().Audit(by, "restore.upload", target, "")
+	s.log().Info("restore: an uploaded backup is restored into a new folder", "user", by, "engagements", rep.Engagements, "findings", rep.Findings,
+		"ms", time.Since(start).Milliseconds())
 	if js, err := json.Marshal(restoreResult{Target: target, Schema: rep.Schema, Engagements: rep.Engagements, Find: rep.Findings, HasKey: rep.HasKey}); err == nil {
 		s.flash.put(r, "restore", string(js))
 	}

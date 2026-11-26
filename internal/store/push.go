@@ -1,10 +1,12 @@
 package store
 
 import (
+	"log/slog"
 	"path"
 	"reflect"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/abno525/yars/internal/config"
 	"github.com/abno525/yars/internal/db"
@@ -98,8 +100,10 @@ func filesEvent(actor string, ref FindingRef, fp string, prev, files map[string]
 // emits nothing; the settings it brings apply at once (config.yaml is read
 // again; rules, exporters and templates are read from disk on each use).
 func (s *Store) ReceivePush(eng string, u config.User, serve func()) {
+	asked := time.Now()
 	if eng == "" {
 		s.mainMu.Lock()
+		start := time.Now()
 		before, _ := s.freshHead("")
 		serve()
 		s.Invalidate("")
@@ -108,6 +112,7 @@ func (s *Store) ReceivePush(eng string, u config.User, serve func()) {
 			s.restoreTree("", s.repo)
 		}
 		s.mainMu.Unlock()
+		s.logPush("", u, err == nil && after != before, asked, start)
 		if err == nil && after != before {
 			s.reloadConfig()
 		}
@@ -119,6 +124,7 @@ func (s *Store) ReceivePush(eng string, u config.User, serve func()) {
 	}
 	l := s.engLock(eng)
 	l.Lock()
+	start := time.Now()
 	before, _ := s.freshHead(eng)
 	serve()
 	s.Invalidate(eng)
@@ -143,10 +149,28 @@ func (s *Store) ReceivePush(eng string, u config.User, serve func()) {
 		}
 	}
 	l.Unlock()
+	s.logPush(eng, u, err == nil && after != "" && after != before, asked, start)
 	for _, ev := range evs {
 		s.notify(Change{Eng: eng, Fid: ev.Fid, Kind: ChangeContent})
 		s.Emit(ev)
 	}
+}
+
+// logPush writes a push's one line: accepted when it moved the branch,
+// refused when it did not (the hook said no, or git did), with who pushed,
+// how long it waited for the repository's lock (asked to start) and how long
+// it took from there. eng "" is the main repo.
+func (s *Store) logPush(eng string, u config.User, accepted bool, asked, start time.Time) {
+	where := slog.String("eng", eng)
+	if eng == "" {
+		where = slog.String("repo", "main")
+	}
+	wait, took := start.Sub(asked).Milliseconds(), time.Since(start).Milliseconds()
+	if accepted {
+		s.Log().Info("push accepted", where, "user", u.Username, "wait_ms", wait, "ms", took)
+		return
+	}
+	s.Log().Info("push refused", where, "user", u.Username, "wait_ms", wait, "ms", took)
 }
 
 // restoreTree puts r's work tree back to HEAD after a push that did not

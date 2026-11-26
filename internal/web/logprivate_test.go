@@ -2,20 +2,31 @@ package web
 
 import (
 	"bytes"
+	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/textproto"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/abno525/yars/internal/logs"
+	"github.com/abno525/yars/internal/notify"
+	"github.com/abno525/yars/internal/webhook"
 	"github.com/abno525/yars/internal/workflow"
 )
+
+// mailerFunc is a notify.Mailer made of a function.
+type mailerFunc func(to, subject, body string) error
+
+func (f mailerFunc) Send(to, subject, body string) error { return f(to, subject, body) }
 
 // lockedBuf is the stderr of a test's server.
 type lockedBuf struct {
@@ -64,6 +75,55 @@ func TestNoPrivateTextInLog(t *testing.T) {
 				return m
 			}
 			hdr := map[string]string{"X-Request-ID": mark("reqid"), "Authorization": "Bearer " + mark("authz"), "Referer": "http://example.com/" + mark("referer")}
+
+			// the background work (L.3). A webhook whose address holds a secret
+			// in its path and its query: the first delivery is refused, so it
+			// is tried again
+			var hookCalls atomic.Int32
+			hookAnswer := mark("hookanswer")
+			hooks := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if hookCalls.Add(1) == 1 {
+					http.Error(w, hookAnswer, http.StatusInternalServerError)
+				}
+			}))
+			t.Cleanup(hooks.Close)
+			_, hookSecret, err := e.srv.Webhooks.Create(hooks.URL+"/"+mark("hookpath")+"?key="+mark("hookquery"), webhook.Events, "dora")
+			if err != nil {
+				t.Fatal(err)
+			}
+			marks = append(marks, hookSecret)
+			// mail to an account with an address: the first is refused in the
+			// server's words, which quote the address
+			addr := mark("mailaddr") + "@client.example"
+			d := e.srv.Store.DB()
+			if err := d.SetEmail("alice", addr); err != nil {
+				t.Fatal(err)
+			}
+			for _, ev := range []string{notify.Returned, notify.Approved, notify.Check} {
+				if err := d.SetNotify("alice", ev, "email", true); err != nil {
+					t.Fatal(err)
+				}
+			}
+			var mails atomic.Int32
+			e.srv.Notifier.Mail = mailerFunc(func(to, subject, body string) error {
+				if mails.Add(1) == 1 {
+					return &textproto.Error{Code: 550, Msg: "5.1.1 <" + to + ">: Recipient address rejected"}
+				}
+				return nil
+			})
+			// an AI provider: its first answer is an error that echoes what
+			// it was sent, the next ones name a violation in the text's words
+			var aiCalls atomic.Int32
+			aiKey, aiErrBody, aiQuote, aiMessage := mark("aikey"), mark("aierrorbody"), mark("aiquote"), mark("aimessage")
+			provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if aiCalls.Add(1) == 1 {
+					http.Error(w, "you sent "+aiErrBody, http.StatusInternalServerError)
+					return
+				}
+				content, _ := json.Marshal(`{"violations":[{"quote":"` + aiQuote + `","message":"` + aiMessage + `"}]}`)
+				io.WriteString(w, `{"choices":[{"message":{"content":`+string(content)+`}}],"usage":{"prompt_tokens":12,"completion_tokens":3}}`)
+			}))
+			t.Cleanup(provider.Close)
 			do := func(user, method, path string, form url.Values) *httptest.ResponseRecorder {
 				t.Helper()
 				rec := e.do(t, user, method, path, form, hdr)
@@ -130,7 +190,10 @@ func TestNoPrivateTextInLog(t *testing.T) {
 			do("alice", "GET", fp+"?x="+mark("query"), nil)
 
 			// a rule's error, dismissed with a reason; submit; Return with a reason
-			e.rules(t, "- id: no-zq\n  target: title\n  regex_forbid: 'zqtitle'\n  message: No zq\n", nil)
+			e.rules(t, "- id: no-zq\n  target: title\n  regex_forbid: 'zqtitle'\n  message: No zq\n"+
+				"- id: ai-tone\n  target: section:Impact\n  level: warning\n  ai: Never write "+mark("aiprompt")+".\n", nil)
+			e.srv.wireAI() // the engine above came after the server's start
+			do("dora", "POST", "/admin/ai", url.Values{"provider": {"openai"}, "base_url": {provider.URL + "/" + mark("aipath")}, "model": {"m1"}, "key": {aiKey}})
 			do("alice", "POST", fp+"/reviewers", url.Values{"reviewer": {"bob"}})
 			if rec := e.do(t, "bob", "POST", fp+"/checks/dismiss", url.Values{"rule": {"no-zq"}, "quote": {"zqtitle"}, "reason": {mark("dismissreason")}}, hdr); rec.Code != 200 {
 				t.Fatalf("dismiss %d %s", rec.Code, rec.Body.String())
@@ -161,6 +224,10 @@ func TestNoPrivateTextInLog(t *testing.T) {
 				t.Fatalf("check %d %s", rec.Code, rec.Body.String())
 			}
 			e.srv.Store.WaitChecks()
+			// what the AI rule found is dismissed, so the sign-off goes on
+			if rec := e.do(t, "bob", "POST", fp+"/checks/dismiss", url.Values{"rule": {"ai-tone"}, "target": {"section:Impact"}, "quote": {aiQuote}, "reason": {mark("aidismiss")}}, hdr); rec.Code != 200 {
+				t.Fatalf("dismiss of the AI rule's result %d %s", rec.Code, rec.Body.String())
+			}
 			if err := e.srv.Store.Transition("acme", dir, workflow.Clear, "", wBob); err != nil {
 				t.Fatal(err)
 			}
@@ -186,6 +253,16 @@ func TestNoPrivateTextInLog(t *testing.T) {
 				marks = append(marks, session)
 			}
 
+			// the background work ends: the mails, then every delivery
+			e.srv.Store.WaitChecks()
+			e.srv.Notifier.Wait()
+			if _, err := e.srv.Webhooks.RunDue(); err != nil {
+				t.Fatal(err)
+			}
+			if hookCalls.Load() < 2 || mails.Load() < 2 || aiCalls.Load() < 2 {
+				t.Fatalf("the background paths did not run: %d deliveries, %d mails, %d AI calls", hookCalls.Load(), mails.Load(), aiCalls.Load())
+			}
+
 			// the database goes away under a request
 			e.srv.Store.DB().Close()
 			e.do(t, "alice", "GET", fp+"?x="+mark("afterclose"), nil, hdr)
@@ -200,8 +277,19 @@ func TestNoPrivateTextInLog(t *testing.T) {
 			}
 			// what a line may hold is there: a discarding logger does not pass
 			wants := []string{`msg=request `, `user=alice`, `eng=acme`, `finding=F-002`, `msg="login failed"`, `msg="request failed"`, `route="POST /e/{eng}/f/{fid}/s/{section}"`, `status=500`, "permission denied", "git commit -q --only -- "}
+			// the background work's lines, each driven above
+			jobs := []string{"check run finished", "export finished", "webhook delivered", "webhook delivery failed; it is tried again",
+				"notification email sent", "notification email not sent", "ai call finished", "ai call failed", "ai: the provider refused a call"}
+			for _, m := range jobs {
+				wants = append(wants, `msg="`+m+`"`)
+			}
+			wants = append(wants, `err="SMTP 550"`, `destination=docx`, `state=done`)
 			if format == logs.JSON {
 				wants = []string{`"msg":"request"`, `"user":"alice"`, `"eng":"acme"`, `"finding":"F-002"`, `"msg":"login failed"`, `"msg":"request failed"`, `"route":"POST /e/{eng}/f/{fid}/s/{section}"`, `"status":500`, "permission denied", "git commit -q --only -- "}
+				for _, m := range jobs {
+					wants = append(wants, `"msg":"`+m+`"`)
+				}
+				wants = append(wants, `"err":"SMTP 550"`, `"destination":"docx"`, `"state":"done"`)
 			}
 			for _, want := range wants {
 				if !strings.Contains(got, want) {

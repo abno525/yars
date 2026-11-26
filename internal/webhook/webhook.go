@@ -265,10 +265,23 @@ func (s *Service) RunDue() (int, error) {
 
 // attempt sends one delivery and records the result.
 func (s *Service) attempt(d db.Delivery) error {
+	start := time.Now()
 	status, errText := s.send(d)
 	next := time.Time{}
 	if errText != "" && errText != errDisabled && d.Attempts+1 < MaxTries {
 		next = s.now().Add(Backoff << d.Attempts) // 10 s, 20 s, 40 s, …
+	}
+	// the try's one line: IDs, the event, the status and the try's number.
+	// Never the address (its path can hold a secret), the payload or the
+	// answer's words
+	attrs := []any{"webhook", d.HookID, "delivery", d.ID, "event", d.Event, "status", status, "try", d.Attempts + 1, "ms", time.Since(start).Milliseconds()}
+	switch {
+	case errText == "":
+		s.log().Info("webhook delivered", attrs...)
+	case !next.IsZero():
+		s.log().Warn("webhook delivery failed; it is tried again", attrs...)
+	default:
+		s.log().Warn("webhook delivery given up", attrs...)
 	}
 	err := s.DB.FinishAttempt(d.ID, status, errText, next, s.now())
 	if errors.Is(err, db.ErrNotFound) { // its webhook was deleted meanwhile

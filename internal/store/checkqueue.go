@@ -116,9 +116,19 @@ func (s *Store) StopChecks() {
 	}
 }
 
-// dropCheck ends run j without running it, failed for reason.
+// dropInterrupted is the reason of a run dropped at a stop.
+const dropInterrupted = "interrupted"
+
+// dropCheck ends run j without running it, failed for reason. Its log line
+// says which of the two it was: interrupted (the server stops) or archived
+// (the engagement closed while the run waited).
 func (s *Store) dropCheck(j checkJob, reason string) {
 	eng, fid := j.ref.EngID, j.ref.F.Meta.ID
+	outcome := "archived"
+	if reason == dropInterrupted {
+		outcome = dropInterrupted
+	}
+	s.Log().Info("check run dropped", "eng", eng, "finding", LogID(fid), "user", j.by, "outcome", outcome)
 	s.db.FailRun(j.id, reason)
 	s.setRunning(checkKey(eng, fid), 0, true)
 	s.notify(Change{Eng: eng, Fid: fid, Kind: ChangeCheck})

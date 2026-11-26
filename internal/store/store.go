@@ -99,8 +99,11 @@ type Store struct {
 	// engagement's lock before mainMu. Database-only writes (chat,
 	// transitions, reviewers) take neither; SQLite serializes them.
 	locksMu  sync.Mutex
-	engLocks map[string]*sync.Mutex
-	mainMu   sync.Mutex
+	engLocks map[string]*repoLock
+	mainMu   repoLock
+	// lockWarn is the wait for a repository's lock that is logged as a
+	// warning (0 = defaultLockWarn)
+	lockWarn time.Duration
 
 	merging sync.Map // "<eng>/<dir>" of a finding being merged away
 
@@ -174,7 +177,9 @@ type Linter interface {
 // cfg's workflow is the store's for good (see applyConfig).
 func New(r *gitrepo.Repo, cfg config.Config, d *db.DB) *Store {
 	root, err := os.OpenRoot(r.Dir)
-	return &Store{repo: r, db: d, cfg: cfg, workflowKey: cfg.Workflow, root: root, rootErr: err}
+	s := &Store{repo: r, db: d, cfg: cfg, workflowKey: cfg.Workflow, root: root, rootErr: err}
+	s.mainMu.owner = s
+	return s
 }
 
 // Log is the store's logger (Logger, or one that writes nothing): the

@@ -232,8 +232,20 @@ func cmdServe(args []string) error {
 	// after the first signal a second one ends the process at once (a stop
 	// can take up to twice stopGrace)
 	context.AfterFunc(ctx, stop)
-	lg.Info("yars serving", "data", r.Dir, "addr", *addr)
+	logStart(lg, srv, cfg, r.Dir, *addr, secure)
 	return serve(ctx, ln, hs, srv, st, d)
+}
+
+// logStart writes the line of a start, once the server is built: the
+// version, the schema, the workflow, the address it listens on and whether
+// it serves HTTPS, the data folder, and which optional parts are on: AI (a
+// provider and a key are set), SMTP and pandoc. Each of the three is yes or
+// no: never a key, a variable's name, a host or a login.
+func logStart(lg *slog.Logger, srv *web.Server, cfg config.Config, dir, addr string, secure bool) {
+	ai := srv.Rules != nil && srv.Rules.AIConfigured()
+	pandoc := srv.Export != nil && srv.Export.PandocPath != ""
+	logs.Or(lg).Info("yars serving", "version", buildVersion(), "schema", db.SchemaVersion, "workflow", workflow.FlowOf(cfg).Name(),
+		"addr", addr, "https", secure, "data", dir, "ai", ai, "smtp", cfg.SMTP.Configured(), "pandoc", pandoc)
 }
 
 // serverParts builds the server on prepared data: the rules, the accounts,

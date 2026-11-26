@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"slices"
@@ -602,8 +603,9 @@ func (s *Server) exportRun(w http.ResponseWriter, r *http.Request) {
 			fail(http.StatusBadRequest, msg)
 			return
 		}
+		began := time.Now()
 		res, err := s.download(r.Context(), dl, p.Eng, refs)
-		s.record(p.User, p.Eng.ID, "download:"+dl, refs, err, nil)
+		s.record(p.User, p.Eng.ID, "download:"+dl, refs, err, nil, began)
 		if err != nil {
 			fail(http.StatusInternalServerError, "export failed: "+err.Error())
 			return
@@ -703,6 +705,7 @@ func (s *Server) senderKey(author, service string) (creds *export.Creds, sentAs 
 // arrived are marked reported when the destination says so. It returns the
 // history id and the file's download token ("" for none).
 func (s *Server) send(ctx context.Context, u config.User, eng store.Engagement, ex export.Exporter, refs []store.FindingRef, serverKey bool) (int64, string) {
+	began := time.Now()
 	items := make([]sendItem, len(refs))
 	for i, ref := range refs {
 		items[i] = sendItem{ID: ref.F.Meta.ID, Dir: ref.Dir, Author: ref.F.Meta.Author}
@@ -765,16 +768,13 @@ func (s *Server) send(ctx context.Context, u config.User, eng store.Engagement, 
 			items[i].Marked = true
 		}
 	}
-	return s.record(u, eng.ID, ex.ID, refs, nil, items), tok
+	return s.record(u, eng.ID, ex.ID, refs, nil, items, began), tok
 }
 
-// record writes the export history and the audit line. items nil: a
-// download, whose findings all share err.
-func (s *Server) record(u config.User, eng, dest string, refs []store.FindingRef, err error, items []sendItem) int64 {
-	d := s.Store.DB()
-	if d == nil {
-		return 0
-	}
+// record writes the export history, the audit line and the export's line in
+// the service log (it began at began). items nil: a download, whose findings
+// all share err.
+func (s *Server) record(u config.User, eng, dest string, refs []store.FindingRef, err error, items []sendItem, began time.Time) int64 {
 	if items == nil {
 		for _, ref := range refs {
 			it := sendItem{ID: ref.F.Meta.ID, Dir: ref.Dir, Author: ref.F.Meta.Author, OK: err == nil}
@@ -783,6 +783,25 @@ func (s *Server) record(u config.User, eng, dest string, refs []store.FindingRef
 			}
 			items = append(items, it)
 		}
+	}
+	// the log's line: counts, the destination's ID and the time. Never the
+	// destination's name or why a finding failed (the destination's own
+	// words: a page's title, the remote's answer); the history has those
+	sent := 0
+	for _, it := range items {
+		if it.OK {
+			sent++
+		}
+	}
+	level := slog.LevelInfo
+	if sent < len(items) {
+		level = slog.LevelWarn
+	}
+	s.log().Log(context.Background(), level, "export finished", "eng", eng, "user", u.Username, "destination", dest,
+		"findings", len(items), "sent", sent, "failed", len(items)-sent, "ms", time.Since(began).Milliseconds())
+	d := s.Store.DB()
+	if d == nil {
+		return 0
 	}
 	rec := db.ExportRecord{By: u.Username, Eng: eng, Destination: dest, OK: true}
 	var sentAs []string

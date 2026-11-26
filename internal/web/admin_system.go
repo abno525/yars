@@ -246,6 +246,7 @@ func (s *Server) runOp(op string) sysOp {
 func (s *Server) backup(w http.ResponseWriter, r *http.Request) {
 	withKey := r.PostFormValue("key") == "1"
 	dir := s.Store.Repo().Dir
+	start := time.Now()
 	http.NewResponseController(w).SetWriteDeadline(time.Now().Add(time.Hour))
 	name := "yars-backup-" + time.Now().Format("2006-01-02-1504") + ".zip"
 	w.Header().Set("Content-Type", "application/zip")
@@ -270,6 +271,7 @@ func (s *Server) backup(w http.ResponseWriter, r *http.Request) {
 		detail = "with key"
 	}
 	s.Store.DB().Audit(auth.UserFrom(r.Context()).Username, "backup", "", detail+" · "+size(n))
+	s.log().Info("backup downloaded", "user", auth.UserFrom(r.Context()).Username, "bytes", n, "with_key", withKey, "ms", time.Since(start).Milliseconds())
 }
 
 // lastHealthOr is the last run of the health checks, which the System page
