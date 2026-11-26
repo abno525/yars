@@ -301,11 +301,14 @@ Each job writes one line when it ends, with `ms` and its outcome.
 | `webhook delivered` | a webhook delivery arrived |
 | `webhook delivery failed; it is tried again` | a delivery failed and waits for its next try (`warn`) |
 | `webhook delivery given up` | the last try failed (`warn`) |
+| `webhook delivery dropped` | the webhook was turned off with this delivery waiting |
 | `notification email sent`, `notification email not sent` | one mail; a refusal is named by its SMTP code (`warn`) |
 | `push accepted`, `push refused` | a git push, with who pushed |
 | `backup downloaded` | a backup download from Admin › System |
 | `retention: the daily prune finished` | the daily prune, with what it deleted |
 | `lock: a long wait for a repository's lock` | a write waited over 5 seconds for another one (`warn`) |
+
+A webhook delivery that got no HTTP answer has `status=0` and one word in `err`: `no answer`, `redirect refused`, `secret`, `address`, `removed`, `disabled` or `database`. The line never holds the webhook's address.
 
 ### Failed logins
 

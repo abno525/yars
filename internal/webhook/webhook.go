@@ -266,18 +266,25 @@ func (s *Service) RunDue() (int, error) {
 // attempt sends one delivery and records the result.
 func (s *Service) attempt(d db.Delivery) error {
 	start := time.Now()
-	status, errText := s.send(d)
+	status, errText, why := s.send(d)
 	next := time.Time{}
 	if errText != "" && errText != errDisabled && d.Attempts+1 < MaxTries {
 		next = s.now().Add(Backoff << d.Attempts) // 10 s, 20 s, 40 s, …
 	}
 	// the try's one line: IDs, the event, the status and the try's number.
 	// Never the address (its path can hold a secret), the payload or the
-	// answer's words
+	// answer's words. A try without an answer says why in err, as one of
+	// the fixed words of send
 	attrs := []any{"webhook", d.HookID, "delivery", d.ID, "event", d.Event, "status", status, "try", d.Attempts + 1, "ms", time.Since(start).Milliseconds()}
+	if why != "" {
+		attrs = append(attrs, "err", why)
+	}
 	switch {
 	case errText == "":
 		s.log().Info("webhook delivered", attrs...)
+	case errText == errDisabled:
+		// no fault: an admin turned the webhook off with this in the queue
+		s.log().Info("webhook delivery dropped", attrs...)
 	case !next.IsZero():
 		s.log().Warn("webhook delivery failed; it is tried again", attrs...)
 	default:
@@ -293,27 +300,43 @@ func (s *Service) attempt(d db.Delivery) error {
 // errDisabled is the error of a delivery whose webhook was turned off.
 const errDisabled = "webhook disabled"
 
-// send POSTs a delivery; it returns the HTTP status and "" or what failed.
-func (s *Service) send(d db.Delivery) (int, string) {
+// The words a log line gives for a try that got no HTTP answer. They are
+// fixed: the stored error can name a host or a path, the log never does.
+const (
+	whyDatabase = "database"
+	whyRemoved  = "removed"
+	whyDisabled = "disabled"
+	whySecret   = "secret"
+	whyAddress  = "address"
+	whyRedirect = "redirect refused"
+	whyNoAnswer = "no answer"
+)
+
+// send POSTs a delivery; it returns the HTTP status, "" or what failed (kept
+// with the delivery) and, for a try without an answer, the log's word for it.
+func (s *Service) send(d db.Delivery) (int, string, string) {
 	h, ok, err := s.DB.WebhookByID(d.HookID)
-	if err != nil || !ok {
-		return 0, "webhook removed"
+	if err != nil {
+		return 0, "webhook removed", whyDatabase
+	}
+	if !ok {
+		return 0, "webhook removed", whyRemoved
 	}
 	if !h.Enabled {
-		return 0, errDisabled // turned off after this was queued: given up
+		return 0, errDisabled, whyDisabled // turned off after this was queued: given up
 	}
 	box, err := s.Secrets()
 	if err != nil {
-		return 0, "secret: " + err.Error()
+		return 0, "secret: " + err.Error(), whySecret
 	}
 	sec, err := box.Decrypt(h.SecretEnc)
 	if err != nil {
-		return 0, "secret unreadable"
+		return 0, "secret unreadable", whySecret
 	}
 	body := []byte(d.Payload)
 	req, err := http.NewRequest(http.MethodPost, h.URL, bytes.NewReader(body))
 	if err != nil {
-		return 0, err.Error()
+		return 0, err.Error(), whyAddress
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "YARS-Webhook")
@@ -329,16 +352,16 @@ func (s *Service) send(d db.Delivery) (int, string) {
 	if err != nil {
 		var moved *outbound.Refused
 		if errors.As(err, &moved) {
-			return 0, moved.Error()
+			return 0, moved.Error(), whyRedirect
 		}
-		return 0, "no answer"
+		return 0, "no answer", whyNoAnswer
 	}
 	defer resp.Body.Close()
 	io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return resp.StatusCode, resp.Status
+		return resp.StatusCode, resp.Status, "" // the status says it
 	}
-	return resp.StatusCode, ""
+	return resp.StatusCode, "", ""
 }
 
 // Run sends due deliveries until stop closes: right after an event is
