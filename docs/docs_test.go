@@ -132,7 +132,8 @@ func TestDeployGuideHardening(t *testing.T) {
 		"install -d -o yars -g yars -m 0700 /srv/yars\n", "install -d -o yars -g yars -m 0700 /srv/yars-restored\n",
 		"NoNewPrivileges=yes", "ProtectSystem=strict", "ReadWritePaths=/srv/yars /var/lib/yars", "PrivateTmp=yes",
 		"-mtime +30 -delete", "another machine",
-		"git 2.28 or later", "git filter-branch",
+		// rev-parse knows --end-of-options (Repo.Ref) from git 2.30 on
+		"git 2.30 or later", "git filter-branch",
 		"can run commands on the server",
 		"the Team panel does not limit who sees an engagement",
 		"## Uninstall", "yars backup --data /srv/yars --key --out",
