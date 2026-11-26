@@ -215,18 +215,28 @@ Take the data out first:
 
 ```sh
 sudo -u yars yars backup --data /srv/yars --key --out /backups/yars-final.zip
+sudo install -m 0600 /backups/yars-final.zip /root/yars-final.zip
 ```
 
 The ZIP holds everything: the repositories, the database and, with `--key`, the key for the stored secrets. `yars restore` on any server brings it back. For the findings alone, a clone is enough ([git.md](git.md)): each finding is a Markdown file.
 
-Copy the ZIP somewhere safe. Then remove YARS:
+The second line puts a copy in root's home, outside every folder removed below. Then remove YARS:
 
 ```sh
 sudo systemctl disable --now yars
 sudo rm -f /etc/systemd/system/yars.service /usr/local/bin/yars /usr/local/bin/yars.previous
-sudo rm -r /srv/yars /etc/yars /backups
+sudo rm -r /srv/yars
+sudo rm -rf /etc/yars
 sudo crontab -r -u yars
 sudo userdel --remove yars
 ```
 
-`userdel --remove` deletes the account's home, `/var/lib/yars`, too. Revoke the keys YARS used at Confluence, Jira, the mail server and the AI provider.
+`userdel --remove` deletes the account's home, `/var/lib/yars`, too. `crontab -r` reports an error when the account had no crontab; go on.
+
+The backup folder goes last, once the final ZIP is on another machine and a restore from it worked there:
+
+```sh
+sudo rm -r /backups
+```
+
+Revoke the keys YARS used at Confluence, Jira, the mail server and the AI provider.

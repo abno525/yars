@@ -152,6 +152,42 @@ func TestDeployGuideHardening(t *testing.T) {
 	}
 }
 
+// Uninstalling copies the final backup out of the backup folder with a
+// command, and the command that removes the data does not remove the
+// backups with it: pasted in order, the blocks leave a copy. /etc/yars is
+// optional, so its removal does not fail where it was never made.
+func TestDeployGuideUninstallKeepsTheBackup(t *testing.T) {
+	b, err := os.ReadFile("deploy.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := string(b)
+	i := strings.Index(g, "\n## Uninstall\n")
+	if i < 0 {
+		t.Fatal("no Uninstall section")
+	}
+	sec := g[i:]
+	out := strings.Index(sec, "--out /backups/yars-final.zip\n")
+	cp := strings.Index(sec, "sudo install -m 0600 /backups/yars-final.zip /root/yars-final.zip\n")
+	rm := strings.Index(sec, "sudo rm -r /srv/yars\n")
+	last := strings.Index(sec, "sudo rm -r /backups\n")
+	if out < 0 || cp < out || rm < cp || last < rm {
+		t.Fatalf("the order is not backup (%d), copy (%d), remove the data (%d), remove the backups (%d)", out, cp, rm, last)
+	}
+	// the backups go in a block of their own, after a sentence in between
+	if !strings.Contains(sec[rm:last], "```\n\n") || !strings.Contains(sec[rm:last], "another machine") {
+		t.Error("the backup folder is removed in the same block as the data")
+	}
+	if !strings.Contains(sec, "sudo rm -rf /etc/yars\n") {
+		t.Error("removing /etc/yars fails where it was never made")
+	}
+	for _, l := range strings.Split(sec, "\n") {
+		if strings.Contains(l, " rm ") && strings.Contains(l, "/backups") && l != "sudo rm -r /backups" {
+			t.Errorf("a removal names the backup folder among others: %s", l)
+		}
+	}
+}
+
 // ciJob returns one job of the CI workflow: from its name to the next job's.
 func ciJob(t *testing.T, name string) string {
 	t.Helper()
