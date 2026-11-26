@@ -35,6 +35,53 @@ func TestHTMLBounded(t *testing.T) {
 	}
 }
 
+// A source over MaxCached is rendered every time and never kept: the cache
+// cannot be filled with large bodies. A small one is still cached.
+func TestHTMLLargeSourceNotCached(t *testing.T) {
+	m := New(5000)
+	big := strings.Repeat("a", MaxCached-3) + " **b**"
+	if len(big) != MaxCached+3 {
+		t.Fatalf("source is %d bytes", len(big))
+	}
+	for range 2 {
+		if h := m.HTML(big); !strings.Contains(string(h), "<strong>b</strong>") {
+			t.Fatalf("large source not rendered: %.80q", h)
+		}
+	}
+	if m.Len() != 0 || m.Misses() != 2 || m.Bytes() != 0 {
+		t.Fatalf("len %d misses %d bytes %d, want 0/2/0", m.Len(), m.Misses(), m.Bytes())
+	}
+	small := strings.Repeat("a", 1024)
+	m.HTML(small)
+	m.HTML(small)
+	if m.Len() != 1 || m.Misses() != 3 {
+		t.Fatalf("len %d misses %d, want 1/3", m.Len(), m.Misses())
+	}
+}
+
+// The cached HTML is bounded in bytes, not only in entries: many distinct
+// sources just under MaxCached, each several times larger as HTML, stay
+// under the budget.
+func TestHTMLBoundedInBytes(t *testing.T) {
+	const budget = 1 << 20
+	m := newBudget(5000, budget)
+	n := 2*budget/MaxCached + 50
+	item := "- \n"
+	per := (MaxCached - 32) / len(item)
+	for i := range n {
+		m.HTML(fmt.Sprintf("%d\n\n", i) + strings.Repeat(item, per))
+	}
+	if m.Bytes() > budget {
+		t.Fatalf("cache holds %d bytes, budget %d", m.Bytes(), budget)
+	}
+	if New(1).cache.Bytes() != 0 || Budget > 64<<20 {
+		t.Fatalf("New's budget is %d", Budget)
+	}
+	if m.Len() == 0 || m.Len() >= n {
+		t.Fatalf("len %d of %d: want some kept, not all", m.Len(), n)
+	}
+}
+
 func TestHTMLNoRawHTML(t *testing.T) {
 	m := New(10)
 	if h := m.HTML("hi <script>alert(1)</script>"); strings.Contains(string(h), "<script>") {

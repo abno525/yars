@@ -17,3 +17,7 @@ What changed for people who run or use YARS. Newest first.
 - `docs/deploy.md`: a `0700` data folder, systemd hardening, backup pruning, the minimum git version, uninstalling.
 - `docs/rules.md` covers every kind of rule, its limits and its failures.
 - `docs/known-limits.md` lists today's limits by subject.
+
+### Fixed
+
+- The cache of rendered Markdown is limited in bytes; a text over 64 KiB is not cached.
