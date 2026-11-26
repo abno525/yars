@@ -6,6 +6,23 @@ import (
 	"testing"
 )
 
+// The signed-off chip is filled like the other states: dark text on green
+// (light #3F9B57 5.1:1, Graphite #4D9C60 5.3:1 with the dark text), never
+// green text in an outline; the list's bar and legend use the same green.
+func TestSignedOffChipIsFilled(t *testing.T) {
+	e := setup(t)
+	css := e.do(t, "dora", "GET", "/static/style.css", nil, nil).Body.String()
+	wantAll(t, "style.css", css,
+		".tag.status-signed-off { background: var(--signed-off); color: var(--on-pale); }",
+		".seg-signed-off { fill: var(--signed-off); background: var(--signed-off); }")
+	if n := strings.Count(css, "--signed-off: #3F9B57;"); n != 1 {
+		t.Errorf("light --signed-off: %d", n)
+	}
+	if n := strings.Count(css, "--signed-off: #4D9C60;"); n != 2 {
+		t.Errorf("Graphite --signed-off in both dark blocks: %d", n)
+	}
+}
+
 // Once every assigned reviewer has signed off, a verification finding shows
 // as signed off: its tag, its own filter segment between verification and
 // complete, a step of its own in the bar, the inbox and the board counts.

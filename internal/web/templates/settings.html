@@ -10,8 +10,10 @@
     <a href="#notifications">Notifications</a>
     <a href="/docs">Developers</a>
   </nav>
-  <div class="smain">
-    <form class="panel" id="account" method="post" action="/settings/account">
+  {{/* a save comes back to /settings; keys.js puts the page back where it was (data-keep-place).
+       The panels take the finding page's keys; Enter goes into one (data-kenter) */}}
+  <div class="smain" data-keep-place>
+    <form class="panel" id="account" data-kpanel data-kenter method="post" action="/settings/account">
       <div class="panelhead"><h2>Account</h2><div class="actions"><span class="pstate error" title="{{.Settings.AccountErr}}">{{.Settings.AccountErr}}</span><button class="btn save sm w96">Save</button></div></div>
       <div class="fgrid two">
         <div class="field"><span class="flabel">Username</span><span class="fvalue" title="{{.User.Username}}">{{.User.Username}}</span></div>
@@ -21,7 +23,7 @@
       </div>
     </form>
 
-    <form class="panel" id="prefs" method="post" action="/settings/prefs">
+    <form class="panel" id="prefs" data-kpanel data-kenter method="post" action="/settings/prefs">
       <div class="panelhead"><h2>Preferences</h2><button class="btn save sm w96">Save</button></div>
       <div class="frows flush">
         <div class="frow"><span class="flabel">Theme</span>
@@ -33,7 +35,7 @@
       </div>
     </form>
 
-    <form class="panel" id="password" method="post" action="/settings/password">
+    <form class="panel" id="password" data-kpanel data-kenter method="post" action="/settings/password">
       <div class="panelhead"><h2>Password</h2><div class="actions"><span class="pstate error" title="{{.Settings.PasswordErr}}">{{.Settings.PasswordErr}}</span><button class="btn save sm w96">Change</button></div></div>
       <div class="fgrid three">
         <label class="field">Current<input type="password" name="current" autocomplete="current-password" required></label>
@@ -42,7 +44,7 @@
       </div>
     </form>
 
-    <section class="panel" id="tokens">
+    <section class="panel" id="tokens" data-kpanel data-kenter>
       <div class="panelhead"><h2>Tokens</h2><a class="btn primary sm w112" href="/settings/tokens/new" aria-keyshortcuts="N">New token</a></div>
       {{with .Settings.NewToken}}
       <div class="copyrow newsecret"><span class="tag shown">Shown once</span><code id="new-token" class="clip">{{.}}</code><button type="button" class="btn save sm w96" data-copy="new-token">Copy</button></div>
@@ -67,7 +69,7 @@
       </table>
     </section>
 
-    <section class="panel" id="connections">
+    <section class="panel" id="connections" data-kpanel data-kenter>
       <div class="panelhead"><h2>Connections</h2><span class="pstate error" title="{{.Settings.ConnErr}}">{{.Settings.ConnErr}}</span></div>
       <table class="table stable conntable">
         <thead><tr><th class="c-svc">Service</th><th>Key</th><th class="c-date">Added</th><th class="c-act2">Action</th></tr></thead>
@@ -95,7 +97,7 @@
       </table>
     </section>
 
-    <form class="panel" id="notifications" method="post" action="/settings/notifications">
+    <form class="panel" id="notifications" data-kpanel data-kenter method="post" action="/settings/notifications">
       <div class="panelhead"><h2>Notifications</h2><button class="btn save sm w96">Save</button></div>
       <table class="table stable notifytable">
         <thead><tr><th>Event</th>{{range .Settings.Channels}}<th class="c-ch">{{.Label}}</th>{{end}}</tr></thead>

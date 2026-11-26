@@ -115,7 +115,7 @@ func TestAdminUsersKeys(t *testing.T) {
 	for _, w := range []string{`<table class="table stable usertable" data-arrows="focus">`, `<tr data-rowkeys>`,
 		`<span class="strong" title="alice" tabindex="0" data-nav id="row-user-alice">alice</span>`,
 		`<button class="btn ghost sm w112" data-confirm="Reset the password of alice?" aria-keyshortcuts="R">Reset pass</button>`,
-		`aria-pressed="false" data-confirm="Disable alice?" aria-keyshortcuts="D">`,
+		`<button class="toggle" role="switch" aria-checked="false" aria-label="Disabled alice" data-confirm="Disable alice?" aria-keyshortcuts="D"><span></span></button>`,
 		`<input name="username" value="" pattern="[A-Za-z0-9._\-]+" required aria-keyshortcuts="N">`} {
 		if !strings.Contains(b, w) {
 			t.Errorf("Admin › Users lacks %s", w)

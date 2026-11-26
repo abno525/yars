@@ -22,6 +22,7 @@
   --accent-text: #C4520F;
   --on-accent: #13233F;
   --verification: #4D74B3;
+  --signed-off: #3F9B57;
 
   --bg: #FFFFFF;
   --panel: #F4F5F7;
@@ -106,6 +107,7 @@
     --green: #4D9C60;
     --green-text: #7CC68C;
     --green-bg: #18291D;
+    --signed-off: #4D9C60;
     --off-bg: #2B2B2B;
     --off-fg: #8C8C8C;
     --code-bg: #262626;
@@ -147,6 +149,7 @@
   --green: #4D9C60;
   --green-text: #7CC68C;
   --green-bg: #18291D;
+  --signed-off: #4D9C60;
   --off-bg: #2B2B2B;
   --off-fg: #8C8C8C;
   --code-bg: #262626;
@@ -254,7 +257,7 @@ label { font-size: 13px; font-weight: 600; }
 }
 .tag.status-draft { background: var(--tag-draft); color: var(--on-pale); }
 .tag.status-verification { background: var(--verification); color: var(--on-fill); }
-.tag.status-signed-off { background: transparent; color: var(--green); border-color: var(--green); }
+.tag.status-signed-off { background: var(--signed-off); color: var(--on-pale); }
 .tag.status-complete { background: var(--navy); color: var(--on-fill); border-color: var(--navy); }
 .tag.status-reported { background: transparent; color: var(--ink); border-color: var(--ink); }
 .tag.sev-critical { background: var(--sev-critical); color: var(--on-fill); }
@@ -822,7 +825,7 @@ summary.panelhead::-webkit-details-marker { display: none; }
 .seg-empty { fill: var(--off-bg); }
 .seg-draft { fill: var(--bar-draft); background: var(--bar-draft); }
 .seg-verification { fill: var(--verification); background: var(--verification); }
-.seg-signed-off { fill: var(--green); background: var(--green); }
+.seg-signed-off { fill: var(--signed-off); background: var(--signed-off); }
 .seg-complete { fill: var(--bar-complete); background: var(--bar-complete); }
 .seg-reported { fill: var(--accent); background: var(--accent); }
 .seg-critical { fill: var(--sev-critical); background: var(--sev-critical); }
@@ -938,14 +941,15 @@ a.atab:hover { color: var(--ink); background: var(--panel); }
 .ruletable { table-layout: fixed; border: 0; }
 .ruletable th.c-kind, .ruletable th.c-level { width: 152px; }
 .ruletable th.c-target { width: 200px; }
-.ruletable th.c-on { width: 72px; }
+.ruletable th.c-on { width: 80px; }
 .ruletable th.c-act { width: 128px; }
 .ruletable td { height: 60px; }
 .rulecell { overflow: hidden; }
 .ruleid, .rulemsg { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ruleid { font: 500 13px var(--mono); }
 .rulemsg { font-size: 13px; color: var(--muted); }
-.ruletable form.toggle { margin: 0; display: flex; }
+/* an on/off switch's own form (Admin › Users, Rules) */
+form.flag { margin: 0; display: flex; }
 .ruletable tr.off td, .ruletable tr.off .rulemsg { color: var(--off-fg); }
 .ruletable tr.off .tag { background: transparent; color: var(--off-fg); border-color: var(--line); }
 .ruletable tr.editing td { background: var(--panel); }
@@ -1809,10 +1813,12 @@ code.plain { font: 500 13px var(--mono); color: var(--text); background: transpa
 .tag.dl-ok { background: var(--green); color: var(--on-fill); }
 .tag.dl-pending { background: var(--sev-medium); color: var(--on-pale); }
 .tag.dl-failed { background: var(--red); color: var(--on-fill); }
-.toggle { width: 44px; height: 24px; padding: 2px; border: 1px solid var(--field-line); background: var(--off-bg); cursor: pointer; display: inline-flex; }
+.toggle { width: 44px; height: 24px; flex: none; padding: 2px; border: 1px solid var(--field-line); background: var(--off-bg); cursor: pointer; display: inline-flex; }
 .toggle span { width: 18px; height: 18px; background: var(--off-fg); transition: transform 0.1s; }
 .toggle.on { background: var(--navy); border-color: var(--navy); }
 .toggle.on span { background: var(--toggle-knob); transform: translateX(20px); }
+/* your own Admin and Disabled switches */
+.toggle:disabled { cursor: default; opacity: 0.4; }
 .hookform { margin: 0; padding: 16px 24px; border-top: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; gap: 12px; }
 .panel > form.hookform { margin: 0; }
 .hookrow { display: flex; align-items: flex-end; gap: 12px; }

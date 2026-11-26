@@ -164,6 +164,16 @@ keys.js hides the Finding page group where there are no panels */}}
           <div class="krow" data-keys-if="#redact"><dt><kbd>Ctrl+S</kbd><kbd>Ctrl+Z</kbd></dt><dd>Redact: save, undo</dd></div>
         </dl>
       </section>
+      <section class="kgroup" data-keys-group="settings"><h3 class="gh">Settings</h3>
+        <dl>
+          <div class="krow"><dt><kbd>j</kbd><kbd>k</kbd><kbd>↓</kbd><kbd>↑</kbd></dt><dd>Next or previous panel</dd></div>
+          <div class="krow"><dt><kbd>Enter</kbd></dt><dd>Go into the panel, then save</dd></div>
+          <div class="krow" data-keys-if="[data-kenter] input[type=radio]"><dt><kbd>←</kbd><kbd>→</kbd></dt><dd>Change the choice</dd></div>
+          <div class="krow" data-keys-if="[data-kenter] [data-nav]"><dt><kbd>↓</kbd><kbd>↑</kbd></dt><dd>Next or previous token</dd></div>
+          <div class="krow" data-keys-if="form[action$='/revoke'] [aria-keyshortcuts~=R]"><dt><kbd>r</kbd></dt><dd>Revoke the token</dd></div>
+          <div class="krow"><dt><kbd>Esc</kbd></dt><dd>Back to the panel</dd></div>
+        </dl>
+      </section>
       <section class="kgroup" data-keys-group="chat"><h3 class="gh">Chat</h3>
         <dl>
           <div class="krow"><dt><kbd>c</kbd></dt><dd>Comment on the panel</dd></div>

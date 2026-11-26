@@ -91,10 +91,17 @@ function yarsSaveButton(form) {
 
 // Enter (K3) on a selected panel with no field or control focused presses
 // the panel's one button besides Comment and Edit (data-kskip); with none
-// or several, nothing.
+// or several, nothing. A Settings panel (data-kenter) is gone into instead,
+// only with nothing focused: a focused control anywhere (a Save, a nav
+// link, a token row) keeps its own Enter.
 function yarsEnter() {
   var p = yarsSelected();
   if (!p) return false;
+  if (p.hasAttribute('data-kenter')) {
+    var cur = document.activeElement;
+    if (cur && cur !== document.body && cur !== p) return false;
+    return yarsInto(p);
+  }
   var a = document.activeElement;
   if (a && a !== document.body && a !== p && a.closest && a.closest('a, button, summary, input, select, textarea, [contenteditable]')) return false;
   // a picked comment: its reply box; a picked duplicate: its Merge
@@ -108,6 +115,31 @@ function yarsEnter() {
   });
   if (bs.length !== 1) return false;
   bs[0].click();
+  return true;
+}
+
+// yarsInto puts focus in a Settings panel: on its first choice (the checked
+// radio of its group), else its first row (Tokens), field or button; true
+// when one took it.
+function yarsInto(p) {
+  var r = p.querySelector('input[type=radio]');
+  var f = r ? Array.prototype.filter.call(p.querySelectorAll('input[type=radio]'), function (x) {
+    return x.name === r.name && x.checked;
+  })[0] || r : null;
+  f = f || p.querySelector('[data-nav]') || p.querySelector('input:not([type=hidden]), select, textarea') || p.querySelector('button, a.btn');
+  if (!f) return false;
+  f.focus();
+  return true;
+}
+
+// yarsChoiceSave: Enter on a choice (a radio, a checkbox) in a Settings
+// panel presses its form's save button, as Enter in a text field does;
+// true when it did.
+function yarsChoiceSave(t) {
+  if (!t || !t.matches || !t.matches('input[type=radio], input[type=checkbox]') || !t.closest('[data-kenter]')) return false;
+  var b = t.form ? yarsSaveButton(t.form) : null;
+  if (!b || b.disabled) return false;
+  b.click();
   return true;
 }
 
@@ -289,12 +321,54 @@ document.addEventListener('DOMContentLoaded', function () {
   var el = k.id ? document.getElementById(k.id) : null;
   if (rows.indexOf(el) < 0) el = rows[Math.min(Math.max(k.i, 0), rows.length - 1)];
   if (!el) return;
-  // the browser handles a fragment (Revoke's /settings#tokens) after this
+  // the browser handles a fragment (an address with #panel) after this
   // event: it would jump to the panel and take the focus off the row
   if (location.hash) history.replaceState(history.state, '', location.pathname + location.search);
   el.focus({preventScroll: true});
   // a password shown once (Reset pass) stays in view
   if (el.scrollIntoView && !document.querySelector('.once')) el.scrollIntoView({block: 'nearest'});
+});
+
+// A form sent from a page part marked data-keep-place (Settings' panels)
+// reloads the page; the next page of this tab, within a few seconds, goes
+// back to the same scroll position with the same panel selected and focus
+// on the same control (a radio group: its checked radio), so a save never
+// jumps. A row a key kept (yarsRowKeep, run first) keeps the focus.
+var yarsPlaceKeep = 'yars-place-keep';
+document.addEventListener('submit', function (evt) {
+  var f = evt.target;
+  if (evt.defaultPrevented || f.method === 'dialog' || !f.closest || !f.closest('[data-keep-place]')) return;
+  var a = document.activeElement;
+  var name = a && a.form === f && a.name ? a.name : '';
+  // a checkbox is told by its value too (every Notifications box is "n")
+  var value = name && (a.type === 'checkbox' || a.type === 'radio') ? a.value : '';
+  try {
+    sessionStorage.setItem(yarsPlaceKeep, JSON.stringify({y: window.scrollY, sel: yarsSel, form: f.id, name: name, value: value, at: Date.now()}));
+  } catch (e) { /* not kept */ }
+});
+document.addEventListener('DOMContentLoaded', function () {
+  var k = null;
+  try {
+    var raw = sessionStorage.getItem(yarsPlaceKeep);
+    sessionStorage.removeItem(yarsPlaceKeep);
+    k = JSON.parse(raw || 'null');
+  } catch (e) { return; }
+  if (!k || !(Date.now() - k.at < 10000) || !document.querySelector('[data-keep-place]')) return;
+  if (location.hash) history.replaceState(history.state, '', location.pathname + location.search);
+  // smooth scrolling (html) would animate the way back
+  window.scrollTo({top: k.y, behavior: 'instant'});
+  var p = k.sel ? document.getElementById(k.sel) : null;
+  // with the shortcuts off nothing is selected (its outline would stay)
+  if (p && p.hasAttribute('data-kpanel') && !yarsKeysOff()) yarsSelect(p, false);
+  var a = document.activeElement;
+  if (a && a !== document.body) return;
+  var f = k.form ? document.getElementById(k.form) : null;
+  if (!f || !k.name) return;
+  var els = Array.prototype.filter.call(f.elements, function (x) { return x.name === k.name; });
+  // a radio group: its checked radio; a checkbox: the one with that value
+  if (k.value) els = els.filter(function (x) { return x.type === 'radio' || x.value === k.value; });
+  var el = els.filter(function (x) { return x.type === 'radio' && x.checked; })[0] || els[0];
+  if (el) el.focus({preventScroll: true});
 });
 
 // yarsPick: a list's row checkbox takes no characters, so the list keys work
@@ -430,8 +504,11 @@ function yarsKeysList() {
   var d = document.getElementById('keys');
   if (!d || !d.showModal || d.open) return false;
   var show = function (sel, on) { var g = d.querySelector(sel); if (g) g.hidden = !on; };
-  show('[data-keys-group="finding"]', document.querySelector('[data-kpanel]'));
-  show('[data-keys-group="lists"]', document.querySelector('[data-nav]'));
+  // Settings' panels (data-kenter) have a group of their own
+  var kenter = document.querySelector('[data-kenter]');
+  show('[data-keys-group="finding"]', document.querySelector('[data-kpanel]') && !kenter);
+  show('[data-keys-group="settings"]', kenter);
+  show('[data-keys-group="lists"]', document.querySelector('[data-nav]') && !kenter);
   show('[data-keys-group="chat"]', document.getElementById('chat-text'));
   show('[data-keys-group="eng"]', document.querySelector('.etabs'));
   d.querySelectorAll('[data-keys-for]').forEach(function (row) {
@@ -685,6 +762,8 @@ function yarsEscape() {
   var cancel = ed ? ed.querySelector('[data-guard-cancel]') : null;
   if (cancel) { cancel.click(); return; }
   if (a && a !== document.body && yarsTyping(a)) { a.blur(); return; }
+  // in a Settings panel: out of its row or button, back to the panel
+  if (sel && sel.hasAttribute('data-kenter') && a && a !== document.body && sel.contains(a)) { a.blur(); return; }
   if (yarsThread()) { yarsThreadMark(null); return; } // the picked comment, then the chat
   if (sel) yarsSelect(null);
 }
@@ -767,6 +846,7 @@ document.addEventListener('keydown', function (evt) {
     if (row && row.tagName === 'A') row.click();
     return;
   }
+  if (key === 'Enter' && !yarsKeysOff() && !evt.repeat && !evt.isComposing && yarsChoiceSave(evt.target)) { evt.preventDefault(); return; }
   if (yarsArrowKey(evt, key)) return;
   // single keys and Shift+key: never into a field, during composition, on
   // repeat, under a modal dialog, or with shortcuts off

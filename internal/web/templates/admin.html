@@ -141,8 +141,6 @@
 </form>
 {{end}}
 
-{{define "cbx_mark"}}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>{{end}}
-
 {{define "admin_users"}}
 {{with .Temp}}
 <div class="once panel compact" role="status">
@@ -173,15 +171,15 @@
           </td>
           {{- end}}
           <td>
-            <form class="toggle" method="post" action="/admin/users/{{.Username}}/admin">
+            <form class="flag" method="post" action="/admin/users/{{.Username}}/admin">
               <input type="hidden" name="on" value="{{if .IsAdmin}}0{{else}}1{{end}}">
-              <button class="cbx{{if .IsAdmin}} on{{end}}" aria-label="Admin {{.Username}}" aria-pressed="{{if .IsAdmin}}true{{else}}false{{end}}"{{if and .Self .IsAdmin}} disabled{{end}}>{{if .IsAdmin}}{{template "cbx_mark"}}{{end}}</button>
+              <button class="toggle{{if .IsAdmin}} on{{end}}" role="switch" aria-checked="{{if .IsAdmin}}true{{else}}false{{end}}" aria-label="Admin {{.Username}}"{{if and .Self .IsAdmin}} disabled{{end}}><span></span></button>
             </form>
           </td>
           <td>
-            <form class="toggle" method="post" action="/admin/users/{{.Username}}/disabled">
+            <form class="flag" method="post" action="/admin/users/{{.Username}}/disabled">
               <input type="hidden" name="on" value="{{if .Disabled}}0{{else}}1{{end}}">
-              <button class="cbx{{if .Disabled}} on{{end}}" aria-label="Disabled {{.Username}}" aria-pressed="{{if .Disabled}}true{{else}}false{{end}}"{{if not .Disabled}} data-confirm="Disable {{.Username}}?"{{end}} aria-keyshortcuts="D"{{if .Self}} disabled{{end}}>{{if .Disabled}}{{template "cbx_mark"}}{{end}}</button>
+              <button class="toggle{{if .Disabled}} on{{end}}" role="switch" aria-checked="{{if .Disabled}}true{{else}}false{{end}}" aria-label="Disabled {{.Username}}"{{if not .Disabled}} data-confirm="Disable {{.Username}}?"{{end}} aria-keyshortcuts="D"{{if .Self}} disabled{{end}}><span></span></button>
             </form>
           </td>
           <td class="mono">{{.Created}}</td>
@@ -489,9 +487,9 @@
         <td class="clip" title="{{.Target}}">{{.Target}}</td>
         <td><span class="tag lvl-{{.Level}}">{{.Level}}</span></td>
         <td>
-          <form class="toggle" method="post" action="/admin/rules/toggle">
+          <form class="flag" method="post" action="/admin/rules/toggle">
             <input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="edit" value="{{$.Edit}}"><input type="hidden" name="on" value="{{if .On}}0{{else}}1{{end}}">
-            <button class="cbx{{if .On}} on{{end}}" aria-label="Enabled" aria-pressed="{{if .On}}true{{else}}false{{end}}" aria-keyshortcuts="D">{{if .On}}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>{{end}}</button>
+            <button class="toggle{{if .On}} on{{end}}" role="switch" aria-checked="{{if .On}}true{{else}}false{{end}}" aria-label="Enabled" aria-keyshortcuts="D"><span></span></button>
           </form>
         </td>
         <td>{{if .Editing}}<span class="btn save sm w96" aria-current="true" tabindex="0" data-nav id="row-rule-{{.ID}}">Editing</span>{{else}}<a class="btn ghost sm w96" href="/admin/rules?edit={{.ID}}" data-nav id="row-rule-{{.ID}}" aria-keyshortcuts="E">Edit</a>{{end}}</td>
@@ -508,9 +506,9 @@
         {{- $rc := "Require Check before Sign off and Approve"}}{{if simple}}{{$rc = "Require Check before Complete"}}{{end}}
         <td class="setname">{{$rc}}</td>
         <td>
-          <form class="toggle" method="post" action="/admin/rules/require-check">
+          <form class="flag" method="post" action="/admin/rules/require-check">
             <input type="hidden" name="on" value="{{if .RequireCheck}}0{{else}}1{{end}}">
-            <button class="cbx{{if .RequireCheck}} on{{end}}" aria-label="{{$rc}}" aria-pressed="{{if .RequireCheck}}true{{else}}false{{end}}">{{if .RequireCheck}}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>{{end}}</button>
+            <button class="toggle{{if .RequireCheck}} on{{end}}" role="switch" aria-checked="{{if .RequireCheck}}true{{else}}false{{end}}" aria-label="{{$rc}}"><span></span></button>
           </form>
         </td>
         <td><span class="slot w96"></span></td>

@@ -10,6 +10,30 @@ import (
 	"yars/internal/config"
 )
 
+// The on/off cells of Admin › Users and Admin › Rules are the webhooks'
+// switch (a button with a knob), never a checkbox in a form the switch's
+// track style also caught (an off-centre square in a grey box).
+func TestFlagsAreSwitches(t *testing.T) {
+	e := setup(t)
+	b := e.do(t, "dora", "GET", "/admin/users", nil, nil).Body.String()
+	wantAll(t, "/admin/users", b,
+		`<form class="flag" method="post" action="/admin/users/alice/admin">`,
+		`<button class="toggle" role="switch" aria-checked="false" aria-label="Admin alice"><span></span></button>`,
+		`<button class="toggle on" role="switch" aria-checked="true" aria-label="Admin dora" disabled><span></span></button>`,
+		`<form class="flag" method="post" action="/admin/users/alice/disabled">`)
+	src, _ := templateFS.ReadFile("templates/admin.html")
+	for _, bad := range []string{`<form class="toggle"`, `<button class="cbx`, `aria-pressed`} {
+		if strings.Contains(string(src), bad) {
+			t.Errorf("admin.html still has %s", bad)
+		}
+	}
+	css := e.do(t, "dora", "GET", "/static/style.css", nil, nil).Body.String()
+	// the switch never shrinks (a 72 px rule column squeezed it to 40 px);
+	// the rules' On column holds it with the cell padding
+	wantAll(t, "style.css", css, ".toggle:disabled {", "form.flag { margin: 0; display: flex; }",
+		".toggle { width: 44px; height: 24px; flex: none;", ".ruletable th.c-on { width: 80px; }")
+}
+
 // Every admin page and action is for admins only (the flag, not the role).
 func TestAdminPagesAdminOnly(t *testing.T) {
 	e := setup(t)
@@ -84,7 +108,7 @@ func TestAdminUsers(t *testing.T) {
 	if rec := e.do(t, "alice", "GET", "/", nil, nil); rec.Code != http.StatusSeeOther {
 		t.Fatal("disabled user still signed in")
 	}
-	if b := e.do(t, "dora", "GET", "/admin/users", nil, nil).Body.String(); !strings.Contains(b, `aria-label="Disabled alice" aria-pressed="true"`) {
+	if b := e.do(t, "dora", "GET", "/admin/users", nil, nil).Body.String(); !strings.Contains(b, `<button class="toggle on" role="switch" aria-checked="true" aria-label="Disabled alice"`) {
 		t.Fatal("disabled state not shown")
 	}
 	l, _ := e.srv.Store.DB().AuditLog(10)

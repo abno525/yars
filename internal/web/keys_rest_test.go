@@ -27,9 +27,9 @@ func tplHas(t *testing.T, file string, wants ...string) {
 	wantAll(t, file, string(src), wants...)
 }
 
-// Settings › Tokens: n New token (the Developers page's too); ↓ ↑ j k move
-// through the tokens and r revokes the focused one, asking first; removing
-// a connection asks too.
+// Settings › Tokens: n New token (the Developers page's too); ↓ ↑ move
+// through the tokens from a focused one (j k step Settings' panels) and r
+// revokes the focused one, asking first; removing a connection asks too.
 func TestSettingsTokenKeys(t *testing.T) {
 	e := setup(t)
 	if _, err := e.srv.Store.DB().CreateToken("alice", "h-abcd", "abcd", db.TokenSpec{Name: "laptop", Kind: db.TokenMCP, Scopes: []string{db.ScopeAll}}); err != nil {
@@ -88,7 +88,7 @@ func TestAdminRulesWebhooksKeys(t *testing.T) {
 		`<a class="btn primary sm w128" href="/admin/rules?new=1" aria-keyshortcuts="N">New rule</a>`,
 		`<table class="table ruletable" data-arrows="focus">`, `<tr data-rowkeys>`,
 		`<a class="btn ghost sm w96" href="/admin/rules?edit=none" data-nav id="row-rule-none" aria-keyshortcuts="E">Edit</a>`,
-		`aria-label="Enabled" aria-pressed="true" aria-keyshortcuts="D">`)
+		`<button class="toggle on" role="switch" aria-checked="true" aria-label="Enabled" aria-keyshortcuts="D"><span></span></button>`)
 	tplHas(t, "admin.html", `<span class="btn save sm w96" aria-current="true" tabindex="0" data-nav id="row-rule-{{.ID}}">Editing</span>`,
 		`<table class="table stable hooktable" data-arrows="focus">`,
 		`<a href="/admin/webhooks?hook={{.ID}}" title="{{.URL}}" data-nav id="row-hook-{{.ID}}">{{.URL}}</a>`,
