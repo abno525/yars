@@ -195,7 +195,7 @@ func TestRuleBenchLikeTheRuleForm(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out := e.do(t, "dora", "GET", "/admin/rules/bench?rule=title-word&eng=acme&fid="+ref.Dir, nil, nil).Body.String()
+	out := e.bench(t, "title-word", ref.Dir, false).Body.String()
 	if !strings.Contains(out, `<span class="badge0">0</span>`) || !strings.Contains(out, empty) {
 		t.Errorf("Hits after a run with none:\n%s", out)
 	}
