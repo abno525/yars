@@ -8,6 +8,7 @@
     <a href="#tokens">Tokens</a>
     <a href="#connections">Connections</a>
     <a href="#notifications">Notifications</a>
+    <a href="#about">About</a>
     <a href="/docs">Developers</a>
   </nav>
   {{/* a save comes back to /settings; keys.js puts the page back where it was (data-keep-place).
@@ -111,6 +112,14 @@
         </tbody>
       </table>
     </form>
+
+    <section class="panel" id="about" data-kpanel data-kenter>
+      <div class="panelhead"><h2>About</h2>{{if .Settings.Source}}<a class="btn ghost sm w112" href="{{.Settings.Source}}" target="_blank" rel="noopener">Source</a>{{else}}<span class="slot w112"></span>{{end}}</div>
+      <div class="fgrid two">
+        <div class="field"><span class="flabel">Version</span><span class="fvalue mono" title="{{.Settings.Version}}">{{.Settings.Version}}</span></div>
+        <div class="field"><span class="flabel">License</span><span class="fvalue">AGPL-3.0</span></div>
+      </div>
+    </section>
   </div>
 </div>
 {{end}}

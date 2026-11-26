@@ -1,6 +1,7 @@
 package web
 
 import (
+	"cmp"
 	"errors"
 	"net/http"
 	"slices"
@@ -26,6 +27,9 @@ type settingsView struct {
 	AccountErr, PasswordErr, ConnErr, NotifyErr string
 	Token                                       tokenForm // the New token page
 	NewToken                                    string    // a token just created, shown once
+	// About: the running build ("—" when unknown) and where its source is
+	// ("" = no link)
+	Version, Source string
 }
 
 // tokenRow is one token in a list: what it can do, never its secret.
@@ -207,6 +211,12 @@ func (s *Server) settingsBase(r *http.Request) (*page, error) {
 		p.Settings.Themes = append(p.Settings.Themes, th)
 	}
 	p.Settings.Keys = []option{{Value: "on", Label: "On", On: !u.KeysOff}, {Value: "off", Label: "Off", On: u.KeysOff}}
+	p.Settings.Version = cmp.Or(s.Version, "—")
+	// only a web address is a link: the template would print a placeholder
+	// for any other scheme
+	if strings.HasPrefix(s.Source, "https://") || strings.HasPrefix(s.Source, "http://") {
+		p.Settings.Source = s.Source
+	}
 	return p, nil
 }
 

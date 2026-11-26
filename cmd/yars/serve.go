@@ -174,7 +174,7 @@ func cmdServe(args []string) error {
 		return fmt.Errorf("secret key: %w", err)
 	}
 	srv := &web.Server{Store: st, Index: ix, Auth: au, Cfg: cfg, Rules: eng, Git: gs.Handler(), Export: exportRunner(r.Dir),
-		MCP: mcpSrv.HTTPHandler(tokens), Events: hub, Tokens: tokens, Secret: box, HTTPS: secure, Version: buildVersion(),
+		MCP: mcpSrv.HTTPHandler(tokens), Events: hub, Tokens: tokens, Secret: box, HTTPS: secure, Version: buildVersion(), Source: source,
 		MigrateStatus: func() []string { return legacyItems(r.Dir) }}
 	hs := srv.HTTPServer(*addr)
 	hs.TLSConfig = tlsCfg
