@@ -185,6 +185,49 @@ func TestHtmxNeverEvaluates(t *testing.T) {
 	}
 }
 
+// What the pages keep in the browser does not pass to the next account on
+// it: htmx keeps no page snapshots in localStorage (a Back to a pushed
+// address loads the page again instead), a kept draft is stored under its
+// account's name, and Log out removes the account's drafts (pre1 2.30).
+func TestBrowserStorageIsPerAccount(t *testing.T) {
+	e := setup(t)
+	login := e.do(t, "", "GET", "/login", nil, nil).Body.String()
+	for _, want := range []string{`"historyCacheSize":0`, `"refreshOnHistoryMiss":true`} {
+		if !strings.Contains(between(login, "<head>", "</head>"), want) {
+			t.Errorf("htmx config lacks %s", want)
+		}
+	}
+	if strings.Contains(login, "data-user") {
+		t.Error("the login page names an account")
+	}
+	page := e.do(t, "alice", "GET", fpath, nil, nil).Body.String()
+	if tag := between(page, "<html", ">"); !strings.Contains(tag, ` data-user="alice"`) {
+		t.Errorf("the page does not name its account for the draft key: %s>", tag)
+	}
+	if !strings.Contains(page, `<form method="post" action="/logout">`) {
+		t.Error("the Log out form app.js hooks is gone")
+	}
+	js := e.do(t, "alice", "GET", staticPrefix()+"/app.js", nil, nil).Body.String()
+	for _, want := range []string{
+		// the key: yars-draft:<user>:<save URL>
+		`'yars-draft:' + yarsUser() + ':'`, `getAttribute('data-user')`,
+		// snapshots and drafts of an earlier version are removed at load
+		`localStorage.removeItem('htmx-history-cache')`, `'yars-draft:/'`,
+		// Log out removes this account's drafts
+		`form[action="/logout"]`,
+	} {
+		if !strings.Contains(js, want) {
+			t.Errorf("app.js lacks %s", want)
+		}
+	}
+	// the draft is written when the session has expired: a 401 must not be
+	// what removes it
+	i := strings.Index(js, "function yarsExpired()")
+	if i < 0 || strings.Contains(js[i:i+900], "removeItem") {
+		t.Error("an expired session removes drafts")
+	}
+}
+
 // Comment and confirm buttons are wired in app.js through data attributes.
 func TestCommentAndConfirmHooks(t *testing.T) {
 	e := setup(t)
