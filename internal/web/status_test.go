@@ -47,7 +47,7 @@ func TestSystemPageShowsCurrentState(t *testing.T) {
 		t.Fatalf("%d empty rows in the state panel:\n%s", n, state)
 	}
 	logp := between(b, `id="syslog"`, "</section>")
-	if !strings.Contains(logp, `<th class="c-time">Time</th><th class="c-flag">Level</th><th>Line</th>`) || strings.Count(logp, `class="emptyrow"`) != 1 {
+	if !strings.Contains(logp, `<th class="c-time">Time</th><th class="c-state">Level</th><th>Line</th>`) || strings.Count(logp, `class="emptyrow"`) != 1 {
 		t.Fatalf("the log panel:\n%s", logp)
 	}
 

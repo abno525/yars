@@ -447,7 +447,7 @@
       </tbody>
     </table>
     <table class="table stable healthtable">
-      <thead><tr><th class="c-time">Time</th><th class="c-flag">Level</th><th>Line</th></tr></thead>
+      <thead><tr><th class="c-time">Time</th><th class="c-state">Level</th><th>Line</th></tr></thead>
       <tbody>
         {{range .Lines}}<tr><td class="mono">{{.Time}}</td><td><span class="tag {{.State}}">{{.Level}}</span></td><td class="dt clip" title="{{.Text}}">{{.Text}}</td></tr>
         {{else}}{{template "empty_row" 3}}{{end}}
