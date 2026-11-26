@@ -368,6 +368,22 @@ func (s *Store) MarkExported(engID, dir, destination string, u config.User) erro
 // Clearances of reviewers who stay are kept. The simple workflow has no
 // reviewers: refused (*workflow.Denied).
 func (s *Store) SetReviewers(engID, dir string, names []string, u config.User) error {
+	return s.SetReviewersFrom(engID, dir, "", names, u)
+}
+
+// ReviewersHash is the base of a finding's reviewer list: a hash of the
+// names, in order. Sign-offs are not part of it: a sign-off of someone who
+// stays on the list is kept whatever the list is replaced with.
+func ReviewersHash(m finding.Meta) string {
+	return BodyHash(strings.Join(slices.Sorted(slices.Values(m.Reviewers)), "\x00"))
+}
+
+// SetReviewersFrom is SetReviewers for a list chosen on a page that showed
+// the reviewers with base (ReviewersHash): when the list changed since, the
+// names given would drop whoever was added meanwhile, with their sign-off,
+// so it is refused (*workflow.Denied wrapping ErrConflict). base "" is not
+// checked.
+func (s *Store) SetReviewersFrom(engID, dir, base string, names []string, u config.User) error {
 	if err := s.noReviewers(); err != nil {
 		return err
 	}
@@ -376,6 +392,11 @@ func (s *Store) SetReviewers(engID, dir string, names []string, u config.User) e
 		m := ref.F.Meta
 		if !workflow.CanAddReviewers(u, m) {
 			return nil, reviewersDenied(m)
+		}
+		// after the permission: who may not change the list learns nothing
+		// about it from a base
+		if base != "" && base != ReviewersHash(m) {
+			return nil, &workflow.Denied{Reason: "the reviewers changed since you opened the page; choose again", Err: ErrConflict}
 		}
 		done = findingEvent(EventReviewers, u.Username, ref)
 		done.State = m.Status

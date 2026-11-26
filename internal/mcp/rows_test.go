@@ -65,6 +65,46 @@ func TestMCPReasonAfterVectorEdit(t *testing.T) {
 	}
 }
 
+// set_field reviewers replaces the whole list: with the list's base from
+// read_finding it is refused when someone was added since; without a base
+// it is not checked.
+func TestMCPReviewersBase(t *testing.T) {
+	f := newFx(t)
+	args := func(value, base string) map[string]any {
+		a := map[string]any{"engagement": "acme", "finding": "F-001", "field": "reviewers", "value": value}
+		if base != "" {
+			a["base"] = base
+		}
+		return a
+	}
+	f.ok(alice, "set_field", args("bob", ""))
+	read := func() string {
+		var rd struct {
+			Bases map[string]string `json:"field_bases"`
+		}
+		json.Unmarshal([]byte(f.ok(alice, "read_finding", map[string]any{"engagement": "acme", "finding": "F-001"})), &rd)
+		if rd.Bases["reviewers"] == "" {
+			t.Fatalf("no base for reviewers: %v", rd.Bases)
+		}
+		return rd.Bases["reviewers"]
+	}
+	stale := read()
+	if err := f.s.Store.AddReviewers("acme", "001", []string{"dora"}, dora); err != nil {
+		t.Fatal(err)
+	}
+	if text, isErr := f.call(alice, "set_field", args("bob", stale)); !isErr || !strings.Contains(text, "changed since you read it") {
+		t.Fatalf("stale list: %v %s", isErr, text)
+	}
+	if ref, _ := f.s.Store.Finding("acme", "001"); strings.Join(ref.F.Meta.Reviewers, ",") != "bob,dora" {
+		t.Fatalf("reviewers %v", ref.F.Meta.Reviewers)
+	}
+	f.ok(alice, "set_field", args("bob,dora", read()))
+	f.ok(alice, "set_field", args("bob", ""))
+	if ref, _ := f.s.Store.Finding("acme", "001"); strings.Join(ref.F.Meta.Reviewers, ",") != "bob" {
+		t.Fatalf("reviewers %v", ref.F.Meta.Reviewers)
+	}
+}
+
 // D14, the DeepSeek case: one read_finding, then several Details rows and
 // CVSS reasons edited one after another, each with its own field_bases
 // entry. Nobody else touched the finding, so none is refused; a stale base
