@@ -271,7 +271,7 @@ func (s *Store) LintContent(ctx context.Context, engID string, raw []byte, kinds
 			return nil, err
 		}
 	}
-	applyState(&f.Meta, st, contentHash(raw), s.Flow())
+	applyState(&f.Meta, st, ApprovalHash(raw), s.Flow())
 	c := rules.CallerOf(ctx)
 	c.Eng, c.Fid = engID, ""
 	if lintFidRe.MatchString(f.Meta.ID) {

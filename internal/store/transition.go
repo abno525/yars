@@ -86,7 +86,7 @@ func (s *Store) changeState(engID, dir string, fn func(ref FindingRef, st *db.St
 		if err != nil {
 			return err
 		}
-		applyState(&ref.F.Meta, st, hash, s.Flow())
+		applyState(&ref.F.Meta, st, ref.Full, s.Flow())
 		msgs, err := fn(ref, &st, hash)
 		if err != nil {
 			return err
@@ -285,7 +285,7 @@ func (s *Store) transition(engID, dir string, act workflow.Action, reason, seen,
 				st.Reviewers = append(st.Reviewers, db.Reviewer{Name: u.Username})
 				i = len(st.Reviewers) - 1
 			}
-			st.Reviewers[i].ClearedHash = hash
+			st.Reviewers[i].ClearedHash = ref.Full
 		case workflow.Reopen:
 			r := strings.TrimSpace(reason)
 			if r == "" {
@@ -306,13 +306,13 @@ func (s *Store) transition(engID, dir string, act workflow.Action, reason, seen,
 			uncleared() // the author changes it again: sign-offs start over
 			st.ReturnedBy, st.ReturnedReason = "", ""
 		case workflow.Approve:
-			st.ApprovedHash = hash // approval is for exactly this content
+			st.ApprovedHash = ref.Full // approval is for exactly this content
 		case workflow.Complete:
 			// the simple workflow's approval: for exactly this content, so
 			// an edit through YARS keeps it complete (carryApproval)
 			uncleared()
 			st.ReturnedBy, st.ReturnedReason = "", ""
-			st.ApprovedHash = hash
+			st.ApprovedHash = ref.Full
 		}
 		_, st.Status = s.Flow().Target(act)
 		return []chat.Message{ev}, nil

@@ -127,8 +127,8 @@ func TestReceivePushCarriesApproval(t *testing.T) {
 		t.Fatalf("a director's push sent the finding back to %s", m.Status)
 	}
 	raw, _ := os.ReadFile(p)
-	if got := approved(); got != ContentHash(raw) {
-		t.Fatalf("approval %s, content %s", got, ContentHash(raw))
+	if got := approved(); got != ApprovalHash(raw) {
+		t.Fatalf("approval %s, content %s", got, ApprovalHash(raw))
 	}
 	s.ReceivePush(eng, uBob, func() {
 		edit("A reviewer's words.")

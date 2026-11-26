@@ -1,6 +1,8 @@
 package store
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"io/fs"
 	"log"
@@ -21,10 +23,31 @@ func ContentHash(raw []byte) string { return BodyHash(string(raw)) }
 
 func contentHash(raw []byte) string { return ContentHash(raw) }
 
+// ApprovalHash is what an approval and a sign-off are bound to: the full
+// SHA-256 of finding.md, in hex. ContentHash is its first 16 digits; 64 bits
+// tell versions apart (bases, check runs) but two files can be made to share
+// them, so they bind no decision.
+func ApprovalHash(raw []byte) string {
+	h := sha256.Sum256(raw)
+	return hex.EncodeToString(h[:])
+}
+
+// boundTo reports whether an approval or a sign-off stored as stored is for
+// the content whose ApprovalHash is full. A stored value of 16 digits is from
+// before the full digest was kept: it counts for the content whose digest
+// starts with it, with the 64 bits it always had, until the finding is
+// signed off or approved again (or a director's edit carries it), which
+// stores the full digest. Without this every complete and reported finding
+// would fall back to verification at the upgrade.
+func boundTo(stored, full string) bool {
+	return stored == full || len(stored) == 16 && len(full) > 16 && strings.HasPrefix(full, stored)
+}
+
 // applyState fills the workflow fields of m from st, as workflow f reads
-// it. The simple workflow has no verification and no reviewers: a stored
-// verification, and a complete or reported finding whose content changed
-// after its approval, read as draft, and stored reviewers are left out.
+// it; hash is the ApprovalHash of the finding's file. The simple workflow
+// has no verification and no reviewers: a stored verification, and a
+// complete or reported finding whose content changed after its approval,
+// read as draft, and stored reviewers are left out.
 func applyState(m *finding.Meta, st db.State, hash string, f workflow.Flow) {
 	m.Status, m.Reviewers, m.ClearedBy, m.Returned, m.Withdrawn, m.Retest = st.Status, nil, nil, nil, nil, nil
 	if m.Status == "" {
@@ -32,7 +55,7 @@ func applyState(m *finding.Meta, st db.State, hash string, f workflow.Flow) {
 	}
 	for _, r := range st.Reviewers {
 		m.Reviewers = append(m.Reviewers, r.Name)
-		if r.ClearedHash != "" && r.ClearedHash == hash {
+		if r.ClearedHash != "" && boundTo(r.ClearedHash, hash) {
 			m.ClearedBy = append(m.ClearedBy, r.Name)
 		}
 	}
@@ -62,12 +85,12 @@ func applyState(m *finding.Meta, st db.State, hash string, f workflow.Flow) {
 }
 
 // Approved reports whether st is complete or reported for exactly this
-// content (hash of finding.md).
+// content (the ApprovalHash of finding.md).
 func Approved(st db.State, hash string) bool {
 	if st.Status != "complete" && st.Status != "reported" {
 		return false
 	}
-	return st.ApprovedHash == "" || st.ApprovedHash == hash
+	return st.ApprovedHash == "" || boundTo(st.ApprovedHash, hash)
 }
 
 // FindingDirs lists the engagement's finding folders (those holding a
@@ -207,9 +230,9 @@ func (s *Store) read(engID, dir string, states map[string]db.State) (FindingRef,
 			return FindingRef{}, nil, err
 		}
 	}
-	hash := contentHash(b)
-	applyState(&f.Meta, st, hash, s.Flow())
-	ref := FindingRef{EngID: engID, Dir: dir, F: f, Hash: hash}
+	full := ApprovalHash(b)
+	applyState(&f.Meta, st, full, s.Flow())
+	ref := FindingRef{EngID: engID, Dir: dir, F: f, Hash: contentHash(b), Full: full}
 	if fi, err := s.root.Stat(findingPath(engID, dir)); err == nil {
 		ref.Modified = fi.ModTime().UTC()
 	}

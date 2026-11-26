@@ -202,7 +202,7 @@ func cmdMigrate(args []string, out io.Writer) error {
 					}
 				}
 				next := f.Bytes()
-				hash := store.ContentHash(next)
+				hash := store.ApprovalHash(next)
 				st := db.State{Status: l.Status}
 				if st.Status == "complete" || st.Status == "reported" {
 					st.ApprovedHash = hash // approved for exactly this content

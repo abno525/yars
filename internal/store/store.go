@@ -70,8 +70,10 @@ type FindingRef struct {
 	F          *finding.Finding
 	// Hash is the ContentHash of finding.md as read ("" for a ref not read
 	// from disk); Modified is when the file last changed on disk (zero when
-	// unknown).
+	// unknown). Full is its ApprovalHash, read with it: what an approval or
+	// a sign-off given for this content is bound to.
 	Hash     string
+	Full     string
 	Modified time.Time
 }
 

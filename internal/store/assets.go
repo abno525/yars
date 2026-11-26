@@ -344,7 +344,7 @@ func (s *Store) changeFilesLocked(engID, dir string, who Actor, fn func(ref Find
 	*ev = filesEvent(who.GitAuthor().Name, ref, fp, prev, files)
 	// a director's edit of a complete or reported finding keeps its approval
 	if files[fp] != nil {
-		serr = errors.Join(serr, s.carryApproval(ref, contentHash(prev[fp]), contentHash(files[fp])))
+		serr = errors.Join(serr, s.carryApproval(ref, ApprovalHash(prev[fp]), ApprovalHash(files[fp])))
 	}
 	return ref, serr
 }

@@ -89,7 +89,7 @@ func TestSimpleCompleteSetsApproval(t *testing.T) {
 	}
 	var evs []Event
 	s.OnEvent(func(e Event) { evs = append(evs, e) })
-	hash := load(t, s, fd).Hash
+	hash := load(t, s, fd).Full
 	if err := s.Transition(eng, fd, workflow.Complete, "", sBen); err != nil {
 		t.Fatal(err)
 	}
@@ -242,8 +242,8 @@ func TestSimpleEditKeepsComplete(t *testing.T) {
 		t.Fatal(err)
 	}
 	ref := load(t, s, fd)
-	if ref.F.Meta.Status != "complete" || stateOf(t, s, fd).ApprovedHash != ref.Hash {
-		t.Fatalf("after an edit: %s, approved %s, hash %s", ref.F.Meta.Status, stateOf(t, s, fd).ApprovedHash, ref.Hash)
+	if ref.F.Meta.Status != "complete" || stateOf(t, s, fd).ApprovedHash != ref.Full {
+		t.Fatalf("after an edit: %s, approved %s, hash %s", ref.F.Meta.Status, stateOf(t, s, fd).ApprovedHash, ref.Full)
 	}
 	if err := s.Transition(eng, fd, workflow.Report, "", sBen); err != nil {
 		t.Fatal(err)
@@ -275,7 +275,7 @@ func TestSimpleDriftDemotesToDraft(t *testing.T) {
 	if err := s.Transition(eng, fd, workflow.Complete, "", sBen); err != nil {
 		t.Fatal(err)
 	}
-	if stateOf(t, s, fd).ApprovedHash != load(t, s, fd).Hash {
+	if stateOf(t, s, fd).ApprovedHash != load(t, s, fd).Full {
 		t.Fatal("not approved for the current content")
 	}
 	// the standard workflow reads the same state as verification

@@ -218,7 +218,7 @@ func fill(dir string, o Options, pw string) error {
 			if err := os.WriteFile(filepath.Join(fdir, "finding.md"), raw, 0o644); err != nil {
 				return err
 			}
-			made = append(made, gen{fid, store.ContentHash(raw), perFinding[ei*o.Findings+fi]})
+			made = append(made, gen{fid, store.ApprovalHash(raw), perFinding[ei*o.Findings+fi]})
 		}
 		r, err := gitrepo.Init(edir)
 		if err != nil {

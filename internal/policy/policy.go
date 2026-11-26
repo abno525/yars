@@ -839,7 +839,7 @@ func (c *Checker) status(eng, fid string, raw []byte) string {
 	if err != nil {
 		return unreadable // fail closed: only a director may edit, and is told why
 	}
-	drifted := (st.Status == "complete" || st.Status == "reported") && !store.Approved(st, store.ContentHash(raw))
+	drifted := (st.Status == "complete" || st.Status == "reported") && !store.Approved(st, store.ApprovalHash(raw))
 	if workflow.FlowOf(c.Cfg).Simple {
 		if drifted || st.Status == "verification" {
 			return "draft"
