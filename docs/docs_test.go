@@ -193,6 +193,19 @@ func TestCIVulnJobUsesTheNewestGo(t *testing.T) {
 	}
 }
 
+// The race job gives one package more than go test's ten minutes (the web
+// package alone may need them under the detector), and the job more than
+// its packages one after the other.
+func TestCIRaceJobSetsItsTimeouts(t *testing.T) {
+	j := ciJob(t, "race")
+	if !strings.Contains(j, "run: go test -race -p 1 -timeout 45m ./internal/...\n") {
+		t.Errorf("the race step has no timeout of its own:\n%s", j)
+	}
+	if !strings.Contains(j, "timeout-minutes: 120\n") {
+		t.Errorf("the race job's own limit:\n%s", j)
+	}
+}
+
 // The git guide tells the holder of a clone from before engagements had
 // repositories of their own what to do with commits not pushed yet
 // (backlog, M11).
