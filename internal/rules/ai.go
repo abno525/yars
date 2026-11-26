@@ -126,8 +126,9 @@ func (rn *Runner) ask(ctx context.Context, c config.AIConfig, key, system, user,
 // logCall writes a provider call's one line when it ends: what it was for
 // (rule, fix or test), the rule's ID, the provider and model, who asked and
 // on which finding, the tokens and the time; a call that failed is a warning
-// with what failed in a few words (callErr). Never the address, the prompt
-// or the reply.
+// with what failed in a few words (callErr), and with the status and the
+// provider's host when the provider refused it. Never the rest of the
+// address, the prompt or the reply.
 func (rn *Runner) logCall(ctx context.Context, who Caller, c config.AIConfig, purpose, rule string, in, out int, took time.Duration, err error) {
 	attrs := []slog.Attr{slog.String("purpose", purpose)}
 	if rule != "" {
@@ -145,6 +146,10 @@ func (rn *Runner) logCall(ctx context.Context, who Caller, c config.AIConfig, pu
 	}
 	attrs = append(attrs, slog.Int("in", in), slog.Int("out", out), slog.Int64("ms", took.Milliseconds()))
 	if err != nil {
+		var ref *refused
+		if errors.As(err, &ref) {
+			attrs = append(attrs, slog.Int("status", ref.status), slog.String("host", ref.host))
+		}
 		attrs = append(attrs, slog.String("err", callErr(err)))
 		rn.log().LogAttrs(ctx, slog.LevelWarn, "ai call failed", attrs...)
 		return
@@ -292,11 +297,19 @@ func (rn *Runner) post(ctx context.Context, url string, body any, hdr map[string
 	if resp.StatusCode/100 != 2 {
 		// the body can echo the key, the account or the request (the
 		// finding's text): users and the server log get the status only
-		rn.log().Warn("ai: the provider refused a call", "status", resp.StatusCode, "host", req.URL.Host)
-		return fmt.Errorf("HTTP %d", resp.StatusCode)
+		return &refused{status: resp.StatusCode, host: req.URL.Host}
 	}
 	return json.Unmarshal(data, out)
 }
+
+// refused is a provider's answer whose status is not 2xx: the status and
+// the host asked, for the call's log line. Its text is the status alone.
+type refused struct {
+	status int
+	host   string
+}
+
+func (e *refused) Error() string { return fmt.Sprintf("HTTP %d", e.status) }
 
 // openai asks an OpenAI-compatible provider; in and out are the tokens it
 // reported (usage.prompt_tokens, usage.completion_tokens).

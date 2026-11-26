@@ -281,7 +281,7 @@ func TestNoPrivateTextInLog(t *testing.T) {
 			wants := []string{`msg=request `, `user=alice`, `eng=acme`, `finding=F-002`, `msg="login failed"`, `msg="request failed"`, `route="POST /e/{eng}/f/{fid}/s/{section}"`, `status=500`, "permission denied", "git commit -q --only -- "}
 			// the background work's lines, each driven above
 			jobs := []string{"check run finished", "export finished", "webhook delivered", "webhook delivery failed; it is tried again",
-				"notification email sent", "notification email not sent", "ai call finished", "ai call failed", "ai: the provider refused a call"}
+				"notification email sent", "notification email not sent", "ai call finished", "ai call failed"}
 			for _, m := range jobs {
 				wants = append(wants, `msg="`+m+`"`)
 			}

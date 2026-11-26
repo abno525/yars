@@ -290,9 +290,10 @@ func TestAIErrorShowsStatusOnly(t *testing.T) {
 	}
 }
 
-// The server log gets the status and the provider's host, one line a call,
-// and nothing of the error body: a provider can echo the request there (the
-// finding's text) or the key.
+// The server log gets one warn line for a call the provider refused, the
+// call's own, with the status and the provider's host, and nothing of the
+// error body: a provider can echo the request there (the finding's text) or
+// the key.
 func TestAIErrorLogHasNoBody(t *testing.T) {
 	lg, logged := logs.NewRecorder()
 	for i, provider := range []string{"anthropic", "openai"} {
@@ -306,13 +307,14 @@ func TestAIErrorLogHasNoBody(t *testing.T) {
 		if len(vs) != 1 || vs[0].Message != "AI check failed: HTTP 500" {
 			t.Fatalf("%s: got %+v", provider, vs)
 		}
-		recs := logged.With("ai: the provider refused a call")
-		if len(recs) != i+1 || recs[i].Str("status") != "500" || recs[i].Str("host") != strings.TrimPrefix(srv.URL, "http://") || recs[i].Level != slog.LevelWarn {
+		recs := logged.With("ai call failed")
+		if len(recs) != i+1 || recs[i].Str("status") != "500" || recs[i].Str("host") != strings.TrimPrefix(srv.URL, "http://") || recs[i].Level != slog.LevelWarn ||
+			recs[i].Str("err") != "HTTP 500" || recs[i].Str("rule") != acr.ID || recs[i].Str("provider") != provider {
 			t.Fatalf("%s: log:\n%s", provider, logged.Text())
 		}
 	}
 	if out := logged.Text(); strings.Contains(out, "secret") || strings.Contains(out, "hunter2") || strings.Contains(out, "fake log line") ||
-		len(logged.With("ai: the provider refused a call")) != 2 || len(logged.With("ai call failed")) != 2 || len(logged.Records()) != 4 {
+		len(logged.With("ai call failed")) != 2 || len(logged.Records()) != 2 {
 		t.Fatalf("log:\n%s", out)
 	}
 }
