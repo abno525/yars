@@ -11,7 +11,7 @@
 //	yars backup --data <dir> [--key] --out <file.zip>   (works while the server runs)
 //	yars restore --from <file.zip> --data <new dir>   (--data is required: never the default)
 //	yars lint --data <dir> [--all] [<engagement>[/<finding>]]   (a finding by folder, ID or number)
-//	yars seed [--simple] --data <new dir> --engagements N --findings M --messages K   (development data)
+//	yars seed [--simple] --data <new dir> [--engagements 2] [--findings 20] [--messages 50]   (development data; prints the accounts' random password)
 //
 // Flags come before the other arguments. Without --data, a command works
 // on $YARS_DATA, else the folder set with yars use (data: in
@@ -777,7 +777,7 @@ func usage() {
   yars hook install [--data <clone>]   (a pre-commit hook in every engagement of the clone)
   yars export --data <dir> --exporter <id> <eng>
   yars mcp --data <clone> --user <name>
-  yars seed [--simple] --data <new dir> [--engagements 50] [--findings 300] [--messages 10000]   (development data)`)
+  yars seed [--simple] --data <new dir> [--engagements 2] [--findings 20] [--messages 50]   (development data; prints the accounts' password)`)
 	os.Exit(2)
 }
 
@@ -879,14 +879,17 @@ func cmdInitOut(args []string, out io.Writer) error {
 }
 
 // cmdSeed builds a fresh data directory with generated data (development
-// and benchmarks): yars seed [--simple] --data <dir> --engagements N --findings M --messages K
+// and benchmarks): yars seed [--simple] --data <dir> [--engagements N]
+// [--findings M] [--messages K]. Without the numbers it is small (2
+// engagements of 20 findings, 50 messages). The accounts share one random
+// password, printed once.
 func cmdSeed(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("seed", flag.ContinueOnError)
 	data := fs.String("data", "", "new data directory (must not exist or be empty)")
 	o := seed.Options{}
-	fs.IntVar(&o.Engagements, "engagements", 50, "engagements")
-	fs.IntVar(&o.Findings, "findings", 300, "findings per engagement")
-	fs.IntVar(&o.Messages, "messages", 10000, "chat messages in all")
+	fs.IntVar(&o.Engagements, "engagements", 2, "engagements")
+	fs.IntVar(&o.Findings, "findings", 20, "findings per engagement")
+	fs.IntVar(&o.Messages, "messages", 50, "chat messages in all")
 	fs.BoolVar(&o.Simple, "simple", false, "a data folder of the simple workflow (yars init --simple)")
 	fs.SetOutput(out)
 	if err := fs.Parse(args); err != nil {
@@ -902,7 +905,9 @@ func cmdSeed(args []string, out io.Writer) error {
 	if err := initDataMode(*data, o.Simple); err != nil {
 		return err
 	}
-	if err := seed.Fill(*data, o); err != nil {
+	// the accounts get a random password, printed here once
+	pw, err := seed.Fill(*data, o)
+	if err != nil {
 		return err
 	}
 	users := seed.Users
@@ -913,8 +918,8 @@ func cmdSeed(args []string, out io.Writer) error {
 	for _, u := range users {
 		names = append(names, u.Username)
 	}
-	fmt.Fprintf(out, "seeded %s: %d engagements × %d findings, %d messages in %s; users %s (password %q)\n",
-		*data, o.Engagements, o.Findings, o.Messages, time.Since(start).Round(time.Millisecond), strings.Join(names, ", "), seed.Password)
+	fmt.Fprintf(out, "seeded %s: %d engagements × %d findings, %d messages in %s; users %s (password %s)\n",
+		*data, o.Engagements, o.Findings, o.Messages, time.Since(start).Round(time.Millisecond), strings.Join(names, ", "), pw)
 	return nil
 }
 

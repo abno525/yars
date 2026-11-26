@@ -20,7 +20,8 @@ func TestFillSimple(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := Fill(dir, Options{Engagements: 3, Findings: 20, Messages: 60, Simple: true}); err != nil {
+	pw, err := Fill(dir, Options{Engagements: 3, Findings: 20, Messages: 60, Simple: true})
+	if err != nil {
 		t.Fatal(err)
 	}
 	d, err := db.Open(db.Path(dir))
@@ -39,7 +40,10 @@ func TestFillSimple(t *testing.T) {
 	}
 	a := auth.New(d)
 	for _, u := range []string{"dir1", "dir2"} {
-		if _, ok := a.Check(u, Password); !ok {
+		if _, ok := a.Check(u, "password"); ok {
+			t.Errorf("%s logs in with \"password\"", u)
+		}
+		if _, ok := a.Check(u, pw); !ok {
 			t.Errorf("login %s failed", u)
 		}
 	}

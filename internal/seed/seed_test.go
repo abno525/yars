@@ -28,7 +28,8 @@ func TestFill(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := Fill(dir, Options{Engagements: 3, Findings: 7, Messages: 40}); err != nil {
+	pw, err := Fill(dir, Options{Engagements: 3, Findings: 7, Messages: 40})
+	if err != nil {
 		t.Fatal(err)
 	}
 	d, err := db.Open(db.Path(dir))
@@ -77,11 +78,70 @@ func TestFill(t *testing.T) {
 	if err != nil || len(links) != 3 {
 		t.Errorf("gitlinks %v %v", links, err)
 	}
+	// every account has the password Fill made and returned; the old fixed
+	// one opens nothing
+	if auth.PasswordProblem(pw) != "" || pw == "password" {
+		t.Fatalf("password %q: %s", pw, auth.PasswordProblem(pw))
+	}
 	a := auth.New(d)
 	for _, u := range []string{"dir1", "rev1", "pen1"} {
-		if _, ok := a.Check(u, "password"); !ok {
-			t.Errorf("login %s failed", u)
+		if _, ok := a.Check(u, "password"); ok {
+			t.Errorf("%s logs in with \"password\"", u)
 		}
+		if _, ok := a.Check(u, pw); !ok {
+			t.Errorf("login %s with the returned password failed", u)
+		}
+	}
+}
+
+// The password is made anew for each fill, never drawn from the data's
+// repeatable generator: the same Seed gives the same findings and another
+// password. A password given in Options is the one used.
+func TestFillPassword(t *testing.T) {
+	fill := func(o Options) (string, string) {
+		t.Helper()
+		dir := t.TempDir()
+		if _, err := gitrepo.Init(dir); err != nil {
+			t.Fatal(err)
+		}
+		pw, err := Fill(dir, o)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return pw, dir
+	}
+	o := Options{Engagements: 1, Findings: 3, Seed: 7}
+	pw1, dir1 := fill(o)
+	pw2, dir2 := fill(o)
+	if pw1 == pw2 {
+		t.Fatalf("two fills with one seed made the same password %q", pw1)
+	}
+	tree := func(dir string) string {
+		return gitOut(t, filepath.Join(dir, "engagements", "e001"), "rev-parse", "HEAD^{tree}")
+	}
+	if tree(dir1) != tree(dir2) {
+		t.Fatal("the same seed made other findings")
+	}
+	o.Password = "a password of the test"
+	pw, dir := fill(o)
+	if pw != o.Password {
+		t.Fatalf("returned %q", pw)
+	}
+	d, err := db.Open(db.Path(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	if _, ok := auth.New(d).Check("dir1", o.Password); !ok {
+		t.Fatal("the given password does not log in")
+	}
+	// a password the website would refuse is refused here too
+	bad := t.TempDir()
+	if _, err := gitrepo.Init(bad); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Fill(bad, Options{Engagements: 1, Password: "short"}); err == nil {
+		t.Fatal("a short password was taken")
 	}
 }
 
@@ -90,10 +150,10 @@ func TestFillRefusesExisting(t *testing.T) {
 	if _, err := gitrepo.Init(dir); err != nil {
 		t.Fatal(err)
 	}
-	if err := Fill(dir, Options{Engagements: 1, Findings: 1}); err != nil {
+	if _, err := Fill(dir, Options{Engagements: 1, Findings: 1}); err != nil {
 		t.Fatal(err)
 	}
-	if err := Fill(dir, Options{Engagements: 1, Findings: 1}); err == nil {
+	if _, err := Fill(dir, Options{Engagements: 1, Findings: 1}); err == nil {
 		t.Fatal("second fill succeeded")
 	}
 }

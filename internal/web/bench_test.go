@@ -63,7 +63,8 @@ func seeded(tb testing.TB, o seed.Options) *seededEnv {
 	if err != nil {
 		tb.Fatal(err)
 	}
-	if err := seed.Fill(dir, o); err != nil {
+	pw, err := seed.Fill(dir, o)
+	if err != nil {
 		tb.Fatal(err)
 	}
 	cfg, err := config.Load(dir)
@@ -80,7 +81,7 @@ func seeded(tb testing.TB, o seed.Options) *seededEnv {
 	srv := &Server{Store: st, Index: index.New(st, r), Auth: au, Cfg: cfg}
 	e := &seededEnv{srv: srv, h: srv.Handler(), st: st, d: d, toks: map[string]string{}}
 	for _, u := range seed.Users {
-		tok, ok := au.Login(u.Username, seed.Password)
+		tok, ok := au.Login(u.Username, pw)
 		if !ok {
 			tb.Fatal("login", u.Username)
 		}

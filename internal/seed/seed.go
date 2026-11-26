@@ -5,8 +5,10 @@
 package seed
 
 import (
+	crand "crypto/rand"
 	"errors"
 	"fmt"
+	"math/big"
 	"math/rand/v2"
 	"os"
 	"path/filepath"
@@ -28,15 +30,34 @@ import (
 // findings. Seed makes the data repeatable (0 = a fixed default). Simple
 // seeds the simple workflow's accounts and states (SimpleUsers; draft,
 // complete, reported, withdrawn), for a data folder set up with yars init
-// --simple.
+// --simple. Password is the password of every seeded account; empty, Fill
+// makes a random one (never from Seed) and returns it.
 type Options struct {
 	Engagements, Findings, Messages int
 	Seed                            uint64
 	Simple                          bool
+	Password                        string
 }
 
-// Password is the password of every seeded account.
-const Password = "password"
+// newPassword makes the accounts' password from the system's random source:
+// three groups of four letters and digits (no look-alikes). dir1 is an admin,
+// so a password anyone can know (a fixed one, or one drawn from the data's
+// repeatable generator) would hand over the server it runs on.
+func newPassword() (string, error) {
+	const chars = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+	var sb strings.Builder
+	for i := range 12 {
+		if i > 0 && i%4 == 0 {
+			sb.WriteByte('-')
+		}
+		n, err := crand.Int(crand.Reader, big.NewInt(int64(len(chars))))
+		if err != nil {
+			return "", err
+		}
+		sb.WriteByte(chars[n.Int64()])
+	}
+	return sb.String(), nil
+}
 
 // Users are the seeded accounts: a director, a reviewer and a pentester.
 var Users = []config.User{
@@ -80,8 +101,23 @@ const para = "The application does not validate the `id` parameter before using 
 // Fill adds the generated data to the initialised main repository in dir:
 // accounts, engagement repos with findings, workflow state and chat (in
 // the data directory's database). It refuses a directory that already has
-// engagements.
-func Fill(dir string, o Options) error {
+// engagements. It returns the password of the accounts: o.Password, or the
+// random one it made.
+func Fill(dir string, o Options) (string, error) {
+	pw := o.Password
+	if pw == "" {
+		var err error
+		if pw, err = newPassword(); err != nil {
+			return "", err
+		}
+	}
+	if p := auth.PasswordProblem(pw); p != "" {
+		return "", errors.New("seed: password: " + p)
+	}
+	return pw, fill(dir, o, pw)
+}
+
+func fill(dir string, o Options, pw string) error {
 	if o.Engagements < 1 || o.Findings < 0 || o.Messages < 0 {
 		return errors.New("seed: need at least one engagement")
 	}
@@ -106,7 +142,7 @@ func Fill(dir string, o Options) error {
 		return err
 	}
 	defer d.Close()
-	hash, err := auth.HashPassword(Password)
+	hash, err := auth.HashPassword(pw)
 	if err != nil {
 		return err
 	}

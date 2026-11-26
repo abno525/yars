@@ -297,7 +297,7 @@ func TestSeedSimple(t *testing.T) {
 	if err := cmdSeed([]string{"--simple", "--data", dir, "--engagements", "2", "--findings", "12", "--messages", "10"}, &out); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), `; users dir1, dir2 (password "password")`) {
+	if !strings.Contains(out.String(), `; users dir1, dir2 (password `) || strings.Contains(out.String(), `"password"`) {
 		t.Errorf("output %q", out.String())
 	}
 	r, _ := gitrepo.Open(dir)
