@@ -1,22 +1,29 @@
 name: ci
 # once per change: a PR's runs, and master's after a merge; by hand from the
-# Actions tab (with the race step) for any branch
+# Actions tab (with the race and vulnerability jobs) for any branch; each
+# Monday the vulnerability job alone
 on:
   push:
     branches: [master]
   pull_request:
   workflow_dispatch:
+  schedule:
+    - cron: '17 5 * * 1'
+# the jobs read the repository and nothing else
+permissions:
+  contents: read
 # a newer push to a PR cancels its older run; master's runs all finish
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   test:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
       - name: git identity for the tests
@@ -30,9 +37,42 @@ jobs:
         run: test -z "$(gofmt -l .)"
       - name: vet
         run: go vet ./...
+      # the version is pinned here (Dependabot does not see it); its checks
+      # are set in staticcheck.conf. 2026.2.2 is module version v0.8.2
+      - name: staticcheck
+        run: go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...
       - name: test
         run: go test ./...
-      # 12 of a run's 18 minutes: on master and by hand, not on every PR push
+  # every package of internal/ under the race detector. It took 12 of a run's
+  # 18 minutes for five packages: on master and by hand, not on every PR
+  # push. One package at a time: the detector multiplies a test's memory
+  race:
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: git identity for the tests
+        run: |
+          git config --global user.name ci
+          git config --global user.email ci@yars.local
+          git config --global init.defaultBranch main
       - name: race
-        if: github.event_name != 'pull_request'
-        run: go test -race ./internal/store ./internal/db ./internal/index ./internal/events ./internal/web
+        run: go test -race -p 1 ./internal/...
+  # known vulnerabilities in the Go release of go.mod and in the modules, as
+  # far as the code calls them. Not on PRs: a new advisory would fail every
+  # unrelated change the day it is published. The version is pinned here
+  vuln:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.10.0 ./...

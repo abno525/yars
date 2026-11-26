@@ -38,7 +38,7 @@ func TestRoundTrip(t *testing.T) {
 	if len(got) != 1 || !reflect.DeepEqual(got[0], m) {
 		t.Fatalf("got %+v", got)
 	}
-	if len(NewID()) != 12 || NewID() == NewID() {
+	if a, b := NewID(), NewID(); len(a) != 12 || a == b {
 		t.Fatal("bad ids")
 	}
 }

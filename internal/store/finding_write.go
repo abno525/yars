@@ -179,14 +179,10 @@ func (s *Store) UpdateSection(engID, dir, section, body, base string, a Actor) e
 	})
 }
 
-// mutate loads a finding, applies fn, and commits the result as one commit
-// "<ID>: <msg>". No commit is made when the file is unchanged.
-func (s *Store) mutate(engID, dir string, a gitrepo.Author, fn func(f *finding.Finding) (string, error)) error {
-	return s.mutateThen(engID, dir, a, fn, nil)
-}
-
-// mutateThen is mutate with a step that runs after the commit, still under
-// the engagement's lock, with the file's hash before and after.
+// mutateThen loads a finding, applies fn, and commits the result as one
+// commit "<ID>: <msg>". No commit is made when the file is unchanged. then
+// (may be nil) runs after the commit, still under the engagement's lock,
+// with the file's hash before and after.
 func (s *Store) mutateThen(engID, dir string, a gitrepo.Author, fn func(f *finding.Finding) (string, error), then func(ref FindingRef, oldHash, newHash string) error) error {
 	ev, err := s.mutateLocked(engID, dir, a, fn, then)
 	if ev.Kind != "" {
