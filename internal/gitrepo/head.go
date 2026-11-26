@@ -71,11 +71,15 @@ func isHash(s string) bool {
 
 // ReadHead returns the commit HEAD points to in the work tree at dir ("" for
 // a branch with no commits yet), reading .git/HEAD and the ref (loose or
-// packed) directly: no git process is started.
+// packed) directly: no git process is started. A repository that keeps its
+// refs in a reftable (not one Init made) has no such files: git is asked.
 func ReadHead(dir string) (string, error) {
 	gd, common, err := gitDirs(dir)
 	if err != nil {
 		return "", err
+	}
+	if fi, err := os.Stat(filepath.Join(common, "reftable")); err == nil && fi.IsDir() {
+		return (&Repo{Dir: dir}).Head()
 	}
 	b, err := os.ReadFile(filepath.Join(gd, "HEAD"))
 	if err != nil {

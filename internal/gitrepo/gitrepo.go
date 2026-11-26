@@ -97,6 +97,10 @@ func Open(dir string) (*Repo, error) {
 	return r, nil
 }
 
+// RefFormatEnv is the environment entry that makes a git init write the
+// files ref format.
+const RefFormatEnv = "GIT_DEFAULT_REF_FORMAT=files"
+
 // Init creates a repository in dir (branch main) if none exists, then opens it.
 func Init(dir string) (*Repo, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -104,7 +108,12 @@ func Init(dir string) (*Repo, error) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, ".git")); os.IsNotExist(err) {
 		spawned.Add(1)
-		if out, err := exec.Command("git", "init", "-q", "-b", "main", dir).CombinedOutput(); err != nil {
+		cmd := exec.Command("git", "init", "-q", "-b", "main", dir)
+		// refs as files, whatever init.defaultRefFormat says: ReadHead reads
+		// them without git. (Not --ref-format: git before 2.45 has no such
+		// option, and ignores the variable.)
+		cmd.Env = append(os.Environ(), RefFormatEnv)
+		if out, err := cmd.CombinedOutput(); err != nil {
 			return nil, fmt.Errorf("git init: %w: %s", err, out)
 		}
 	}

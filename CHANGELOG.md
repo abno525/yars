@@ -65,6 +65,7 @@ What changed for people who run or use YARS. Newest first.
 - Fix with AI sends the section between the same delimiters as an AI check, so text in a finding cannot pass as the rule.
 - A new account cannot take a username that differs from another only in the case of its ASCII letters (`Alice` beside `alice`). Accounts that already do keep working; `yars serve` logs them at start. The database schema is 25.
 - Live updates of an open page end within 25 seconds of a logout, a disabled account or leaving the team. One account holds at most 20 live streams.
-- A merge into a complete or reported finding keeps its approval also when the source brings a new asset (before: the finding fell back to verification). A merge into a finding in verification drops its sign-offs when the source brings an attachment. The `finding.updated` webhook of a metadata edit names the reviewers.
+- A merge into a complete or reported finding keeps its approval also when the source brings a new asset (before: the finding fell back to verification). The `finding.updated` webhook of a metadata edit names the reviewers.
 - The Merge page has the panel Not moved: the source's details rows and CVSS, which the target does not take.
+- A service account whose git config sets `init.defaultRefFormat=reftable` works: YARS makes its repositories with refs as files, and reads the commit of a repository that is reftable already by asking git.
 - Admin › Structure renames a name in findings, templates and report text only when its own row was retyped. Removing one name and adding another in the same save is a removal and an addition (before: read as a rename, which rewrote every finding): a removed name that is still used is refused.
