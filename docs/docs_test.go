@@ -206,6 +206,31 @@ func TestCIRaceJobSetsItsTimeouts(t *testing.T) {
 	}
 }
 
+// CONTRIBUTING lists every command CI's test job runs on a pull request,
+// staticcheck at CI's pinned version among them: what passes there passes
+// in CI.
+func TestContributingListsCIsCommands(t *testing.T) {
+	b, err := os.ReadFile("../CONTRIBUTING.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := string(b)
+	n := 0
+	for _, l := range strings.Split(ciJob(t, "test"), "\n") {
+		cmd, ok := strings.CutPrefix(strings.TrimSpace(l), "run: ")
+		if !ok || cmd == "|" {
+			continue
+		}
+		n++
+		if !strings.Contains(c, "\n"+cmd+"\n") {
+			t.Errorf("CONTRIBUTING lacks CI's command %q", cmd)
+		}
+	}
+	if n < 5 || !strings.Contains(c, "staticcheck@v") {
+		t.Errorf("%d commands read from the test job; staticcheck must be one", n)
+	}
+}
+
 // The git guide tells the holder of a clone from before engagements had
 // repositories of their own what to do with commits not pushed yet
 // (backlog, M11).

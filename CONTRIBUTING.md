@@ -15,10 +15,11 @@ go build -o yars ./cmd/yars
 go mod tidy -diff
 test -z "$(gofmt -l .)"
 go vet ./...
+go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...
 go test ./...
 ```
 
-CI runs the same commands. The tests make git commits, so git needs a name, an email and `main` as the default branch:
+CI runs the same commands on every pull request. staticcheck is pinned to the version CI uses (release 2026.2.2); its checks are set in `staticcheck.conf`. The tests make git commits, so git needs a name, an email and `main` as the default branch:
 
 ```sh
 git config --global user.name you
