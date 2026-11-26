@@ -182,7 +182,7 @@ sudo -u yars yars restore --from /backups/yars-2026-11-11.zip --data /srv/yars-r
 sudo -u yars yars serve --data /srv/yars-restored --addr 127.0.0.1:8081
 ```
 
-A restore always goes into a new (or empty) folder and checks it before it reports success. Open the second server (an SSH tunnel to port 8081 will do) and compare Admin › System's counts of engagements and findings with the live server's. Then stop it and remove the folder (`sudo rm -r /srv/yars-restored`).
+A restore always goes into a new (or empty) folder and checks it before it reports success. It takes no git hook from the ZIP, and of each repository's git config only the basic settings; the server writes its own settings and its push hook at the next start. A hook or git setting added by hand on the old server must be added again. Open the second server (an SSH tunnel to port 8081 will do) and compare Admin › System's counts of engagements and findings with the live server's. Then stop it and remove the folder (`sudo rm -r /srv/yars-restored`).
 
 ## Upgrade
 

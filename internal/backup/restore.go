@@ -62,6 +62,10 @@ func Restore(zipPath, destDir string) (Report, error) {
 			return rep, fmt.Errorf("%s: not a plain file inside the data folder", f.Name)
 		}
 		name := strings.TrimSuffix(f.Name, "/")
+		// a .git file names another folder as the repository
+		if part, ok := gitPart(name); ok && len(part) == 0 && !f.Mode().IsDir() {
+			return rep, fmt.Errorf("%s: .git must be a folder", f.Name)
+		}
 		if name != dbEntry && Skip(name, true) {
 			return rep, fmt.Errorf("%s: not part of a backup", f.Name)
 		}
@@ -171,10 +175,37 @@ func schemaIn(f *zip.File) (int, error) {
 	return db.SchemaOf(tmp.Name())
 }
 
-// unpack writes every entry under dest, keeping file modes.
+// maxGitConfig is the most a ZIP's git config is read for its settings.
+const maxGitConfig = 1 << 20
+
+// unpack writes every entry under dest, keeping file modes. Of a git folder
+// it leaves the hooks out and writes the config again from its kept
+// settings (gitconfig.go), so nothing unpacked makes git run a program.
 func unpack(files []*zip.File, dest string) error {
 	for _, f := range files {
 		target := filepath.Join(dest, filepath.FromSlash(path.Clean(f.Name)))
+		part, inGit := gitPart(f.Name)
+		if inGit && gitDropped(part) {
+			continue
+		}
+		if inGit && len(part) == 1 && part[0] == "config" && !f.Mode().IsDir() {
+			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+				return err
+			}
+			rc, err := f.Open()
+			if err != nil {
+				return fmt.Errorf("%s: %w", f.Name, err)
+			}
+			b, err := io.ReadAll(io.LimitReader(rc, maxGitConfig))
+			rc.Close()
+			if err != nil {
+				return fmt.Errorf("%s: %w", f.Name, err)
+			}
+			if err := os.WriteFile(target, cleanGitConfig(b), 0o644); err != nil {
+				return err
+			}
+			continue
+		}
 		if f.Mode().IsDir() {
 			if err := os.MkdirAll(target, f.Mode().Perm()|0o700); err != nil {
 				return err
