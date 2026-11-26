@@ -65,3 +65,4 @@ What changed for people who run or use YARS. Newest first.
 - Fix with AI sends the section between the same delimiters as an AI check, so text in a finding cannot pass as the rule.
 - A new account cannot take a username that differs from another only in the case of its ASCII letters (`Alice` beside `alice`). Accounts that already do keep working; `yars serve` logs them at start. The database schema is 25.
 - Live updates of an open page end within 25 seconds of a logout, a disabled account or leaving the team. One account holds at most 20 live streams.
+- Admin › Structure renames a name in findings, templates and report text only when its own row was retyped. Removing one name and adding another in the same save is a removal and an addition (before: read as a rename, which rewrote every finding): a removed name that is still used is refused.

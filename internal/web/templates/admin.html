@@ -105,7 +105,7 @@
       {{range $i, $it := .Items}}
         <div class="sitem">
           {{if .Sev}}<span class="sw seg-{{.Value}}"></span>{{end}}
-          <input name="{{$l.Field}}" value="{{.Value}}"{{if .Locked}} readonly{{end}} aria-label="{{$l.Title}} {{.Value}}">
+          <input name="{{$l.Field}}" value="{{.Value}}"{{if .Locked}} readonly{{end}} aria-label="{{$l.Title}} {{.Value}}"><input type="hidden" name="was_{{$l.Field}}" value="{{.Was}}">
           <span class="mono sused">{{.Used}}</span>
           <button class="btn ghost sm icon" name="op" value="up:{{$l.Key}}:{{$i}}" aria-label="Up"{{if eq $i 0}} disabled{{end}}>↑</button>
           <button class="btn ghost sm icon" name="op" value="down:{{$l.Key}}:{{$i}}" aria-label="Down"{{if .Last}} disabled{{end}}>↓</button>

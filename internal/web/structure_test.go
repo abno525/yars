@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -17,6 +18,9 @@ import (
 func (e *env) structForm() url.Values {
 	c := e.srv.conf()
 	v := url.Values{"section": c.Sections, "detail": c.DetailsRows, "severity": c.Severities, "report": c.ReportSections, "version": {c.CVSS.Version}}
+	for _, k := range []string{"section", "detail", "severity", "report"} {
+		v["was_"+k] = slices.Clone(v[k]) // each row's original name
+	}
 	for k, x := range c.CVSS.Standard {
 		v.Set("std_"+k, x)
 	}
@@ -214,6 +218,130 @@ func TestStructureRemoveInUseRefused(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(e.dir, ".yars", "config.yaml")); !os.IsNotExist(err) {
 		t.Fatal("config.yaml written")
+	}
+}
+
+// engHead is the last commit of the acme engagement repository.
+func (e *env) engHead(t *testing.T) string {
+	t.Helper()
+	out, err := exec.Command("git", "-C", filepath.Join(e.dir, "engagements", "acme"), "rev-parse", "HEAD").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// swapRow is the form with the row named old removed and a new row named
+// name, whose original is was ("" = an added row), at the end.
+func swapRow(v url.Values, field, old, name, was string) {
+	i := slices.Index(v[field], old)
+	v[field] = append(slices.Delete(slices.Clone(v[field]), i, i+1), name)
+	v["was_"+field] = append(slices.Delete(slices.Clone(v["was_"+field]), i, i+1), was)
+}
+
+// A removed name and an added one are not a rename: the row carries the name
+// it had, and only a row that kept it is renamed. Removing a name in use is
+// refused, whatever is added beside it.
+func TestStructureRemoveAndAddIsNoRename(t *testing.T) {
+	e := setup(t)
+	if err := e.srv.Store.UpdateSection("acme", fdir, "Impact", "Data loss.", "", wAlice); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(e.dir, "engagements", "acme", "findings", fdir, "finding.md")
+	before, _ := os.ReadFile(file)
+	for _, was := range []string{"", "Ghost"} { // an added row; a forged original
+		v := e.structForm()
+		swapRow(v, "section", "Impact", "Notes", was)
+		v.Set("op", "save")
+		rec := e.do(t, "dora", "POST", "/admin/structure", v, nil)
+		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "is still used by: acme/F-001") {
+			t.Fatalf("was %q: %d:\n%s", was, rec.Code, rec.Body.String())
+		}
+		if _, err := os.Stat(filepath.Join(e.dir, ".yars", "config.yaml")); !os.IsNotExist(err) {
+			t.Fatal("config.yaml written")
+		}
+		if after, _ := os.ReadFile(file); string(after) != string(before) {
+			t.Fatalf("finding changed:\n%s", after)
+		}
+	}
+	// an unused name leaves and another joins: saved, no finding is rewritten
+	head := e.engHead(t)
+	v := e.structForm()
+	swapRow(v, "section", "References", "Notes", "")
+	v.Set("op", "save")
+	if rec := e.do(t, "dora", "POST", "/admin/structure", v, nil); rec.Code != http.StatusSeeOther {
+		t.Fatalf("unused %d:\n%s", rec.Code, rec.Body.String())
+	}
+	if now := e.engHead(t); now != head {
+		t.Fatalf("findings rewritten: %s, was %s", now, head)
+	}
+	// an original another row still holds is no rename either
+	v = e.structForm()
+	v["section"] = append(v["section"], "Extra")
+	v["was_section"] = append(v["was_section"], "Description")
+	v.Set("op", "save")
+	if rec := e.do(t, "dora", "POST", "/admin/structure", v, nil); rec.Code != http.StatusSeeOther {
+		t.Fatalf("claimed twice %d:\n%s", rec.Code, rec.Body.String())
+	}
+	if now := e.engHead(t); now != head {
+		t.Fatalf("findings rewritten: %s, was %s", now, head)
+	}
+}
+
+// A row keeps its original name through a move, so a rename made before the
+// move still reaches the findings.
+func TestStructureRenameKeptThroughMove(t *testing.T) {
+	e := setup(t)
+	if err := e.srv.Store.UpdateSection("acme", fdir, "Impact", "Data loss.", "", wAlice); err != nil {
+		t.Fatal(err)
+	}
+	v := e.structForm()
+	i := slices.Index(v["section"], "Impact")
+	v["section"] = replaced(v["section"], "Impact", "Business impact")
+	v.Set("op", "up:section:"+strconv.Itoa(i))
+	b := e.do(t, "dora", "POST", "/admin/structure", v, nil).Body.String()
+	row := `name="section" value="Business impact" aria-label="Sections Business impact"><input type="hidden" name="was_section" value="Impact">`
+	if !strings.Contains(b, row) {
+		t.Fatalf("the moved row lost its original:\n%s", between(b, "<main>", "</main>"))
+	}
+	// the form as the page now holds it
+	v["section"][i-1], v["section"][i] = v["section"][i], v["section"][i-1]
+	v["was_section"][i-1], v["was_section"][i] = v["was_section"][i], v["was_section"][i-1]
+	v.Set("op", "save")
+	if rec := e.do(t, "dora", "POST", "/admin/structure", v, nil); rec.Code != http.StatusSeeOther {
+		t.Fatalf("save %d:\n%s", rec.Code, rec.Body.String())
+	}
+	b = e.do(t, "alice", "GET", fpath, nil, nil).Body.String()
+	if !strings.Contains(b, "<h2>Business impact</h2>") || !strings.Contains(b, "Data loss.") {
+		t.Fatalf("finding after the rename:\n%s", between(b, "<main>", "</main>"))
+	}
+	// an added row has no original
+	v = e.structForm()
+	v.Set("op", "add:detail")
+	v.Set("new_detail", "Affected users")
+	if b := e.do(t, "dora", "POST", "/admin/structure", v, nil).Body.String(); !strings.Contains(b, `name="detail" value="Affected users" aria-label="Details rows Affected users"><input type="hidden" name="was_detail" value="">`) {
+		t.Fatalf("added row:\n%s", between(b, "<main>", "</main>"))
+	}
+}
+
+// A report section removed beside one added keeps its text where it was.
+func TestStructureReportRemoveAndAddKeepsText(t *testing.T) {
+	e := setup(t)
+	st := e.srv.Store
+	if err := st.UpdateReportSection("acme", "Scope", "The web portal.", "", e.authorOf(wAlice)); err != nil {
+		t.Fatal(err)
+	}
+	v := e.structForm()
+	swapRow(v, "report", "Scope", "Appendix", "")
+	v.Set("op", "save")
+	if rec := e.do(t, "dora", "POST", "/admin/structure", v, nil); rec.Code != http.StatusSeeOther {
+		t.Fatalf("save %d:\n%s", rec.Code, rec.Body.String())
+	}
+	if got, _ := st.ReportSection("acme", "Appendix"); got != "" {
+		t.Fatalf("Appendix took the text: %q", got)
+	}
+	if got, _ := st.ReportSection("acme", "Scope"); !strings.Contains(got, "The web portal.") {
+		t.Fatalf("Scope lost its text: %q", got)
 	}
 }
 
