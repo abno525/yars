@@ -20,14 +20,32 @@ import (
 // Path is where the database lives inside a data directory (git-ignored).
 func Path(dataDir string) string { return filepath.Join(dataDir, ".yars", "yars.db") }
 
-const schemaVersion = 24
+// A migration is one step of the schema, known by its name: a database
+// records the names it has applied (schema_migrations), so a step added
+// anywhere in the list runs on every database that lacks it, and no step
+// runs twice. sql runs first, then fn, in one transaction with the record.
+// A name never changes once released.
+type migration struct {
+	name string
+	sql  string
+	fn   func(*sql.Tx) error
+}
+
+// schemaVersion is the number of migrations: the schema number a current
+// database stores in PRAGMA user_version (older builds, snapshots' names,
+// backups and yars version read it).
+var schemaVersion = len(migrations)
 
 // SchemaVersion is the database schema this build writes.
-const SchemaVersion = schemaVersion
+var SchemaVersion = schemaVersion
 
-var migrations = []string{
+// legacySchema is the last schema the builds that kept no names wrote: their
+// databases hold only the number N, meaning the first N migrations ran.
+const legacySchema = 24
+
+var migrations = []migration{
 	// v1
-	`CREATE TABLE users (
+	{name: "001-accounts-state-chat", sql: `CREATE TABLE users (
 		username      TEXT PRIMARY KEY,
 		email         TEXT NOT NULL DEFAULT '',
 		role          TEXT NOT NULL,
@@ -79,12 +97,12 @@ var migrations = []string{
 	);
 	CREATE INDEX chat_finding ON chat(eng, fid, seq);
 	CREATE TABLE changes (id INTEGER PRIMARY KEY CHECK (id = 1), seq INTEGER NOT NULL);
-	INSERT INTO changes VALUES (1, 0);`,
+	INSERT INTO changes VALUES (1, 0);`},
 	// v2: a change counter per engagement, so readers rebuild only what moved
-	`CREATE TABLE changes_eng (eng TEXT PRIMARY KEY, seq INTEGER NOT NULL) WITHOUT ROWID;`,
+	{name: "002-engagement-change-counters", sql: `CREATE TABLE changes_eng (eng TEXT PRIMARY KEY, seq INTEGER NOT NULL) WITHOUT ROWID;`},
 	// v3: withdrawn findings (who and why) and resolved chat threads a user
 	// chose to hide
-	`ALTER TABLE finding_state ADD COLUMN withdrawn_by TEXT NOT NULL DEFAULT '';
+	{name: "003-withdrawn-and-hidden-threads", sql: `ALTER TABLE finding_state ADD COLUMN withdrawn_by TEXT NOT NULL DEFAULT '';
 	ALTER TABLE finding_state ADD COLUMN withdrawn_reason TEXT NOT NULL DEFAULT '';
 	CREATE TABLE chat_hidden (
 		username  TEXT NOT NULL,
@@ -92,10 +110,10 @@ var migrations = []string{
 		fid       TEXT NOT NULL,
 		thread_id TEXT NOT NULL,
 		PRIMARY KEY (username, eng, fid, thread_id)
-	) WITHOUT ROWID;`,
+	) WITHOUT ROWID;`},
 	// v4: check runs with their results, dismissed violations, and chat
 	// threads opened by YARS (kind = check)
-	`ALTER TABLE chat ADD COLUMN kind TEXT NOT NULL DEFAULT '';
+	{name: "004-check-runs-and-dismissals", sql: `ALTER TABLE chat ADD COLUMN kind TEXT NOT NULL DEFAULT '';
 	CREATE TABLE check_runs (
 		id           INTEGER PRIMARY KEY,
 		eng          TEXT NOT NULL,
@@ -130,13 +148,13 @@ var migrations = []string{
 		by_user    TEXT NOT NULL,
 		at         TEXT NOT NULL,
 		PRIMARY KEY (eng, fid, rule, quote_hash)
-	) WITHOUT ROWID;`,
+	) WITHOUT ROWID;`},
 	// v5: accounts — the admin flag (directors start as admins), disabled
 	// accounts, the theme; scoped tokens with an id (existing ones keep every
 	// right); engagement teams (everyone stays on the engagements that
 	// already have data), archive, audit log, encrypted personal keys and
 	// notification choices
-	`ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0;
+	{name: "005-admin-flag-tokens-teams-audit", sql: `ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0;
 	ALTER TABLE users ADD COLUMN disabled INTEGER NOT NULL DEFAULT 0;
 	ALTER TABLE users ADD COLUMN theme TEXT NOT NULL DEFAULT '';
 	UPDATE users SET is_admin = 1 WHERE role = 'director';
@@ -189,16 +207,16 @@ var migrations = []string{
 		event    TEXT NOT NULL,
 		channel  TEXT NOT NULL,
 		PRIMARY KEY (username, event, channel)
-	) WITHOUT ROWID;`,
+	) WITHOUT ROWID;`},
 	// v6: server settings edited on the admin pages (AI provider, …); secret
 	// values are stored encrypted by the caller
-	`CREATE TABLE server_settings (
+	{name: "006-server-settings", sql: `CREATE TABLE server_settings (
 		key   TEXT PRIMARY KEY,
 		value TEXT NOT NULL
-	) WITHOUT ROWID;`,
+	) WITHOUT ROWID;`},
 	// v7: exports and sends to destinations, with what each finding became
 	// and whose key sent it
-	`CREATE TABLE export_history (
+	{name: "007-export-history", sql: `CREATE TABLE export_history (
 		id          INTEGER PRIMARY KEY,
 		ts          TEXT NOT NULL,
 		by_user     TEXT NOT NULL,
@@ -210,11 +228,11 @@ var migrations = []string{
 		url         TEXT NOT NULL DEFAULT '',
 		sent_as     TEXT NOT NULL DEFAULT ''
 	);
-	CREATE INDEX export_history_eng ON export_history(eng, id);`,
+	CREATE INDEX export_history_eng ON export_history(eng, id);`},
 	// v8: outbound webhooks with their delivery queue, in-app notifications,
 	// and whether a user ever chose notification channels (until then every
 	// event shows in app)
-	`CREATE TABLE webhooks (
+	{name: "008-webhooks-and-notifications", sql: `CREATE TABLE webhooks (
 		id         INTEGER PRIMARY KEY,
 		url        TEXT NOT NULL,
 		events     TEXT NOT NULL DEFAULT '[]',
@@ -254,10 +272,10 @@ var migrations = []string{
 	);
 	CREATE INDEX notifications_user ON notifications(username, read, id);
 	ALTER TABLE users ADD COLUMN notify_set INTEGER NOT NULL DEFAULT 0;
-	UPDATE users SET notify_set = 1 WHERE username IN (SELECT username FROM notify_prefs);`,
+	UPDATE users SET notify_set = 1 WHERE username IN (SELECT username FROM notify_prefs);`},
 	// v9: the page or issue each finding became at a destination, so a
 	// later send updates it instead of making another
-	`CREATE TABLE export_remote (
+	{name: "009-export-remote", sql: `CREATE TABLE export_remote (
 		destination TEXT NOT NULL,
 		eng         TEXT NOT NULL,
 		finding     TEXT NOT NULL,
@@ -267,10 +285,10 @@ var migrations = []string{
 		url         TEXT NOT NULL DEFAULT '',
 		updated     TEXT NOT NULL,
 		PRIMARY KEY (destination, eng, finding)
-	) WITHOUT ROWID;`,
+	) WITHOUT ROWID;`},
 	// v10: each rule of a check run with its state and timing, and why a
 	// violation was dismissed
-	`CREATE TABLE check_steps (
+	{name: "010-check-steps-dismiss-reason", sql: `CREATE TABLE check_steps (
 		run_id   INTEGER NOT NULL REFERENCES check_runs(id) ON DELETE CASCADE,
 		pos      INTEGER NOT NULL,
 		rule     TEXT NOT NULL,
@@ -283,16 +301,16 @@ var migrations = []string{
 		fail     TEXT NOT NULL DEFAULT '',
 		PRIMARY KEY (run_id, rule)
 	) WITHOUT ROWID;
-	ALTER TABLE dismissals ADD COLUMN reason TEXT NOT NULL DEFAULT '';`,
+	ALTER TABLE dismissals ADD COLUMN reason TEXT NOT NULL DEFAULT '';`},
 	// v11: v5 put people only on engagements with a change counter row; the
 	// server finishes the job once against the engagements on disk
 	// (BackfillTeams)
-	`INSERT OR REPLACE INTO server_settings(key, value) VALUES ('` + teamBackfillKey + `', 'pending');`,
+	{name: "011-team-backfill-pending", sql: `INSERT OR REPLACE INTO server_settings(key, value) VALUES ('` + teamBackfillKey + `', 'pending');`},
 	// v12: the team board: notes of an engagement, each with a timeline of
 	// messages and events (kind), what each user last saw of a note (the
 	// timeline's seq), and when a user joined a team (older board activity
 	// is not new to them)
-	`CREATE TABLE board_notes (
+	{name: "012-team-board", sql: `CREATE TABLE board_notes (
 		eng            TEXT NOT NULL,
 		num            INTEGER NOT NULL,
 		title          TEXT NOT NULL,
@@ -323,38 +341,38 @@ var migrations = []string{
 		seq      INTEGER NOT NULL,
 		PRIMARY KEY (username, eng, num)
 	) WITHOUT ROWID;
-	ALTER TABLE engagement_members ADD COLUMN joined TEXT NOT NULL DEFAULT '';`,
+	ALTER TABLE engagement_members ADD COLUMN joined TEXT NOT NULL DEFAULT '';`},
 	// v13: a check run that ended with its results stored (FinishRun), as
 	// opposed to one cut off without them (FailRun: interrupted, crashed)
-	`ALTER TABLE check_runs ADD COLUMN stored INTEGER NOT NULL DEFAULT 0;
-	UPDATE check_runs SET stored = 1 WHERE state != 'running' AND finished != '' AND done_count = total;`,
+	{name: "013-check-runs-stored", sql: `ALTER TABLE check_runs ADD COLUMN stored INTEGER NOT NULL DEFAULT 0;
+	UPDATE check_runs SET stored = 1 WHERE state != 'running' AND finished != '' AND done_count = total;`},
 	// v14: dismissals per result row (perRowDismissals, in Go)
-	`SELECT 1;`,
+	{name: "014-dismissals-per-row", fn: perRowDismissals},
 	// v15: an account with a temporary password sets a new one first
-	`ALTER TABLE users ADD COLUMN must_change INTEGER NOT NULL DEFAULT 0;`,
+	{name: "015-must-change-password", sql: `ALTER TABLE users ADD COLUMN must_change INTEGER NOT NULL DEFAULT 0;`},
 	// v16: login attempts per username (known or not) and lockouts
-	`CREATE TABLE login_attempts (
+	{name: "016-login-attempts", sql: `CREATE TABLE login_attempts (
 		username     TEXT PRIMARY KEY,
 		count        INTEGER NOT NULL,
 		last         TEXT NOT NULL,
 		locked_until TEXT NOT NULL DEFAULT ''
-	) WITHOUT ROWID;`,
+	) WITHOUT ROWID;`},
 	// v17: old quote-only dismissals end where they have per-row copies
 	// (endCopiedLegacy, in Go)
-	`SELECT 1;`,
+	{name: "017-end-copied-legacy-dismissals", fn: endCopiedLegacy},
 	// v18: v13 marked stored the runs FailRun cut off (before their first
 	// rule, or after their last but before storing): such a run is failed
 	// and has no results, where every failed run FinishRun stored has the
 	// result of the rule that failed
-	`UPDATE check_runs SET stored = 0 WHERE stored = 1 AND state != 'done'
-		AND NOT EXISTS (SELECT 1 FROM check_results r WHERE r.run_id = check_runs.id);`,
+	{name: "018-cut-off-runs-not-stored", sql: `UPDATE check_runs SET stored = 0 WHERE stored = 1 AND state != 'done'
+		AND NOT EXISTS (SELECT 1 FROM check_results r WHERE r.run_id = check_runs.id);`},
 	// v19: the version of the rules a run checked with (Q13: a rule change
 	// makes the run out of date); older runs have none (addRulesVersion, in
 	// Go: the column is added once, even when the step runs again)
-	`SELECT 1;`,
+	{name: "019-check-runs-rules-version", fn: addRulesVersion},
 	// v20: every call to the AI provider, for Admin › System's AI usage
 	// (D24); IF NOT EXISTS, as the step may run again on a current database
-	`CREATE TABLE IF NOT EXISTS ai_usage (
+	{name: "020-ai-usage", sql: `CREATE TABLE IF NOT EXISTS ai_usage (
 		id         INTEGER PRIMARY KEY,
 		ts         TEXT NOT NULL,
 		username   TEXT NOT NULL DEFAULT '',
@@ -369,11 +387,11 @@ var migrations = []string{
 		ms         INTEGER NOT NULL DEFAULT 0,
 		ok         INTEGER NOT NULL DEFAULT 0
 	);
-	CREATE INDEX IF NOT EXISTS ai_usage_ts ON ai_usage(ts);`,
+	CREATE INDEX IF NOT EXISTS ai_usage_ts ON ai_usage(ts);`},
 	// v21: images redacted after their original was committed, and the blob
 	// ids a purge removed from an engagement's history (D28); IF NOT EXISTS,
 	// as the step may run again on a current database
-	`CREATE TABLE IF NOT EXISTS redactions (
+	{name: "021-redactions", sql: `CREATE TABLE IF NOT EXISTS redactions (
 		eng       TEXT NOT NULL,
 		fid       TEXT NOT NULL,
 		name      TEXT NOT NULL,
@@ -388,27 +406,23 @@ var migrations = []string{
 		name TEXT NOT NULL,
 		at   TEXT NOT NULL,
 		PRIMARY KEY (eng, blob)
-	) WITHOUT ROWID;`,
+	) WITHOUT ROWID;`},
 	// v22: the account switched the keyboard shortcuts off (K9; addKeysOff,
 	// in Go: the column is added once, even when the step runs again)
-	`SELECT 1;`,
+	{name: "022-keys-off", fn: addKeysOff},
 	// v23: when the token's owner was told it expires soon (addExpiryNoted,
 	// in Go as v22)
-	`SELECT 1;`,
+	{name: "023-token-expiry-noted", fn: addExpiryNoted},
 	// v24: the results of script and AI rules by key (PutRuleResult: a text
 	// checked before is not sent to the AI provider again after a restart,
 	// Q1, Q16); created is Unix seconds; IF NOT EXISTS, as v20
-	`CREATE TABLE IF NOT EXISTS rule_cache (
+	{name: "024-rule-cache", sql: `CREATE TABLE IF NOT EXISTS rule_cache (
 		key     TEXT PRIMARY KEY,
 		kind    TEXT NOT NULL,
 		result  TEXT NOT NULL,
 		created INTEGER NOT NULL
-	);`,
+	);`},
 }
-
-// goMigrations are the steps written in Go, by the index of their entry in
-// migrations; each runs after that entry's SQL, in its transaction.
-var goMigrations = map[int]func(*sql.Tx) error{13: perRowDismissals, 16: endCopiedLegacy, 18: addRulesVersion, 21: addKeysOff, 22: addExpiryNoted}
 
 // addExpiryNoted adds tokens.expiry_noted unless it is there.
 func addExpiryNoted(tx *sql.Tx) error {
@@ -507,18 +521,63 @@ func SchemaOf(path string) (int, error) {
 // changes an existing database it keeps a copy as it was, at
 // <path>.before-v<stored> (0600); after the migrations it keeps the two
 // newest such copies and deletes the others.
-func (d *DB) migrate(path string) error {
+func (d *DB) migrate(path string) error { return d.migrateTo(path, migrations) }
+
+// migrateTo is migrate for the migrations of list. What ran is what the
+// database recorded by name (schema_migrations); the number in PRAGMA
+// user_version stays the count of them. A database from a build that kept
+// no names holds the number alone: its first N migrations are recorded as
+// applied, and none of them runs.
+func (d *DB) migrateTo(path string, list []migration) error {
 	var v int
 	if err := d.QueryRow("PRAGMA user_version").Scan(&v); err != nil {
 		return err
 	}
-	if v > schemaVersion {
-		return fmt.Errorf("database schema %d is newer than this yars (%d)", v, schemaVersion)
+	if v > len(list) {
+		return fmt.Errorf("database schema %d is newer than this yars (%d)", v, len(list))
 	}
-	if v == 0 || v == schemaVersion {
-		return d.migrateFrom(v)
+	names, err := d.appliedNames()
+	if err != nil {
+		return err
 	}
-	snap := fmt.Sprintf("%s.before-v%d", path, v)
+	known := map[string]bool{}
+	for _, m := range list {
+		known[m.name] = true
+	}
+	applied := map[string]bool{}
+	for _, n := range names {
+		if !known[n] {
+			return fmt.Errorf("database has migration %q, which this yars does not know: a newer or another build wrote it", n)
+		}
+		applied[n] = true
+	}
+	var legacy []string // names to record for a database that has the number alone
+	switch {
+	case len(names) == 0 && v > legacySchema:
+		return fmt.Errorf("database schema %d has no record of its migrations", v)
+	case len(names) == 0:
+		for _, m := range list[:v] {
+			legacy = append(legacy, m.name)
+			applied[m.name] = true
+		}
+	case v > len(names):
+		return fmt.Errorf("database schema %d, but it recorded %d migrations", v, len(names))
+	}
+	var pending []migration
+	for _, m := range list {
+		if !applied[m.name] {
+			pending = append(pending, m)
+		}
+	}
+	n := len(applied)
+	if len(pending) == 0 && len(names) == n && v == n && n > 0 {
+		return nil // current: nothing is written
+	}
+	if len(pending) == 0 || n == 0 {
+		// nothing to keep a copy for: the schema is current, or the database is new
+		return d.runMigrations(legacy, pending, n)
+	}
+	snap := fmt.Sprintf("%s.before-v%d", path, n)
 	if err := os.Remove(snap); err != nil && !os.IsNotExist(err) {
 		return err
 	}
@@ -533,11 +592,34 @@ func (d *DB) migrate(path string) error {
 		os.Remove(snap)
 		return fmt.Errorf("snapshot before migrating: %w", err)
 	}
-	if err := d.migrateFrom(v); err != nil {
+	if err := d.runMigrations(legacy, pending, n); err != nil {
 		return err
 	}
 	pruneSnapshots(path, 2)
 	return nil
+}
+
+// appliedNames are the migrations the database recorded (none for a new
+// database and for one that holds the number alone).
+func (d *DB) appliedNames() ([]string, error) {
+	var has int
+	if err := d.QueryRow("SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations'").Scan(&has); err != nil || has == 0 {
+		return nil, err
+	}
+	rows, err := d.Query("SELECT name FROM schema_migrations")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			return nil, err
+		}
+		out = append(out, n)
+	}
+	return out, rows.Err()
 }
 
 // pruneSnapshots deletes all but the keep newest <path>.before-v<N> files.
@@ -564,29 +646,64 @@ func pruneSnapshots(path string, keep int) {
 	}
 }
 
-// migrateFrom runs the migrations after schema v, one transaction each.
-func (d *DB) migrateFrom(v int) error {
-	for ; v < schemaVersion; v++ {
+// runMigrations records the legacy names as applied (running nothing), then
+// runs each pending migration in a transaction of its own with its record.
+// n is the number of migrations applied before; the number the database
+// stores follows it.
+func (d *DB) runMigrations(legacy []string, pending []migration, n int) error {
+	step := func(fn func(tx *sql.Tx) error) error {
 		tx, err := d.Begin()
 		if err != nil {
 			return err
 		}
-		if _, err := tx.Exec(migrations[v]); err != nil {
+		if err := fn(tx); err != nil {
 			tx.Rollback()
 			return err
 		}
-		if fn := goMigrations[v]; fn != nil {
-			if err := fn(tx); err != nil {
-				tx.Rollback()
+		return tx.Commit()
+	}
+	record := func(tx *sql.Tx, name string) error {
+		_, err := tx.Exec("INSERT INTO schema_migrations(name, applied) VALUES (?, ?)", name, d.stamp())
+		return err
+	}
+	number := func(tx *sql.Tx, v int) error {
+		_, err := tx.Exec(fmt.Sprintf("PRAGMA user_version = %d", v))
+		return err
+	}
+	err := step(func(tx *sql.Tx) error {
+		if _, err := tx.Exec("CREATE TABLE IF NOT EXISTS schema_migrations (name TEXT PRIMARY KEY, applied TEXT NOT NULL) WITHOUT ROWID"); err != nil {
+			return err
+		}
+		for _, name := range legacy {
+			if err := record(tx, name); err != nil {
 				return err
 			}
 		}
-		if _, err := tx.Exec(fmt.Sprintf("PRAGMA user_version = %d", v+1)); err != nil {
-			tx.Rollback()
-			return err
-		}
-		if err := tx.Commit(); err != nil {
-			return err
+		return number(tx, n)
+	})
+	if err != nil {
+		return err
+	}
+	for _, m := range pending {
+		n++
+		err := step(func(tx *sql.Tx) error {
+			if m.sql != "" {
+				if _, err := tx.Exec(m.sql); err != nil {
+					return err
+				}
+			}
+			if m.fn != nil {
+				if err := m.fn(tx); err != nil {
+					return err
+				}
+			}
+			if err := record(tx, m.name); err != nil {
+				return err
+			}
+			return number(tx, n)
+		})
+		if err != nil {
+			return fmt.Errorf("migration %s: %w", m.name, err)
 		}
 	}
 	return nil

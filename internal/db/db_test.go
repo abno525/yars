@@ -45,10 +45,32 @@ func TestSchemaOf(t *testing.T) {
 	}
 }
 
-// openAtVersion creates a database file at schema v (the first v migrations,
-// their Go steps included), closes it and returns its path.
+// openAtVersion creates a database file at schema v as the builds that kept
+// no migration names wrote it (the first v migrations, their Go steps
+// included, and the number alone), closes it and returns its path.
 func openAtVersion(t *testing.T, v int) string {
 	t.Helper()
+	return legacyDB(t, migrations[0:v])
+}
+
+// legacySQL runs the SQL of the first v migrations on raw (none of them has
+// a Go step before v14).
+func legacySQL(t *testing.T, raw *sql.DB, v int) {
+	t.Helper()
+	for _, m := range migrations[:v] {
+		if m.fn != nil {
+			t.Fatalf("%s has a Go step", m.name)
+		}
+		if _, err := raw.Exec(m.sql); err != nil {
+			t.Fatal(m.name, err)
+		}
+	}
+}
+
+// legacyDB is openAtVersion for the migrations of list.
+func legacyDB(t *testing.T, list []migration) string {
+	t.Helper()
+	v := len(list)
 	p := filepath.Join(t.TempDir(), ".yars", "yars.db")
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		t.Fatal(err)
@@ -58,15 +80,17 @@ func openAtVersion(t *testing.T, v int) string {
 		t.Fatal(err)
 	}
 	defer raw.Close()
-	for i, m := range migrations[0:v] {
+	for i, m := range list {
 		tx, err := raw.Begin()
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := tx.Exec(m); err != nil {
-			t.Fatalf("migration %d: %v", i+1, err)
+		if m.sql != "" {
+			if _, err := tx.Exec(m.sql); err != nil {
+				t.Fatalf("migration %d: %v", i+1, err)
+			}
 		}
-		if fn := goMigrations[i]; fn != nil {
+		if fn := m.fn; fn != nil {
 			if err := fn(tx); err != nil {
 				t.Fatalf("migration %d: %v", i+1, err)
 			}
