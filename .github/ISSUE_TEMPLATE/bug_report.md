@@ -25,4 +25,13 @@ A security problem does not go here: see SECURITY.md.
 - Workflow: standard / simple
 - Browser, if the website is involved:
 
-**Service log**, if there is an error (`journalctl -u yars`):
+**Service log**, if there is an error.
+
+An error page or toast shows a request ID, such as `Request 4f2a9c1b`. Paste the lines with that ID:
+
+```
+journalctl -u yars | grep req=<ID>
+```
+
+Without an ID, paste the warnings and errors around the time (`journalctl -u yars`, or `yars status`).
+Log lines hold usernames and engagement IDs: replace them before you paste.

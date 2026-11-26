@@ -1,11 +1,18 @@
 package docs
 
 import (
+	"bytes"
+	"context"
 	"io/fs"
+	"log/slog"
 	"os"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/abno525/yars/internal/logs"
 )
 
 // The binary carries the pages of Pages and no other file of docs/: a
@@ -187,6 +194,176 @@ func TestDeployGuideUninstallKeepsTheBackup(t *testing.T) {
 	for _, l := range strings.Split(sec, "\n") {
 		if strings.Contains(l, " rm ") && strings.Contains(l, "/backups") && l != "sudo rm -r /backups" {
 			t.Errorf("a removal names the backup folder among others: %s", l)
+		}
+	}
+}
+
+// logLine is one line of the service log as its handler writes it (text
+// form), at a fixed time.
+func logLine(t *testing.T, level slog.Level, msg string, args ...any) string {
+	t.Helper()
+	var buf bytes.Buffer
+	r := slog.NewRecord(time.Date(2026, 11, 26, 14, 0, 3, 0, time.UTC), level, msg, 0)
+	r.Add(args...)
+	if err := logs.Handler(&buf, logs.Text, slog.LevelDebug).Handle(context.Background(), r); err != nil {
+		t.Fatal(err)
+	}
+	return strings.TrimSuffix(buf.String(), "\n")
+}
+
+// The deploy guide's Logs section says how to read the service log: where
+// it goes, the journalctl commands, the levels and fields, what a line never
+// holds, the request ID, the background lines, yars status and the debug
+// switch. Its example lines are what the handler writes, not the free text
+// of before; the config page and the bug template name the same things.
+func TestDeployGuideLogs(t *testing.T) {
+	read := func(name string) string {
+		b, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	g := read("deploy.md")
+	i := strings.Index(g, "\n## Logs\n")
+	if i < 0 {
+		t.Fatal("no Logs section")
+	}
+	sec := g[i+1:]
+	if j := strings.Index(sec[3:], "\n## "); j >= 0 {
+		sec = sec[:j+3]
+	}
+	for _, want := range []string{
+		"journalctl -u yars -f", `journalctl -u yars --since "1 hour ago"`, "grep -E 'level=(WARN|ERROR)'", "grep req=4f2a9c1b",
+		"YARS writes no log file", "`X-Request-ID`", "Request 4f2a9c1b",
+		"| `error` |", "| `warn` |", "| `info` |", "| `debug` |",
+		"| `req` |", "| `user` |", "| `token` |", "| `eng` |", "| `finding` |", "| `route` |", "| `status` |", "| `ms` |", "| `err` |",
+		"never holds", "the setup code",
+		"`check run finished`", "`ai call failed`", "`export finished`", "`webhook delivery failed; it is tried again`", "`notification email not sent`",
+		"`push accepted`", "`push refused`", "`backup downloaded`", "`retention: the daily prune finished`", "`lock: a long wait for a repository's lock`", "`yars serving`",
+		"sudo -u yars yars status --data /srv/yars", "the last 200", "lost at a restart",
+		"Debug level for 15 minutes", "`system.debug`",
+		"`remote`", "`forwarded_for`", "ignoreip",
+		// the example lines, as the handler writes them
+		logLine(t, slog.LevelInfo, "request", "req", "4f2a9c1b", "method", "GET", "route", "GET /e/{eng}/f/{fid}", "status", 200, "ms", 12, "user", "alice", "eng", "acme", "finding", "F-002"),
+		logLine(t, slog.LevelWarn, "login failed", "user", "alice", "remote", "127.0.0.1:53412", "forwarded_for", "203.0.113.9", "req", "7c1e0b3a"),
+		logLine(t, slog.LevelWarn, "git login failed", "user", "alice", "remote", "127.0.0.1:53418", "forwarded_for", "203.0.113.9", "req", "0d5f9a21"),
+		logLine(t, slog.LevelWarn, "login locked", "user", "alice", "until", "2026-11-26T14:15:00Z"),
+	} {
+		if !strings.Contains(sec, want) {
+			t.Errorf("the Logs section lacks %q", want)
+		}
+	}
+	for _, bad := range []string{`login failed: user "alice" from`, "forwarded-for", "The address after `from`"} {
+		if strings.Contains(g, bad) {
+			t.Errorf("the deploy guide still has the old log form: %q", bad)
+		}
+	}
+	// the Health list names the two new panels and the switch as the page does
+	if h := g[strings.Index(g, "\n## Health\n"):i]; !strings.Contains(h, "**Current state**") || !strings.Contains(h, "**Log**") {
+		t.Error("the Health section does not name the Current state and Log panels")
+	}
+	if c := read("config.md"); !strings.Contains(c, "Admin › System can set `debug` for 15 minutes without a restart") {
+		t.Error("config.md does not name the debug switch")
+	}
+	tpl := read("../.github/ISSUE_TEMPLATE/bug_report.md")
+	for _, want := range []string{"journalctl -u yars | grep req=", "Request 4f2a9c1b", "Use made-up data", "usernames and engagement IDs"} {
+		if !strings.Contains(tpl, want) {
+			t.Errorf("the bug template lacks %q", want)
+		}
+	}
+	// plain words: no item or decision numbers of the plan
+	for name, text := range map[string]string{"deploy.md": g, "config.md": read("config.md"), "CHANGELOG.md": read("../CHANGELOG.md"), "bug_report.md": tpl} {
+		for _, bad := range []string{"L.3", "L.5", "L.6", "L.7", "Q15", "Q16", "Q17", "Phase L", "pre1"} {
+			if strings.Contains(text, bad) {
+				t.Errorf("%s names %q", name, bad)
+			}
+		}
+	}
+	cl := read("../CHANGELOG.md")
+	for _, want := range []string{"`yars status`", "Debug level for 15 minutes", "the last 200", "writes a line when it ends", "fail2ban"} {
+		if !strings.Contains(cl, want) {
+			t.Errorf("CHANGELOG lacks %q", want)
+		}
+	}
+}
+
+// The fail2ban patterns of the deploy guide take the address from the right
+// place. A failed login's name comes first on its line and is the client's
+// own text: a name that holds " remote=<another address>" must not choose
+// the address that is banned. The patterns are run over lines the handler
+// writes.
+func TestDeployGuideFail2banPattern(t *testing.T) {
+	b, err := os.ReadFile("deploy.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pats []*regexp.Regexp
+	for _, l := range strings.Split(string(b), "\n") {
+		src, ok := strings.CutPrefix(l, "failregex = ")
+		if !ok {
+			continue
+		}
+		// fail2ban's own parts: the journal's prefix, and the address it bans
+		if !strings.HasPrefix(src, "^%(__prefix_line)s") || strings.Count(src, "<HOST>") != 1 {
+			t.Fatalf("a failregex without the prefix or with no single <HOST>: %s", src)
+		}
+		src = strings.Replace(src, "%(__prefix_line)s", "", 1)
+		src = strings.Replace(src, "<HOST>", `\[?(?P<host>[0-9a-fA-F:.]+?)\]?`, 1)
+		re, err := regexp.Compile(src)
+		if err != nil {
+			t.Fatalf("%s: %v", src, err)
+		}
+		pats = append(pats, re)
+	}
+	if len(pats) != 2 {
+		t.Fatalf("%d failregex lines in the deploy guide, want the direct one and the one behind a proxy", len(pats))
+	}
+	direct, proxied := pats[0], pats[1]
+	host := func(re *regexp.Regexp, line string) string {
+		m := re.FindStringSubmatch(line)
+		if m == nil {
+			return ""
+		}
+		return m[re.SubexpIndex("host")]
+	}
+	const real, other = "203.0.113.9", "198.51.100.7"
+	names := []string{"alice", "x remote=" + other + ":1", "x remote=" + other + ":1 y", `x" remote=` + other + `:1 y`, `x\" remote=` + other + `:1 y`,
+		`a" level=WARN msg="login failed" user=b remote=` + other + ":1 ", "x\nremote=" + other + ":1 ", "remote=" + other + ":1", "",
+		"x forwarded_for=" + other + " y", `x" remote=127.0.0.1:1 forwarded_for=` + other + " "}
+	for _, name := range names {
+		for _, msg := range []string{"login failed", "git login failed"} {
+			line := logLine(t, slog.LevelWarn, msg, "user", name, "remote", real+":4711", "req", "4f2a9c1b")
+			if got := host(direct, line); got != real {
+				t.Errorf("direct: name %q bans %q, want %q\n%s", name, got, real, line)
+			}
+			// behind a proxy that sets the header to the client's address
+			line = logLine(t, slog.LevelWarn, msg, "user", name, "remote", "127.0.0.1:53412", "forwarded_for", real, "req", "4f2a9c1b")
+			if got := host(proxied, line); got != real {
+				t.Errorf("behind a proxy: name %q bans %q, want %q\n%s", name, got, real, line)
+			}
+			if got := host(direct, line); got != "127.0.0.1" {
+				t.Errorf("direct, behind a proxy: name %q gives %q, want the proxy's own address\n%s", name, got, line)
+			}
+		}
+	}
+	// an IPv6 address
+	if got := host(direct, logLine(t, slog.LevelWarn, "login failed", "user", "alice", "remote", "[2001:db8::1]:4711")); got != "2001:db8::1" {
+		t.Errorf("IPv6: %q", got)
+	}
+	// a header a client sent and the proxy appended to is a list: not matched
+	if got := host(proxied, logLine(t, slog.LevelWarn, "login failed", "user", "alice", "remote", "127.0.0.1:1", "forwarded_for", other+", "+real)); got != "" {
+		t.Errorf("a forwarded list bans %q", got)
+	}
+	// other lines ban nobody
+	for _, line := range []string{
+		logLine(t, slog.LevelWarn, "login locked", "user", "alice", "until", "2026-11-26T14:15:00Z"),
+		logLine(t, slog.LevelInfo, "request", "req", "4f2a9c1b", "method", "POST", "route", "POST /login", "status", 401, "ms", 80),
+		logLine(t, slog.LevelInfo, "login failed", "user", "alice", "remote", real+":1"),
+		logLine(t, slog.LevelWarn, "request failed", "err", `msg="login failed" user=alice remote=`+other+":1 "),
+	} {
+		if host(direct, line) != "" || host(proxied, line) != "" {
+			t.Errorf("a line that is no failed login bans an address: %s", line)
 		}
 	}
 }
