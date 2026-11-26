@@ -1,9 +1,11 @@
 package mcp
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"maps"
 	"os"
 	"path/filepath"
@@ -169,7 +171,14 @@ func TestErrorCodes(t *testing.T) {
 			t.Errorf("%v: %s, want %s", c.err, got, c.code)
 		}
 		m := object(t, c.code, fail(c.err))
-		if m["ok"] != false || m["code"] != c.code || m["message"] != explain(c.err) {
+		want := explain(c.err)
+		var bad *store.UnreadableError
+		if c.code == "server_error" && !errors.As(c.err, &bad) {
+			// the server's own failure is not told in its words (a path, a
+			// statement): the log has them (pre1 2.29)
+			want = "internal error"
+		}
+		if m["ok"] != false || m["code"] != c.code || m["message"] != want {
 			t.Errorf("fail(%v) = %v", c.err, m)
 		}
 	}
@@ -270,21 +279,40 @@ func TestClientMistakesStayInvalid(t *testing.T) {
 	}
 }
 
+// serverLog collects what the server logs during the test.
+func serverLog(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var buf bytes.Buffer
+	old := log.Writer()
+	log.SetOutput(&buf)
+	t.Cleanup(func() { log.SetOutput(old) })
+	return &buf
+}
+
 // Q9: a failure of the server itself (its database closed under it, a data
-// folder it may not write) is server_error with the error's words.
+// folder it may not write) is server_error. The caller gets "internal
+// error" and no word of the failure (a path of the server, a statement of
+// its database); the server's log has them (pre1 2.29).
 func TestServerFailureIsServerError(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root writes into a read-only folder")
 	}
 	f := newFx(t)
+	logged := serverLog(t)
 	dir := filepath.Join(f.dir, "engagements", "acme", "findings", "F-001-sql-injection")
 	if err := os.Chmod(dir, 0o555); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.Chmod(dir, 0o755) })
 	text, isErr := f.call(alice, "update_section", map[string]any{"engagement": "acme", "finding": "F-001", "section": "Impact", "body": "x"})
-	if m := object(t, "read-only", text); !isErr || m["code"] != "server_error" || !strings.Contains(m["message"].(string), "permission denied") {
+	if m := object(t, "read-only", text); !isErr || m["code"] != "server_error" || m["message"] != "internal error" {
 		t.Fatalf("read-only folder: %s", text)
+	}
+	if strings.Contains(text, "permission denied") || strings.Contains(text, f.dir) || strings.Contains(text, "yars-tmp") {
+		t.Fatalf("the answer has the server's words: %s", text)
+	}
+	if l := logged.String(); !strings.Contains(l, "mcp update_section as alice: ") || !strings.Contains(l, "permission denied") {
+		t.Fatalf("the log lacks the failure: %q", l)
 	}
 	os.Chmod(dir, 0o755)
 
@@ -300,10 +328,46 @@ func TestServerFailureIsServerError(t *testing.T) {
 		{dora, "read_finding", map[string]any{"engagement": "acme", "finding": "F-001"}},
 		{dora, "add_chat_message", map[string]any{"engagement": "acme", "finding": "F-001", "text": "x"}},
 	} {
+		logged.Reset()
 		text, isErr := f.call(c.u, c.tool, c.args)
-		if m := object(t, c.tool, text); !isErr || m["code"] != "server_error" || !strings.Contains(m["message"].(string), "closed") {
+		if m := object(t, c.tool, text); !isErr || m["code"] != "server_error" || m["message"] != "internal error" || strings.Contains(text, "closed") {
 			t.Errorf("%s with the database closed: %s", c.tool, text)
 		}
+		if l := logged.String(); !strings.Contains(l, "mcp "+c.tool+" as "+c.u.Username+": ") || !strings.Contains(l, "closed") {
+			t.Errorf("%s with the database closed: the log has %q", c.tool, l)
+		}
+	}
+}
+
+// read_finding lists each action with the reason it is not open. When the
+// server cannot work that out (its database fails), the reason is "internal
+// error", not the database's words, and the log has them (pre1 2.29).
+func TestAllowedActionsHideServerErrors(t *testing.T) {
+	f := newFx(t)
+	logged := serverLog(t)
+	// alice's own draft, ready to submit but for a rule's error: Submit's
+	// gate reads the dismissals
+	rd := filepath.Join(t.TempDir(), "rules")
+	os.MkdirAll(rd, 0o755)
+	os.WriteFile(filepath.Join(rd, "style.yaml"), []byte("- id: hard\n  target: title\n  regex_forbid: 'SQL'\n  level: error\n  message: say what SQL means\n"), 0o644)
+	f.s.Store.Linter = rules.NewEngine(rd, config.Default())
+	f.ok(alice, "set_field", map[string]any{"engagement": "acme", "finding": "F-001", "field": "reviewers", "value": "bob"})
+	f.ok(alice, "set_field", map[string]any{"engagement": "acme", "finding": "F-001", "field": "severity", "value": "high"})
+	if _, err := f.s.Store.DB().Exec("ALTER TABLE dismissals RENAME TO dismissals_away"); err != nil {
+		t.Fatal(err)
+	}
+	text, isErr := f.call(alice, "read_finding", map[string]any{"engagement": "acme", "finding": "F-001"})
+	if isErr {
+		t.Fatalf("read_finding: %s", text)
+	}
+	if strings.Contains(text, "dismissals") || strings.Contains(text, "SQL logic") || strings.Contains(text, "no such table") {
+		t.Fatalf("the answer has the database's words: %s", text)
+	}
+	if !strings.Contains(text, `"reason":"internal error"`) {
+		t.Fatalf("no action says internal error: %s", text)
+	}
+	if l := logged.String(); !strings.Contains(l, "mcp read_finding as alice: ") || !strings.Contains(l, "dismissals") {
+		t.Fatalf("the log lacks the failure: %q", l)
 	}
 }
 
@@ -323,7 +387,7 @@ func TestTeamReadFailureIsServerError(t *testing.T) {
 		{dora, "set_field", map[string]any{"engagement": "acme", "finding": "F-001", "field": "reviewers", "value": "bob"}},
 	} {
 		text, isErr := f.call(c.u, c.tool, c.args)
-		if m := object(t, c.tool, text); !isErr || m["code"] != "server_error" || !strings.Contains(m["message"].(string), "engagement_members") {
+		if m := object(t, c.tool, text); !isErr || m["code"] != "server_error" || m["message"] != "internal error" || strings.Contains(text, "engagement_members") {
 			t.Errorf("%s as %s with the team unreadable: %s", c.tool, c.u.Username, text)
 		}
 	}

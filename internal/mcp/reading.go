@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"log"
 	"path"
 	"slices"
 	"strconv"
@@ -384,7 +385,11 @@ func (s *Server) allowedActions(ctx context.Context, u config.User, ref store.Fi
 		case al.Enabled:
 			var err error
 			if why, err = s.Store.BlockingNow(ref.EngID, ref.Dir, act, u); err != nil {
-				why = err.Error() // the transition would fail the same way
+				// the transition would fail the same way, and say the same
+				if codeOf(err) == "server_error" {
+					log.Printf("mcp read_finding as %s: %s on %s/%s: %v", u.Username, al.Action, ref.EngID, ref.Dir, err)
+				}
+				why = wording(err)
 			}
 		}
 		if why != "" {

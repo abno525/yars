@@ -44,6 +44,7 @@ What changed for people who run or use YARS. Newest first.
 - A restore takes no git hook from the ZIP and writes each repository's git config again with its basic settings only. A ZIP whose `.git` is a file or holds no `HEAD`, or that holds a git folder (`HEAD`, `objects`, `refs`) outside `.git`, is refused.
 - A send to Confluence or Jira and a webhook delivery follow no redirect to another host, another port or from `https` to `http`: the key, the signature and the text go to the configured address only. Such a redirect fails the send with `redirect to <host> refused`.
 - Admin › Rules › Test bench runs with a POST: a link cannot start scripts or AI calls. A long Run on engagement is no longer cut off after 60 seconds.
+- Over MCP a failure of the server itself answers `server_error` with the message `internal error`, and `read_finding` gives that as an action's reason. The error's own words (a path, a database statement) go to the service log only. A finding file that does not parse still says why.
 - Fix with AI sends the section between the same delimiters as an AI check, so text in a finding cannot pass as the rule.
 - A new account cannot take a username that differs from another only in the case of its ASCII letters (`Alice` beside `alice`). Accounts that already do keep working; `yars serve` logs them at start. The database schema is 25.
 - Live updates of an open page end within 25 seconds of a logout, a disabled account or leaving the team. One account holds at most 20 live streams.

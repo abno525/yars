@@ -102,7 +102,7 @@ The codes:
 | `archived` | The engagement is archived: read only |
 | `busy` | A check or a fix of the finding is running |
 | `no_database` | A server-only tool on a local clone |
-| `server_error` | The server itself failed (its disk, its database, a file of its own it cannot read): not the call's mistake; the message has the error's words |
+| `server_error` | The server itself failed (its disk, its database, a file of its own it cannot read): not the call's mistake. The message is `internal error`; the server's log has the error's words |
 
 ## Paging
 
@@ -132,7 +132,7 @@ Some refusals and their messages:
 | `invalid` | `unknown status "open"; valid statuses: draft, verification, complete, reported, withdrawn` | `list_findings` with a status (or severity) that does not exist |
 | `invalid` | `F-001 names more than one finding folder (…); use the folder name` | An ID two folders share |
 | `server_error` | `acme/F-001-sqli: cannot be read: …` | The finding's file does not parse (fix it in the repository) |
-| `server_error` | `sql: database is closed` | The server's database or disk failed; the server logs it too |
+| `server_error` | `internal error` | The server's database or disk failed; the server's log says what |
 
 A failure of the server itself is `server_error`, never `invalid`. `invalid` is an argument or a value the server refuses; the message says which.
 
