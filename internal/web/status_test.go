@@ -52,8 +52,10 @@ func TestSystemPageShowsCurrentState(t *testing.T) {
 	}
 
 	// a stream, a held lock, a waiting delivery and two lines
-	if !e.srv.streamOpen("alice") || !e.srv.streamOpen("alice") || !e.srv.streamOpen("bob") {
-		t.Fatal("streams not counted")
+	for _, u := range []string{"alice", "alice", "bob"} {
+		if !e.srv.streamOpen(u) {
+			t.Fatal("a stream is not counted")
+		}
 	}
 	unlock := e.srv.Store.LockEngagement("acme")
 	defer unlock()
