@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"yars/internal/config"
+	"github.com/abno525/yars/internal/config"
 )
 
 // SessionIdle is how long a session lives without being used when the

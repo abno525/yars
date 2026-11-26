@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"yars/internal/config"
-	"yars/internal/rules"
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/rules"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 // stale is the answer to a base the finding has changed since.

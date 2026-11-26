@@ -6,7 +6,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"yars/internal/cvss"
+	"github.com/abno525/yars/internal/cvss"
 )
 
 // SetStructure writes c's report structure (sections, details rows,

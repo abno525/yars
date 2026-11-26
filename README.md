@@ -17,11 +17,13 @@
 Needs Go 1.27.2 or later.
 
 ```sh
-go build -o yars ./cmd/yars
-./yars init data
-echo 'change-me-now' | ./yars useradd --data data --role director --admin alice
-./yars serve --data data
+go install github.com/abno525/yars/cmd/yars@latest
+yars init data
+echo 'change-me-now' | yars useradd --data data --role director --admin alice
+yars serve --data data
 ```
+
+`go install` puts `yars` in `$(go env GOPATH)/bin`. Have that folder on your `PATH`.
 
 Open <http://localhost:8080>.
 
@@ -30,8 +32,8 @@ Open <http://localhost:8080>.
 Working alone, or in a team of two? Skip the roles.
 
 ```sh
-./yars init --simple data
-echo 'change-me-now' | ./yars useradd --data data --admin alice
+yars init --simple data
+echo 'change-me-now' | yars useradd --data data --admin alice
 ```
 
 Draft → complete → reported. Admin or not. That's all.

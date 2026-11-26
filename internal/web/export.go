@@ -17,14 +17,14 @@ import (
 	"sync"
 	"time"
 
-	"yars/internal/auth"
-	"yars/internal/config"
-	"yars/internal/db"
-	"yars/internal/export"
-	"yars/internal/finding"
-	"yars/internal/index"
-	"yars/internal/store"
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/auth"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/export"
+	"github.com/abno525/yars/internal/finding"
+	"github.com/abno525/yars/internal/index"
+	"github.com/abno525/yars/internal/store"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 // destCard is one button of the export page: a download or a destination.

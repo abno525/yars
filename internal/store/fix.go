@@ -12,15 +12,15 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"yars/internal/chat"
-	"yars/internal/config"
-	"yars/internal/db"
-	"yars/internal/finding"
-	"yars/internal/gitrepo"
-	"yars/internal/history"
-	"yars/internal/render"
-	"yars/internal/rules"
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/chat"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/finding"
+	"github.com/abno525/yars/internal/gitrepo"
+	"github.com/abno525/yars/internal/history"
+	"github.com/abno525/yars/internal/render"
+	"github.com/abno525/yars/internal/rules"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 // Fixer is a Linter that can also fix (rules.Engine).

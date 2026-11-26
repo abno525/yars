@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"strings"
 
-	"yars/internal/auth"
-	"yars/internal/store"
+	"github.com/abno525/yars/internal/auth"
+	"github.com/abno525/yars/internal/store"
 )
 
 // checksFix starts Fix with AI (M31, R7): the AI fixes the finding's open

@@ -10,12 +10,12 @@ import (
 	"strings"
 	"time"
 
-	"yars/internal/auth"
-	"yars/internal/config"
-	"yars/internal/finding"
-	"yars/internal/history"
-	"yars/internal/store"
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/auth"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/finding"
+	"github.com/abno525/yars/internal/history"
+	"github.com/abno525/yars/internal/store"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 // histEvent is one row of a finding's history: a commit that changed its

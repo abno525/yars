@@ -9,11 +9,11 @@ import (
 	"testing"
 	"time"
 
-	"yars/internal/config"
-	"yars/internal/db"
-	"yars/internal/notify"
-	"yars/internal/store"
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/notify"
+	"github.com/abno525/yars/internal/store"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 // unread returns the notifications page's unread count as shown ("0" black,

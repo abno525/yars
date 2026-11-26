@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"time"
 
-	"yars/internal/auth"
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/auth"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 // engFilters are the engagements list's segments: key, label.

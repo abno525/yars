@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"yars/internal/config"
-	"yars/internal/db"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/db"
 )
 
 func newDB(t *testing.T) *db.DB {

@@ -5,7 +5,7 @@ import (
 	"slices"
 	"testing"
 
-	"yars/internal/config"
+	"github.com/abno525/yars/internal/config"
 )
 
 // R3: names a new configuration drops while findings of any engagement

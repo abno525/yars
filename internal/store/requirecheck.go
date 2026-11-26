@@ -4,8 +4,8 @@ import (
 	"slices"
 	"strings"
 
-	"yars/internal/db"
-	"yars/internal/rules"
+	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/rules"
 )
 
 // RequireCheckKey is the server setting (Admin) that makes Sign off and

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"yars/internal/db"
+	"github.com/abno525/yars/internal/db"
 )
 
 // Q24: a row key's control that posts its form (d, r, u, a) reloads the

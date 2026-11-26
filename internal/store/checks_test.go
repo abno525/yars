@@ -8,11 +8,11 @@ import (
 	"sync"
 	"testing"
 
-	"yars/internal/chat"
-	"yars/internal/db"
-	"yars/internal/finding"
-	"yars/internal/rules"
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/chat"
+	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/finding"
+	"github.com/abno525/yars/internal/rules"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 const checkRules = `

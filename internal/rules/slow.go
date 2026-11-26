@@ -15,8 +15,8 @@ import (
 	"syscall"
 	"time"
 
-	"yars/internal/config"
-	"yars/internal/lru"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/lru"
 )
 
 // Runner evaluates script and AI rules. Scripts live in Dir (.yars/rules).

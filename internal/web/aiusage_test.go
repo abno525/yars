@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"yars/internal/db"
+	"github.com/abno525/yars/internal/db"
 )
 
 // usagePanel is Admin › System's AI usage panel.

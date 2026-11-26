@@ -11,9 +11,9 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"yars/internal/config"
-	"yars/internal/db"
-	"yars/internal/gitrepo"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/gitrepo"
 )
 
 // dataEnv names the data folder when --data is not given.

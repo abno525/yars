@@ -5,9 +5,9 @@ import (
 	"slices"
 	"testing"
 
-	"yars/internal/chat"
-	"yars/internal/config"
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/chat"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 func TestVisibility(t *testing.T) {

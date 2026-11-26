@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"yars/internal/db"
+	"github.com/abno525/yars/internal/db"
 )
 
 // wantAll fails for each want b lacks.

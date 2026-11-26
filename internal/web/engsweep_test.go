@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"yars/internal/export"
-	"yars/internal/index"
+	"github.com/abno525/yars/internal/export"
+	"github.com/abno525/yars/internal/index"
 )
 
 // The Overview's By severity tiles stand in one row. They shared the

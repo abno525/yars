@@ -15,11 +15,11 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 
-	"yars/internal/auth"
-	"yars/internal/config"
-	"yars/internal/db"
-	"yars/internal/gitrepo"
-	"yars/internal/store"
+	"github.com/abno525/yars/internal/auth"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/gitrepo"
+	"github.com/abno525/yars/internal/store"
 )
 
 func setup(t *testing.T) (*httptest.Server, *gitrepo.Repo) {

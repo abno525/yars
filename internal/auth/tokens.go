@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"yars/internal/config"
-	"yars/internal/db"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/db"
 )
 
 // Tokens are per-user API tokens for the MCP endpoint (Bearer) and git over

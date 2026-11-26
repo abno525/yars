@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"yars/internal/chat"
-	"yars/internal/config"
+	"github.com/abno525/yars/internal/chat"
+	"github.com/abno525/yars/internal/config"
 )
 
 func open(t *testing.T) (*DB, string) {

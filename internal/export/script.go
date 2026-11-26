@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"yars/internal/rules"
+	"github.com/abno525/yars/internal/rules"
 )
 
 type scriptDoc struct {

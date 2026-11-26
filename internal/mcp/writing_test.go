@@ -9,10 +9,10 @@ import (
 	"strings"
 	"testing"
 
-	"yars/internal/config"
-	"yars/internal/db"
-	"yars/internal/rules"
-	"yars/internal/store"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/rules"
+	"github.com/abno525/yars/internal/store"
 )
 
 func TestMarkNotificationsRead(t *testing.T) {

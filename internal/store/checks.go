@@ -3,10 +3,10 @@ package store
 import (
 	"context"
 
-	"yars/internal/db"
-	"yars/internal/finding"
-	"yars/internal/rules"
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/finding"
+	"github.com/abno525/yars/internal/rules"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 // CheckUser is the author of the chat threads and events check runs write.

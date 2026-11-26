@@ -14,11 +14,11 @@ import (
 	"testing"
 	"time"
 
-	"yars/internal/auth"
-	"yars/internal/chat"
-	"yars/internal/config"
-	"yars/internal/events"
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/auth"
+	"github.com/abno525/yars/internal/chat"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/events"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 // --- gzip ---

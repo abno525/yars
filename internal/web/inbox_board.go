@@ -4,10 +4,10 @@ import (
 	"net/http"
 	"time"
 
-	"yars/internal/auth"
-	"yars/internal/config"
-	"yars/internal/db"
-	"yars/internal/store"
+	"github.com/abno525/yars/internal/auth"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/store"
 )
 
 // Inbox queue "New on team board": the notes with an entry by someone else

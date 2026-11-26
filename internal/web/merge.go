@@ -5,11 +5,11 @@ import (
 	"net/http"
 	"strings"
 
-	"yars/internal/auth"
-	"yars/internal/finding"
-	"yars/internal/index"
-	"yars/internal/store"
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/auth"
+	"github.com/abno525/yars/internal/finding"
+	"github.com/abno525/yars/internal/index"
+	"github.com/abno525/yars/internal/store"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 // dupView lists possible duplicates of a finding or of a title being typed.

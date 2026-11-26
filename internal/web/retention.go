@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"yars/internal/auth"
-	"yars/internal/db"
+	"github.com/abno525/yars/internal/auth"
+	"github.com/abno525/yars/internal/db"
 )
 
 // pruneEvery is how often the retention worker runs.

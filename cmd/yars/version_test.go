@@ -2,12 +2,14 @@ package main
 
 import (
 	"bytes"
+	"os"
 	"runtime"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"testing"
 
-	"yars/internal/db"
+	"github.com/abno525/yars/internal/db"
 )
 
 // yars version names the build, the database schema it writes and the Go
@@ -34,6 +36,49 @@ func TestVersionCommand(t *testing.T) {
 	}
 	if err := cmdVersion([]string{"x"}, &b); err == nil {
 		t.Fatal("an argument is accepted")
+	}
+}
+
+// The Source link is the module's own address: go.mod's module path, over
+// https.
+func TestSourceIsTheModulePath(t *testing.T) {
+	b, err := os.ReadFile("../../go.mod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, _, _ := strings.Cut(string(b), "\n")
+	mod, ok := strings.CutPrefix(first, "module ")
+	if !ok || source != "https://"+mod {
+		t.Fatalf("source is %q, go.mod's first line %q", source, first)
+	}
+}
+
+// A go install build comes from the module cache: it has no VCS revision,
+// and its module version stands for the version.
+func TestGoInstallBuildShowsTheModuleVersion(t *testing.T) {
+	installed := &debug.BuildInfo{Main: debug.Module{Path: "github.com/abno525/yars", Version: "v1.0.0"}}
+	if v := infoVersion(installed); v != "v1.0.0" {
+		t.Fatalf("a go install build: %q, want v1.0.0", v)
+	}
+	// a clone build keeps its git revision, whatever module version Go stamps
+	clone := &debug.BuildInfo{
+		Main: debug.Module{Version: "v0.0.0-20261126120000-0123456789ab+dirty"},
+		Settings: []debug.BuildSetting{
+			{Key: "vcs.revision", Value: "0123456789abcdef0123"},
+			{Key: "vcs.modified", Value: "true"},
+		},
+	}
+	if v := infoVersion(clone); v != "0123456789ab+dirty" {
+		t.Fatalf("a clone build: %q", v)
+	}
+	// no revision and no module version: dev
+	for _, mv := range []string{"", "(devel)"} {
+		if v := infoVersion(&debug.BuildInfo{Main: debug.Module{Version: mv}}); v != "dev" {
+			t.Fatalf("module version %q: %q, want dev", mv, v)
+		}
+	}
+	if v := infoVersion(nil); v != "dev" {
+		t.Fatalf("no build info: %q", v)
 	}
 }
 

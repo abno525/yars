@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"yars/internal/chat"
-	"yars/internal/config"
+	"github.com/abno525/yars/internal/chat"
+	"github.com/abno525/yars/internal/config"
 )
 
 // A row carries what the inbox shows without reading the chat again: each

@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"yars/internal/chat"
-	"yars/internal/config"
-	"yars/internal/db"
+	"github.com/abno525/yars/internal/chat"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/db"
 )
 
 // Chat returns the finding's chat messages and workflow events (empty when

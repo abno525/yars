@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"yars/internal/finding"
+	"github.com/abno525/yars/internal/finding"
 )
 
 // Scripts get the retest result and the files the finding's sections use.

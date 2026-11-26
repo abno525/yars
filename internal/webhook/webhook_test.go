@@ -14,9 +14,9 @@ import (
 	"testing"
 	"time"
 
-	"yars/internal/db"
-	"yars/internal/secret"
-	"yars/internal/store"
+	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/secret"
+	"github.com/abno525/yars/internal/store"
 )
 
 type got struct {

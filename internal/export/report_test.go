@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"yars/internal/config"
-	"yars/internal/finding"
-	"yars/internal/store"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/finding"
+	"github.com/abno525/yars/internal/store"
 )
 
 func TestReportHTML(t *testing.T) {

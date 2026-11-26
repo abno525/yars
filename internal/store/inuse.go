@@ -5,8 +5,8 @@ import (
 	"slices"
 	"strings"
 
-	"yars/internal/config"
-	"yars/internal/finding"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/finding"
 )
 
 // NameUse is a section, severity or details row name a new configuration

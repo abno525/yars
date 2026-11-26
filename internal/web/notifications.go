@@ -6,11 +6,11 @@ import (
 	"strconv"
 	"strings"
 
-	"yars/internal/auth"
-	"yars/internal/index"
-	"yars/internal/notify"
-	"yars/internal/store"
-	"yars/internal/webhook"
+	"github.com/abno525/yars/internal/auth"
+	"github.com/abno525/yars/internal/index"
+	"github.com/abno525/yars/internal/notify"
+	"github.com/abno525/yars/internal/store"
+	"github.com/abno525/yars/internal/webhook"
 )
 
 // wireNotifications makes the notifier and the webhook service (unless

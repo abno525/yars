@@ -12,15 +12,15 @@ import (
 	"strconv"
 	"strings"
 
-	"yars/internal/chat"
-	"yars/internal/config"
-	"yars/internal/cvss"
-	"yars/internal/db"
-	"yars/internal/finding"
-	"yars/internal/index"
-	"yars/internal/rules"
-	"yars/internal/store"
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/chat"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/cvss"
+	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/finding"
+	"github.com/abno525/yars/internal/index"
+	"github.com/abno525/yars/internal/rules"
+	"github.com/abno525/yars/internal/store"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 type args map[string]any

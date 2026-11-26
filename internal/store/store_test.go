@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"yars/internal/config"
-	"yars/internal/db"
-	"yars/internal/finding"
-	"yars/internal/gitrepo"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/finding"
+	"github.com/abno525/yars/internal/gitrepo"
 )
 
 var alice = gitrepo.Author{Name: "alice", Email: "alice@yars.local"}

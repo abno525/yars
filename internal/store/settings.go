@@ -7,7 +7,7 @@ import (
 	"path"
 	"strings"
 
-	"yars/internal/gitrepo"
+	"github.com/abno525/yars/internal/gitrepo"
 )
 
 // SettingsFile is a file under .yars in the main repo (rules, exporters,

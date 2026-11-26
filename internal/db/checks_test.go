@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"yars/internal/chat"
+	"github.com/abno525/yars/internal/chat"
 )
 
 func TestSchemaV4(t *testing.T) {

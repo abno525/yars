@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"yars/internal/auth"
+	"github.com/abno525/yars/internal/auth"
 )
 
 // A submit runs every rule (scripts, AI) inside the request, which may take

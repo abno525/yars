@@ -17,7 +17,7 @@ import (
 	"sync"
 	"testing"
 
-	"yars/internal/finding"
+	"github.com/abno525/yars/internal/finding"
 )
 
 // fakeJira keeps issues by key with their labels; it answers searches by

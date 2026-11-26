@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"yars/internal/gitrepo"
+	"github.com/abno525/yars/internal/gitrepo"
 )
 
 func TestDetailsView(t *testing.T) {

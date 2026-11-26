@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 // D14: details rows are checked one by one. Editing row B with B's base

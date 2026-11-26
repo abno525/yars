@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"yars/internal/store"
+	"github.com/abno525/yars/internal/store"
 )
 
 // structForm is the structure form as the page fills it from cfg.

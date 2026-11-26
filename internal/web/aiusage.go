@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"time"
 
-	"yars/internal/db"
-	"yars/internal/rules"
+	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/rules"
 )
 
 // aiUsageView is Admin › System's AI usage panel (D24): the last 7 and 30

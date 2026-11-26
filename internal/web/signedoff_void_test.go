@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"yars/internal/gitrepo"
+	"github.com/abno525/yars/internal/gitrepo"
 )
 
 // listState is how the findings list shows finding 001: its row tag, the

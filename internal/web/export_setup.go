@@ -9,9 +9,9 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"yars/internal/auth"
-	"yars/internal/export"
-	"yars/internal/store"
+	"github.com/abno525/yars/internal/auth"
+	"github.com/abno525/yars/internal/export"
+	"github.com/abno525/yars/internal/store"
 )
 
 // destRow is a destination in the editor's table.

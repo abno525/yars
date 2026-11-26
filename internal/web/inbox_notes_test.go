@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"yars/internal/db"
+	"github.com/abno525/yars/internal/db"
 )
 
 // notesSection is the inbox's Notifications section of user's inbox page b.

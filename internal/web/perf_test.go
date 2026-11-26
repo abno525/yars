@@ -4,8 +4,8 @@ import (
 	"net/url"
 	"testing"
 
-	"yars/internal/gitrepo"
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/gitrepo"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 // Pages start no git process once the index is warm.

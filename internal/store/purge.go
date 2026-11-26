@@ -7,9 +7,9 @@ import (
 	"slices"
 	"strings"
 
-	"yars/internal/config"
-	"yars/internal/gitrepo"
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/gitrepo"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 // ErrPurgeIncomplete: the history was rewritten (the purge happened), but a

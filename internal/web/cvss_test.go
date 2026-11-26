@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"yars/internal/gitrepo"
+	"github.com/abno525/yars/internal/gitrepo"
 )
 
 const fpath = "/e/acme/f/F-001-sql-injection"

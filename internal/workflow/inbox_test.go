@@ -4,8 +4,8 @@ import (
 	"slices"
 	"testing"
 
-	"yars/internal/config"
-	"yars/internal/finding"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/finding"
 )
 
 // A complete finding waits for a director to mark it reported; an own

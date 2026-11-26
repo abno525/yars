@@ -14,15 +14,15 @@ import (
 	"testing"
 	"time"
 
-	"yars/internal/auth"
-	"yars/internal/chat"
-	"yars/internal/config"
-	"yars/internal/db"
-	"yars/internal/gitrepo"
-	"yars/internal/index"
-	"yars/internal/seed"
-	"yars/internal/store"
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/auth"
+	"github.com/abno525/yars/internal/chat"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/gitrepo"
+	"github.com/abno525/yars/internal/index"
+	"github.com/abno525/yars/internal/seed"
+	"github.com/abno525/yars/internal/store"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 // The budget test runs only on request (it needs a quiet machine):

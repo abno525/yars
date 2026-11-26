@@ -4,8 +4,8 @@ import (
 	"reflect"
 	"testing"
 
-	"yars/internal/config"
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 // A destination with mark_reported marks a complete finding reported for

@@ -3,7 +3,7 @@ package index
 import (
 	"testing"
 
-	"yars/internal/finding"
+	"github.com/abno525/yars/internal/finding"
 )
 
 func TestTrigramSimilarity(t *testing.T) {

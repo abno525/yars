@@ -13,8 +13,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"yars/internal/cvss"
-	"yars/internal/gitrepo"
+	"github.com/abno525/yars/internal/cvss"
+	"github.com/abno525/yars/internal/gitrepo"
 )
 
 // The workflows a data folder can be set up with (yars init). The standard

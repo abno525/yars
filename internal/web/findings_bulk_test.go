@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 var hxReq = map[string]string{"HX-Request": "true"}

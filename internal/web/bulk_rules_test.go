@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"yars/internal/store"
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/store"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 // bulkPost posts the engagement's bulk form as htmx does.

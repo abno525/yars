@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"yars/internal/chat"
+	"github.com/abno525/yars/internal/chat"
 )
 
 // Confirmations are the page's own dialog, not the browser's: Discard

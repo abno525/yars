@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 func TestUpdateEngagementSettings(t *testing.T) {

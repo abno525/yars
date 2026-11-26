@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"yars/internal/auth"
-	"yars/internal/config"
-	"yars/internal/db"
-	"yars/internal/store"
+	"github.com/abno525/yars/internal/auth"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/store"
 )
 
 // noUsers reports whether the database has no account yet (first run).

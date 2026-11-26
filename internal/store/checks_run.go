@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"yars/internal/chat"
-	"yars/internal/config"
-	"yars/internal/db"
-	"yars/internal/rules"
+	"github.com/abno525/yars/internal/chat"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/rules"
 )
 
 // StartCheck starts a run of every rule (fast, script, AI) on the finding in

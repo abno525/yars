@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"yars/internal/chat"
+	"github.com/abno525/yars/internal/chat"
 )
 
 func TestChatStamp(t *testing.T) {

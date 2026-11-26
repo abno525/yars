@@ -8,8 +8,8 @@ import (
 	"sync"
 	"testing"
 
-	"yars/internal/chat"
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/chat"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 func chatMsg(text string) chat.Message { return chat.Message{Text: text} }

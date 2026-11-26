@@ -7,9 +7,9 @@ import (
 	"slices"
 	"testing"
 
-	"yars/internal/config"
-	"yars/internal/finding"
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/finding"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 // A content edit through YARS tells what changed (finding.updated).

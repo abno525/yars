@@ -15,9 +15,9 @@ import (
 	"sync"
 	"time"
 
-	"yars/internal/config"
-	"yars/internal/db"
-	"yars/internal/store"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/store"
 )
 
 // Notification events a user can choose channels for.

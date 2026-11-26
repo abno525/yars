@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"yars/internal/config"
-	"yars/internal/finding"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/finding"
 )
 
 // In the simple workflow every account is a director; anna is the admin.

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"yars/internal/store"
+	"github.com/abno525/yars/internal/store"
 )
 
 // fixedEnv has had one Fix with AI run to its end: an AI commit and an AI

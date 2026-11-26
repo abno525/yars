@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"yars/internal/db"
-	"yars/internal/store"
+	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/store"
 )
 
 // pageOf calls a list tool and returns its ids and next.

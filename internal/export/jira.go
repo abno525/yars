@@ -9,8 +9,8 @@ import (
 	"regexp"
 	"strings"
 
-	"yars/internal/cvss"
-	"yars/internal/finding"
+	"github.com/abno525/yars/internal/cvss"
+	"github.com/abno525/yars/internal/finding"
 )
 
 func validJira(j *JiraConf) error {

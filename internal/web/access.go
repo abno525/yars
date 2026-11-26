@@ -5,8 +5,8 @@ import (
 	"net/url"
 	"strings"
 
-	"yars/internal/auth"
-	"yars/internal/store"
+	"github.com/abno525/yars/internal/auth"
+	"github.com/abno525/yars/internal/store"
 )
 
 // engOf is the engagement a request is about: the {eng} of /e/{eng}/…, or

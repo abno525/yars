@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"yars/internal/chat"
-	"yars/internal/finding"
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/chat"
+	"github.com/abno525/yars/internal/finding"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 var toBusiness = map[string]string{"Impact": "Business impact"}

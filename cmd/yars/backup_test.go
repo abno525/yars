@@ -9,10 +9,10 @@ import (
 	"syscall"
 	"testing"
 
-	"yars/internal/backup"
-	"yars/internal/config"
-	"yars/internal/gitrepo"
-	"yars/internal/store"
+	"github.com/abno525/yars/internal/backup"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/gitrepo"
+	"github.com/abno525/yars/internal/store"
 )
 
 // dataWithFinding is an initialised data folder with one engagement and one

@@ -6,7 +6,7 @@ import (
 	"slices"
 	"testing"
 
-	"yars/internal/config"
+	"github.com/abno525/yars/internal/config"
 )
 
 // The v5 backfill put people only on engagements with a change counter row;

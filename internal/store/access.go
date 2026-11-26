@@ -3,10 +3,10 @@ package store
 import (
 	"strings"
 
-	"yars/internal/config"
-	"yars/internal/db"
-	"yars/internal/finding"
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/finding"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 // ErrArchived: the engagement is archived, so it can be read but not changed.

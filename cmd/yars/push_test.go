@@ -14,14 +14,14 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"yars/internal/auth"
-	"yars/internal/config"
-	"yars/internal/db"
-	"yars/internal/finding"
-	"yars/internal/gitrepo"
-	"yars/internal/gitserve"
-	"yars/internal/store"
-	"yars/internal/webhook"
+	"github.com/abno525/yars/internal/auth"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/finding"
+	"github.com/abno525/yars/internal/gitrepo"
+	"github.com/abno525/yars/internal/gitserve"
+	"github.com/abno525/yars/internal/store"
+	"github.com/abno525/yars/internal/webhook"
 )
 
 type pushEnv struct {

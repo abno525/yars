@@ -4,7 +4,7 @@ import (
 	"slices"
 	"strings"
 
-	"yars/internal/finding"
+	"github.com/abno525/yars/internal/finding"
 )
 
 // SignedOff is a display state, never stored: a finding in verification

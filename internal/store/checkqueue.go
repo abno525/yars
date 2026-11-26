@@ -3,9 +3,9 @@ package store
 import (
 	"slices"
 
-	"yars/internal/config"
-	"yars/internal/db"
-	"yars/internal/rules"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/rules"
 )
 
 // RunQueued is the state a run waiting for a slot is reported in; it is

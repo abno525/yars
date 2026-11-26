@@ -6,11 +6,11 @@ import (
 	"strings"
 	"testing"
 
-	"yars/internal/auth"
-	"yars/internal/config"
-	"yars/internal/db"
-	"yars/internal/gitrepo"
-	"yars/internal/store"
+	"github.com/abno525/yars/internal/auth"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/gitrepo"
+	"github.com/abno525/yars/internal/store"
 )
 
 func gitOut(t *testing.T, dir string, args ...string) string {

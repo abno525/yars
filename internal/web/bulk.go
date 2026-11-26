@@ -9,12 +9,12 @@ import (
 	"strings"
 	"time"
 
-	"yars/internal/auth"
-	"yars/internal/config"
-	"yars/internal/finding"
-	"yars/internal/index"
-	"yars/internal/store"
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/auth"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/finding"
+	"github.com/abno525/yars/internal/index"
+	"github.com/abno525/yars/internal/store"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 // bulkItem is the outcome for one selected finding. Key is "eng/ID" (the

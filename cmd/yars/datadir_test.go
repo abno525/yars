@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"yars/internal/config"
+	"github.com/abno525/yars/internal/config"
 )
 
 // isolate keeps a test away from the developer's own default data folder

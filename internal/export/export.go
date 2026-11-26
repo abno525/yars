@@ -21,11 +21,11 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"yars/internal/config"
-	"yars/internal/cvss"
-	"yars/internal/finding"
-	"yars/internal/store"
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/cvss"
+	"github.com/abno525/yars/internal/finding"
+	"github.com/abno525/yars/internal/store"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 type ConfluenceConf struct {

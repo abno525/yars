@@ -3,7 +3,7 @@ package index
 import (
 	"testing"
 
-	"yars/internal/finding"
+	"github.com/abno525/yars/internal/finding"
 )
 
 // Template use is counted from the findings' "template" key, across

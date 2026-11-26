@@ -9,11 +9,11 @@ import (
 	"strings"
 	"time"
 
-	"yars/internal/auth"
-	"yars/internal/config"
-	"yars/internal/db"
-	"yars/internal/events"
-	"yars/internal/store"
+	"github.com/abno525/yars/internal/auth"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/events"
+	"github.com/abno525/yars/internal/store"
 )
 
 // The team board (Team board tab): an engagement's notes ("leads") in a

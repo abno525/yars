@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"log"
 
-	"yars/internal/lru"
+	"github.com/abno525/yars/internal/lru"
 )
 
 // ResultStore keeps the results of script and AI rules across restarts (the

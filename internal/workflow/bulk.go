@@ -3,8 +3,8 @@ package workflow
 import (
 	"slices"
 
-	"yars/internal/config"
-	"yars/internal/finding"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/finding"
 )
 
 // BulkOption is one entry of the bulk "Set state" menu: the action, the

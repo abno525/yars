@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"yars/internal/store"
+	"github.com/abno525/yars/internal/store"
 )
 
 func TestNewRetestLayout(t *testing.T) {

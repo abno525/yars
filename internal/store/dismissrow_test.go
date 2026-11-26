@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
-	"yars/internal/db"
-	"yars/internal/rules"
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/rules"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 const todoRule = "- id: todo\n  target: sections\n  regex_forbid: 'TODO'\n  message: no TODO left\n"

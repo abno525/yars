@@ -7,9 +7,9 @@ import (
 	"strconv"
 	"time"
 
-	"yars/internal/auth"
-	"yars/internal/events"
-	"yars/internal/store"
+	"github.com/abno525/yars/internal/auth"
+	"github.com/abno525/yars/internal/events"
+	"github.com/abno525/yars/internal/store"
 )
 
 // defaultHeartbeat keeps idle event streams (and proxies) alive.

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"yars/internal/auth"
+	"github.com/abno525/yars/internal/auth"
 )
 
 // A website request's body is at most 2 MiB, as an MCP request's is: a

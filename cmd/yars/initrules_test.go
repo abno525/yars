@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	"yars/internal/config"
-	"yars/internal/gitrepo"
-	"yars/internal/rules"
-	"yars/internal/store"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/gitrepo"
+	"github.com/abno525/yars/internal/rules"
+	"github.com/abno525/yars/internal/store"
 )
 
 // yars init writes no rules: a new data folder starts with none, and its

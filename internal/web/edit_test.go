@@ -10,9 +10,9 @@ import (
 	"strings"
 	"testing"
 
-	"yars/internal/config"
-	"yars/internal/gitrepo"
-	"yars/internal/store"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/gitrepo"
+	"github.com/abno525/yars/internal/store"
 )
 
 func TestCreateFindingFlow(t *testing.T) {

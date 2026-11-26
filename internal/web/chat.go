@@ -8,9 +8,9 @@ import (
 	"regexp"
 	"strings"
 
-	"yars/internal/auth"
-	"yars/internal/chat"
-	"yars/internal/store"
+	"github.com/abno525/yars/internal/auth"
+	"github.com/abno525/yars/internal/chat"
+	"github.com/abno525/yars/internal/store"
 )
 
 type chatMsg struct {

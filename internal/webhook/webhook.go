@@ -23,8 +23,8 @@ import (
 	"sync"
 	"time"
 
-	"yars/internal/db"
-	"yars/internal/store"
+	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/store"
 )
 
 // Events are the events a webhook can take.

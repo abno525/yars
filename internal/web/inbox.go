@@ -11,12 +11,12 @@ import (
 	"sync"
 	"time"
 
-	"yars/internal/chat"
-	"yars/internal/config"
-	"yars/internal/index"
-	"yars/internal/rules"
-	"yars/internal/store"
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/chat"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/index"
+	"github.com/abno525/yars/internal/rules"
+	"github.com/abno525/yars/internal/store"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 // The inbox: one layout for every role. Queues come in workflow.QueueOrder;

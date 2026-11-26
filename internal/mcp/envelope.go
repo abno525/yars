@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strconv"
 
-	"yars/internal/store"
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/store"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 // Every tool's text is one JSON object (M32): {"ok":true, …} on success,

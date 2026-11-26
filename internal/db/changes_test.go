@@ -6,7 +6,7 @@ import (
 	"sync"
 	"testing"
 
-	"yars/internal/chat"
+	"github.com/abno525/yars/internal/chat"
 )
 
 // TxFor bumps the engagement's own counter and the global one.

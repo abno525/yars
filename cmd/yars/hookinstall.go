@@ -11,7 +11,7 @@ import (
 	"sort"
 	"strings"
 
-	"yars/internal/db"
+	"github.com/abno525/yars/internal/db"
 )
 
 // hookMarker is the line that tells our hook from someone else's.

@@ -6,8 +6,8 @@ import (
 	"sort"
 	"strings"
 
-	"yars/internal/auth"
-	"yars/internal/store"
+	"github.com/abno525/yars/internal/auth"
+	"github.com/abno525/yars/internal/store"
 )
 
 type detailsRow struct {

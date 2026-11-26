@@ -3,8 +3,8 @@ package auth
 import (
 	"testing"
 
-	"yars/internal/config"
-	"yars/internal/db"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/db"
 )
 
 // D26: after an admin's reset nothing works with the account until its

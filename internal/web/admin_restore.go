@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"yars/internal/auth"
-	"yars/internal/backup"
-	"yars/internal/db"
+	"github.com/abno525/yars/internal/auth"
+	"github.com/abno525/yars/internal/backup"
+	"github.com/abno525/yars/internal/db"
 )
 
 // restoreMax caps an uploaded backup.

@@ -4,8 +4,8 @@ import (
 	"slices"
 	"strings"
 
-	"yars/internal/config"
-	"yars/internal/finding"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/finding"
 )
 
 // Complete takes a draft straight to complete: the simple workflow's one

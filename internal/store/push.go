@@ -7,11 +7,11 @@ import (
 	"slices"
 	"strings"
 
-	"yars/internal/config"
-	"yars/internal/db"
-	"yars/internal/finding"
-	"yars/internal/gitrepo"
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/finding"
+	"github.com/abno525/yars/internal/gitrepo"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 // partAttachments names a change to a finding's files other than

@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"yars/internal/db"
-	"yars/internal/finding"
-	"yars/internal/rules"
+	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/finding"
+	"github.com/abno525/yars/internal/rules"
 )
 
 const dotRule = "- id: title-no-trailing-dot\n  target: title\n  regex_forbid: '\\.$'\n  message: The title ends with a dot\n"

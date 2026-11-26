@@ -13,7 +13,7 @@ import (
 	"github.com/yuin/goldmark/renderer"
 	"github.com/yuin/goldmark/util"
 
-	"yars/internal/lru"
+	"github.com/abno525/yars/internal/lru"
 )
 
 // Size is the default number of rendered texts kept.

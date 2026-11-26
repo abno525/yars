@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"yars/internal/db"
+	"github.com/abno525/yars/internal/db"
 )
 
 // Options says what a backup holds beyond the data.

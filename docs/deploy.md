@@ -18,7 +18,14 @@ sudo install -m 0755 yars /usr/local/bin/yars
 yars version
 ```
 
-`yars version` prints the version, the database schema it writes and the Go release, for example `yars v1.0.0 (schema 24, go1.27.2)`. Built without `-ldflags`, it shows the git revision instead.
+`yars version` prints the version, the database schema it writes and the Go release, for example `yars v1.0.0 (schema 24, go1.27.2)`. Built in a clone without `-ldflags`, it shows the git revision; installed with `go install` without them, the release it installed, such as `v1.0.0`.
+
+Without a clone, one command builds the newest release. The binary lands in `$(go env GOBIN)`, or in `$(go env GOPATH)/bin` when `GOBIN` is not set.
+
+```sh
+go install github.com/abno525/yars/cmd/yars@latest
+sudo install -m 0755 "$(go env GOPATH)/bin/yars" /usr/local/bin/yars
+```
 
 Settings › About shows the version, the license and a Source link. A changed YARS must offer its own source to its users: build it with `-X main.source=https://your.host/your-yars` in the same `-ldflags`.
 

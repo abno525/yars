@@ -8,13 +8,13 @@ import (
 	"strings"
 	"time"
 
-	"yars/internal/auth"
-	"yars/internal/cvss"
-	"yars/internal/db"
-	"yars/internal/finding"
-	"yars/internal/rules"
-	"yars/internal/store"
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/auth"
+	"github.com/abno525/yars/internal/cvss"
+	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/finding"
+	"github.com/abno525/yars/internal/rules"
+	"github.com/abno525/yars/internal/store"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 // checkRow is one violation in the checks panel.

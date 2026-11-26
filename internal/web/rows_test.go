@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"yars/internal/store"
+	"github.com/abno525/yars/internal/store"
 )
 
 // formOf reads the named fields and values of a form fragment (inputs and

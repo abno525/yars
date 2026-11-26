@@ -6,10 +6,10 @@ import (
 	"net/url"
 	"strings"
 
-	"yars/internal/auth"
-	"yars/internal/cvss"
-	"yars/internal/store"
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/auth"
+	"github.com/abno525/yars/internal/cvss"
+	"github.com/abno525/yars/internal/store"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 type cvssMetric struct {

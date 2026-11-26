@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"yars/internal/store"
+	"github.com/abno525/yars/internal/store"
 )
 
 // Complete tells the author, as Approve does (the Approved event); one who

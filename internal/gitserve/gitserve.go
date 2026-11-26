@@ -22,13 +22,13 @@ import (
 	"sync"
 	"time"
 
-	"yars/internal/auth"
-	"yars/internal/config"
-	"yars/internal/db"
-	"yars/internal/gitrepo"
-	"yars/internal/policy"
-	"yars/internal/rules"
-	"yars/internal/store"
+	"github.com/abno525/yars/internal/auth"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/gitrepo"
+	"github.com/abno525/yars/internal/policy"
+	"github.com/abno525/yars/internal/rules"
+	"github.com/abno525/yars/internal/store"
 )
 
 // RepoName is the fixed name in the clone URL: http(s)://host/git/yars.

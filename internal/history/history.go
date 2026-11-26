@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"yars/internal/finding"
-	"yars/internal/gitrepo"
-	"yars/internal/lru"
+	"github.com/abno525/yars/internal/finding"
+	"github.com/abno525/yars/internal/gitrepo"
+	"github.com/abno525/yars/internal/lru"
 )
 
 // Version is the file as one commit left it (Raw nil: deleted there).

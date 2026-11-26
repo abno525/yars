@@ -7,10 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"yars/internal/config"
-	"yars/internal/finding"
-	"yars/internal/rules"
-	"yars/internal/workflow"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/finding"
+	"github.com/abno525/yars/internal/rules"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 func withRules(t *testing.T, s *Store, dir, body string) {

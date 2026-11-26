@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"yars/internal/auth"
+	"github.com/abno525/yars/internal/auth"
 )
 
 var wantHeaders = map[string]string{

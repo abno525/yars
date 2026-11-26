@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"yars/internal/config"
+	"github.com/abno525/yars/internal/config"
 )
 
 func TestServerSettings(t *testing.T) {

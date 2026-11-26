@@ -8,12 +8,12 @@ import (
 	"strings"
 	"time"
 
-	"yars/internal/auth"
-	"yars/internal/chat"
-	"yars/internal/config"
-	"yars/internal/finding"
-	"yars/internal/history"
-	"yars/internal/store"
+	"github.com/abno525/yars/internal/auth"
+	"github.com/abno525/yars/internal/chat"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/finding"
+	"github.com/abno525/yars/internal/history"
+	"github.com/abno525/yars/internal/store"
 )
 
 // routesEdit registers write routes. New findings exist only under /e/{eng}/.

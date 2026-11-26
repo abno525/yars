@@ -29,12 +29,12 @@ import (
 	"strings"
 	"testing"
 
-	"yars/internal/auth"
-	"yars/internal/db"
-	"yars/internal/gitrepo"
-	"yars/internal/index"
-	"yars/internal/secret"
-	"yars/internal/web"
+	"github.com/abno525/yars/internal/auth"
+	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/gitrepo"
+	"github.com/abno525/yars/internal/index"
+	"github.com/abno525/yars/internal/secret"
+	"github.com/abno525/yars/internal/web"
 )
 
 // gitOut is git's trimmed output in repo; a failure fails the test.
