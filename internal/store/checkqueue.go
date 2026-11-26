@@ -116,6 +116,28 @@ func (s *Store) StopChecks() {
 	}
 }
 
+// WorkState is the background work of the store now: check runs holding a
+// slot, check runs waiting for one, and fixes with AI under way.
+type WorkState struct {
+	ChecksRunning, ChecksQueued, Fixes int
+}
+
+// Work is the store's background work now, read from memory (no database
+// call: it answers when the database does not).
+func (s *Store) Work() WorkState {
+	s.queueMu.Lock()
+	w := WorkState{ChecksRunning: s.active, ChecksQueued: len(s.queue)}
+	s.queueMu.Unlock()
+	s.runningMu.Lock()
+	for _, id := range s.running {
+		if id == fixRun {
+			w.Fixes++
+		}
+	}
+	s.runningMu.Unlock()
+	return w
+}
+
 // dropInterrupted is the reason of a run dropped at a stop.
 const dropInterrupted = "interrupted"
 

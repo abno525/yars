@@ -44,6 +44,8 @@ type systemAdmin struct {
 	RestoreError                       string
 	Restored                           *restoreResult
 	LastRestore, RestoreBy, RestoreDir string
+	// State is what the server does now and the last lines of its log
+	State stateView
 }
 
 // healthAdmin is the System page's Health panel: one row per check.
@@ -182,6 +184,7 @@ func (s *Server) systemPageStatus(w http.ResponseWriter, r *http.Request, status
 			return err
 		}
 		s.restoreView(r, &v)
+		v.State = stateViewOf(s.Status())
 		if js := s.flash.take(r, "sysop"); js != "" {
 			var op sysOp
 			if json.Unmarshal([]byte(js), &op) == nil {

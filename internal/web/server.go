@@ -87,6 +87,10 @@ type Server struct {
 	// Logger takes the server's log lines; nil writes none. The webhook
 	// service and the notifier Handler makes log through it too.
 	Logger *slog.Logger
+	// LogRing holds the service log's last warn and error lines (the logger's
+	// own ring, made with it by yars serve), which Admin › System and yars
+	// status show; nil shows none.
+	LogRing *logs.Ring
 
 	stop      chan struct{} // closes the background workers (Close)
 	stopOnce  sync.Once

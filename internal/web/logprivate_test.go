@@ -63,7 +63,9 @@ func TestNoPrivateTextInLog(t *testing.T) {
 	for _, format := range []string{logs.Text, logs.JSON} {
 		t.Run(format, func(t *testing.T) {
 			var out lockedBuf
-			e := newEnvLog(t, logs.New(&out, format, slog.LevelDebug))
+			// with the ring of Admin › System and yars status, as yars serve
+			ring := logs.NewRing()
+			e := newEnvLog(t, slog.New(logs.HandlerRing(&out, format, slog.LevelDebug, ring)))
 			// every part that logs has the server's logger
 			if e.srv.Store.Logger == nil || e.srv.Auth.Logger == nil || e.srv.Logger == nil || e.srv.Webhooks.Logger == nil || e.srv.Notifier.Logger == nil {
 				t.Fatal("a part of the server has no logger")
@@ -296,8 +298,28 @@ func TestNoPrivateTextInLog(t *testing.T) {
 					t.Errorf("the log lacks %s", want)
 				}
 			}
+			// the ring is behind the same redaction: its lines (always text)
+			// hold no marker either, and it kept the warnings and errors
+			var kept strings.Builder
+			for _, l := range ring.Lines() {
+				kept.WriteString(l.Text + "\n")
+			}
+			lowKept := strings.ToLower(kept.String())
+			for _, m := range marks {
+				if strings.Contains(lowKept, strings.ToLower(m)) || strings.Contains(lowKept, strings.ToLower(url.QueryEscape(m))) {
+					t.Errorf("the ring holds %q", m)
+				}
+			}
+			for _, want := range []string{`msg="login failed"`, `msg="request failed"`, `msg="notification email not sent"`, "permission denied"} {
+				if !strings.Contains(kept.String(), want) {
+					t.Errorf("the ring lacks %s", want)
+				}
+			}
+			if strings.Contains(kept.String(), `msg=request `) {
+				t.Errorf("the ring holds an info line")
+			}
 			if t.Failed() {
-				t.Logf("log:\n%s", got)
+				t.Logf("log:\n%s\nring:\n%s", got, kept.String())
 			}
 		})
 	}

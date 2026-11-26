@@ -64,6 +64,14 @@ func startConfig(r *gitrepo.Repo) (config.Config, error) {
 // given) names another. Both were checked before. The level sits in a
 // slog.LevelVar, so it can change while the server runs.
 func serverLog(w io.Writer, cfg config.Config, flagLevel string) (*slog.Logger, *slog.LevelVar) {
+	lg, lv, _ := serverLogRing(w, cfg, flagLevel)
+	return lg, lv
+}
+
+// serverLogRing is serverLog with the ring that keeps the log's last warn
+// and error lines in memory (Admin › System, yars status): behind the same
+// redaction as w, and at its own level whatever log.level is.
+func serverLogRing(w io.Writer, cfg config.Config, flagLevel string) (*slog.Logger, *slog.LevelVar, *logs.Ring) {
 	word := cfg.Log.Level
 	if flagLevel != "" {
 		word = flagLevel
@@ -71,7 +79,8 @@ func serverLog(w io.Writer, cfg config.Config, flagLevel string) (*slog.Logger, 
 	lv := new(slog.LevelVar)
 	level, _ := logs.ParseLevel(word)
 	lv.Set(level)
-	return logs.New(w, cfg.Log.Format, lv), lv
+	ring := logs.NewRing()
+	return slog.New(logs.HandlerRing(w, cfg.Log.Format, lv, ring)), lv, ring
 }
 
 // prepareData readies a data folder the way every start does, after
@@ -204,7 +213,7 @@ func cmdServe(args []string) error {
 	if err != nil {
 		return err
 	}
-	lg, _ := serverLog(os.Stderr, cfg, *logLevel)
+	lg, _, ring := serverLogRing(os.Stderr, cfg, *logLevel)
 	d, st, err := prepareData(r, cfg, lg)
 	if err != nil {
 		return err
@@ -221,12 +230,16 @@ func cmdServe(args []string) error {
 		d.Close()
 		return err
 	}
+	srv.LogRing = ring
 	hs := srv.HTTPServer(*addr)
 	hs.TLSConfig = tlsCfg
 	ln, err := net.Listen("tcp", *addr)
 	if err != nil {
 		return err
 	}
+	// yars status reads this server on a socket in the data folder; it is
+	// opened once the address is this server's, and closed when it stops
+	defer startStatus(r.Dir, srv, lg)()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	// after the first signal a second one ends the process at once (a stop
