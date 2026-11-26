@@ -182,7 +182,7 @@ func (s *Store) UpdateSection(engID, dir, section, body, base string, a Actor) e
 // mutateThen loads a finding, applies fn, and commits the result as one
 // commit "<ID>: <msg>". No commit is made when the file is unchanged. then
 // (may be nil) runs after the commit, still under the engagement's lock,
-// with the file's hash before and after.
+// with the file's ApprovalHash before and after.
 func (s *Store) mutateThen(engID, dir string, a gitrepo.Author, fn func(f *finding.Finding) (string, error), then func(ref FindingRef, oldHash, newHash string) error) error {
 	ev, err := s.mutateLocked(engID, dir, a, fn, then)
 	if ev.Kind != "" {
@@ -239,7 +239,7 @@ func (s *Store) mutateLockedIn(engID, dir string, a gitrepo.Author, fn func(f *f
 	defer s.notify(Change{Eng: engID, Fid: ref.F.Meta.ID, Kind: ChangeContent})
 	ev := updatedEvent(a.Name, ref, old, false)
 	if then != nil {
-		return ev, then(ref, contentHash(before), contentHash(after))
+		return ev, then(ref, ApprovalHash(before), ApprovalHash(after))
 	}
 	return ev, nil
 }
@@ -275,8 +275,8 @@ func (s *Store) carryApproval(ref FindingRef, oldHash, newHash string) error {
 	return carryApprovalDB(s.db, ref.EngID, ref.F.Meta.ID, oldHash, newHash)
 }
 
-// carryApprovalDB moves the approval of eng/fid from oldHash to newHash when
-// the finding was approved for oldHash. Only after the change is in: a
+// carryApprovalDB moves the approval of eng/fid from oldHash to newHash
+// (ApprovalHash values) when the finding was approved for oldHash. Only after the change is in: a
 // director's commit through YARS, or a push once it landed (ReceivePush),
 // never from the hook.
 func carryApprovalDB(d *db.DB, eng, fid, oldHash, newHash string) error {

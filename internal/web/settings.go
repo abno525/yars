@@ -366,8 +366,8 @@ func (s *Server) tokenFormFor(r *http.Request, p *page, f tokenForm, picked []st
 		}
 		f.EngOpts = append(f.EngOpts, option{Value: e.ID, Label: e.Name, Muted: e.Archived, On: slices.Contains(engs, e.ID)})
 	}
-	f.MCPURL = gitBase(r) + "/mcp"
-	f.GitURL = gitBase(r) + "/git/e/"
+	f.MCPURL = s.gitBase(r) + "/mcp"
+	f.GitURL = s.gitBase(r) + "/git/e/"
 	p.Settings.Token = f
 	return nil
 }

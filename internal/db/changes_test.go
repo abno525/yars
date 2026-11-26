@@ -94,9 +94,7 @@ func TestMigrateV1(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := raw.Exec(migrations[0]); err != nil {
-		t.Fatal(err)
-	}
+	legacySQL(t, raw, 1)
 	raw.Exec("PRAGMA user_version = 1")
 	raw.Exec("UPDATE changes SET seq = 7")
 	raw.Close()

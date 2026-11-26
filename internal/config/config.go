@@ -126,6 +126,12 @@ func validate(c *Config) error {
 			return fmt.Errorf("config: ai.base_url %q must use https (plain http only for localhost)", b)
 		}
 	}
+	if err := envName("ai.api_key_env", c.AI.APIKeyEnv, "YARS_AI_KEY"); err != nil {
+		return err
+	}
+	if err := envName("smtp.password_env", c.SMTP.PasswordEnv, "YARS_SMTP_PASSWORD"); err != nil {
+		return err
+	}
 	if b := c.BaseURL; b != "" {
 		u, err := url.Parse(b)
 		if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
@@ -145,6 +151,33 @@ func validate(c *Config) error {
 		}
 	}
 	return nil
+}
+
+// EnvPrefix starts every environment variable config.yaml may name. The
+// value of such a variable is sent out (the AI key to ai.base_url, the mail
+// password to smtp.host), and config.yaml sets both ends: without the prefix
+// it could send any variable of the server's environment.
+const EnvPrefix = "YARS_"
+
+// envName refuses a variable name that is not EnvPrefix followed by capital
+// letters, digits and underscores ("" is no variable). The message says the
+// whole fix: a server that does not start takes no push, and a config.yaml
+// edited in place is put back at the next start, so the change is committed
+// in the data folder.
+func envName(key, name, example string) error {
+	if name == "" {
+		return nil
+	}
+	rest, ok := strings.CutPrefix(name, EnvPrefix)
+	plain := strings.Trim(name, "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_") == ""
+	if ok && rest != "" && plain {
+		return nil
+	}
+	if plain && !ok {
+		example = EnvPrefix + name
+	}
+	return fmt.Errorf("config: %s %q must start with %s: name the variable %s in the server's environment, set %s: %s in .yars/config.yaml in the data folder and commit it there (git -C <data folder> commit .yars/config.yaml)",
+		key, name, EnvPrefix, example, key, example)
 }
 
 type User struct {

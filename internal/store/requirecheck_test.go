@@ -109,14 +109,14 @@ func TestGateStaleAfterRuleChange(t *testing.T) {
 	// Ready to approve reads the same gate
 	ref := load(t, s, fd)
 	name := eng + "/" + ref.F.Meta.ID
-	if gs, err := s.CheckGates([]GateKey{{Eng: eng, Fid: ref.F.Meta.ID, Hash: ref.Hash}}); err != nil || gs[name] != GateRules {
+	if gs, err := s.CheckGates([]GateKey{{Eng: eng, Fid: ref.F.Meta.ID, Hash: ref.Full}}); err != nil || gs[name] != GateRules {
 		t.Fatalf("gates after a rule change: %v %v", gs, err)
 	}
 	checkNow(t, s, fd)
 	if g, _ := s.CheckGate(eng, fd); g != "" {
 		t.Fatalf("after a new run: %q", g)
 	}
-	if gs, err := s.CheckGates([]GateKey{{Eng: eng, Fid: ref.F.Meta.ID, Hash: ref.Hash}}); err != nil || len(gs) != 0 {
+	if gs, err := s.CheckGates([]GateKey{{Eng: eng, Fid: ref.F.Meta.ID, Hash: ref.Full}}); err != nil || len(gs) != 0 {
 		t.Fatalf("gates after a new run: %v %v", gs, err)
 	}
 }
@@ -450,7 +450,7 @@ func TestTransitionSeenBeforeChecks(t *testing.T) {
 	if err := s.Transition(eng, fd, workflow.Submit, "", uAlice); err != nil {
 		t.Fatal(err)
 	}
-	seen := load(t, s, fd).Hash
+	seen := load(t, s, fd).Full
 	if err := s.UpdateSection(eng, fd, "Impact", "Changed after the read.", "", uAlice); err != nil {
 		t.Fatal(err)
 	}
@@ -482,7 +482,7 @@ func TestCheckGates(t *testing.T) {
 	s, dir, fd := ready(t)
 	withRules(t, s, dir, "- id: none\n  target: title\n  regex_forbid: 'zzz'\n")
 	ref := load(t, s, fd)
-	k := GateKey{eng, ref.F.Meta.ID, ref.Hash}
+	k := GateKey{eng, ref.F.Meta.ID, ref.Full}
 	if g, _ := s.CheckGates([]GateKey{k}); g[eng+"/"+ref.F.Meta.ID] != GateNoRun {
 		t.Fatalf("no run: %v", g)
 	}

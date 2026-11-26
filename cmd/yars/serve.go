@@ -72,6 +72,12 @@ func prepareData(r *gitrepo.Repo) (config.Config, *db.DB, *store.Store, error) {
 		d.Close()
 		return config.Config{}, nil, nil, err
 	}
+	// accounts from before such names were refused: both keep working
+	if clashes, err := d.UsernameClashes(); err == nil {
+		for _, c := range clashes {
+			log.Printf("accounts whose usernames differ only in the case of letters: %s", c)
+		}
+	}
 	st := store.New(r, cfg, d)
 	fail := func(what string, err error) (config.Config, *db.DB, *store.Store, error) {
 		d.Close()
@@ -130,6 +136,15 @@ func firstRunCode(d *db.DB, cfg config.Config, dir string) string {
 	return code
 }
 
+// warnNoBaseURL logs, at the start, that config.yaml sets no base_url: the
+// clone and MCP addresses on the pages then take their host from each
+// request, which a client chooses.
+func warnNoBaseURL(cfg config.Config) {
+	if cfg.BaseURL == "" {
+		log.Println("base_url is not set in .yars/config.yaml: the clone and MCP addresses shown on the pages take their host from each request's Host header; set base_url to the address people open")
+	}
+}
+
 func cmdServe(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	data := dataFlag(fs)
@@ -161,6 +176,7 @@ func cmdServe(args []string) error {
 	if err != nil {
 		return err
 	}
+	warnNoBaseURL(cfg)
 	setupCode := firstRunCode(d, cfg, r.Dir)
 	eng := rules.NewEngine(rules.DirFor(r.Dir), cfg)
 	st.Linter = eng

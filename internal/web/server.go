@@ -105,9 +105,15 @@ type Server struct {
 	presence  *presence // who has which section open in an editor
 	hookOnce  sync.Once
 	heartbeat time.Duration // event stream keep-alive (0 = defaultHeartbeat)
-	pageSize  int           // board rows per page (0 = boardPage)
-	chatLoads atomic.Int64  // full chat reads, for tests of the poll shortcut
-	flash     flashes       // one-time secrets for the page after a create
+	// open event streams by username, and the most one account may hold
+	// (0 = defaultMaxStreams). On the server, never in a package variable: a
+	// finished test lets its server go.
+	streamsMu  sync.Mutex
+	streams    map[string]int
+	maxStreams int
+	pageSize   int          // board rows per page (0 = boardPage)
+	chatLoads  atomic.Int64 // full chat reads, for tests of the poll shortcut
+	flash      flashes      // one-time secrets for the page after a create
 	// lastHealth is the last run of Admin › System's checks; healthRuns
 	// counts runs (tests)
 	lastHealth atomic.Pointer[healthAdmin]
@@ -583,6 +589,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	// a disabled account gets the same answer as a wrong password
 	tok, ok := s.Auth.Login(r.FormValue("username"), r.FormValue("password"))
 	if !ok {
+		s.Auth.LogFailedLogin("login", r.FormValue("username"), r)
 		// the username stays filled in (never the password)
 		form := url.Values{"username": {r.FormValue("username")}}
 		p := &page{Bare: true, Error: "Wrong username or password", Form: form}
@@ -623,7 +630,7 @@ func (s *Server) home(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.Git != nil {
-		p.CloneURL = gitBase(r) + "/git/yars"
+		p.CloneURL = s.gitBase(r) + "/git/yars"
 		p.CloneCmd = mainClone(p.CloneURL, store.SeesAll(p.User), p.Engagements)
 	}
 	if err = s.engList(p, r.URL.Query().Get("show")); err != nil {
@@ -674,10 +681,17 @@ func engPaths(engs []store.Engagement) string {
 	return strings.Join(paths, " ")
 }
 
-// gitBase is the server's base URL as the browser sees it.
-func gitBase(r *http.Request) string {
+// gitBase is the server's address for the clone and MCP addresses a page
+// shows: config.yaml's base_url when it is set (read per request: it can
+// change while the server runs). Without it the scheme is the server's own
+// (--https, or a certificate) and the host is the request's Host header; no
+// X-Forwarded-Proto is read, since any client can send one.
+func (s *Server) gitBase(r *http.Request) string {
+	if b := s.conf().BaseURL; b != "" {
+		return b
+	}
 	scheme := "http"
-	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+	if s.HTTPS || r.TLS != nil {
 		scheme = "https"
 	}
 	return scheme + "://" + r.Host
@@ -718,7 +732,7 @@ func (s *Server) engagement(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.Git != nil {
-		p.CloneURL = gitBase(r) + "/git/e/" + p.Eng.ID
+		p.CloneURL = s.gitBase(r) + "/git/e/" + p.Eng.ID
 	}
 	if err := s.tabsFor(p, "findings"); err != nil {
 		s.fail(w, err)

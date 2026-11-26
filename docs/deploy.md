@@ -18,7 +18,7 @@ sudo install -m 0755 yars /usr/local/bin/yars
 yars version
 ```
 
-`yars version` prints the version, the database schema it writes and the Go release, for example `yars v1.0.0 (schema 24, go1.27.2)`. Built in a clone without `-ldflags`, it shows the git revision; installed with `go install` without them, the release it installed, such as `v1.0.0`.
+`yars version` prints the version, the database schema it writes and the Go release, for example `yars v1.0.0 (schema 25, go1.27.2)`. Built in a clone without `-ldflags`, it shows the git revision; installed with `go install` without them, the release it installed, such as `v1.0.0`.
 
 Without a clone, one command builds the newest release. The binary lands in `$(go env GOBIN)`, or in `$(go env GOPATH)/bin` when `GOBIN` is not set.
 
@@ -66,7 +66,8 @@ Group=yars
 ExecStart=/usr/local/bin/yars serve --data /srv/yars --addr 127.0.0.1:8080 --https
 Restart=on-failure
 # keys for Confluence and Jira destinations, the mail password and the AI
-# key, under the names the settings give; owned by root, mode 0600
+# key, under the names the settings give (the mail password and the AI key
+# under names that start with YARS_); owned by root, mode 0600
 EnvironmentFile=-/etc/yars/env
 # the service writes to its data folder and its home, nowhere else
 NoNewPrivileges=yes
@@ -131,6 +132,8 @@ server {
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-Proto $scheme;
+        # the client's address, for the failed-login lines of the service log
+        proxy_set_header X-Forwarded-For $remote_addr;
         # Run integrity (git fsck) and a push being checked answer nothing
         # for a while
         proxy_read_timeout 1h;
@@ -138,9 +141,9 @@ server {
 }
 ```
 
-The proxy must keep the `Host` header (YARS refuses cross-origin form posts by it, and builds clone URLs from it) and send `X-Forwarded-Proto`. The live-update stream asks nginx not to buffer it (`X-Accel-Buffering: no`) and sends a ping every 25 seconds.
+The proxy must keep the `Host` header: YARS refuses cross-origin form posts by it. YARS does not read `X-Forwarded-Proto`. The clone and MCP addresses on the pages come from `base_url` (below). Without `base_url` they use the request's `Host` header, with `https` only when the server runs with `--https` or a certificate; `yars serve` then logs at the start that `base_url` is not set. The live-update stream asks nginx not to buffer it (`X-Accel-Buffering: no`) and sends a ping every 25 seconds.
 
-Set the address people use in `.yars/config.yaml`, so links in mail and webhooks are whole:
+Set the address people use in `.yars/config.yaml`, so links in mail and webhooks are whole and the pages show the right clone and MCP addresses:
 
 ```yaml
 base_url: https://yars.example.com
@@ -155,6 +158,10 @@ yars serve --data /srv/yars --addr :443 --tls-cert /etc/ssl/yars/fullchain.pem -
 ```
 
 Binding port 443 needs `AmbientCapabilities=CAP_NET_BIND_SERVICE` in the unit, and the `yars` account must be able to read the key. The certificate is read at the start: restart the service after renewing it. A certificate that does not load stops the start before anything changes.
+
+## Sessions
+
+A login ends when it is not used for the number of days set under Admin › System › Retention (Sessions): 14 by default, and 0 means 14 too. It ends 30 days after the login at the latest, however much it is used. The session cookie lives as long as its session.
 
 ## Backup
 
@@ -181,7 +188,7 @@ sudo -u yars yars restore --from /backups/yars-2026-11-11.zip --data /srv/yars-r
 sudo -u yars yars serve --data /srv/yars-restored --addr 127.0.0.1:8081
 ```
 
-A restore always goes into a new (or empty) folder and checks it before it reports success. Open the second server (an SSH tunnel to port 8081 will do) and compare Admin › System's counts of engagements and findings with the live server's. Then stop it and remove the folder (`sudo rm -r /srv/yars-restored`).
+A restore always goes into a new (or empty) folder and checks it before it reports success. It takes no git hook from the ZIP, and of each repository's git config only the basic settings; the server writes its own settings and its push hook at the next start. A hook or git setting added by hand on the old server must be added again. Open the second server (an SSH tunnel to port 8081 will do) and compare Admin › System's counts of engagements and findings with the live server's. Then stop it and remove the folder (`sudo rm -r /srv/yars-restored`).
 
 ## Upgrade
 
@@ -215,6 +222,16 @@ Admin › System:
 - **Operations** has the schema and the last index build. Its buttons sync the engagement pointers, rebuild the index and list what still needs `yars migrate`.
 
 The service log (`journalctl -u yars`) has every error the pages answered with "internal error".
+
+It also has one line for each failed password login, on the website and over git, and one when a name is locked out:
+
+```
+login failed: user "alice" from 127.0.0.1:53412 forwarded-for "203.0.113.9"
+git login failed: user "alice" from 127.0.0.1:53418 forwarded-for "203.0.113.9"
+login locked: user "alice" until 2026-11-26T14:15:00Z
+```
+
+The address after `from` is the one that connected: behind a proxy, the proxy's. The `forwarded-for` part is the `X-Forwarded-For` header, shown only when the server runs with `--https` or a certificate. A client can send that header too: trust it only when your proxy sets it, as the nginx example does. A failed AI call logs its status and the provider's host, never the provider's answer.
 
 ## Uninstall
 

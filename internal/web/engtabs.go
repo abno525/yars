@@ -309,26 +309,35 @@ func (s *Server) renderEngSettings(w http.ResponseWriter, r *http.Request, statu
 	if form != nil {
 		v.Form = *form
 	}
-	members, err := s.Store.Members(p.Eng.ID)
-	if err != nil {
+	if err := s.teamLists(&v, p.Eng.ID); err != nil {
 		s.fail(w, err)
 		return
 	}
+	p.EngSettings = v
+	s.renderStatus(w, status, "eng_settings.html", p)
+}
+
+// teamLists fills the Team panel's lists: the engagement's team, and, only
+// for a viewer who can change the team (v.CanTeam), the accounts that could
+// join it. Everyone else gets no account from outside the team.
+func (s *Server) teamLists(v *engSettingsView, eng string) error {
+	members, err := s.Store.Members(eng)
+	if err != nil {
+		return err
+	}
 	users, err := s.Store.DB().Users()
 	if err != nil {
-		s.fail(w, err)
-		return
+		return err
 	}
 	for _, u := range users {
 		o := option{Value: u.Username, Label: u.Role}
 		if slices.Contains(members, u.Username) {
 			v.Members = append(v.Members, o)
-		} else if !u.Disabled {
+		} else if v.CanTeam && !u.Disabled {
 			v.Others = append(v.Others, o)
 		}
 	}
-	p.EngSettings = v
-	s.renderStatus(w, status, "eng_settings.html", p)
+	return nil
 }
 
 func (s *Server) engSettings(w http.ResponseWriter, r *http.Request) {

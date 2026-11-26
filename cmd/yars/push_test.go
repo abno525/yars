@@ -194,8 +194,9 @@ func TestPushCarriesApprovalOnceLanded(t *testing.T) {
 		t.Fatalf("director's push refused: %v\n%s", err, out)
 	}
 	now, _ := os.ReadFile(sp)
-	if st, shown := state(); st.ApprovedHash != store.ContentHash(now) || shown != "complete" {
-		t.Fatalf("after the push landed: approval %s, content %s, shown %s", st.ApprovedHash, store.ContentHash(now), shown)
+	// was is a value from before the full digest was kept; the carried one is full
+	if st, shown := state(); st.ApprovedHash != store.ApprovalHash(now) || shown != "complete" {
+		t.Fatalf("after the push landed: approval %s, content %s, shown %s", st.ApprovedHash, store.ApprovalHash(now), shown)
 	}
 }
 

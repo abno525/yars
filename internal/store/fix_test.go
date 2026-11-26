@@ -299,7 +299,7 @@ func TestFixStartsCheckAfterwards(t *testing.T) {
 	prev, _, _ := s.DB().LatestRun(eng, "F-001")
 	fixed(t, s, fd)
 	run, ok, err := s.DB().LatestRun(eng, "F-001")
-	if err != nil || !ok || run.ID <= prev.ID || run.ContentHash != load(t, s, fd).Hash || run.By != "alice" {
+	if err != nil || !ok || run.ID <= prev.ID || run.ContentHash != load(t, s, fd).Full || run.By != "alice" {
 		t.Fatalf("latest run %+v (before %d) %v", run, prev.ID, err)
 	}
 }

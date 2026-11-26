@@ -279,9 +279,9 @@ func (s *Store) pushState(eng string, u config.User, ps []pushedFinding) {
 	for _, pf := range ps {
 		if director && pf.md != 0 && pf.prev != nil {
 			if of, err := finding.Parse(pf.prev); err == nil {
-				old := contentHash(pf.prev)
+				old := ApprovalHash(pf.prev)
 				if may(of.Meta.ID, func(st db.State) bool { return Approved(st, old) && st.ApprovedHash != "" }) {
-					if err := carryApprovalDB(s.db, eng, of.Meta.ID, old, contentHash(pf.raw)); err != nil {
+					if err := carryApprovalDB(s.db, eng, of.Meta.ID, old, ApprovalHash(pf.raw)); err != nil {
 						log.Printf("push to %s: approval of %s: %v", eng, of.Meta.ID, err)
 					}
 				}
@@ -310,7 +310,7 @@ func (s *Store) pushEvents(eng, actor string, ps []pushedFinding) ([]Event, erro
 		if got, ok := states[pf.cur.Meta.ID]; ok {
 			st = got
 		}
-		applyState(&pf.cur.Meta, st, contentHash(pf.raw), s.Flow())
+		applyState(&pf.cur.Meta, st, ApprovalHash(pf.raw), s.Flow())
 		ref := FindingRef{EngID: eng, Dir: pf.dir, F: pf.cur}
 		switch {
 		case pf.old == nil && pf.md != 0:

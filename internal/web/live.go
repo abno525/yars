@@ -43,6 +43,24 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad engagement or finding", http.StatusBadRequest)
 		return
 	}
+	u := auth.UserFrom(r.Context())
+	if !s.streamOpen(u.Username) {
+		http.Error(w, "Too many open event streams", http.StatusTooManyRequests)
+		return
+	}
+	defer s.streamClosed(u.Username)
+	// still reports whether the stream may go on, and keeps u the account as
+	// it is now: the session holds, the account is active and has no
+	// temporary password, and it is still on the engagement's team. The
+	// gates in front of this handler ask the same once, at the start.
+	still := func() bool {
+		now, ok := s.Auth.Still(r)
+		if !ok || now.MustChange || (eng != "" && !s.Store.CanSee(now, eng)) {
+			return false
+		}
+		u = now
+		return true
+	}
 	clearDeadlines(w)
 	sub := s.Events.Subscribe(eng, fid, 16)
 	defer s.Events.Unsubscribe(sub)
@@ -89,11 +107,22 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 		case <-s.stop: // the server is stopping: the page reconnects to the next one
 			return
 		case <-tick.C:
+			// the heartbeat is also when the stream is checked again: it
+			// outlives a logout, a disabled account or a lost session by one
+			// beat at most (25 s). The headers are sent, so it just ends.
+			if !still() {
+				return
+			}
 			ok = send(": ping\n\n")
 		case <-sub.Lost():
 			ok = resync()
 		case e := <-sub.C():
-			if eng == "" && e.Eng != "" && !s.Store.CanSee(auth.UserFrom(r.Context()), e.Eng) {
+			// the team as it is now, for every event (the account as of the
+			// last beat)
+			if e.Eng != "" && !s.Store.CanSee(u, e.Eng) {
+				if eng != "" {
+					return // this engagement's stream, and no longer on its team
+				}
 				continue // another team's engagement (a stream of every engagement)
 			}
 			data, _ := json.Marshal(struct {
@@ -103,6 +132,40 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 			}{e.Eng, e.Fid, e.Seq})
 			ok = send("id: %d\nevent: %s\ndata: %s\n\n", e.ID, e.Kind, data)
 		}
+	}
+}
+
+// defaultMaxStreams is how many event streams one account may hold at once.
+// A browser opens one per visible tab and closes it when the tab is hidden,
+// so a person stays far below it; each stream holds a goroutine and a
+// connection without deadlines.
+const defaultMaxStreams = 20
+
+// streamOpen counts one more event stream of user; false when the account
+// holds as many as it may (nothing is counted then).
+func (s *Server) streamOpen(user string) bool {
+	limit := s.maxStreams
+	if limit <= 0 {
+		limit = defaultMaxStreams
+	}
+	s.streamsMu.Lock()
+	defer s.streamsMu.Unlock()
+	if s.streams[user] >= limit {
+		return false
+	}
+	if s.streams == nil {
+		s.streams = map[string]int{}
+	}
+	s.streams[user]++
+	return true
+}
+
+// streamClosed takes back streamOpen's count.
+func (s *Server) streamClosed(user string) {
+	s.streamsMu.Lock()
+	defer s.streamsMu.Unlock()
+	if s.streams[user]--; s.streams[user] <= 0 {
+		delete(s.streams, user)
 	}
 }
 

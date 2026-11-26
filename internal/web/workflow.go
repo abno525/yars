@@ -55,7 +55,7 @@ type wfView struct {
 	HasGated     bool
 	ReviewersURL string
 	URL          string // the bar alone (live refresh)
-	Seen         string // the content hash of the version shown: Sign off, Approve and Complete are for it
+	Seen         string // the full digest of the version shown (store.ApprovalHash): Sign off, Approve and Complete are for it
 	SeenFiles    string // and the attachments shown (store.AttachmentsHash)
 	Returned     *finding.Returned
 	Withdrawn    *finding.Returned // who withdrew the finding and why
@@ -311,7 +311,7 @@ func (s *Server) wfFor(ref store.FindingRef, r *http.Request) wfView {
 	archived := s.Store.Archived(ref.EngID)
 	f := s.flow()
 	v := wfView{Status: m.Status, Shown: workflow.Shown(m), Steps: f.ShownSteps(), CanAssign: f.HasReviewers() && workflow.CanAssign(u, m) && !archived,
-		ReviewersURL: base + "/reviewers", URL: base + "/workflow", Seen: ref.Hash, Returned: m.Returned, Withdrawn: m.Withdrawn,
+		ReviewersURL: base + "/reviewers", URL: base + "/workflow", Seen: ref.Full, Returned: m.Returned, Withdrawn: m.Withdrawn,
 		IsWithdrawn: m.Status == workflow.Withdrawn, ReadOnly: archived, Simple: f.Simple, Author: m.Author}
 	if v.IsWithdrawn {
 		v.Returned = nil // the withdrawal is what counts now
@@ -431,7 +431,13 @@ func (s *Server) wfDone(w http.ResponseWriter, r *http.Request, err error) {
 		// back to the finding's own URL (a reload re-posts nothing), with the
 		// error and the typed reason kept for it
 		to := findingURL(r.PathValue("eng"), r.PathValue("fid"))
-		js, _ := json.Marshal(wfDenial{Path: to, Act: r.PathValue("act"), Reason: r.FormValue("reason"), Error: d.Reason})
+		// kept up to the store's cap: a reason refused for its length is not
+		// parked here whole
+		reason := r.FormValue("reason")
+		if rs := []rune(reason); len(rs) > store.MaxReason {
+			reason = string(rs[:store.MaxReason])
+		}
+		js, _ := json.Marshal(wfDenial{Path: to, Act: r.PathValue("act"), Reason: reason, Error: d.Reason})
 		s.flash.put(r, "wfdenied", string(js))
 		http.Redirect(w, r, to, http.StatusSeeOther)
 	default:

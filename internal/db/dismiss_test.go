@@ -1,7 +1,6 @@
 package db
 
 import (
-	"path/filepath"
 	"testing"
 )
 
@@ -77,12 +76,7 @@ func TestCutOffRunsNotStored(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := d.Exec("PRAGMA user_version = 17"); err != nil {
-		t.Fatal(err)
-	}
-	if err := d.migrate(filepath.Join(t.TempDir(), "yars.db")); err != nil {
-		t.Fatal(err)
-	}
+	rerun(t, d, "018-cut-off-runs-not-stored")
 	runs, err := d.FinishedRuns("e", "F-001", "h", 10)
 	if err != nil || len(runs) != 2 || runs[0].ID != clean || runs[1].ID != done {
 		t.Fatalf("finished runs %+v %v", runs, err)
@@ -115,12 +109,7 @@ func TestLegacyDismissalsEnd(t *testing.T) {
 		return nil
 	})
 	// a database at v16 (already past v14) gets it too
-	if _, err := d.Exec("PRAGMA user_version = 16"); err != nil {
-		t.Fatal(err)
-	}
-	if err := d.migrate(filepath.Join(t.TempDir(), "yars.db")); err != nil {
-		t.Fatal(err)
-	}
+	rerun(t, d, "017-end-copied-legacy-dismissals")
 	ds, _ := d.Dismissals("e", "F-001")
 	if _, ok := ds[DismissKey("todo", LegacyHash("TODO"))]; ok {
 		t.Fatalf("copied old dismissal kept: %+v", ds)

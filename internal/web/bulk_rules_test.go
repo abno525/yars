@@ -93,7 +93,7 @@ func TestBulkDenyRequest(t *testing.T) {
 		{"dora", url.Values{"action": {"bogus"}, "id": {fdir}}, http.StatusUnprocessableEntity},
 		{"dora", url.Values{"action": {"approve"}}, http.StatusUnprocessableEntity},
 		{"bob", url.Values{"action": {"return"}, "id": {fdir}}, http.StatusUnprocessableEntity},
-		{"bob", url.Values{"action": {"return"}, "id": {fdir}, "reason": {strings.Repeat("x", maxBulkReason+1)}}, http.StatusUnprocessableEntity},
+		{"bob", url.Values{"action": {"return"}, "id": {fdir}, "reason": {strings.Repeat("x", store.MaxReason+1)}}, http.StatusUnprocessableEntity},
 	}
 	for i, c := range cases {
 		if code, _ := e.bulkPost(t, c.user, c.form); code != c.code {

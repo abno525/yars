@@ -424,11 +424,7 @@ func TestMigrateV5(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, m := range migrations[:4] {
-		if _, err := raw.Exec(m); err != nil {
-			t.Fatal(err)
-		}
-	}
+	legacySQL(t, raw, 4)
 	for _, q := range []string{
 		"PRAGMA user_version = 4",
 		"INSERT INTO users(username, role, created) VALUES ('dora', 'director', 'x'), ('pen', 'pentester', 'x')",

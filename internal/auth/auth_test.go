@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/abno525/yars/internal/config"
 	"github.com/abno525/yars/internal/db"
@@ -70,6 +71,56 @@ func TestCookieSecureFlag(t *testing.T) {
 		if cs[0].Value != "tok" || cs[0].MaxAge <= 0 || cs[1].MaxAge >= 0 {
 			t.Errorf("set %+v, clear %+v", cs[0], cs[1])
 		}
+	}
+}
+
+// The session cookie lives as long as the session can: the retention's
+// session days (14 at 0), and no longer than what is left of the session's
+// absolute limit.
+func TestCookieFollowsSessionLifetime(t *testing.T) {
+	a, d := newAuth(t)
+	tok, ok := a.Login("alice", "secret")
+	if !ok {
+		t.Fatal("login")
+	}
+	maxAge := func() int {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		a.SetCookie(rec, tok)
+		cs := rec.Result().Cookies()
+		if len(cs) != 1 {
+			t.Fatalf("cookies %v", cs)
+		}
+		return cs[0].MaxAge
+	}
+	const day = 24 * 3600
+	near := func(got, want int) bool { return got <= want && got > want-60 }
+	for days, want := range map[int]int{0: 14 * day, 3: 3 * day, 20: 20 * day} {
+		if err := d.SetRetention(db.Retention{CheckRunDays: 90, SessionDays: days}); err != nil {
+			t.Fatal(err)
+		}
+		if got := maxAge(); !near(got, want) {
+			t.Errorf("session days %d: Max-Age %d, want %d", days, got, want)
+		}
+	}
+	// 25 days after the login, 5 are left of the absolute limit
+	if err := d.SetRetention(db.Retention{CheckRunDays: 90, SessionDays: 20}); err != nil {
+		t.Fatal(err)
+	}
+	left := int(db.SessionMax.Seconds()) - 25*day
+	if _, err := d.Exec("UPDATE sessions SET created = ?", time.Now().Add(-25*24*time.Hour).UTC().Format(time.RFC3339)); err != nil {
+		t.Fatal(err)
+	}
+	if got := maxAge(); !near(got, left) {
+		t.Errorf("25 days after the login: Max-Age %d, want %d", got, left)
+	}
+	// a page load renews it by the same rule
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/", nil)
+	req.AddCookie(&http.Cookie{Name: CookieName, Value: tok})
+	a.Require(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})).ServeHTTP(rec, req)
+	if cs := rec.Result().Cookies(); len(cs) != 1 || !near(cs[0].MaxAge, left) {
+		t.Errorf("renewed cookie %v, want Max-Age %d", cs, left)
 	}
 }
 

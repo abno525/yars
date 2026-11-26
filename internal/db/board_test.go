@@ -431,11 +431,7 @@ func TestMigrateV11Board(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, m := range migrations[:11] {
-		if _, err := sdb.Exec(m); err != nil {
-			t.Fatal(err)
-		}
-	}
+	legacySQL(t, sdb, 11)
 	sdb.Exec("PRAGMA user_version = 11")
 	sdb.Exec("INSERT INTO engagement_members(eng, username) VALUES ('acme', 'bob')")
 	sdb.Close()

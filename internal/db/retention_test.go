@@ -138,7 +138,9 @@ func TestPruneKeepsRunsOnTheLatestContent(t *testing.T) {
 	}
 }
 
-// D24, Review focus 2: 0 keeps everything.
+// D24, Review focus 2: 0 keeps the audit log and the check runs for good.
+// Sessions are not kept for good: one unused for a year is dead at 0 too
+// (the default idle time), and its row goes; one in use stays.
 func TestPruneZeroKeepsAll(t *testing.T) {
 	d, _ := open(t)
 	oldRuns(t, d, "F-001", 3)
@@ -147,11 +149,12 @@ func TestPruneZeroKeepsAll(t *testing.T) {
 	d.AddUser(config.User{Username: "bob", Role: "reviewer"})
 	d.CreateSession("s1", "bob")
 	d.Exec("UPDATE sessions SET last_seen = ?", at(time.Now().AddDate(-1, 0, 0)))
+	d.CreateSession("s2", "bob")
 	audit, runs, sessions := count(t, d, "audit"), count(t, d, "check_runs"), count(t, d, "sessions")
-	if p, err := d.Prune(time.Now(), Retention{}); err != nil || p != (Pruned{}) {
+	if p, err := d.Prune(time.Now(), Retention{}); err != nil || p != (Pruned{Sessions: 1}) {
 		t.Fatalf("pruned %+v %v", p, err)
 	}
-	if count(t, d, "audit") != audit || count(t, d, "check_runs") != runs || count(t, d, "sessions") != sessions {
+	if count(t, d, "audit") != audit || count(t, d, "check_runs") != runs || count(t, d, "sessions") != sessions-1 {
 		t.Fatal("Retention{} deleted something")
 	}
 }

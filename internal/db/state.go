@@ -255,16 +255,18 @@ func (d *DB) ChatHidden(user, eng, fid string) (map[string]bool, error) {
 
 // MoveHash points the approval, the sign-offs and the check runs of a
 // finding at new where they pointed at old (a rename that changed nothing
-// a reviewer read). A run still going is left on old: it checks the content
-// as it was and ends out of date.
+// a reviewer read). old and new are the full digests of the file. A value
+// stored before the full digest was kept holds its first 16 digits and
+// moves too. A run still going is left on old: it checks the content as it
+// was and ends out of date.
 func (tx *Tx) MoveHash(eng, fid, old, new string) error {
 	tx.touch(eng)
 	for _, q := range []string{
-		"UPDATE finding_state SET approved_hash = ? WHERE eng = ? AND fid = ? AND approved_hash = ?",
-		"UPDATE reviewers SET cleared_hash = ? WHERE eng = ? AND fid = ? AND cleared_hash = ?",
-		"UPDATE check_runs SET content_hash = ? WHERE eng = ? AND fid = ? AND content_hash = ? AND state <> '" + RunRunning + "'",
+		"UPDATE finding_state SET approved_hash = ? WHERE eng = ? AND fid = ? AND approved_hash IN (?, ?)",
+		"UPDATE reviewers SET cleared_hash = ? WHERE eng = ? AND fid = ? AND cleared_hash IN (?, ?)",
+		"UPDATE check_runs SET content_hash = ? WHERE eng = ? AND fid = ? AND content_hash IN (?, ?) AND state <> '" + RunRunning + "'",
 	} {
-		if _, err := tx.Exec(q, new, eng, fid, old); err != nil {
+		if _, err := tx.Exec(q, new, eng, fid, old, shortOf(old)); err != nil {
 			return err
 		}
 	}

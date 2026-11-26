@@ -14,13 +14,13 @@
 | `ai.provider` | string | — | `openai` or `anthropic` |
 | `ai.base_url` | string | — | https; plain http only for localhost |
 | `ai.model` | string | — | — |
-| `ai.api_key_env` | string | — | name of the environment variable holding the key |
-| `base_url` | string | — | the server's address; links in webhooks and email |
+| `ai.api_key_env` | string | — | name of the environment variable holding the key; must start with `YARS_` |
+| `base_url` | string | — | the server's address; links in webhooks and email, and the clone and MCP addresses on the pages |
 | `smtp.host` | string | — | set with `smtp.from` to send notification email |
 | `smtp.port` | number | 25 | — |
 | `smtp.from` | string | — | sender address |
 | `smtp.username` | string | — | empty = no login |
-| `smtp.password_env` | string | — | name of the environment variable holding the password |
+| `smtp.password_env` | string | — | name of the environment variable holding the password; must start with `YARS_` |
 | `checks.max_running` | number | 4 | at least 1; check runs the server runs at once |
 
 ## Example
@@ -52,6 +52,17 @@ checks:
 ```
 
 Without `smtp.host` and `smtp.from` the Email column of the notification settings is hidden.
+
+## Environment variables
+
+`ai.api_key_env` and `smtp.password_env` name a variable of the server's environment. The name must start with `YARS_`, followed by capital letters, digits or underscores. The value is sent to `ai.base_url` or `smtp.host`, so no other variable of the server can be named.
+
+A file that names another variable is refused: on Admin › Structure, on a push, and at the start. `yars serve` then does not start and says which key to change. To fix a server that does not start:
+
+1. Rename the variable where the service gets its environment (`/etc/yars/env`), for example `OPENAI_API_KEY` to `YARS_OPENAI_API_KEY`.
+2. Set the new name in `.yars/config.yaml` in the data folder.
+3. Commit it there as the service account: `git -C /srv/yars commit .yars/config.yaml -m config`. An edit that is not committed is undone at the next start.
+4. Start the service.
 
 ## Workflow
 

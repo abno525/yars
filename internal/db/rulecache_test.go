@@ -78,7 +78,7 @@ func TestRuleResultBounded(t *testing.T) {
 
 // Q1: an older database gets the table on opening.
 func TestMigrateAddsRuleCache(t *testing.T) {
-	p := openAtVersion(t, schemaVersion-1)
+	p := openAtVersion(t, 23) // the schema before 024-rule-cache
 	d, err := Open(p)
 	if err != nil {
 		t.Fatal(err)

@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/abno525/yars/internal/chat"
 	"github.com/abno525/yars/internal/config"
@@ -64,8 +65,9 @@ func (s *Store) setRetestResult(engID, dir string, was *string, result string, a
 // changeState loads a finding, lets fn change its state, and stores it —
 // with any workflow events fn returns — in one database transaction. No git
 // commit is made and no git lock is taken: the state is bound to the content
-// hash read here, so a concurrent edit makes it stale rather than wrong
-// (clearances and approvals count only for the content they were given for).
+// hash read here (the ApprovalHash, handed to fn), so a concurrent edit makes
+// it stale rather than wrong (clearances and approvals count only for the
+// content they were given for).
 func (s *Store) changeState(engID, dir string, fn func(ref FindingRef, st *db.State, hash string) ([]chat.Message, error)) error {
 	if s.db == nil {
 		return ErrNoDB
@@ -74,7 +76,7 @@ func (s *Store) changeState(engID, dir string, fn func(ref FindingRef, st *db.St
 	if err != nil {
 		return err
 	}
-	fid, hash := ref.F.Meta.ID, contentHash(raw)
+	fid, hash := ref.F.Meta.ID, ApprovalHash(raw)
 	// read-modify-write inside one write transaction, so another writer
 	// (a request, yars export --mark) can't interleave
 	seq, err := s.db.TxForSeq(engID, func(tx *db.Tx) error {
@@ -85,7 +87,7 @@ func (s *Store) changeState(engID, dir string, fn func(ref FindingRef, st *db.St
 		if err != nil {
 			return err
 		}
-		applyState(&ref.F.Meta, st, hash, s.Flow())
+		applyState(&ref.F.Meta, st, ref.Full, s.Flow())
 		msgs, err := fn(ref, &st, hash)
 		if err != nil {
 			return err
@@ -120,11 +122,12 @@ func (s *Store) TransitionChecked(engID, dir string, act workflow.Action, reason
 	return s.transition(engID, dir, act, reason, "", "", u, check)
 }
 
-// TransitionSeen is Transition for a page that showed the content with hash
-// seen and the attachments with AttachmentsHash files: a sign-off, an
-// approval or a Complete (SignsOff) of a finding changed since is refused
-// (ErrConflict). seen or files "" is not checked; another action:
-// Transition.
+// TransitionSeen is Transition for a page that showed the content with the
+// full digest seen (ApprovalHash, FindingRef.Full) and the attachments with
+// AttachmentsHash files: a sign-off, an approval or a Complete (SignsOff) of
+// a finding changed since is refused (ErrConflict). The first 16 digits are
+// not the content: a seen value that is not the whole digest is refused the
+// same way. seen or files "" is not checked; another action: Transition.
 func (s *Store) TransitionSeen(engID, dir string, act workflow.Action, reason, seen, files string, u config.User) error {
 	if !SignsOff(act) {
 		seen, files = "", ""
@@ -144,12 +147,31 @@ func changedSince() error {
 	return &workflow.Denied{Reason: "the finding changed since you opened it; read it again", Err: ErrConflict}
 }
 
+// MaxReason is the most characters a reason may have: of Return, Withdraw
+// and the reverts, and of a dismissal. A reason is copied into the chat,
+// notifications, webhooks and mail.
+const MaxReason = 4000
+
+// reasonTooLong is the refusal's text when reason is over MaxReason
+// characters, else "".
+func reasonTooLong(reason string) string {
+	if utf8.RuneCountInString(reason) <= MaxReason {
+		return ""
+	}
+	return fmt.Sprintf("the reason is longer than %d characters", MaxReason)
+}
+
 func (s *Store) transition(engID, dir string, act workflow.Action, reason, seen, files string, u config.User, check func(finding.Meta) error) error {
 	if check == nil {
 		check = func(finding.Meta) error { return nil }
 	}
 	if !workflow.NeedsReason(act) {
 		reason = "" // only Return, Withdraw and the reverts carry one
+	}
+	reason = strings.TrimSpace(reason)
+	if msg := reasonTooLong(reason); msg != "" {
+		// first: before the rules run and before anything is read
+		return &workflow.Denied{Reason: msg}
 	}
 	if s.db == nil {
 		return ErrNoDB
@@ -173,7 +195,8 @@ func (s *Store) transition(engID, dir string, act workflow.Action, reason, seen,
 		if err != nil {
 			return err
 		}
-		if seen != "" && contentHash(raw) != seen {
+		full := ApprovalHash(raw)
+		if seen != "" && full != seen {
 			// first, as in the change: no gate or rule for content not seen
 			return changedSince()
 		}
@@ -183,14 +206,14 @@ func (s *Store) transition(engID, dir string, act workflow.Action, reason, seen,
 		if err := check(ref.F.Meta); err != nil {
 			return err
 		}
-		errs, err := s.blocking(act, ref, contentHash(raw), u, rules.All)
+		errs, err := s.blocking(act, ref, full, u, rules.All)
 		if err != nil {
 			return err
 		}
 		if len(errs) > 0 {
 			return &workflow.Denied{Reason: "cannot " + strings.ToLower(workflow.Label(act)) + ": " + strings.Join(errs, "; ")}
 		}
-		linted = contentHash(raw)
+		linted = full
 	}
 	var done Event
 	err := s.changeState(engID, dir, func(ref FindingRef, st *db.State, hash string) ([]chat.Message, error) {

@@ -27,14 +27,15 @@ func (s *Store) BlockingNow(engID, dir string, act workflow.Action, u config.Use
 	if err != nil {
 		return "", err
 	}
-	errs, err := s.blocking(act, ref, contentHash(raw), u, rules.Fast)
+	errs, err := s.blocking(act, ref, ApprovalHash(raw), u, rules.Fast)
 	if err != nil || len(errs) == 0 {
 		return "", err
 	}
 	return "cannot " + strings.ToLower(workflow.Label(act)) + ": " + strings.Join(errs, "; "), nil
 }
 
-// blocking lists what blocks act on the finding (content hash): Submit and
+// blocking lists what blocks act on the finding (hash: its ApprovalHash, the
+// full digest check runs are kept under): Submit and
 // Approve (and Complete, the simple workflow's approval) run every rule now
 // (scripts and AI too: no check run may have covered the content) and are
 // blocked by its undismissed errors; Sign off, Approve and Complete are
@@ -99,7 +100,7 @@ func (s *Store) OpenChecks(engID, dir string) ([]rules.Violation, error) {
 	if err != nil {
 		return nil, err
 	}
-	return s.openChecks(ref, contentHash(raw))
+	return s.openChecks(ref, ApprovalHash(raw))
 }
 
 func (s *Store) openChecks(ref FindingRef, hash string) ([]rules.Violation, error) {
@@ -173,7 +174,7 @@ func (s *Store) CheckItems(engID, dir string) ([]rules.Violation, error) {
 		add(v, ViolationHash(v.Target, v.Quote))
 	}
 	if s.db != nil {
-		if err := s.storedChecks(engID, ref.F.Meta.ID, contentHash(raw), add); err != nil {
+		if err := s.storedChecks(engID, ref.F.Meta.ID, ApprovalHash(raw), add); err != nil {
 			return nil, err
 		}
 	}
@@ -271,7 +272,7 @@ func (s *Store) LintContent(ctx context.Context, engID string, raw []byte, kinds
 			return nil, err
 		}
 	}
-	applyState(&f.Meta, st, contentHash(raw), s.Flow())
+	applyState(&f.Meta, st, ApprovalHash(raw), s.Flow())
 	c := rules.CallerOf(ctx)
 	c.Eng, c.Fid = engID, ""
 	if lintFidRe.MatchString(f.Meta.ID) {
@@ -330,7 +331,7 @@ func (s *Store) CheckStatus(engID, dir string) (CheckStatus, error) {
 	}
 	if st.HasRun {
 		// stale: the finding, or the rules (Q13), changed since the run
-		st.Stale = st.Run.ContentHash != contentHash(raw) || RulesChanged(st.Run.Rules, s.RulesVersion())
+		st.Stale = !db.SameContent(st.Run.ContentHash, ApprovalHash(raw)) || RulesChanged(st.Run.Rules, s.RulesVersion())
 		if st.Steps, err = s.db.RunSteps(st.Run.ID); err != nil {
 			return st, err
 		}

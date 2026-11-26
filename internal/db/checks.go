@@ -17,7 +17,9 @@ const (
 )
 
 // CheckRun is one run of every style rule on a finding, for the content
-// with hash ContentHash. Done of Total rules have run so far.
+// with hash ContentHash: the full SHA-256 of finding.md, or its first 16
+// digits in a run stored before the full digest was kept (SameContent). Done
+// of Total rules have run so far.
 type CheckRun struct {
 	ID                    int64
 	Eng, Fid, ContentHash string
@@ -26,6 +28,18 @@ type CheckRun struct {
 	Total, Done           int
 	Rules                 string // the rules' version it checked with ("" = before v19, or unknown)
 }
+
+// SameContent reports whether a hash stored with a check run, an approval or
+// a sign-off is of the content whose full digest is full. A stored value of
+// 16 digits is from before the full digest was kept: it counts for the
+// content whose digest starts with it, with the 64 bits it always had.
+func SameContent(stored, full string) bool {
+	return stored == full || len(stored) == 16 && len(full) > 16 && strings.HasPrefix(full, stored)
+}
+
+// shortOf is the 16 digits a hash was stored as before the full digest was
+// kept.
+func shortOf(h string) string { return h[:min(len(h), 16)] }
 
 // CheckResult is one violation a run found. Thread is the chat thread that
 // stands for it ("" = none: a notice, or a dismissed violation).
@@ -233,11 +247,12 @@ func (d *DB) LatestFinishedRun(eng, fid, contentHash string) (CheckRun, bool, er
 }
 
 // FinishedRuns returns up to limit check runs of a finding that ended with
-// their results stored on the given content, newest first (see
+// their results stored on the given content (its full digest; a run stored
+// under the digest's first 16 digits counts, SameContent), newest first (see
 // LatestFinishedRun).
 func (d *DB) FinishedRuns(eng, fid, contentHash string, limit int) ([]CheckRun, error) {
-	rows, err := d.Query("SELECT "+runCols+" FROM check_runs WHERE eng = ? AND fid = ? AND content_hash = ? AND state != ? AND stored = 1 ORDER BY id DESC LIMIT ?",
-		eng, fid, contentHash, RunRunning, limit)
+	rows, err := d.Query("SELECT "+runCols+" FROM check_runs WHERE eng = ? AND fid = ? AND content_hash IN (?, ?) AND state != ? AND stored = 1 ORDER BY id DESC LIMIT ?",
+		eng, fid, contentHash, shortOf(contentHash), RunRunning, limit)
 	if err != nil {
 		return nil, err
 	}

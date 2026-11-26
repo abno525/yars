@@ -56,7 +56,7 @@ func (s *Store) startCheck(engID, dir, only string, u config.User) (db.CheckRun,
 	}
 	fid := ref.F.Meta.ID
 	key := checkKey(engID, fid)
-	hash := contentHash(raw)
+	hash := ApprovalHash(raw) // the run is of exactly this content
 	sc, stepped := s.Linter.(StepChecker)
 	var ruleList []rules.Rule
 	if stepped {
@@ -84,7 +84,7 @@ func (s *Store) startCheck(engID, dir, only string, u config.User) (db.CheckRun,
 	if only != "" {
 		prev, ok, err := s.db.LatestRun(engID, fid)
 		// kept only from a run on this content with these rules (Q13)
-		if err == nil && ok && prev.State != db.RunRunning && prev.ContentHash == hash && !RulesChanged(prev.Rules, asked) {
+		if err == nil && ok && prev.State != db.RunRunning && db.SameContent(prev.ContentHash, hash) && !RulesChanged(prev.Rules, asked) {
 			keep, err = s.carry(prev.ID, only)
 		}
 		if err != nil {

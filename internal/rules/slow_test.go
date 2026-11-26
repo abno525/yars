@@ -290,20 +290,27 @@ func TestAIErrorShowsStatusOnly(t *testing.T) {
 	}
 }
 
-// The server log gets the error body without the key the provider echoed,
-// on one line however the body is written (M34 review).
-func TestAIErrorLogHidesKey(t *testing.T) {
+// The server log gets the status and the provider's host, one line a call,
+// and nothing of the error body: a provider can echo the request there (the
+// finding's text) or the key.
+func TestAIErrorLogHasNoBody(t *testing.T) {
 	var logged bytes.Buffer
 	log.SetOutput(&logged)
 	t.Cleanup(func() { log.SetOutput(os.Stderr) })
 	for _, provider := range []string{"anthropic", "openai"} {
-		f := &fakeAI{status: 401, body: func(map[string]any) string {
-			return "invalid key: secret\nfake log line"
+		f := &fakeAI{status: 500, body: func(map[string]any) string {
+			return "invalid key: secret\nfake log line\nyou sent: The admin password is hunter2"
 		}}
 		srv := f.server(t)
-		aiRunner(t, provider, srv.URL).AI(context.Background(), acr, "title", "x")
+		vs := aiRunner(t, provider, srv.URL).AI(context.Background(), acr, "title", "The admin password is hunter2")
+		if len(vs) != 1 || vs[0].Message != "AI check failed: HTTP 500" {
+			t.Fatalf("%s: got %+v", provider, vs)
+		}
+		if !strings.Contains(logged.String(), "ai: HTTP 500 from "+strings.TrimPrefix(srv.URL, "http://")+"\n") {
+			t.Fatalf("%s: log:\n%s", provider, logged.String())
+		}
 	}
-	if out := logged.String(); strings.Contains(out, "secret") || strings.Count(out, "\n") != 2 || !strings.Contains(out, "[key]") {
+	if out := logged.String(); strings.Contains(out, "secret") || strings.Contains(out, "hunter2") || strings.Contains(out, "fake log line") || strings.Count(out, "\n") != 2 {
 		t.Fatalf("log:\n%s", out)
 	}
 }

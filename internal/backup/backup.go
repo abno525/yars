@@ -48,7 +48,8 @@ func Skip(rel string, withKey bool) bool {
 // repo (under the main lock), each engagements/<id> repo (under its lock, one
 // at a time), then a snapshot of the database as .yars/yars.db. Only regular
 // files and folders go in; links could point out of the data folder. File
-// modes are kept, so hooks and rule scripts stay executable.
+// modes are kept, so rule scripts stay executable (git hooks are in the ZIP
+// too; a restore leaves them out).
 func Write(w io.Writer, dataDir string, d *db.DB, l Locker, o Options) (int64, error) {
 	// a data folder reached through a link is walked where it is
 	dataDir, err := filepath.EvalSymlinks(dataDir)

@@ -6,8 +6,11 @@ import (
 	"time"
 )
 
-// Retention is how long things are kept, in days; 0 keeps them for good
-// (D24, Admin › System).
+// Retention is how long things are kept, in days (D24, Admin › System). 0
+// keeps the audit log and the check runs for good. SessionDays is how long
+// a session lives without being used; 0 there is the default, 14 days
+// (SessionIdle): a session is never kept for good, and none lives longer
+// than SessionMax from its login.
 type Retention struct{ AuditDays, CheckRunDays, SessionDays int }
 
 // Setting keys and defaults.
@@ -62,8 +65,9 @@ type Pruned struct{ Audit, CheckRuns, Sessions, AIUsage, RuleResults int }
 
 // Prune deletes what is older than r allows at now: audit entries, finished
 // check runs other than each finding's latest (their results and steps go
-// with them), stored rule results, and sessions not used for SessionDays.
-// A value of 0 keeps that kind for good.
+// with them), stored rule results, and sessions not used for SessionDays
+// or made longer than SessionMax ago. A value of 0 keeps that kind for good,
+// except sessions: 0 there is the default idle time.
 func (d *DB) Prune(now time.Time, r Retention) (Pruned, error) {
 	var p Pruned
 	cutoff := func(days int) string { return now.AddDate(0, 0, -days).UTC().Format(time.RFC3339) }
@@ -101,10 +105,15 @@ func (d *DB) Prune(now time.Time, r Retention) (Pruned, error) {
 			return p, err
 		}
 	}
-	if r.SessionDays > 0 {
-		if err := del(&p.Sessions, "DELETE FROM sessions WHERE last_seen < ?", cutoff(r.SessionDays)); err != nil {
-			return p, err
-		}
+	// the sessions no login accepts any more: idle for the session days (the
+	// default at 0, as sessionIdle), or made longer than SessionMax ago
+	idle := time.Duration(r.SessionDays) * 24 * time.Hour
+	if r.SessionDays == 0 {
+		idle = SessionIdle
+	}
+	at := func(t time.Time) string { return t.UTC().Format(time.RFC3339) }
+	if err := del(&p.Sessions, "DELETE FROM sessions WHERE last_seen < ? OR created < ?", at(now.Add(-idle)), at(now.Add(-SessionMax))); err != nil {
+		return p, err
 	}
 	return p, nil
 }

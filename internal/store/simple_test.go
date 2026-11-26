@@ -89,7 +89,7 @@ func TestSimpleCompleteSetsApproval(t *testing.T) {
 	}
 	var evs []Event
 	s.OnEvent(func(e Event) { evs = append(evs, e) })
-	hash := load(t, s, fd).Hash
+	hash := load(t, s, fd).Full
 	if err := s.Transition(eng, fd, workflow.Complete, "", sBen); err != nil {
 		t.Fatal(err)
 	}
@@ -216,7 +216,7 @@ func TestSimpleCompleteBlockedByOpenChecks(t *testing.T) {
 // Complete of a version the page did not show is refused as a conflict.
 func TestSimpleCompleteSeen(t *testing.T) {
 	s, _, fd := simpleDraft(t)
-	seen := load(t, s, fd).Hash
+	seen := load(t, s, fd).Full
 	if err := s.UpdateSection(eng, fd, "Impact", "Changed after the read.", "", sAnna); err != nil {
 		t.Fatal(err)
 	}
@@ -226,7 +226,7 @@ func TestSimpleCompleteSeen(t *testing.T) {
 	if load(t, s, fd).F.Meta.Status != "draft" {
 		t.Fatal("completed anyway")
 	}
-	if err := s.TransitionSeen(eng, fd, workflow.Complete, "", load(t, s, fd).Hash, "", sBen); err != nil {
+	if err := s.TransitionSeen(eng, fd, workflow.Complete, "", load(t, s, fd).Full, "", sBen); err != nil {
 		t.Fatalf("current seen: %v", err)
 	}
 }
@@ -242,8 +242,8 @@ func TestSimpleEditKeepsComplete(t *testing.T) {
 		t.Fatal(err)
 	}
 	ref := load(t, s, fd)
-	if ref.F.Meta.Status != "complete" || stateOf(t, s, fd).ApprovedHash != ref.Hash {
-		t.Fatalf("after an edit: %s, approved %s, hash %s", ref.F.Meta.Status, stateOf(t, s, fd).ApprovedHash, ref.Hash)
+	if ref.F.Meta.Status != "complete" || stateOf(t, s, fd).ApprovedHash != ref.Full {
+		t.Fatalf("after an edit: %s, approved %s, hash %s", ref.F.Meta.Status, stateOf(t, s, fd).ApprovedHash, ref.Full)
 	}
 	if err := s.Transition(eng, fd, workflow.Report, "", sBen); err != nil {
 		t.Fatal(err)
@@ -275,7 +275,7 @@ func TestSimpleDriftDemotesToDraft(t *testing.T) {
 	if err := s.Transition(eng, fd, workflow.Complete, "", sBen); err != nil {
 		t.Fatal(err)
 	}
-	if stateOf(t, s, fd).ApprovedHash != load(t, s, fd).Hash {
+	if stateOf(t, s, fd).ApprovedHash != load(t, s, fd).Full {
 		t.Fatal("not approved for the current content")
 	}
 	// the standard workflow reads the same state as verification
@@ -454,7 +454,7 @@ func TestStandardCompleteRefused(t *testing.T) {
 		t.Fatalf("without rules: %v", err)
 	}
 	withRules(t, s, dir, checkRules)
-	if err := s.TransitionSeen(eng, fd, workflow.Complete, "", load(t, s, fd).Hash, "", uDora); !denied(err) || err.Error() != `unknown action "complete"` {
+	if err := s.TransitionSeen(eng, fd, workflow.Complete, "", load(t, s, fd).Full, "", uDora); !denied(err) || err.Error() != `unknown action "complete"` {
 		t.Fatalf("with rules: %v", err)
 	}
 	if st := stateOf(t, s, fd); st.Status != "" && st.Status != "draft" {

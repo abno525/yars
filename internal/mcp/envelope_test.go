@@ -353,6 +353,14 @@ func TestTransitionRefusalCodes(t *testing.T) {
 	if m := tr(pen2, "withdraw", ""); m["code"] != "not_allowed" {
 		t.Errorf("withdraw by another pentester: %v", m)
 	}
+	// the store's cap on a reason holds for an agent too
+	text, isErr := f.call(alice, "transition", map[string]any{"engagement": "acme", "finding": "F-001", "action": "withdraw", "reason": strings.Repeat("x", store.MaxReason+1)})
+	if m := object(t, "withdraw", text); !isErr || !strings.Contains(m["message"].(string), "the reason is longer than 4000 characters") {
+		t.Errorf("withdraw with a reason over the cap: %s", text)
+	}
+	if ref, _ := f.s.Store.Finding("acme", "001"); ref.F.Meta.Status != "draft" {
+		t.Errorf("a refused withdraw moved it to %s", ref.F.Meta.Status)
+	}
 }
 
 // ok splices into an object only: {} is {"ok":true}; a list or a value is

@@ -16,6 +16,27 @@ import (
 // retention setting is 0 (Retention.SessionDays sets it otherwise).
 const SessionIdle = 14 * 24 * time.Hour
 
+// SessionMax is how long a session lives from its login at most, however
+// much it is used: a cookie someone took stops working then.
+const SessionMax = 30 * 24 * time.Hour
+
+// SessionLeft is how long the session stored by hash holds from now if it
+// is used now and not again: the idle time, or what is left of SessionMax
+// when that is less (the session cookie's lifetime). Without such a session
+// it is the idle time.
+func (d *DB) SessionLeft(hash string) time.Duration {
+	idle := d.sessionIdle()
+	var created string
+	if err := d.QueryRow("SELECT created FROM sessions WHERE hash = ?", hash).Scan(&created); err != nil {
+		return idle
+	}
+	made, err := time.Parse(time.RFC3339, created)
+	if err != nil {
+		return idle
+	}
+	return max(min(idle, SessionMax-d.now().Sub(made)), 0)
+}
+
 // Themes a user can choose ("" follows the system).
 var Themes = []string{"", "light", "dark"}
 
@@ -26,6 +47,16 @@ func b2i(b bool) int {
 	return 0
 }
 
+// ErrUserExists: AddUser found the username taken, as written or in another
+// case of its ASCII letters.
+var ErrUserExists = errors.New("user exists")
+
+// userExists is an ErrUserExists with its own text for the reader.
+type userExists string
+
+func (e userExists) Error() string        { return string(e) }
+func (e userExists) Is(target error) bool { return target == ErrUserExists }
+
 func (d *DB) AddUser(u config.User) error {
 	if !config.ValidRole(u.Role) {
 		return fmt.Errorf("invalid role %q (want %s)", u.Role, strings.Join(config.Roles, ", "))
@@ -33,19 +64,48 @@ func (d *DB) AddUser(u config.User) error {
 	if !slices.Contains(Themes, u.Theme) {
 		return fmt.Errorf("invalid theme %q", u.Theme)
 	}
-	if _, ok, err := d.User(u.Username); err != nil {
-		return err
-	} else if ok {
-		return fmt.Errorf("user %s already exists", u.Username)
-	}
 	return d.Tx(func(tx *Tx) error {
+		// in the transaction (write transactions are one at a time): no two
+		// requests both find the name free. lower() folds ASCII letters only,
+		// as the email comparison does; Ä and ä stay two names.
+		var taken string
+		err := tx.QueryRow("SELECT username FROM users WHERE lower(username) = lower(?) ORDER BY username = ? DESC, username LIMIT 1", u.Username, u.Username).Scan(&taken)
+		switch {
+		case err == nil && taken == u.Username:
+			return userExists(fmt.Sprintf("user %s already exists", u.Username))
+		case err == nil:
+			return userExists(fmt.Sprintf("user %s already exists as %s (only the case of letters differs)", u.Username, taken))
+		case !errors.Is(err, sql.ErrNoRows):
+			return err
+		}
 		if err := emailFree(tx, u.Username, u.Email); err != nil {
 			return err
 		}
-		_, err := tx.Exec("INSERT INTO users(username, email, role, password_hash, created, is_admin, disabled, theme, must_change, keys_off) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		_, err = tx.Exec("INSERT INTO users(username, email, role, password_hash, created, is_admin, disabled, theme, must_change, keys_off) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 			u.Username, u.Email, u.Role, u.PasswordHash, d.stamp(), b2i(u.IsAdmin), b2i(u.Disabled), u.Theme, b2i(u.MustChange), b2i(u.KeysOff))
 		return err
 	})
+}
+
+// UsernameClashes lists the accounts whose usernames differ only in the
+// case of ASCII letters, one entry per name ("Alice, alice"): accounts made
+// before AddUser refused that.
+func (d *DB) UsernameClashes() ([]string, error) {
+	rows, err := d.Query(`SELECT group_concat(username, ', ') FROM (SELECT username FROM users ORDER BY username)
+		GROUP BY lower(username) HAVING count(*) > 1 ORDER BY lower(username)`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var s string
+		if err := rows.Scan(&s); err != nil {
+			return nil, err
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
 }
 
 const userCols = "username, email, role, password_hash, is_admin, disabled, theme, created, must_change, keys_off"
@@ -575,25 +635,49 @@ func (d *DB) CreateSession(hash, user string) error {
 
 // SessionUser returns the session's user and refreshes its last use; a
 // session idle for longer than the retention's session days (SessionIdle
-// when that is 0) is deleted and rejected.
+// when that is 0), or older than SessionMax, is deleted and rejected.
 func (d *DB) SessionUser(hash string) (string, bool, error) {
-	var user, seen string
-	err := d.QueryRow("SELECT username, last_seen FROM sessions WHERE hash = ?", hash).Scan(&user, &seen)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", false, nil
-	}
-	if err != nil {
+	user, seen, found, good, err := d.session(hash)
+	if err != nil || !found {
 		return "", false, err
 	}
-	t, err := time.Parse(time.RFC3339, seen)
-	if err != nil || d.now().Sub(t) > d.sessionIdle() {
+	if !good {
 		d.DeleteSession(hash)
 		return "", false, nil
 	}
-	if d.now().Sub(t) > time.Minute {
+	if d.now().Sub(seen) > time.Minute {
 		d.Exec("UPDATE sessions SET last_seen = ? WHERE hash = ?", d.stamp(), hash)
 	}
 	return user, true, nil
+}
+
+// SessionAlive is SessionUser that writes nothing: it is no use of the
+// session, so a caller that asks again and again (an open event stream)
+// does not keep the session from going idle.
+func (d *DB) SessionAlive(hash string) (string, bool, error) {
+	user, _, found, good, err := d.session(hash)
+	if err != nil || !found || !good {
+		return "", false, err
+	}
+	return user, true, nil
+}
+
+// session reads the session stored by hash: its user, its last use, whether
+// there is one (found) and whether it still holds now (good): used within
+// the idle time, and made no longer than SessionMax ago.
+func (d *DB) session(hash string) (user string, seen time.Time, found, good bool, err error) {
+	var last, created string
+	err = d.QueryRow("SELECT username, last_seen, created FROM sessions WHERE hash = ?", hash).Scan(&user, &last, &created)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", seen, false, false, nil
+	}
+	if err != nil {
+		return "", seen, false, false, err
+	}
+	seen, perr := time.Parse(time.RFC3339, last)
+	made, cerr := time.Parse(time.RFC3339, created)
+	good = perr == nil && cerr == nil && d.now().Sub(seen) <= d.sessionIdle() && d.now().Sub(made) <= SessionMax
+	return user, seen, true, good, nil
 }
 
 func (d *DB) DeleteSession(hash string) error {

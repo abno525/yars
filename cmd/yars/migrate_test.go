@@ -163,6 +163,38 @@ func TestMigrate(t *testing.T) {
 	}
 }
 
+// Two names of users.yaml that differ only in case stop the import with both
+// named and the fix; after the rename a second run finishes.
+func TestMigrateNamesAccountsThatDifferInCase(t *testing.T) {
+	dir := legacyRepo(t)
+	hash := testHash(t, "pw")
+	save := func(second string) {
+		t.Helper()
+		us := []config.User{{Username: "alice", Role: "pentester", PasswordHash: hash, Email: "a@x"}, {Username: second, Role: "reviewer", PasswordHash: hash, Email: "b@x"}, {Username: "bob", Role: "reviewer", PasswordHash: hash}}
+		if err := config.SaveUsers(dir, us); err != nil {
+			t.Fatal(err)
+		}
+	}
+	save("Alice")
+	var out bytes.Buffer
+	err := cmdMigrate([]string{"--data", dir}, &out)
+	if err == nil {
+		t.Fatalf("alice and Alice imported:\n%s", out.String())
+	}
+	for _, want := range []string{"account Alice", "already exists as alice", ".yars/users.yaml", "yars migrate again"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("%q lacks %q", err, want)
+		}
+	}
+	save("alicia")
+	if err := cmdMigrate([]string{"--data", dir}, &out); err != nil {
+		t.Fatalf("after the rename: %v\n%s", err, out.String())
+	}
+	if us, _ := openDB(t, dir).Users(); len(us) != 3 {
+		t.Fatalf("users %+v", us)
+	}
+}
+
 // A file the main repository ignored stays out of the engagement's own
 // repository when the migration makes it (its import commit took every
 // file) (backlog, M11).
