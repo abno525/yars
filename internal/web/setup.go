@@ -1,6 +1,7 @@
 package web
 
 import (
+	"crypto/subtle"
 	"errors"
 	"net/http"
 	"net/mail"
@@ -27,6 +28,10 @@ func (s *Server) noUsers() bool {
 	}
 	return true
 }
+
+// NewSetupCode makes a setup code (Server.SetupCode): random, typeable,
+// three groups of four letters and digits.
+func NewSetupCode() string { return newTempPassword() }
 
 // firstRun sends every request to /setup while there is no account (static
 // files excepted).
@@ -80,6 +85,8 @@ func emailProblem(email string) string {
 }
 
 // setup creates the first account: an admin director, signed in at once.
+// The form carries the server's setup code, so the first visitor of an open
+// port is not the one who gets it.
 func (s *Server) setup(w http.ResponseWriter, r *http.Request) {
 	if !s.noUsers() {
 		http.NotFound(w, r)
@@ -87,6 +94,15 @@ func (s *Server) setup(w http.ResponseWriter, r *http.Request) {
 	}
 	r.ParseForm()
 	p := &page{Bare: true, Form: r.PostForm}
+	// the setup code first, from the form's body only (an address ends up in
+	// proxy and access logs). A server without a code makes no account: an
+	// empty code never matches.
+	code := r.PostForm.Get("code")
+	if s.SetupCode == "" || subtle.ConstantTimeCompare([]byte(code), []byte(s.SetupCode)) != 1 {
+		p.Error = "Setup code is wrong"
+		s.renderStatus(w, http.StatusForbidden, "setup.html", p)
+		return
+	}
 	name := strings.TrimSpace(r.FormValue("username"))
 	email := strings.TrimSpace(r.FormValue("email"))
 	switch {

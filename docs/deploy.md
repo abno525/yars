@@ -39,7 +39,7 @@ sudo -u yars yars init /srv/yars
 echo 'change-me-now' | sudo -u yars yars useradd --data /srv/yars --role director --admin alice
 ```
 
-The account's home is outside the data folder: rule and exporter scripts run with it as `HOME`, and anything in the data folder goes into every backup. The last line makes the first admin; the password (at least 10 characters and at most 72 bytes, as on the website) is read from standard input. Without it, the first visit to the website opens `/setup` to create one.
+The account's home is outside the data folder: rule and exporter scripts run with it as `HOME`, and anything in the data folder goes into every backup. The last line makes the first admin; the password (at least 10 characters and at most 72 bytes, as on the website) is read from standard input. Without it, `yars serve` logs a setup code at each start while there is no account, and the first visit to the website opens `/setup`, which asks for that code and creates the admin. Read the code in the service log (`journalctl -u yars`). A server that started with an account never opens `/setup`.
 
 Both folders are `0700`: only the service account reads the findings and the backups.
 

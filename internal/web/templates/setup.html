@@ -2,6 +2,7 @@
 <form class="barecard" method="post" action="/setup" data-nosave>
   <div class="barefields">
     <div class="barehead"><h1>Set up YARS</h1>{{if not simple}}<span class="tag role">director</span>{{end}}<span class="tag adminflag">admin</span></div>
+    <label>Setup code<input name="code" autocomplete="off" required></label>
     <label>Username<input name="username" value="{{.Form.Get "username"}}" autocomplete="username" pattern="[A-Za-z0-9._\-]+" required autofocus></label>
     <label>Email<input name="email" type="email" value="{{.Form.Get "email"}}" autocomplete="email"></label>
     <label>Password<input name="password" type="password" autocomplete="new-password" minlength="{{minPassword}}" required></label>

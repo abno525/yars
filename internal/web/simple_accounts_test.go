@@ -320,7 +320,7 @@ func freshSimple(t *testing.T) *env {
 	cfg := config.Default()
 	cfg.Workflow = config.WorkflowSimple
 	st := store.New(r, cfg, d)
-	s := &Server{Store: st, Index: index.New(st, r), Auth: auth.New(d), Cfg: cfg}
+	s := &Server{Store: st, Index: index.New(st, r), Auth: auth.New(d), Cfg: cfg, SetupCode: setupCode}
 	t.Cleanup(s.Close)
 	return &env{srv: s, h: s.Handler(), dir: dir, toks: map[string]string{}}
 }
@@ -334,7 +334,7 @@ func TestSimpleSetupTags(t *testing.T) {
 	if head != `<div class="barehead"><h1>Set up YARS</h1><span class="tag adminflag">admin</span>` {
 		t.Fatalf("setup head: %q", head)
 	}
-	rec := e.do(t, "", "POST", "/setup", url.Values{"username": {"anna"}, "password": {"long enough pw"}, "repeat": {"long enough pw"}}, nil)
+	rec := e.do(t, "", "POST", "/setup", url.Values{"code": {setupCode}, "username": {"anna"}, "password": {"long enough pw"}, "repeat": {"long enough pw"}}, nil)
 	if rec.Code != http.StatusSeeOther {
 		t.Fatalf("setup %d", rec.Code)
 	}
@@ -355,7 +355,7 @@ func TestSimpleSetupAudit(t *testing.T) {
 		e    *env
 		want string
 	}{{freshSimple(t), "first run: admin"}, {fresh(t), "first run: director, admin"}} {
-		f := url.Values{"username": {"anna"}, "password": {"long enough pw"}, "repeat": {"long enough pw"}}
+		f := url.Values{"code": {setupCode}, "username": {"anna"}, "password": {"long enough pw"}, "repeat": {"long enough pw"}}
 		if rec := c.e.do(t, "", "POST", "/setup", f, nil); rec.Code != http.StatusSeeOther {
 			t.Fatalf("setup %d", rec.Code)
 		}
