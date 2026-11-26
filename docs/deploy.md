@@ -132,6 +132,8 @@ server {
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-Proto $scheme;
+        # the client's address, for the failed-login lines of the service log
+        proxy_set_header X-Forwarded-For $remote_addr;
         # Run integrity (git fsck) and a push being checked answer nothing
         # for a while
         proxy_read_timeout 1h;
@@ -220,6 +222,16 @@ Admin › System:
 - **Operations** has the schema and the last index build. Its buttons sync the engagement pointers, rebuild the index and list what still needs `yars migrate`.
 
 The service log (`journalctl -u yars`) has every error the pages answered with "internal error".
+
+It also has one line for each failed password login, on the website and over git, and one when a name is locked out:
+
+```
+login failed: user "alice" from 127.0.0.1:53412 forwarded-for "203.0.113.9"
+git login failed: user "alice" from 127.0.0.1:53418 forwarded-for "203.0.113.9"
+login locked: user "alice" until 2026-11-26T14:15:00Z
+```
+
+The address after `from` is the one that connected: behind a proxy, the proxy's. The `forwarded-for` part is the `X-Forwarded-For` header, shown only when the server runs with `--https` or a certificate. A client can send that header too: trust it only when your proxy sets it, as the nginx example does. A failed AI call logs its status and the provider's host, never the provider's answer.
 
 ## Uninstall
 

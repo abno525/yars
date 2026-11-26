@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"sync"
 	"time"
@@ -152,11 +153,38 @@ func (a *Auth) verify(username, pw string) (config.User, bool) {
 	good := bcrypt.CompareHashAndPassword(hash, []byte(pw)) == nil && ok
 	if locked, until, err := a.db.LoginDone(username, good); err == nil && locked {
 		a.db.Audit(username, "login.lockout", username, until.Format(time.RFC3339))
+		// the caller logs the failure with its address (LogFailedLogin)
+		log.Printf("login locked: user %q until %s", logCut(username, 64), until.Format(time.RFC3339))
 	}
 	if !good {
 		return config.User{}, false
 	}
 	return u, true
+}
+
+// logCut cuts a client's text to n characters for a log line (written with
+// %q, which keeps it on one line).
+func logCut(s string, n int) string {
+	if r := []rune(s); len(r) > n {
+		return string(r[:n]) + "…"
+	}
+	return s
+}
+
+// LogFailedLogin writes a refused password login (what: "login" on the
+// website, "git login" over git) to the service log, where fail2ban or a
+// log collector reads it: the name as typed, quoted and cut, and the
+// address the request came from. Behind a proxy that address is the
+// proxy's; the X-Forwarded-For header is added, labelled, only when the
+// server was started as one behind a proxy or with a certificate (Secure):
+// a client can send the header too, so it is never shown as the address.
+// The password is never logged.
+func (a *Auth) LogFailedLogin(what, username string, r *http.Request) {
+	line := fmt.Sprintf("%s failed: user %q from %s", what, logCut(username, 64), r.RemoteAddr)
+	if f := r.Header.Get("X-Forwarded-For"); a.Secure && f != "" {
+		line += fmt.Sprintf(" forwarded-for %q", logCut(f, 100))
+	}
+	log.Print(line)
 }
 
 // LockedUntil reports whether username is locked out of password logins

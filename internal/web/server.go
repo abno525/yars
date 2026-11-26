@@ -589,6 +589,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	// a disabled account gets the same answer as a wrong password
 	tok, ok := s.Auth.Login(r.FormValue("username"), r.FormValue("password"))
 	if !ok {
+		s.Auth.LogFailedLogin("login", r.FormValue("username"), r)
 		// the username stays filled in (never the password)
 		form := url.Values{"username": {r.FormValue("username")}}
 		p := &page{Bare: true, Error: "Wrong username or password", Form: form}

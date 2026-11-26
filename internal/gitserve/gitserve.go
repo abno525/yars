@@ -353,7 +353,10 @@ func (s *Server) Handler() http.Handler {
 			}
 			u, tok = owner, &info
 		default:
-			u, err = s.check(name, pw)
+			if u, err = s.check(name, pw); err == auth.ErrRefused {
+				// a wrong password over git is a failed login too
+				s.Auth.LogFailedLogin("git login", name, r)
+			}
 		}
 		if err == auth.ErrMustChange {
 			http.Error(w, err.Error(), http.StatusForbidden)
