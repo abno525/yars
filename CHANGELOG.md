@@ -28,6 +28,8 @@ What changed for people who run or use YARS. Newest first.
 - The clone and MCP addresses on the pages come from `base_url`. Without it they use the request's host, and `https` only when the server runs with `--https` or a certificate: the `X-Forwarded-Proto` header is no longer read. A server behind a TLS proxy that runs without `--https` and without `base_url` now shows `http` addresses: set `base_url`. `yars serve` logs at the start when `base_url` is not set.
 - A login ends 30 days after it was made at the latest, however much it is used: sessions older than that end at the upgrade. The session cookie lives as long as its session (before: always 14 days, whatever Admin › System › Retention said). Sessions set to 0 days there means the default 14; such sessions are now deleted when they end.
 - Only a finding's author or a director sends it to a destination. The export page ticks the findings you may send. Downloads and the preview stay open to the team.
+- YARS writes the data folder for the service account alone: folders `0700`, files `0600`, scripts `0700`, and git runs with a umask of `077`. A restore writes these modes too. An existing data folder is not changed: `chmod -R go= <data folder>` closes it.
+- `yars export` writes its file `0600` and does not replace a file that is there. `--force` replaces it.
 
 ### Fixed
 

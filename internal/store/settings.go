@@ -102,14 +102,14 @@ func (s *Store) EditSettings(msg string, a gitrepo.Author, fn func(read func(p s
 				}
 				continue
 			}
-			if err := s.root.MkdirAll(path.Dir(f.Path), 0o755); err != nil {
+			if err := s.root.MkdirAll(path.Dir(f.Path), 0o700); err != nil {
 				return err
 			}
 			if err := s.writeFile(f.Path, f.Data); err != nil {
 				return err
 			}
 			if f.Exec {
-				if err := s.root.Chmod(f.Path, 0o755); err != nil {
+				if err := s.root.Chmod(f.Path, 0o700); err != nil {
 					return err
 				}
 			}

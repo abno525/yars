@@ -84,7 +84,7 @@ func Open(dir string) (*Repo, error) {
 
 // Init creates a repository in dir (branch main) if none exists, then opens it.
 func Init(dir string) (*Repo, error) {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
 	if _, err := os.Stat(filepath.Join(dir, ".git")); os.IsNotExist(err) {

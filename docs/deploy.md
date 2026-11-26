@@ -41,7 +41,7 @@ echo 'change-me-now' | sudo -u yars yars useradd --data /srv/yars --role directo
 
 The account's home is outside the data folder: rule and exporter scripts run with it as `HOME`, and anything in the data folder goes into every backup. The last line makes the first admin; the password (at least 10 characters and at most 72 bytes, as on the website) is read from standard input. Without it, `yars serve` logs a setup code at each start while there is no account, and the first visit to the website opens `/setup`, which asks for that code and creates the admin. Read the code in the service log (`journalctl -u yars`). A server that started with an account never opens `/setup`.
 
-Both folders are `0700`: only the service account reads the findings and the backups.
+Both folders are `0700`: only the service account reads the findings and the backups. YARS writes its own folders `0700` and its files `0600`, and the commands that work on the data folder run git with a umask of `077`. A data folder made by an older YARS keeps the modes it has: a file gets the new mode when it is next saved, and `sudo chmod -R go= /srv/yars` closes the rest at once.
 
 An account with the admin flag can add a rule or exporter script, and scripts run on the server as the service account, with its `HOME`. So an admin can run commands on the server. Give the flag only to people who may.
 
@@ -100,6 +100,8 @@ A picture that is no longer in the page's text is deleted from the page once the
 The account behind the key needs permission, in the space, to view it, add pages, add attachments and delete attachments. Without adding, a send with pictures fails with `confluence upload of F-003-shot.png failed: HTTP 403 …`. An existing page then keeps its old text; a new one stays empty. Without deleting, a send that drops a picture fails with `confluence delete of F-003-shot.png failed: HTTP 403 …`. The page then has its new text, and the picture stays attached until it is deleted in Confluence.
 
 The Confluence HTML download has no page to attach to: its pictures stay inside the file.
+
+`yars export` writes a file destination's result to `--out`, or to the engagement's name in the current folder, readable by you alone (`0600`). It does not replace a file that is there: `--force` does.
 
 ## HTTPS
 

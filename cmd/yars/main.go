@@ -63,12 +63,16 @@ func exportRunner(dataDir string) *export.Runner {
 
 // cmdExport runs an exporter from the command line:
 //
-//	yars export --data <dir> --exporter <id> [--out file] [--mark --as <user>] <eng> [<finding-dir>…]
+//	yars export --data <dir> --exporter <id> [--out file] [--force] [--mark --as <user>] <eng> [<finding-dir>…]
+//
+// The file is written for the user alone (0600) and replaces none without
+// --force.
 func cmdExport(args []string, out io.Writer) (int, error) {
 	fs := flag.NewFlagSet("export", flag.ContinueOnError)
 	data := dataFlag(fs)
 	exID := fs.String("exporter", "", "exporter id (file name in .yars/exporters without .yaml)")
 	outPath := fs.String("out", "", "output file (default: <engagement>.<ext> in the current directory)")
+	force := fs.Bool("force", false, "replace the output file when it exists")
 	mark := fs.Bool("mark", false, "mark exported complete findings reported")
 	as := fs.String("as", "", "director account used with --mark")
 	fs.SetOutput(out)
@@ -106,6 +110,13 @@ func cmdExport(args []string, out io.Writer) (int, error) {
 			}
 		}
 		return 2, fmt.Errorf("unknown exporter %q", *exID)
+	}
+	// a file that is there is not replaced: said before anything runs (a
+	// destination that publishes writes no file)
+	if *outPath != "" && !*force && !ex.Service() {
+		if _, err := os.Lstat(*outPath); err == nil {
+			return 2, existsErr(*outPath)
+		}
 	}
 	d, err := existingDB(r.Dir)
 	if err != nil {
@@ -202,7 +213,7 @@ func cmdExport(args []string, out io.Writer) (int, error) {
 		if dst == "" {
 			dst = res.Filename
 		}
-		if err := os.WriteFile(dst, res.Data, 0o644); err != nil {
+		if err := writeExport(dst, res.Data, *force); err != nil {
 			return 1, err
 		}
 		fmt.Fprintln(out, "wrote", dst)
@@ -224,6 +235,37 @@ func cmdExport(args []string, out io.Writer) (int, error) {
 		}
 	}
 	return code, nil
+}
+
+func existsErr(file string) error {
+	return fmt.Errorf("%s exists already (use --force to replace it)", file)
+}
+
+// writeExport writes an export file for the user alone (0600). It replaces
+// no file; with force it does, through a new file renamed into place, so
+// the old file's mode is not kept and a link is replaced, not followed.
+func writeExport(dst string, data []byte, force bool) error {
+	var f *os.File
+	var err error
+	if force {
+		f, err = os.CreateTemp(filepath.Dir(dst), "."+filepath.Base(dst)+".*") // 0600
+	} else if f, err = os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600); os.IsExist(err) {
+		return existsErr(dst)
+	}
+	if err != nil {
+		return err
+	}
+	_, err = f.Write(data)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil && force {
+		err = os.Rename(f.Name(), dst)
+	}
+	if err != nil {
+		os.Remove(f.Name())
+	}
+	return err
 }
 
 // serverIgnore keeps server-only files out of git: the database (accounts,
@@ -451,7 +493,7 @@ func writeIgnore(dir string) (bool, error) {
 	if next == string(b) {
 		return false, nil
 	}
-	return true, os.WriteFile(gi, []byte(next), 0o644)
+	return true, os.WriteFile(gi, []byte(next), 0o600)
 }
 
 // ensureIgnored makes sure server-only files are ignored and not tracked,
@@ -775,15 +817,36 @@ func usage() {
   yars lint --data <dir> [--all] [eng[/finding]]
   yars lint --staged [--warn-only] [--data <engagement clone>]   (the server checks what is being committed)
   yars hook install [--data <clone>]   (a pre-commit hook in every engagement of the clone)
-  yars export --data <dir> --exporter <id> <eng>
+  yars export --data <dir> --exporter <id> [--out <file>] [--force] <eng> [<finding>…]   (--force: replace the file)
   yars mcp --data <clone> --user <name>
   yars seed [--simple] --data <new dir> [--engagements 2] [--findings 20] [--messages 50]   (development data; prints the accounts' password)`)
 	os.Exit(2)
 }
 
+// serverSide reports whether a command (args: its name and what follows)
+// works on the server's data folder, where everything it and its git child
+// processes write is the service user's alone (privateUmask). The commands
+// of a user's own clone (mcp, lint, hook install, use) keep the user's umask.
+func serverSide(args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+	switch args[0] {
+	case "hook":
+		return len(args) > 1 && args[1] == "pre-receive"
+	case "init", "serve", "useradd", "passwd", "role", "userdel", "admin", "unlock", "token",
+		"migrate", "backup", "restore", "seed", "export":
+		return true
+	}
+	return false
+}
+
 func main() {
 	if len(os.Args) < 2 {
 		usage()
+	}
+	if serverSide(os.Args[1:]) {
+		privateUmask()
 	}
 	var err error
 	switch os.Args[1] {
@@ -946,10 +1009,11 @@ func initDataMode(dir string, simple bool) error {
 	if _, err := os.Stat(config.ConfigPath(dir)); err == nil {
 		return fmt.Errorf("%s is already initialised", dir)
 	}
-	if err := os.MkdirAll(filepath.Join(dir, "engagements"), 0o755); err != nil {
+	// folders 0700 and files 0600: the data is the service user's alone
+	if err := os.MkdirAll(filepath.Join(dir, "engagements"), 0o700); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(config.ConfigPath(dir)), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(config.ConfigPath(dir)), 0o700); err != nil {
 		return err
 	}
 	cfg := config.Default()
@@ -963,16 +1027,16 @@ func initDataMode(dir string, simple bool) error {
 		filepath.Join(dir, "engagements", ".gitkeep"): nil,
 	}
 	for p, c := range files {
-		if err := os.WriteFile(p, c, 0o644); err != nil {
+		if err := os.WriteFile(p, c, 0o600); err != nil {
 			return err
 		}
 	}
 	exDir := filepath.Join(dir, ".yars", "exporters")
-	if err := os.MkdirAll(exDir, 0o755); err != nil {
+	if err := os.MkdirAll(exDir, 0o700); err != nil {
 		return err
 	}
 	for name, body := range exampleExporters {
-		if err := os.WriteFile(filepath.Join(exDir, name), []byte(body), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(exDir, name), []byte(body), 0o600); err != nil {
 			return err
 		}
 	}

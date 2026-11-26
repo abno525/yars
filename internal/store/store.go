@@ -280,13 +280,14 @@ func (s *Store) readFile(p string) ([]byte, error) {
 
 // writeFile replaces p in one step (a temporary file renamed over it):
 // readers that take no lock (chat, workflow changes, pages) never see a
-// half-written file.
+// half-written file. The file is the service user's alone (0600; git keeps
+// only the exec bit, so this is no change to it).
 func (s *Store) writeFile(p string, b []byte) error {
 	if s.rootErr != nil {
 		return s.rootErr
 	}
 	tmp := path.Join(path.Dir(p), "."+path.Base(p)+".yars-tmp")
-	f, err := s.root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	f, err := s.root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return err
 	}

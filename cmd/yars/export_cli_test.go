@@ -125,6 +125,7 @@ func TestExportCLIUnknownFinding(t *testing.T) {
 		t.Fatal("exported anyway")
 	}
 	for _, name := range []string{"F-001", "1", "F-001-sql-injection"} {
+		out := filepath.Join(t.TempDir(), "r.html") // a file that is there is not replaced
 		if code, err := cmdExport([]string{"--data", dir, "--exporter", "confluence", "--out", out, "acme", name}, &log); code != 0 || err != nil {
 			t.Errorf("%s: code %d err %v", name, code, err)
 		}

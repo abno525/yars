@@ -481,7 +481,7 @@ type DB struct {
 // Open opens (creating if needed) the database at path and brings the schema
 // up to date. The file and its WAL companions are private (0600).
 func Open(path string) (*DB, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, err
 	}
 	if f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600); err != nil {

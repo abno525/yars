@@ -252,7 +252,7 @@ func TestEditReplacesFileAtomically(t *testing.T) {
 	if os.SameFile(before, after) {
 		t.Fatal("finding.md was rewritten in place")
 	}
-	if after.Mode().Perm() != 0o644 {
+	if after.Mode().Perm() != 0o600 { // the service user's alone (pre1 2.23)
 		t.Fatalf("mode %v", after.Mode())
 	}
 	ents, _ := os.ReadDir(filepath.Dir(p))

@@ -102,7 +102,7 @@ func (s *Store) CreateEngagement(e Engagement, a gitrepo.Author) error {
 	if err != nil {
 		return err
 	}
-	if err := s.root.MkdirAll(path.Join(dir, "findings"), 0o755); err != nil {
+	if err := s.root.MkdirAll(path.Join(dir, "findings"), 0o700); err != nil {
 		return err
 	}
 	if err := s.writeFile(path.Join(dir, "engagement.yaml"), b); err != nil {
@@ -215,7 +215,7 @@ func (s *Store) CreateRetest(e Engagement, source string, dirs []string, assigne
 	var files []string // relative to the new engagement repo
 	write := func(rel string, data []byte) error {
 		p := path.Join(dir, rel)
-		if err := s.root.MkdirAll(path.Dir(p), 0o755); err != nil {
+		if err := s.root.MkdirAll(path.Dir(p), 0o700); err != nil {
 			return err
 		}
 		files = append(files, rel)
