@@ -43,6 +43,8 @@ The account's home is outside the data folder: rule and exporter scripts run wit
 
 Both folders are `0700`: only the service account reads the findings and the backups. YARS writes its own folders `0700` and its files `0600`, and the commands that work on the data folder run git with a umask of `077`. A data folder made by an older YARS keeps the modes it has: a file gets the new mode when it is next saved, and `sudo chmod -R go= /srv/yars` closes the rest at once.
 
+The umask is that of everything these commands start: rule scripts, script destinations and pandoc, as well as git. A file a script makes is `0600`, and a folder `0700`, also outside the data folder. A script whose files another account or a web server reads sets its own umask (`umask 022` at its start).
+
 An account with the admin flag can add a rule or exporter script, and scripts run on the server as the service account, with its `HOME`. So an admin can run commands on the server. Give the flag only to people who may.
 
 For a solo reporter or a team of two, `sudo -u yars yars init --simple /srv/yars` sets up the simple workflow instead: draft → complete → reported, with no roles, reviewers or sign-off; `useradd` then takes no `--role` (`yars useradd --data /srv/yars --admin alice`), and `yars role` is refused. The workflow is fixed at init: it is written to `.yars/config.yaml` and the database, `yars serve` does not start when the two disagree, and a push cannot change it. In the simple workflow every account has a director's rights, so the Team panel does not limit who sees an engagement: every account sees them all.

@@ -146,6 +146,8 @@ func TestDeployGuideHardening(t *testing.T) {
 		"can run commands on the server",
 		"the Team panel does not limit who sees an engagement",
 		"## Uninstall", "yars backup --data /srv/yars --key --out",
+		// the umask of 077 is the scripts' and pandoc's too, not only git's
+		"rule scripts, script destinations and pandoc", "sets its own umask",
 	} {
 		if !strings.Contains(g, want) {
 			t.Errorf("the deploy guide lacks %q", want)
