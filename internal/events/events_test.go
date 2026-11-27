@@ -1,6 +1,7 @@
 package events
 
 import (
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -118,6 +119,46 @@ func TestMissed(t *testing.T) {
 	}
 	if !h.Missed(2, "acme", "F-001") {
 		t.Fatal("ring overflow should count as missed")
+	}
+}
+
+// 5.7: event numbers start at 1 again after a restart. A client that saw
+// event 5 of the hub before must not be told "nothing missed" by a new hub
+// whose own events 1 to 5 it never saw: a stream's id names the hub.
+func TestMissedIDAcrossRestart(t *testing.T) {
+	a := New()
+	for range 5 {
+		a.Publish(Event{Eng: "acme", Fid: "F-001", Kind: Chat})
+	}
+	id := a.StreamID(a.Last())
+	if a.MissedID(id, "acme", "F-001") {
+		t.Fatalf("the hub's own latest id %q counts as missed", id)
+	}
+	a.Publish(Event{Eng: "acme", Fid: "F-001", Kind: Chat})
+	if !a.MissedID(id, "acme", "F-001") {
+		t.Fatal("an event after the id is not missed")
+	}
+	// the restart: a matching event among the first five, none after
+	b := New()
+	b.Publish(Event{Eng: "acme", Fid: "F-001", Kind: Chat})
+	for range 7 {
+		b.Publish(Event{Eng: "beta", Kind: Chat})
+	}
+	if !b.MissedID(id, "acme", "F-001") {
+		t.Fatalf("id %q of another hub is not missed (new hub's id %q)", id, b.StreamID(5))
+	}
+	if b.MissedID(b.StreamID(5), "acme", "F-001") {
+		t.Fatal("the new hub's own id counts as missed")
+	}
+	// a page loaded before the upgrade sends a plain number; anything that
+	// does not read is missed too, never an error
+	for _, bad := range []string{"5", "", "-5", b.StreamID(5) + "x", "zz-5", strings.Repeat("9", 500)} {
+		if !b.MissedID(bad, "acme", "F-001") {
+			t.Errorf("id %q is not missed", bad)
+		}
+	}
+	if a.StreamID(1) == b.StreamID(1) {
+		t.Fatal("two hubs give the same id")
 	}
 }
 

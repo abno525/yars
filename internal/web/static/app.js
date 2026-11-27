@@ -922,7 +922,7 @@ document.addEventListener('input', function (evt) {
 setInterval(function () {
   document.querySelectorAll('form[data-presence]').forEach(function (f) {
     fetch(f.getAttribute('data-presence'), {method: 'POST', credentials: 'same-origin', headers: {'HX-Request': 'true'}})
-      .then(function (r) { if (r.status === 401) yarsExpired(); })
+      .then(function (r) { if (r.status === 401) yarsExpired(); else if (r.ok) yarsExpiredSaid = false; })
       .catch(function () { /* offline: the next beat tries again */ });
   });
 }, 20000);
@@ -1019,7 +1019,10 @@ document.addEventListener('htmx:load', function (evt) { yarsListLinks(evt.detail
 function yarsDraft(form) {
   try { var d = JSON.parse(localStorage.getItem(yarsDraftKey(form)) || 'null'); return d && typeof d.text === 'string' ? d : null; } catch (e) { return null; }
 }
-var yarsExpiredAt = 0;
+// The toast is shown once per expiry: a page that polls gets a 401 for each
+// of its live parts every 30 s. An answered request (a login in another
+// tab) ends the expiry, so a later one is said again.
+var yarsExpiredSaid = false;
 function yarsExpired() {
   document.querySelectorAll('form[data-guard]').forEach(function (form) {
     var ta = form.querySelector('textarea[name=body]');
@@ -1031,8 +1034,12 @@ function yarsExpired() {
     var st = form.querySelector('[data-pstate]');
     if (st) { st.textContent = 'Session expired · not saved'; st.classList.add('error'); }
   });
-  if (Date.now() - yarsExpiredAt > 10000) { yarsExpiredAt = Date.now(); yarsToast('Session expired', true); }
+  if (!yarsExpiredSaid) { yarsExpiredSaid = true; yarsToast('Session expired', true); }
 }
+document.addEventListener('htmx:afterRequest', function (evt) {
+  var x = evt.detail.xhr;
+  if (x && x.status >= 200 && x.status < 400) yarsExpiredSaid = false;
+});
 function yarsDraftOffer(root) {
   var forms = root.matches && root.matches('form[data-guard]') ? [root] : root.querySelectorAll ? root.querySelectorAll('form[data-guard]') : [];
   Array.prototype.forEach.call(forms, function (form) {

@@ -4,7 +4,8 @@
 // "push" and "resync" (missed events) become "sse:resync". A hidden tab
 // closes its stream (browsers allow few connections per host) and catches
 // up when shown again. When the stream keeps failing, the page falls back to
-// "sse:poll" every 30 s, paused while the tab is hidden.
+// "sse:poll" every 30 s, paused while the tab is hidden, and tries the
+// stream again at each poll; once one opens, the polling stops.
 (function () {
   var NAMES = ['chat', 'workflow', 'content', 'presence', 'check', 'board'];
   var RESYNC = ['push', 'resync'];
@@ -43,11 +44,19 @@
     for (var n in names) htmx.trigger(el, 'sse:' + n);
   });
 
+  // each tick of a visible tab also tries the stream again: a restart of
+  // the server, a full stream limit or an expired session ends some time
   function startPolling() {
     if (pollTimer) return;
     pollTimer = setInterval(function () {
-      if (!document.hidden) fire('poll');
+      if (document.hidden) return;
+      fire('poll');
+      if (!es) connect();
     }, POLL_MS);
+  }
+
+  function stopPolling() {
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
   }
 
   function disconnect() {
@@ -59,7 +68,13 @@
     var errors = 0;
     var s = new EventSource(url);
     es = s;
-    s.onopen = function () { errors = 0; };
+    s.onopen = function () {
+      errors = 0;
+      if (es !== s) return;
+      // back from polling: this stream sent no Last-Event-ID, so the server
+      // sends no resync and the page catches up itself
+      if (pollTimer) { stopPolling(); fire('resync'); }
+    };
     s.onerror = function () {
       errors++;
       if (errors >= MAX_ERRORS || s.readyState === EventSource.CLOSED) {
@@ -76,15 +91,17 @@
     });
   }
 
-  // hidden: let the connection go; shown: reconnect (or poll) and catch up
+  // hidden: let the connection go; shown: reconnect and catch up (while
+  // polling: a poll now, and the stream is tried again)
   function onVisibility() {
     if (!url) return;
     if (document.hidden) {
       disconnect();
     } else if (pollTimer) {
       fire('poll');
+      if (!es) connect();
     } else if (!es) {
-      connect(url);
+      connect();
       fire('resync');
     }
   }
