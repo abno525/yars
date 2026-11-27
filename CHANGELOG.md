@@ -113,3 +113,4 @@ What changed for people who run or use YARS. Newest first.
 - The CVSS editor asks before unsaved changes are lost: Cancel, Esc, a link and closing the tab ask "Discard changes?" once a metric or a reason differs from what the editor opened with (before: nothing asked).
 - "is editing" stays while the editor's tab is in the background (before: it went after 60 s). An editor whose tab was closed is shown for up to 150 s (before: 60 s).
 - Keyboard shortcuts work on a layout without Latin letters (Russian, Greek): a letter key counts as the Latin letter of its place, so Ctrl+S saves and Ctrl+K opens Go to (before: nothing happened and Ctrl+S opened the browser's Save). Latin layouts are unchanged.
+- Go to: Enter opens a finding only from the list for the text in the field (before: Enter pressed right after typing opened a row of the earlier text). Until that list is there, Enter does nothing. The Enter that ends an input method's composition opens nothing.

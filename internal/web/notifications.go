@@ -163,6 +163,7 @@ func (s *Server) notificationsRead(w http.ResponseWriter, r *http.Request) {
 // gotoView is the Go to palette's result list.
 type gotoView struct {
 	Query string
+	Sent  string // the query as the field sent it: the list's stamp
 	Rows  []index.Row
 	Total int // matches before the cut to 20
 }
@@ -191,8 +192,9 @@ func gotoRank(r index.Row, q string) int {
 // title match q (from the index), best first, at most 20.
 func (s *Server) goSearch(w http.ResponseWriter, r *http.Request) {
 	u := auth.UserFrom(r.Context())
-	q := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("q")))
-	v := gotoView{Query: q}
+	sent := r.URL.Query().Get("q")
+	q := strings.ToLower(strings.TrimSpace(sent))
+	v := gotoView{Query: q, Sent: sent}
 	if q != "" {
 		vis, err := s.Store.Visible(u)
 		if err != nil {

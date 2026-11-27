@@ -697,9 +697,13 @@ document.addEventListener('keydown', function (evt) {
     evt.preventDefault();
     yarsGotoMove(evt.key === 'ArrowDown' ? 1 : -1);
   } else if (evt.key === 'Enter') {
+    if (evt.isComposing) return; // the Enter that ends an input method's composition
     var sel = dlg.querySelector('#goto-results .res.sel');
+    var inp = dlg.querySelector('input[name=q]'), head = dlg.querySelector('#goto-results .gh');
     evt.preventDefault();
-    if (sel) window.location.href = sel.getAttribute('href');
+    // the list names the query it answers (data-q): typed on since, the
+    // rows are an earlier query's and Enter opens none of them
+    if (sel && inp && head && head.getAttribute('data-q') === inp.value) window.location.href = sel.getAttribute('href');
   }
 });
 document.addEventListener('click', function (evt) {
