@@ -374,13 +374,23 @@ func checkAttachment(data []byte) error {
 }
 
 // AddAttachment stores data in the finding's attachments/ folder under a
-// safe, free version of name, with a commit, and returns the name used.
+// safe, free version of name, with a commit, and returns the name used. A
+// BMP or WebP picture is stored as a PNG (PNGOf), under a .png name.
 func (s *Store) AddAttachment(engID, dir, name string, data []byte, a Actor) (string, error) {
 	if err := checkAttachment(data); err != nil {
 		return "", err
 	}
+	data, converted, err := PNGOf(data)
+	if err != nil {
+		return "", err
+	}
 	safe := SafeName(name)
-	_, err := s.changeFiles(engID, dir, a, func(ref FindingRef) (map[string][]byte, string, error) {
+	if converted {
+		// before the free name is looked for: shot.webp beside a shot.png
+		// becomes shot-2.png
+		safe = strings.TrimSuffix(safe, path.Ext(safe)) + ".png"
+	}
+	_, err = s.changeFiles(engID, dir, a, func(ref FindingRef) (map[string][]byte, string, error) {
 		ad := attachDir(engID, ref.Dir)
 		safe = freeName(safe, func(n string) bool {
 			_, err := s.root.Lstat(path.Join(ad, n))
@@ -419,6 +429,11 @@ func (s *Store) RedactAttachment(engID, dir, name string, data []byte, a Actor) 
 	}
 	if !strings.HasPrefix(AttachmentType(data), "image/") {
 		return Redaction{}, fmt.Errorf("%w: a redacted copy must be an image", ErrInvalidValue)
+	}
+	// a BMP or WebP copy is stored as a PNG, as an upload is; the name stays
+	data, _, err := PNGOf(data)
+	if err != nil {
+		return Redaction{}, err
 	}
 	if !attachmentRe.MatchString("attachments/" + name) {
 		return Redaction{}, ErrNotFound

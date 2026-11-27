@@ -27,6 +27,7 @@ import (
 	"strings"
 
 	"github.com/abno525/yars/internal/finding"
+	"github.com/abno525/yars/internal/store"
 
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
@@ -87,18 +88,24 @@ func macros(x string) string {
 
 var imgTag = regexp.MustCompile(`<img src="([^"]*)" alt="([^"]*)"(?: title="[^"]*")? ?/?>`)
 var attachmentRef = regexp.MustCompile(`^attachments/[A-Za-z0-9][A-Za-z0-9._-]*$`)
-var imageTypes = map[string]string{".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp"}
+var imageTypes = map[string]string{".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp", ".bmp": "image/bmp"}
 
 // images inlines the finding's own attachments as data URIs (a push shows
 // them as attachments of the page) and removes every other image, so a
-// report can never pull in server files or remote URLs.
+// report can never pull in server files or remote URLs. A BMP or WebP
+// picture (an upload is stored as PNG; a push or an earlier version may
+// have left one) goes out as a PNG, named with .png added.
 func images(x string, f *finding.Finding, in Input) string {
 	return imgTag.ReplaceAllStringFunc(x, func(m string) string {
 		sub := imgTag.FindStringSubmatch(m)
 		src, alt := html.UnescapeString(sub[1]), sub[2]
 		ct := imageTypes[strings.ToLower(path.Ext(src))]
 		if attachmentRef.MatchString(src) && ct != "" && in.Attachment != nil {
-			if data, ok := in.Attachment(f, src); ok && (!in.strictImages || decodes(data)) {
+			data, ok := in.Attachment(f, src)
+			if ok {
+				data, ct, src, ok = readable(data, ct, src)
+			}
+			if ok && (!in.strictImages || decodes(data)) {
 				if in.attach != nil {
 					return `<ac:image ac:alt="` + alt + `"><ri:attachment ri:filename="` + html.EscapeString(in.attach(f, src, ct, data)) + `" /></ac:image>`
 				}
@@ -110,6 +117,24 @@ func images(x string, f *finding.Finding, in Input) string {
 		}
 		return `<em>[image removed: ` + alt + `]</em>`
 	})
+}
+
+// readable is a picture as the export formats read it. The bytes decide its
+// type, not the file's name: a BMP or WebP picture becomes a PNG (ok false
+// when it cannot be converted), with .png added to its name; a PNG, JPEG or
+// GIF keeps its bytes and gets its own type; anything else keeps ct.
+func readable(data []byte, ct, src string) ([]byte, string, string, bool) {
+	switch t := store.AttachmentType(data); {
+	case t == "image/bmp" || t == "image/webp":
+		out, _, err := store.PNGOf(data)
+		if err != nil {
+			return nil, "", "", false
+		}
+		return out, "image/png", src + ".png", true
+	case strings.HasPrefix(t, "image/"):
+		ct = t
+	}
+	return data, ct, src, true
 }
 
 // decodes reports a whole, readable PNG, JPEG or GIF.
