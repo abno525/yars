@@ -624,7 +624,7 @@ var coreTools = []tool{
 		}},
 	{name: "set_field", action: "edit", desc: "Set a field: title, severity (no CVSS vector), cvss (vector or empty to clear; a metric whose value changes loses its cvss_reason, and clearing removes every reason), cvss_reason.<METRIC> (explanation for a non-standard value, e.g. cvss_reason.AC), details.<Row> (details table, e.g. details.Location), reviewers (comma-separated usernames; replaces the whole list, so a reviewer who is not the author or a director must include the current names and cannot add themselves; with base, the list's field_bases entry, it is refused when the list changed since, so nobody added meanwhile is dropped), retest_result (fixed | not_fixed | partially_fixed), assets (the whole affected-asset list as JSON: [{\"host\":\"app.example\",\"url\":\"https://app.example/x\",\"port\":\"443\",\"note\":\"…\"}], [] to clear). Use transition for status.",
 		required: []param{pEng, pFinding, {"field", "field name"}, {"value", "new value"}},
-		optional: []param{{"base", "the field's entry in field_bases from read_finding (details.*, cvss, cvss_reason.*: refused only if that one row changed since; each set_field answer gives the row's new base; after cvss, one base for the vector and every reason), or cvss_base, details_base or assets_base (assets); refuses the edit if it changed since you read it"}},
+		optional: []param{{"base", "the field's entry in field_bases from read_finding (title, severity, retest_result, details.*, cvss, cvss_reason.*: refused only if that one field changed since; each of these set_field answers gives the field's new base; after cvss, one base for the vector and every reason), or cvss_base, details_base or assets_base (assets); refuses the edit if it changed since you read it"}},
 		simple:   &toolText{desc: "Set a field: title, severity (no CVSS vector), cvss (vector or empty to clear; a metric whose value changes loses its cvss_reason, and clearing removes every reason), cvss_reason.<METRIC> (explanation for a non-standard value, e.g. cvss_reason.AC), details.<Row> (details table, e.g. details.Location), retest_result (fixed | not_fixed | partially_fixed), assets (the whole affected-asset list as JSON: [{\"host\":\"app.example\",\"url\":\"https://app.example/x\",\"port\":\"443\",\"note\":\"…\"}], [] to clear). Use transition for status."},
 		run:      setField},
 	{name: "transition", action: "status", serverOnly: true, desc: "Move a finding through the workflow: submit (draft→verification), return (verification→draft, needs reason), clear or sign_off (an assigned reviewer or a director; a director also on their own finding), approve (director, after a sign-off by an assigned reviewer other than them: verification→complete), reopen (author or director: complete→verification, needs reason), report (author or director: complete→reported), unreport (author or director: reported→complete, needs reason; the approval stays), revert (the step back from where the finding is: reopen or unreport), withdraw (author while draft or verification, director also when complete or reported; needs reason; takes it out of the report), revise (author or director: withdrawn→draft), take_back (author or director: verification→draft, no reason; sign-offs start over). The statuses are draft, verification, complete, reported, withdrawn. clear, sign_off and approve need base, the hash from read_finding: they are refused without it, and when the finding changed since you read it. With attachments_base (read_finding's attachments_hash) they are refused when an attachment changed since, too.",
@@ -907,9 +907,9 @@ var toolByName = func() map[string]tool {
 }()
 
 // fieldBases are the per-row bases of set_field, by field name: each
-// details row (configured or present), cvss and each cvss_reason, and the
-// reviewer list. An edit is refused only when its own row changed since it
-// was read.
+// details row (configured or present), cvss and each cvss_reason, the
+// reviewer list, the title, the severity and a retest finding's result. An
+// edit is refused only when its own row changed since it was read.
 func (s *Server) fieldBases(m finding.Meta) map[string]string {
 	out := map[string]string{}
 	for _, row := range s.conf().DetailsRows {
@@ -921,6 +921,10 @@ func (s *Server) fieldBases(m finding.Meta) map[string]string {
 	maps.Copy(out, cvssBases(store.CVSSRowHashes(m)))
 	if s.flow().HasReviewers() {
 		out["reviewers"] = store.ReviewersHash(m)
+	}
+	out["title"], out["severity"] = store.TitleHash(m), store.SeverityHash(m)
+	if m.Retest != nil { // a retest finding's result (the server knows it)
+		out["retest_result"] = store.RetestResultHash(m.Retest.Result)
 	}
 	return out
 }
@@ -999,11 +1003,23 @@ func setField(s *Server, ctx context.Context, u config.User, a args) (string, er
 	}
 	field, value, base := a.str("field"), a.str("value"), a.str("base")
 	st, eng, dir := s.Store, ref.EngID, ref.Dir
+	// own: the base of a field that is one value (title, severity, reviewers,
+	// retest_result), its field_bases entry. A group's token (details_base,
+	// cvss_base, sent with every edit) holds no entry for these: not checked.
+	own := base
+	if strings.HasPrefix(base, rowsPrefix) {
+		own = ""
+	}
 	switch {
 	case field == "title":
-		err = st.UpdateTitle(eng, dir, value, u)
+		var nb string
+		if nb, err = st.UpdateTitleFrom(eng, dir, value, own, u); err == nil {
+			return okBase("set title", nb)
+		}
 	case field == "severity":
-		err = st.UpdateSeverity(eng, dir, value, "", u)
+		if err = st.UpdateSeverity(eng, dir, value, own, u); err == nil {
+			return okBase("set severity", store.SeverityHash(finding.Meta{Severity: value}))
+		}
 	case field == "cvss":
 		// base: this row's field_bases entry, or the whole cvss_base
 		var nb map[string]string
@@ -1074,14 +1090,12 @@ func setField(s *Server, ctx context.Context, u config.User, a args) (string, er
 			}
 		}
 		// base: field_bases.reviewers. The value replaces the list, so a list
-		// changed since it was read is refused. A group's token (details_base,
-		// cvss_base) holds no reviewers entry: not checked.
-		if strings.HasPrefix(base, rowsPrefix) {
-			base = ""
-		}
-		err = st.SetReviewersFrom(eng, dir, base, names, u)
+		// changed since it was read is refused.
+		err = st.SetReviewersFrom(eng, dir, own, names, u)
 	case field == "retest_result":
-		err = st.SetRetestResult(eng, dir, value, u)
+		if err = st.SetRetestResultBase(eng, dir, own, value, u); err == nil {
+			return okBase("set retest_result", store.RetestResultHash(value))
+		}
 	case field == "assets":
 		var list []finding.Asset
 		if jerr := json.Unmarshal([]byte(value), &list); jerr != nil {

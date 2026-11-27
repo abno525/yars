@@ -25,10 +25,26 @@ func (s *Store) SetRetestResult(engID, dir, result string, a Actor) error {
 // showed the result was ("" = none): another result stored since is
 // ErrConflict.
 func (s *Store) SetRetestResultFrom(engID, dir, was, result string, a Actor) error {
-	return s.setRetestResult(engID, dir, &was, result, a)
+	return s.setRetestResult(engID, dir, func(cur string) bool { return cur == was }, result, a)
 }
 
-func (s *Store) setRetestResult(engID, dir string, was *string, result string, a Actor) error {
+// RetestResultHash identifies a stored retest result ("" = none) for
+// optimistic concurrency.
+func RetestResultHash(result string) string { return RowHash(result) }
+
+// SetRetestResultBase is SetRetestResult for a result chosen over the one
+// read with base (RetestResultHash): another result stored since is
+// ErrConflict. base "" is not checked.
+func (s *Store) SetRetestResultBase(engID, dir, base, result string, a Actor) error {
+	if base == "" {
+		return s.setRetestResult(engID, dir, nil, result, a)
+	}
+	return s.setRetestResult(engID, dir, func(cur string) bool { return RetestResultHash(cur) == base }, result, a)
+}
+
+// setRetestResult stores result; read (nil: not checked) reports whether the
+// stored result is the one the caller read, compared inside the change.
+func (s *Store) setRetestResult(engID, dir string, read func(cur string) bool, result string, a Actor) error {
 	if !slices.Contains(workflow.RetestResults, result) {
 		return fmt.Errorf("%w: retest result must be fixed, not_fixed or partially_fixed", ErrInvalidValue)
 	}
@@ -42,7 +58,7 @@ func (s *Store) setRetestResult(engID, dir string, was *string, result string, a
 		if st.RetestResult == result { // already so (a second click too)
 			return nil, nil
 		}
-		if was != nil && *was != st.RetestResult {
+		if read != nil && !read(st.RetestResult) {
 			return nil, ErrConflict
 		}
 		var u string

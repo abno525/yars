@@ -46,13 +46,34 @@ func CleanTitle(title string) string {
 
 // UpdateTitle changes a finding's title (single line, 1–200 characters).
 func (s *Store) UpdateTitle(engID, dir, title string, a Actor) error {
+	_, err := s.UpdateTitleFrom(engID, dir, title, "", a)
+	return err
+}
+
+// TitleHash identifies the stored title for optimistic concurrency.
+func TitleHash(m finding.Meta) string { return RowHash(m.Title) }
+
+// UpdateTitleFrom is UpdateTitle for a title written over the one read with
+// base (TitleHash): a title changed since is ErrConflict, checked under the
+// engagement's lock. base "" is not checked. It returns the base of the
+// title as stored.
+func (s *Store) UpdateTitleFrom(engID, dir, title, base string, a Actor) (string, error) {
 	title = CleanTitle(title)
 	if err := ValidTitle(title); err != nil {
-		return err
+		return "", err
 	}
-	return s.mutateContent(engID, dir, a, func(f *finding.Finding) (string, error) {
-		return "edit title", f.SetMeta("title", title)
+	next := ""
+	err := s.mutateContent(engID, dir, a, func(f *finding.Finding) (string, error) {
+		if base != "" && TitleHash(f.Meta) != base {
+			return "", ErrConflict
+		}
+		if err := f.SetMeta("title", title); err != nil {
+			return "", err
+		}
+		next = TitleHash(f.Meta)
+		return "edit title", nil
 	})
+	return next, err
 }
 
 var numRe = regexp.MustCompile(`^F-(\d+)`)
