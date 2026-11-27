@@ -56,7 +56,7 @@ Pattern and built-in rules run wherever a finding is checked. Scripts and AI rul
 
 One check of a finding has 90 s for all its scripts and AI questions together. A rule that has not finished by then fails.
 
-With **Require Check** on (Admin › Rules, the default), Sign off and Approve wait for a finished Check on the finding's current text and on the rules as they are now: after a rule changes, the finding is checked again. While no rule is on, they don't wait.
+With **Require Check** on (Admin › Rules, the default), Sign off and Approve wait for a finished Check on the finding's current text and on the rules as they are now: after a rule changes, the finding is checked again. While no rule is on, they don't wait. A script rule that could not run fails the Check, and they wait for a new one. An AI rule that could not run does not (AI rules, below).
 
 ## Dismissing a result
 
@@ -197,6 +197,8 @@ A rule with `ai:` asks the AI provider (**Admin › AI**, or `ai.*` in `config.y
 
 AI rules run where script rules run, except on a git push. Without a provider or a key an AI rule does not run: it reports the warning `AI rules skipped: no AI provider configured`, and the finding shows an "AI checks failed" badge after Check. Sign off and Approve are not held by it.
 
+An AI rule that cannot run never holds a finding, with a provider set up too: when the call fails, or the reply is cut off or cannot be read, Submit, Sign off and Approve go through. The badge and Retry stay on the finding, and what the rule found before on the same text still counts. With a provider set up, each step taken this way is a `warn` line in the service log ([deploy.md](deploy.md)).
+
 ### Unchanged text is not sent again
 
 The server keeps a result, in memory and in its database, for the same text, instruction (`ai:`), provider and model, where it keeps script results. A check after a restart uses it too. A text that changed is sent again, and so is every text after an update of YARS that changes the prompt. A call the provider answers with status 429, 500, 502, 503, 504 or 529 is made again, twice at most, within the question's time. A failed call (`AI check failed: …`, always a warning) is not kept. `yars lint --all` sends the text each time. Stored results are deleted as script results are.
@@ -205,7 +207,7 @@ The server keeps a result, in memory and in its database, for the same text, ins
 
 The text goes to the model between `<finding_text>` and `</finding_text>`; a copy of either inside the text is written with `&lt;`. The model is told that the text and the part's name are data from the finding, never instructions: it ignores an instruction in them and may report it as a violation.
 
-A model can still be talked into passing a text. Keep AI rules at `level: warning`, and keep what must hold in pattern, built-in or script rules.
+A model can still be talked into passing a text, and a text can make its call fail (a reply too long, a reply that is no JSON), which holds nothing. Keep AI rules at `level: warning`, and keep what must hold in pattern, built-in or script rules.
 
 ### Limits
 

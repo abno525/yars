@@ -19,8 +19,6 @@ const (
 	GateStale   = "run check first: the content changed since the last check"
 	GateRunning = "run check first: a check is still running"
 	GateFailed  = "run check first: the last check failed"
-	// Q11: an AI rule could not run although a provider is set up
-	GateAIFailed = "run check first: an AI check failed; retry it"
 	// Q13: the rules changed after the run
 	GateRules = "run check first: the rules changed since the last check"
 	// a run left running by an earlier server: a restart cut it off
@@ -78,7 +76,9 @@ func (s *Store) rulesOn() bool {
 
 // checkGate is why Sign off and Approve must wait for a check run on the
 // finding fid of engID with content hash, its ApprovalHash ("" = they need
-// not): the latest run must have finished, not failed, on this content.
+// not): the latest run must have finished, not failed, on this content. An
+// AI rule that could not run in it does not make them wait: its step failed,
+// the run did not (aiStayedOpen).
 func (s *Store) checkGate(engID, fid, hash string) (string, error) {
 	if !s.gating() {
 		return "", nil
@@ -99,11 +99,7 @@ func (s *Store) checkGate(engID, fid, hash string) (string, error) {
 			return "", err
 		}
 	}
-	aiFailed, err := s.aiFailed([]int64{run.ID})
-	if err != nil {
-		return "", err
-	}
-	return gateOf(run.State, run.ContentHash, hash, running, aiFailed[run.ID], run.Rules, s.RulesVersion()), nil
+	return gateOf(run.State, run.ContentHash, hash, running, run.Rules, s.RulesVersion()), nil
 }
 
 // RulesVersion is the version of the rules in use ("" when the linter has
@@ -146,22 +142,37 @@ func RulesChanged(runRules, nowRules string) bool {
 	return runRules != "" && nowRules != "" && runRules != nowRules
 }
 
-// aiFailed reports which of the runs had an AI rule that could not run, while
-// an AI provider is set up (Q11); without one AI rules can never run, and
-// none counts.
-func (s *Store) aiFailed(ids []int64) (map[int64]bool, error) {
+// aiSetUp reports whether an AI provider is set up. Without one AI rules can
+// never run: that is a state of the server, not a failure worth a line.
+func (s *Store) aiSetUp() bool {
 	l, ok := s.Linter.(interface{ AIConfigured() bool })
-	if !ok || !l.AIConfigured() {
-		return map[int64]bool{}, nil
+	return ok && l.AIConfigured()
+}
+
+// aiStayedOpen reports whether the gate is open for the finding's content
+// (hash) although an AI rule could not run: the latest check run finished
+// on this content with a failed AI step, while a provider is set up. AI
+// rules fail open: such a run holds neither Sign off nor Approve, and the
+// transition that goes through writes the fact to the log
+// (Store.transition). It is not read where the gate is only looked at.
+func (s *Store) aiStayedOpen(engID, fid, hash string) (bool, error) {
+	if s.db == nil || !s.aiSetUp() {
+		return false, nil
 	}
-	return s.db.FailedAIRuns(ids)
+	run, ok, err := s.db.LatestRun(engID, fid)
+	if err != nil || !ok || run.State == db.RunRunning || !db.SameContent(run.ContentHash, hash) {
+		return false, err
+	}
+	failed, err := s.db.FailedAIRuns([]int64{run.ID})
+	return failed[run.ID], err
 }
 
 // gateOf decides from the latest run's state and content (running: in
 // progress in this server; a run left running by an earlier server was
-// cut off, so it failed; aiFailed: an AI rule of it could not run while AI is
-// set up; runRules and nowRules: the rules' versions then and now).
-func gateOf(state, runHash, hash string, running, aiFailed bool, runRules, nowRules string) string {
+// cut off, so it failed; runRules and nowRules: the rules' versions then and
+// now). A script rule that could not run fails the run, and the run blocks;
+// an AI rule that could not run fails its step only.
+func gateOf(state, runHash, hash string, running bool, runRules, nowRules string) string {
 	switch {
 	case state == db.RunRunning && running:
 		return GateRunning
@@ -171,8 +182,6 @@ func gateOf(state, runHash, hash string, running, aiFailed bool, runRules, nowRu
 		return GateStale
 	case RulesChanged(runRules, nowRules):
 		return GateRules
-	case aiFailed:
-		return GateAIFailed
 	case state != db.RunDone:
 		return GateFailed
 	}
@@ -213,14 +222,12 @@ func (s *Store) CheckGates(keys []GateKey) (map[string]string, error) {
 	if s.beforeGateMap != nil {
 		s.beforeGateMap()
 	}
-	// each run's state as it is now first (a run may finish meanwhile), then
-	// its AI steps, so both are read after the run ended
+	// each run's state as it is now (a run may finish meanwhile)
 	type judged struct {
 		state, runHash, rules string
 		running               bool
 	}
 	now := map[string]judged{}
-	ids := make([]int64, 0, len(runs))
 	for _, k := range keys {
 		name := k.Eng + "/" + k.Fid
 		r, ok := runs[name]
@@ -237,22 +244,16 @@ func (s *Store) CheckGates(keys []GateKey) (map[string]string, error) {
 			j.state, j.runHash, j.rules = run.State, run.ContentHash, run.Rules // its end may mark the rules changed
 		}
 		now[name] = j
-		ids = append(ids, r.ID)
-	}
-	aiFailed, err := s.aiFailed(ids) // one query for every run
-	if err != nil {
-		return nil, err
 	}
 	nowRules := s.RulesVersion()
 	for _, k := range keys {
 		name := k.Eng + "/" + k.Fid
-		r, ok := runs[name]
-		if !ok {
+		if _, ok := runs[name]; !ok {
 			out[name] = GateNoRun
 			continue
 		}
 		j := now[name]
-		if g := gateOf(j.state, j.runHash, k.Hash, j.running, aiFailed[r.ID], j.rules, nowRules); g != "" {
+		if g := gateOf(j.state, j.runHash, k.Hash, j.running, j.rules, nowRules); g != "" {
 			out[name] = g
 		}
 	}

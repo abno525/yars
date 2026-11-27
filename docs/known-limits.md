@@ -7,6 +7,7 @@ What YARS does not do, or does in a way that can surprise. Each row states today
 | Limit | Note |
 |---|---|
 | An AI rule without an AI provider shows an orange "AI checks failed" badge on every finding after Check | Its step fails with the warning "AI rules skipped: no AI provider configured". Sign off and Approve are not held by it. `yars init` writes no rules, so a new data folder has none of this until someone adds an AI rule. Set a provider or turn the rule off. |
+| An AI rule whose call failed holds nothing: Submit, Sign off and Approve go through, at level `error` too | The finding shows "AI checks failed" with Retry, and the service log has a `warn` line for each step taken so. Keep what must hold in pattern, built-in or script rules ([rules.md](rules.md)). |
 | When the last rule is turned off, what it found in the finding's latest Check still holds Sign off and Approve, named by its message only | With no rule on, Require Check no longer asks for a run, and the latest run's results stay open, as with Require Check off. A Check clears them; so does dismissing them. |
 | Stored rule results have no engagement, so a purge does not clear them | They age out with the check-run retention. |
 | A git push and `yars lint --all` run every script each time, and `yars lint --all` sends the text to the AI provider each time | Stored results serve Check, MCP, `yars lint --staged --all` and the Test bench only ([rules.md](rules.md)). A push runs no AI rule; the plain `yars lint` runs neither scripts nor AI rules. |

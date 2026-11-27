@@ -108,7 +108,8 @@ func EnvKeyApplies(conf, eff config.AIConfig) bool {
 // ruleTokens is the reply limit of a rule check (Anthropic needs one;
 // OpenAI-compatible providers get none, as some models refuse max_tokens).
 // A check that lists many violations needs room: a cut reply is a failed
-// check, which blocks a sign-off (Q11).
+// check. A failed check holds nothing (AI rules fail open): the finding
+// shows it and offers Retry.
 const ruleTokens = 4096
 
 // aiRetries is how often a call the provider answered with a status of
