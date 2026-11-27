@@ -22,19 +22,22 @@ func TestPresenceHiddenTab(t *testing.T) {
 	shown := func() bool {
 		return strings.Contains(e.do(t, "bob", "GET", fpath+"/s/Impact/presence", nil, nil).Body.String(), "alice")
 	}
-	beat()
+	// a fixed clock: the test does not depend on how long a request takes
+	base := time.Now()
 	defer func() { e.srv.presence.now = time.Now }()
+	e.srv.presence.now = func() time.Time { return base }
+	beat()
 	// a hidden tab's beat comes after a minute and some seconds
-	e.srv.presence.now = func() time.Time { return time.Now().Add(75 * time.Second) }
+	e.srv.presence.now = func() time.Time { return base.Add(75 * time.Second) }
 	if !shown() {
 		t.Fatal("an editor is forgotten before a hidden tab's next beat")
 	}
 	// one missed beat of a hidden tab is still not the end
-	e.srv.presence.now = func() time.Time { return time.Now().Add(2*time.Minute + 15*time.Second) }
+	e.srv.presence.now = func() time.Time { return base.Add(2*time.Minute + 15*time.Second) }
 	if !shown() {
 		t.Fatal("an editor is forgotten after one missed beat of a hidden tab")
 	}
-	e.srv.presence.now = func() time.Time { return time.Now().Add(presenceTTL + time.Second) }
+	e.srv.presence.now = func() time.Time { return base.Add(presenceTTL + time.Second) }
 	if shown() {
 		t.Fatal("an editor without a beat is shown for good")
 	}
