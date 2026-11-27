@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/abno525/yars/internal/chat"
 	"github.com/abno525/yars/internal/config"
 	"github.com/abno525/yars/internal/db"
 	"github.com/abno525/yars/internal/rules"
@@ -82,6 +83,37 @@ func TestChatSaysWhoIsNotNotified(t *testing.T) {
 	text, _ = f.wire(bob, "add_chat_message", map[string]any{"engagement": "acme", "finding": "F-001", "text": "@alice thanks"})
 	if strings.Contains(text, "not_notified") {
 		t.Fatalf("a key although everyone is told: %s", text)
+	}
+}
+
+// A reply over MCP to a thread someone resolved opens it again: read_finding
+// lists it among the open threads (before: the reply sat on a resolved
+// thread nobody looks at).
+func TestReplyReopensThreadOverMCP(t *testing.T) {
+	f := newFx(t)
+	d := f.s.Store.DB()
+	d.AddUser(alice)
+	d.AddUser(bob)
+	at := map[string]any{"engagement": "acme", "finding": "F-001"}
+	with := func(k, v string) map[string]any {
+		return map[string]any{"engagement": "acme", "finding": "F-001", k: v}
+	}
+	root, err := f.s.Store.PostChat("acme", "F-001", chat.Message{Text: "why admins only?"}, bob)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text := f.ok(alice, "read_finding", at); !strings.Contains(text, root.ID) {
+		t.Fatalf("the open thread is not listed: %s", text)
+	}
+	f.ok(bob, "resolve_thread", with("thread", root.ID))
+	if text := f.ok(alice, "read_finding", at); strings.Contains(text, root.ID) {
+		t.Fatalf("a resolved thread is listed as open: %s", text)
+	}
+	reply := with("reply", root.ID)
+	reply["text"] = "the PoC shows a user can"
+	f.ok(alice, "add_chat_message", reply)
+	if text := f.ok(alice, "read_finding", at); !strings.Contains(text, root.ID) || !strings.Contains(text, "the PoC shows a user can") {
+		t.Fatalf("the thread is not open again after the reply: %s", text)
 	}
 }
 

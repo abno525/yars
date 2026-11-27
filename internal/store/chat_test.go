@@ -58,6 +58,40 @@ func TestPostChat(t *testing.T) {
 	}
 }
 
+// A reply to a resolved thread opens it again, for every reader: the count,
+// the resolve check, and a thread someone hid shows again.
+func TestReplyReopensResolvedThread(t *testing.T) {
+	s, _, fd := newFinding(t)
+	root, err := s.PostChat(eng, fd, chat.Message{Text: "Is this right?", Section: "Impact"}, uBob)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.PostChat(eng, fd, chat.Message{Resolves: root.ID}, uBob); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.HideThread(eng, fd, root.ID, true, uAlice); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.PostChat(eng, fd, chat.Message{Text: "No: the PoC fails", Reply: root.ID}, uAlice); err != nil {
+		t.Fatal(err)
+	}
+	msgs, _ := s.Chat(eng, fd)
+	if n, by := chat.OpenCount(msgs); n != 1 || by["Impact"] != 1 {
+		t.Fatalf("open after the reply: %d %v", n, by)
+	}
+	// an open thread cannot be hidden, and it can be resolved again
+	if err := s.HideThread(eng, fd, root.ID, true, uBob); !errors.Is(err, ErrInvalidChat) {
+		t.Fatalf("hid the reopened thread: %v", err)
+	}
+	if _, err := s.PostChat(eng, fd, chat.Message{Resolves: root.ID}, uBob); err != nil {
+		t.Fatalf("resolve after the reply: %v", err)
+	}
+	msgs, _ = s.Chat(eng, fd)
+	if n, _ := chat.OpenCount(msgs); n != 0 {
+		t.Fatalf("open after the second resolve: %d", n)
+	}
+}
+
 // Hiding a resolved thread is personal: other users still see it.
 func TestHideThreadPerUser(t *testing.T) {
 	s, _, fd := newFinding(t)
