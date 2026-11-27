@@ -46,3 +46,36 @@ The file itself, saved as `<engagement id>.<extension>` (`application/octet-stre
 | `export script failed: exit status 1: …` | Non-zero exit |
 | `… is outside the exporters directory` | Path |
 | `csv.yaml: script exporter needs script and a plain extension (letters/digits)` | The YAML file |
+
+## Jira priorities
+
+A destination of type `jira` sends each finding's severity as a Jira priority. The key `priorities` under `jira:` names the priority of a severity. Write it in the file: Export › Destinations has no field for it and keeps it on save.
+
+```yaml
+name: Jira
+type: jira
+jira:
+  base_url: https://firm.atlassian.net
+  project: PEN
+  user_env: JIRA_USER
+  token_env: JIRA_TOKEN
+  priorities:
+    critical: Blocker
+    info: ""
+```
+
+| Severity | Priority sent |
+|---|---|
+| named in `priorities` | the name written · `""` sends none |
+| not named | `critical` Highest · `high` High · `medium` Medium · `low` Low · `info` Lowest |
+| any other severity, not named | none |
+
+## Jira text
+
+| In the finding | In the issue |
+|---|---|
+| `{` and `}` outside a code block | escaped: shown as text, never a Jira macro |
+| a code block with a language Jira knows | `{code:<language>}` · `js` is `javascript`, `sh` is `bash`, `py` is `python`, `yml` is `yaml` |
+| a code block with another word, such as `http` | `{code}` without a language |
+| a code block that holds `{code` | `{noformat}` |
+| a table | a Jira table · the line of dashes is left out |

@@ -43,6 +43,9 @@ type JiraConf struct {
 	IssueType string `yaml:"issue_type,omitempty"`
 	UserEnv   string `yaml:"user_env,omitempty"`
 	TokenEnv  string `yaml:"token_env,omitempty"`
+	// Priorities names the Jira priority of a severity ("" sends none); a
+	// severity it does not name keeps Jira's default name (priority).
+	Priorities map[string]string `yaml:"priorities,omitempty"`
 }
 
 type Exporter struct {

@@ -164,6 +164,9 @@ func destFromForm(r *http.Request, cur export.Exporter) (destForm, export.Export
 	case "jira":
 		ex.Jira = &export.JiraConf{BaseURL: f.BaseURL, Project: f.Project, IssueType: f.IssueType,
 			UserEnv: env(f.UserEnv, "JIRA_USER"), TokenEnv: env(f.TokenEnv, "JIRA_TOKEN")}
+		if cur.Jira != nil { // written by hand in the file: kept, as pandoc args are
+			ex.Jira.Priorities = cur.Jira.Priorities
+		}
 	}
 	ex.Statuses = nil
 	if f.Complete {
