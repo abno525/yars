@@ -20,6 +20,7 @@ What changed for people who run or use YARS. Newest first.
 - Admin › System has two new panels. Current state shows the same as `yars status`. Log shows the last 200 warnings and errors of the service log; they are kept in memory and lost at a restart.
 - Admin › System › Log has the switch Debug level for 15 minutes: it sets the service log to `debug` without a restart and turns itself off. Each change is in Admin › Activity.
 - The finding page has a Take back button, beside Withdraw, for the author and a director while the finding is in verification (before: the bulk bar and MCP only). Its key is Shift+T, and it acts at once, as every workflow key.
+- Over MCP, `tools/list` gives each tool its annotations: `readOnlyHint`, `destructiveHint` and `openWorldHint` ([docs/mcp.md](docs/mcp.md)).
 - `docs/deploy.md` has a Logs section: the journalctl commands, the levels, the fields, what a line never holds, the request ID, and a fail2ban example for the failed-login lines in their new form.
 
 ### Changed
@@ -75,6 +76,7 @@ What changed for people who run or use YARS. Newest first.
 - Dismissing a check result and restoring it are in the audit log: who, the finding, the rule, its level and place, and the reason. A dismissal without a reason is refused by the server itself, not only by the page.
 - Fix with AI sends the section between the same delimiters as an AI check, so text in a finding cannot pass as the rule.
 - Over MCP, `read_finding` gives `field_bases.title`, `field_bases.severity` and, for a retest finding, `field_bases.retest_result`. `set_field` with one of them as `base` answers `conflict` when the field changed since it was read (before: `base` was ignored for these fields and the last writer won), and its answer has the field's new `base`. Without `base` the edit is not checked, as before.
+- Over MCP, `limit` and `cursor` are taken as numbers (`"limit": 20`), as most clients send them (before: `argument "limit" must be a string`). A string still works. The schema of `limit` says `integer`.
 - Over MCP, `read_finding` fails with `server_error` when the finding's chat cannot be read (before: it answered with no open threads).
 - A new account cannot take a username that differs from another only in the case of its ASCII letters (`Alice` beside `alice`). Accounts that already do keep working; `yars serve` logs them at start. The database schema is 25.
 - Live updates of an open page end within 25 seconds of a logout, a disabled account or leaving the team. One account holds at most 20 live streams.

@@ -210,7 +210,9 @@ func (s *Server) Handle(ctx context.Context, u config.User, msg []byte) []byte {
 		f := s.flow()
 		for _, t := range tools {
 			t = t.in(f) // worded as the workflow has it
-			list = append(list, map[string]any{"name": t.name, "description": t.desc, "inputSchema": t.schema()})
+			// every hint is said: a missing destructiveHint reads as true
+			list = append(list, map[string]any{"name": t.name, "description": t.desc, "inputSchema": t.schema(),
+				"annotations": map[string]any{"readOnlyHint": t.readOnly, "destructiveHint": t.destructive, "openWorldHint": t.openWorld}})
 		}
 		return reply(req.ID, map[string]any{"tools": list}, nil)
 	case "tools/call":

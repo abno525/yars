@@ -59,7 +59,7 @@ A data folder set up with `yars init --simple` runs the simple workflow: draft â
 |---|---|---|---|
 | `list_engagements` | read | local + server | The engagements you work on (pentests and retests); archived ones are read only |
 | `list_findings` | read | local + server | Findings of an engagement, most severe first; filter by status or severity, search with `q` (ID, title, an asset's host or URL) |
-| `read_finding` | read | local + server | Workflow state, the front matter as fields (`id`, `author`, `severity`, `cvss`, and `title`, `details`, `cvss_reasons`, `assets`), the file's `hash`, `attachments_hash`, each section's body and base hash, the open chat threads (at most 20, each with its last 20 replies; `open_threads_more` and `replies_more` count the rest, which `read_chat` has), rule violations, and `allowed_actions` (each action of the status: `enabled`, `reason` when not, `needs: "reason"` or `needs: "base"`). `raw: true` adds the file as it is (`finding_md`) |
+| `read_finding` | read | local + server | Workflow state, the front matter as fields (`id`, `author`, `severity`, `cvss`, and `title`, `details`, `cvss_reasons`, `assets`), the file's `hash`, `attachments_hash`, each section's body and base hash, the open chat threads (at most 20, each with its last 20 replies; `open_threads_more` and `replies_more` count the rest, which the tool for the whole chat has), rule violations, and `allowed_actions` (each action of the status: `enabled`, `reason` when not, `needs: "reason"` or `needs: "base"`). `raw: true` adds the file as it is (`finding_md`) |
 | `list_templates` | read | local + server | Finding templates (`.yars/templates`) with how often each was used |
 | `create_finding` | create | local + server | New draft in an engagement; `template` starts it from a template |
 | `update_section` | edit | local + server | Replace one `##` section (pass `base` from `read_finding` to avoid overwriting a colleague) |
@@ -79,6 +79,8 @@ A data folder set up with `yars init --simple` runs the simple workflow: draft â
 | `read_template` | read | local + server | A template's Markdown by slug |
 | `mark_notifications_read` | read | server only | Mark your notifications read: `ids` (comma-separated) or `all: true`; a token limited to some engagements marks only theirs |
 | `fix_checks` | checks + edit | server only | Fix with AI: the AI fixes the open check results in the background, answers their threads (marked AI), and a check run follows |
+
+`tools/list` gives each tool three annotations. `readOnlyHint` is true for the tools that change nothing: the `list_*` and `read_*` tools, `whoami`, `get_config` and `get_check_results`. `lint_finding` is not one of them: with `all: true` it starts a check run. `destructiveHint` is true for the tools that replace what is there: `update_section`, `set_field`, `transition` and `fix_checks`. `openWorldHint` is true for the tools that can send text to the AI provider: `lint_finding`, `start_check` and `fix_checks`.
 
 Findings can be referred to by ID (`F-001`, also `f-1` or `1`) or directory name (`F-001-sql-injection`); an ID that two folders share is refused, and the folder name is needed. A token restricted to some engagements sees and changes only those; a write to an archived engagement is refused.
 
@@ -109,7 +111,9 @@ Text that people wrote is in an answer only under a key named `untrusted`, insid
 
 A list item looks like `{"id": "F-001", "dir": "F-001-sql-injection", "status": "draft", â€¦, "untrusted": {"title": "SQL injection"}}`. What you send back stays outside: IDs, folder names, section names, attachment names, `hash`, the bases, `status`, `allowed_actions`.
 
-The codes:
+### Codes
+
+A refusal has one of these codes:
 
 | Code | Meaning |
 |---|---|
@@ -124,7 +128,7 @@ The codes:
 
 ## Paging
 
-The list tools (`list_engagements`, `list_findings`, `list_templates`, `list_notifications`, `list_team`, `read_chat`, `list_history`, `list_attachments`) answer a page at a time. `limit` is 1 to 200 (default 50); `cursor` is the `next` of the previous answer; an empty `next` means the end. A limit or cursor that is not such a whole number is `invalid`; a cursor past the end gives an empty page.
+The list tools (`list_engagements`, `list_findings`, `list_templates`, `list_notifications`, `list_team`, `read_chat`, `list_history`, `list_attachments`) answer a page at a time. `limit` is 1 to 200 (default 50); `cursor` is the `next` of the previous answer; an empty `next` means the end. Both are taken as a JSON number (`"limit": 20`) or as a string (`"limit": "20"`); the schema says `integer` for `limit` and `string` for `cursor`. A limit or cursor that is not such a whole number is `invalid`; a cursor past the end gives an empty page.
 
 `list_notifications` pages by notification id: marking some read, or new ones arriving, between two calls neither skips nor repeats one. The other lists page by position: they can move between calls (a finding submitted between two pages of `list_findings status=draft` leaves it), so a client that changes what it filters on starts again without a cursor. A cursor belongs to the call it came from: pass it to the same tool with the same filters.
 

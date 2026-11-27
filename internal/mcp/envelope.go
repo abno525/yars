@@ -80,19 +80,18 @@ func page[T any](a args, items []T) (out []T, next string, err error) {
 }
 
 // pageArgs reads limit (1–200, default 50) and cursor (a whole number from
-// 0, default 0); anything else is invalid.
+// 0, default 0), each a JSON number or its digits in a string (args.whole);
+// anything else is invalid.
 func pageArgs(a args) (limit, cursor int, err error) {
 	limit = defaultLimit
-	if s := a.str("limit"); s != "" {
-		n, err := strconv.Atoi(s)
-		if err != nil || n < 1 || n > maxLimit {
+	if n, given, ok := a.whole("limit"); given {
+		if !ok || n < 1 || n > maxLimit {
 			return 0, 0, refuse("invalid", fmt.Sprintf("limit must be a whole number from 1 to %d", maxLimit))
 		}
 		limit = n
 	}
-	if s := a.str("cursor"); s != "" {
-		n, err := strconv.Atoi(s)
-		if err != nil || n < 0 {
+	if n, given, ok := a.whole("cursor"); given {
+		if !ok || n < 0 {
 			return 0, 0, refuse("invalid", "cursor must be the next of an earlier answer (a whole number from 0)")
 		}
 		cursor = n
