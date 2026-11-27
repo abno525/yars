@@ -4,11 +4,14 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/abno525/yars/internal/finding"
 	"github.com/abno525/yars/internal/gitrepo"
+	"github.com/abno525/yars/internal/store"
 )
 
 const fpath = "/e/acme/f/F-001-sql-injection"
@@ -273,6 +276,57 @@ func TestCVSSEditorReasonGoesWithItsValue(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "reason missing") {
 		t.Fatalf("the panel does not say the reason is missing:\n%s", rec.Body.String())
+	}
+}
+
+// A pushed file may hold cvss_reasons and no vector. The editor's clear
+// removes them, also when it posts the per-row bases; a second clear finds
+// nothing and makes no commit.
+func TestCVSSEditorClearRemovesReasonsWithoutVector(t *testing.T) {
+	e := setup(t)
+	ref, err := e.srv.Store.Finding("acme", "F-001-sql-injection")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ref.F.SetMeta("cvss_reasons", finding.OrderedMap([]string{"PR"}, map[string]string{"PR": "orphan words"})); err != nil {
+		t.Fatal(err)
+	}
+	rel := filepath.Join("engagements", "acme", "findings", "F-001-sql-injection", "finding.md")
+	if err := os.WriteFile(filepath.Join(e.dir, rel), ref.F.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	er, _ := e.srv.Store.EngRepo("acme")
+	if err := er.Commit([]string{"findings/F-001-sql-injection/finding.md"}, "ext", gitrepo.Author{Name: "x", Email: "x@x"}); err != nil {
+		t.Fatal(err)
+	}
+	if m := e.meta(t); !strings.Contains(m, "orphan words") || strings.Contains(m, "CVSS:3") {
+		t.Fatalf("setup:\n%s", m)
+	}
+	clear := func() url.Values {
+		ref, err := e.srv.Store.Finding("acme", "F-001-sql-injection")
+		if err != nil {
+			t.Fatal(err)
+		}
+		f := url.Values{"action": {"clear"}}
+		for k, b := range store.CVSSRowHashes(ref.F.Meta) {
+			f.Set(baseField+k, b)
+		}
+		return f
+	}
+	rec := e.do(t, "alice", "POST", fpath+"/cvss", clear(), nil)
+	if m := e.meta(t); rec.Code != 200 || strings.Contains(m, "cvss_reasons") || strings.Contains(m, "orphan words") {
+		t.Fatalf("clear left the reasons (%d):\n%s", rec.Code, m)
+	}
+	if got := e.lastCommit(t); got != "alice|F-001: clear CVSS" {
+		t.Fatalf("commit %q", got)
+	}
+	// nothing left to clear: no commit
+	if rec := e.do(t, "alice", "POST", fpath+"/cvss", clear(), nil); rec.Code != 200 {
+		t.Fatalf("second clear %d", rec.Code)
+	}
+	out, err := exec.Command("git", "-C", filepath.Join(e.dir, "engagements", "acme"), "rev-list", "--count", "--grep=clear CVSS", "HEAD").Output()
+	if err != nil || strings.TrimSpace(string(out)) != "1" {
+		t.Fatalf("clear commits: %s (%v)", out, err)
 	}
 }
 

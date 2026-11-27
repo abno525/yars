@@ -287,6 +287,10 @@ func (s *Server) cvssSave(w http.ResponseWriter, r *http.Request) {
 				ch.Reasons[k], ch.Bases[k] = val, b
 			}
 		}
+		if form.Get("action") == "clear" && ch.Vector == nil && len(ref.F.Meta.CVSSReasons) > 0 {
+			// reasons without a vector (a pushed file): the clear takes them
+			ch.Vector, ch.Bases[store.CVSSRow] = &vector, bases[store.CVSSRow]
+		}
 		switch {
 		case ch.Vector == nil && len(ch.Reasons) == 0:
 		case ch.Vector == nil && v.HasStored:
