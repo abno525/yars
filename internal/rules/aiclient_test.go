@@ -162,6 +162,59 @@ func TestAIRetryWait(t *testing.T) {
 	}
 }
 
+// A provider that fails is waited for once in a run of the rules, not once
+// per AI rule: after the first rule's tries the other AI rules ask once, so
+// the run's time is left for the rules after them. The next run tries again.
+func TestAIRetriesOncePerRun(t *testing.T) {
+	f := &fakeAI{status: 429, retryAfter: "30", body: func(map[string]any) string { return "" }}
+	r := aiRunner(t, "openai", f.server(t).URL)
+	script(t, r.Dir, "ok.sh", "echo '[]'\n")
+	var waits []time.Duration
+	r.wait = func(_ context.Context, d time.Duration) error { waits = append(waits, d); return nil }
+	var src strings.Builder
+	for i := range 5 {
+		fmt.Fprintf(&src, "- {id: ai%d, level: warning, target: title, ai: rule %d}\n", i, i)
+	}
+	src.WriteString("- {id: s, level: error, script: ok.sh}\n")
+	rs, problems := Parse("r.yaml", []byte(src.String()))
+	if len(rs) != 6 || len(problems) != 0 {
+		t.Fatalf("rules %+v, problems %+v", rs, problems)
+	}
+	set := &Set{Dir: r.Dir, Rules: rs}
+	for run := 1; run <= 2; run++ {
+		vs := set.Run(context.Background(), doc(), config.Config{}, Slow, r)
+		if len(vs) != 5 {
+			t.Fatalf("run %d: got %+v", run, vs)
+		}
+		for _, v := range vs {
+			if v.Target != "ai" || v.Message != "AI check failed: HTTP 429" {
+				t.Fatalf("run %d: got %+v", run, v)
+			}
+		}
+		// the first rule: three requests and two waits; the four after it: one
+		// request each
+		if len(waits) != 2*run || int(f.hits.Load()) != 7*run {
+			t.Fatalf("run %d: waits %v, %d requests", run, waits, f.hits.Load())
+		}
+	}
+	var sum time.Duration
+	for _, d := range waits[:2] {
+		sum += d
+	}
+	if sum != 2*maxRetryAfter {
+		t.Fatalf("waits %v", waits)
+	}
+
+	// a rule after one that was answered is tried again as before
+	f = &fakeAI{body: func(map[string]any) string { return aiContent("openai", `{"violations":[]}`) }}
+	f.statusOf = func(n int) int { return []int{503, 0, 503, 0}[n-1] }
+	r = aiRunner(t, "openai", f.server(t).URL)
+	set = &Set{Dir: r.Dir, Rules: rs[:2]}
+	if vs := set.Run(context.Background(), doc(), config.Config{}, Slow, r); len(vs) != 0 || f.hits.Load() != 4 {
+		t.Fatalf("answered after a try: %+v, %d requests", vs, f.hits.Load())
+	}
+}
+
 // Fix with AI and the Test button are tried again as a rule check is.
 func TestAIRetriesFixAndTest(t *testing.T) {
 	f := &fakeAI{body: func(map[string]any) string { return aiContent("openai", `{"violations":[]}`) }}

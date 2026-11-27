@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -131,6 +132,24 @@ func retryStatus(status int) bool {
 	return false
 }
 
+// runState is what the provider calls of one run of the rules share: once a
+// call ended with a status of retryStatus, tries and all, the provider is
+// taken as down for the rest of the run and no call waits for it again. The
+// waits of every AI rule together would use up the run's time (Engine.Budget),
+// and the script rules after them would fail on a context that is over.
+type runState struct{ down atomic.Bool }
+
+type runKey struct{}
+
+// withRun gives ctx the state of one run of the rules (the one it has, when
+// it has one).
+func withRun(ctx context.Context) context.Context {
+	if _, ok := ctx.Value(runKey{}).(*runState); ok {
+		return ctx
+	}
+	return context.WithValue(ctx, runKey{}, &runState{})
+}
+
 // pause waits d before a call is made again, or until ctx ends (its error).
 func (rn *Runner) pause(ctx context.Context, d time.Duration) error {
 	if rn.wait != nil {
@@ -155,9 +174,10 @@ func (rn *Runner) pause(ctx context.Context, d time.Duration) error {
 // provider answers with a status of retryStatus is made again, aiRetries
 // times at most, after a wait that doubles (Backoff, or what the provider
 // asks for up to maxRetryAfter). The tries share ctx's time: a wait that
-// would end after it is not begun. All of it is one call for OnUsage and
-// the log (its tokens are those of the try that worked); each try that is
-// made again has a warn line of its own.
+// would end after it is not begun. In a run of the rules (withRun) only the
+// first call that fails so is tried again: the calls after it ask once. All
+// of it is one call for OnUsage and the log (its tokens are those of the try
+// that worked); each try that is made again has a warn line of its own.
 func (rn *Runner) ask(ctx context.Context, c config.AIConfig, key, system, user, purpose, rule string, maxTokens int) (string, error) {
 	start := time.Now()
 	who := CallerOf(ctx)
@@ -165,6 +185,7 @@ func (rn *Runner) ask(ctx context.Context, c config.AIConfig, key, system, user,
 	var in, out int
 	var err error
 	tries := 0
+	run, _ := ctx.Value(runKey{}).(*runState)
 	// again writes the line of a try that failed and is made again
 	again := func(ref *refused) {
 		tries++
@@ -178,7 +199,10 @@ func (rn *Runner) ask(ctx context.Context, c config.AIConfig, key, system, user,
 			content, in, out, err = rn.openai(ctx, c, key, system, user, again)
 		}
 		var ref *refused
-		if n >= aiRetries || !errors.As(err, &ref) || !retryStatus(ref.status) {
+		if !errors.As(err, &ref) || !retryStatus(ref.status) {
+			break
+		}
+		if n >= aiRetries || run != nil && run.down.Load() {
 			break
 		}
 		d := max(wait, min(ref.retryAfter, maxRetryAfter))
@@ -189,6 +213,10 @@ func (rn *Runner) ask(ctx context.Context, c config.AIConfig, key, system, user,
 		if rn.pause(ctx, d) != nil {
 			break // err stays the provider's answer
 		}
+	}
+	var ref *refused
+	if run != nil && errors.As(err, &ref) && retryStatus(ref.status) {
+		run.down.Store(true)
 	}
 	took := max(time.Since(start), time.Nanosecond)
 	if rn.OnUsage != nil {

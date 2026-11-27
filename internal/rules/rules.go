@@ -485,6 +485,7 @@ func (s *Set) RunWith(ctx context.Context, d Doc, cfg config.Config, kinds Kind,
 	if h.Only == "" {
 		out = append(out, s.Problems...)
 	}
+	ctx = withRun(ctx) // a provider that is down is waited for once
 	seen := map[Violation]bool{}
 	run := s.Runs(kinds, slow)
 	if h.Only != "" {
