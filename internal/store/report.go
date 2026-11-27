@@ -10,8 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"gopkg.in/yaml.v3"
-
 	"github.com/abno525/yars/internal/config"
 	"github.com/abno525/yars/internal/finding"
 	"github.com/abno525/yars/internal/gitrepo"
@@ -164,18 +162,16 @@ func validDate(d string) bool {
 }
 
 // UpdateEngagement saves an engagement's name, client and dates (directors)
-// in its engagement.yaml, with one commit. Id, type and source stay.
+// in its engagement.yaml, with one commit. Id, type and source stay. Only
+// the lines of a value that changed are rewritten (finding.SpliceKey): the
+// file keeps its comments, its other keys and its order. An emptied date
+// takes its key away. A file the splice cannot rewrite is refused.
 func (s *Store) UpdateEngagement(e Engagement, u config.User) error {
 	if !workflow.AtLeast(u, "director") {
 		return &workflow.Denied{Reason: "only a director can change the engagement"}
 	}
 	e.Name, e.Client = strings.TrimSpace(e.Name), strings.TrimSpace(e.Client)
-	cur, err := s.Engagement(e.ID)
-	if err != nil {
-		return err
-	}
-	e.Type, e.Source = cur.Type, cur.Source // fixed at creation
-	if err := CheckEngagement(&cur, e); err != nil {
+	if _, err := s.Engagement(e.ID); err != nil {
 		return err
 	}
 	l := s.engLock(e.ID)
@@ -184,20 +180,47 @@ func (s *Store) UpdateEngagement(e Engagement, u config.User) error {
 	if err := s.writable(e.ID); err != nil { // under the lock, as Archive
 		return err
 	}
-	cur.Name, cur.Client, cur.Start, cur.End = e.Name, e.Client, e.Start, e.End
+	// the file as it is now, read under the lock: what is compared, spliced
+	// and put back
 	rel := path.Join(engDir(e.ID), "engagement.yaml")
 	prev, err := s.readFile(rel)
 	if err != nil {
 		return err
 	}
-	b, err := yaml.Marshal(cur)
+	cur, err := ParseEngagement(prev)
 	if err != nil {
+		return fmt.Errorf("engagement %s: %w", e.ID, err)
+	}
+	e.Type, e.Source = cur.Type, cur.Source // fixed at creation
+	if err := CheckEngagement(&cur, e); err != nil {
 		return err
 	}
-	if string(b) == string(prev) {
+	unspliced := fmt.Errorf("%w: engagement.yaml is not written one key per line, each at the first column; change it with git", ErrInvalidValue)
+	next := string(prev)
+	for _, kv := range []struct {
+		key, was, now string
+		always        bool // written also when empty
+	}{{"name", cur.Name, e.Name, true}, {"client", cur.Client, e.Client, true}, {"start", cur.Start, e.Start, false}, {"end", cur.End, e.End, false}} {
+		if kv.was == kv.now {
+			continue
+		}
+		var v any = kv.now
+		if kv.now == "" && !kv.always {
+			v = nil
+		}
+		if next, err = finding.SpliceKey(next, kv.key, v); err != nil {
+			return unspliced
+		}
+	}
+	if next == string(prev) {
 		return nil
 	}
-	if err := s.writeFile(rel, b); err != nil {
+	// the file must read back as the values saved
+	got, err := ParseEngagement([]byte(next))
+	if want := (Engagement{Name: e.Name, Client: e.Client, Type: e.Type, Source: e.Source, Start: e.Start, End: e.End}); err != nil || got != want {
+		return unspliced
+	}
+	if err := s.writeFile(rel, []byte(next)); err != nil {
 		return err
 	}
 	return s.commit(map[string][]byte{rel: prev}, "engagement "+e.ID+": settings", u.GitAuthor(), "")
