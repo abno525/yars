@@ -52,7 +52,7 @@
 
 {{define "cvss_editor"}}
 <section class="panel editing cvss" id="cvss" data-kpanel>
-  <form class="flush" hx-post="{{.SaveURL}}" hx-target="#cvss" hx-swap="outerHTML">
+  <form class="flush" hx-post="{{.SaveURL}}" hx-target="#cvss" hx-swap="outerHTML" data-guard{{if .Unsaved}} data-unsaved{{end}}>
     <div class="panelhead">
       <h2>CVSS 3.1</h2>
       <div class="scorehead">
