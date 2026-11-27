@@ -64,6 +64,7 @@ A result that is right to ignore can be dismissed. A dismissal needs a reason. R
 - An error: the same, and the reviewer role or more.
 - An error on your own finding: another reviewer or a director dismisses it, whatever your role, and restores it. A team needs a second person with the reviewer role or more for that. In the simple workflow you dismiss it yourself.
 - A dismissal covers one result: that rule, that place and that quote. The same quote in another place still counts.
+- A rule renamed on **Admin › Rules** keeps its dismissals. A rule renamed by hand in its file does not: to the server it is a new rule.
 - In an archived engagement nothing is dismissed or restored.
 - Each dismissal and each restore is a row in the audit log (Admin › Activity): who, the finding, the rule, its level and place, and the reason. The quote is not in it.
 
@@ -78,6 +79,8 @@ A script rule names a file in `.yars/rules`. The script reads the finding as JSO
   script: no_internal_hosts.py
   enabled: true
 ```
+
+Deleting the rule on **Admin › Rules**, or giving it another script, removes the file unless another rule names it. Files no rule names (helpers) stay.
 
 ### stdin: the finding (rules.Doc)
 

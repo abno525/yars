@@ -6,6 +6,8 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -403,6 +405,39 @@ func readRuleFile(read func(string) ([]byte, error), file string) ([]byte, error
 	return b, err
 }
 
+// scriptRel is where a rule's script is in the main repository: its path
+// under .yars/rules, cleaned. ok is false for a path that leaves the rules
+// folder (a rule file written by hand can name one; it never runs).
+func scriptRel(script string) (rel string, ok bool) {
+	if script == "" || path.IsAbs(script) {
+		return "", false
+	}
+	rel = path.Join(rulesRel, script)
+	return rel, strings.HasPrefix(rel, rulesRel)
+}
+
+// dropScript returns the file change that removes script, which rule id
+// named until this edit, or nothing when the script stays: another rule of
+// cur (on or off) names it, or the edit writes it (written: a path under
+// .yars/rules). Only a regular file inside .yars/rules that is no rule file
+// is ever removed; any other path is left alone without an error, so the
+// rule's own change still goes through.
+func (s *Server) dropScript(cur *rules.Set, id, script, written string) []store.SettingsFile {
+	rel, ok := scriptRel(script)
+	if !ok || rel == written || strings.HasSuffix(rel, ".yaml") || strings.HasSuffix(rel, ".yml") {
+		return nil
+	}
+	for _, x := range cur.Rules {
+		if other, ok := scriptRel(x.Script); ok && other == rel && x.ID != id {
+			return nil
+		}
+	}
+	if info, err := os.Lstat(filepath.Join(s.Store.Repo().Dir, filepath.FromSlash(rel))); err != nil || !info.Mode().IsRegular() {
+		return nil
+	}
+	return []store.SettingsFile{{Path: rel}}
+}
+
 func (s *Server) ruleSave(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 2*maxScript)
 	u := auth.UserFrom(r.Context())
@@ -410,9 +445,10 @@ func (s *Server) ruleSave(w http.ResponseWriter, r *http.Request) {
 	if len(errs) == 0 {
 		err := s.editRules("rules: save "+rule.ID, u, func(cur *rules.Set, read func(string) ([]byte, error)) ([]store.SettingsFile, error) {
 			file := rule.ID + ".yaml"
+			var old rules.Rule
 			if !f.New {
-				old, ok := findRule(cur, f.Old)
-				if !ok {
+				var ok bool
+				if old, ok = findRule(cur, f.Old); !ok {
 					return nil, &ruleErr{"form", "rule " + f.Old + " not found"}
 				}
 				file = old.File
@@ -429,14 +465,30 @@ func (s *Server) ruleSave(w http.ResponseWriter, r *http.Request) {
 				return nil, &ruleErr{"form", file + ": " + err.Error()}
 			}
 			files := []store.SettingsFile{{Path: rulesRel + file, Data: nb}}
+			written := ""
 			if script != nil {
-				files = append(files, store.SettingsFile{Path: rulesRel + scriptName, Data: script, Exec: true})
+				written = rulesRel + scriptName
+				files = append(files, store.SettingsFile{Path: written, Data: script, Exec: true})
+			}
+			// the script the rule had and no longer names (another upload,
+			// another kind) goes with this commit
+			if now, _ := scriptRel(rule.Script); old.Script != "" {
+				if was, _ := scriptRel(old.Script); was != now {
+					files = append(files, s.dropScript(cur, f.Old, old.Script, written)...)
+				}
 			}
 			return files, nil
 		})
 		var re *ruleErr
 		switch {
 		case err == nil:
+			if !f.New && f.Old != rule.ID {
+				// the rename is committed: a failure here leaves the old
+				// ID's dismissals where they were
+				if err := s.Store.RuleRenamed(f.Old, rule.ID, u.Username); err != nil {
+					s.log().Error("rules: a renamed rule's dismissals are not moved", "user", u.Username, "err", err)
+				}
+			}
 			http.Redirect(w, r, "/admin/rules?edit="+rule.ID, http.StatusSeeOther)
 			return
 		case errors.As(err, &re):
@@ -528,7 +580,8 @@ func (s *Server) ruleDelete(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return nil, err
 		}
-		return []store.SettingsFile{{Path: rulesRel + x.File, Data: nb}}, nil
+		// a script rule's script goes with it, unless another rule names it
+		return append([]store.SettingsFile{{Path: rulesRel + x.File, Data: nb}}, s.dropScript(cur, id, x.Script, "")...), nil
 	})
 	if err != nil {
 		s.fail(w, err)

@@ -138,6 +138,37 @@ func TestCheckRunLifecycle(t *testing.T) {
 	}
 }
 
+// A renamed rule's dismissals move to the new ID in every engagement. Where
+// the new ID has one for the same place already, that one stays and the old
+// one goes: nothing is left under the old ID.
+func TestMoveDismissals(t *testing.T) {
+	d, _ := open(t)
+	for _, x := range []Dismissal{
+		{Eng: "e", Fid: "F-001", Rule: "old", QuoteHash: "q1", Level: "error", By: "bob", Reason: "r1"},
+		{Eng: "e", Fid: "F-001", Rule: "old", QuoteHash: "q2", Level: "error", By: "bob", Reason: "r2"},
+		{Eng: "e", Fid: "F-001", Rule: "new", QuoteHash: "q2", Level: "error", By: "dora", Reason: "kept"},
+		{Eng: "e", Fid: "F-001", Rule: "other", QuoteHash: "q1", Level: "error", By: "bob"},
+		{Eng: "f", Fid: "F-001", Rule: "old", QuoteHash: "q1", Level: "warning", By: "alice"},
+	} {
+		if err := d.TxFor(x.Eng, func(tx *Tx) error { return tx.Dismiss(x) }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	n, err := d.MoveDismissals("old", "new")
+	if err != nil || n != 2 {
+		t.Fatalf("moved %d, %v", n, err)
+	}
+	e, _ := d.Dismissals("e", "F-001")
+	f, _ := d.Dismissals("f", "F-001")
+	if len(e) != 3 || e[DismissKey("new", "q1")].Reason != "r1" || e[DismissKey("new", "q2")].By != "dora" || e[DismissKey("other", "q1")].By != "bob" ||
+		len(f) != 1 || f[DismissKey("new", "q1")].By != "alice" {
+		t.Fatalf("e %+v\nf %+v", e, f)
+	}
+	if n, err := d.MoveDismissals("old", "new"); err != nil || n != 0 {
+		t.Fatalf("a second move: %d, %v", n, err)
+	}
+}
+
 func TestDismissals(t *testing.T) {
 	d, _ := open(t)
 	ds := Dismissal{Eng: "e", Fid: "F-001", Rule: "a", QuoteHash: "qh", Level: "warning", By: "alice"}

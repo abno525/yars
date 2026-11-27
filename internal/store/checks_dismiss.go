@@ -135,6 +135,30 @@ func (s *Store) DismissWhy(engID, dir, rule, target, quote, reason string, u con
 	return nil
 }
 
+// RuleRenamed moves the dismissals of rule from to rule to in every
+// engagement, archived ones too: a rule renamed on Admin › Rules is the
+// same rule, and what was dismissed for it stays dismissed. It is called
+// once the rename is committed. The audit log gets one row with both IDs
+// and the count; the commit's own row names the new ID only.
+func (s *Store) RuleRenamed(from, to, actor string) error {
+	if s.db == nil || from == to {
+		return nil
+	}
+	n, err := s.db.MoveDismissals(from, to)
+	if err != nil {
+		return err
+	}
+	moved := fmt.Sprintf("%d dismissals moved", n)
+	if n == 1 {
+		moved = "1 dismissal moved"
+	}
+	s.db.Audit(actor, "rules.rename", to, from+" → "+to+" · "+moved)
+	if n > 0 {
+		s.Invalidate("")
+	}
+	return nil
+}
+
 // dismissDetail names a result row in the audit log: its rule, level and
 // place. The quote stays out: it is finding text (for a secrets rule the
 // secret itself), and the audit log is kept longer and read more widely

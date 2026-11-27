@@ -437,6 +437,48 @@ func (tx *Tx) Dismiss(x Dismissal) error {
 	return err
 }
 
+// MoveDismissals gives the dismissals of rule from to rule to, in every
+// engagement (the rule was renamed), and returns how many moved. A place
+// that rule to has a dismissal for already keeps that one; from's is
+// dropped, so none is left under the old ID.
+func (d *DB) MoveDismissals(from, to string) (int, error) {
+	moved := 0
+	err := d.Tx(func(tx *Tx) error {
+		rows, err := tx.Query("SELECT DISTINCT eng FROM dismissals WHERE rule = ?", from)
+		if err != nil {
+			return err
+		}
+		var engs []string
+		for rows.Next() {
+			var e string
+			if err := rows.Scan(&e); err != nil {
+				rows.Close()
+				return err
+			}
+			engs = append(engs, e)
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		for _, e := range engs {
+			tx.touch(e)
+		}
+		res, err := tx.Exec("UPDATE OR IGNORE dismissals SET rule = ? WHERE rule = ?", to, from)
+		if err != nil {
+			return err
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			return err
+		}
+		moved = int(n)
+		_, err = tx.Exec("DELETE FROM dismissals WHERE rule = ?", from)
+		return err
+	})
+	return moved, err
+}
+
 // Undismiss drops a dismissal; the violation counts again.
 func (tx *Tx) Undismiss(eng, fid, rule, quoteHash string) error {
 	tx.touch(eng)
