@@ -32,7 +32,7 @@ opens a row only of the list for what the field holds (app.js) */}}
 {{if .Query}}
 <div class="gh" data-q="{{.Sent}}"><span>Findings</span><span class="mono">{{.Total}}</span></div>
 {{range $i, $r := .Rows}}
-<a class="res{{if eq $i 0}} sel{{end}}" href="{{fpath .EngID .Dir}}">
+<a class="res{{if eq $i 0}} sel{{end}}" href="{{fpath .EngID .Dir}}" role="option" aria-selected="{{if eq $i 0}}true{{else}}false{{end}}">
   <span class="resline"><span class="mono" title="{{.EngID}} · {{.ID}}"><span class="engid">{{.EngID}}</span> · {{.ID}}</span><span class="restitle">{{.Title}}</span></span>
   {{if .Severity}}<span class="tag sev-{{.Severity}}">{{.Severity}}</span>{{else}}<span class="tag status-{{.Shown}}">{{statusLabel .Shown}}</span>{{end}}
 </a>

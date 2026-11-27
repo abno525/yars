@@ -13,7 +13,7 @@
       <span class="chips">{{with .Author}}<span class="rev author" title="{{.}}"><span class="name">{{.}}</span></span>{{else}}<span class="none">—</span>{{end}}</span>
       {{- else}}
       <span class="rl">Reviewers</span>
-      <span class="chips">{{range .Chips}}<span class="rev{{if .Cleared}} cleared{{end}}" title="{{.Name}}"><span class="name">{{.Name}}</span></span>{{else}}<span class="none">None</span>{{end}}</span>
+      <span class="chips">{{range .Chips}}<span class="rev{{if .Cleared}} cleared{{end}}" title="{{.Name}}"><span class="name">{{.Name}}</span>{{if .Cleared}}<span class="sr"> (signed off)</span>{{end}}</span>{{else}}<span class="none">None</span>{{end}}</span>
       {{if .More}}
       <details class="pop">
         <summary class="btn more" aria-label="All reviewers">+{{.More}}</summary>

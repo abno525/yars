@@ -755,8 +755,15 @@ function yarsGotoMove(step) {
   if (!rows.length) return;
   var i = rows.findIndex(function (r) { return r.classList.contains('sel'); });
   var next = Math.min(rows.length - 1, Math.max(0, i + step));
-  rows.forEach(function (r, k) { r.classList.toggle('sel', k === next); r.setAttribute('aria-selected', k === next ? 'true' : 'false'); });
+  yarsGotoSel(rows[next]);
   rows[next].scrollIntoView({block: 'nearest'});
+}
+// yarsGotoSel selects the row to of Go to's list: the class the page shows
+// and aria-selected (the rows are options of a listbox) change together.
+function yarsGotoSel(to) {
+  document.querySelectorAll('#goto-results .res').forEach(function (r) {
+    r.classList.toggle('sel', r === to); r.setAttribute('aria-selected', r === to ? 'true' : 'false');
+  });
 }
 // yarsLetter is the key a shortcut is matched by: evt.key, so every Latin
 // layout keeps its own letters (Dvorak, AZERTY). On a layout without Latin
@@ -800,9 +807,7 @@ document.addEventListener('click', function (evt) {
 });
 document.addEventListener('mousemove', function (evt) {
   var r = evt.target.closest && evt.target.closest('#goto-results .res');
-  if (!r || r.classList.contains('sel')) return;
-  document.querySelectorAll('#goto-results .res.sel').forEach(function (x) { x.classList.remove('sel'); });
-  r.classList.add('sel');
+  if (r && !r.classList.contains('sel')) yarsGotoSel(r);
 });
 document.addEventListener('close', function (evt) {
   if (evt.target && evt.target.id === 'goto') {

@@ -121,4 +121,5 @@ What changed for people who run or use YARS. Newest first.
 - Shift+L hides or shows the chat on the finding page (before: Ctrl+H, which kept the browser's History from opening there and was taken from the chat box too). Ctrl+H is the browser's own again.
 - A double click on a button sends its form once: New finding's Create made two findings, a switch on Admin › Users flipped back, Add user lost the temporary password. The buttons of a sent form are grey for 3 seconds. A double click on Send or Reply in the chat posts one message.
 - Copy works on a plain `http` address that is not `localhost` (before: the button did nothing there). When the browser refuses, the toast says "Copy failed" and the text is selected.
+- A screen reader hears a reviewer's sign-off on the finding page ("bob (signed off)"; before: the chip's colour alone said it), and Go to's rows are options of its list, the selected one marked.
 - The title of a new finding takes 200 characters and a Return, Withdraw or Revert reason 4,000, as the server allows.
