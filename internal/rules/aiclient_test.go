@@ -2,16 +2,20 @@ package rules
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/abno525/yars/internal/config"
 	"github.com/abno525/yars/internal/logs"
 )
 
@@ -171,6 +175,169 @@ func TestAIRetriesFixAndTest(t *testing.T) {
 	r = aiRunner(t, "openai", f.server(t).URL)
 	if body, err := r.Fix(context.Background(), Violation{Rule: "acr"}, "rule", "Description", "old"); err != nil || body != "fixed" || f.hits.Load() != 2 {
 		t.Fatalf("Fix: %q %v, %d requests", body, err, f.hits.Load())
+	}
+}
+
+// pickyAI is an OpenAI-compatible provider that answers 400 to a request
+// with any of the keys in refuses, and reply to any other. It keeps the
+// keys of each request.
+type pickyAI struct {
+	refuses []string
+	reply   string
+	mu      sync.Mutex
+	asked   []map[string]any
+}
+
+func (p *pickyAI) server(t *testing.T) *httptest.Server {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req map[string]any
+		json.NewDecoder(r.Body).Decode(&req)
+		p.mu.Lock()
+		p.asked = append(p.asked, req)
+		p.mu.Unlock()
+		for _, k := range p.refuses {
+			if _, has := req[k]; has {
+				w.WriteHeader(400)
+				io.WriteString(w, `{"error":{"message":"zqbody7f3kq: unsupported parameter `+k+`"}}`)
+				return
+			}
+		}
+		io.WriteString(w, p.reply)
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func (p *pickyAI) hits() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return len(p.asked)
+}
+
+// A model that refuses temperature or response_format (status 400) is asked
+// once more without both, and the check ends with its answer. The plain form
+// is remembered for that address and model: the next question is one
+// request. The refused try is a warn line without the answer's text.
+func TestOpenAIPlainRequestAfter400(t *testing.T) {
+	for _, refuses := range [][]string{{"temperature"}, {"response_format"}, {"temperature", "response_format"}} {
+		p := &pickyAI{refuses: refuses, reply: hitReply("openai")}
+		srv := p.server(t)
+		lg, logged := logs.NewRecorder()
+		r := aiRunner(t, "openai", srv.URL)
+		r.Logger = lg
+		vs := r.AI(context.Background(), acr, "title", "XSS here")
+		if len(vs) != 1 || vs[0].Quote != "XSS" {
+			t.Fatalf("%v: got %+v", refuses, vs)
+		}
+		if p.hits() != 2 {
+			t.Fatalf("%v: %d requests", refuses, p.hits())
+		}
+		first, second := p.asked[0], p.asked[1]
+		if first["temperature"] == nil || first["response_format"] == nil || len(second) != 2 || second["model"] != "m1" || second["messages"] == nil {
+			t.Fatalf("%v: asked %v then %v", refuses, first, second)
+		}
+		again := logged.With(retryLine)
+		if len(again) != 1 || again[0].Str("status") != "400" || again[0].Str("attempt") != "1" || again[0].Str("host") != strings.TrimPrefix(srv.URL, "http://") ||
+			len(logged.With("ai call finished")) != 1 || len(logged.Records()) != 2 || strings.Contains(logged.Text(), "zq") {
+			t.Fatalf("%v: log:\n%s", refuses, logged.Text())
+		}
+		// the next question, the Test button and a fix are one request each
+		if vs := r.AI(context.Background(), acr, "title", "XSS there"); len(vs) != 1 || p.hits() != 3 || len(p.asked[2]) != 2 {
+			t.Fatalf("%v: second question: %+v, %d requests", refuses, vs, p.hits())
+		}
+		if _, err := r.Ping(context.Background()); err != nil || p.hits() != 4 {
+			t.Fatalf("%v: Test: %v, %d requests", refuses, err, p.hits())
+		}
+		// another model on the same address is asked in the full form first
+		r.SetAIConf(config.AIConfig{Provider: "openai", BaseURL: srv.URL, Model: "m2", APIKeyEnv: "TEST_KEY"})
+		if vs := r.AI(context.Background(), acr, "title", "XSS here"); len(vs) != 1 || p.hits() != 6 || p.asked[4]["temperature"] == nil {
+			t.Fatalf("%v: another model: %+v, %d requests", refuses, vs, p.hits())
+		}
+	}
+	// the Test button and a fix fall back too
+	p := &pickyAI{refuses: []string{"temperature"}, reply: aiContent("openai", `{"violations":[]}`)}
+	if _, err := aiRunner(t, "openai", p.server(t).URL).Ping(context.Background()); err != nil || p.hits() != 2 {
+		t.Fatalf("Test: %v, %d requests", err, p.hits())
+	}
+	p = &pickyAI{refuses: []string{"response_format"}, reply: aiContent("openai", `{"body":"fixed"}`)}
+	if body, err := aiRunner(t, "openai", p.server(t).URL).Fix(context.Background(), Violation{Rule: "acr"}, "rule", "Description", "old"); err != nil || body != "fixed" || p.hits() != 2 {
+		t.Fatalf("Fix: %q %v, %d requests", body, err, p.hits())
+	}
+}
+
+// The fallback is not one of the tries of a 429: a model that refuses
+// temperature and then says "too many requests" twice is asked four times,
+// the full form once.
+func TestOpenAIPlainRequestThenRetries(t *testing.T) {
+	var n atomic.Int32
+	var full atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req map[string]any
+		json.NewDecoder(r.Body).Decode(&req)
+		switch k := n.Add(1); {
+		case req["temperature"] != nil:
+			full.Add(1)
+			w.WriteHeader(400)
+		case k <= 3:
+			w.WriteHeader(429)
+		default:
+			io.WriteString(w, hitReply("openai"))
+		}
+	}))
+	defer srv.Close()
+	r := aiRunner(t, "openai", srv.URL)
+	if vs := r.AI(context.Background(), acr, "title", "XSS here"); len(vs) != 1 || vs[0].Quote != "XSS" || n.Load() != 4 || full.Load() != 1 {
+		t.Fatalf("got %+v after %d requests, %d in the full form", vs, n.Load(), full.Load())
+	}
+}
+
+// A provider that answers 400 to the plain form too is the failure, after
+// two requests and no more; the plain form is not remembered.
+func TestOpenAI400Twice(t *testing.T) {
+	f := &fakeAI{status: 400, body: func(map[string]any) string { return "zqbody7f3kq" }}
+	r := aiRunner(t, "openai", f.server(t).URL)
+	var waits atomic.Int32
+	r.wait = func(context.Context, time.Duration) error { waits.Add(1); return nil }
+	for i := range 2 {
+		vs := r.AI(context.Background(), acr, "title", "x")
+		if len(vs) != 1 || vs[0].Message != "AI check failed: HTTP 400" || int(f.hits.Load()) != 2*(i+1) || waits.Load() != 0 {
+			t.Fatalf("call %d: %+v, %d requests, %d waits", i, vs, f.hits.Load(), waits.Load())
+		}
+	}
+}
+
+// An OpenAI answer cut at the model's limit, or withheld by the provider's
+// filter, is a failed check and is not kept, even when its start reads as a
+// whole reply. An answer that names no reason, or "stop", is read.
+func TestOpenAIFinishReason(t *testing.T) {
+	reply := func(reason string) string {
+		choice := map[string]any{"message": map[string]string{"content": `{"violations":[]} and then`}}
+		if reason != "" {
+			choice["finish_reason"] = reason
+		}
+		b, _ := json.Marshal(map[string]any{"choices": []any{choice}})
+		return string(b)
+	}
+	for reason, want := range map[string]string{
+		"length":         "AI check failed: the reply was cut off",
+		"content_filter": "AI check failed: the provider's filter withheld the reply",
+		"":               "",
+		"stop":           "",
+	} {
+		f := &fakeAI{body: func(map[string]any) string { return reply(reason) }}
+		r := aiRunner(t, "openai", f.server(t).URL)
+		for range 2 {
+			vs := r.AI(context.Background(), acr, "title", "x")
+			if want == "" && len(vs) != 0 || want != "" && (len(vs) != 1 || vs[0].Target != "ai" || vs[0].Message != want) {
+				t.Fatalf("%q: got %+v", reason, vs)
+			}
+		}
+		if hits := f.hits.Load(); want == "" && hits != 1 || want != "" && hits != 2 {
+			t.Errorf("%q: %d requests", reason, hits)
+		}
+		if _, err := r.Ping(context.Background()); (err == nil) != (want == "") {
+			t.Errorf("%q: Test: %v", reason, err)
+		}
 	}
 }
 

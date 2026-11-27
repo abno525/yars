@@ -51,6 +51,7 @@ type Runner struct {
 	cache     *lru.Cache[string, aiResult]    // AI replies by prompt, provider, model, rule and text
 	scripts   *lru.Cache[string, []Violation] // script results by rules, rule and input
 	aiMu      sync.RWMutex                    // guards AIConf once SetAIConf replaces it
+	plain     sync.Map                        // OpenAI addresses and models asked without temperature and response_format (openai)
 }
 
 func (rn *Runner) log() *slog.Logger { return logs.Or(rn.Logger) }

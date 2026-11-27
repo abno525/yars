@@ -174,7 +174,7 @@ func (rn *Runner) ask(ctx context.Context, c config.AIConfig, key, system, user,
 		if c.Provider == "anthropic" {
 			content, in, out, err = rn.anthropic(ctx, c, key, system, user, maxTokens)
 		} else {
-			content, in, out, err = rn.openai(ctx, c, key, system, user)
+			content, in, out, err = rn.openai(ctx, c, key, system, user, again)
 		}
 		var ref *refused
 		if n >= aiRetries || !errors.As(err, &ref) || !retryStatus(ref.status) {
@@ -501,39 +501,74 @@ type refused struct {
 
 func (e *refused) Error() string { return fmt.Sprintf("HTTP %d", e.status) }
 
+// openaiReply is what is read of an OpenAI-compatible provider's answer.
+type openaiReply struct {
+	Choices []struct {
+		Message struct {
+			Content string `json:"content"`
+		} `json:"message"`
+		FinishReason string `json:"finish_reason"`
+	} `json:"choices"`
+	Usage struct {
+		Prompt     int `json:"prompt_tokens"`
+		Completion int `json:"completion_tokens"`
+	} `json:"usage"`
+}
+
 // openai asks an OpenAI-compatible provider; in and out are the tokens it
-// reported (usage.prompt_tokens, usage.completion_tokens).
-func (rn *Runner) openai(ctx context.Context, c config.AIConfig, key, system, user string) (content string, in, out int, err error) {
+// reported (usage.prompt_tokens, usage.completion_tokens). The request sets
+// temperature 0 and a JSON response_format. Some models and servers refuse
+// one of them with status 400: the question is then asked once more without
+// both (again is told of the refused try), and when the provider takes that
+// the plain form is what this address and model get from then on, until a
+// restart. A 400 for the plain form is the answer. A reply cut at the model's limit or
+// withheld by the provider's filter is an error: its text is not read.
+func (rn *Runner) openai(ctx context.Context, c config.AIConfig, key, system, user string, again func(*refused)) (content string, in, out int, err error) {
 	base := strings.TrimRight(c.BaseURL, "/")
 	if base == "" {
 		base = "https://api.openai.com/v1"
 	}
 	body := map[string]any{
-		"model":           c.Model,
-		"temperature":     0,
-		"response_format": map[string]string{"type": "json_object"},
+		"model": c.Model,
 		"messages": []map[string]string{
 			{"role": "system", "content": system},
 			{"role": "user", "content": user},
 		},
 	}
-	var reply struct {
-		Choices []struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-		} `json:"choices"`
-		Usage struct {
-			Prompt     int `json:"prompt_tokens"`
-			Completion int `json:"completion_tokens"`
-		} `json:"usage"`
+	form := base + "\x00" + c.Model
+	_, plain := rn.plain.Load(form)
+	if !plain {
+		body["temperature"] = 0
+		body["response_format"] = map[string]string{"type": "json_object"}
 	}
-	if err := rn.post(ctx, base+"/chat/completions", body, map[string]string{"Authorization": "Bearer " + key}, &reply); err != nil {
+	hdr := map[string]string{"Authorization": "Bearer " + key}
+	var reply openaiReply
+	err = rn.post(ctx, base+"/chat/completions", body, hdr, &reply)
+	var ref *refused
+	if !plain && errors.As(err, &ref) && ref.status == http.StatusBadRequest {
+		again(ref)
+		delete(body, "temperature")
+		delete(body, "response_format")
+		reply = openaiReply{}
+		err = rn.post(ctx, base+"/chat/completions", body, hdr, &reply)
+		// the plain form is kept when the provider took it: an answer, or
+		// a refusal that is not about the request (a 429 is tried again)
+		if ref = nil; err == nil || errors.As(err, &ref) && ref.status != http.StatusBadRequest {
+			rn.plain.Store(form, true)
+		}
+	}
+	if err != nil {
 		return "", 0, 0, err
 	}
 	in, out = reply.Usage.Prompt, reply.Usage.Completion
 	if len(reply.Choices) == 0 {
 		return "", in, out, errors.New("empty reply")
+	}
+	switch reply.Choices[0].FinishReason {
+	case "length":
+		return "", in, out, errors.New("the reply was cut off")
+	case "content_filter":
+		return "", in, out, errors.New("the provider's filter withheld the reply")
 	}
 	return reply.Choices[0].Message.Content, in, out, nil
 }

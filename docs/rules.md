@@ -209,6 +209,7 @@ A model can still be talked into passing a text. Keep AI rules at `level: warnin
 | Time per question | 60 s, its tries included · 90 s for one check's scripts and AI questions together |
 | Tries per question | 3 · the wait is 1 s, then 2 s, or what the provider's `Retry-After` asks, up to 10 s |
 | Redirects | followed on the provider's own address only |
-| Reply | 4,096 tokens (Anthropic) |
+| Reply | 4,096 tokens (Anthropic) · a reply cut at the model's limit is a failed check |
+| OpenAI-compatible request | `temperature: 0` and a JSON `response_format` · a model that answers 400 is asked once more without both, and from then on without them until a restart |
 | Quote, message | as script rules |
 | Stored results | 2,000 in memory per kind · 50,000 in the database, script and AI together; the oldest go first · deleted after the check run days |
