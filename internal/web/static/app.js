@@ -984,7 +984,7 @@ document.addEventListener('submit', function (evt) {
 // list page keeps that query for this tab, account and engagement
 // (sessionStorage "yars-list:<user>:<engagement>"), and the links that lead
 // back to the list (data-list: the crumb, Findings in the top bar, the
-// Findings tab) get it on every other page. On the list itself they stay
+// Findings tab, Cancel of a new finding or retest) get it on every other page. On the list itself they stay
 // bare: a click there is the way to the whole list. Log out forgets them.
 function yarsListKey(eng) { return 'yars-list:' + yarsUser() + ':' + eng; }
 // yarsOnList: the engagement whose findings list this page is, else ''.

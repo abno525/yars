@@ -23,6 +23,17 @@ func TestListLinksAreMarked(t *testing.T) {
 			t.Errorf("%s: the Findings link is not marked:\n%s", p, between(b, `<nav class="nav">`, "</nav>"))
 		}
 	}
+	// Cancel on New finding and New retest leads back to the list too: bare,
+	// it would land on the whole list, and the list would then be kept so
+	for p, user := range map[string]string{"/e/acme/findings/new": "alice", "/e/acme/retest/new": "dora"} {
+		b := e.do(t, user, "GET", p, nil, nil).Body.String()
+		if !strings.Contains(b, `<a class="btn secondary w128" href="/e/acme" data-list="acme">Cancel</a>`) {
+			t.Errorf("%s: Cancel is not marked:\n%s", p, between(b, `<div class="actions`, "</div>"))
+		}
+		if strings.Contains(b, `href="/e/acme">`) {
+			t.Errorf("%s: a link to the list is not marked", p)
+		}
+	}
 	// the Findings tab of the other tabs; no other tab is marked
 	for _, p := range []string{"/e/acme/overview", "/e/acme/report", "/e/acme/settings", "/e/acme"} {
 		tabs := between(e.do(t, "dora", "GET", p, nil, nil).Body.String(), `<nav class="etabs"`, "</nav>")

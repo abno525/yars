@@ -22,7 +22,7 @@ func TestNewRetestLayout(t *testing.T) {
 	// finding (56 px a row, no cap); New finding's bottom row sits under a
 	// preview of fixed height, so it never moves, and these do not either.
 	head := between(b, `<div class="titlerow">`, `<div class="errslot">`)
-	if !strings.Contains(head, `<div class="actions"><a class="btn secondary w128" href="/e/acme">Cancel</a><button class="btn primary w128">Create retest</button></div>`) {
+	if !strings.Contains(head, `<div class="actions"><a class="btn secondary w128" href="/e/acme" data-list="acme">Cancel</a><button class="btn primary w128">Create retest</button></div>`) {
 		t.Fatalf("title row:\n%s", head)
 	}
 	if strings.Count(b, ">Create retest<") != 1 || strings.Count(b, ">Cancel</a>") != 1 {
