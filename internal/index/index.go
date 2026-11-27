@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/abno525/yars/internal/chat"
+	"github.com/abno525/yars/internal/config"
 	"github.com/abno525/yars/internal/cvss"
 	"github.com/abno525/yars/internal/finding"
 	"github.com/abno525/yars/internal/gitrepo"
@@ -269,7 +270,7 @@ type Index struct {
 	// engs is replaced, never written in place, once published
 	engs map[string]*engRows
 	list []store.Engagement // engagements in order
-	gen  uint64             // moves whenever the table changes
+	gen  uint64             // moves whenever the table or the configuration changes
 
 	flight flight
 	hintMu sync.Mutex
@@ -288,6 +289,13 @@ type Index struct {
 func New(s *store.Store, r *gitrepo.Repo) *Index {
 	ix := &Index{store: s, repo: r, engs: map[string]*engRows{}}
 	s.OnChange(ix.apply)
+	// what is cached per generation (Summary, the pages' caches on Gen) is
+	// built with the configuration too: each one applied moves the table on
+	s.OnConfig(func(config.Config) {
+		ix.mu.Lock()
+		ix.gen++
+		ix.mu.Unlock()
+	})
 	return ix
 }
 
