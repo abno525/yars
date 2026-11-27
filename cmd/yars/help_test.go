@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -126,6 +127,65 @@ func TestCommandHelpFlag(t *testing.T) {
 		}
 	}
 	unchanged()
+}
+
+// Every command of the dispatch answers -h and --help with exit 0 and no
+// "yars:" line, the commands without flags of their own too, and writes
+// nothing. Those print their usage line on stdout.
+func TestEveryCommandHelpFlag(t *testing.T) {
+	unchanged := nowhere(t)
+	lines := []string{"token add", "token list", "token revoke", "hook install"}
+	for _, name := range commandNames {
+		if name != "help" {
+			lines = append(lines, name)
+		}
+	}
+	usage := map[string]string{
+		"use":     "usage: yars use [<dir>]\n",
+		"version": "usage: yars version\n",
+		"hook":    hookUsage + "\n",
+	}
+	for _, line := range lines {
+		for _, h := range []string{"-h", "--help"} {
+			var out, errOut bytes.Buffer
+			code := run(append(strings.Fields(line), h), strings.NewReader(""), &out, &errOut)
+			if code != 0 || strings.Contains(out.String()+errOut.String(), "help requested") || strings.Contains(errOut.String(), "yars:") {
+				t.Errorf("yars %s %s: exit %d, stdout %q, stderr %q", line, h, code, out.String(), errOut.String())
+			}
+			if want, ok := usage[line]; ok && (out.String() != want || errOut.Len() != 0) {
+				t.Errorf("yars %s %s: stdout %q, stderr %q, want %q on stdout", line, h, out.String(), errOut.String(), want)
+			}
+			if line == "token" && !strings.HasPrefix(out.String(), tokenUsage+"\n") {
+				t.Errorf("yars token %s: stdout %q", h, out.String())
+			}
+		}
+	}
+	unchanged()
+}
+
+// yars token -h, and a token command yars does not know, are answered before
+// the data folder is opened: no database is made there.
+func TestTokenHelpMakesNoDatabase(t *testing.T) {
+	keepUmask(t)
+	dir := t.TempDir()
+	if err := initData(dir); err != nil {
+		t.Fatal(err)
+	}
+	old, _ := filepath.Glob(db.Path(dir) + "*")
+	for _, p := range old {
+		if err := os.Remove(p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for arg, want := range map[string]int{"-h": 0, "--help": 0, "nope": 2} {
+		var out, errOut bytes.Buffer
+		if code := run([]string{"token", arg, "--data", dir}, strings.NewReader(""), &out, &errOut); code != want {
+			t.Errorf("yars token %s: exit %d, want %d\n%s%s", arg, code, want, out.String(), errOut.String())
+		}
+		if made, _ := filepath.Glob(db.Path(dir) + "*"); len(made) != 0 {
+			t.Fatalf("yars token %s made %v", arg, made)
+		}
+	}
 }
 
 // No command of the dispatch is answered as an unknown one. Each is run

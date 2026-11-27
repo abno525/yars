@@ -467,10 +467,23 @@ func mcpServer(st *store.Store, ix *index.Index, eng *rules.Engine, cfg config.C
 	return &mcp.Server{Store: st, Index: ix, Rules: eng, Cfg: cfg, Users: users, Version: buildVersion()}
 }
 
+// The usage lines of the commands that answer -h without a flag set.
+const (
+	tokenUsage   = "usage: yars token add|list|revoke --data <dir> [<user>]"
+	hookUsage    = "usage: yars hook pre-receive --data <dir> | yars hook install [--data <clone>]"
+	useUsage     = "usage: yars use [<dir>]"
+	versionUsage = "usage: yars version"
+)
+
 // cmdToken manages MCP API tokens: yars token add|list|revoke --data <dir> [<user>]
 func cmdToken(args []string, out io.Writer) (int, error) {
 	if len(args) == 0 {
-		return 2, fmt.Errorf("usage: yars token add|list|revoke --data <dir> [<user>]")
+		return 2, errors.New(tokenUsage)
+	}
+	switch args[0] {
+	case "add", "list", "revoke":
+	default: // before the data folder is opened: a typo makes no database
+		return 2, fmt.Errorf("unknown token command %q", args[0])
 	}
 	fs := flag.NewFlagSet("token", flag.ContinueOnError)
 	data := dataFlag(fs)
@@ -697,7 +710,7 @@ func objectID(s string) bool {
 // "yars: <problem>" line per rejection reason. Exit 1 rejects the push.
 func cmdHook(args []string, in io.Reader, errOut io.Writer) int {
 	if len(args) == 0 || args[0] != "pre-receive" {
-		fmt.Fprintln(errOut, "yars: usage: yars hook pre-receive --data <dir> | yars hook install [--data <clone>]")
+		fmt.Fprintln(errOut, "yars: "+hookUsage)
 		return 2
 	}
 	fs := flag.NewFlagSet("hook", flag.ContinueOnError)
@@ -1045,6 +1058,14 @@ func run(args []string, in io.Reader, out, errOut io.Writer) int {
 		privateUmask()
 	}
 	name, rest := args[0], args[1:]
+	// the commands that read no flags of their own answer -h here, before
+	// anything is opened
+	if len(rest) > 0 && (rest[0] == "-h" || rest[0] == "--help" || rest[0] == "-help") {
+		if u, ok := map[string]string{"use": useUsage, "version": versionUsage, "hook": hookUsage, "token": tokenUsage}[name]; ok {
+			fmt.Fprintln(out, u)
+			return 0
+		}
+	}
 	var err error
 	code := -1 // the command's own exit code; none: 1 when it failed
 	switch name {
