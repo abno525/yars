@@ -809,7 +809,9 @@ func (p pushRunner) AI(_ context.Context, r rules.Rule, _, _ string) []rules.Vio
 
 // cmdLint checks findings against the style rules. Exit code 1 when any
 // error-level violation is found. With --staged it asks the clone's server
-// to check the findings staged for a commit instead (the pre-commit hook).
+// to check the findings staged for a commit instead (the pre-commit hook);
+// the exit code is then notChecked (3) when the server could not be asked,
+// and always 0 with --warn-only.
 func cmdLint(args []string, out io.Writer) (int, error) {
 	fs := flag.NewFlagSet("lint", flag.ContinueOnError)
 	data := dataFlag(fs)
@@ -836,7 +838,7 @@ func cmdLint(args []string, out io.Writer) (int, error) {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), lintTimeout)
 		defer cancel()
-		errs, _, err := lintStaged(ctx, dir, out, *warnOnly)
+		errs, _, checked, err := lintStagedChecked(ctx, dir, out, *warnOnly)
 		switch {
 		case *warnOnly:
 			if err != nil {
@@ -845,6 +847,8 @@ func cmdLint(args []string, out io.Writer) (int, error) {
 			return 0, nil
 		case err != nil:
 			return 2, err
+		case !checked:
+			return notChecked, nil
 		case errs > 0:
 			return 1, nil
 		}
@@ -869,6 +873,20 @@ func cmdLint(args []string, out io.Writer) (int, error) {
 	st.Logger = termLogger()
 	eng := rules.NewEngine(rules.DirFor(r.Dir), cfg)
 	eng.SetLogger(st.Logger)
+	if rn, ok := eng.Runner.(*rules.Runner); ok && d != nil {
+		// on the data folder the AI rules use what Admin › AI saved, as the
+		// server does (a clone has no database: config.yaml alone). The key
+		// is read with the folder's key file only when there is one: this
+		// command makes none.
+		rn.Stored = func() (config.AIConfig, string) {
+			return d.AIStored(func() (*secret.Box, error) {
+				if _, err := os.Stat(secret.KeyPath(r.Dir)); err != nil {
+					return nil, err
+				}
+				return secret.Open(r.Dir)
+			})
+		}
+	}
 	kinds := rules.Fast
 	if *all {
 		kinds = rules.All
@@ -910,9 +928,21 @@ func cmdLint(args []string, out io.Writer) (int, error) {
 		}
 		for _, ref := range refs {
 			checked++
+			// what was dismissed on the finding page is left out, as in the
+			// server's answer to the pre-commit check (a clone has no
+			// database and no dismissals)
+			var dismissed map[string]db.Dismissal
+			if d != nil {
+				if dismissed, err = st.Dismissals(e.ID, ref.F.Meta.ID); err != nil {
+					return 2, err
+				}
+			}
 			for _, v := range eng.Lint(context.Background(), ref.F, kinds) {
 				if v.Target == "rules" && slices.Contains(problems, v) {
 					continue // printed once above
+				}
+				if _, ok := db.Lookup(dismissed, v.Rule, v.Target, v.Quote); ok {
+					continue
 				}
 				line := fmt.Sprintf("%s/%s %s %s: %s", e.ID, ref.F.Meta.ID, v.Level, v.Rule, v.Message)
 				if v.Quote != "" {
@@ -953,7 +983,7 @@ func usage() {
   yars backup --data <dir> [--key] --out <file.zip>
   yars restore --from <file.zip> --data <new dir>
   yars lint --data <dir> [--all] [eng[/finding]]
-  yars lint --staged [--warn-only] [--data <engagement clone>]   (the server checks what is being committed)
+  yars lint --staged [--warn-only] [--data <engagement clone>]   (the server checks what is being committed; exit 1: errors, 3: not checked)
   yars hook install [--data <clone>]   (a pre-commit hook in every engagement of the clone)
   yars export --data <dir> --exporter <id> [--out <file>] [--force] <eng> [<finding>…]   (--force: replace the file)
   yars mcp --data <clone> --user <name>

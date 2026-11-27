@@ -152,4 +152,4 @@ Signed in with a token, the check runs script and AI rules only when the token h
 | `<hook>: a pre-commit hook exists already; add this line to it: …` | At install: a hook you wrote is kept; add the line yourself |
 | `<engagement>: core.hooksPath is set (…); add this line to its pre-commit hook: …` | At install: your hooks live elsewhere; add the line there |
 
-The hook never blocks a commit: the push is checked again by the server (see above). `yars lint --staged` runs the same check by hand, and without `--warn-only` exits 1 when there are errors.
+The hook never blocks a commit: the push is checked again by the server (see above). `yars lint --staged` runs the same check by hand. Without `--warn-only` it exits 1 when there are errors and 3 when the server could not be asked ("nothing checked", no saved login); 0 means checked and clean.

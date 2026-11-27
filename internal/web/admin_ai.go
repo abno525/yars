@@ -37,10 +37,10 @@ type aiTestResult struct {
 
 // AI settings keys (server_settings).
 const (
-	aiProviderKey = "ai.provider"
-	aiBaseKey     = "ai.base_url"
-	aiModelKey    = "ai.model"
-	aiKeyKey      = "ai.key" // encrypted
+	aiProviderKey = db.AIProviderKey
+	aiBaseKey     = db.AIBaseKey
+	aiModelKey    = db.AIModelKey
+	aiKeyKey      = db.AIKeyKey // encrypted
 )
 
 var aiProviders = []option{{Value: "openai", Label: "OpenAI-compatible"}, {Value: "anthropic", Label: "Anthropic"}, {Value: rules.ProviderOff, Label: "Off"}}
@@ -84,18 +84,7 @@ func (s *Server) wireAI() {
 
 // aiStored reads the admin page's AI settings and decrypts the key.
 func (s *Server) aiStored() (config.AIConfig, string) {
-	all, err := s.Store.DB().Settings("ai.")
-	if err != nil {
-		return config.AIConfig{}, ""
-	}
-	c := config.AIConfig{Provider: all[aiProviderKey], BaseURL: all[aiBaseKey], Model: all[aiModelKey]}
-	key := ""
-	if enc := all[aiKeyKey]; enc != "" {
-		if box, err := s.secrets(); err == nil {
-			key, _ = box.Decrypt(enc)
-		}
-	}
-	return c, key
+	return s.Store.DB().AIStored(s.secrets)
 }
 
 func (s *Server) aiPage(w http.ResponseWriter, r *http.Request, status int, errMsg string) {

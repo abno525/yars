@@ -15,7 +15,7 @@ What YARS does not do, or does in a way that can surprise. Each row states today
 | A rules file restored with its old size and time (`cp -p`, `rsync -t`) more than 2 s after an earlier change is not seen as a change | The engine's reload, the stored script results and a check run's "+changed" go by size and time (and by content within 2 s of a write). A plain copy or a git checkout sets a new time. |
 | A run that started right after a rules save may be marked "+changed" once when nothing changed | Only when a file was written within 2 s of its start and changed again during it. Check again clears it. |
 | A built-in check's configured message near the 4,000-character cut loses its detail | None of the built-in messages is that long; the whole message shows on hover. |
-| The pre-commit hook lets a commit through, "nothing checked", when it cannot reach the server | The hook never blocks a commit; the server checks the push anyway. |
+| The pre-commit hook lets a commit through, "nothing checked", when it cannot reach the server | The hook never blocks a commit; the server checks the push anyway. `yars lint --staged` by hand, without `--warn-only`, exits 3 then. |
 
 ## Review
 

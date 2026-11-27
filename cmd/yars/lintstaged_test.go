@@ -276,17 +276,56 @@ func TestLintStagedSendsBasicAuth(t *testing.T) {
 	}
 }
 
-// Review focus 2: a server that is down never blocks a commit.
+// Review focus 2: a server that is down never blocks a commit: with
+// --warn-only, as the hook runs it, the exit code is 0. Without it the code
+// is 3, "not checked": neither clean (0) nor errors found (1).
 func TestLintStagedServerDown(t *testing.T) {
 	ls := newLintServer(t, 200, `{"violations":[]}`)
 	origin := withLogin(t, ls.URL, "alice", "pw") + "/git/e/acme"
 	ls.Close()
 	dir := lintClone(t, origin)
-	var out bytes.Buffer
-	code, err := cmdLint([]string{"--staged", "--data", dir}, &out)
 	host := strings.TrimPrefix(ls.URL, "http://")
-	if err != nil || code != 0 || !strings.HasPrefix(out.String(), "yars: could not ask "+host+": ") || !strings.HasSuffix(out.String(), "; nothing checked\n") || strings.Count(out.String(), "\n") != 1 {
-		t.Fatalf("exit %d %v:\n%s", code, err, out.String())
+	for args, want := range map[string]int{"": notChecked, "--warn-only": 0} {
+		var out bytes.Buffer
+		code, err := cmdLint(append(strings.Fields("--staged "+args), "--data", dir), &out)
+		if err != nil || code != want || !strings.HasPrefix(out.String(), "yars: could not ask "+host+": ") || !strings.HasSuffix(out.String(), "; nothing checked\n") || strings.Count(out.String(), "\n") != 1 {
+			t.Fatalf("%q: exit %d %v:\n%s", args, code, err, out.String())
+		}
+	}
+}
+
+// Every way of not asking the server is "not checked" (3) without
+// --warn-only and 0 with it; a commit with no finding staged is clean (0).
+func TestLintStagedNotCheckedExitCode(t *testing.T) {
+	noUserGit(t)
+	refused := newLintServer(t, 401, "authentication required\n")
+	ok := newLintServer(t, 200, `{"violations":[]}`)
+	failing := newLintServer(t, 500, "boom\n")
+	for name, c := range map[string]struct{ origin, says string }{
+		"not an engagement": {withLogin(t, ok.URL, "alice", "pw") + "/git/yars", "nothing checked"},
+		"no saved login":    {ok.URL + "/git/e/acme", "no saved login"},
+		"login refused":     {withLogin(t, refused.URL, "alice", "wrong") + "/git/e/acme", "login refused"},
+		"server error":      {withLogin(t, failing.URL, "alice", "pw") + "/git/e/acme", "nothing checked"},
+	} {
+		dir := lintClone(t, c.origin)
+		for args, want := range map[string]int{"": notChecked, "--warn-only": 0} {
+			var out bytes.Buffer
+			code, err := cmdLint(append(strings.Fields("--staged "+args), "--data", dir), &out)
+			if err != nil || code != want || !strings.Contains(out.String(), c.says) {
+				t.Errorf("%s %q: exit %d %v:\n%s", name, args, code, err, out.String())
+			}
+		}
+	}
+	// a clean answer is 0, and so is a commit that stages no finding
+	dir := lintClone(t, withLogin(t, ok.URL, "alice", "pw")+"/git/e/acme")
+	var out bytes.Buffer
+	if code, err := cmdLint([]string{"--staged", "--data", dir}, &out); err != nil || code != 0 {
+		t.Fatalf("clean: exit %d %v:\n%s", code, err, out.String())
+	}
+	gitT(t, dir, "commit", "-q", "-m", "first")
+	out.Reset()
+	if code, err := cmdLint([]string{"--staged", "--data", dir}, &out); err != nil || code != 0 || out.Len() != 0 {
+		t.Fatalf("nothing staged: exit %d %v:\n%s", code, err, out.String())
 	}
 }
 
@@ -297,11 +336,13 @@ func TestLintStagedTimesOut(t *testing.T) {
 	old := lintTimeout
 	lintTimeout = 200 * time.Millisecond
 	defer func() { lintTimeout = old }()
-	var out bytes.Buffer
-	start := time.Now()
-	code, err := cmdLint([]string{"--staged", "--data", dir}, &out)
-	if took := time.Since(start); took > 2*time.Second || err != nil || code != 0 || !strings.Contains(out.String(), "could not ask") || !strings.Contains(out.String(), "nothing checked") {
-		t.Fatalf("took %v, exit %d %v:\n%s", took, code, err, out.String())
+	for args, want := range map[string]int{"": notChecked, "--warn-only": 0} {
+		var out bytes.Buffer
+		start := time.Now()
+		code, err := cmdLint(append(strings.Fields("--staged "+args), "--data", dir), &out)
+		if took := time.Since(start); took > 2*time.Second || err != nil || code != want || !strings.Contains(out.String(), "could not ask") || !strings.Contains(out.String(), "nothing checked") {
+			t.Fatalf("%q: took %v, exit %d %v:\n%s", args, took, code, err, out.String())
+		}
 	}
 }
 
@@ -390,13 +431,15 @@ func TestLintStagedSlowHelper(t *testing.T) {
 	old := lintTimeout
 	lintTimeout = 200 * time.Millisecond
 	defer func() { lintTimeout = old }()
-	var out bytes.Buffer
-	start := time.Now()
-	code, err := cmdLint([]string{"--staged", "--data", dir}, &out)
 	host := strings.TrimPrefix(ls.URL, "http://")
-	if took := time.Since(start); took > 3*time.Second || err != nil || code != 0 ||
-		out.String() != "yars: could not ask "+host+": no answer within 200ms; nothing checked\n" || len(ls.requests()) != 0 {
-		t.Fatalf("took %v, exit %d %v:\n%s", took, code, err, out.String())
+	for args, want := range map[string]int{"": notChecked, "--warn-only": 0} {
+		var out bytes.Buffer
+		start := time.Now()
+		code, err := cmdLint(append(strings.Fields("--staged "+args), "--data", dir), &out)
+		if took := time.Since(start); took > 3*time.Second || err != nil || code != want ||
+			out.String() != "yars: could not ask "+host+": no answer within 200ms; nothing checked\n" || len(ls.requests()) != 0 {
+			t.Fatalf("%q: took %v, exit %d %v:\n%s", args, took, code, err, out.String())
+		}
 	}
 }
 
