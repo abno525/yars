@@ -400,6 +400,70 @@ func TestMergeWithNewAssetKeepsApproval(t *testing.T) {
 	}
 }
 
+// A merge into a finding in verification drops its sign-offs: the reviewer
+// signed off other content. It stays in verification with its reviewers.
+// The three ways a merge changes the target are each pinned: a new asset
+// with an attachment, an attachment alone (finding.md keeps its bytes), and
+// text alone.
+func TestMergeIntoVerificationDropsSignOffs(t *testing.T) {
+	for _, c := range []struct {
+		name               string
+		asset, attach, txt bool
+	}{{"asset and attachment", true, true, false}, {"attachment only", false, true, false}, {"text only", false, false, true}} {
+		t.Run(c.name, func(t *testing.T) {
+			s, _, fd := ready(t)
+			if err := s.Transition(eng, fd, workflow.Submit, "", uAlice); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.Transition(eng, fd, workflow.Clear, "", uBob); err != nil {
+				t.Fatal(err)
+			}
+			if d, _ := s.Finding(eng, fd); d.F.Meta.Status != "verification" || !slices.Equal(d.F.Meta.ClearedBy, []string{"bob"}) {
+				t.Fatalf("before the merge: %q cleared by %v", d.F.Meta.Status, d.F.Meta.ClearedBy)
+			}
+			src, err := s.CreateFinding(eng, "Second", alice)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c.asset {
+				if err := s.UpdateAssets(eng, src.Dir, []finding.Asset{{Host: "new.example"}}, "", alice); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if c.attach {
+				if _, err := s.AddAttachment(eng, src.Dir, "proof.png", pngBytes(t, color.White), alice); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if c.txt {
+				if err := s.UpdateSection(eng, src.Dir, "Impact", "More impact.", "", alice); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := s.Merge(eng, src.Dir, fd, uDora); err != nil {
+				t.Fatal(err)
+			}
+			d, _ := s.Finding(eng, fd)
+			if d.F.Meta.Status != "verification" || !slices.Equal(d.F.Meta.Reviewers, []string{"bob"}) {
+				t.Fatalf("after the merge: %q reviewers %v", d.F.Meta.Status, d.F.Meta.Reviewers)
+			}
+			if len(d.F.Meta.ClearedBy) != 0 {
+				t.Fatalf("sign-offs kept: %v", d.F.Meta.ClearedBy)
+			}
+			if got := slices.ContainsFunc(d.F.Meta.Assets, func(a finding.Asset) bool { return a.Host == "new.example" }); got != c.asset {
+				t.Fatalf("assets %+v", d.F.Meta.Assets)
+			}
+			_, err = s.ReadAttachment(eng, fd, "attachments/proof.png")
+			if (err == nil) != c.attach {
+				t.Fatalf("attachment: %v", err)
+			}
+			if impact, _ := d.F.Section("Impact"); strings.Contains(impact, "More impact.") != c.txt {
+				t.Fatalf("impact %q", impact)
+			}
+		})
+	}
+}
+
 // A metadata edit's event names the finding's reviewers, as a text edit's.
 func TestMetaEditEventKeepsReviewers(t *testing.T) {
 	s, _, fd := ready(t)
