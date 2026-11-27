@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/abno525/yars/internal/auth"
@@ -176,6 +177,14 @@ func (s *Server) hiddenFor(r *http.Request, ref store.FindingRef) map[string]boo
 	return h
 }
 
+// liveSection reports whether a thread's section has a panel on the finding
+// page: "" (general) has none to miss; any other name must be one of names
+// (the file's sections, the configured ones and the panels a comment can
+// point at).
+func liveSection(names []string, section string) bool {
+	return section == "" || slices.Contains(names, section)
+}
+
 // chatFor builds the chat view; stamp is chatStamp read before msgs. Unless
 // all is set, only the newest threads holding chatTail messages are shown.
 // hidden are the threads the viewer hid.
@@ -195,6 +204,17 @@ func (s *Server) chatFor(ref store.FindingRef, msgs []chat.Message, stamp string
 		v.ListURL += "?" + e
 	}
 	v.Open, v.BySection = chat.OpenCount(msgs)
+	// a thread on a section that is gone from the file and is not configured
+	// (a push removed its heading, Admin › Structure its name) is a general
+	// one here: no panel has its anchor or shows its count. The stored
+	// message keeps its section, so the thread is back on its panel when the
+	// section is.
+	for name, n := range v.BySection {
+		if !liveSection(v.Sections, name) {
+			v.BySection[""] += n
+			delete(v.BySection, name)
+		}
+	}
 	items := chat.Timeline(msgs)
 	var threads []int // the threads' places in items
 	for i, it := range items {
@@ -230,6 +250,9 @@ func (s *Server) chatFor(ref store.FindingRef, msgs []chat.Message, stamp string
 		}
 		th := it.Thread
 		t := &chatThread{Root: s.chatMsg(th.Root), Resolved: th.Resolved, ResolvedBy: th.ResolvedBy}
+		if !liveSection(v.Sections, th.Root.Section) {
+			t.Root.Section, t.Root.Anchor = "", ""
+		}
 		if th.Resolved {
 			t.Hidden = hidden[th.Root.ID]
 			t.HideURL, t.ShowURL = base+"/"+th.Root.ID+"/hide", base+"/"+th.Root.ID+"/show"
