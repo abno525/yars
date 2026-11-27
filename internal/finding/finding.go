@@ -393,9 +393,15 @@ func encodeMeta(m *Meta) string {
 // Parse reads a finding file. It takes what editors write too: a UTF-8 byte
 // order mark (not written back), empty front matter, and a closing "---"
 // that ends the file without a newline.
+//
+// The front matter decides the line endings Bytes writes: CRLF when the
+// opening "---" line and every line up to and with the closing "---" end
+// with CRLF, LF otherwise (front matter with both counts as LF). The text is
+// read with LF either way, so a CRLF line in an LF file is written back with
+// LF.
 func Parse(b []byte) (*Finding, error) {
 	s := strings.TrimPrefix(string(b), "\xef\xbb\xbf")
-	f := &Finding{crlf: strings.Contains(s, "\r\n"), parsed: true}
+	f := &Finding{crlf: crlfMeta(s), parsed: true}
 	s = strings.ReplaceAll(s, "\r\n", "\n")
 	if !strings.HasPrefix(s, "---\n") {
 		return nil, errors.New("finding: missing front matter")
@@ -446,6 +452,27 @@ func Parse(b []byte) (*Finding, error) {
 	}
 	flush()
 	return f, nil
+}
+
+// crlfMeta reports whether the front matter of s is written with CRLF: its
+// opening "---" line and every line up to and with the closing "---" (which
+// may end the file without a line ending).
+func crlfMeta(s string) bool {
+	rest, ok := strings.CutPrefix(s, "---\r\n")
+	for ok && rest != "" {
+		line, after, found := strings.Cut(rest, "\n")
+		if !found {
+			return line == "---"
+		}
+		if !strings.HasSuffix(line, "\r") {
+			return false
+		}
+		if line == "---\r" {
+			return true
+		}
+		rest = after
+	}
+	return false
 }
 
 func (f *Finding) Bytes() []byte {
