@@ -46,6 +46,7 @@ What changed for people who run or use YARS. Newest first.
 - `yars token add` makes a token that expires after 90 days (before: never). `--days N` or `--expires YYYY-MM-DD` sets another end, `--expires never` or `--days 0` none. A past date is refused. The printed line names the expiry.
 - The service log of `yars serve` has a new form: every line is `time=… level=… msg=… key=value …` on stderr (before: free text). A filter on the old text must change. A failed login is now `msg="login failed" user=… remote=…` (git: `msg="git login failed"`), a lockout `msg="login locked"`, the setup code `setup_code=…`. What `git http-backend` and the web server itself report are lines of the same form.
 - `yars export`, `yars lint` and `yars mcp` write a finding or an engagement they skip to stderr in the same form.
+- A key in `.yars/config.yaml` that YARS does not know stops the start (before: ignored, so `base-url:` read as no address). It is refused on a push and on Admin › Structure too, with the key and its line. `smtp.port` must be 1 to 65535, `smtp.from` an address alone (no name in front) and `smtp.host` a host name alone (no scheme, no port). Check the file before the upgrade; to fix a server that does not start, correct the file in the data folder and commit it there ([docs/config.md](docs/config.md)).
 - `yars export` writes its file `0600` and does not replace a file that is there. `--force` replaces it. A device or a pipe named by `--out` (`/dev/stdout` into a pipe, a FIFO) is written into as before.
 
 ### Fixed
