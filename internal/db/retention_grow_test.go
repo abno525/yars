@@ -9,8 +9,9 @@ import (
 
 // Webhook deliveries (whole payloads) and notifications are pruned with the
 // check runs' days. What stays whatever its age: a delivery still waiting,
-// each webhook's newest delivery (the Last delivery column, Redeliver) and
-// an unread notification. 0 keeps all.
+// each webhook's newest delivery (the Last delivery column, Redeliver). An
+// unread notification goes as a read one once it is that old
+// (TestPruneUnreadNotifications). 0 keeps all.
 func TestPruneDeliveriesAndNotifications(t *testing.T) {
 	d, _ := open(t)
 	now := time.Now()
@@ -61,13 +62,13 @@ func TestPruneDeliveriesAndNotifications(t *testing.T) {
 		}
 		return id
 	}
-	oldRead, oldUnread, newRead := note(true, true), note(false, true), note(true, false)
+	oldRead, oldUnread, newRead, newUnread := note(true, true), note(false, true), note(true, false), note(false, false)
 
 	if p, err := d.Prune(now, Retention{AuditDays: 30}); err != nil || p != (Pruned{}) {
 		t.Fatalf("check run days 0 pruned %+v %v", p, err)
 	}
 	p, err := d.Prune(now, Retention{CheckRunDays: 90})
-	if err != nil || p != (Pruned{Deliveries: 2, Notifications: 1}) {
+	if err != nil || p != (Pruned{Deliveries: 2, Notifications: 2}) {
 		t.Fatalf("pruned %+v %v", p, err)
 	}
 	for _, id := range []int64{oldOK, oldFailed} {
@@ -80,16 +81,65 @@ func TestPruneDeliveriesAndNotifications(t *testing.T) {
 			t.Errorf("%s was deleted: %v", name, err)
 		}
 	}
-	if _, ok, _ := d.NotificationByID("bob", oldRead); ok {
-		t.Error("a read notification of a year ago was kept")
+	for name, id := range map[string]int64{"a read notification": oldRead, "an unread notification": oldUnread} {
+		if _, ok, _ := d.NotificationByID("bob", id); ok {
+			t.Errorf("%s of a year ago was kept", name)
+		}
 	}
-	for name, id := range map[string]int64{"an unread notification": oldUnread, "a new notification": newRead} {
+	for name, id := range map[string]int64{"a new unread notification": newUnread, "a new notification": newRead} {
 		if _, ok, _ := d.NotificationByID("bob", id); !ok {
 			t.Errorf("%s was deleted", name)
 		}
 	}
 	if l, _ := d.LastDeliveries(); l[h1].ID != fresh || l[h2].ID != only {
 		t.Fatalf("last deliveries %+v", l)
+	}
+}
+
+// A notification nobody read is pruned too, so the table is bounded for an
+// account that never opens its list: after the check runs' days, but never
+// before it is UnreadNoticeDays old (short days must not empty the list of
+// someone who was away). 0 keeps all.
+func TestPruneUnreadNotifications(t *testing.T) {
+	now := time.Now()
+	for _, c := range []struct {
+		name       string
+		days       int
+		read       bool
+		age        int // days
+		wantPruned bool
+	}{
+		{"unread, a year old, 90 days", 90, false, 365, true},
+		{"unread, 100 days old, 90 days", 90, false, 100, true},
+		{"unread, 60 days old, 90 days", 90, false, 60, false},
+		{"unread, new, 90 days", 90, false, 0, false},
+		{"unread, 60 days old, 7 days", 7, false, 60, false},
+		{"read, 60 days old, 7 days", 7, true, 60, true},
+		{"unread, 100 days old, 7 days", 7, false, 100, true},
+		{"unread, 100 days old, 365 days", 365, false, 100, false},
+		{"unread, 400 days old, 365 days", 365, false, 400, true},
+		{"unread, a year old, 0 days", 0, false, 365, false},
+	} {
+		d, _ := open(t)
+		d.AddUser(config.User{Username: "bob", Role: "reviewer"})
+		id, err := d.AddNotification(Notification{User: "bob", Event: "mention", Text: "x"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c.read {
+			d.MarkRead("bob", id)
+		}
+		if _, err := d.Exec("UPDATE notifications SET ts = ? WHERE id = ?", at(now.AddDate(0, 0, -c.age)), id); err != nil {
+			t.Fatal(err)
+		}
+		p, err := d.Prune(now, Retention{CheckRunDays: c.days})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, kept, _ := d.NotificationByID("bob", id)
+		if kept == c.wantPruned || (p.Notifications == 1) != c.wantPruned {
+			t.Errorf("%s: kept %v, counted %d", c.name, kept, p.Notifications)
+		}
 	}
 }
 
