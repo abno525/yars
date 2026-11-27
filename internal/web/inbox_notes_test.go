@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/notify"
 )
 
 // notesSection is the inbox's Notifications section of user's inbox page b.
@@ -132,6 +133,43 @@ func TestInboxNotifications(t *testing.T) {
 	// the notifications page is the inbox's
 	if b := e.do(t, "alice", "GET", "/notifications", nil, nil).Body.String(); !strings.Contains(b, `<a class="on" href="/inbox"`) {
 		t.Fatal("Inbox not lit on the notifications page")
+	}
+}
+
+// A new thread's notice is left out of the section for an account that has
+// Open threads on my findings. A director has no such queue: the notice is
+// listed, and the section's Mark all read clears it.
+func TestInboxThreadNoticeForDirector(t *testing.T) {
+	e := setup(t)
+	d := e.srv.Store.DB()
+	for _, u := range []string{"alice", "dora"} {
+		if _, err := d.AddNotification(db.Notification{User: u, Event: notify.Thread, Eng: "acme", Fid: "F-001", Title: "SQL injection", Actor: "bob", Text: "which roles?"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if sec := notesSection(t, e.do(t, "alice", "GET", "/inbox", nil, nil).Body.String()); strings.Contains(sec, "nev-thread") {
+		t.Fatalf("a pentester's thread notice is listed twice:\n%s", sec)
+	}
+	sec := notesSection(t, e.do(t, "dora", "GET", "/inbox", nil, nil).Body.String())
+	for _, want := range []string{`<span class="qcnt">1</span>`, `<span class="tag nev-thread">`, "<strong>bob</strong> · which roles?"} {
+		if !strings.Contains(sec, want) {
+			t.Fatalf("a director's section lacks %q:\n%s", want, sec)
+		}
+	}
+	for _, u := range []string{"alice", "dora"} {
+		if rec := e.do(t, u, "POST", "/notifications/read", url.Values{"back": {"inbox"}}, nil); rec.Code != http.StatusSeeOther {
+			t.Fatalf("%s: read all %d", u, rec.Code)
+		}
+	}
+	if sec := notesSection(t, e.do(t, "dora", "GET", "/inbox", nil, nil).Body.String()); !strings.Contains(sec, `<span class="qcnt zero">0</span>`) {
+		t.Fatalf("after read all:\n%s", sec)
+	}
+	// the section's Mark all read leaves what it does not list
+	if got := unread(t, e, "alice"); got != "1" {
+		t.Fatalf("alice's unread after the section's read all: %s", got)
+	}
+	if got := unread(t, e, "dora"); got != "0" {
+		t.Fatalf("dora's unread after the section's read all: %s", got)
 	}
 }
 

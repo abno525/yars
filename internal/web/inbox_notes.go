@@ -1,16 +1,19 @@
 package web
 
 import (
+	"slices"
 	"time"
 
 	"github.com/abno525/yars/internal/config"
 	"github.com/abno525/yars/internal/db"
 	"github.com/abno525/yars/internal/notify"
 	"github.com/abno525/yars/internal/store"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 // Inbox section "Notifications": the user's unread notices, less the events
-// another section lists already (Returned to me, Awaiting my review) and
+// another section of theirs lists already (Returned to me, Awaiting my
+// review, Open threads on my findings) and
 // those of archived engagements (nothing to do there; History, the
 // notifications page, keeps them). It is read per request, as the board is:
 // notices do not move the index generation. Open marks a notice read (a
@@ -23,10 +26,20 @@ const notesInboxRows = 50
 // (Returned to me, Awaiting my review, Open threads on my findings).
 var notesInboxSkip = []string{notify.Returned, notify.Review, notify.Thread}
 
+// notesSkipFor are the events of notesInboxSkip for u: a new thread's notice is left out
+// only for an account that has Open threads on my findings (a director has
+// no such queue: the notice is the one place the inbox says it).
+func (s *Server) notesSkipFor(u config.User) []string {
+	if slices.Contains(s.flow().Queues(u), workflow.InboxThreads) {
+		return notesInboxSkip
+	}
+	return slices.DeleteFunc(slices.Clone(notesInboxSkip), func(e string) bool { return e == notify.Thread })
+}
+
 // notesInbox lists the section for u (engs name the engagements), and how
 // many notices it has in all.
 func (s *Server) notesInbox(u config.User, engs []store.Engagement) ([]inboxRow, int, error) {
-	l, total, err := s.Store.UnreadNotes(u, notesInboxSkip, archivedIDs(engs), notesInboxRows)
+	l, total, err := s.Store.UnreadNotes(u, s.notesSkipFor(u), archivedIDs(engs), notesInboxRows)
 	if err != nil || len(l) == 0 {
 		return nil, total, err
 	}
@@ -79,7 +92,7 @@ func (s *Server) markNotesRead(u config.User) error {
 	if err != nil {
 		return err
 	}
-	return s.Store.MarkNotesRead(u, notesInboxSkip, archivedIDs(engs))
+	return s.Store.MarkNotesRead(u, s.notesSkipFor(u), archivedIDs(engs))
 }
 
 // noteTarget is where a notice leads (notify.Target: the mail's link is the
