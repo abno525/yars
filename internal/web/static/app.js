@@ -260,9 +260,48 @@ document.addEventListener('click', function (evt) {
     return;
   }
   var src = document.getElementById(el.getAttribute('data-copy'));
-  if (!src || !navigator.clipboard) return;
-  navigator.clipboard.writeText(src.textContent.trim()).then(function () { yarsToast('Copied'); });
+  if (src) yarsCopy(el, src);
 });
+
+// yarsCopy puts src's text on the clipboard for the Copy button el and says
+// how it went. A page on a plain http address (not localhost) has no
+// Clipboard API, and the API can refuse: then the old way (yarsCopyOld).
+// When neither worked the text is selected, so Ctrl+C takes it. The text
+// can be a secret (a token, a temporary password): it goes into no toast,
+// log line or attribute.
+function yarsCopy(el, src) {
+  var text = src.textContent.trim();
+  var done = function (ok) {
+    if (ok) { yarsToast('Copied'); return; }
+    yarsToast('Copy failed', true);
+    var s = window.getSelection ? window.getSelection() : null;
+    if (s) s.selectAllChildren(src);
+  };
+  var old = function () { done(yarsCopyOld(text, el)); };
+  if (!navigator.clipboard || !navigator.clipboard.writeText) { old(); return; }
+  navigator.clipboard.writeText(text).then(function () { done(true); }).catch(old);
+}
+// yarsCopyOld copies text with execCommand from a text box that is in the
+// page for the length of the call only (beside the button: under a modal
+// dialog the rest of the page takes no selection); the focus goes back to
+// the button. True when the browser says it copied.
+function yarsCopyOld(text, el) {
+  var ta = document.createElement('textarea');
+  ta.className = 'sr';
+  ta.setAttribute('readonly', '');
+  ta.setAttribute('aria-hidden', 'true');
+  ta.value = text;
+  (el.closest('dialog') || document.body).appendChild(ta);
+  var ok = false;
+  try {
+    ta.select();
+    ok = document.execCommand('copy');
+  } catch (e) {
+    ok = false;
+  } finally { ta.remove(); }
+  if (el.focus) el.focus({preventScroll: true});
+  return ok;
+}
 
 // Double submit: a plain form (method post, not htmx's) is sent once. A
 // sent form is marked (data-sent) and its second submit is stopped. Its
