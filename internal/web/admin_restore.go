@@ -25,6 +25,7 @@ type restoreResult struct {
 	Target                    string
 	Schema, Engagements, Find int
 	HasKey                    bool
+	PointInTime               bool // every repository is at the commit of the database's moment
 }
 
 // restoreUpload restores an uploaded backup (POST /admin/system/restore,
@@ -106,8 +107,8 @@ func (s *Server) restoreUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	s.Store.DB().Audit(by, "restore.upload", target, "")
 	s.log().Info("restore: an uploaded backup is restored into a new folder", "user", by, "engagements", rep.Engagements, "findings", rep.Findings,
-		"ms", time.Since(start).Milliseconds())
-	if js, err := json.Marshal(restoreResult{Target: target, Schema: rep.Schema, Engagements: rep.Engagements, Find: rep.Findings, HasKey: rep.HasKey}); err == nil {
+		"point_in_time", rep.PointInTime, "ms", time.Since(start).Milliseconds())
+	if js, err := json.Marshal(restoreResult{Target: target, Schema: rep.Schema, Engagements: rep.Engagements, Find: rep.Findings, HasKey: rep.HasKey, PointInTime: rep.PointInTime}); err == nil {
 		s.flash.put(r, "restore", string(js))
 	}
 	http.Redirect(w, r, "/admin/system#restore", http.StatusSeeOther)

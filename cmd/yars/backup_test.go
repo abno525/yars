@@ -1,6 +1,7 @@
 package main
 
 import (
+	"archive/zip"
 	"bytes"
 	"errors"
 	"os"
@@ -287,11 +288,95 @@ func TestRestoreCommandRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	openDB(t, dest)
-	for _, want := range []string{"schema v", "1 engagement\n", "1 finding\n", "secret key: no\n",
+	for _, want := range []string{"schema v", "1 engagement\n", "1 finding\n", "secret key: no\n", "point in time: yes\n",
 		"stored AI and personal keys must be entered again; delete the webhooks and add them again (their secrets cannot be read)\n", "next: yars serve --data " + dest + "\n"} {
 		if !strings.Contains(log.String(), want) {
 			t.Fatalf("output lacks %q:\n%s", want, log.String())
 		}
+	}
+}
+
+// A backup an earlier yars wrote records no commits: it restores, and the
+// command says that its files and its database may not be of one moment.
+func TestRestoreCommandOldBackup(t *testing.T) {
+	dir := dataWithFinding(t)
+	out := filepath.Join(t.TempDir(), "b.zip")
+	if err := cmdBackup([]string{"--data", dir, "--out", out}, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	// the same backup without the entry that holds the commits
+	zr, err := zip.OpenReader(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer zr.Close()
+	old := filepath.Join(t.TempDir(), "old.zip")
+	f, err := os.Create(old)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zw := zip.NewWriter(f)
+	dropped := 0
+	for _, e := range zr.File {
+		if e.Name == ".yars/backup.json" {
+			dropped++
+			continue
+		}
+		if err := zw.Copy(e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := zw.Close(); err != nil || dropped != 1 {
+		t.Fatalf("copy: %v, %d entries dropped", err, dropped)
+	}
+	f.Close()
+	dest := filepath.Join(t.TempDir(), "restored")
+	var log bytes.Buffer
+	if err := cmdRestore([]string{"--from", old, "--data", dest}, &log); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"1 engagement\n", "1 finding\n", "point in time: no (the backup records no commits)\n", "next: yars serve --data " + dest + "\n"} {
+		if !strings.Contains(log.String(), want) {
+			t.Fatalf("output lacks %q:\n%s", want, log.String())
+		}
+	}
+}
+
+// A backup whose check says a repository could not be reset to its recorded
+// commit is not put in place: it is taken again.
+func TestBackupRetriesNotPointInTime(t *testing.T) {
+	dir := dataWithFinding(t)
+	defer func(v func(string) (backup.Report, error)) { verifyBackup = v }(verifyBackup)
+	runs := 0
+	verifyBackup = func(p string) (backup.Report, error) {
+		runs++
+		rep, err := backup.Verify(p)
+		if runs < 3 {
+			rep.PointInTime, rep.NotReset = false, "acme"
+		}
+		return rep, err
+	}
+	out := filepath.Join(t.TempDir(), "b.zip")
+	if err := cmdBackup([]string{"--data", dir, "--out", out}, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	if runs != 3 {
+		t.Fatalf("verified %d times", runs)
+	}
+	runs = 0
+	verifyBackup = func(p string) (backup.Report, error) {
+		runs++
+		rep, err := backup.Verify(p)
+		rep.PointInTime, rep.NotReset = false, "acme"
+		return rep, err
+	}
+	folder := t.TempDir()
+	err := cmdBackup([]string{"--data", dir, "--out", filepath.Join(folder, "c.zip")}, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "the backup is not point-in-time (not reset: acme)") {
+		t.Fatalf("err %v", err)
+	}
+	if ents, _ := os.ReadDir(folder); len(ents) != 0 || runs != backupTries {
+		t.Fatalf("files left: %v, verified %d times", ents, runs)
 	}
 }
 

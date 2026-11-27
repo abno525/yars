@@ -106,7 +106,7 @@ func TestRestoreRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := Report{Schema: db.SchemaVersion, Engagements: 2, Findings: 3, HasKey: false}
+	want := Report{Schema: db.SchemaVersion, Engagements: 2, Findings: 3, HasKey: false, PointInTime: true}
 	if rep != want {
 		t.Fatalf("report %+v, want %+v", rep, want)
 	}

@@ -128,10 +128,31 @@ func (r *Repo) GC() error {
 }
 
 // ResetTo moves the current branch, index and work tree back to commit (a
-// purge that failed half-way: the old commits are still there until gc).
+// purge that failed half-way: the old commits are still there until gc; a
+// restored backup: the commit recorded with its database). commit is a
+// commit id, nothing git could read as an option or another kind of name.
 func (r *Repo) ResetTo(commit string) error {
+	if !hexID(commit) {
+		return fmt.Errorf("reset: %q is not a commit id", commit)
+	}
 	_, err := r.run(nil, "reset", "-q", "--hard", commit)
 	return err
+}
+
+// IsCommitID reports whether s has the form of a commit id: 40 or 64 hex
+// digits, lower case.
+func IsCommitID(s string) bool { return hexID(s) }
+
+// InHistory reports whether commit is HEAD or one of the commits before it.
+// A value that is no commit id, a commit the repository does not hold (a
+// purge rewrote the history and gc removed it) and a repository without a
+// commit are false.
+func (r *Repo) InHistory(commit string) bool {
+	if !hexID(commit) {
+		return false
+	}
+	_, err := r.run(nil, "merge-base", "--is-ancestor", commit, "HEAD")
+	return err == nil
 }
 
 // ErrPurgeCleanup: a drop's gc failed. The history is rewritten and the

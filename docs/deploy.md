@@ -210,6 +210,8 @@ A git clone holds the findings only. Accounts, workflow state, reviewers, chat a
 
 (cron needs the `%` escaped.) Add `--key` to include the key that decrypts the stored AI and personal keys and the webhook secrets; keep such a backup as safe as the server. Admin › System shows the last backup and can download one.
 
+A backup is of one moment. It records the commit each repository was at when the database was copied, and a restore resets each repository to that commit. A change that lands while the backup is taken is not in the restored folder. A backup fails when a Purge rewrites an engagement's history meanwhile; `yars backup` then takes it again, up to three times.
+
 A backup on the same disk is lost with the server. Copy the files to another machine as well, for example with `rsync` from there. A backup holds every finding, and with `--key` the stored keys: the copy needs the same care as the server.
 
 ### Restore drill
@@ -222,7 +224,11 @@ sudo -u yars yars restore --from /backups/yars-2026-11-11.zip --data /srv/yars-r
 sudo -u yars yars serve --data /srv/yars-restored --addr 127.0.0.1:8081
 ```
 
-A restore always goes into a new (or empty) folder and checks it before it reports success. It takes no git hook from the ZIP, and of each repository's git config only the basic settings; the server writes its own settings and its push hook at the next start. A hook or git setting added by hand on the old server must be added again. Open the second server (an SSH tunnel to port 8081 will do) and compare Admin › System's counts of engagements and findings with the live server's. Then stop it and remove the folder (`sudo rm -r /srv/yars-restored`).
+A restore always goes into a new (or empty) folder and checks it before it reports success. It takes no git hook from the ZIP, and of each repository's git config only the basic settings; the server writes its own settings and its push hook at the next start. A hook or git setting added by hand on the old server must be added again.
+
+`yars restore` prints `point in time: yes` when every repository is at the commit recorded with the database. A backup written by an earlier YARS records no commits: it restores as before and prints `point in time: no (the backup records no commits)`. Its files can then be newer than its database, and a finding changed in that moment reads as in verification. `no (not reset: acme)` names a repository that was left as the ZIP holds it. The Restore panel of Admin › System shows the same as **Point in time**. The commits made after the recorded one stay in the restored repository's git folder; YARS does not read them.
+
+Open the second server (an SSH tunnel to port 8081 will do) and compare Admin › System's counts of engagements and findings with the live server's. Then stop it and remove the folder (`sudo rm -r /srv/yars-restored`).
 
 ## Upgrade
 

@@ -2,6 +2,7 @@ package backup
 
 import (
 	"archive/zip"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -18,8 +19,17 @@ import (
 type Report struct {
 	Schema      int  // of the database in the backup
 	Engagements int  // engagements/<id> that are repositories
-	Findings    int  // findings/<dir>/finding.md files
+	Findings    int  // findings/<dir>/finding.md files, in the restored folder
 	HasKey      bool // .yars/secret.key is in the backup
+	// PointInTime: every repository is at the commit it had when the
+	// database snapshot was taken. A backup that records no commits (one an
+	// earlier YARS wrote) is not.
+	PointInTime bool
+	// NotReset names the repositories left as they were unpacked, because
+	// the backup records no usable commit for them: "main" and engagement
+	// IDs, ", " between. "" when PointInTime, and for a backup that records
+	// no commits at all.
+	NotReset string
 }
 
 // ErrNewer refuses a backup whose database a newer YARS wrote.
@@ -27,11 +37,14 @@ var ErrNewer = errors.New("backup from a newer YARS")
 
 const dbEntry = ".yars/yars.db"
 
-// Restore unpacks zipPath into destDir (missing or empty) and verifies it:
-// the database opens and passes quick_check, and every repository passes
-// git fsck. Nothing is written before every entry is known to be a plain
-// file or folder inside the data folder and the database is not newer than
-// this build; on a failure after unpacking, destDir is as it was before.
+// Restore unpacks zipPath into destDir (missing or empty), resets every
+// repository to the commit the backup records for it, and verifies the
+// result: the database opens and passes quick_check, and every repository
+// passes git fsck. Nothing is written before every entry is known to be a
+// plain file or folder inside the data folder and the database is not newer
+// than this build; on a failure after unpacking, destDir is as it was
+// before. A repository the backup records no usable commit for stays as
+// unpacked and is named in the report; that never fails the restore.
 func Restore(zipPath, destDir string) (Report, error) {
 	var rep Report
 	existed := false
@@ -56,7 +69,7 @@ func Restore(zipPath, destDir string) (Report, error) {
 		return rep, err
 	}
 	defer zr.Close()
-	var dbFile *zip.File
+	var dbFile, metaFile *zip.File
 	var lay gitLayout
 	for _, f := range zr.File {
 		lay.note(f.Name, f.Mode().IsDir())
@@ -68,17 +81,17 @@ func Restore(zipPath, destDir string) (Report, error) {
 		if part, ok := gitPart(name); ok && len(part) == 0 && !f.Mode().IsDir() {
 			return rep, fmt.Errorf("%s: .git must be a folder", f.Name)
 		}
-		if name != dbEntry && Skip(name, true) {
+		isMeta := name == metaEntry && !f.Mode().IsDir()
+		if name != dbEntry && !isMeta && Skip(name, true) {
 			return rep, fmt.Errorf("%s: not part of a backup", f.Name)
 		}
 		switch {
 		case name == dbEntry && !f.Mode().IsDir():
 			dbFile = f
+		case isMeta && metaFile == nil:
+			metaFile = f
 		case name == ".yars/secret.key":
 			rep.HasKey = true
-		}
-		if isFinding(name) && !f.Mode().IsDir() {
-			rep.Findings++
 		}
 	}
 	if dbFile == nil {
@@ -111,13 +124,147 @@ func Restore(zipPath, destDir string) (Report, error) {
 		undo()
 		return rep, err
 	}
+	// after unpack, which dropped the hooks and wrote the git configs again:
+	// git runs nothing of the ZIP's
+	if m, ok := readMeta(metaFile); ok {
+		left, err := rewind(destDir, m)
+		if err != nil {
+			undo()
+			return rep, err
+		}
+		rep.PointInTime, rep.NotReset = len(left) == 0, strings.Join(left, ", ")
+	}
 	n, err := check(destDir)
 	if err != nil {
 		undo()
 		return rep, err
 	}
-	rep.Engagements = n
+	rep.Engagements, rep.Findings = n, countFindings(destDir)
 	return rep, nil
+}
+
+// readMeta reads the commits a backup records. A backup without the entry
+// (an earlier YARS wrote it), and an entry that does not read, record none.
+func readMeta(f *zip.File) (meta, bool) {
+	var m meta
+	if f == nil {
+		return m, false
+	}
+	rc, err := f.Open()
+	if err != nil {
+		return m, false
+	}
+	b, err := io.ReadAll(io.LimitReader(rc, maxMeta+1))
+	rc.Close()
+	if err != nil || len(b) > maxMeta || json.Unmarshal(b, &m) != nil || m.Version != 1 {
+		return meta{}, false
+	}
+	return m, true
+}
+
+// rewind resets the unpacked main repository and every unpacked engagement
+// repository to the commit m records for it, and returns the ones it left as
+// they were: "main", engagement IDs. The folders on disk are looked up in m;
+// a name m holds never becomes a path. An error is a reset that failed part
+// way.
+func rewind(dest string, m meta) ([]string, error) {
+	var left []string
+	ok, err := rewindRepo(dest, m.Main, true)
+	if err != nil {
+		return nil, fmt.Errorf("main repository: %w", err)
+	}
+	if !ok {
+		left = append(left, "main")
+	}
+	ents, err := os.ReadDir(filepath.Join(dest, "engagements"))
+	if err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
+	for _, e := range ents {
+		dir := filepath.Join(dest, "engagements", e.Name())
+		if !e.IsDir() {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(dir, ".git")); err != nil {
+			continue
+		}
+		commit, recorded := m.Engagements[e.Name()]
+		ok, err := rewindRepo(dir, commit, recorded)
+		if err != nil {
+			return nil, fmt.Errorf("engagements/%s: %w", e.Name(), err)
+		}
+		if !ok {
+			left = append(left, shownName(e.Name()))
+		}
+	}
+	return left, nil
+}
+
+// rewindRepo resets the repository at dir to commit and reports whether it
+// is now where the backup recorded it. It is left alone, and false, when
+// nothing is recorded for it, when commit is not a commit id, and when the
+// commit is not in the unpacked branch's history (a history rewritten while
+// the backup was taken, or a ZIP put together by hand). A repository
+// recorded without a commit ("") is right when it still has none.
+func rewindRepo(dir, commit string, recorded bool) (bool, error) {
+	if !recorded {
+		return false, nil
+	}
+	if commit == "" {
+		h, err := gitrepo.ReadHead(dir)
+		return err == nil && h == "", nil
+	}
+	if !gitrepo.IsCommitID(commit) {
+		return false, nil
+	}
+	// unpacked at that commit: nothing to reset
+	if h, err := gitrepo.ReadHead(dir); err == nil && h == commit {
+		return true, nil
+	}
+	r, err := gitrepo.Open(dir)
+	if err != nil || !r.InHistory(commit) {
+		return false, nil // not a repository root: check says so
+	}
+	if err := r.ResetTo(commit); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// shownName is a folder name of an uploaded ZIP as a report shows it: an
+// engagement ID's characters only, else "?".
+func shownName(s string) string {
+	if s == "" || len(s) > 64 {
+		return "?"
+	}
+	for _, c := range s {
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '_' || c == '.') {
+			return "?"
+		}
+	}
+	return s
+}
+
+// countFindings counts engagements/<id>/findings/<dir>/finding.md in the
+// restored folder.
+func countFindings(dest string) int {
+	n := 0
+	engs, _ := os.ReadDir(filepath.Join(dest, "engagements"))
+	for _, e := range engs {
+		if !e.IsDir() {
+			continue
+		}
+		dirs, _ := os.ReadDir(filepath.Join(dest, "engagements", e.Name(), "findings"))
+		for _, d := range dirs {
+			if !d.IsDir() {
+				continue
+			}
+			if fi, err := os.Lstat(filepath.Join(dest, "engagements", e.Name(), "findings", d.Name(), "finding.md")); err == nil && fi.Mode().IsRegular() {
+				n++
+			}
+		}
+	}
+	return n
 }
 
 // Verify unpacks zipPath into a temporary folder, verifies it and removes
@@ -148,12 +295,6 @@ func plain(f *zip.File) bool {
 		}
 	}
 	return true
-}
-
-// isFinding reports whether name is engagements/<id>/findings/<dir>/finding.md.
-func isFinding(name string) bool {
-	segs := strings.Split(name, "/")
-	return len(segs) == 5 && segs[0] == "engagements" && segs[2] == "findings" && segs[4] == "finding.md"
 }
 
 // schemaIn reads the schema version of the database entry, copied to a
@@ -190,6 +331,9 @@ const maxGitConfig = 1 << 20
 // settings (gitconfig.go), so nothing unpacked makes git run a program.
 func unpack(files []*zip.File, dest string) error {
 	for _, f := range files {
+		if f.Name == metaEntry {
+			continue // read by Restore; never a file of the data folder
+		}
 		target := filepath.Join(dest, filepath.FromSlash(path.Clean(f.Name)))
 		part, inGit := gitPart(f.Name)
 		if inGit && gitDropped(part) {
