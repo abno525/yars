@@ -38,8 +38,8 @@ func TestSSERetriesFromPolling(t *testing.T) {
 	}
 
 	app := e.do(t, "alice", "GET", "/static/app.js", nil, nil).Body.String()
-	exp := jsFunc(t, app, "function yarsExpired()", "\n}\n")
-	if strings.Contains(exp, "Date.now() - ") || !strings.Contains(exp, "if (!yarsExpiredSaid) { yarsExpiredSaid = true; yarsToast('Session expired', true); }") {
+	exp := jsFunc(t, app, "function yarsExpired(own)", "\n}\n")
+	if strings.Contains(exp, "Date.now() - ") || !strings.Contains(exp, "if (own ? shown : yarsExpiredSaid) return;") {
 		t.Errorf("the toast repeats while the session stays expired:\n%s", exp)
 	}
 	// the draft and the editor's state are still written at every 401
@@ -49,5 +49,47 @@ func TestSSERetriesFromPolling(t *testing.T) {
 	// an answered request ends the expiry, so a later one is said again
 	if !strings.Contains(app, "if (x && x.status >= 200 && x.status < 400) yarsExpiredSaid = false;") {
 		t.Error("nothing ends an expiry: a second one would not be said")
+	}
+}
+
+// 5.7: the once-rule is for the 401s nobody asked for (a poll, a presence
+// beat). A request the user sent (Send, Edit, Check, a filter, an upload)
+// that gets 401 says "Session expired" again, unless that toast still shows:
+// the first one may have come and gone in a tab nobody looked at. Pins of
+// the script's text.
+func TestSessionExpiredSaidForOwnRequest(t *testing.T) {
+	e := setup(t)
+	app := e.do(t, "alice", "GET", "/static/app.js", nil, nil).Body.String()
+	// the toast is handed back, so the page knows whether it still shows
+	if toast := jsFunc(t, app, "function yarsToast(text, err)", "\n}\n"); !strings.Contains(toast, "return t;") {
+		t.Errorf("yarsToast hands back no toast:\n%s", toast)
+	}
+	exp := jsFunc(t, app, "function yarsExpired(own)", "\n}\n")
+	for _, want := range []string{
+		"var shown = yarsExpiredToast && yarsExpiredToast.isConnected;",
+		"if (own ? shown : yarsExpiredSaid) return;",
+		"yarsExpiredToast = yarsToast('Session expired', true);",
+	} {
+		if !strings.Contains(exp, want) {
+			t.Errorf("yarsExpired lacks %s:\n%s", want, exp)
+		}
+	}
+	// an htmx request is the user's own unless a live event sent it
+	herr := jsFunc(t, app, "document.addEventListener('htmx:responseError', function (evt) {", "\n});")
+	for _, want := range []string{
+		"evt.detail.requestConfig && evt.detail.requestConfig.triggeringEvent",
+		"indexOf('sse:') === 0",
+		"if (xhr && xhr.status === 401) { yarsExpired(!live); return; }",
+	} {
+		if !strings.Contains(herr, want) {
+			t.Errorf("the 401 of an htmx request: no %s:\n%s", want, herr)
+		}
+	}
+	// an upload is the user's own; the presence beat is not
+	if up := jsFunc(t, app, "function yarsUpload(", "\n}\n"); !strings.Contains(up, "if (r.status === 401) { yarsExpired(true); return false; }") {
+		t.Error("the 401 of an upload is not said as the user's own request")
+	}
+	if !strings.Contains(app, "if (r.status === 401) yarsExpired(); else if (r.ok) yarsExpiredSaid = false;") {
+		t.Error("the 401 of a presence beat is not under the once-rule")
 	}
 }

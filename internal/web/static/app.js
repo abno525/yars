@@ -55,10 +55,11 @@ function yarsListIdle() {
   return shown <= Number(list.getAttribute('data-rows') || 0);
 }
 
-// yarsToast shows a short message in #toasts; click or wait to dismiss.
+// yarsToast shows a short message in #toasts; click or wait to dismiss. It
+// hands the toast back: in the page while it shows.
 function yarsToast(text, err) {
   var box = document.getElementById('toasts');
-  if (!box) return;
+  if (!box) return null;
   var t = document.createElement('div');
   t.className = 'toast' + (err ? ' err' : '');
   t.setAttribute('role', err ? 'alert' : 'status');
@@ -67,12 +68,16 @@ function yarsToast(text, err) {
   box.appendChild(t);
   while (box.children.length > 4) box.firstChild.remove();
   setTimeout(function () { t.remove(); }, err ? 8000 : 4000);
+  return t;
 }
 
 // Errors that htmx does not swap (403, 500, …) become visible as a toast.
 document.addEventListener('htmx:responseError', function (evt) {
   var xhr = evt.detail.xhr;
-  if (xhr && xhr.status === 401) { yarsExpired(); return; }
+  // a request a live event sent (sse:poll, sse:chat, …) is not the user's own
+  var ev = evt.detail.requestConfig && evt.detail.requestConfig.triggeringEvent;
+  var live = ev && String(ev.type).indexOf('sse:') === 0;
+  if (xhr && xhr.status === 401) { yarsExpired(!live); return; }
   var text = (xhr && xhr.responseText || '').trim();
   if (/^\s*</.test(text)) {
     // DOMParser runs no scripts or handlers; only the text is kept
@@ -1019,11 +1024,13 @@ document.addEventListener('htmx:load', function (evt) { yarsListLinks(evt.detail
 function yarsDraft(form) {
   try { var d = JSON.parse(localStorage.getItem(yarsDraftKey(form)) || 'null'); return d && typeof d.text === 'string' ? d : null; } catch (e) { return null; }
 }
-// The toast is shown once per expiry: a page that polls gets a 401 for each
-// of its live parts every 30 s. An answered request (a login in another
-// tab) ends the expiry, so a later one is said again.
-var yarsExpiredSaid = false;
-function yarsExpired() {
+// A 401 nobody asked for (a poll, a presence beat) shows the toast once per
+// expiry: a page that polls gets one for each of its live parts every 30 s.
+// An answered request (a login in another tab) ends the expiry, so a later
+// one is said again. A request the user sent (own) says it again unless the
+// toast still shows: the first one may have gone unseen in a hidden tab.
+var yarsExpiredSaid = false, yarsExpiredToast = null;
+function yarsExpired(own) {
   document.querySelectorAll('form[data-guard]').forEach(function (form) {
     var ta = form.querySelector('textarea[name=body]');
     if (!ta || !yarsDirty(form.parentNode)) return;
@@ -1034,7 +1041,10 @@ function yarsExpired() {
     var st = form.querySelector('[data-pstate]');
     if (st) { st.textContent = 'Session expired · not saved'; st.classList.add('error'); }
   });
-  if (!yarsExpiredSaid) { yarsExpiredSaid = true; yarsToast('Session expired', true); }
+  var shown = yarsExpiredToast && yarsExpiredToast.isConnected;
+  if (own ? shown : yarsExpiredSaid) return;
+  yarsExpiredSaid = true;
+  yarsExpiredToast = yarsToast('Session expired', true);
 }
 document.addEventListener('htmx:afterRequest', function (evt) {
   var x = evt.detail.xhr;
@@ -1109,7 +1119,7 @@ function yarsUpload(strip, url, blob, name, insert) {
   fd.append('file', blob, name);
   return fetch(url, {method: 'POST', body: fd, credentials: 'same-origin', headers: {'HX-Request': 'true'}}).then(function (r) {
     return r.text().then(function (t) {
-      if (r.status === 401) { yarsExpired(); return false; }
+      if (r.status === 401) { yarsExpired(true); return false; }
       if (!r.ok) { yarsToast(name + ': ' + (t.trim() || ('Error ' + r.status)), true); return false; }
       var form = strip.closest('form');
       // the server's own template output (all values escaped)

@@ -239,7 +239,7 @@ func TestBrowserStorageIsPerAccount(t *testing.T) {
 	}
 	// the draft is written when the session has expired: a 401 must not be
 	// what removes it
-	i := strings.Index(js, "function yarsExpired()")
+	i := strings.Index(js, "function yarsExpired(own)")
 	if i < 0 || strings.Contains(js[i:i+900], "removeItem") {
 		t.Error("an expired session removes drafts")
 	}

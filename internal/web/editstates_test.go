@@ -124,8 +124,8 @@ func TestLockedSaveShowsWhy(t *testing.T) {
 		t.Fatal("htmx would swap a 403 into the editor")
 	}
 	js := e.do(t, "alice", "GET", "/static/app.js", nil, nil).Body.String()
-	i := strings.Index(js, "'htmx:responseError'")
-	if i < 0 || !strings.Contains(js[i:i+800], "xhr.responseText") || !strings.Contains(js[i:i+800], "yarsToast(") {
+	herr := jsFunc(t, js, "document.addEventListener('htmx:responseError', function (evt) {", "\n});")
+	if !strings.Contains(herr, "xhr.responseText") || !strings.Contains(herr, "yarsToast(") {
 		t.Fatal("app.js does not show an unswapped error's text")
 	}
 }

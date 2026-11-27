@@ -71,7 +71,7 @@ func TestDraftRestoreKeepsBase(t *testing.T) {
 
 	js := e.do(t, "alice", "GET", "/static/app.js", nil, nil).Body.String()
 	// the draft is written with the form's base
-	if fn := jsFunc(t, js, "function yarsExpired()", "\n}\n"); !strings.Contains(fn, "input[name=base]") || !strings.Contains(fn, "base: ") {
+	if fn := jsFunc(t, js, "function yarsExpired(own)", "\n}\n"); !strings.Contains(fn, "input[name=base]") || !strings.Contains(fn, "base: ") {
 		t.Fatalf("yarsExpired keeps no base:\n%s", fn)
 	}
 	// Restore puts it back, and "none" for a draft without one
