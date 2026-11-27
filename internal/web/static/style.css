@@ -1003,6 +1003,11 @@ form.flag { margin: 0; display: flex; }
 .regex input.monoin { flex: 1; width: auto; border-left: 0; border-right: 0; }
 .regex input.monoin[aria-invalid=true] { border: 2px solid var(--red); }
 .regex .aa { height: 40px; padding: 0 12px; flex: none; display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--field-line); border-left: 0; font: 600 13px var(--sans); cursor: pointer; }
+/* the pattern's two boxes: one row of fixed height, each in its half; the
+   box that counts for Match only stays in its place and greys for Not match */
+.regexopts { height: 24px; flex: none; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.regexopts label { min-width: 0; display: inline-flex; align-items: center; gap: 8px; font: 600 13px var(--sans); white-space: nowrap; cursor: pointer; }
+.ruleform:has(input[name=mode][value=forbid]:checked) .regexopts .matchonly { color: var(--muted); }
 .opts { display: flex; flex-direction: column; border: 1px solid var(--line); }
 .opt {
   min-height: 56px; padding: 8px 14px; display: grid; grid-template-columns: 16px minmax(0, 1fr); column-gap: 12px; align-items: center;

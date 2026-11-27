@@ -37,7 +37,8 @@ and exactly one check:
 
 A pattern is matched against one part at a time: the title, a section's body or a details row.
 
-- `^` and `$` are the start and the end of the whole part, not of a line. Write `(?m)` at the start of the pattern to make them match at each line.
+- `^` and `$` are the start and the end of the whole part, not of a line. Write `(?m)` at the start of the pattern to make them match at each line; in the editor that is the Multiline box, as Aa is `(?i)`.
+- A pattern the text must match skips an empty part. With `require_nonempty: true` (the editor's Check empty parts box) an empty part is a hit.
 - The part is the Markdown as written. Code blocks and tables are matched too.
 - A rule of any kind shows up to 20 hits per finding. A last row then says how many it does not show: `and 5 more`, or `and more than 1000 more`.
 - That row has the rule's level and counts as one result. It is dismissed on its own, for its count: `and 6 more` is a new row. The live hints under a section do not show it.

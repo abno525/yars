@@ -1,6 +1,7 @@
 package web
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -45,10 +46,12 @@ type ruleForm struct {
 	Old, File                        string
 	ID, Kind, Level, Target, Message string
 	Mode, Pattern, Check, Script, AI string
-	ICase                            bool
-	Targets                          []option
-	Builtins                         []rules.Builtin
-	Errs                             map[string]string
+	// the pattern's flags as boxes: (?i) and (?m) in front of it; NonEmpty
+	// is require_nonempty (Match mode only)
+	ICase, Multiline, NonEmpty bool
+	Targets                    []option
+	Builtins                   []rules.Builtin
+	Errs                       map[string]string
 }
 
 // benchView is the test bench: its choices, and the result of a run on
@@ -151,12 +154,43 @@ func (s *Server) formOf(r rules.Rule) ruleForm {
 	f := ruleForm{Old: r.ID, File: r.File, ID: r.ID, Kind: r.KindName(), Level: r.Level, Target: r.Target, Message: r.Message,
 		Mode: "forbid", Pattern: r.RegexForbid, Check: r.Check, Script: r.Script, AI: r.AI}
 	if r.RegexRequire != "" {
-		f.Mode, f.Pattern = "require", r.RegexRequire
+		f.Mode, f.Pattern, f.NonEmpty = "require", r.RegexRequire, r.RequireNonempty
 	}
-	if p, ok := strings.CutPrefix(f.Pattern, "(?i)"); ok {
-		f.Pattern, f.ICase = p, true
-	}
+	f.Pattern, f.ICase, f.Multiline = cutFlags(f.Pattern)
 	return f
+}
+
+// cutFlags takes the flag groups the editor has boxes for off the front of
+// a pattern: (?i), (?m), both in one group or in two, in any order. A group
+// with any other flag, as (?s) or (?is), and all that follows it stay in
+// the pattern as typed.
+func cutFlags(p string) (rest string, icase, multiline bool) {
+	for {
+		g, after, ok := strings.Cut(p, ")")
+		flags, isGroup := strings.CutPrefix(g, "(?")
+		if !ok || !isGroup || flags == "" || strings.Trim(flags, "im") != "" {
+			return p, icase, multiline
+		}
+		icase = icase || strings.Contains(flags, "i")
+		multiline = multiline || strings.Contains(flags, "m")
+		p = after
+	}
+}
+
+// withFlags writes the boxes back as one group in front of the pattern:
+// (?i), (?m) or (?im).
+func withFlags(p string, icase, multiline bool) string {
+	flags := ""
+	if icase {
+		flags += "i"
+	}
+	if multiline {
+		flags += "m"
+	}
+	if flags == "" {
+		return p
+	}
+	return "(?" + flags + ")" + p
 }
 
 func newRuleForm() ruleForm {
@@ -287,7 +321,8 @@ func (s *Server) ruleFromForm(r *http.Request) (ruleForm, rules.Rule, string, []
 	errs := map[string]string{}
 	f := ruleForm{Old: r.FormValue("old"), ID: strings.TrimSpace(r.FormValue("id")), Kind: r.FormValue("kind"), Level: r.FormValue("level"),
 		Target: r.FormValue("target"), Message: strings.TrimSpace(r.FormValue("message")), Mode: r.FormValue("mode"),
-		Pattern: r.FormValue("pattern"), ICase: r.FormValue("icase") == "1", Check: r.FormValue("check"), AI: strings.TrimSpace(r.FormValue("ai"))}
+		Pattern: r.FormValue("pattern"), ICase: r.FormValue("icase") == "1", Multiline: r.FormValue("multiline") == "1", NonEmpty: r.FormValue("nonempty") == "1",
+		Check: r.FormValue("check"), AI: strings.TrimSpace(r.FormValue("ai"))}
 	f.New = f.Old == ""
 	if f.Mode != "require" {
 		f.Mode = "forbid"
@@ -311,19 +346,18 @@ func (s *Server) ruleFromForm(r *http.Request) (ruleForm, rules.Rule, string, []
 	var script []byte
 	switch f.Kind {
 	case "pattern":
-		p := f.Pattern
-		if f.ICase {
-			p = "(?i)" + p
-		}
+		p := withFlags(f.Pattern, f.ICase, f.Multiline)
 		if f.Pattern == "" {
 			errs["pattern"] = "required"
 		} else if _, err := regexp.Compile(p); err != nil {
 			errs["pattern"] = err.Error()
 		}
 		if f.Mode == "require" {
-			rule.RegexRequire, rule.RequireNonempty = p, old.RequireNonempty
+			// only a pattern the text must match has a rule for empty parts
+			rule.RegexRequire, rule.RequireNonempty = p, f.NonEmpty
 		} else {
 			rule.RegexForbid = p
+			f.NonEmpty = false
 		}
 	case "builtin":
 		if !slices.ContainsFunc(rules.Builtins, func(b rules.Builtin) bool { return b.ID == f.Check }) {
@@ -464,11 +498,20 @@ func (s *Server) ruleSave(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				return nil, &ruleErr{"form", file + ": " + err.Error()}
 			}
-			files := []store.SettingsFile{{Path: rulesRel + file, Data: nb}}
+			// a file the save leaves as it is is not written: a save that
+			// changes nothing is no commit (git refuses an empty one)
+			var files []store.SettingsFile
+			if !bytes.Equal(nb, b) || b == nil {
+				files = append(files, store.SettingsFile{Path: rulesRel + file, Data: nb})
+			}
 			written := ""
 			if script != nil {
 				written = rulesRel + scriptName
-				files = append(files, store.SettingsFile{Path: written, Data: script, Exec: true})
+				cur, err := read(written)
+				info, serr := os.Stat(filepath.Join(s.Store.Repo().Dir, filepath.FromSlash(written)))
+				if err != nil || serr != nil || !bytes.Equal(cur, script) || info.Mode()&0o100 == 0 {
+					files = append(files, store.SettingsFile{Path: written, Data: script, Exec: true})
+				}
 			}
 			// the script the rule had and no longer names (another upload,
 			// another kind) goes with this commit

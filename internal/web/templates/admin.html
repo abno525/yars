@@ -609,6 +609,10 @@
       </fieldset>
       <div class="rf"><span>Pattern</span>
         <div class="regex"><span class="delim">/</span><input class="monoin" name="pattern" value="{{.Pattern}}" aria-label="Pattern"{{with index .Errs "pattern"}} aria-invalid="true"{{end}}><span class="delim">/</span><label class="aa"><input type="checkbox" name="icase" value="1"{{if .ICase}} checked{{end}}>Aa</label></div>
+        <div class="regexopts">
+          <label><input type="checkbox" name="multiline" value="1"{{if .Multiline}} checked{{end}}>Multiline</label>
+          <label class="matchonly"><input type="checkbox" name="nonempty" value="1"{{if .NonEmpty}} checked{{end}}>Check empty parts</label>
+        </div>
         <span class="ferr" title="{{index .Errs "pattern"}}">{{index .Errs "pattern"}}</span>
       </div>
     </div>
