@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"os/exec"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -16,6 +17,7 @@ import (
 	"github.com/abno525/yars/internal/backup"
 	"github.com/abno525/yars/internal/db"
 	"github.com/abno525/yars/internal/rules"
+	"github.com/abno525/yars/internal/store"
 )
 
 // systemAdmin is Admin › System: the health checks, the backup download,
@@ -335,7 +337,84 @@ func (s *Server) health(ctx context.Context, full bool) healthAdmin {
 	check("Disk free", "", s.healthDisk)
 	check("Database integrity", "", func() healthResult { return s.healthDB(full) })
 	check("Git repositories", "", func() healthResult { return s.healthFsck(full) })
+	check("Database and files", "", func() healthResult { return s.healthCompare(full) })
 	return v
+}
+
+// healthCompare holds the database against the finding files
+// (store.Compare; Run integrity only: it reads every finding).
+func (s *Server) healthCompare(full bool) healthResult {
+	if !full {
+		// until Run integrity: what the start's pass found, when it ran
+		if res, ok := s.Store.AtStart(); ok {
+			return atStart(compareResult(res))
+		}
+		return healthResult{State: "off", Label: "Not run", Result: "Not run"}
+	}
+	res, err := s.Store.Compare()
+	if err != nil {
+		return hBad("check failed", err.Error())
+	}
+	return compareResult(res)
+}
+
+// compareResult is a compare as the Health row shows it: counts in the
+// result, the IDs behind them in the detail. Rows of a finding no folder
+// holds and approvals for other text are states YARS keeps on purpose: they
+// are counted, and the row stays OK. A finding ID in two folders and a
+// finding file that does not parse are errors; the start's journal rows are
+// named beside them, so an error hides no write the start made or left.
+func compareResult(res store.Integrity) healthResult {
+	// the start's pass only: writes it made from the journal, and journal
+	// rows it could not use (a warning: someone should look at the finding)
+	var journal []string
+	if n := len(res.Replayed); n > 0 {
+		journal = append(journal, plural(n, "write")+" replayed")
+	}
+	if n := len(res.Unreplayed); n > 0 {
+		journal = append(journal, plural(n, "journal row")+" not replayed")
+	}
+	if res.Faults() > 0 {
+		var parts []string
+		if n := len(res.Unreadable); n > 0 {
+			parts = append(parts, plural(n, "unreadable finding"))
+		}
+		if n := len(res.Duplicate); n > 0 {
+			parts = append(parts, plural(n, "duplicate ID"))
+		}
+		return hBad(strings.Join(append(parts, journal...), " · "), someIDs(slices.Concat(res.Unreadable, res.Duplicate, res.Replayed, res.Unreplayed)))
+	}
+	parts := append([]string{plural(res.Findings, "finding")}, journal...)
+	if n := len(res.NoFinding); n > 0 {
+		parts = append(parts, plural(n, "row")+" without a finding")
+	}
+	if n := len(res.Drifted); n > 0 {
+		parts = append(parts, plural(n, "approval")+" for other text")
+	}
+	result, detail := strings.Join(parts, " · "), someIDs(slices.Concat(res.Replayed, res.Unreplayed, res.NoFinding, res.Drifted))
+	if len(res.Unreplayed) > 0 {
+		return hWarn(result, detail)
+	}
+	return hGood(result, detail)
+}
+
+// atStart marks a result as the start's: its detail begins with "start".
+func atStart(h healthResult) healthResult {
+	if h.Detail == "" {
+		h.Detail = "start"
+	} else {
+		h.Detail = "start · " + h.Detail
+	}
+	return h
+}
+
+// someIDs names the first five of ids, then how many more there are.
+func someIDs(ids []string) string {
+	const shown = 5
+	if len(ids) <= shown {
+		return strings.Join(ids, ", ")
+	}
+	return strings.Join(ids[:shown], ", ") + " and " + strconv.Itoa(len(ids)-shown) + " more"
 }
 
 // healthFsck runs git fsck on the main repository and every engagement's

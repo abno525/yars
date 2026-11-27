@@ -87,14 +87,17 @@ func serverLogRing(w io.Writer, cfg config.Config, flagLevel string) (*slog.Logg
 // startConfig and before the first request: files a stop left uncommitted
 // in the findings folders are removed, the database is opened (and
 // migrated), config.yaml's workflow is checked against the one yars init
-// set up, teams are backfilled, board claims a stop cut off are reset,
-// server files are git-ignored and the engagement pointers follow their
-// repositories. The store logs to lg. The upgrade test runs it on old data.
+// set up, teams are backfilled, board claims a stop cut off are reset, the
+// database writes a stop cut off after their commit are made
+// (recoverWrites), server files are git-ignored and the engagement pointers
+// follow their repositories. The store logs to lg. The upgrade test runs it on old data.
 func prepareData(r *gitrepo.Repo, cfg config.Config, lg *slog.Logger) (*db.DB, *store.Store, error) {
 	if items := legacyItems(r.Dir); len(items) > 0 {
 		return nil, nil, fmt.Errorf("this data directory still keeps accounts, workflow state or chat in files (%s); run: yars migrate --data %s", strings.Join(items, ", "), r.Dir)
 	}
-	cleanLeftovers(r, lg)
+	// asked once: both clean-ups of the start act on the same answer
+	other := otherServer(r.Dir)
+	cleanLeftovers(r, lg, other)
 	d, err := dataDB(r.Dir)
 	if err != nil {
 		return nil, nil, err
@@ -122,6 +125,9 @@ func prepareData(r *gitrepo.Repo, cfg config.Config, lg *slog.Logger) (*db.DB, *
 	if err := d.ResetBoardClaims(); err != nil {
 		return fail("team board", err)
 	}
+	if !other {
+		recoverWrites(st, lg)
+	}
 	if err := ensureIgnored(r); err != nil {
 		return fail("ignore server files", err)
 	}
@@ -137,9 +143,9 @@ func prepareData(r *gitrepo.Repo, cfg config.Config, lg *slog.Logger) (*db.DB, *
 // never a name. While another server answers on the data folder (a second
 // yars serve started by mistake) nothing is removed: that server's files
 // between write and commit look the same. A failure is logged and the start
-// goes on.
-func cleanLeftovers(r *gitrepo.Repo, lg *slog.Logger) {
-	if otherServer(r.Dir) {
+// goes on. other is otherServer's answer.
+func cleanLeftovers(r *gitrepo.Repo, lg *slog.Logger, other bool) {
+	if other {
 		logs.Or(lg).Warn("start: another server runs on this data folder; uncommitted files in the findings folders are left")
 		return
 	}
@@ -149,6 +155,19 @@ func cleanLeftovers(r *gitrepo.Repo, lg *slog.Logger) {
 	}
 	if err != nil {
 		logs.Or(lg).Error("start: uncommitted files are not removed", "err", err)
+	}
+}
+
+// recoverWrites makes the database writes a stop cut off after their commit
+// and then holds the database against the finding files (store.Recover),
+// once the store is built and before the first request. The store logs each
+// write it makes and each thing it finds; a start that finds nothing says
+// nothing. It is not called while another server answers on the data
+// folder: that server may be between a commit and its write. A failure is
+// logged and the start goes on.
+func recoverWrites(st *store.Store, lg *slog.Logger) {
+	if _, err := st.Recover(); err != nil {
+		logs.Or(lg).Error("start: the journal is not replayed, or the database is not compared with the files", "err", err)
 	}
 }
 

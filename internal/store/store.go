@@ -17,6 +17,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/abno525/yars/internal/config"
@@ -161,6 +162,11 @@ type Store struct {
 	fixStop context.CancelFunc
 
 	beforeWrite func() // test hook: runs between reading and writing
+	// afterCommit (test hook) runs once a finding's commit is made, before
+	// the database write that follows it: a test stops the store there
+	afterCommit func()
+	// atStart is what the start's pass found (Recover); nil before it ran
+	atStart atomic.Pointer[Integrity]
 	// beforePurgeGC (test hook) runs in a purge after the rewrite, before
 	// the old objects are removed; an error fails the purge there
 	beforePurgeGC func() error

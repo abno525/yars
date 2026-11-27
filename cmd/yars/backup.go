@@ -27,7 +27,8 @@ var linkFile = os.Link
 // cmdBackup writes a verified backup of the data folder: yars backup [--data
 // dir] [--key] --out file.zip. It takes no locks, so it works while the
 // server runs: a backup that a commit landing meanwhile made inconsistent
-// fails Verify and is taken again.
+// fails Verify and is taken again, and so is one whose check could not reset
+// a repository to the commit recorded with the database.
 func cmdBackup(args []string, out io.Writer) error {
 	f := flag.NewFlagSet("backup", flag.ContinueOnError)
 	data := dataFlag(f)
@@ -69,6 +70,11 @@ func cmdBackup(args []string, out io.Writer) error {
 		var rep backup.Report
 		if err == nil {
 			rep, err = verifyBackup(part)
+		}
+		if err == nil && !rep.PointInTime {
+			// a history rewritten while it was copied: its files and its
+			// database would not be of one moment
+			err = fmt.Errorf("the backup is not point-in-time (not reset: %s)", rep.NotReset)
 		}
 		if err != nil {
 			os.Remove(part)
@@ -162,12 +168,24 @@ func cmdRestore(args []string, out io.Writer) error {
 	if rep.HasKey {
 		key = "yes"
 	}
-	fmt.Fprintf(out, "schema v%d\n%s\n%s\nsecret key: %s\n", rep.Schema, count(rep.Engagements, "engagement"), count(rep.Findings, "finding"), key)
+	fmt.Fprintf(out, "schema v%d\n%s\n%s\nsecret key: %s\npoint in time: %s\n", rep.Schema, count(rep.Engagements, "engagement"), count(rep.Findings, "finding"), key, pointInTime(rep))
 	if !rep.HasKey {
 		fmt.Fprintln(out, "stored AI and personal keys must be entered again; delete the webhooks and add them again (their secrets cannot be read)")
 	}
 	fmt.Fprintf(out, "next: yars serve --data %s\n", *data)
 	return nil
+}
+
+// pointInTime is the restore's line on whether the files and the database
+// are of one moment: "yes", or "no" and why.
+func pointInTime(rep backup.Report) string {
+	switch {
+	case rep.PointInTime:
+		return "yes"
+	case rep.NotReset == "":
+		return "no (the backup records no commits)"
+	}
+	return "no (not reset: " + rep.NotReset + ")"
 }
 
 // count is "1 finding", "2 findings".

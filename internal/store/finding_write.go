@@ -203,9 +203,10 @@ func (s *Store) UpdateSection(engID, dir, section, body, base string, a Actor) e
 // mutateThen loads a finding, applies fn, and commits the result as one
 // commit "<ID>: <msg>". No commit is made when the file is unchanged. then
 // (may be nil) runs after the commit, still under the engagement's lock,
-// with the file's ApprovalHash before and after.
-func (s *Store) mutateThen(engID, dir string, a gitrepo.Author, fn func(f *finding.Finding) (string, error), then func(ref FindingRef, oldHash, newHash string) error) error {
-	ev, err := s.mutateLocked(engID, dir, a, fn, then)
+// with the file's ApprovalHash before and after. intent (may be nil) says
+// what then will write, so it can be journaled before the commit (journal).
+func (s *Store) mutateThen(engID, dir string, a gitrepo.Author, fn func(f *finding.Finding) (string, error), intent func() *db.Intent, then func(ref FindingRef, oldHash, newHash string) error) error {
+	ev, err := s.mutateLocked(engID, dir, a, fn, intent, then)
 	if ev.Kind != "" {
 		// told once the engagement lock is released: subscribers may read it
 		s.Emit(ev)
@@ -215,13 +216,33 @@ func (s *Store) mutateThen(engID, dir string, a gitrepo.Author, fn func(f *findi
 
 // mutateLocked does mutateThen's work under the lock and returns the
 // finding.updated event once a commit was made.
-func (s *Store) mutateLocked(engID, dir string, a gitrepo.Author, fn func(f *finding.Finding) (string, error), then func(ref FindingRef, oldHash, newHash string) error) (Event, error) {
-	return s.mutateLockedIn(engID, dir, a, fn, then, false)
+func (s *Store) mutateLocked(engID, dir string, a gitrepo.Author, fn func(f *finding.Finding) (string, error), intent func() *db.Intent, then func(ref FindingRef, oldHash, newHash string) error) (Event, error) {
+	return s.mutateLockedIn(engID, dir, a, fn, intent, then, false)
+}
+
+// journal puts down, before a finding's commit, the database write that
+// follows it: in (nil: the commit has none) with the file's digests before
+// and after. A stop between the commit and the write then leaves a row the
+// next start replays (Recover). The write removes the row in its own
+// transaction; the returned func removes it when the commit fails.
+func (s *Store) journal(in *db.Intent, eng, fid, oldHash, newHash string) (undo func(), err error) {
+	if in == nil || s.db == nil {
+		return func() {}, nil
+	}
+	in.Eng, in.Fid, in.Old, in.New = eng, fid, oldHash, newHash
+	if err := s.db.PutIntent(*in); err != nil {
+		return nil, err
+	}
+	return func() {
+		if err := s.db.DropIntent(eng, fid); err != nil {
+			s.Log().Error("journal: the row of a commit that failed is not removed", "eng", eng, "finding", LogID(fid), "err", err)
+		}
+	}, nil
 }
 
 // mutateLockedIn is mutateLocked; with archived set it writes into an
 // archived engagement too (a structure rename keeps every finding readable).
-func (s *Store) mutateLockedIn(engID, dir string, a gitrepo.Author, fn func(f *finding.Finding) (string, error), then func(ref FindingRef, oldHash, newHash string) error, archived bool) (Event, error) {
+func (s *Store) mutateLockedIn(engID, dir string, a gitrepo.Author, fn func(f *finding.Finding) (string, error), intent func() *db.Intent, then func(ref FindingRef, oldHash, newHash string) error, archived bool) (Event, error) {
 	if !ValidID(engID) {
 		return Event{}, ErrNotFound
 	}
@@ -251,15 +272,28 @@ func (s *Store) mutateLockedIn(engID, dir string, a gitrepo.Author, fn func(f *f
 		return Event{}, err
 	}
 	rel := findingPath(engID, ref.Dir)
+	oldHash, newHash := ApprovalHash(before), ApprovalHash(after)
+	var in *db.Intent
+	if intent != nil {
+		in = intent()
+	}
+	unjournal, err := s.journal(in, engID, ref.F.Meta.ID, oldHash, newHash)
+	if err != nil {
+		return Event{}, err
+	}
 	if err := s.writeFile(rel, after); err != nil {
+		unjournal()
 		return Event{}, err
 	}
 	if err := s.commit(map[string][]byte{rel: before}, ref.F.Meta.ID+": "+msg, a, ""); err != nil {
+		unjournal()
 		return Event{}, err
+	}
+	if s.afterCommit != nil {
+		s.afterCommit()
 	}
 	defer s.notify(Change{Eng: engID, Fid: ref.F.Meta.ID, Kind: ChangeContent})
 	ev := updatedEvent(a.Name, ref, old, false)
-	oldHash, newHash := ApprovalHash(before), ApprovalHash(after)
 	var terr error
 	if then != nil {
 		terr = then(ref, oldHash, newHash)
@@ -307,6 +341,12 @@ func (s *Store) mutateContent(engID, dir string, who Actor, fn func(f *finding.F
 			return "", &workflow.Denied{Reason: "this finding is " + f.Meta.Status + "; only a director can edit it"}
 		}
 		return fn(f)
+	}, func() *db.Intent {
+		// only an edit of an approved finding carries anything
+		if status != "complete" && status != "reported" {
+			return nil
+		}
+		return &db.Intent{Kind: db.IntentCarry}
 	}, func(ref FindingRef, oldHash, newHash string) error {
 		ref.F.Meta.Status = status
 		return s.carryApproval(ref, oldHash, newHash)
@@ -328,12 +368,16 @@ func (s *Store) carryApproval(ref FindingRef, oldHash, newHash string) error {
 // carryApprovalDB moves the approval of eng/fid from oldHash to newHash
 // (ApprovalHash values) when the finding was approved for oldHash. Only after the change is in: a
 // director's commit through YARS, or a push once it landed (ReceivePush),
-// never from the hook.
+// never from the hook. The finding's journal row, if it has one, goes in the
+// same transaction: this is the write it stood for.
 func carryApprovalDB(d *db.DB, eng, fid, oldHash, newHash string) error {
 	if d == nil {
 		return nil
 	}
 	return d.TxFor(eng, func(tx *db.Tx) error {
+		if err := tx.DropIntent(eng, fid); err != nil {
+			return err
+		}
 		st, err := tx.State(eng, fid)
 		if err != nil || !Approved(st, oldHash) || st.ApprovedHash == "" {
 			return err
@@ -357,15 +401,25 @@ func signedOff(st db.State) bool {
 // sign-off an earlier text edit voided is dropped too (the edit wrote no
 // state) but not named: its reviewer was told then.
 func dropSignOffs(d *db.DB, eng, fid string, hashes ...string) ([]string, error) {
+	voided, _, err := takeSignOffs(d, eng, fid, hashes...)
+	return voided, err
+}
+
+// takeSignOffs is dropSignOffs that also returns the reviewers as they were
+// (nil when nothing was dropped), for putBackSignOffs. An attachment change
+// through YARS takes the sign-offs before its commit: a stop between the two
+// then leaves no sign-off standing for files the reviewers never saw.
+func takeSignOffs(d *db.DB, eng, fid string, hashes ...string) (voided []string, prior []db.Reviewer, err error) {
 	if d == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
-	var voided []string
-	err := d.TxFor(eng, func(tx *db.Tx) error {
+	err = d.TxFor(eng, func(tx *db.Tx) error {
+		voided, prior = nil, nil
 		st, err := tx.State(eng, fid)
 		if err != nil || !signedOff(st) {
 			return err
 		}
+		prior = slices.Clone(st.Reviewers)
 		for i := range st.Reviewers {
 			if c := st.Reviewers[i].ClearedHash; c != "" && slices.ContainsFunc(hashes, func(h string) bool { return boundTo(c, h) }) {
 				voided = append(voided, st.Reviewers[i].Name)
@@ -375,7 +429,38 @@ func dropSignOffs(d *db.DB, eng, fid string, hashes ...string) ([]string, error)
 		return tx.PutState(eng, fid, st)
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return voided, nil
+	return voided, prior, nil
+}
+
+// putBackSignOffs gives back the sign-offs takeSignOffs dropped, after the
+// commit they were dropped for failed: to each reviewer who is still on the
+// list of the finding, while it is still in verification, and who has not
+// signed off again since (a workflow step takes no repository lock).
+func putBackSignOffs(d *db.DB, eng, fid string, prior []db.Reviewer) error {
+	if d == nil || len(prior) == 0 {
+		return nil
+	}
+	return d.TxFor(eng, func(tx *db.Tx) error {
+		st, err := tx.State(eng, fid)
+		if err != nil || st.Status != "verification" {
+			return err
+		}
+		back := false
+		for i, r := range st.Reviewers {
+			if r.ClearedHash != "" {
+				continue
+			}
+			for _, p := range prior {
+				if p.Name == r.Name && p.ClearedHash != "" {
+					st.Reviewers[i].ClearedHash, back = p.ClearedHash, true
+				}
+			}
+		}
+		if !back {
+			return nil
+		}
+		return tx.PutState(eng, fid, st)
+	})
 }

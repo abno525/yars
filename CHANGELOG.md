@@ -26,6 +26,8 @@ What changed for people who run or use YARS. Newest first.
 - `GET /healthz` answers a probe without a login: `200` and `ok` when the server answers and its database reads, `503` and `unavailable` when not. It holds no version, no counts and no reason; the reason is one `warn` line of the service log, `health check failed`, when the answer turns bad. A probe answered `200` is logged at `debug` ([docs/deploy.md](docs/deploy.md)).
 - `yars help`, `yars -h` and `yars --help` print the list of commands and exit 0, and `yars --version` prints what `yars version` prints (before: all four printed the list as an error and exited 2). `yars <command> -h` lists the command's flags and exits 0 (before: `yars: flag: help requested` and exit 1 or 2). A word that is no command is named: `yars: unknown command "x"`, then the list, exit 2.
 - `yars users --data <dir>` lists the accounts: name, role, admin, disabled, created. `yars disable <user>` and `yars enable <user>` do what the Disabled switch of Admin › Users does, also while the server runs: a disabled account cannot log in, its sessions end at once and its tokens are refused. Both are in Admin › Activity by `cli` ([docs/deploy.md](docs/deploy.md)).
+- A backup is of one moment: it records the commit each repository was at when the database was copied, and a restore resets each repository to it (before: a change that landed while the backup was taken was in the files and not in the database). `yars restore` prints `point in time: yes` or `no`, and the Restore panel of Admin › System has a Point in time cell. A backup from an earlier YARS restores as before and says `no`. A backup taken while a Purge rewrites a history fails, and `yars backup` takes it again.
+- Admin › System › Run integrity compares the database with the finding files, in the new Health row Database and files: it counts rows kept for a finding that is gone and approvals given for other text, and reports a finding ID held by two folders or a `finding.md` that does not read as an error.
 - `docs/deploy.md` has a Logs section: the journalctl commands, the levels, the fields, what a line never holds, the request ID, and a fail2ban example for the failed-login lines in their new form.
 
 ### Changed
@@ -69,6 +71,9 @@ What changed for people who run or use YARS. Newest first.
 
 ### Fixed
 
+- A server stopped between a commit and the database write that follows it no longer leaves the finding half changed. A director's edit of a complete finding keeps its approval, and a rename in Admin › Structure keeps a finding's approval, sign-offs and chat threads: the next start of `yars serve` makes the write (before: the finding read as in verification). Each such write is in Admin › Activity as `system.repair` by `yars` and one `warn` line of the service log. Nothing is written while another server answers on the data folder.
+- An attachment change on a finding in verification drops its sign-offs before the commit (before: after it, so a stop in between left sign-offs for files the reviewers never saw). A commit that fails puts them back.
+- At each start the database is compared with the finding files once. The row Database and files of Admin › System shows the result until Run integrity replaces it. The row also counts the writes the start made after a stop and the noted writes it could not make, beside an error too.
 - The cache of rendered Markdown is limited in bytes; a text over 64 KiB is not cached.
 - The editor's preview takes only a finding's folder name in its address.
 - Files waiting for download after a send are limited to 256 MiB per user, dropped after 10 minutes by a timer, and served only under the engagement they were made in.

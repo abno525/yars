@@ -79,7 +79,8 @@ func TestRestoreUploadMakesSiblingFolder(t *testing.T) {
 	p := between(b, `id="restore"`, "</form>")
 	for _, want := range []string{`<code id="restore-cmd" title="yars serve --data ` + dirs[0] + `">yars serve --data ` + dirs[0] + `</code>`, `data-copy="restore-cmd"`,
 		`<span class="sl">Schema</span><span class="sv">v` + fmt.Sprint(db.SchemaVersion) + `</span>`, `<span class="sl">Engagements</span><span class="sv">1</span>`,
-		`<span class="sl">Findings</span><span class="sv">1</span>`, `<span class="sl">Keys</span><span class="sv">without key</span>`, `title="` + dirs[0] + `"`} {
+		`<span class="sl">Findings</span><span class="sv">1</span>`, `<span class="sl">Keys</span><span class="sv">without key</span>`,
+		`<span class="sl">Point in time</span><span class="sv">Yes</span>`, `title="` + dirs[0] + `"`} {
 		if !strings.Contains(p, want) {
 			t.Fatalf("panel lacks %s:\n%s", want, p)
 		}
@@ -93,6 +94,47 @@ func TestRestoreUploadMakesSiblingFolder(t *testing.T) {
 	// the result is shown once; the last restore stays
 	if p := between(e.do(t, "dora", "GET", "/admin/system", nil, nil).Body.String(), `id="restore"`, "</form>"); strings.Contains(p, "restore-cmd") || !strings.Contains(p, dirs[0]) {
 		t.Fatalf("panel on the next load:\n%s", p)
+	}
+}
+
+// A backup an earlier YARS wrote records no commits: it restores, and the
+// panel says that it is not point-in-time.
+func TestRestoreUploadOldBackupNotPointInTime(t *testing.T) {
+	e := setupSerial(t)
+	rec := e.do(t, "dora", "POST", "/admin/system/backup", url.Values{}, nil)
+	if rec.Code != 200 {
+		t.Fatalf("backup %d", rec.Code)
+	}
+	zr, err := zip.NewReader(bytes.NewReader(rec.Body.Bytes()), int64(rec.Body.Len()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var old bytes.Buffer
+	zw := zip.NewWriter(&old)
+	dropped := 0
+	for _, f := range zr.File {
+		if f.Name == ".yars/backup.json" {
+			dropped++
+			continue
+		}
+		if err := zw.Copy(f); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := zw.Close(); err != nil || dropped != 1 {
+		t.Fatalf("copy: %v, %d entries dropped", err, dropped)
+	}
+	if rec := e.uploadFile(t, "dora", "/admin/system/restore", "backup", "old.zip", old.Bytes()); rec.Code != http.StatusSeeOther {
+		t.Fatalf("restore %d:\n%s", rec.Code, rec.Body.String())
+	}
+	if dirs := e.restored(t); len(dirs) != 1 {
+		t.Fatalf("restored folders %v", dirs)
+	}
+	p := between(e.do(t, "dora", "GET", "/admin/system", nil, nil).Body.String(), `id="restore"`, "</form>")
+	for _, want := range []string{`<span class="sl">Findings</span><span class="sv">1</span>`, `<span class="sl">Point in time</span><span class="sv">No</span>`} {
+		if !strings.Contains(p, want) {
+			t.Fatalf("panel lacks %s:\n%s", want, p)
+		}
 	}
 }
 

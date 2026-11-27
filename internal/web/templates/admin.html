@@ -342,6 +342,7 @@
       <div class="st"><span class="sl">Engagements</span><span class="sv">{{.Engagements}}</span></div>
       <div class="st"><span class="sl">Findings</span><span class="sv">{{.Find}}</span></div>
       <div class="st"><span class="sl">Keys</span><span class="sv">{{if .HasKey}}with key{{else}}without key{{end}}</span></div>
+      <div class="st"><span class="sl">Point in time</span><span class="sv">{{if .PointInTime}}Yes{{else}}No{{end}}</span></div>
     </div>
     <div class="copyrow flush"><code id="restore-cmd" title="yars serve --data {{.Target}}">yars serve --data {{.Target}}</code><button type="button" class="btn save sm w96" data-copy="restore-cmd">Copy</button></div>
     {{end}}
