@@ -635,6 +635,20 @@ function yarsSide() {
   if (t && !s.contains(t)) yarsThreadMark(null);
   return true;
 }
+// yarsChatKey: Shift+L hides or shows the chat (the finding page's toggle;
+// l goes to the chat). Hiding the selected chat goes back to the panel it
+// was entered from. False on a page without the toggle.
+function yarsChatKey() {
+  var tg = document.querySelector('[data-chat-toggle]');
+  if (!tg || tg.disabled) return false;
+  var inChat = yarsSelected() && yarsSelected().getAttribute('data-kpanel') === 'side';
+  tg.click();
+  if (inChat && yarsChatHidden()) {
+    var back = yarsSideFrom ? document.getElementById(yarsSideFrom) : null;
+    yarsSelect(back && back.hasAttribute('data-kpanel') ? back : null, true);
+  }
+  return true;
+}
 function yarsBack() {
   var cur = yarsSelected();
   if (!cur || cur.getAttribute('data-kpanel') !== 'side') return false;
@@ -822,22 +836,6 @@ document.addEventListener('keydown', function (evt) {
     if (!evt.repeat && !send.disabled) send.click();
     return;
   }
-  if (key === 'Control+H') {
-    // hides or shows the chat (the finding page's toggle); anywhere else the
-    // browser's own (History)
-    var tg = document.querySelector('[data-chat-toggle]');
-    if (!tg || yarsKeysOff() || evt.isComposing || document.querySelector('dialog[open]')) return;
-    evt.preventDefault();
-    if (evt.repeat) return;
-    var inChat = yarsSelected() && yarsSelected().getAttribute('data-kpanel') === 'side';
-    tg.click();
-    // hiding the selected chat goes back to the panel it was entered from
-    if (inChat && yarsChatHidden()) {
-      var back = yarsSideFrom ? document.getElementById(yarsSideFrom) : null;
-      yarsSelect(back && back.hasAttribute('data-kpanel') ? back : null, true);
-    }
-    return;
-  }
   // Esc during IME composition cancels the composition only
   if (key === 'Escape') { if (!evt.isComposing && !evt.repeat) yarsEscape(); return; }
   // Enter on a list's checkbox (app.js keeps it from submitting the form)
@@ -858,6 +856,7 @@ document.addEventListener('keydown', function (evt) {
   if (yarsNav(key) || yarsListNav(key)) { evt.preventDefault(); return; }
   if (key === '/') { if (yarsSlash()) evt.preventDefault(); return; }
   if (key === '?') { if (yarsKeysList()) evt.preventDefault(); return; }
+  if (key === 'Shift+L' && yarsChatKey()) { evt.preventDefault(); return; }
   // e edits the selected panel; on a page without panels it is Export's; in
   // the chat it writes
   if (key === 'E') { if (yarsEdit() || yarsRowFire('E') || (!document.querySelector('[data-kpanel]') && yarsFire('E')) || yarsWrite(evt)) evt.preventDefault(); return; }
