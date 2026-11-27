@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/abno525/yars/internal/chat"
 	"github.com/abno525/yars/internal/db"
 	"github.com/abno525/yars/internal/rules"
 	"github.com/abno525/yars/internal/workflow"
@@ -141,6 +142,66 @@ func TestRowThatCountsTheRest(t *testing.T) {
 	// the row is not one Fix with AI works on: it quotes nothing
 	if n := FixCount(checked(t, s, fd)); n != rules.MaxPerRule {
 		t.Fatalf("fixable %d", n)
+	}
+}
+
+// The row that counts the rest is a row of the checks table only: the chat
+// gets no thread for it (it has no place and no quote, and its count is part
+// of its key), so a count that changes posts and resolves nothing.
+func TestRowThatCountsTheRestHasNoThread(t *testing.T) {
+	s, dir, fd := ready(t)
+	withRules(t, s, dir, "- id: tee\n  target: sections\n  regex_forbid: 'T\\d+'\n  message: no T numbers\n")
+	words := func(n int) string {
+		var b strings.Builder
+		for i := range n {
+			b.WriteString("T" + strconv.Itoa(i) + " ")
+		}
+		return b.String()
+	}
+	// the check threads of the rule, and every message of the chat
+	chatNow := func() (threads, msgs int) {
+		t.Helper()
+		all, err := s.Chat(eng, fd)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range all {
+			if m.Kind != chat.KindCheck {
+				continue
+			}
+			if strings.HasPrefix(m.Text, "and ") {
+				t.Fatalf("a check thread without the rule's message and a quote: %q", m.Text)
+			}
+			if strings.Contains(m.Text, "no T numbers") {
+				threads++
+			}
+		}
+		return threads, len(all)
+	}
+	for _, n := range []int{25, 24, 23} {
+		s.UpdateSection(eng, fd, "Description", words(n), "", alice)
+		before := 0
+		if n != 25 {
+			_, before = chatNow()
+		}
+		st := checked(t, s, fd)
+		rest := 0
+		for _, r := range st.Results {
+			if r.Rule == "tee" && strings.HasPrefix(r.Target, "more:") {
+				rest++
+				if r.Thread != "" {
+					t.Fatalf("%d hits: the counting row has a thread: %+v", n, r)
+				}
+			}
+		}
+		threads, after := chatNow()
+		if rest != 1 || threads != rules.MaxPerRule {
+			t.Fatalf("%d hits: %d counting rows, %d check threads of the rule", n, rest, threads)
+		}
+		// the 20 shown are the same: a smaller rest adds nothing to the chat
+		if n != 25 && after != before {
+			t.Fatalf("%d hits: the chat grew from %d to %d messages", n, before, after)
+		}
 	}
 }
 
