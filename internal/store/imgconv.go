@@ -14,8 +14,15 @@ import (
 
 // maxPixels is the largest picture PNGOf decodes. A file of a few bytes can
 // claim any size, and a decoded picture takes four bytes a pixel: the size
-// is read from the header and checked before anything is decoded.
-const maxPixels = 32 << 20
+// is read from the header and checked before anything is decoded. At this
+// size one conversion holds about 64 MB of pixels (a 5K screenshot is under
+// it; a 10 MB BMP is about 3 megapixels).
+const maxPixels = 16 << 20
+
+// pngSlot lets one conversion run at a time: uploads sent together and the
+// pictures of one export wait for each other, so the pixels of one picture
+// are in memory, not of all of them.
+var pngSlot = make(chan struct{}, 1)
 
 // PNGOf turns a BMP or WebP picture into a PNG: the exports read PNG, JPEG
 // and GIF only, so an upload is stored as one and an export converts what a
@@ -45,6 +52,8 @@ func PNGOf(data []byte) (out []byte, converted bool, err error) {
 	if int64(cfg.Width)*int64(cfg.Height) > maxPixels {
 		return nil, false, fmt.Errorf("%w: this %s picture is larger than %d megapixels; save it as PNG", ErrInvalidValue, kind, maxPixels>>20)
 	}
+	pngSlot <- struct{}{}
+	defer func() { <-pngSlot }()
 	img, err := decode(bytes.NewReader(data))
 	if err != nil {
 		return nil, false, unread

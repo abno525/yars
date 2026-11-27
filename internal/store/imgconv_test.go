@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"golang.org/x/image/bmp"
 )
@@ -53,6 +54,55 @@ func hugeBMP(w, h int32) []byte {
 	binary.LittleEndian.PutUint16(b[26:], 1)
 	binary.LittleEndian.PutUint16(b[28:], 24)
 	return b
+}
+
+// A tiny file may claim a picture of many megapixels (a WebP of one colour
+// does, and decodes): the size taken is small enough that one conversion's
+// pixels stay near 64 MB, and conversions run one at a time.
+func TestPNGOfBoundsItsMemory(t *testing.T) {
+	// 5600 x 5600 is 31 megapixels: about 125 MB of pixels
+	if _, _, err := PNGOf(hugeBMP(5600, 5600)); !errors.Is(err, ErrInvalidValue) || !strings.Contains(err.Error(), "larger than 16 megapixels") {
+		t.Errorf("a 31 megapixel header: %v", err)
+	}
+	// a 5K screenshot's size is taken (this one holds no pixels: it is read
+	// and found cut off)
+	if _, _, err := PNGOf(hugeBMP(5120, 2880)); err == nil || strings.Contains(err.Error(), "megapixels") {
+		t.Errorf("a 5K header: %v", err)
+	}
+
+	// while one conversion runs, the next waits
+	pngSlot <- struct{}{}
+	held := true
+	defer func() {
+		if held {
+			<-pngSlot
+		}
+	}()
+	done := make(chan error, 1)
+	pic := bmpBytes(t, color.White)
+	go func() {
+		_, _, err := PNGOf(pic)
+		done <- err
+	}()
+	select {
+	case <-done:
+		t.Fatal("a second conversion ran beside the first")
+	case <-time.After(300 * time.Millisecond):
+	}
+	// data that is no BMP or WebP is not converted and never waits
+	if out, converted, err := PNGOf([]byte("plain text")); err != nil || converted || string(out) != "plain text" {
+		t.Fatalf("plain data: %q %v %v", out, converted, err)
+	}
+	<-pngSlot
+	held = false
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("the waiting conversion never ran")
+	}
 }
 
 // The exports read PNG, JPEG and GIF. An uploaded BMP or WebP picture is
