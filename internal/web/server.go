@@ -1036,12 +1036,46 @@ func (s *Server) findingHead(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) finding(w http.ResponseWriter, r *http.Request) {
+	s.markFindingRead(r)
 	var d wfDenial
 	if js := s.flash.take(r, "wfdenied"); js != "" && json.Unmarshal([]byte(js), &d) == nil && d.Path == r.URL.Path {
 		s.renderFindingDenied(w, r, http.StatusOK, d.Error, &d)
 		return
 	}
 	s.renderFinding(w, r, http.StatusOK, "")
+}
+
+// markFindingRead marks the viewer's notices of the finding in r's path
+// read: its page is being opened. It runs before the page is built, since
+// the page's top bar counts the unread notices. Only the full page calls
+// it, never a part a live event or the poll fetches (a hidden tab would
+// clear notices nobody saw), and a browser's prefetch marks nothing. The
+// team gate has passed; a finding that cannot be read marks nothing, and a
+// failure only leaves the notices unread.
+func (s *Server) markFindingRead(r *http.Request) {
+	d := s.Store.DB()
+	if d == nil || prefetch(r) {
+		return
+	}
+	ref, err := s.Store.Finding(r.PathValue("eng"), r.PathValue("fid"))
+	if err != nil {
+		return
+	}
+	u := auth.UserFrom(r.Context())
+	if err := d.MarkFindingRead(u.Username, ref.EngID, ref.F.Meta.ID); err != nil {
+		s.log().Error("notifications not marked read", "user", u.Username, "eng", ref.EngID, "finding", ref.F.Meta.ID, "err", err)
+	}
+}
+
+// prefetch tells a request the browser makes ahead of a click (Sec-Purpose,
+// and the older Purpose and X-Moz headers): nobody is reading the page yet.
+func prefetch(r *http.Request) bool {
+	for _, h := range []string{"Sec-Purpose", "Purpose", "X-Purpose", "X-Moz"} {
+		if strings.Contains(strings.ToLower(r.Header.Get(h)), "prefetch") || strings.Contains(strings.ToLower(r.Header.Get(h)), "prerender") {
+			return true
+		}
+	}
+	return false
 }
 
 // renderFinding renders the full finding page, optionally with an error

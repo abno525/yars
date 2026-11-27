@@ -10,7 +10,16 @@
   <table class="table stable notetable" data-arrows>
     <thead><tr><th class="c-time">When</th><th class="c-ev">Event</th><th class="c-fnd">Finding</th><th class="c-who2">By</th><th>Text</th></tr></thead>
     <tbody>
-      {{range .Notes.Rows}}
+      {{template "note_rows" .Notes}}
+    </tbody>
+  </table>
+</section>
+{{end}}
+
+{{/* note_rows is a page of the notifications list (a notesView) and, when
+there are more, the Load more row that swaps itself for the next page */}}
+{{define "note_rows"}}
+      {{range .Rows}}
       <tr{{if not .Read}} class="unread"{{end}}>
         <td class="mono">{{.At}}</td>
         <td><span class="tag nev-{{.Event}}">{{.Label}}</span></td>
@@ -19,11 +28,11 @@
         <td class="muted" title="{{.Text}}">{{.Text}}</td>
       </tr>
       {{else}}
-      {{template "empty_row" 5}}
+      {{if not .Later}}{{template "empty_row" 5}}{{end}}
       {{end}}
-    </tbody>
-  </table>
-</section>
+      {{if .MoreURL}}
+      <tr class="more" id="notes-more"><td colspan="5"><button type="button" class="btn secondary w152" hx-get="{{.MoreURL}}" hx-target="#notes-more" hx-swap="outerHTML">Load {{.PageSize}} more</button></td></tr>
+      {{end}}
 {{end}}
 
 {{/* data-q is the query this list answers, as the field sent it: Enter

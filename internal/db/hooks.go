@@ -240,30 +240,53 @@ func (d *DB) Redeliver(id int64, now time.Time) (int64, error) {
 	return d.EnqueueDelivery(x.HookID, x.Event, x.Payload, now)
 }
 
-// Notification is one entry of a user's in-app notification list.
+// Notification is one entry of a user's in-app notification list. Thread is
+// the chat thread it is about (the id of the thread's first message), ""
+// for a notice that is not about a message.
 type Notification struct {
 	ID                                int64
 	User, Event, Eng, Dir, Fid, Title string
 	Actor, Text, TS                   string
+	Thread                            string
 	Read                              bool
 }
 
-const noteCols = "id, username, event, eng, dir, fid, title, actor, text, ts, read"
+const noteCols = "id, username, event, eng, dir, fid, title, actor, text, ts, read, thread"
 
 func scanNote(sc interface{ Scan(...any) error }) (Notification, error) {
 	var n Notification
-	err := sc.Scan(&n.ID, &n.User, &n.Event, &n.Eng, &n.Dir, &n.Fid, &n.Title, &n.Actor, &n.Text, &n.TS, &n.Read)
+	err := sc.Scan(&n.ID, &n.User, &n.Event, &n.Eng, &n.Dir, &n.Fid, &n.Title, &n.Actor, &n.Text, &n.TS, &n.Read, &n.Thread)
 	return n, err
 }
 
 // AddNotification stores a notification for n.User (TS is set now).
 func (d *DB) AddNotification(n Notification) (int64, error) {
-	res, err := d.Exec("INSERT INTO notifications(username, event, eng, dir, fid, title, actor, text, ts) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		n.User, n.Event, n.Eng, n.Dir, n.Fid, n.Title, n.Actor, n.Text, d.stamp())
+	res, err := d.Exec("INSERT INTO notifications(username, event, eng, dir, fid, title, actor, text, ts, thread) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		n.User, n.Event, n.Eng, n.Dir, n.Fid, n.Title, n.Actor, n.Text, d.stamp(), n.Thread)
 	if err != nil {
 		return 0, err
 	}
 	return res.LastInsertId()
+}
+
+// MarkFindingRead marks user's unread notifications of the finding fid (its
+// ID, F-001: a new title renames its folder) of eng read. Nothing is
+// written when there is none, so opening a finding's page is a read of the
+// database but for the first time after a notice.
+func (d *DB) MarkFindingRead(user, eng, fid string) error {
+	if eng == "" || fid == "" {
+		return nil
+	}
+	var one int
+	err := d.QueryRow("SELECT 1 FROM notifications WHERE username = ? AND read = 0 AND eng = ? AND fid = ? LIMIT 1", user, eng, fid).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	_, err = d.Exec("UPDATE notifications SET read = 1 WHERE username = ? AND read = 0 AND eng = ? AND fid = ?", user, eng, fid)
+	return err
 }
 
 // Notifications lists user's newest notifications first.

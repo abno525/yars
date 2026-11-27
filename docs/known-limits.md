@@ -71,6 +71,8 @@ What YARS does not do, or does in a way that can surprise. Each row states today
 | In the inbox and Go to, a long engagement ID is cut at 96 px, the whole one on hover | Two date-prefixed IDs (2026-11-acme-webapp, 2026-11-acme-api) can look alike there. |
 | "is editing" stays up to 150 s after an editor's tab was closed | Cancel and Save end it at once. A closed tab sends nothing; the server forgets the editor after 150 s without a sign of it. |
 | The History page still scrolls when a selected change's diff is taller than the window | The list column fits the window; the diff panel has no height limit. |
+| A notice about a chat message opens the finding at the top, not at the thread, when the chat is hidden, the thread is under Show older, or it is a resolved thread you hid | The link names the thread; the page has no element to go to then. Notices stored before the upgrade lead to the top too. |
+| Opening a finding marks your notices of that finding read, also those you did not look at | Every notice of the finding counts as seen with its page. A part of the page that refreshes itself marks nothing. |
 
 ## Simple workflow
 

@@ -104,7 +104,8 @@ func TestInboxNotifications(t *testing.T) {
 		}
 	}
 	rec := e.do(t, "alice", "POST", "/notifications/"+mention, nil, nil)
-	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/e/acme/f/001" {
+	// to the mention's thread on the finding page
+	if rec.Code != http.StatusSeeOther || !regexp.MustCompile(`^/e/acme/f/001#t-[0-9a-f]+$`).MatchString(rec.Header().Get("Location")) {
 		t.Fatalf("open %d %s", rec.Code, rec.Header().Get("Location"))
 	}
 	sec = notesSection(t, e.do(t, "alice", "GET", "/inbox", nil, nil).Body.String())
