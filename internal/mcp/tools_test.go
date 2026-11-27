@@ -398,7 +398,7 @@ func TestMCPArgumentTypes(t *testing.T) {
 			Reviewers []string `json:"reviewers"`
 		} `json:"state"`
 	}
-	json.Unmarshal([]byte(f.ok(alice, "read_finding", map[string]any{"engagement": "acme", "finding": "F-001"})), &rd)
+	json.Unmarshal([]byte(f.ok(alice, "read_finding", map[string]any{"engagement": "acme", "finding": "F-001", "raw": true})), &rd)
 	if !strings.Contains(rd.Markdown, "Kept.") || strings.Join(rd.State.Reviewers, ",") != "bob" {
 		t.Fatalf("changed by a refused call: %+v", rd)
 	}
@@ -412,7 +412,7 @@ func TestMCPTitleBidiStripped(t *testing.T) {
 		var rd struct {
 			Markdown string `json:"finding_md"`
 		}
-		json.Unmarshal([]byte(f.ok(alice, "read_finding", map[string]any{"engagement": "acme", "finding": id})), &rd)
+		json.Unmarshal([]byte(f.ok(alice, "read_finding", map[string]any{"engagement": "acme", "finding": id, "raw": true})), &rd)
 		return rd.Markdown
 	}
 	f.ok(alice, "create_finding", map[string]any{"engagement": "acme", "title": "Upload ‮gnp.exe"})

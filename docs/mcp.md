@@ -59,7 +59,7 @@ A data folder set up with `yars init --simple` runs the simple workflow: draft â
 |---|---|---|---|
 | `list_engagements` | read | local + server | The engagements you work on (pentests and retests); archived ones are read only |
 | `list_findings` | read | local + server | Findings of an engagement, most severe first; filter by status or severity, search with `q` (ID, title, an asset's host or URL) |
-| `read_finding` | read | local + server | Workflow state, the raw `finding.md` and its `hash`, `attachments_hash`, each section's body and base hash, assets, open chat threads, rule violations, and `allowed_actions` (each action of the status: `enabled`, `reason` when not, `needs: "reason"` or `needs: "base"`) |
+| `read_finding` | read | local + server | Workflow state, the front matter as fields (`id`, `author`, `severity`, `cvss`, and `title`, `details`, `cvss_reasons`, `assets`), the file's `hash`, `attachments_hash`, each section's body and base hash, the open chat threads (at most 20, each with its last 20 replies; `open_threads_more` and `replies_more` count the rest, which `read_chat` has), rule violations, and `allowed_actions` (each action of the status: `enabled`, `reason` when not, `needs: "reason"` or `needs: "base"`). `raw: true` adds the file as it is (`finding_md`) |
 | `list_templates` | read | local + server | Finding templates (`.yars/templates`) with how often each was used |
 | `create_finding` | create | local + server | New draft in an engagement; `template` starts it from a template |
 | `update_section` | edit | local + server | Replace one `##` section (pass `base` from `read_finding` to avoid overwriting a colleague) |
@@ -99,7 +99,7 @@ Text that people wrote is in an answer only under a key named `untrusted`, insid
 |---|---|
 | `list_engagements` | each item's `name`, `client` |
 | `list_findings`, `list_templates` | each item's `title` |
-| `read_finding` | `finding_md`, `assets`; each section's `body`; each open thread's and reply's `text`; each violation's `message`, `quote`; the `reason` of `state.returned` and `state.withdrawn` |
+| `read_finding` | `title`, `details`, `cvss_reasons`, `assets`, and `finding_md` with `raw: true`; each section's `body`; each open thread's and reply's `text`; each violation's `message`, `quote`; the `reason` of `state.returned` and `state.withdrawn` |
 | `read_template` | `title`, `markdown` |
 | `lint_finding`, `get_check_results` | each result's `message`, `quote` |
 | `list_notifications` | each item's `title`, `text` |

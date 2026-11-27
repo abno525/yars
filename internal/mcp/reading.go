@@ -17,6 +17,16 @@ import (
 	"github.com/abno525/yars/internal/workflow"
 )
 
+// read_finding gives a finding's open threads to act on, not its whole
+// chat: at most maxOpenThreads threads, the oldest first, and of each the
+// last maxThreadReplies replies. What is left out is counted in the answer
+// (open_threads_more, replies_more); read_chat pages all of it. Constants,
+// not arguments: a caller cannot raise them.
+const (
+	maxOpenThreads   = 20
+	maxThreadReplies = 20
+)
+
 // The reading tools of MCP v2 (M32 task 5): who the caller is, the
 // structure, the team, a finding's chat, history and attachments, a
 // template; and the actions read_finding offers.

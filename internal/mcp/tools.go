@@ -382,6 +382,11 @@ func (s *Server) ref(a args) (store.FindingRef, error) {
 	return s.resolve(a.str("engagement"), a.str("finding"))
 }
 
+// readFindingRest is what read_finding gives besides the workflow state, as
+// both workflows word it. The numbers are maxOpenThreads and
+// maxThreadReplies.
+const readFindingRest = ", its front matter as fields (id, author, severity, cvss; under untrusted: title, details, cvss_reasons, assets), the file's hash (transition's base) and attachments_hash (transition's attachments_base), each section's name, body and base hash for safe edits, the open chat threads (at most 20, the oldest first, each with its last 20 replies; an AI reply is marked ai; open_threads_more and replies_more count what is left out, and read_chat has all of it), style-rule violations, and allowed_actions: every action of the status with whether you may take it now (enabled), why not (reason) and what it needs (needs: reason or base). Workflow state is not in finding.md; raw=true adds the file as it is (untrusted.finding_md)." + theirNote
+
 // tools are every tool, in the order tools/list gives them.
 var tools = slices.Concat(coreTools, readingTools, writingTools)
 
@@ -465,9 +470,10 @@ var coreTools = []tool{
 			}
 			return listPage(a, out)
 		}},
-	{name: "read_finding", untrusted: true, desc: "Read one finding: its workflow state (status, reviewers, clearances, return reason, retest), the raw finding.md content (YAML front matter + ## sections; workflow state is not in the file), the file's hash (transition's base) and attachments_hash (transition's attachments_base), each section's name, body and base hash for safe edits, open chat threads (an AI reply is marked ai), style-rule violations, and allowed_actions: every action of the status with whether you may take it now (enabled), why not (reason) and what it needs (needs: reason or base)." + theirNote,
+	{name: "read_finding", untrusted: true, desc: "Read one finding: its workflow state (status, reviewers, clearances, return reason, retest)" + readFindingRest,
 		required: []param{pEng, pFinding},
-		simple:   &toolText{desc: "Read one finding: its workflow state (status, withdrawal, retest), the raw finding.md content (YAML front matter + ## sections; workflow state is not in the file), the file's hash (transition's base) and attachments_hash (transition's attachments_base), each section's name, body and base hash for safe edits, open chat threads (an AI reply is marked ai), style-rule violations, and allowed_actions: every action of the status with whether you may take it now (enabled), why not (reason) and what it needs (needs: reason or base)." + theirNote},
+		boolArgs: []param{{"raw", "also give the file as it is (YAML front matter + ## sections) as untrusted.finding_md; the sections and fields already hold its text"}},
+		simple:   &toolText{desc: "Read one finding: its workflow state (status, withdrawal, retest)" + readFindingRest},
 		run: func(s *Server, ctx context.Context, u config.User, a args) (string, error) {
 			ref, err := s.ref(a)
 			if err != nil {
@@ -492,7 +498,8 @@ var coreTools = []tool{
 				User    string    `json:"user"`
 				Section string    `json:"section,omitempty"`
 				Theirs  theirText `json:"untrusted"`
-				Replies []msg     `json:"replies"`
+				Replies []msg     `json:"replies"`      // the last maxThreadReplies
+				More    int       `json:"replies_more"` // earlier replies left out
 			}
 			type state struct {
 				Status       string       `json:"status"`
@@ -503,9 +510,14 @@ var coreTools = []tool{
 				RetestSource string       `json:"retest_source,omitempty"`
 				RetestResult string       `json:"retest_result,omitempty"`
 			}
+			// the front matter as fields: the sections carry the text, so the
+			// raw file (finding_md) comes only when asked for (raw)
 			type theirs struct {
-				Markdown string          `json:"finding_md"`
-				Assets   []finding.Asset `json:"assets"`
+				Title    string            `json:"title"`
+				Details  map[string]string `json:"details"`
+				Reasons  map[string]string `json:"cvss_reasons"`
+				Assets   []finding.Asset   `json:"assets"`
+				Markdown string            `json:"finding_md,omitempty"`
 			}
 			m := ref.F.Meta
 			st := state{Status: m.Status, Reviewers: append([]string{}, m.Reviewers...), ClearedBy: append([]string{}, m.ClearedBy...),
@@ -516,6 +528,10 @@ var coreTools = []tool{
 			out := struct {
 				Engagement  string             `json:"engagement"`
 				Dir         string             `json:"dir"`
+				ID          string             `json:"id"`
+				Author      string             `json:"author"`
+				Severity    string             `json:"severity"`
+				CVSS        string             `json:"cvss"`
 				State       state              `json:"state"`
 				Hash        string             `json:"hash"`             // the file's as stored, its full SHA-256: transition's base
 				Files       string             `json:"attachments_hash"` // the attachments' as they are: transition's attachments_base
@@ -525,14 +541,21 @@ var coreTools = []tool{
 				Bases       map[string]string  `json:"field_bases"`
 				AssetsBase  string             `json:"assets_base"`
 				CanEdit     bool               `json:"can_edit"`
-				Threads     []thread           `json:"open_threads"`
+				Threads     []thread           `json:"open_threads"`      // the first maxOpenThreads
+				ThreadsMore int                `json:"open_threads_more"` // open threads left out
 				Violations  []violation        `json:"violations"`
 				Allowed     []workflow.Allowed `json:"allowed_actions"`
 				Theirs      theirs             `json:"untrusted"`
-			}{Engagement: ref.EngID, Dir: ref.Dir, State: st, Hash: ref.Full, CVSSBase: store.CVSSHash(ref.F.Meta),
+			}{Engagement: ref.EngID, Dir: ref.Dir, ID: m.ID, Author: m.Author, Severity: m.Severity, CVSS: m.CVSS,
+				State: st, Hash: ref.Full, CVSSBase: store.CVSSHash(ref.F.Meta),
 				DetailsBase: store.DetailsHash(ref.F.Meta), AssetsBase: store.AssetsHash(ref.F.Meta),
 				CanEdit: workflow.CanEdit(u, ref.F.Meta), Threads: []thread{}, Violations: []violation{}, Bases: s.fieldBases(ref.F.Meta),
-				Theirs: theirs{Markdown: string(ref.F.Bytes()), Assets: append([]finding.Asset{}, ref.F.Meta.Assets...)}}
+				Theirs: theirs{Title: m.Title, Details: map[string]string{}, Reasons: map[string]string{}, Assets: append([]finding.Asset{}, ref.F.Meta.Assets...)}}
+			maps.Copy(out.Theirs.Details, m.Details)
+			maps.Copy(out.Theirs.Reasons, m.CVSSReasons)
+			if raw, _ := a["raw"].(bool); raw {
+				out.Theirs.Markdown = string(ref.F.Bytes())
+			}
 			// the group bases carry each row's own: sent again with every
 			// edit, each is checked against its row only
 			out.DetailsBase = rowsToken(out.Bases, "details.")
@@ -552,16 +575,32 @@ var coreTools = []tool{
 				out.Sections = append(out.Sections, x)
 			}
 			out.Allowed = s.allowedActions(ctx, u, ref)
-			msgs, _ := s.Store.Chat(ref.EngID, ref.Dir)
+			// a chat that cannot be read fails the call: an empty list would
+			// say that nobody objects (nil on a clone: the chat is the server's)
+			msgs, err := s.Store.ChatOf(ref)
+			if err != nil {
+				return "", err
+			}
 			for _, it := range chat.Timeline(msgs) {
-				if it.Thread != nil && !it.Thread.Resolved {
-					t := it.Thread
-					th := thread{ID: t.Root.ID, User: t.Root.User, Section: t.Root.Section, Theirs: theirText{t.Root.Text}, Replies: []msg{}}
-					for _, r := range t.Replies {
-						th.Replies = append(th.Replies, msg{User: r.User, AI: r.Kind == chat.KindAI, Theirs: theirText{r.Text}})
-					}
-					out.Threads = append(out.Threads, th)
+				if it.Thread == nil || it.Thread.Resolved {
+					continue
 				}
+				if len(out.Threads) == maxOpenThreads {
+					out.ThreadsMore++
+					continue
+				}
+				t := it.Thread
+				th := thread{ID: t.Root.ID, User: t.Root.User, Section: t.Root.Section, Theirs: theirText{t.Root.Text}, Replies: []msg{}}
+				replies := t.Replies
+				if th.More = len(replies) - maxThreadReplies; th.More > 0 {
+					replies = replies[th.More:]
+				} else {
+					th.More = 0
+				}
+				for _, r := range replies {
+					th.Replies = append(th.Replies, msg{User: r.User, AI: r.Kind == chat.KindAI, Theirs: theirText{r.Text}})
+				}
+				out.Threads = append(out.Threads, th)
 			}
 			if s.Rules != nil {
 				for _, v := range s.Rules.Lint(ctx, ref.F, rules.Fast) {

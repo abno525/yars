@@ -291,11 +291,11 @@ func TestMCPReadState(t *testing.T) {
 			ClearedBy []string `json:"cleared_by"`
 		} `json:"state"`
 	}
-	json.Unmarshal([]byte(f.ok(alice, "read_finding", map[string]any{"engagement": "acme", "finding": "F-001"})), &rd)
+	json.Unmarshal([]byte(f.ok(alice, "read_finding", map[string]any{"engagement": "acme", "finding": "F-001", "raw": true})), &rd)
 	if rd.State.Status != "draft" || strings.Join(rd.State.Reviewers, ",") != "bob" || rd.State.ClearedBy == nil {
 		t.Fatalf("state %+v", rd.State)
 	}
-	if strings.Contains(rd.Markdown, "status") || strings.Contains(rd.Markdown, "reviewers") {
+	if rd.Markdown == "" || strings.Contains(rd.Markdown, "status") || strings.Contains(rd.Markdown, "reviewers") {
 		t.Fatalf("state in the file:\n%s", rd.Markdown)
 	}
 }
@@ -308,7 +308,7 @@ func TestMCPReadAndEdit(t *testing.T) {
 	if out := f.ok(alice, "list_findings", map[string]any{"engagement": "acme"}); !strings.Contains(out, "F-001-sql-injection") {
 		t.Fatalf("findings %s", out)
 	}
-	out := f.ok(alice, "read_finding", map[string]any{"engagement": "acme", "finding": "F-001"})
+	out := f.ok(alice, "read_finding", map[string]any{"engagement": "acme", "finding": "F-001", "raw": true})
 	var rd struct {
 		Markdown string `json:"finding_md"`
 		Sections []struct{ Name, Base string }
