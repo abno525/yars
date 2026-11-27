@@ -128,14 +128,15 @@ type scriptResult struct {
 }
 
 // scriptFormat is part of the script results' key: raise it when the
-// violations kept for a run change form.
-const scriptFormat = "1"
+// violations kept for a run change form. 2: the row that counts the results
+// past MaxPerRule is kept with them.
+const scriptFormat = "2"
 
 // Script runs a script rule on d, or returns what the same run gave before
 // (Q16): one with the same rules folder (every file in it), script file,
 // rule and input. Only a run that worked is kept, and only when the rules
 // folder did not change since the check began. It returns at most
-// MaxPerRule violations.
+// MaxPerRule violations, and after them the row that counts the rest.
 func (rn *Runner) Script(ctx context.Context, r Rule, d Doc) []Violation {
 	path, err := rn.scriptPath(r.Script)
 	if err != nil {
@@ -204,16 +205,23 @@ func (rn *Runner) runScript(ctx context.Context, r Rule, path string, input []by
 	if err := json.Unmarshal(out.Bytes(), &res); err != nil {
 		return failedAs(r, InvalidOutput+" (want a JSON array): "+quote(out.String()), InvalidOutput), false
 	}
-	for _, x := range res[:min(len(res), MaxPerRule)] {
+	for _, x := range res[:min(len(res), MaxPerRule+MaxCounted+1)] {
 		msg := x.Message
 		if msg == "" {
 			msg = r.message()
 		}
 		target := x.Target
-		if target == "" {
+		// the counting row's target is not a script's to write
+		if target == "" || strings.HasPrefix(target, moreTarget) {
 			target = "finding"
 		}
 		vs = append(vs, r.v(target, msg, x.Quote))
+	}
+	// the results past MaxPerRule are counted, and the count is kept with
+	// the rows
+	vs, rest := cutRows(vs)
+	if rest > 0 {
+		vs = append(vs, r.more(rest))
 	}
 	return vs, true
 }

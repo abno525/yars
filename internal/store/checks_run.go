@@ -207,6 +207,10 @@ func stepOutcome(run int64, r rules.Rule, vs []rules.Violation) db.CheckStep {
 			if k := v.Level + "\x00" + ViolationHash(v.Target, v.Quote); !rows[k] {
 				rows[k] = true
 				x.Hits++
+				// the row that counts the results not shown stands for them
+				if n, ok := rules.More(v); ok {
+					x.Hits += n - 1
+				}
 			}
 		}
 	}

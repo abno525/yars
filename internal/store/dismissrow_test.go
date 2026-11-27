@@ -1,6 +1,7 @@
 package store
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 
@@ -86,6 +87,60 @@ func TestStepCountsRows(t *testing.T) {
 	w.Quote = "x"
 	if x := stepOutcome(1, rules.Rule{ID: "tick"}, []rules.Violation{v, v, w}); x.Hits != 2 {
 		t.Fatalf("hits %d", x.Hits)
+	}
+}
+
+// A rule with more results than it shows has a last row that counts the
+// rest. The rule's step counts them too, and a dismissal of that row covers
+// its count only: one more hidden result is a new row.
+func TestRowThatCountsTheRest(t *testing.T) {
+	s, dir, fd := ready(t)
+	withRules(t, s, dir, "- id: tee\n  target: sections\n  regex_forbid: 'T\\d+'\n  message: no T numbers\n")
+	words := func(n int) string {
+		var b strings.Builder
+		for i := range n {
+			b.WriteString("T" + strconv.Itoa(i) + " ")
+		}
+		return b.String()
+	}
+	more := func(vs []rules.Violation) (rows int, last rules.Violation) {
+		for _, v := range vs {
+			if v.Rule != "tee" {
+				continue
+			}
+			if _, ok := rules.More(v); ok {
+				last = v
+			} else {
+				rows++
+			}
+		}
+		return rows, last
+	}
+	s.UpdateSection(eng, fd, "Description", words(25), "", alice)
+	st := checked(t, s, fd)
+	if x := stepOf(t, st, "tee"); x.State != db.StepHits || x.Hits != 25 {
+		t.Fatalf("step %+v", x)
+	}
+	open, err := s.OpenChecks(eng, fd)
+	rows, last := more(open)
+	if err != nil || rows != rules.MaxPerRule || last.Message != "and 5 more" || last.Level != "error" {
+		t.Fatalf("open checks: %d rows, last %+v, %v", rows, last, err)
+	}
+	if err := s.DismissWhy(eng, fd, "tee", last.Target, "", "seen them all", uBob); err != nil {
+		t.Fatal(err)
+	}
+	open, _ = s.OpenChecks(eng, fd)
+	if rows, last := more(open); rows != rules.MaxPerRule || last.Message != "" {
+		t.Fatalf("after the dismissal: %d rows, last %+v", rows, last)
+	}
+	s.UpdateSection(eng, fd, "Description", words(26), "", alice)
+	open, _ = s.OpenChecks(eng, fd)
+	if _, last := more(open); last.Message != "and 6 more" {
+		t.Fatalf("one more hidden result: last %+v", last)
+	}
+	// the row is not one Fix with AI works on: it quotes nothing
+	if n := FixCount(checked(t, s, fd)); n != rules.MaxPerRule {
+		t.Fatalf("fixable %d", n)
 	}
 }
 

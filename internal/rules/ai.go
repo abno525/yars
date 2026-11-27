@@ -43,7 +43,14 @@ type aiResult struct {
 		Quote   string `json:"quote"`
 		Message string `json:"message"`
 	} `json:"violations"`
+	// More counts the violations of the reply that shown cut off. It is
+	// never a model's own number (shown sets it).
+	More int `json:"more,omitempty"`
 }
+
+// aiFormat is part of the AI results' key: raise it when what is kept of a
+// reply changes form. 2: the count of the violations cut off is kept.
+const aiFormat = "2"
 
 func aiWarning(r Rule, msg string) []Violation {
 	return []Violation{{Rule: r.ID, Level: "warning", Message: msg, Target: "ai"}}
@@ -209,8 +216,19 @@ func (rn *Runner) Ping(ctx context.Context) (time.Duration, error) {
 }
 
 // shown cuts a reply to what the page shows (MaxPerRule violations, quotes
-// and messages as Rule.v cuts them), so a long one is not kept whole.
+// and messages as Rule.v cuts them), so a long one is not kept whole. More
+// is how many violations that leaves out.
 func (res aiResult) shown() aiResult {
+	// a quote given again is the row of the first (cutRows)
+	res.More = 0
+	seen := map[string]bool{}
+	for i, x := range res.Violations {
+		q := quote(x.Quote)
+		if i >= MaxPerRule && !seen[q] && res.More <= MaxCounted {
+			res.More++
+		}
+		seen[q] = true
+	}
 	res.Violations = res.Violations[:min(len(res.Violations), MaxPerRule)]
 	for i, x := range res.Violations {
 		x.Quote, x.Message = quote(x.Quote), cutMessage(x.Message)
@@ -223,13 +241,14 @@ func (res aiResult) shown() aiResult {
 // A text checked before against the same rule, prompt, provider and model
 // is not sent again (Q1): the result is in memory or in rn.Results.
 // Provider errors are warnings, never blocking, and are not kept. It
-// returns at most MaxPerRule violations.
+// returns at most MaxPerRule violations, and after them the row that counts
+// the rest.
 func (rn *Runner) AI(ctx context.Context, r Rule, target, text string) []Violation {
 	c, key, _ := rn.Effective()
 	if c.Provider == "" || key == "" {
 		return aiWarning(r, "AI rules skipped: no AI provider configured")
 	}
-	ck := resultKey("ai", promptVersion, c.Provider, c.Model, r.AI, text)
+	ck := resultKey("ai", aiFormat, promptVersion, c.Provider, c.Model, r.AI, text)
 	res, ok := rn.aiCache().Get(ck)
 	if !ok && rn.stored(ck, &res) {
 		ok = true
@@ -261,6 +280,9 @@ func (rn *Runner) AI(ctx context.Context, r Rule, target, text string) []Violati
 			msg = r.message()
 		}
 		vs = append(vs, r.v(target, msg, x.Quote))
+	}
+	if res.More > 0 {
+		vs = append(vs, r.more(res.More))
 	}
 	return vs
 }

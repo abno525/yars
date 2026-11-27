@@ -39,7 +39,9 @@ A pattern is matched against one part at a time: the title, a section's body or 
 
 - `^` and `$` are the start and the end of the whole part, not of a line. Write `(?m)` at the start of the pattern to make them match at each line.
 - The part is the Markdown as written. Code blocks and tables are matched too.
-- `regex_forbid` reports up to 20 matches per part, and a rule up to 20 hits per finding.
+- A rule of any kind shows up to 20 hits per finding. A last row then says how many it does not show: `and 5 more`, or `and more than 1000 more`.
+- That row has the rule's level and counts as one result. It is dismissed on its own, for its count: `and 6 more` is a new row. The live hints under a section do not show it.
+- The same wording found again in the same part is the same result, not one more.
 
 ## When rules run
 
@@ -102,7 +104,7 @@ A JSON array; `[]` means the finding passes.
 |---|---|---|
 | `message` | string | empty → the rule's message |
 | `quote` | string | the offending text, cut to 80 characters + … |
-| `target` | string | `title`, `section:<Name>`, `details:<Row>`, `cvss`, or empty (`finding`) |
+| `target` | string | `title`, `section:<Name>`, `details:<Row>`, `cvss`, or empty (`finding`) · `more:<n>` is read as empty |
 
 ### Example: no_internal_hosts.py
 
@@ -139,7 +141,7 @@ A stored result is deleted after the days set for check runs on **Admin › Syst
 | Timeout | 10 s per script · kill wait 1 s · 90 s for one check's scripts and AI questions together |
 | stdout | 1 MB |
 | stderr | 64 KB · first 80 characters shown |
-| Hits per rule | 20 |
+| Hits per rule | 20 shown · the rest is counted in a last row, up to 1,000 |
 | Quote | 80 characters |
 | Message | 4,000 characters · the page cuts it to one line with …, the whole text on hover |
 | Environment | `PATH`, `HOME` |

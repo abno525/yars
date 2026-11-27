@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -22,6 +23,58 @@ import (
 
 // MaxPerRule caps violations reported by one rule on one finding.
 const MaxPerRule = 20
+
+// MaxCounted is how many violations past MaxPerRule a rule counts: the row
+// after the shown ones says "and N more" up to it, "and more than N more"
+// past it (a pattern like "." on a long section is not counted to its end).
+const MaxCounted = 1000
+
+// moreTarget starts the target of the row that counts the violations a
+// rule does not show: "more:<count>". The count is part of the target, so
+// that the row's place (the dismissal's key) is that count's alone.
+const moreTarget = "more:"
+
+// More reports whether v is the row that counts the violations its rule
+// does not show, and how many those are (MaxCounted+1 for more than
+// MaxCounted).
+func More(v Violation) (int, bool) {
+	s, ok := strings.CutPrefix(v.Target, moreTarget)
+	if !ok || v.Quote != "" {
+		return 0, false
+	}
+	n, err := strconv.Atoi(s)
+	return n, err == nil && n > 0
+}
+
+// more is the row that counts n violations of r that are not shown. It has
+// the rule's level: what it counts are violations of that level.
+func (r Rule) more(n int) Violation {
+	msg := fmt.Sprintf("and %d more", n)
+	if n > MaxCounted {
+		n, msg = MaxCounted+1, fmt.Sprintf("and more than %d more", MaxCounted)
+	}
+	return Violation{Rule: r.ID, Level: r.Level, Message: msg, Target: moreTarget + strconv.Itoa(n)}
+}
+
+// cutRows keeps the first MaxPerRule of vs and counts the rows after them.
+// A violation with the place and the quote of one before it is the same
+// row (the checks table lists one for them), not one more.
+func cutRows(vs []Violation) (shown []Violation, rest int) {
+	if len(vs) <= MaxPerRule {
+		return vs, 0
+	}
+	seen := map[[2]string]bool{}
+	for _, v := range vs[:MaxPerRule] {
+		seen[[2]string{v.Target, v.Quote}] = true
+	}
+	for _, v := range vs[MaxPerRule:] {
+		if k := [2]string{v.Target, v.Quote}; !seen[k] {
+			seen[k] = true
+			rest++
+		}
+	}
+	return vs[:MaxPerRule], rest
+}
 
 const maxQuote = 80
 
@@ -475,8 +528,20 @@ func (s *Set) RunWith(ctx context.Context, d Doc, cfg config.Config, kinds Kind,
 				}
 			}
 		}
-		if len(vs) > MaxPerRule {
-			vs = vs[:MaxPerRule]
+		// at most MaxPerRule rows, then one that counts the rest: what the
+		// rule's source did not show (its own counting rows) and what is cut
+		// here
+		rest, shown := 0, vs[:0:0]
+		for _, v := range vs {
+			if n, ok := More(v); ok {
+				rest += n
+				continue
+			}
+			shown = append(shown, v)
+		}
+		vs, cut := cutRows(shown)
+		if rest += cut; rest > 0 {
+			vs = append(vs, r.more(rest))
 		}
 		for _, v := range vs {
 			// AI rules run once per target part; collapse repeated notices
@@ -503,8 +568,15 @@ func (r Rule) fast(d Doc, cfg config.Config) []Violation {
 	var vs []Violation
 	switch {
 	case r.RegexForbid != "":
+		// the matches of every part, up to what RunWith shows and counts
+		// (not per part: the count would stop at the first part's rows)
+		left := MaxPerRule + MaxCounted + 1
 		for _, p := range parts(d, r.Target) {
-			for _, m := range r.re.FindAllString(p.Text, MaxPerRule) {
+			if left == 0 {
+				break
+			}
+			for _, m := range r.re.FindAllString(p.Text, left) {
+				left--
 				vs = append(vs, r.v(p.Target, r.message(), m))
 			}
 		}

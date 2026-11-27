@@ -144,6 +144,10 @@ func where(target string) string {
 	if name, ok := strings.CutPrefix(target, "details:"); ok {
 		return name
 	}
+	// the row that counts a rule's results not shown is about no one part
+	if _, ok := rules.More(rules.Violation{Target: target}); ok {
+		return ""
+	}
 	return target
 }
 
