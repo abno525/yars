@@ -26,7 +26,8 @@ func TestMailHasDateAndMessageID(t *testing.T) {
 		if !idRe.MatchString(id) {
 			t.Fatalf("Message-ID %q", id)
 		}
-		for _, no := range []string{"pen1", "client", "F-005", "005"} {
+		// not the bare digits "005": 32 random hex digits hold them now and then
+		for _, no := range []string{"pen1", "client", "F-005"} {
 			if strings.Contains(id, no) {
 				t.Fatalf("the Message-ID holds %q: %s", no, id)
 			}

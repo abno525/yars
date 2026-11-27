@@ -34,10 +34,11 @@ func (s *Server) noUsers() bool {
 func NewSetupCode() string { return newTempPassword() }
 
 // firstRun sends every request to /setup while there is no account (static
-// files excepted).
+// files excepted, and the health probe, whose answer must not tell a new
+// server from a set-up one).
 func (s *Server) firstRun(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/setup" && !strings.HasPrefix(r.URL.Path, "/static/") && s.noUsers() {
+		if r.URL.Path != "/setup" && r.URL.Path != "/healthz" && !strings.HasPrefix(r.URL.Path, "/static/") && s.noUsers() {
 			http.Redirect(w, r, "/setup", http.StatusSeeOther)
 			return
 		}

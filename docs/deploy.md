@@ -4,7 +4,7 @@ Running YARS for a team: one server, one data folder, a proxy for HTTPS.
 
 ## Requirements
 
-- **git 2.30 or later**, on the server's `PATH`. An older git lacks an option YARS reads refs with. YARS keeps every engagement in a git repository and serves clones and pushes itself. Removing a file from history (Purge) uses `git filter-branch`; some small images package it apart from git.
+- **git 2.30 or later**, on the server's `PATH`. An older git lacks an option YARS reads refs with: `yars serve` and `yars init` check the version first and do not start with an older git, or without git. YARS keeps every engagement in a git repository and serves clones and pushes itself. Removing a file from history (Purge) uses `git filter-branch`; some small images package it apart from git.
 - **Go 1.27.2 or later**, to build the binary. Build with the newest patch release: it has the security fixes of Go's own packages, which end up in the binary.
 - **pandoc** (optional), for the PDF, Word and other pandoc downloads and destinations. Without it, those are refused; the ZIP downloads and the Confluence HTML destination still work.
   - Some packaged pandoc builds cannot load their own data files under `--sandbox`. YARS then runs pandoc without the sandbox: what it is given is already sanitised, and images are already inlined. A static release from pandoc's website keeps the sandbox.
@@ -18,7 +18,7 @@ sudo install -m 0755 yars /usr/local/bin/yars
 yars version
 ```
 
-`yars version` prints the version, the database schema it writes and the Go release, for example `yars v1.0.0 (schema 27, go1.27.2)`. Built in a clone without `-ldflags`, it shows the git revision; installed with `go install` without them, the release it installed, such as `v1.0.0`.
+`yars version` prints the version, the database schema it writes and the Go release, for example `yars v1.0.0 (schema 27, go1.27.2)`. `yars --version` prints the same. `yars help` lists every command, and `yars <command> -h` a command's flags. Built in a clone without `-ldflags`, it shows the git revision; installed with `go install` without them, the release it installed, such as `v1.0.0`.
 
 Without a clone, one command builds the newest release. The binary lands in `$(go env GOBIN)`, or in `$(go env GOPATH)/bin` when `GOBIN` is not set.
 
@@ -46,6 +46,20 @@ Both folders are `0700`: only the service account reads the findings and the bac
 The umask is that of everything these commands start: rule scripts, script destinations and pandoc, as well as git. A file a script makes is `0600`, and a folder `0700`, also outside the data folder. A script whose files another account or a web server reads sets its own umask (`umask 022` at its start).
 
 An account with the admin flag can add a rule or exporter script, and scripts run on the server as the service account, with its `HOME`. So an admin can run commands on the server. Give the flag only to people who may.
+
+The accounts from the shell. These commands work while the server runs:
+
+```sh
+sudo -u yars yars users --data /srv/yars            # name, role, admin, disabled, created
+sudo -u yars yars disable --data /srv/yars bob
+sudo -u yars yars enable --data /srv/yars bob
+sudo -u yars yars admin --data /srv/yars bob on     # or off
+sudo -u yars yars userdel --data /srv/yars bob
+```
+
+`yars disable` is the usual way to take access away. The account cannot log in, its sessions end at once and its tokens are refused. Its name and its work stay, and `yars enable` brings it back. `yars userdel` deletes the account for good: its name stays taken and no new account gets it.
+
+One admin who can sign in always remains. `yars admin <user> off`, `yars disable` and `yars userdel` refuse the last one: `bob is the last admin: the admin flag stays`. Give another account the flag first. Admin › Users follows the same rule.
 
 For a solo reporter or a team of two, `sudo -u yars yars init --simple /srv/yars` sets up the simple workflow instead: draft → complete → reported, with no roles, reviewers or sign-off; `useradd` then takes no `--role` (`yars useradd --data /srv/yars --admin alice`), and `yars role` is refused. The workflow is fixed at init: it is written to `.yars/config.yaml` and the database, `yars serve` does not start when the two disagree, and a push cannot change it. In the simple workflow every account has a director's rights, so the Team panel does not limit who sees an engagement: every account sees them all.
 
@@ -249,6 +263,21 @@ The same state is on the command line (see [Logs](#logs)):
 sudo -u yars yars status --data /srv/yars
 ```
 
+### Health probe
+
+`GET /healthz` is for a load balancer, a container runtime or a monitor. It needs no login.
+
+```sh
+curl -i http://127.0.0.1:8080/healthz
+```
+
+| Answer | Means |
+|---|---|
+| `200` and `ok` | the server answers and its database reads |
+| `503` and `unavailable` | the database gave an error, or no answer within 2 seconds |
+
+The answer holds nothing else: no version, no counts, no reason. The reason is in the service log, as one `warn` line, `health check failed`, when the answer turns bad, and one line, `health check passes again`, when it is good again. A long push or a running check does not turn the answer bad. A probe answered `200` is a `debug` line in the log, so probes do not fill it.
+
 ## Logs
 
 YARS writes its log to stderr. The journal of systemd keeps it. YARS writes no log file and rotates nothing.
@@ -271,7 +300,7 @@ A line is `time=… level=… msg=… key=value …`. A value with a space is in
 | `error` | a request or a job failed; someone should look | a commit failed, a template error, a check run crashed |
 | `warn` | it went on, but not as it should | a failed login, a failed AI call, a webhook tried again, a slow request |
 | `info` | one line for each thing that happened | a request, a check run, an export, a push, start and stop |
-| `debug` | detail for one problem | static files, the heartbeat of a live stream |
+| `debug` | detail for one problem | static files, health probes, the heartbeat of a live stream |
 
 The same field has the same name on every line:
 
@@ -308,7 +337,9 @@ Each job writes one line when it ends, with `ms` and its outcome.
 | `yars serving` | the start: version, schema, workflow, address, and whether AI, SMTP and pandoc are on |
 | `start: uncommitted files were removed from an engagement's findings folder` | the start removed files a stop had left between their write and their commit: the engagement and a count (`warn`) |
 | `start: another server runs on this data folder; uncommitted files in the findings folders are left` | a second `yars serve` on a data folder a server already runs on: it removes nothing (`warn`) |
+| `git: the version does not read; the start goes on (YARS needs git 2.30 or later)` | `git version` printed no version YARS reads, so the start could not check it (`warn`) |
 | `yars stopping`, `yars stopped` | the stop |
+| `health check failed`, `health check passes again` | the answer of `/healthz` changed: to `503` (`warn`, with the reason in `err`), and back to `200` |
 | `check run finished` | a check run ended: its state and the counts of errors and warnings |
 | `check run crashed` | a check run failed inside the server (`error`) |
 | `check run dropped` | a waiting check run was not run: the server stops (`interrupted`) or the engagement was archived (`archived`) |

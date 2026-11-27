@@ -15,6 +15,10 @@ func TestUserFlags(t *testing.T) {
 	if err := d.AddUser(config.User{Username: "ann", Role: "pentester", IsAdmin: true, Theme: "dark"}); err != nil {
 		t.Fatal(err)
 	}
+	// a second admin: the last one keeps the flag (TestLastAdminStays)
+	if err := d.AddUser(config.User{Username: "bea", Role: "director", IsAdmin: true}); err != nil {
+		t.Fatal(err)
+	}
 	u, _, _ := d.User("ann")
 	if !u.IsAdmin || u.Disabled || u.Theme != "dark" {
 		t.Fatalf("ann %+v", u)
@@ -43,7 +47,7 @@ func TestUserFlags(t *testing.T) {
 		t.Fatal("admin set on unknown user")
 	}
 	us, _ := d.Users()
-	if len(us) != 1 || !us[0].Disabled {
+	if len(us) != 2 || !us[0].Disabled || us[1].Disabled {
 		t.Fatalf("users %+v", us)
 	}
 }

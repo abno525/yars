@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/abno525/yars/internal/gitrepo"
 	"github.com/abno525/yars/internal/logs"
 )
 
@@ -369,6 +370,75 @@ func TestDeployGuideFail2banPattern(t *testing.T) {
 		if host(direct, line) != "" || host(proxied, line) != "" {
 			t.Errorf("a line that is no failed login bans an address: %s", line)
 		}
+	}
+}
+
+// The deploy guide names the health probe: its address, its two answers,
+// that it needs no login and says no reason, and where the reason is.
+func TestDeployGuideHealthProbe(t *testing.T) {
+	b, err := os.ReadFile("deploy.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := string(b)
+	i := strings.Index(g, "\n### Health probe\n")
+	if i < 0 || i < strings.Index(g, "\n## Health\n") || i > strings.Index(g, "\n## Logs\n") {
+		t.Fatal("no Health probe part in the Health section")
+	}
+	for _, want := range []string{"`GET /healthz`", "It needs no login.", "| `200` and `ok` |", "| `503` and `unavailable` |",
+		"no version, no counts, no reason", "`health check failed`", "`health check passes again`", "static files, health probes,"} {
+		if !strings.Contains(g, want) {
+			t.Errorf("the deploy guide lacks %q", want)
+		}
+	}
+}
+
+// The deploy guide lists the account commands of the shell, says that
+// disable is the usual way and that a deleted name stays taken, and names
+// the last-admin rule with the words the command prints.
+func TestDeployGuideAccountCommands(t *testing.T) {
+	b, err := os.ReadFile("deploy.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := string(b)
+	for _, want := range []string{
+		"sudo -u yars yars users --data /srv/yars", "sudo -u yars yars disable --data /srv/yars bob\n", "sudo -u yars yars enable --data /srv/yars bob\n",
+		"sudo -u yars yars userdel --data /srv/yars bob\n", "These commands work while the server runs",
+		"`yars disable` is the usual way to take access away", "its name stays taken",
+		"One admin who can sign in always remains", "`bob is the last admin: the admin flag stays`",
+		"`yars help` lists every command", "`yars --version` prints the same",
+	} {
+		if !strings.Contains(g, want) {
+			t.Errorf("the deploy guide lacks %q", want)
+		}
+	}
+	if r, err := os.ReadFile("../README.md"); err != nil || !strings.Contains(string(r), "| `yars help` |") || !strings.Contains(string(r), "| `yars users` |") {
+		t.Error("the README's commands lack yars help or yars users")
+	}
+}
+
+// The git release the deploy guide asks for is the one the start checks
+// (gitrepo.MinVersion): the page and the check cannot drift apart. The
+// guide says the start checks it, and the changelog names the refusal.
+func TestDeployGuideGitVersionIsTheCheckedOne(t *testing.T) {
+	read := func(name string) string {
+		b, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	need := "git " + gitrepo.MinVersion() + " or later"
+	d := read("deploy.md")
+	for _, want := range []string{"**" + need + "**", "`yars serve` and `yars init` check the version first and do not start with an older git, or without git",
+		"`git: the version does not read; the start goes on (YARS needs " + need + ")`"} {
+		if !strings.Contains(d, want) {
+			t.Errorf("the deploy guide lacks %q", want)
+		}
+	}
+	if cl := read("../CHANGELOG.md"); !strings.Contains(cl, "`"+need+" is needed; this is git 2.25`") || !strings.Contains(cl, "`git is not on the PATH`") {
+		t.Error("CHANGELOG does not name the refusal of an old git and of no git")
 	}
 }
 

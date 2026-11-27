@@ -236,6 +236,29 @@ func (d *DB) Users() ([]config.User, error) {
 	return out, rows.Err()
 }
 
+// ErrLastAdmin: the write would leave no admin who can sign in. An enabled
+// account with the admin flag must remain, or nobody opens the admin pages.
+var ErrLastAdmin = errors.New("the last admin")
+
+// keepAnAdmin returns ErrLastAdmin when name is an enabled admin and no
+// other account is: taking its flag, disabling it or deleting it would
+// leave none. It runs in the transaction of that write (write transactions
+// are one at a time), so two writers cannot each count the other's admin:
+// the website and the command line beside it share the rule. An account
+// that is no admin or is disabled already, and an unknown name, pass.
+func keepAnAdmin(tx *Tx, name string) error {
+	var is, others int
+	err := tx.QueryRow(`SELECT count(*) FILTER (WHERE username = ?), count(*) FILTER (WHERE username != ?)
+		FROM users WHERE is_admin = 1 AND disabled = 0`, name, name).Scan(&is, &others)
+	if err != nil {
+		return err
+	}
+	if is == 1 && others == 0 {
+		return ErrLastAdmin
+	}
+	return nil
+}
+
 // update runs one statement that must change exactly one user row.
 func (d *DB) update(name, q string, args ...any) error {
 	return d.Tx(func(tx *Tx) error {
@@ -252,9 +275,13 @@ func (d *DB) update(name, q string, args ...any) error {
 
 // DeleteUser removes an account with its sessions, tokens, keys,
 // notification choices, team places and board read state. Its name is
-// remembered and never given out again (AddUser, AddFirstUser).
+// remembered and never given out again (AddUser, AddFirstUser). The last
+// enabled admin is not deleted (ErrLastAdmin).
 func (d *DB) DeleteUser(name string) error {
 	return d.Tx(func(tx *Tx) error {
+		if err := keepAnAdmin(tx, name); err != nil {
+			return err
+		}
 		res, err := tx.Exec("DELETE FROM users WHERE username = ?", name)
 		if err != nil {
 			return err
@@ -331,15 +358,36 @@ func (d *DB) SetRole(name, role string) error {
 	return d.update(name, "UPDATE users SET role = ? WHERE username = ?", role, name)
 }
 
-// SetAdmin turns the admin flag on or off (the role is unchanged).
+// SetAdmin turns the admin flag on or off (the role is unchanged). The
+// last enabled admin keeps the flag (ErrLastAdmin).
 func (d *DB) SetAdmin(name string, on bool) error {
-	return d.update(name, "UPDATE users SET is_admin = ? WHERE username = ?", b2i(on), name)
+	return d.Tx(func(tx *Tx) error {
+		if !on {
+			if err := keepAnAdmin(tx, name); err != nil {
+				return err
+			}
+		}
+		res, err := tx.Exec("UPDATE users SET is_admin = ? WHERE username = ?", b2i(on), name)
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n != 1 {
+			return fmt.Errorf("no user %s", name)
+		}
+		return nil
+	})
 }
 
 // SetDisabled disables (on) or re-enables an account. Disabling ends its
 // sessions; its tokens stay stored but are refused while it is disabled.
+// The last enabled admin is not disabled (ErrLastAdmin).
 func (d *DB) SetDisabled(name string, on bool) error {
 	return d.Tx(func(tx *Tx) error {
+		if on {
+			if err := keepAnAdmin(tx, name); err != nil {
+				return err
+			}
+		}
 		res, err := tx.Exec("UPDATE users SET disabled = ? WHERE username = ?", b2i(on), name)
 		if err != nil {
 			return err
