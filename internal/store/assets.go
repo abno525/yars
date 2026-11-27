@@ -318,40 +318,62 @@ func (s *Store) changeFilesLocked(engID, dir string, who Actor, fn func(ref Find
 			return ref, err
 		}
 	}
-	if err := s.commit(prev, ref.F.Meta.ID+": "+msg, who.GitAuthor(), ""); err != nil {
+	fp := findingPath(engID, ref.Dir)
+	fid := ref.F.Meta.ID
+	textChanged := files[fp] != nil && ApprovalHash(prev[fp]) != ApprovalHash(files[fp])
+	// what the database gets for this commit is settled before it, so a stop
+	// between the two leaves nothing approved or signed off that was not.
+	// A director's edit of an approved finding: the carry is journaled.
+	var carry *db.Intent
+	if st := ref.F.Meta.Status; textChanged && (st == "complete" || st == "reported") {
+		carry = &db.Intent{Kind: db.IntentCarry}
+	}
+	unjournal, err := s.journal(carry, engID, fid, ApprovalHash(prev[fp]), ApprovalHash(files[fp]))
+	if err != nil {
+		s.restore(prev, made)
+		return ref, err
+	}
+	// An attachment change of a finding in verification: its sign-offs go
+	// first, as a text change's do. ref.Full is the text as it was read
+	// under this lock, the one they were given for.
+	attach := false
+	for p := range files {
+		attach = attach || (p != fp && ref.F.Meta.Status == "verification")
+	}
+	var dropped []string
+	var signed []db.Reviewer
+	if attach {
+		if dropped, signed, err = takeSignOffs(s.db, engID, fid, ref.Full); err != nil {
+			unjournal()
+			s.restore(prev, made)
+			return ref, err
+		}
+	}
+	if err := s.commit(prev, fid+": "+msg, who.GitAuthor(), ""); err != nil {
 		for _, d := range made {
 			s.root.RemoveAll(d)
 		}
+		unjournal()
+		if berr := putBackSignOffs(s.db, engID, fid, signed); berr != nil {
+			s.Log().Error("the sign-offs dropped for a commit that failed are not put back", "eng", engID, "finding", LogID(fid), "err", berr)
+		}
 		return ref, err
+	}
+	if s.afterCommit != nil {
+		s.afterCommit()
 	}
 	if after != nil {
 		if err := after(ref); err != nil {
 			s.Log().Error("after a finding's commit", "eng", engID, "finding", ref.F.Meta.ID, "err", err)
 		}
 	}
-	fp := findingPath(engID, ref.Dir)
 	var serr error
-	var voided []string
-	// a text change in the same commit: the sign-offs for the old text count
-	// no longer (read before the attachments' sign-offs are dropped)
-	if files[fp] != nil && ApprovalHash(prev[fp]) != ApprovalHash(files[fp]) {
-		voided = voidedBy(s.db, engID, ref.F.Meta.ID, ApprovalHash(prev[fp]))
-	}
-	for p := range files {
-		if p != fp && ref.F.Meta.Status == "verification" {
-			// an attachment changed: the sign-offs go, as a text change's do
-			// (before the page hears of the change)
-			var dropped []string
-			// ref.Full: the text as it was read under this lock (a text
-			// change in the same commit named its reviewers above)
-			dropped, serr = dropSignOffs(s.db, engID, ref.F.Meta.ID, ref.Full)
-			for _, n := range dropped {
-				if !slices.Contains(voided, n) {
-					voided = append(voided, n)
-				}
-			}
-			break
-		}
+	// the reviewers whose sign-off this commit voided: the ones dropped for
+	// the attachments, or, for a text change alone, the ones bound to the old
+	// text (with both, the old text is ref.Full, and they are the same)
+	voided := dropped
+	if !attach && textChanged {
+		voided = voidedBy(s.db, engID, fid, ApprovalHash(prev[fp]))
 	}
 	s.notify(Change{Eng: engID, Fid: ref.F.Meta.ID, Kind: ChangeContent})
 	*ev = filesEvent(who.GitAuthor().Name, ref, fp, prev, files)

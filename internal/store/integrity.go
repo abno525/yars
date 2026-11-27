@@ -32,6 +32,10 @@ type Integrity struct {
 	Duplicate []string
 	// Unreadable: a finding.md that does not parse (the ID is the folder's).
 	Unreadable []string
+
+	// Set by the start's pass only (Recover): the writes it made from the
+	// journal, and the journal rows it could not use.
+	Replayed, Unreplayed []string
 }
 
 // Faults is the number of things Compare found that should not be.

@@ -56,6 +56,10 @@ func (s *Store) RenameNames(list string, renames map[string]string, a gitrepo.Au
 					return nil
 				}
 				return s.db.TxFor(id, func(tx *db.Tx) error {
+					// the journal row goes with the write it stood for
+					if err := tx.DropIntent(id, fid); err != nil {
+						return err
+					}
 					if err := tx.MoveHash(id, fid, oldHash, newHash); err != nil {
 						return err
 					}
@@ -70,9 +74,21 @@ func (s *Store) RenameNames(list string, renames map[string]string, a gitrepo.Au
 					return nil
 				})
 			}
+			// journaled before the commit: a stop before then leaves the
+			// renamed text without its approval, sign-offs and threads
+			intent := func() *db.Intent {
+				in := &db.Intent{Kind: db.IntentRename}
+				if list == "section" {
+					in.Sections = map[string]string{}
+					for _, o := range olds {
+						in.Sections[o] = renames[o]
+					}
+				}
+				return in
+			}
 			ev, err := s.mutateLockedIn(id, r.Dir, a, func(f *finding.Finding) (string, error) {
 				return msg, apply(f)
-			}, then, true)
+			}, intent, then, true)
 			if ev.Kind != "" {
 				changed = append(changed, id+"/"+fid)
 			}

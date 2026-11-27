@@ -345,6 +345,10 @@ func (s *Server) health(ctx context.Context, full bool) healthAdmin {
 // (store.Compare; Run integrity only: it reads every finding).
 func (s *Server) healthCompare(full bool) healthResult {
 	if !full {
+		// until Run integrity: what the start's pass found, when it ran
+		if res, ok := s.Store.AtStart(); ok {
+			return atStart(compareResult(res))
+		}
 		return healthResult{State: "off", Label: "Not run", Result: "Not run"}
 	}
 	res, err := s.Store.Compare()
@@ -371,13 +375,35 @@ func compareResult(res store.Integrity) healthResult {
 		return hBad(strings.Join(parts, " · "), someIDs(append(slices.Clone(res.Unreadable), res.Duplicate...)))
 	}
 	parts := []string{plural(res.Findings, "finding")}
+	// the start's pass only: writes it made from the journal, and journal
+	// rows it could not use (a warning: someone should look at the finding)
+	if n := len(res.Replayed); n > 0 {
+		parts = append(parts, plural(n, "write")+" replayed")
+	}
+	if n := len(res.Unreplayed); n > 0 {
+		parts = append(parts, plural(n, "journal row")+" not replayed")
+	}
 	if n := len(res.NoFinding); n > 0 {
 		parts = append(parts, plural(n, "row")+" without a finding")
 	}
 	if n := len(res.Drifted); n > 0 {
 		parts = append(parts, plural(n, "approval")+" for other text")
 	}
-	return hGood(strings.Join(parts, " · "), someIDs(append(slices.Clone(res.NoFinding), res.Drifted...)))
+	result, detail := strings.Join(parts, " · "), someIDs(slices.Concat(res.Replayed, res.Unreplayed, res.NoFinding, res.Drifted))
+	if len(res.Unreplayed) > 0 {
+		return hWarn(result, detail)
+	}
+	return hGood(result, detail)
+}
+
+// atStart marks a result as the start's: its detail begins with "start".
+func atStart(h healthResult) healthResult {
+	if h.Detail == "" {
+		h.Detail = "start"
+	} else {
+		h.Detail = "start · " + h.Detail
+	}
+	return h
 }
 
 // someIDs names the first five of ids, then how many more there are.

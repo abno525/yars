@@ -194,6 +194,152 @@ func TestStartLeavesFilesWhileAnotherServerRuns(t *testing.T) {
 	}
 }
 
+// stoppedEdit builds a data folder as a server leaves it when it is stopped
+// between a director's commit on an approved finding and the database write
+// that carries the approval: the commit, the journal row put down before
+// it, and the approval still for the old text. The database is closed.
+func stoppedEdit(t *testing.T) (r *gitrepo.Repo, fd, fid, newHash string) {
+	t.Helper()
+	dir := t.TempDir()
+	if err := initData(dir); err != nil {
+		t.Fatal(err)
+	}
+	r, err := gitrepo.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, d, st, err := startData(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	a := gitrepo.Author{Name: "dora", Email: "dora@yars.local"}
+	if err := st.CreateEngagement(store.Engagement{ID: "acme", Name: "ACME"}, a); err != nil {
+		t.Fatal(err)
+	}
+	ref, err := st.CreateFinding("acme", "Private title of the finding", a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fd, fid = ref.Dir, ref.F.Meta.ID
+	p := filepath.Join(dir, "engagements", "acme", "findings", fd, "finding.md")
+	raw, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := store.ApprovalHash(raw)
+	if err := d.TxFor("acme", func(tx *db.Tx) error {
+		return tx.PutState("acme", fid, db.State{Status: "complete", ApprovedHash: old})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	edited := append(raw, []byte("\nChanged by the director.\n")...)
+	newHash = store.ApprovalHash(edited)
+	if err := d.PutIntent(db.Intent{Eng: "acme", Fid: fid, Kind: db.IntentCarry, Old: old, New: newHash}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, edited, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	er, err := st.EngRepo("acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := er.Commit([]string{"findings/" + fd + "/finding.md"}, fid+": edit Impact", a); err != nil {
+		t.Fatal(err)
+	}
+	return r, fd, fid, newHash
+}
+
+// A start replays the database write a stop cut off after its commit: the
+// approval of a director's edit follows the committed text. The repair is
+// in the audit log and in one log line, by the finding's ID; the start's
+// compare is kept for the System page. The next start does nothing.
+func TestStartReplaysJournaledWrite(t *testing.T) {
+	r, fd, fid, newHash := stoppedEdit(t)
+	cfg, err := startConfig(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lg, out := logs.NewRecorder()
+	d, st, err := prepareData(r, cfg, lg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref, err := st.Finding("acme", fd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ref.F.Meta.Status != "complete" || ref.Full != newHash {
+		t.Fatalf("after the start the finding is %s (text of the commit: %v)", ref.F.Meta.Status, ref.Full == newHash)
+	}
+	l, _, err := d.AuditQuery(db.AuditFilter{Action: "system.repair", Limit: 5})
+	if err != nil || len(l) != 1 || l[0].Actor != "yars" || l[0].Target != "acme/"+fid {
+		t.Fatalf("audit %+v %v", l, err)
+	}
+	recs := out.With("start: a database write that a stop cut off was made")
+	if len(recs) != 1 || recs[0].Str("eng") != "acme" || recs[0].Str("finding") != fid {
+		t.Fatalf("log:\n%s", out.Text())
+	}
+	if strings.Contains(strings.ToLower(out.Text()), "private") {
+		t.Fatalf("the log names the folder:\n%s", out.Text())
+	}
+	if res, ok := st.AtStart(); !ok || len(res.Replayed) != 1 || res.Replayed[0] != "acme/"+fid || res.Findings != 1 || res.Faults() != 0 {
+		t.Fatalf("the start's result: %+v %v", res, ok)
+	}
+	d.Close()
+	// the next start: nothing to do, nothing said
+	lg, out = logs.NewRecorder()
+	d, st, err = prepareData(r, cfg, lg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	if l, _, _ := d.AuditQuery(db.AuditFilter{Action: "system.repair", Limit: 5}); len(l) != 1 {
+		t.Fatalf("audit after a second start: %+v", l)
+	}
+	if res, ok := st.AtStart(); !ok || len(res.Replayed) != 0 || len(out.Records()) != 0 {
+		t.Fatalf("second start: %+v %v, log:\n%s", res, ok, out.Text())
+	}
+}
+
+// While another server answers on the data folder, a second start replays
+// nothing and removes no journal row: that server may be between a commit
+// and its write this very moment.
+func TestStartReplaysNothingWhileAnotherServerRuns(t *testing.T) {
+	r, fd, _, _ := stoppedEdit(t)
+	ln, err := net.Listen("unix", statusSocket(r.Dir))
+	if err != nil {
+		t.Skipf("no Unix socket here: %v", err)
+	}
+	defer ln.Close()
+	cfg, err := startConfig(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lg, out := logs.NewRecorder()
+	d, st, err := prepareData(r, cfg, lg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	if ref, err := st.Finding("acme", fd); err != nil || ref.F.Meta.Status != "verification" {
+		t.Fatalf("the finding is %s %v: the start wrote beside a running server", ref.F.Meta.Status, err)
+	}
+	if rows, err := d.Intents(); err != nil || len(rows) != 1 {
+		t.Fatalf("journal %+v %v", rows, err)
+	}
+	if l, _, _ := d.AuditQuery(db.AuditFilter{Action: "system.repair", Limit: 5}); len(l) != 0 {
+		t.Fatalf("audit %+v", l)
+	}
+	if _, ok := st.AtStart(); ok {
+		t.Fatal("the start compared beside a running server")
+	}
+	if n := len(out.With("start: another server runs on this data folder; uncommitted files in the findings folders are left")); n != 1 || len(out.Records()) != 1 {
+		t.Fatalf("log:\n%s", out.Text())
+	}
+}
+
 // A certificate needs its key and the key its certificate.
 func TestServeTLSFlagsNeedBoth(t *testing.T) {
 	data := t.TempDir() // never the real default folder, even if the check broke

@@ -67,6 +67,8 @@ A new data folder has no check rules. Add the ones you want in Admin › Rules, 
 
 Put no file of your own into an engagement's `findings/` folder on the server. Each start of `yars serve` removes what is there and in no commit: a stop between a file's write and its commit leaves such files, and they would read as real findings. The start logs the engagement and a count. It removes nothing while another `yars serve` answers on the same data folder.
 
+A change to a finding is a commit, and for some changes a write to the database after it: the approval that follows a director's edit, and what follows a rename in Admin › Structure. YARS notes such a write in the database before the commit. A server stopped between the two leaves the note, and the next start makes the write. It does so only when the finding's file is the one the commit wrote; in any other case it changes nothing and logs one line. Each write made this way is in Admin › Activity as `system.repair`. While another `yars serve` answers on the same data folder the start makes no such write.
+
 Admin › System › Restore writes the restored folder next to the data folder, so it needs `/srv` writable by `yars`. With `/srv` owned by root, restore from the shell instead (see the restore drill).
 
 ## Run as a service
@@ -258,7 +260,7 @@ Admin › System:
 
 - **Health** lists, row by row, the rules, the destinations, pandoc and the PDF engine, the repositories the git server serves, the AI provider, the free disk space, the database, the repositories' objects, and the database held against the files.
 - **Run integrity** runs the full checks: the database's `integrity_check`, `git fsck` on every repository, a test call to the AI provider, and a compare of the database with the finding files.
-- **Database and files** is that compare's row. It counts the findings. It also counts two things that are no error: rows the database keeps for a finding that is no longer there (after a pushed deletion, so its number is not used again), and approvals given for other text than the file has now (such a finding reads as in verification). It is an error when two folders of an engagement hold the same finding ID, and when a `finding.md` does not read. The detail names each as `<engagement>/<finding ID>`.
+- **Database and files** is that compare's row. It counts the findings. It also counts two things that are no error: rows the database keeps for a finding that is no longer there (after a pushed deletion, so its number is not used again), and approvals given for other text than the file has now (such a finding reads as in verification). It is an error when two folders of an engagement hold the same finding ID, and when a `finding.md` does not read. The detail names each as `<engagement>/<finding ID>`. Each start runs this compare once: until Run integrity, the row shows the start's result, and its detail begins with `start`. It then also counts the writes the start made after a stop, and as a warning the noted writes it could not make.
 - **Server** shows the version, the uptime, the database size and the counts.
 - **Operations** has the schema and the last index build. Its buttons sync the engagement pointers, rebuild the index and list what still needs `yars migrate`.
 - **Current state** shows what the server does now: the checks running and queued, the fixes running, the webhook deliveries waiting, the mails being sent, the open event streams by account, and each repository lock that is held or waited for.
@@ -344,6 +346,9 @@ Each job writes one line when it ends, with `ms` and its outcome.
 | `yars serving` | the start: version, schema, workflow, address, and whether AI, SMTP and pandoc are on |
 | `start: uncommitted files were removed from an engagement's findings folder` | the start removed files a stop had left between their write and their commit: the engagement and a count (`warn`) |
 | `start: another server runs on this data folder; uncommitted files in the findings folders are left` | a second `yars serve` on a data folder a server already runs on: it removes nothing (`warn`) |
+| `start: a database write that a stop cut off was made` | the start made a write that a stop had cut off after its commit: the engagement, the finding and the kind (`carry`: an approval follows a director's edit; `rename`: approval, sign-offs and threads follow a renamed text) (`warn`) |
+| `start: a journal row matches nothing and is dropped; nothing was changed` | a noted write did not fit the finding's file any more; the finding is as it was, and may need its approval again (`warn`) |
+| `start: the database and the finding files disagree; see Admin, System, Health` | the start's compare found a finding ID in two folders or a `finding.md` that does not read: the counts (`warn`) |
 | `git: the version does not read; the start goes on (YARS needs git 2.30 or later)` | `git version` printed no version YARS reads, so the start could not check it (`warn`) |
 | `yars stopping`, `yars stopped` | the stop |
 | `health check failed`, `health check passes again` | the answer of `/healthz` changed: to `503` (`warn`, with the reason in `err`), and back to `200` |

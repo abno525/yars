@@ -451,6 +451,60 @@ func TestRunIntegrityComparesDatabaseWithFiles(t *testing.T) {
 	}
 }
 
+// Before any Run integrity the row shows what the start's pass found: a
+// write it replayed, and as a warning a journal row it could not use.
+func TestHealthShowsTheStartsCompare(t *testing.T) {
+	e := setup(t)
+	st := e.srv.Store
+	ref, err := st.Finding("acme", fdir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fid := ref.F.Meta.ID
+	// a row for a digest the file never had
+	if err := st.DB().PutIntent(db.Intent{Eng: "acme", Fid: fid, Kind: db.IntentCarry, Old: strings.Repeat("ab", 32), New: strings.Repeat("cd", 32)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Recover(); err != nil {
+		t.Fatal(err)
+	}
+	row := healthRowOf(t, e.do(t, "dora", "GET", "/admin/system", nil, nil).Body.String(), "Database and files")
+	for _, want := range []string{`<span class="tag warn">Warning</span>`, `title="1 finding · 1 journal row not replayed">`, `title="start · acme/` + fid + `">`} {
+		if !strings.Contains(row, want) {
+			t.Fatalf("row lacks %s:\n%s", want, row)
+		}
+	}
+	// Run integrity replaces it with a compare of now
+	e.do(t, "dora", "POST", "/admin/system/check", url.Values{}, nil)
+	row = healthRowOf(t, e.do(t, "dora", "GET", "/admin/system", nil, nil).Body.String(), "Database and files")
+	if !strings.Contains(row, `<span class="tag good">OK</span>`) || !strings.Contains(row, `title="1 finding">`) || strings.Contains(row, "start") {
+		t.Fatalf("row after Run integrity:\n%s", row)
+	}
+}
+
+// A start that found nothing shows the count alone, and a replayed write
+// is named.
+func TestHealthStartResultWords(t *testing.T) {
+	for _, c := range []struct {
+		res                   store.Integrity
+		state, result, detail string
+	}{
+		{store.Integrity{Findings: 3}, "good", "3 findings", "start"},
+		{store.Integrity{Findings: 3, Replayed: []string{"acme/F-001"}}, "good", "3 findings · 1 write replayed", "start · acme/F-001"},
+		{store.Integrity{Findings: 2, Replayed: []string{"acme/F-001"}, Unreplayed: []string{"acme/F-002", "beta/F-001"}, NoFinding: []string{"acme/F-009"}},
+			"warn", "2 findings · 1 write replayed · 2 journal rows not replayed · 1 row without a finding", "start · acme/F-001, acme/F-002, beta/F-001, acme/F-009"},
+		{store.Integrity{Findings: 2, Unreadable: []string{"acme/F-002"}, Duplicate: []string{"acme/F-001"}, Unreplayed: []string{"acme/F-003"}},
+			"bad", "1 unreadable finding · 1 duplicate ID", "start · acme/F-002, acme/F-001"},
+		{store.Integrity{Findings: 9, NoFinding: []string{"a/F-1", "a/F-2", "a/F-3", "a/F-4"}, Drifted: []string{"a/F-5", "a/F-6", "a/F-7"}},
+			"good", "9 findings · 4 rows without a finding · 3 approvals for other text", "start · a/F-1, a/F-2, a/F-3, a/F-4, a/F-5 and 2 more"},
+	} {
+		h := atStart(compareResult(c.res))
+		if h.State != c.state || h.Result != c.result || h.Detail != c.detail {
+			t.Errorf("%+v:\n got %s | %s | %s\nwant %s | %s | %s", c.res, h.State, h.Result, h.Detail, c.state, c.result, c.detail)
+		}
+	}
+}
+
 func TestAdminHealth(t *testing.T) {
 	e := setup(t)
 	b := e.do(t, "dora", "GET", "/admin/system", nil, nil).Body.String()
