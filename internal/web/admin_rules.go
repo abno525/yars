@@ -1,11 +1,14 @@
 package web
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
 	"io/fs"
 	"net/http"
+	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -43,10 +46,12 @@ type ruleForm struct {
 	Old, File                        string
 	ID, Kind, Level, Target, Message string
 	Mode, Pattern, Check, Script, AI string
-	ICase                            bool
-	Targets                          []option
-	Builtins                         []rules.Builtin
-	Errs                             map[string]string
+	// the pattern's flags as boxes: (?i) and (?m) in front of it; NonEmpty
+	// is require_nonempty (Match mode only)
+	ICase, Multiline, NonEmpty bool
+	Targets                    []option
+	Builtins                   []rules.Builtin
+	Errs                       map[string]string
 }
 
 // benchView is the test bench: its choices, and the result of a run on
@@ -149,12 +154,43 @@ func (s *Server) formOf(r rules.Rule) ruleForm {
 	f := ruleForm{Old: r.ID, File: r.File, ID: r.ID, Kind: r.KindName(), Level: r.Level, Target: r.Target, Message: r.Message,
 		Mode: "forbid", Pattern: r.RegexForbid, Check: r.Check, Script: r.Script, AI: r.AI}
 	if r.RegexRequire != "" {
-		f.Mode, f.Pattern = "require", r.RegexRequire
+		f.Mode, f.Pattern, f.NonEmpty = "require", r.RegexRequire, r.RequireNonempty
 	}
-	if p, ok := strings.CutPrefix(f.Pattern, "(?i)"); ok {
-		f.Pattern, f.ICase = p, true
-	}
+	f.Pattern, f.ICase, f.Multiline = cutFlags(f.Pattern)
 	return f
+}
+
+// cutFlags takes the flag groups the editor has boxes for off the front of
+// a pattern: (?i), (?m), both in one group or in two, in any order. A group
+// with any other flag, as (?s) or (?is), and all that follows it stay in
+// the pattern as typed.
+func cutFlags(p string) (rest string, icase, multiline bool) {
+	for {
+		g, after, ok := strings.Cut(p, ")")
+		flags, isGroup := strings.CutPrefix(g, "(?")
+		if !ok || !isGroup || flags == "" || strings.Trim(flags, "im") != "" {
+			return p, icase, multiline
+		}
+		icase = icase || strings.Contains(flags, "i")
+		multiline = multiline || strings.Contains(flags, "m")
+		p = after
+	}
+}
+
+// withFlags writes the boxes back as one group in front of the pattern:
+// (?i), (?m) or (?im).
+func withFlags(p string, icase, multiline bool) string {
+	flags := ""
+	if icase {
+		flags += "i"
+	}
+	if multiline {
+		flags += "m"
+	}
+	if flags == "" {
+		return p
+	}
+	return "(?" + flags + ")" + p
 }
 
 func newRuleForm() ruleForm {
@@ -285,7 +321,8 @@ func (s *Server) ruleFromForm(r *http.Request) (ruleForm, rules.Rule, string, []
 	errs := map[string]string{}
 	f := ruleForm{Old: r.FormValue("old"), ID: strings.TrimSpace(r.FormValue("id")), Kind: r.FormValue("kind"), Level: r.FormValue("level"),
 		Target: r.FormValue("target"), Message: strings.TrimSpace(r.FormValue("message")), Mode: r.FormValue("mode"),
-		Pattern: r.FormValue("pattern"), ICase: r.FormValue("icase") == "1", Check: r.FormValue("check"), AI: strings.TrimSpace(r.FormValue("ai"))}
+		Pattern: r.FormValue("pattern"), ICase: r.FormValue("icase") == "1", Multiline: r.FormValue("multiline") == "1", NonEmpty: r.FormValue("nonempty") == "1",
+		Check: r.FormValue("check"), AI: strings.TrimSpace(r.FormValue("ai"))}
 	f.New = f.Old == ""
 	if f.Mode != "require" {
 		f.Mode = "forbid"
@@ -309,19 +346,18 @@ func (s *Server) ruleFromForm(r *http.Request) (ruleForm, rules.Rule, string, []
 	var script []byte
 	switch f.Kind {
 	case "pattern":
-		p := f.Pattern
-		if f.ICase {
-			p = "(?i)" + p
-		}
+		p := withFlags(f.Pattern, f.ICase, f.Multiline)
 		if f.Pattern == "" {
 			errs["pattern"] = "required"
 		} else if _, err := regexp.Compile(p); err != nil {
 			errs["pattern"] = err.Error()
 		}
 		if f.Mode == "require" {
-			rule.RegexRequire, rule.RequireNonempty = p, old.RequireNonempty
+			// only a pattern the text must match has a rule for empty parts
+			rule.RegexRequire, rule.RequireNonempty = p, f.NonEmpty
 		} else {
 			rule.RegexForbid = p
+			f.NonEmpty = false
 		}
 	case "builtin":
 		if !slices.ContainsFunc(rules.Builtins, func(b rules.Builtin) bool { return b.ID == f.Check }) {
@@ -403,6 +439,39 @@ func readRuleFile(read func(string) ([]byte, error), file string) ([]byte, error
 	return b, err
 }
 
+// scriptRel is where a rule's script is in the main repository: its path
+// under .yars/rules, cleaned. ok is false for a path that leaves the rules
+// folder (a rule file written by hand can name one; it never runs).
+func scriptRel(script string) (rel string, ok bool) {
+	if script == "" || path.IsAbs(script) {
+		return "", false
+	}
+	rel = path.Join(rulesRel, script)
+	return rel, strings.HasPrefix(rel, rulesRel)
+}
+
+// dropScript returns the file change that removes script, which rule id
+// named until this edit, or nothing when the script stays: another rule of
+// cur (on or off) names it, or the edit writes it (written: a path under
+// .yars/rules). Only a regular file inside .yars/rules that is no rule file
+// is ever removed; any other path is left alone without an error, so the
+// rule's own change still goes through.
+func (s *Server) dropScript(cur *rules.Set, id, script, written string) []store.SettingsFile {
+	rel, ok := scriptRel(script)
+	if !ok || rel == written || strings.HasSuffix(rel, ".yaml") || strings.HasSuffix(rel, ".yml") {
+		return nil
+	}
+	for _, x := range cur.Rules {
+		if other, ok := scriptRel(x.Script); ok && other == rel && x.ID != id {
+			return nil
+		}
+	}
+	if info, err := os.Lstat(filepath.Join(s.Store.Repo().Dir, filepath.FromSlash(rel))); err != nil || !info.Mode().IsRegular() {
+		return nil
+	}
+	return []store.SettingsFile{{Path: rel}}
+}
+
 func (s *Server) ruleSave(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 2*maxScript)
 	u := auth.UserFrom(r.Context())
@@ -410,9 +479,10 @@ func (s *Server) ruleSave(w http.ResponseWriter, r *http.Request) {
 	if len(errs) == 0 {
 		err := s.editRules("rules: save "+rule.ID, u, func(cur *rules.Set, read func(string) ([]byte, error)) ([]store.SettingsFile, error) {
 			file := rule.ID + ".yaml"
+			var old rules.Rule
 			if !f.New {
-				old, ok := findRule(cur, f.Old)
-				if !ok {
+				var ok bool
+				if old, ok = findRule(cur, f.Old); !ok {
 					return nil, &ruleErr{"form", "rule " + f.Old + " not found"}
 				}
 				file = old.File
@@ -428,15 +498,40 @@ func (s *Server) ruleSave(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				return nil, &ruleErr{"form", file + ": " + err.Error()}
 			}
-			files := []store.SettingsFile{{Path: rulesRel + file, Data: nb}}
+			// a file the save leaves as it is is not written: a save that
+			// changes nothing is no commit (git refuses an empty one)
+			var files []store.SettingsFile
+			if !bytes.Equal(nb, b) || b == nil {
+				files = append(files, store.SettingsFile{Path: rulesRel + file, Data: nb})
+			}
+			written := ""
 			if script != nil {
-				files = append(files, store.SettingsFile{Path: rulesRel + scriptName, Data: script, Exec: true})
+				written = rulesRel + scriptName
+				cur, err := read(written)
+				info, serr := os.Stat(filepath.Join(s.Store.Repo().Dir, filepath.FromSlash(written)))
+				if err != nil || serr != nil || !bytes.Equal(cur, script) || info.Mode()&0o100 == 0 {
+					files = append(files, store.SettingsFile{Path: written, Data: script, Exec: true})
+				}
+			}
+			// the script the rule had and no longer names (another upload,
+			// another kind) goes with this commit
+			if now, _ := scriptRel(rule.Script); old.Script != "" {
+				if was, _ := scriptRel(old.Script); was != now {
+					files = append(files, s.dropScript(cur, f.Old, old.Script, written)...)
+				}
 			}
 			return files, nil
 		})
 		var re *ruleErr
 		switch {
 		case err == nil:
+			if !f.New && f.Old != rule.ID {
+				// the rename is committed: a failure here leaves the old
+				// ID's dismissals where they were
+				if err := s.Store.RuleRenamed(f.Old, rule.ID, u.Username); err != nil {
+					s.log().Error("rules: a renamed rule's dismissals are not moved", "user", u.Username, "err", err)
+				}
+			}
 			http.Redirect(w, r, "/admin/rules?edit="+rule.ID, http.StatusSeeOther)
 			return
 		case errors.As(err, &re):
@@ -528,7 +623,8 @@ func (s *Server) ruleDelete(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return nil, err
 		}
-		return []store.SettingsFile{{Path: rulesRel + x.File, Data: nb}}, nil
+		// a script rule's script goes with it, unless another rule names it
+		return append([]store.SettingsFile{{Path: rulesRel + x.File, Data: nb}}, s.dropScript(cur, id, x.Script, "")...), nil
 	})
 	if err != nil {
 		s.fail(w, err)

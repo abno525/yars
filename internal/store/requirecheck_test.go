@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"github.com/abno525/yars/internal/config"
 	"github.com/abno525/yars/internal/db"
 	"github.com/abno525/yars/internal/finding"
+	"github.com/abno525/yars/internal/logs"
 	"github.com/abno525/yars/internal/rules"
 	"github.com/abno525/yars/internal/workflow"
 )
@@ -174,36 +176,125 @@ type aiLinter struct{ configured bool }
 func (aiLinter) Lint(context.Context, *finding.Finding, rules.Kind) []rules.Violation { return nil }
 func (l aiLinter) AIConfigured() bool                                                 { return l.configured }
 
-// Q11: with Require Check on, a run whose AI rule could not run keeps Sign
-// off and Approve waiting while an AI provider is set up; without one the
-// AI rules can never run, and it does not.
-func TestGateAIFailedBlocksOnlyWithProvider(t *testing.T) {
-	s, _, fd := ready(t)
-	ref := load(t, s, fd)
-	id, err := s.DB().StartRun(eng, ref.F.Meta.ID, ref.Hash, "bob", "")
-	if err != nil {
-		t.Fatal(err)
+// aiOpenLine is the warn line of a transition that went through although an
+// AI rule could not run.
+const aiOpenLine = "checks: an AI rule could not run; the gate stayed open"
+
+// An AI rule that could not run never holds a finding: with Require Check
+// on, a finished run whose AI step failed lets Sign off and Approve through,
+// with a provider set up or without one. The gate's three readers agree
+// (the transition, the finding page, Ready to approve). The step stays
+// failed (the "AI checks failed" badge and Retry read it), and each
+// transition that went through this way is one warn line while a provider
+// is set up; without one, AI rules can never run and nothing is written.
+func TestGateAIFailedNeverBlocks(t *testing.T) {
+	for _, configured := range []bool{true, false} {
+		s, _, fd := ready(t)
+		lg, logged := logs.NewRecorder()
+		s.Logger = lg
+		if err := s.Transition(eng, fd, workflow.Submit, "", uAlice); err != nil {
+			t.Fatal(err)
+		}
+		ref := load(t, s, fd)
+		id, err := s.DB().StartRun(eng, ref.F.Meta.ID, ref.Hash, "bob", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.DB().AddSteps([]db.CheckStep{
+			{RunID: id, Pos: 0, Rule: "title-word", Kind: "pattern", State: db.StepPass},
+			{RunID: id, Pos: 1, Rule: "plain-words", Kind: "ai", State: db.StepFailed, Message: "AI provider timed out"},
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.DB().TxFor(eng, func(tx *db.Tx) error { return tx.FinishRun(id, db.RunDone, "", nil) }); err != nil {
+			t.Fatal(err)
+		}
+		s.Linter = aiLinter{configured: configured}
+		if !s.gating() {
+			t.Fatal("Require Check is not on")
+		}
+		if g, err := s.CheckGate(eng, fd); err != nil || g != "" {
+			t.Fatalf("provider %v: the page's gate: %q %v", configured, g, err)
+		}
+		gates, err := s.CheckGates([]GateKey{{Eng: eng, Fid: ref.F.Meta.ID, Hash: ref.Hash}})
+		if err != nil || len(gates) != 0 {
+			t.Fatalf("provider %v: Ready to approve's gates: %v %v", configured, gates, err)
+		}
+		if msg, err := s.BlockingNow(eng, fd, workflow.Clear, uBob); err != nil || msg != "" {
+			t.Fatalf("provider %v: allowed actions: %q %v", configured, msg, err)
+		}
+		// reading the gate writes no line, however often
+		if len(logged.With(aiOpenLine)) != 0 {
+			t.Fatalf("provider %v: a read of the gate is logged:\n%s", configured, logged.Text())
+		}
+		if err := s.Transition(eng, fd, workflow.Clear, "", uBob); err != nil {
+			t.Fatalf("provider %v: sign off: %v", configured, err)
+		}
+		if err := s.Transition(eng, fd, workflow.Approve, "", uDora); err != nil {
+			t.Fatalf("provider %v: approve: %v", configured, err)
+		}
+		if m := load(t, s, fd).F.Meta; m.Status != "complete" {
+			t.Fatalf("provider %v: status %s", configured, m.Status)
+		}
+		// the badge's source is as it was
+		st, err := s.CheckStatus(eng, fd)
+		if err != nil || stepOf(t, st, "plain-words").State != db.StepFailed {
+			t.Fatalf("provider %v: the AI step: %+v %v", configured, st.Steps, err)
+		}
+		recs := logged.With(aiOpenLine)
+		if !configured {
+			if len(recs) != 0 {
+				t.Fatalf("without a provider:\n%s", logged.Text())
+			}
+			continue
+		}
+		if len(recs) != 2 {
+			t.Fatalf("with a provider: %d lines:\n%s", len(recs), logged.Text())
+		}
+		for i, want := range []struct{ user, action string }{{"bob", "clear"}, {"dora", "approve"}} {
+			r := recs[i]
+			if r.Level != slog.LevelWarn || r.Str("eng") != eng || r.Str("finding") != ref.F.Meta.ID || r.Str("user") != want.user || r.Str("action") != want.action || len(r.Attrs) != 4 {
+				t.Errorf("line %d: %s", i, r)
+			}
+		}
 	}
-	if err := s.DB().AddSteps([]db.CheckStep{
-		{RunID: id, Pos: 0, Rule: "title-word", Kind: "pattern", State: db.StepPass},
-		{RunID: id, Pos: 1, Rule: "plain-words", Kind: "ai", State: db.StepFailed, Message: "AI provider timed out"},
-	}); err != nil {
-		t.Fatal(err)
+}
+
+// failingAI is a linter whose one AI rule cannot run: every run of the slow
+// rules reports the notice a failed call leaves.
+type failingAI struct {
+	aiLinter
+	runs *int
+}
+
+func (l failingAI) Lint(_ context.Context, _ *finding.Finding, k rules.Kind) []rules.Violation {
+	if k&rules.Slow == 0 {
+		return nil
 	}
-	if err := s.DB().TxFor(eng, func(tx *db.Tx) error { return tx.FinishRun(id, db.RunDone, "", nil) }); err != nil {
-		t.Fatal(err)
-	}
-	s.Linter = aiLinter{configured: true}
-	if g, err := s.CheckGate(eng, fd); err != nil || g != GateAIFailed {
-		t.Fatalf("with a provider: %q %v", g, err)
-	}
-	gates, err := s.CheckGates([]GateKey{{Eng: eng, Fid: ref.F.Meta.ID, Hash: ref.Hash}})
-	if err != nil || gates[eng+"/"+ref.F.Meta.ID] != GateAIFailed {
-		t.Fatalf("CheckGates with a provider: %v %v", gates, err)
-	}
-	s.Linter = aiLinter{configured: false}
-	if g, err := s.CheckGate(eng, fd); err != nil || g != "" {
-		t.Fatalf("without a provider: %q %v", g, err)
+	*l.runs++
+	return []rules.Violation{{Rule: "plain-words", Level: "warning", Target: "ai", Message: "AI check failed: HTTP 503"}}
+}
+
+// Submit runs every rule in the request: an AI rule that cannot run then
+// does not hold it, and with a provider set up that is one warn line. A
+// script rule that cannot run still fails its check and still blocks.
+func TestSubmitGoesThroughWhenAIFails(t *testing.T) {
+	for _, configured := range []bool{true, false} {
+		s, _, fd := ready(t)
+		lg, logged := logs.NewRecorder()
+		s.Logger = lg
+		var runs int
+		s.Linter = failingAI{aiLinter{configured}, &runs}
+		if err := s.Transition(eng, fd, workflow.Submit, "", uAlice); err != nil {
+			t.Fatalf("provider %v: submit: %v", configured, err)
+		}
+		recs := logged.With(aiOpenLine)
+		if runs != 1 || configured && (len(recs) != 1 || recs[0].Str("action") != "submit" || recs[0].Str("user") != "alice" || recs[0].Str("finding") != "F-001") || !configured && len(recs) != 0 {
+			t.Fatalf("provider %v: %d runs, log:\n%s", configured, runs, logged.Text())
+		}
+		if strings.Contains(logged.Text(), "HTTP 503") {
+			t.Fatalf("the rule's message is in the log:\n%s", logged.Text())
+		}
 	}
 }
 

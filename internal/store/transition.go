@@ -190,6 +190,7 @@ func (s *Store) transition(engID, dir string, act workflow.Action, reason, seen,
 	// Style rules (scripts, AI) can be slow, so they run outside the lock on
 	// a snapshot; the change is refused if the finding changed meanwhile.
 	linted := ""
+	aiOpen := false // an AI rule could not run and held nothing (blocking)
 	if (workflow.Gated(act) || SignsOff(act)) && s.Linter != nil {
 		ref, raw, err := s.read(engID, dir, nil)
 		if err != nil {
@@ -206,8 +207,8 @@ func (s *Store) transition(engID, dir string, act workflow.Action, reason, seen,
 		if err := check(ref.F.Meta); err != nil {
 			return err
 		}
-		errs, err := s.blocking(act, ref, full, u, rules.All)
-		if err != nil {
+		var errs []string
+		if errs, aiOpen, err = s.blocking(act, ref, full, u, rules.All); err != nil {
 			return err
 		}
 		if len(errs) > 0 {
@@ -216,7 +217,9 @@ func (s *Store) transition(engID, dir string, act workflow.Action, reason, seen,
 		linted = full
 	}
 	var done Event
+	fid := ""
 	err := s.changeState(engID, dir, func(ref FindingRef, st *db.State, hash string) ([]chat.Message, error) {
+		fid = ref.F.Meta.ID
 		done = findingEvent(EventStatus, u.Username, ref)
 		done.Action, done.From, done.Reason = string(act), ref.F.Meta.Status, strings.TrimSpace(reason)
 		changed := seen != "" && hash != seen
@@ -322,6 +325,13 @@ func (s *Store) transition(engID, dir string, act workflow.Action, reason, seen,
 	})
 	if err != nil {
 		return err
+	}
+	if aiOpen {
+		// AI rules fail open: the step went through although one could not
+		// run. Written here, once per step taken, never where the gate is
+		// read (every page view reads it). No rule and no message: the
+		// "ai call failed" lines and the finding's Checks strip have them.
+		s.Log().Warn("checks: an AI rule could not run; the gate stayed open", "eng", engID, "finding", LogID(fid), "user", u.Username, "action", string(act))
 	}
 	_, done.To = s.Flow().Target(act)
 	s.Emit(done)

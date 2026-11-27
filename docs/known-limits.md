@@ -7,15 +7,16 @@ What YARS does not do, or does in a way that can surprise. Each row states today
 | Limit | Note |
 |---|---|
 | An AI rule without an AI provider shows an orange "AI checks failed" badge on every finding after Check | Its step fails with the warning "AI rules skipped: no AI provider configured". Sign off and Approve are not held by it. `yars init` writes no rules, so a new data folder has none of this until someone adds an AI rule. Set a provider or turn the rule off. |
+| An AI rule whose call failed holds nothing: Submit, Sign off and Approve go through, at level `error` too | The finding shows "AI checks failed" with Retry, and the service log has a `warn` line for each step taken so. Keep what must hold in pattern, built-in or script rules ([rules.md](rules.md)). |
 | When the last rule is turned off, what it found in the finding's latest Check still holds Sign off and Approve, named by its message only | With no rule on, Require Check no longer asks for a run, and the latest run's results stay open, as with Require Check off. A Check clears them; so does dismissing them. |
 | Stored rule results have no engagement, so a purge does not clear them | They age out with the check-run retention. |
-| A git push and `yars lint --all` run every script each time, and `yars lint --all` sends the text to the AI provider each time | Stored results serve Check, MCP, the pre-commit check and the Test bench only ([rules.md](rules.md)). A push runs no AI rule; the plain `yars lint` runs neither scripts nor AI rules. |
+| A git push and `yars lint --all` run every script each time, and `yars lint --all` sends the text to the AI provider each time | Stored results serve Check, MCP, `yars lint --staged --all` and the Test bench only ([rules.md](rules.md)). A push runs no AI rule; the plain `yars lint` runs neither scripts nor AI rules. |
 | Two OpenAI-compatible endpoints serving the same model name share stored AI results | The base URL is not part of the key. |
 | `checks.max_running` is set in `.yars/config.yaml` only | No Admin page shows or edits it. |
 | A rules file restored with its old size and time (`cp -p`, `rsync -t`) more than 2 s after an earlier change is not seen as a change | The engine's reload, the stored script results and a check run's "+changed" go by size and time (and by content within 2 s of a write). A plain copy or a git checkout sets a new time. |
 | A run that started right after a rules save may be marked "+changed" once when nothing changed | Only when a file was written within 2 s of its start and changed again during it. Check again clears it. |
 | A built-in check's configured message near the 4,000-character cut loses its detail | None of the built-in messages is that long; the whole message shows on hover. |
-| The pre-commit hook lets a commit through, "nothing checked", when it cannot reach the server | The hook never blocks a commit; the server checks the push anyway. |
+| The pre-commit hook lets a commit through, "nothing checked", when it cannot reach the server | The hook never blocks a commit; the server checks the push anyway. `yars lint --staged` by hand, without `--warn-only`, exits 3 then. |
 
 ## Review
 

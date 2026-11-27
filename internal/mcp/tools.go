@@ -697,9 +697,9 @@ var coreTools = []tool{
 			}
 			return okMsg("resolved")
 		}},
-	{name: "lint_finding", desc: "Check a finding against the team's style rules (regex and built-in checks; with all=true also script and AI rules). Violations a reviewer dismissed are marked dismissed and do not block submit or approve.",
-		required: []param{pEng, pFinding}, boolArgs: []param{{"all", "also run script and AI rules (slower)"}},
-		simple: &toolText{desc: "Check a finding against the team's style rules (regex and built-in checks; with all=true also script and AI rules). Violations someone dismissed are marked dismissed and do not block complete."},
+	{name: "lint_finding", desc: "Check a finding against the team's style rules (regex and built-in checks; with all=true also script and AI rules). Violations a reviewer dismissed are marked dismissed and do not block submit or approve. On the server all=true is a stored check run, as start_check starts: it waits in the queue, posts each new violation as a chat comment and is refused on an archived engagement. The answer waits for the run and has its run_id and state; when the run is still queued or running it lists nothing and says so: read get_check_results then.",
+		required: []param{pEng, pFinding}, boolArgs: []param{{"all", "also run script and AI rules (slower; on the server a stored check run)"}},
+		simple: &toolText{desc: "Check a finding against the team's style rules (regex and built-in checks; with all=true also script and AI rules). Violations someone dismissed are marked dismissed and do not block complete. On the server all=true is a stored check run, as start_check starts: it waits in the queue, posts each new violation as a chat comment and is refused on an archived engagement. The answer waits for the run and has its run_id and state; when the run is still queued or running it lists nothing and says so: read get_check_results then."},
 		run: func(s *Server, ctx context.Context, u config.User, a args) (string, error) {
 			ref, err := s.ref(a)
 			if err != nil {
@@ -714,6 +714,12 @@ var coreTools = []tool{
 			}
 			kinds := rules.Fast
 			if all, _ := a["all"].(bool); all {
+				if s.Store.DB() != nil {
+					// on the server every rule is a check run: it takes its
+					// place in the queue and is refused where a write is
+					return s.lintByCheck(ctx, ref, u)
+				}
+				// a clone (yars mcp) has no database: no queue, no archive
 				kinds = rules.All
 			}
 			ds, err := s.Store.Dismissals(ref.EngID, ref.F.Meta.ID)

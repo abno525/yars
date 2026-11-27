@@ -136,11 +136,13 @@ Errors and warnings dismissed on the finding's Checks panel don't count. The res
 yars hook install --data <clone>
 ```
 
-Run it once in each clone (a main clone or an engagement clone), and again after a new engagement is checked out in a main clone (`git submodule update --init engagements/<id>`): it puts a `pre-commit` hook in every engagement repository. Each commit then sends the `finding.md` files it adds or changes (as staged, not the work tree) to the server, which checks them as the Check button does, with the same rules, AI rules included, and the finding's workflow state, so a commit can take as long as a Check does (at most two minutes). Nothing of it is kept on the server (no commit, no check run) except what Check keeps too: the AI usage records, under your account, and the stored script and AI results (Script rules › Stored results).
+Run it once in each clone (a main clone or an engagement clone), and again after a new engagement is checked out in a main clone (`git submodule update --init engagements/<id>`): it puts a `pre-commit` hook in every engagement repository. Each commit then sends the `finding.md` files it adds or changes (as staged, not the work tree) to the server, which checks them with the pattern and built-in rules and the finding's workflow state. Scripts and AI rules do not run, so a commit does not wait for them. Nothing of it is kept on the server (no commit, no check run).
+
+`yars lint --staged --all`, run by hand, asks for the scripts and AI rules too, as the Check button runs them. It can take as long as a Check does (at most two minutes), and the server then keeps what Check keeps too: the AI usage records, under your account, and the stored script and AI results (Script rules › Stored results).
 
 The hook signs in with the login git has saved for the clone and never asks for one: the login in the clone URL (a Git token from Settings › Tokens works there, and failed tokens never lock the account), or the one git's credential helper keeps. Stock git keeps none: set a helper once (`git config --global credential.helper store`, or `cache`, or your system's keyring helper), then `git fetch` once to save the login. A login the server refuses is forgotten by the helper, as git does. The hook reaches the server as git does (`http.sslCAInfo`, `http.sslVerify`, `http.proxy`).
 
-Signed in with a token, the check runs script and AI rules only when the token has the Run checks action. With any other token, a read-only one too, the server runs the pattern and built-in rules and leaves the others out of the answer.
+Signed in with a token, `--all` runs script and AI rules only when the token has the Run checks action. With any other token, a read-only one too, the server runs the pattern and built-in rules and leaves the others out of the answer.
 
 | Output | When |
 |---|---|
@@ -152,4 +154,4 @@ Signed in with a token, the check runs script and AI rules only when the token h
 | `<hook>: a pre-commit hook exists already; add this line to it: …` | At install: a hook you wrote is kept; add the line yourself |
 | `<engagement>: core.hooksPath is set (…); add this line to its pre-commit hook: …` | At install: your hooks live elsewhere; add the line there |
 
-The hook never blocks a commit: the push is checked again by the server (see above). `yars lint --staged` runs the same check by hand, and without `--warn-only` exits 1 when there are errors.
+The hook never blocks a commit: the push is checked again by the server (see above). `yars lint --staged` runs the same check by hand. Without `--warn-only` it exits 1 when there are errors and 3 when the server could not be asked ("nothing checked", no saved login); 0 means checked and clean.

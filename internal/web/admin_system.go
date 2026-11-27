@@ -10,7 +10,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/abno525/yars/internal/auth"
@@ -419,12 +418,11 @@ func (s *Server) healthDB(full bool) healthResult {
 }
 
 func (s *Server) healthDisk() healthResult {
-	var st syscall.Statfs_t
 	dir := s.Store.Repo().Dir
-	if err := syscall.Statfs(dir, &st); err != nil {
+	free, total, err := diskSpace(dir)
+	if err != nil {
 		return hBad("unknown", err.Error())
 	}
-	free, total := int64(st.Bavail)*int64(st.Bsize), int64(st.Blocks)*int64(st.Bsize)
 	res := size(free) + " of " + size(total)
 	switch {
 	case free < 1<<30:

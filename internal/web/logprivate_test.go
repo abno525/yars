@@ -117,13 +117,20 @@ func TestNoPrivateTextInLog(t *testing.T) {
 				}
 				return nil
 			})
-			// an AI provider: its first answer is an error that echoes what
-			// it was sent, the next ones name a violation in the text's words
+			// an AI provider: its first two answers are errors that echo what
+			// it was sent (a 500, which is tried again, then a 403, which is
+			// the call's end), the next ones name a violation in the text's
+			// words (the Impact section's: a quote that is not in the text is
+			// dropped)
 			var aiCalls atomic.Int32
-			aiKey, aiErrBody, aiQuote, aiMessage := mark("aikey"), mark("aierrorbody"), mark("aiquote"), mark("aimessage")
+			aiKey, aiErrBody, aiQuote, aiMessage := mark("aikey"), mark("aierrorbody"), mark("sectionimp"), mark("aimessage")
 			provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if aiCalls.Add(1) == 1 {
+				switch aiCalls.Add(1) {
+				case 1:
 					http.Error(w, "you sent "+aiErrBody, http.StatusInternalServerError)
+					return
+				case 2:
+					http.Error(w, "you sent "+aiErrBody, http.StatusForbidden)
 					return
 				}
 				content, _ := json.Marshal(`{"violations":[{"quote":"` + aiQuote + `","message":"` + aiMessage + `"}]}`)
@@ -198,7 +205,8 @@ func TestNoPrivateTextInLog(t *testing.T) {
 			// a rule's error, dismissed with a reason; submit; Return with a reason
 			e.rules(t, "- id: no-zq\n  target: title\n  regex_forbid: 'zqtitle'\n  message: No zq\n"+
 				"- id: ai-tone\n  target: section:Impact\n  level: warning\n  ai: Never write "+mark("aiprompt")+".\n", nil)
-			e.srv.wireAI() // the engine above came after the server's start
+			e.srv.wireAI()             // the engine above came after the server's start
+			e.srv.runner().Backoff = 0 // the call that is tried again does not wait
 			do("dora", "POST", "/admin/ai", url.Values{"provider": {"openai"}, "base_url": {provider.URL + "/" + mark("aipath")}, "model": {"m1"}, "key": {aiKey}})
 			do("alice", "POST", fp+"/reviewers", url.Values{"reviewer": {"bob"}})
 			if rec := e.do(t, "bob", "POST", fp+"/checks/dismiss", url.Values{"rule": {"no-zq"}, "quote": {"zqtitle"}, "reason": {mark("dismissreason")}}, hdr); rec.Code != 200 {
@@ -285,7 +293,8 @@ func TestNoPrivateTextInLog(t *testing.T) {
 			wants := []string{`msg=request `, `user=alice`, `eng=acme`, `finding=F-002`, `msg="login failed"`, `msg="request failed"`, `route="POST /e/{eng}/f/{fid}/s/{section}"`, `status=500`, "permission denied", "git commit -q --only -- "}
 			// the background work's lines, each driven above
 			jobs := []string{"check run finished", "export finished", "webhook delivered", "webhook delivery failed; it is tried again",
-				"notification email sent", "notification email not sent", "ai call finished", "ai call failed"}
+				"notification email sent", "notification email not sent", "ai call finished", "ai call failed", "ai call failed; it is tried again",
+				"checks: an AI rule could not run; the gate stayed open"}
 			for _, m := range jobs {
 				wants = append(wants, `msg="`+m+`"`)
 			}

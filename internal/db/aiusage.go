@@ -1,6 +1,11 @@
 package db
 
-import "time"
+import (
+	"time"
+
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/secret"
+)
 
 // AIUsage is one call to the AI provider as stored (D24).
 type AIUsage struct {
@@ -56,3 +61,31 @@ func (d *DB) AITotals(since time.Time) ([]AITotal, error) {
 
 // AI price settings: per million tokens, decimal text ("" = no price).
 const AIPriceInKey, AIPriceOutKey = "ai.price_in", "ai.price_out"
+
+// The AI settings saved on Admin › AI (server_settings); the key is stored
+// encrypted with the data folder's secret key.
+const (
+	AIProviderKey = "ai.provider"
+	AIBaseKey     = "ai.base_url"
+	AIModelKey    = "ai.model"
+	AIKeyKey      = "ai.key"
+)
+
+// AIStored reads the AI settings saved on Admin › AI and decrypts the key
+// ("" values: not set there, or not readable). open gives the box of the
+// data folder's secret key; it is asked only when a key is stored. The
+// server and yars lint read the settings through this.
+func (d *DB) AIStored(open func() (*secret.Box, error)) (config.AIConfig, string) {
+	all, err := d.Settings("ai.")
+	if err != nil {
+		return config.AIConfig{}, ""
+	}
+	c := config.AIConfig{Provider: all[AIProviderKey], BaseURL: all[AIBaseKey], Model: all[AIModelKey]}
+	key := ""
+	if enc := all[AIKeyKey]; enc != "" {
+		if box, err := open(); err == nil {
+			key, _ = box.Decrypt(enc)
+		}
+	}
+	return c, key
+}

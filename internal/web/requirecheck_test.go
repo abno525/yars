@@ -5,7 +5,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/abno525/yars/internal/config"
 	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/rules"
 	"github.com/abno525/yars/internal/store"
 	"github.com/abno525/yars/internal/workflow"
 )
@@ -43,6 +45,47 @@ func TestRequireCheckBar(t *testing.T) {
 	// the store refuses the same way when posted anyway
 	if b := e.denied(t, "bob", fpath+"/action/clear", url.Values{}); !strings.Contains(b, store.GateStale) {
 		t.Fatal("posted sign off: no refusal on the page")
+	}
+}
+
+// A check run whose AI rule could not run, with a provider set up, holds
+// nothing: Sign off is enabled, the state is not "Run Check first", the
+// posted sign-off goes through, and the bar still says "AI checks failed".
+func TestRequireCheckBarOpenWhenAIFailed(t *testing.T) {
+	e := setup(t)
+	e.rules(t, noneRule, nil)
+	e.srv.Rules.Runner.(*rules.Runner).Stored = func() (config.AIConfig, string) {
+		return config.AIConfig{Provider: "openai", BaseURL: "http://127.0.0.1:1", Model: "m"}, "key"
+	}
+	if !e.srv.Rules.AIConfigured() {
+		t.Fatal("no AI provider set up")
+	}
+	e.toVerification(t)
+	st := e.srv.Store
+	ref, err := st.Finding("acme", fdir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	failed := "AI check failed: HTTP 503"
+	id, _ := st.DB().StartRun("acme", ref.F.Meta.ID, ref.Hash, "bob", st.RulesVersion())
+	st.DB().AddSteps([]db.CheckStep{{RunID: id, Pos: 0, Rule: "none", Kind: "pattern", State: db.StepPass}, {RunID: id, Pos: 1, Rule: "ai-x", Kind: "ai", State: db.StepFailed, Message: failed}})
+	st.DB().TxFor("acme", func(tx *db.Tx) error {
+		return tx.FinishRun(id, db.RunDone, "", []db.CheckResult{{Rule: "ai-x", Level: "warning", Message: failed, Target: "ai", QuoteHash: "n"}})
+	})
+	bar := e.do(t, "bob", "GET", fpath+"/workflow", nil, nil).Body.String()
+	if strings.Contains(slotButton(t, bar, "clear"), " disabled") || strings.Contains(bar, "Run Check first") || !strings.Contains(bar, "AI checks failed") {
+		t.Fatalf("the bar after a run with a failed AI rule:\n%s", bar)
+	}
+	if rec := e.do(t, "bob", "POST", fpath+"/action/clear", url.Values{}, nil); rec.Code >= 400 {
+		t.Fatalf("posted sign off: %d\n%s", rec.Code, rec.Body.String())
+	}
+	if got, _ := st.Finding("acme", fdir); len(got.F.Meta.ClearedBy) != 1 || got.F.Meta.ClearedBy[0] != "bob" {
+		t.Fatalf("not signed off: %+v", got.F.Meta)
+	}
+	// Ready to approve lists it for the director
+	gates, err := st.CheckGates([]store.GateKey{{Eng: "acme", Fid: ref.F.Meta.ID, Hash: ref.Full}})
+	if err != nil || len(gates) != 0 {
+		t.Fatalf("gates %v %v", gates, err)
 	}
 }
 

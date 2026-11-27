@@ -437,6 +437,59 @@ func (tx *Tx) Dismiss(x Dismissal) error {
 	return err
 }
 
+// RenameRule gives what is stored under rule from to rule to, in every
+// engagement (the rule was renamed), in one transaction: its dismissals
+// (moved is how many), and the results and steps of the stored check runs,
+// so a result dismissed before is the dismissed result still, and its chat
+// thread stays the result's (CheckThreadRefs). A place that rule to has a
+// dismissal for already keeps that one; from's is dropped, so none is left
+// under the old ID. A run that has a step of rule to already keeps that step
+// and from's beside it.
+func (d *DB) RenameRule(from, to string) (moved int, err error) {
+	err = d.Tx(func(tx *Tx) error {
+		rows, err := tx.Query(`SELECT eng FROM dismissals WHERE rule = ?
+			UNION SELECT c.eng FROM check_runs c JOIN check_results r ON r.run_id = c.id WHERE r.rule = ?
+			UNION SELECT c.eng FROM check_runs c JOIN check_steps x ON x.run_id = c.id WHERE x.rule = ?`, from, from, from)
+		if err != nil {
+			return err
+		}
+		var engs []string
+		for rows.Next() {
+			var e string
+			if err := rows.Scan(&e); err != nil {
+				rows.Close()
+				return err
+			}
+			engs = append(engs, e)
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		for _, e := range engs {
+			tx.touch(e)
+		}
+		res, err := tx.Exec("UPDATE OR IGNORE dismissals SET rule = ? WHERE rule = ?", to, from)
+		if err != nil {
+			return err
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			return err
+		}
+		moved = int(n)
+		if _, err = tx.Exec("DELETE FROM dismissals WHERE rule = ?", from); err != nil {
+			return err
+		}
+		if _, err = tx.Exec("UPDATE check_results SET rule = ? WHERE rule = ?", to, from); err != nil {
+			return err
+		}
+		_, err = tx.Exec("UPDATE OR IGNORE check_steps SET rule = ? WHERE rule = ?", to, from)
+		return err
+	})
+	return moved, err
+}
+
 // Undismiss drops a dismissal; the violation counts again.
 func (tx *Tx) Undismiss(eng, fid, rule, quoteHash string) error {
 	tx.touch(eng)

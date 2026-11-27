@@ -162,7 +162,9 @@ func TestAIStoredReplyCapped(t *testing.T) {
 	store := newMemResults()
 	r := aiRunner(t, "openai", srv.URL)
 	r.Results = store
-	vs := r.AI(context.Background(), acr, "title", "text")
+	// the quote is in the text: one that is not is dropped
+	text := "text " + strings.Repeat("q", 500)
+	vs := r.AI(context.Background(), acr, "title", text)
 	quote, msg := strings.Repeat("q", maxQuote)+"…", strings.Repeat("m", maxMessage)+"…"
 	if len(vs) != MaxPerRule { // one quote 30 times: no row counts a rest
 		t.Fatalf("%d violations", len(vs))
@@ -182,7 +184,7 @@ func TestAIStoredReplyCapped(t *testing.T) {
 	}
 	later := aiRunner(t, "openai", srv.URL)
 	later.Results = store
-	if again := later.AI(context.Background(), acr, "title", "text"); !slices.Equal(again, vs) || f.hits.Load() != 1 {
+	if again := later.AI(context.Background(), acr, "title", text); !slices.Equal(again, vs) || f.hits.Load() != 1 {
 		t.Fatalf("the stored reply shows otherwise: %d violations, %d calls", len(again), f.hits.Load())
 	}
 }

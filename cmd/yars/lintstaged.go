@@ -20,9 +20,16 @@ import (
 	"time"
 )
 
-// lintTimeout bounds the whole hook run: the server's AI rules can take as
-// long as a Check does, but a commit never waits longer than this.
+// lintTimeout bounds the whole run. The hook asks for the pattern and
+// built-in rules, which answer at once; with --all the server's scripts and
+// AI rules can take as long as a Check does. A commit never waits longer
+// than this.
 var lintTimeout = 120 * time.Second
+
+// notChecked is the exit code of yars lint --staged when the server could
+// not be asked: neither clean (0) nor errors found (1), and not a mistake in
+// the command or the clone (2). With --warn-only the code is 0 all the same.
+const notChecked = 3
 
 // lintURL turns an origin URL (http[s]://host[:port]/git/e/<id>[.git]) into
 // its lint endpoint (without the login a URL may carry); ok is false for any
@@ -142,32 +149,42 @@ type lintAnswer struct {
 // one line and counts nothing: a commit is never held up by it. warnOnly
 // adds "(commit not blocked)" to the last line.
 func lintStaged(ctx context.Context, dir string, out io.Writer, warnOnly bool) (errs, warns int, err error) {
+	errs, warns, _, err = lintStagedChecked(ctx, dir, out, warnOnly, false)
+	return errs, warns, err
+}
+
+// lintStagedChecked is lintStaged that also tells whether the server
+// answered for every staged finding: checked is false when it could not be
+// asked (the line printed says why), so that 0 errors does not read as
+// clean. A commit that stages no finding is checked: there was nothing to
+// ask.
+func lintStagedChecked(ctx context.Context, dir string, out io.Writer, warnOnly, all bool) (errs, warns int, checked bool, err error) {
 	paths, err := stagedFindings(ctx, dir)
 	if err != nil || len(paths) == 0 {
-		return 0, 0, err
+		return 0, 0, err == nil, err
 	}
 	originOut, _ := gitCmd(ctx, dir, "config", "--get", "remote.origin.url").Output()
 	origin := strings.TrimSpace(string(originOut))
 	endpoint, ok := lintURL(origin)
 	if !ok {
 		fmt.Fprintln(out, "yars: this clone's origin is not a YARS engagement (/git/e/<id>); nothing checked")
-		return 0, 0, nil
+		return 0, 0, false, nil
 	}
 	host := strings.TrimPrefix(strings.TrimPrefix(endpoint, "http://"), "https://")
 	host, _, _ = strings.Cut(host, "/")
 	user, pass, err := gitCredential(ctx, dir, origin)
 	if ctx.Err() != nil {
 		fmt.Fprintf(out, "yars: could not ask %s: no answer within %s; nothing checked\n", host, lintTimeout)
-		return 0, 0, nil
+		return 0, 0, false, nil
 	}
 	if err != nil {
 		fmt.Fprintf(out, "yars: no saved login for %s; save one for git (a credential helper, then git fetch once; or a Git token in the clone URL) and commit again\n", host)
-		return 0, 0, nil
+		return 0, 0, false, nil
 	}
 	client, err := gitHTTPClient(ctx, dir, origin)
 	if err != nil {
 		fmt.Fprintf(out, "yars: could not ask %s: %v; nothing checked\n", host, err)
-		return 0, 0, nil
+		return 0, 0, false, nil
 	}
 	// read every staged finding, then ask about them, up to lintParallel at a
 	// time (the server's AI rules are slow); only when every answer is in is
@@ -177,10 +194,10 @@ func lintStaged(ctx context.Context, dir string, out io.Writer, warnOnly bool) (
 		raw, err := gitCmd(ctx, dir, "show", ":"+p).Output()
 		if ctx.Err() != nil {
 			fmt.Fprintf(out, "yars: could not ask %s: no answer within %s; nothing checked\n", host, lintTimeout)
-			return 0, 0, nil
+			return 0, 0, false, nil
 		}
 		if err != nil {
-			return 0, 0, fmt.Errorf("read %s from the index: %w", p, err)
+			return 0, 0, false, fmt.Errorf("read %s from the index: %w", p, err)
 		}
 		raws[i] = raw
 	}
@@ -199,7 +216,13 @@ func lintStaged(ctx context.Context, dir string, out io.Writer, warnOnly bool) (
 			rejectCredential(ctx, dir, origin, user, pass)
 		}
 		fmt.Fprintf(out, "yars: could not ask %s: %s; nothing checked\n", host, reason)
-		return 0, 0, nil
+		return 0, 0, false, nil
+	}
+	// the server runs the pattern and built-in rules; with all it is asked
+	// for the scripts and AI rules too, which it runs when the login may
+	ask := endpoint
+	if all {
+		ask += "?all=1"
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -218,7 +241,7 @@ func lintStaged(ctx context.Context, dir string, out io.Writer, warnOnly bool) (
 			if ctx.Err() != nil {
 				return
 			}
-			a, code, reason := askLint(ctx, client, endpoint, user, pass, raws[i])
+			a, code, reason := askLint(ctx, client, ask, user, pass, raws[i])
 			mu.Lock()
 			defer mu.Unlock()
 			if reason != "" {
@@ -239,7 +262,7 @@ func lintStaged(ctx context.Context, dir string, out io.Writer, warnOnly bool) (
 	}
 	if failed != "" {
 		fmt.Fprintf(out, "yars: could not ask %s: %s; nothing checked\n", host, failed)
-		return 0, 0, nil
+		return 0, 0, false, nil
 	}
 	for _, r := range results {
 		if r.code == http.StatusUnprocessableEntity {
@@ -272,7 +295,7 @@ func lintStaged(ctx context.Context, dir string, out io.Writer, warnOnly bool) (
 		last += " (commit not blocked)"
 	}
 	fmt.Fprintln(out, last)
-	return errs, warns, nil
+	return errs, warns, true, nil
 }
 
 // lintParallel is how many findings are asked about at a time.

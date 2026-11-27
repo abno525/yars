@@ -27,7 +27,7 @@ func (s *Store) BlockingNow(engID, dir string, act workflow.Action, u config.Use
 	if err != nil {
 		return "", err
 	}
-	errs, err := s.blocking(act, ref, ApprovalHash(raw), u, rules.Fast)
+	errs, _, err := s.blocking(act, ref, ApprovalHash(raw), u, rules.Fast)
 	if err != nil || len(errs) == 0 {
 		return "", err
 	}
@@ -45,14 +45,19 @@ func (s *Store) BlockingNow(engID, dir string, act workflow.Action, u config.Use
 // Approve and Complete run nothing inline: the run is the source. The rules
 // run for u on the finding (their AI calls are recorded so, D24); kinds are
 // the rules run inline (Transition: all; BlockingNow: fast).
-func (s *Store) blocking(act workflow.Action, ref FindingRef, hash string, u config.User, kinds rules.Kind) ([]string, error) {
-	var out []string
+//
+// An AI rule that could not run blocks nothing (the failed call is a notice,
+// and a run with a failed AI step is a finished run). aiOpen reports that
+// this is so now while a provider is set up: the rules run here left an AI
+// notice, or the latest run on this content has a failed AI step. The
+// caller that lets the action through says so in the log.
+func (s *Store) blocking(act workflow.Action, ref FindingRef, hash string, u config.User, kinds rules.Kind) (out []string, aiOpen bool, err error) {
 	gate := SignsOff(act) && s.gating()
 	if gate {
 		// Require Check: the stored run is the source, nothing runs inline
 		g, err := s.checkGate(ref.EngID, ref.F.Meta.ID, hash)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		if g != "" {
 			out = append(out, g)
@@ -60,9 +65,11 @@ func (s *Store) blocking(act workflow.Action, ref FindingRef, hash string, u con
 	}
 	if act == workflow.Submit || ((act == workflow.Approve || act == workflow.Complete) && !gate) {
 		ctx := rules.WithCaller(context.Background(), rules.Caller{User: u.Username, Eng: ref.EngID, Fid: ref.F.Meta.ID})
-		vs, err := s.undismissed(ref.EngID, ref.F.Meta.ID, s.Linter.Lint(ctx, ref.F, kinds))
+		all := s.Linter.Lint(ctx, ref.F, kinds)
+		aiOpen = s.aiSetUp() && slices.ContainsFunc(all, func(v rules.Violation) bool { return v.Target == "ai" })
+		vs, err := s.undismissed(ref.EngID, ref.F.Meta.ID, all)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		for _, msg := range rules.Errors(vs) {
 			if !slices.Contains(out, msg) { // a rule may find a quote twice
@@ -73,7 +80,7 @@ func (s *Store) blocking(act workflow.Action, ref FindingRef, hash string, u con
 	if SignsOff(act) {
 		open, err := s.openChecks(ref, hash)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		for _, v := range open {
 			msg := v.Message
@@ -84,8 +91,14 @@ func (s *Store) blocking(act workflow.Action, ref FindingRef, hash string, u con
 				out = append(out, msg)
 			}
 		}
+		if !aiOpen && kinds == rules.All {
+			// asked only where the action is taken, not where it is looked at
+			if aiOpen, err = s.aiStayedOpen(ref.EngID, ref.F.Meta.ID, hash); err != nil {
+				return nil, false, err
+			}
+		}
 	}
-	return out, nil
+	return out, aiOpen, nil
 }
 
 // OpenChecks lists the finding's open (undismissed) check errors and

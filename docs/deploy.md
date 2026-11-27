@@ -314,6 +314,9 @@ Each job writes one line when it ends, with `ms` and its outcome.
 | `check run dropped` | a waiting check run was not run: the server stops (`interrupted`) or the engagement was archived (`archived`) |
 | `fix with AI finished` | a Fix with AI ended: how many were fixed |
 | `ai call finished`, `ai call failed` | one call to the AI provider: the rule, the model, the tokens (`warn` when it failed) |
+| `ai call failed; it is tried again` | the provider answered 429 or a 5xx status and the call is made again: the status, the host and the try's number (`warn`) |
+| `checks: an AI rule could not run; the gate stayed open` | a Submit, Sign off, Approve or Complete went through although an AI rule of the finding could not run, with a provider set up: the engagement, the finding, who and the action (`warn`) |
+| `ai: violations whose words are not in the text are dropped` | an AI rule's reply quoted words the checked text does not hold: the rule, the model and a count (`warn`) |
 | `export finished` | a download or a send: the destination's ID and the counts (`warn` when a finding failed) |
 | `webhook delivered` | a webhook delivery arrived |
 | `webhook delivery failed; it is tried again` | a delivery failed and waits for its next try (`warn`) |
