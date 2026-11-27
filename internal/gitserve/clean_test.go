@@ -99,6 +99,59 @@ func TestCleanLeftovers(t *testing.T) {
 	}
 }
 
+// An empty folder is not a leftover file: a new engagement's findings
+// folder (git holds no empty folder) and an empty folder inside a finding
+// are not reported. Files next to them still are, and only the files count.
+func TestCleanLeftoversCountsFilesOnly(t *testing.T) {
+	main, eng := cleanFixture(t)
+	if err := os.MkdirAll(filepath.Join(eng, "findings", "F-001-x", "attachments"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	fresh := filepath.Join(main.Dir, "engagements", "fresh")
+	fr, err := gitrepo.Init(fresh)
+	if err != nil {
+		t.Fatal(err)
+	}
+	put(t, filepath.Join(fresh, "engagement.yaml"), "id: fresh\n")
+	if err := fr.Commit([]string{"engagement.yaml"}, "start", gitrepo.Author{Name: "a", Email: "a@x"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(fresh, "findings"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := CleanLeftovers(main); err != nil || len(got) != 0 {
+		t.Fatalf("empty folders reported: %+v %v", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(eng, "findings", "F-001-x", "finding.md")); err != nil {
+		t.Fatalf("the committed finding was removed: %v", err)
+	}
+
+	// one folder with two files and an empty folder: two files. A nested
+	// repository is left, and its file is not counted.
+	nested := filepath.Join(fresh, "findings", "nested")
+	if _, err := gitrepo.Init(nested); err != nil {
+		t.Fatal(err)
+	}
+	put(t, filepath.Join(nested, "kept.txt"), "x")
+	defer func() {
+		if _, err := os.Stat(filepath.Join(nested, "kept.txt")); err != nil {
+			t.Errorf("the nested repository's file was removed: %v", err)
+		}
+	}()
+	if err := os.MkdirAll(filepath.Join(fresh, "findings", "F-002-empty"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	put(t, filepath.Join(fresh, "findings", "F-001-y", "finding.md"), "x")
+	put(t, filepath.Join(fresh, "findings", "F-001-y", "attachments", "a.txt"), "x")
+	got, err := CleanLeftovers(main)
+	if err != nil || len(got) != 1 || got[0].Eng != "fresh" || got[0].N != 2 {
+		t.Fatalf("cleaned %+v %v", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(fresh, "findings", "F-001-y")); !os.IsNotExist(err) {
+		t.Fatal("the uncommitted folder is still there")
+	}
+}
+
 // An engagement repository a stop left without a commit (its files staged
 // or not) does not stop the start, and nothing in it is removed: none of it
 // is committed, so there is no telling the real from the leftover.

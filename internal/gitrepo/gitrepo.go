@@ -487,23 +487,29 @@ func (r *Repo) RestoreHead() (bool, error) {
 // CleanUntracked removes what is under dir (relative to the root) and in no
 // commit and not staged: files and folders, also ones an ignore rule
 // matches (the account's own core.excludesFile, .git/info/exclude). It
-// returns how many files and folders it removed. A nested repository is
-// left alone, and so is a repository without a commit: nothing in it is
-// committed, so nothing tells a leftover from the rest.
+// returns how many files it removed: an empty folder goes too and is not
+// counted (git holds none, so a new engagement's findings folder is one).
+// A nested repository is left alone, and so is a repository without a
+// commit: nothing in it is committed, so nothing tells a leftover from the
+// rest.
 func (r *Repo) CleanUntracked(dir string) (int, error) {
 	if h, err := r.Head(); err != nil || h == "" {
 		return 0, err
 	}
-	// git's own words, to count its lines
-	out, err := r.run([]string{"LC_ALL=C", "LANGUAGE="}, "clean", "-fdx", "--", dir)
+	// the files the clean is about to remove: untracked ones, ignored or
+	// not. A nested repository is listed as a folder ("name/").
+	out, err := r.run(nil, "ls-files", "--others", "-z", "--", dir)
 	if err != nil {
 		return 0, err
 	}
 	n := 0
-	for _, l := range strings.Split(out, "\n") {
-		if strings.HasPrefix(l, "Removing ") {
+	for _, p := range strings.Split(out, "\x00") {
+		if p != "" && !strings.HasSuffix(p, "/") {
 			n++
 		}
+	}
+	if _, err := r.run(nil, "clean", "-fdx", "--", dir); err != nil {
+		return 0, err
 	}
 	return n, nil
 }

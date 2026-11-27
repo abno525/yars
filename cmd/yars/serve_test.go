@@ -99,6 +99,51 @@ func TestStartRemovesUncommittedFindings(t *testing.T) {
 	}
 }
 
+// A start after an engagement was made, with no finding in it yet, removes
+// no file and says nothing: the engagement's empty findings folder is not a
+// file a stop left.
+func TestStartSaysNothingForEmptyFindingsFolder(t *testing.T) {
+	dir := t.TempDir()
+	if err := initData(dir); err != nil {
+		t.Fatal(err)
+	}
+	r, err := gitrepo.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, d, st, err := startData(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := gitrepo.Author{Name: "alice", Email: "alice@yars.local"}
+	if err := st.CreateEngagement(store.Engagement{ID: "acme", Name: "ACME"}, a); err != nil {
+		t.Fatal(err)
+	}
+	d.Close()
+	if fi, err := os.Stat(filepath.Join(dir, "engagements", "acme", "findings")); err != nil || !fi.IsDir() {
+		t.Fatalf("a new engagement has no findings folder: %v", err)
+	}
+	cfg, err := startConfig(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lg, out := logs.NewRecorder()
+	d, st, err = prepareData(r, cfg, lg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	if n := len(out.With("start: uncommitted files were removed from an engagement's findings folder")); n != 0 {
+		t.Fatalf("log:\n%s", out.Text())
+	}
+	if refs, err := st.ListFindings("acme"); err != nil || len(refs) != 0 {
+		t.Fatalf("findings after the start: %d %v", len(refs), err)
+	}
+	if _, err := st.CreateFinding("acme", "SQL injection", a); err != nil {
+		t.Fatalf("a finding after the start: %v", err)
+	}
+}
+
 // While another server answers on the data folder, a second start removes
 // nothing: a file that server has written and not yet committed looks the
 // same as a leftover.

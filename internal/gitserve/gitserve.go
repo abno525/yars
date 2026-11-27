@@ -178,7 +178,7 @@ func RestoreTrees(main *gitrepo.Repo) error {
 // Cleaned is what CleanLeftovers removed from one engagement.
 type Cleaned struct {
 	Eng string
-	N   int // files and folders
+	N   int // files; an empty folder is removed and not counted
 }
 
 // CleanLeftovers removes, from the findings folder of every engagement
