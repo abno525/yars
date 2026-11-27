@@ -362,8 +362,18 @@ func (s *Server) healthCompare(full bool) healthResult {
 // result, the IDs behind them in the detail. Rows of a finding no folder
 // holds and approvals for other text are states YARS keeps on purpose: they
 // are counted, and the row stays OK. A finding ID in two folders and a
-// finding file that does not parse are errors.
+// finding file that does not parse are errors; the start's journal rows are
+// named beside them, so an error hides no write the start made or left.
 func compareResult(res store.Integrity) healthResult {
+	// the start's pass only: writes it made from the journal, and journal
+	// rows it could not use (a warning: someone should look at the finding)
+	var journal []string
+	if n := len(res.Replayed); n > 0 {
+		journal = append(journal, plural(n, "write")+" replayed")
+	}
+	if n := len(res.Unreplayed); n > 0 {
+		journal = append(journal, plural(n, "journal row")+" not replayed")
+	}
 	if res.Faults() > 0 {
 		var parts []string
 		if n := len(res.Unreadable); n > 0 {
@@ -372,17 +382,9 @@ func compareResult(res store.Integrity) healthResult {
 		if n := len(res.Duplicate); n > 0 {
 			parts = append(parts, plural(n, "duplicate ID"))
 		}
-		return hBad(strings.Join(parts, " · "), someIDs(append(slices.Clone(res.Unreadable), res.Duplicate...)))
+		return hBad(strings.Join(append(parts, journal...), " · "), someIDs(slices.Concat(res.Unreadable, res.Duplicate, res.Replayed, res.Unreplayed)))
 	}
-	parts := []string{plural(res.Findings, "finding")}
-	// the start's pass only: writes it made from the journal, and journal
-	// rows it could not use (a warning: someone should look at the finding)
-	if n := len(res.Replayed); n > 0 {
-		parts = append(parts, plural(n, "write")+" replayed")
-	}
-	if n := len(res.Unreplayed); n > 0 {
-		parts = append(parts, plural(n, "journal row")+" not replayed")
-	}
+	parts := append([]string{plural(res.Findings, "finding")}, journal...)
 	if n := len(res.NoFinding); n > 0 {
 		parts = append(parts, plural(n, "row")+" without a finding")
 	}

@@ -482,6 +482,33 @@ func TestHealthShowsTheStartsCompare(t *testing.T) {
 	}
 }
 
+// A journal row the start could not use stays in the row when the compare
+// also found an error: a finding.md that does not read hides nothing.
+func TestHealthStartErrorKeepsTheJournalRows(t *testing.T) {
+	e := setup(t)
+	st := e.srv.Store
+	ref, err := st.Finding("acme", fdir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fid := ref.F.Meta.ID
+	if err := st.DB().PutIntent(db.Intent{Eng: "acme", Fid: fid, Kind: db.IntentCarry, Old: strings.Repeat("ab", 32), New: strings.Repeat("cd", 32)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(e.dir, "engagements", "acme", "findings", fdir, "finding.md"), []byte("no front matter\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Recover(); err != nil {
+		t.Fatal(err)
+	}
+	row := healthRowOf(t, e.do(t, "dora", "GET", "/admin/system", nil, nil).Body.String(), "Database and files")
+	for _, want := range []string{`<span class="tag bad">Error</span>`, `title="1 unreadable finding · 1 journal row not replayed">`, `title="start · acme/` + fid + `, acme/` + fid + `">`} {
+		if !strings.Contains(row, want) {
+			t.Fatalf("row lacks %s:\n%s", want, row)
+		}
+	}
+}
+
 // A start that found nothing shows the count alone, and a replayed write
 // is named.
 func TestHealthStartResultWords(t *testing.T) {
@@ -494,7 +521,9 @@ func TestHealthStartResultWords(t *testing.T) {
 		{store.Integrity{Findings: 2, Replayed: []string{"acme/F-001"}, Unreplayed: []string{"acme/F-002", "beta/F-001"}, NoFinding: []string{"acme/F-009"}},
 			"warn", "2 findings · 1 write replayed · 2 journal rows not replayed · 1 row without a finding", "start · acme/F-001, acme/F-002, beta/F-001, acme/F-009"},
 		{store.Integrity{Findings: 2, Unreadable: []string{"acme/F-002"}, Duplicate: []string{"acme/F-001"}, Unreplayed: []string{"acme/F-003"}},
-			"bad", "1 unreadable finding · 1 duplicate ID", "start · acme/F-002, acme/F-001"},
+			"bad", "1 unreadable finding · 1 duplicate ID · 1 journal row not replayed", "start · acme/F-002, acme/F-001, acme/F-003"},
+		{store.Integrity{Findings: 2, Duplicate: []string{"acme/F-001"}, Replayed: []string{"acme/F-004"}},
+			"bad", "1 duplicate ID · 1 write replayed", "start · acme/F-001, acme/F-004"},
 		{store.Integrity{Findings: 9, NoFinding: []string{"a/F-1", "a/F-2", "a/F-3", "a/F-4"}, Drifted: []string{"a/F-5", "a/F-6", "a/F-7"}},
 			"good", "9 findings · 4 rows without a finding · 3 approvals for other text", "start · a/F-1, a/F-2, a/F-3, a/F-4, a/F-5 and 2 more"},
 	} {

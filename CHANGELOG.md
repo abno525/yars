@@ -73,7 +73,7 @@ What changed for people who run or use YARS. Newest first.
 
 - A server stopped between a commit and the database write that follows it no longer leaves the finding half changed. A director's edit of a complete finding keeps its approval, and a rename in Admin › Structure keeps a finding's approval, sign-offs and chat threads: the next start of `yars serve` makes the write (before: the finding read as in verification). Each such write is in Admin › Activity as `system.repair` by `yars` and one `warn` line of the service log. Nothing is written while another server answers on the data folder.
 - An attachment change on a finding in verification drops its sign-offs before the commit (before: after it, so a stop in between left sign-offs for files the reviewers never saw). A commit that fails puts them back.
-- At each start the database is compared with the finding files once. The row Database and files of Admin › System shows the result until Run integrity replaces it.
+- At each start the database is compared with the finding files once. The row Database and files of Admin › System shows the result until Run integrity replaces it. The row also counts the writes the start made after a stop and the noted writes it could not make, beside an error too.
 - The cache of rendered Markdown is limited in bytes; a text over 64 KiB is not cached.
 - The editor's preview takes only a finding's folder name in its address.
 - Files waiting for download after a send are limited to 256 MiB per user, dropped after 10 minutes by a timer, and served only under the engagement they were made in.
