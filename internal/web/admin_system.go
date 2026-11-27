@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"os"
 	"os/exec"
 	"slices"
 	"sort"
@@ -247,38 +249,96 @@ func (s *Server) runOp(op string) sysOp {
 	return v
 }
 
-// backup streams a ZIP of the data directory (backup.Write): the main repo
-// and every engagement repo, each copied under the store's lock of it, and a
-// snapshot of the database at .yars/yars.db; the secret key only with key=1.
+// defaultBackupIdle is how long the client of a backup download may take
+// nothing before the download is cut.
+const defaultBackupIdle = 2 * time.Minute
+
+// buildBackup writes a ZIP of the data directory (backup.Write) to a
+// temporary file of the server's own (0600, in TMPDIR: never in the data
+// folder, which the backup walks) and returns it rewound, with its size.
+// The main repo and every engagement repo are copied under the store's lock
+// of it, so the locks are held for writes to the local disk only, never for
+// a client. One ZIP is built at a time: a second download waits. The caller
+// closes and removes the file.
+func (s *Server) buildBackup(r *http.Request, withKey bool) (*os.File, int64, error) {
+	s.backupMu.Lock()
+	defer s.backupMu.Unlock()
+	// the client left while this download waited for another's build
+	if err := r.Context().Err(); err != nil {
+		return nil, 0, err
+	}
+	f, err := os.CreateTemp("", "yars-backup-*.zip")
+	if err != nil {
+		return nil, 0, err
+	}
+	n, err := backup.Write(f, s.Store.Repo().Dir, s.Store.DB(), s.Store, backup.Options{WithKey: withKey})
+	if err == nil {
+		_, err = f.Seek(0, io.SeekStart)
+	}
+	if err != nil {
+		f.Close()
+		os.Remove(f.Name())
+		return nil, 0, err
+	}
+	return f, n, nil
+}
+
+// backup answers the Download backup form with a ZIP of the data directory:
+// the main repo, every engagement repo and a snapshot of the database at
+// .yars/yars.db; the secret key only with key=1. The ZIP is built whole
+// first (buildBackup), so a build that fails is an error page, never a
+// broken download, and the client gets the size before the first byte. It
+// is then sent without any lock, under a write deadline that moves ahead
+// with each piece: a slow line is never cut, a client that takes nothing
+// for the idle time is.
 func (s *Server) backup(w http.ResponseWriter, r *http.Request) {
 	withKey := r.PostFormValue("key") == "1"
-	dir := s.Store.Repo().Dir
+	by := auth.UserFrom(r.Context()).Username
 	start := time.Now()
-	http.NewResponseController(w).SetWriteDeadline(time.Now().Add(time.Hour))
+	idle := s.backupIdle
+	if idle <= 0 {
+		idle = defaultBackupIdle
+	}
+	rc := http.NewResponseController(w)
+	f, n, err := s.buildBackup(r, withKey)
+	// the request's own write deadline may have passed while the ZIP was built
+	rc.SetWriteDeadline(time.Now().Add(idle)) // an error: not a net/http connection (tests)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	defer func() { f.Close(); os.Remove(f.Name()) }()
+	if s.backupBuilt != nil {
+		s.backupBuilt(f.Name())
+	}
 	name := "yars-backup-" + time.Now().Format("2006-01-02-1504") + ".zip"
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", `attachment; filename="`+name+`"`)
 	w.Header().Set("Cache-Control", "no-store")
-	n, err := backup.Write(w, dir, s.Store.DB(), s.Store, backup.Options{WithKey: withKey})
-	if err != nil && n == 0 {
-		// nothing sent yet (the snapshot failed): an error, not a download
-		for _, h := range []string{"Content-Type", "Content-Disposition", "Cache-Control"} {
-			w.Header().Del(h)
+	w.Header().Set("Content-Length", strconv.FormatInt(n, 10))
+	buf := make([]byte, 32<<10) // small pieces: each has the whole idle time
+	for err == nil {
+		var got int
+		if got, err = f.Read(buf); got > 0 {
+			rc.SetWriteDeadline(time.Now().Add(idle))
+			if _, werr := w.Write(buf[:got]); werr != nil {
+				err = werr
+			}
 		}
-		s.fail(w, err)
-		return
 	}
-	if err != nil {
+	// the last of it is flushed after this handler returns
+	rc.SetWriteDeadline(time.Now().Add(idle))
+	if err != io.EOF {
 		// headers are gone: the download ends broken rather than silently short
-		s.log().Error("backup: the download ended part way", "user", auth.UserFrom(r.Context()).Username, "err", err)
+		s.log().Error("backup: the download ended part way", "user", by, "err", err)
 		panic(http.ErrAbortHandler)
 	}
 	detail := "without key"
 	if withKey {
 		detail = "with key"
 	}
-	s.Store.DB().Audit(auth.UserFrom(r.Context()).Username, "backup", "", detail+" · "+size(n))
-	s.log().Info("backup downloaded", "user", auth.UserFrom(r.Context()).Username, "bytes", n, "with_key", withKey, "ms", time.Since(start).Milliseconds())
+	s.Store.DB().Audit(by, "backup", "", detail+" · "+size(n))
+	s.log().Info("backup downloaded", "user", by, "bytes", n, "with_key", withKey, "ms", time.Since(start).Milliseconds())
 }
 
 // lastHealthOr is the last run of the health checks, which the System page

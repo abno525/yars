@@ -216,6 +216,8 @@ A git clone holds the findings only. Accounts, workflow state, reviewers, chat a
 
 (cron needs the `%` escaped.) Add `--key` to include the key that decrypts the stored AI and personal keys and the webhook secrets; keep such a backup as safe as the server. Admin › System shows the last backup and can download one.
 
+A download from Admin › System is built as a file first and sent after. The file is in `TMPDIR` (`/tmp` by default), readable by the service account alone, and removed when the download ends. That folder needs room for one whole backup; with `PrivateTmp=yes` and a `/tmp` kept in memory, that room is memory. The browser shows nothing until the file is built. One download is built at a time. A server killed during a download leaves a file `yars-backup-*.zip` there: remove it.
+
 A backup is of one moment. It records the commit each repository was at when the database was copied, and a restore resets each repository to that commit. A change that lands while the backup is taken is not in the restored folder. A backup fails when a Purge rewrites an engagement's history meanwhile; `yars backup` then takes it again, up to three times.
 
 A backup on the same disk is lost with the server. Copy the files to another machine as well, for example with `rsync` from there. A backup holds every finding, and with `--key` the stored keys: the copy needs the same care as the server.

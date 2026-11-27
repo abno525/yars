@@ -154,6 +154,13 @@ type Server struct {
 	probe       probeState
 	healthWait  time.Duration
 	healthProbe func() error
+	// the backup download: one ZIP is built at a time (backupMu), backupIdle
+	// is how long the client may take nothing while it is sent (0 =
+	// defaultBackupIdle), backupBuilt is told the built file before it is
+	// sent (tests)
+	backupMu    sync.Mutex
+	backupIdle  time.Duration
+	backupBuilt func(path string)
 }
 
 // boardPage is how many findings the board shows before "Load more".
