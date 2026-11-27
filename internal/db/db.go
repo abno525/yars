@@ -433,6 +433,8 @@ var migrations = []migration{
 		username TEXT PRIMARY KEY,
 		deleted  TEXT NOT NULL
 	) WITHOUT ROWID;`},
+	// the audit log is pruned and filtered by time
+	{name: "027-audit-time-index", sql: `CREATE INDEX IF NOT EXISTS audit_ts ON audit(ts);`},
 }
 
 // uniqueUsernames makes the usernames unique without the case of their

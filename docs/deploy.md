@@ -18,7 +18,7 @@ sudo install -m 0755 yars /usr/local/bin/yars
 yars version
 ```
 
-`yars version` prints the version, the database schema it writes and the Go release, for example `yars v1.0.0 (schema 25, go1.27.2)`. Built in a clone without `-ldflags`, it shows the git revision; installed with `go install` without them, the release it installed, such as `v1.0.0`.
+`yars version` prints the version, the database schema it writes and the Go release, for example `yars v1.0.0 (schema 27, go1.27.2)`. Built in a clone without `-ldflags`, it shows the git revision; installed with `go install` without them, the release it installed, such as `v1.0.0`.
 
 Without a clone, one command builds the newest release. The binary lands in `$(go env GOBIN)`, or in `$(go env GOPATH)/bin` when `GOBIN` is not set.
 
@@ -170,6 +170,18 @@ Binding port 443 needs `AmbientCapabilities=CAP_NET_BIND_SERVICE` in the unit, a
 ## Sessions
 
 A login ends when it is not used for the number of days set under Admin › System › Retention (Sessions): 14 by default, and 0 means 14 too. It ends 30 days after the login at the latest, however much it is used. The session cookie lives as long as its session.
+
+## Retention
+
+Admin › System › Retention has three numbers of days. A prune runs each day and deletes what is older.
+
+| Setting | Deletes | 0 means |
+|---|---|---|
+| Audit log | audit entries and the list of AI calls | keep for good |
+| Check runs | finished check runs, stored script and AI results, finished webhook deliveries, read notifications | keep for good |
+| Sessions | logins not used for that long | 14 days |
+
+Some rows stay whatever their age: a finding's latest check run, a webhook's newest delivery, a delivery still waiting and a notification nobody read. The database file does not shrink when rows are deleted: the space is used again.
 
 ## Backup
 

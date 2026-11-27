@@ -97,4 +97,31 @@ func TestRetentionPruneAudited(t *testing.T) {
 	if l, _, _ := d.AuditQuery(db.AuditFilter{Action: "retention.prune", Limit: 1}); len(l) != 1 || l[0].Detail != "audit 0 · check runs 0 · sessions 0 · rule results 1" {
 		t.Fatalf("prune audit %+v", l)
 	}
+	// and so do finished webhook deliveries and read notifications; a webhook's
+	// newest delivery stays
+	year := time.Now().AddDate(-1, 0, 0)
+	hook, _ := d.AddWebhook(db.Webhook{URL: "https://a.test/", Events: []string{"finding.updated"}, SecretEnc: "x", Enabled: true})
+	for range 2 {
+		id, _ := d.EnqueueDelivery(hook, "finding.updated", "{}", year)
+		d.FinishAttempt(id, 200, "", time.Time{}, year)
+	}
+	id, _ := d.AddNotification(db.Notification{User: "old", Event: "mention"})
+	d.MarkRead("old", id)
+	d.Exec("UPDATE notifications SET ts = ?", year.UTC().Format(time.RFC3339))
+	e.srv.daily(d)
+	if l, _, _ := d.AuditQuery(db.AuditFilter{Action: "retention.prune", Limit: 1}); len(l) != 1 || l[0].Detail != "audit 0 · check runs 0 · sessions 0 · deliveries 1 · notifications 1" {
+		t.Fatalf("prune audit %+v", l)
+	}
+	said := false
+	for _, r := range e.log.With("retention: the daily prune finished") {
+		said = said || r.Str("webhook_deliveries") == "1" && r.Str("notifications") == "1"
+	}
+	if !said {
+		t.Fatalf("the daily line:\n%s", e.log.Text())
+	}
+	// the longest detail still stands in the panel's one line
+	p = between(e.do(t, "dora", "GET", "/admin/system", nil, nil).Body.String(), `id="retention"`, "</form>")
+	if !strings.Contains(p, "sessions 0 · deliveries 1 · notifications 1</span>") {
+		t.Fatalf("panel after a prune:\n%s", p)
+	}
 }
