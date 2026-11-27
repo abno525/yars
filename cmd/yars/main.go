@@ -237,10 +237,8 @@ func cmdExport(args []string, out io.Writer) (int, error) {
 		}
 	}
 	res, err := run.Run(context.Background(), *ex, in)
-	if err != nil {
-		return 1, err
-	}
-	if res.Pushed && d != nil {
+	// with an error too: the page a failed push made, which the next run fills
+	if d != nil {
 		stored := map[string]bool{}
 		for _, it := range res.Items {
 			k := remoteKey(it.ID)
@@ -254,6 +252,9 @@ func cmdExport(args []string, out io.Writer) (int, error) {
 				fmt.Fprintln(out, "not remembered:", err)
 			}
 		}
+	}
+	if err != nil {
+		return 1, err
 	}
 	if res.Pushed {
 		fmt.Fprintln(out, "published:", res.URL)

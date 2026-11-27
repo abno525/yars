@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"image"
+	"image/png"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -13,7 +15,10 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/abno525/yars/internal/config"
 	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/gitrepo"
+	"github.com/abno525/yars/internal/store"
 )
 
 // wiki is a Confluence that, as the real one, takes one page of a title and
@@ -23,6 +28,8 @@ type wiki struct {
 	titles map[string]string // page id → title
 	vers   map[string]int
 	calls  []string
+	// failUpload: an attachment upload is answered 502
+	failUpload bool
 }
 
 func (w *wiki) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
@@ -38,6 +45,10 @@ func (w *wiki) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	json.NewDecoder(r.Body).Decode(&body)
 	switch {
 	case strings.HasSuffix(id, "/child/attachment"):
+		if r.Method == "PUT" && w.failUpload {
+			rw.WriteHeader(502)
+			return
+		}
 		io.WriteString(rw, `{"results":[]}`)
 	case r.Method == "POST" && r.URL.Path == "/rest/api/content":
 		for _, t := range w.titles {
@@ -59,6 +70,60 @@ func (w *wiki) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	default: // a search by title among them
 		rw.WriteHeader(404)
 		io.WriteString(rw, `{"message":"No content found"}`)
+	}
+}
+
+// A first push of a finding with a picture makes the page, then the upload
+// fails. The page is remembered all the same: the next run fills it, where a
+// second page of the title would be refused.
+func TestExportCLIRemembersThePageOfAFailedPush(t *testing.T) {
+	dir := exportFixture(t)
+	d := openDB(t, dir)
+	repo, err := gitrepo.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := store.New(repo, config.Default(), d)
+	dora := config.User{Username: "dora", Role: "director"}
+	var shot bytes.Buffer
+	if err := png.Encode(&shot, image.NewRGBA(image.Rect(0, 0, 1, 1))); err != nil {
+		t.Fatal(err)
+	}
+	const fdir = "F-002-open-redirect"
+	if _, err := st.AddAttachment("acme", fdir, "shot.png", shot.Bytes(), dora); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.UpdateSection("acme", fdir, "Impact", "![shot](attachments/shot.png)", "", dora); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.TxFor("acme", func(tx *db.Tx) error { return tx.PutState("acme", "F-002", db.State{Status: "complete"}) }); err != nil {
+		t.Fatal(err)
+	}
+	w := &wiki{titles: map[string]string{}, vers: map[string]int{}, failUpload: true}
+	srv := httptest.NewServer(w)
+	defer srv.Close()
+	base := strings.Replace(srv.URL, "127.0.0.1", "localhost", 1)
+	yaml := "name: Wiki\ntype: confluence\nconfluence:\n    base_url: " + base + "\n    space: S\n    user_env: CONFLUENCE_U\n    token_env: CONFLUENCE_T\n"
+	if err := os.WriteFile(filepath.Join(dir, ".yars", "exporters", "wiki.yaml"), []byte(yaml), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CONFLUENCE_U", "bot")
+	t.Setenv("CONFLUENCE_T", "tok")
+	args := []string{"--data", dir, "--exporter", "wiki", "acme", "F-002"}
+	var log bytes.Buffer
+	if code, err := cmdExport(args, &log); code != 1 || err == nil || !strings.Contains(err.Error(), "upload") {
+		t.Fatalf("the failed push: code %d, %v\n%s\ncalls %v", code, err, log.String(), w.calls)
+	}
+	if rm, ok, err := d.ExportRemote("wiki", "acme", "F-002"); err != nil || !ok || rm.RemoteID != "1" || rm.Target != base+" S" {
+		t.Fatalf("the page the failed push made is not remembered: %+v %v %v", rm, ok, err)
+	}
+	w.failUpload = false
+	log.Reset()
+	if code, err := cmdExport(args, &log); code != 0 || err != nil || !strings.Contains(log.String(), "published: https://w/p/1") {
+		t.Fatalf("the next run: code %d, %v\n%s\ncalls %v", code, err, log.String(), w.calls)
+	}
+	if len(w.titles) != 1 || w.vers["1"] != 2 {
+		t.Fatalf("pages %v versions %v calls %v", w.titles, w.vers, w.calls)
 	}
 }
 

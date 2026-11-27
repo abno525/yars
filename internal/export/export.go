@@ -399,7 +399,10 @@ type Result struct {
 	Data                  []byte
 	Pushed                bool   // published remotely (Confluence, Jira) instead of a file
 	URL                   string // a push: the (first) page or issue
-	Items                 []Item // a push: what each finding became
+	// Items is, for a push, what each finding became. A Confluence push that
+	// fails after it made its page returns that page here beside the error
+	// (Pushed false): the caller remembers it, and the next push fills it.
+	Items []Item
 }
 
 // Item is one finding's page or issue. Action is "created" or "updated".

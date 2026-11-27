@@ -313,6 +313,10 @@ func (r *Runner) confluence(ctx context.Context, e Exporter, in Input) (Result, 
 		}
 	}
 	created := cur == nil
+	// half goes back with the error of a push that fails after it made its
+	// page: the page is there, and the caller remembers it so the next push
+	// fills it (a second page of the title is refused)
+	var half Result
 	if created && len(pics) > 0 { // attachments need the page: made empty first
 		body, _ := json.Marshal(page(""))
 		data, err := call("POST", base, body)
@@ -326,6 +330,9 @@ func (r *Runner) confluence(ctx context.Context, e Exporter, in Input) (Result, 
 		}
 		cur = &p
 		cur.Version.Number = max(cur.Version.Number, 1)
+		for _, f := range in.ordered() {
+			half.Items = append(half.Items, Item{ID: f.Meta.ID, Remote: Remote{ID: cur.ID, Version: cur.Version.Number}, Action: "created"})
+		}
 	}
 	// what an existing page holds: unchanged pictures are not sent again
 	var had []confAttachment
@@ -337,7 +344,7 @@ func (r *Runner) confluence(ctx context.Context, e Exporter, in Input) (Result, 
 	}
 	for _, pic := range pics { // then the pictures, then the body that shows them
 		if err := r.putAttachment(ctx, user, token, base+"/"+url.PathEscape(cur.ID)+"/child/attachment", pic, had); err != nil {
-			return Result{}, err
+			return half, err
 		}
 	}
 	method, target, action, version := "POST", base, "created", 1
@@ -355,7 +362,7 @@ func (r *Runner) confluence(ctx context.Context, e Exporter, in Input) (Result, 
 		if method == "POST" {
 			err = newPageErr(err)
 		}
-		return Result{}, err
+		return half, err
 	}
 	// last the pictures a push left that the body no longer shows: a current
 	// attachment stays downloadable to anyone who can view the page
