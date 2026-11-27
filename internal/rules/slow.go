@@ -13,7 +13,6 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/abno525/yars/internal/config"
@@ -194,8 +193,7 @@ func (rn *Runner) runScript(ctx context.Context, r Rule, path string, input []by
 	cmd.Stdin = bytes.NewReader(input)
 	cmd.WaitDelay = time.Second
 	// its own process group: the timeout kills what the script started too
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	ownGroup(cmd)
 	out, stderr := &capWriter{max: 1 << 20}, &capWriter{max: 64 << 10}
 	cmd.Stdout, cmd.Stderr = out, stderr
 	err := cmd.Run()
