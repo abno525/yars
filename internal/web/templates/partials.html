@@ -190,7 +190,7 @@ the table's column count. */}}
     <input type="hidden" name="base" value="{{.Base}}">
     <div class="editor" data-view="split">
       <textarea name="body" rows="14" aria-label="{{.Name}}" autofocus{{if .Error}} data-dirty{{end}}
-        hx-post="{{.PreviewURL}}" hx-trigger="keyup changed delay:300ms, load" hx-target="#p-{{.Anchor}}" hx-swap="innerHTML">{{.Raw}}</textarea>
+        hx-post="{{.PreviewURL}}" hx-trigger="keyup changed delay:{{previewDelay .Raw}}, load" hx-target="#p-{{.Anchor}}" hx-swap="innerHTML" hx-sync="this:replace">{{.Raw}}</textarea>
       <div class="preview md" id="p-{{.Anchor}}"></div>
     </div>
     {{with .Attach}}{{template "attach_strip" .}}{{end}}

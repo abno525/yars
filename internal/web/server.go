@@ -264,7 +264,8 @@ var funcs = template.FuncMap{"join": strings.Join, "checkedIn": checkedIn, "rete
 	// another tab); an open editor has no trigger, so it is never replaced
 	"liveTrigger": func() string { return "sse:content, sse:resync, sse:poll" },
 	// a new password's minlength, as the server checks it
-	"minPassword": func() int { return auth.MinPassword },
+	"minPassword":  func() int { return auth.MinPassword },
+	"previewDelay": previewDelay,
 	// simple reports whether the data folder runs the simple workflow; each
 	// server sets its own (init), so any template asks {{if simple}}
 	"simple": func() bool { return false },
@@ -274,6 +275,18 @@ var funcs = template.FuncMap{"join": strings.Join, "checkedIn": checkedIn, "rete
 			RetryURL string
 		}{s, retryURL}
 	}}
+
+// previewDelay is how long an editor waits after a pause in typing before
+// it asks for the preview of raw: longer for a text over the Markdown
+// cache's limit, which is rendered anew at every preview. It is written
+// when the editor is drawn (the page runs no script expressions in a
+// trigger), so it follows the text's size at open, not while typing.
+func previewDelay(raw string) string {
+	if len(raw) > render.MaxCached {
+		return "1s"
+	}
+	return "300ms"
+}
 
 // colspan is how many columns the findings table has (its pick column too).
 func colspan(p *page) int {
