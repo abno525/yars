@@ -55,10 +55,11 @@ function yarsListIdle() {
   return shown <= Number(list.getAttribute('data-rows') || 0);
 }
 
-// yarsToast shows a short message in #toasts; click or wait to dismiss.
+// yarsToast shows a short message in #toasts; click or wait to dismiss. It
+// hands the toast back: in the page while it shows.
 function yarsToast(text, err) {
   var box = document.getElementById('toasts');
-  if (!box) return;
+  if (!box) return null;
   var t = document.createElement('div');
   t.className = 'toast' + (err ? ' err' : '');
   t.setAttribute('role', err ? 'alert' : 'status');
@@ -67,12 +68,16 @@ function yarsToast(text, err) {
   box.appendChild(t);
   while (box.children.length > 4) box.firstChild.remove();
   setTimeout(function () { t.remove(); }, err ? 8000 : 4000);
+  return t;
 }
 
 // Errors that htmx does not swap (403, 500, …) become visible as a toast.
 document.addEventListener('htmx:responseError', function (evt) {
   var xhr = evt.detail.xhr;
-  if (xhr && xhr.status === 401) { yarsExpired(); return; }
+  // a request a live event sent (sse:poll, sse:chat, …) is not the user's own
+  var ev = evt.detail.requestConfig && evt.detail.requestConfig.triggeringEvent;
+  var live = ev && String(ev.type).indexOf('sse:') === 0;
+  if (xhr && xhr.status === 401) { yarsExpired(!live); return; }
   var text = (xhr && xhr.responseText || '').trim();
   if (/^\s*</.test(text)) {
     // DOMParser runs no scripts or handlers; only the text is kept
@@ -673,8 +678,20 @@ function yarsGotoMove(step) {
   rows.forEach(function (r, k) { r.classList.toggle('sel', k === next); r.setAttribute('aria-selected', k === next ? 'true' : 'false'); });
   rows[next].scrollIntoView({block: 'nearest'});
 }
+// yarsLetter is the key a shortcut is matched by: evt.key, so every Latin
+// layout keeps its own letters (Dvorak, AZERTY). On a layout without Latin
+// letters (Cyrillic, Greek) a letter key gives a character no shortcut
+// names; it then counts as the Latin letter of its place (evt.code KeyA to
+// KeyZ). Not with AltGr: there the character is what was meant.
+function yarsLetter(evt) {
+  var k = evt.key;
+  if (k && k.length === 1 && k.charCodeAt(0) > 127 && /^Key[A-Z]$/.test(evt.code || '') &&
+      !(evt.getModifierState && evt.getModifierState('AltGraph'))) return evt.code.charAt(3);
+  return k;
+}
 document.addEventListener('keydown', function (evt) {
-  if ((evt.ctrlKey || evt.metaKey) && !evt.altKey && (evt.key === 'k' || evt.key === 'K')) {
+  var gk = yarsLetter(evt);
+  if ((evt.ctrlKey || evt.metaKey) && !evt.altKey && (gk === 'k' || gk === 'K')) {
     evt.preventDefault();
     yarsGotoOpen();
     return;
@@ -685,9 +702,13 @@ document.addEventListener('keydown', function (evt) {
     evt.preventDefault();
     yarsGotoMove(evt.key === 'ArrowDown' ? 1 : -1);
   } else if (evt.key === 'Enter') {
+    if (evt.isComposing) return; // the Enter that ends an input method's composition
     var sel = dlg.querySelector('#goto-results .res.sel');
+    var inp = dlg.querySelector('input[name=q]'), head = dlg.querySelector('#goto-results .gh');
     evt.preventDefault();
-    if (sel) window.location.href = sel.getAttribute('href');
+    // the list names the query it answers (data-q): typed on since, the
+    // rows are an earlier query's and Enter opens none of them
+    if (sel && inp && head && head.getAttribute('data-q') === inp.value) window.location.href = sel.getAttribute('href');
   }
 });
 document.addEventListener('click', function (evt) {
@@ -900,12 +921,13 @@ document.addEventListener('input', function (evt) {
 });
 
 // Presence: an open editor tells the server every 20 s that it is still
-// open (the server forgets it after 60 s without one).
+// open, in a hidden tab too: the text is as open there. A hidden tab's
+// timers run once a minute at most, so the server forgets an editor only
+// after 150 s without a beat.
 setInterval(function () {
-  if (document.hidden) return;
   document.querySelectorAll('form[data-presence]').forEach(function (f) {
     fetch(f.getAttribute('data-presence'), {method: 'POST', credentials: 'same-origin', headers: {'HX-Request': 'true'}})
-      .then(function (r) { if (r.status === 401) yarsExpired(); })
+      .then(function (r) { if (r.status === 401) yarsExpired(); else if (r.ok) yarsExpiredSaid = false; })
       .catch(function () { /* offline: the next beat tries again */ });
   });
 }, 20000);
@@ -919,12 +941,14 @@ setInterval(function () {
 // the next page load, whoever is signed in.
 function yarsUser() { return document.documentElement.getAttribute('data-user') || ''; }
 function yarsDraftKey(form) { return 'yars-draft:' + yarsUser() + ':' + (form.getAttribute('hx-post') || ''); }
-// yarsForget removes the localStorage entries whose key starts with prefix.
-function yarsForget(prefix) {
+// yarsForget removes the entries whose key starts with prefix from
+// localStorage, or from st (sessionStorage) when given.
+function yarsForget(prefix, st) {
   try {
-    for (var i = localStorage.length - 1; i >= 0; i--) {
-      var k = localStorage.key(i);
-      if (k && k.indexOf(prefix) === 0) localStorage.removeItem(k);
+    st = st || localStorage;
+    for (var i = st.length - 1; i >= 0; i--) {
+      var k = st.key(i);
+      if (k && k.indexOf(prefix) === 0) st.removeItem(k);
     }
   } catch (e) { /* no storage: nothing kept */ }
 }
@@ -953,21 +977,79 @@ document.addEventListener('submit', function (evt) {
   if (!evt.target.matches || !evt.target.matches('form[action="/logout"]')) return;
   try { localStorage.removeItem('htmx-history-cache'); } catch (e) { /* no storage */ }
   if (yarsUser()) yarsForget('yars-draft:' + yarsUser() + ':');
+  yarsForget('yars-list:' + yarsUser() + ':', sessionStorage);
 });
+
+// Findings list: its filter, sort and search are in its address only. The
+// list page keeps that query for this tab, account and engagement
+// (sessionStorage "yars-list:<user>:<engagement>"), and the links that lead
+// back to the list (data-list: the crumb, Findings in the top bar, the
+// Findings tab, Cancel of a new finding or retest) get it on every other page. On the list itself they stay
+// bare: a click there is the way to the whole list. Log out forgets them.
+function yarsListKey(eng) { return 'yars-list:' + yarsUser() + ':' + eng; }
+// yarsOnList: the engagement whose findings list this page is, else ''.
+function yarsOnList() {
+  var m = /^\/e\/([^\/]+)$/.exec(location.pathname);
+  return m && document.getElementById('findings') ? m[1] : '';
+}
+function yarsListKeep() {
+  var eng = yarsOnList();
+  if (!eng) return;
+  try {
+    // offset and keep are a page of the list, not the list
+    var q = new URLSearchParams(location.search);
+    q.delete('offset');
+    q.delete('keep');
+    var s = q.toString();
+    sessionStorage.setItem(yarsListKey(eng), s ? '?' + s : '');
+  } catch (e) { /* not kept */ }
+}
+// the link's own path with the kept query: what is stored never becomes a
+// path or another address
+function yarsListLinks(root) {
+  if (yarsOnList() || !root || !root.querySelectorAll) return;
+  Array.prototype.forEach.call(root.querySelectorAll('a[data-list]'), function (a) {
+    var s = null;
+    try { s = sessionStorage.getItem(yarsListKey(a.getAttribute('data-list'))); } catch (e) { /* none kept */ }
+    if (!s || s.charAt(0) !== '?') return;
+    a.setAttribute('href', a.pathname + s);
+  });
+}
+document.addEventListener('DOMContentLoaded', function () { yarsListKeep(); yarsListLinks(document); });
+['htmx:pushedIntoHistory', 'htmx:replacedInHistory', 'htmx:historyRestore'].forEach(function (n) {
+  document.addEventListener(n, yarsListKeep);
+});
+// the finding's head swaps itself on live events and brings the bare link
+document.addEventListener('htmx:load', function (evt) { yarsListLinks(evt.detail.elt && evt.detail.elt.parentNode || document); });
 function yarsDraft(form) {
   try { var d = JSON.parse(localStorage.getItem(yarsDraftKey(form)) || 'null'); return d && typeof d.text === 'string' ? d : null; } catch (e) { return null; }
 }
-var yarsExpiredAt = 0;
-function yarsExpired() {
+// A 401 nobody asked for (a poll, a presence beat) shows the toast once per
+// expiry: a page that polls gets one for each of its live parts every 30 s.
+// An answered request (a login in another tab) ends the expiry, so a later
+// one is said again. A request the user sent (own) says it again unless the
+// toast still shows: the first one may have gone unseen in a hidden tab.
+var yarsExpiredSaid = false, yarsExpiredToast = null;
+function yarsExpired(own) {
   document.querySelectorAll('form[data-guard]').forEach(function (form) {
     var ta = form.querySelector('textarea[name=body]');
     if (!ta || !yarsDirty(form.parentNode)) return;
-    try { localStorage.setItem(yarsDraftKey(form), JSON.stringify({text: ta.value, at: Date.now()})); } catch (e) { /* not kept */ }
+    // with the base the editor was opened with: restored later, the text is
+    // saved against it, so a colleague's newer text shows as a conflict
+    var base = form.querySelector('input[name=base]');
+    try { localStorage.setItem(yarsDraftKey(form), JSON.stringify({text: ta.value, base: base ? base.value : '', at: Date.now()})); } catch (e) { /* not kept */ }
     var st = form.querySelector('[data-pstate]');
     if (st) { st.textContent = 'Session expired · not saved'; st.classList.add('error'); }
   });
-  if (Date.now() - yarsExpiredAt > 10000) { yarsExpiredAt = Date.now(); yarsToast('Session expired', true); }
+  var shown = yarsExpiredToast && yarsExpiredToast.isConnected;
+  if (own ? shown : yarsExpiredSaid) return;
+  yarsExpiredSaid = true;
+  yarsExpiredToast = yarsToast('Session expired', true);
 }
+document.addEventListener('htmx:afterRequest', function (evt) {
+  var x = evt.detail.xhr;
+  if (x && x.status >= 200 && x.status < 400) yarsExpiredSaid = false;
+});
 function yarsDraftOffer(root) {
   var forms = root.matches && root.matches('form[data-guard]') ? [root] : root.querySelectorAll ? root.querySelectorAll('form[data-guard]') : [];
   Array.prototype.forEach.call(forms, function (form) {
@@ -991,6 +1073,12 @@ document.addEventListener('click', function (evt) {
   var d = form && yarsDraft(form);
   if (!ta || !d) return;
   ta.value = d.text;
+  // the draft's own base, not this editor's: the text was written over what
+  // that one names. A draft kept by an earlier version has none; an empty
+  // base would save unchecked, so it gets one that matches no text and the
+  // conflict view decides.
+  var base = form.querySelector('input[name=base]');
+  if (base) base.value = typeof d.base === 'string' && d.base ? d.base : 'none';
   ta.setAttribute('data-dirty', '');
   form.classList.add('dirty');
   b.classList.add('invisible');
@@ -998,6 +1086,8 @@ document.addEventListener('click', function (evt) {
 });
 // a saved or cancelled editor drops its draft. The editor is swapped out by
 // then, so htmx fires afterRequest on an ancestor: the key rides on the xhr.
+// A conflict (409) or a refused text (400) is swapped in and is no error to
+// htmx, but the text is still unsaved: only a 2xx answer drops the draft.
 document.addEventListener('htmx:beforeRequest', function (evt) {
   var el = evt.detail.elt;
   if (!el || !el.matches || !evt.detail.xhr) return;
@@ -1005,8 +1095,8 @@ document.addEventListener('htmx:beforeRequest', function (evt) {
   if (form) evt.detail.xhr.yarsDraftKey = yarsDraftKey(form);
 });
 document.addEventListener('htmx:afterRequest', function (evt) {
-  var k = evt.detail.xhr && evt.detail.xhr.yarsDraftKey;
-  if (!evt.detail.successful || !k) return;
+  var x = evt.detail.xhr, k = x && x.yarsDraftKey;
+  if (!k || x.status < 200 || x.status > 299) return;
   try { localStorage.removeItem(k); } catch (e) { /* none kept */ }
 });
 
@@ -1029,7 +1119,7 @@ function yarsUpload(strip, url, blob, name, insert) {
   fd.append('file', blob, name);
   return fetch(url, {method: 'POST', body: fd, credentials: 'same-origin', headers: {'HX-Request': 'true'}}).then(function (r) {
     return r.text().then(function (t) {
-      if (r.status === 401) { yarsExpired(); return false; }
+      if (r.status === 401) { yarsExpired(true); return false; }
       if (!r.ok) { yarsToast(name + ': ' + (t.trim() || ('Error ' + r.status)), true); return false; }
       var form = strip.closest('form');
       // the server's own template output (all values escaped)

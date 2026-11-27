@@ -332,10 +332,22 @@ func TestSSEResyncOnLastEventID(t *testing.T) {
 	ts := e.liveServer(t)
 	before := e.srv.Events.Last()
 	e.do(t, "bob", "POST", fpath+"/chat", url.Values{"text": {"while away"}}, nil)
-	s := e.openSSE(t, ts, "eng=acme&f=F-001", map[string]string{"Last-Event-ID": fmt.Sprint(before)})
+	s := e.openSSE(t, ts, "eng=acme&f=F-001", map[string]string{"Last-Event-ID": e.srv.Events.StreamID(before)})
 	s.waitFor(t, "event: resync")
+	// 5.7: an id of the server before a restart (another hub), and the plain
+	// number of a page loaded before ids named the hub, get a resync even
+	// when the number is this hub's latest
+	for _, id := range []string{events.New().StreamID(e.srv.Events.Last()), fmt.Sprint(e.srv.Events.Last())} {
+		old := e.openSSE(t, ts, "eng=acme&f=F-001", map[string]string{"Last-Event-ID": id})
+		if l := old.waitFor(t, "id: "); l != "id: "+e.srv.Events.StreamID(e.srv.Events.Last()) {
+			t.Fatalf("id line %q for Last-Event-ID %q", l, id)
+		}
+		if l := old.waitFor(t, ""); l != "event: resync" {
+			t.Fatalf("Last-Event-ID %q: %q after the id, want a resync", id, l)
+		}
+	}
 	// up to date: no resync
-	s2 := e.openSSE(t, ts, "eng=acme&f=F-001", map[string]string{"Last-Event-ID": fmt.Sprint(e.srv.Events.Last())})
+	s2 := e.openSSE(t, ts, "eng=acme&f=F-001", map[string]string{"Last-Event-ID": e.srv.Events.StreamID(e.srv.Events.Last())})
 	l := s2.waitFor(t, "")
 	for l == "" || strings.HasPrefix(l, "retry:") {
 		l = s2.waitFor(t, "")

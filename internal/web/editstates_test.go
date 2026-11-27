@@ -86,11 +86,11 @@ func TestPresence(t *testing.T) {
 	if s := e.do(t, "bob", "GET", fpath+"/s/Remediation/presence", nil, nil).Body.String(); strings.Contains(s, "alice") {
 		t.Fatalf("wrong section:\n%s", s)
 	}
-	// heartbeat keeps it; 60 s without one drops it
+	// heartbeat keeps it; the TTL without one drops it
 	if rec := e.do(t, "alice", "POST", fpath+"/s/Impact/presence", url.Values{}, nil); rec.Code != http.StatusNoContent {
 		t.Fatalf("heartbeat %d", rec.Code)
 	}
-	e.srv.presence.now = func() time.Time { return time.Now().Add(61 * time.Second) }
+	e.srv.presence.now = func() time.Time { return time.Now().Add(presenceTTL + time.Second) }
 	if s := e.do(t, "bob", "GET", fpath+"/s/Impact/presence", nil, nil).Body.String(); strings.Contains(s, "alice") {
 		t.Fatalf("expired presence shown:\n%s", s)
 	}
@@ -124,8 +124,8 @@ func TestLockedSaveShowsWhy(t *testing.T) {
 		t.Fatal("htmx would swap a 403 into the editor")
 	}
 	js := e.do(t, "alice", "GET", "/static/app.js", nil, nil).Body.String()
-	i := strings.Index(js, "'htmx:responseError'")
-	if i < 0 || !strings.Contains(js[i:i+800], "xhr.responseText") || !strings.Contains(js[i:i+800], "yarsToast(") {
+	herr := jsFunc(t, js, "document.addEventListener('htmx:responseError', function (evt) {", "\n});")
+	if !strings.Contains(herr, "xhr.responseText") || !strings.Contains(herr, "yarsToast(") {
 		t.Fatal("app.js does not show an unswapped error's text")
 	}
 }

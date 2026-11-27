@@ -3,7 +3,7 @@
 {{$h := .History}}
 <div class="titlerow">
   <div class="titlecol">
-    <nav class="crumbs"><a href="/e/{{.Eng.ID}}">{{.Eng.Name}}</a><span class="sep" aria-hidden="true">/</span><a class="idchip" href="{{$h.Back}}">{{$f.Meta.ID}}</a></nav>
+    <nav class="crumbs"><a href="/e/{{.Eng.ID}}" data-list="{{.Eng.ID}}">{{.Eng.Name}}</a><span class="sep" aria-hidden="true">/</span><a class="idchip" href="{{$h.Back}}">{{$f.Meta.ID}}</a></nav>
     <h1 title="History · {{$f.Meta.Title}}">History · {{$f.Meta.Title}}</h1>
   </div>
   <div class="actions"><a class="btn secondary w128" href="{{$h.Back}}">Back</a></div>

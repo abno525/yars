@@ -12,9 +12,11 @@ import (
 	"github.com/abno525/yars/internal/store"
 )
 
-// presenceTTL is how long an editor counts as open without a heartbeat
-// (the editor sends one every 20 s).
-const presenceTTL = 60 * time.Second
+// presenceTTL is how long an editor counts as open without a heartbeat.
+// The editor sends one every 20 s; in a hidden tab the browser runs timers
+// once a minute at most, so the wait covers two such beats and one may be
+// lost. An editor closed without Cancel or Save is shown that long.
+const presenceTTL = 150 * time.Second
 
 // presence remembers who has which section open in an editor: a soft lock
 // shown to everyone else. In memory only; it is lost on a restart.

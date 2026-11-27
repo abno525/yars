@@ -26,9 +26,11 @@
 </section>
 {{end}}
 
+{{/* data-q is the query this list answers, as the field sent it: Enter
+opens a row only of the list for what the field holds (app.js) */}}
 {{define "goto_results"}}
 {{if .Query}}
-<div class="gh"><span>Findings</span><span class="mono">{{.Total}}</span></div>
+<div class="gh" data-q="{{.Sent}}"><span>Findings</span><span class="mono">{{.Total}}</span></div>
 {{range $i, $r := .Rows}}
 <a class="res{{if eq $i 0}} sel{{end}}" href="{{fpath .EngID .Dir}}">
   <span class="resline"><span class="mono" title="{{.EngID}} · {{.ID}}"><span class="engid">{{.EngID}}</span> · {{.ID}}</span><span class="restitle">{{.Title}}</span></span>

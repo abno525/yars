@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/abno525/yars/internal/auth"
@@ -80,19 +79,16 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 		return rc.Flush() == nil
 	}
 	resync := func() bool {
-		return send("id: %d\nevent: resync\ndata: {}\n\n", s.Events.Last())
+		return send("id: %s\nevent: resync\ndata: {}\n\n", s.Events.StreamID(s.Events.Last()))
 	}
-	// the starting id: a client that reconnects later says what it saw
+	// the starting id: a client that reconnects later says what it saw. The
+	// id names this server's hub (events.StreamID), so an id from before a
+	// restart reads as missed whatever its number.
 	ok := true
-	if last := r.Header.Get("Last-Event-ID"); last != "" {
-		id, err := strconv.ParseUint(last, 10, 64)
-		if err != nil || s.Events.Missed(id, eng, fid) {
-			ok = resync()
-		} else {
-			ok = send("retry: 5000\nid: %d\n\n", s.Events.Last())
-		}
+	if last := r.Header.Get("Last-Event-ID"); last != "" && s.Events.MissedID(last, eng, fid) {
+		ok = resync()
 	} else {
-		ok = send("retry: 5000\nid: %d\n\n", s.Events.Last())
+		ok = send("retry: 5000\nid: %s\n\n", s.Events.StreamID(s.Events.Last()))
 	}
 
 	beat := s.heartbeat
@@ -133,7 +129,7 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 				F   string `json:"f"`
 				Seq int64  `json:"seq"`
 			}{e.Eng, e.Fid, e.Seq})
-			ok = send("id: %d\nevent: %s\ndata: %s\n\n", e.ID, e.Kind, data)
+			ok = send("id: %s\nevent: %s\ndata: %s\n\n", s.Events.StreamID(e.ID), e.Kind, data)
 		}
 	}
 }

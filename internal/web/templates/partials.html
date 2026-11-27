@@ -105,7 +105,7 @@ the table's column count. */}}
   </div>
 </div>
 {{template "archive_bar" .Archive}}
-<nav class="etabs" aria-label="Engagement">{{range .ETab.Items}}<a{{with .Keys}} aria-keyshortcuts="{{.}}"{{end}} class="etab{{if .Active}} on{{end}}" href="{{.URL}}"{{if .Active}} aria-current="page"{{end}}>{{.Label}}{{if eq .Key "board"}} {{if .Count}}<span class="badge">{{.Count}}</span>{{else}}<span class="badge0">0</span>{{end}}{{end}}</a>{{end}}</nav>
+<nav class="etabs" aria-label="Engagement">{{range .ETab.Items}}<a{{with .Keys}} aria-keyshortcuts="{{.}}"{{end}}{{if eq .Key "findings"}} data-list="{{$.Eng.ID}}"{{end}} class="etab{{if .Active}} on{{end}}" href="{{.URL}}"{{if .Active}} aria-current="page"{{end}}>{{.Label}}{{if eq .Key "board"}} {{if .Count}}<span class="badge">{{.Count}}</span>{{else}}<span class="badge0">0</span>{{end}}{{end}}</a>{{end}}</nav>
 {{end}}
 
 {{define "chart"}}
@@ -190,7 +190,7 @@ the table's column count. */}}
     <input type="hidden" name="base" value="{{.Base}}">
     <div class="editor" data-view="split">
       <textarea name="body" rows="14" aria-label="{{.Name}}" autofocus{{if .Error}} data-dirty{{end}}
-        hx-post="{{.PreviewURL}}" hx-trigger="keyup changed delay:300ms, load" hx-target="#p-{{.Anchor}}" hx-swap="innerHTML">{{.Raw}}</textarea>
+        hx-post="{{.PreviewURL}}" hx-trigger="keyup changed delay:{{previewDelay .Raw}}, load" hx-target="#p-{{.Anchor}}" hx-swap="innerHTML" hx-sync="this:replace">{{.Raw}}</textarea>
       <div class="preview md" id="p-{{.Anchor}}"></div>
     </div>
     {{with .Attach}}{{template "attach_strip" .}}{{end}}

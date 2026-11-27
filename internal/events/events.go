@@ -3,7 +3,13 @@
 // events) hear about the engagement or finding they show.
 package events
 
-import "sync"
+import (
+	"crypto/rand"
+	"encoding/hex"
+	"strconv"
+	"strings"
+	"sync"
+)
 
 // Kinds of change.
 const (
@@ -36,6 +42,7 @@ const ringSize = 512
 // subscriber whose buffer is full loses the event and is told so (Lost).
 type Hub struct {
 	mu   sync.Mutex
+	boot string // random per hub: part of a stream's id (StreamID)
 	last uint64
 	subs map[*Sub]struct{}
 	ring [ringSize]Event // ring[id % ringSize]
@@ -48,7 +55,13 @@ type Sub struct {
 	lost     chan struct{}
 }
 
-func New() *Hub { return &Hub{subs: map[*Sub]struct{}{}} }
+// New makes a hub with a random boot value. It is no secret: it only tells
+// this hub's ids from those of the hub before a restart.
+func New() *Hub {
+	var b [8]byte
+	rand.Read(b[:]) // never fails (crypto/rand)
+	return &Hub{subs: map[*Sub]struct{}{}, boot: hex.EncodeToString(b[:])}
+}
 
 // C delivers the subscription's events.
 func (s *Sub) C() <-chan Event { return s.c }
@@ -113,6 +126,31 @@ func (h *Hub) Last() uint64 {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return h.last
+}
+
+// StreamID is the id an event stream carries for event number n:
+// "<boot>-<n>". Event numbers start at 1 again after a restart, so the
+// number alone does not say which events a client saw.
+func (h *Hub) StreamID(n uint64) string {
+	return h.boot + "-" + strconv.FormatUint(n, 10)
+}
+
+// maxStreamID bounds what MissedID reads of a client's id.
+const maxStreamID = 64
+
+// MissedID is Missed for the id a client gives back (Last-Event-ID). An id
+// of another hub (a restart), a plain number (a page loaded before ids
+// named the hub) and anything that does not read count as missed.
+func (h *Hub) MissedID(id, eng, fid string) bool {
+	if len(id) > maxStreamID {
+		return true
+	}
+	boot, num, ok := strings.Cut(id, "-")
+	if !ok || boot != h.boot {
+		return true
+	}
+	n, err := strconv.ParseUint(num, 10, 64)
+	return err != nil || h.Missed(n, eng, fid)
 }
 
 // Missed reports whether a subscriber of (eng, fid) that saw events up to

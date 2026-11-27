@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/abno525/yars/internal/auth"
@@ -35,14 +36,18 @@ type cvssReason struct{ Key, Metric, Standard, Value, Reason string }
 
 // cvssView feeds both the read panel and the calculator editor.
 type cvssView struct {
-	Metrics                   []cvssMetric
-	Vector, Score, Rating     string
-	Foreign, Error, Base      string
-	SevBase                   string
-	RowBases                  map[string]string // each row's base (store.CVSSRowHashes): the editor's
-	Complete, HasStored, OOB  bool
-	Locked                    bool
-	ReadOnly                  bool // archived engagement: no Comment either
+	Metrics                  []cvssMetric
+	Vector, Score, Rating    string
+	Foreign, Error, Base     string
+	SevBase                  string
+	RowBases                 map[string]string // each row's base (store.CVSSRowHashes): the editor's
+	Complete, HasStored, OOB bool
+	Locked                   bool
+	ReadOnly                 bool // archived engagement: no Comment either
+	// Unsaved: the editor as drawn is not what it opened with. Each metric
+	// click draws it again with the server's values, so the browser's guard
+	// sees no changed field; the form says it (data-unsaved).
+	Unsaved                   bool
 	Missing                   []string
 	Reasons                   []cvssReason
 	Severity                  string
@@ -176,6 +181,11 @@ func (s *Server) cvssFromForm(ref store.FindingRef, form url.Values) cvssView {
 	v := s.buildCVSS(ref, sel, reasons)
 	for i := range v.Metrics {
 		v.Metrics[i].Cut = cut[v.Metrics[i].Key]
+	}
+	// against what the editor opens with, not the stored vector: a finding
+	// without one opens with the team standards picked
+	if start := s.cvssStart(ref); v.Vector != start.Vector || !slices.Equal(v.Reasons, start.Reasons) {
+		v.Unsaved = true
 	}
 	if b := form.Get("base"); b != "" {
 		v.Base = b

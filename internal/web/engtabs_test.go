@@ -35,7 +35,7 @@ func TestEngagementTabs(t *testing.T) {
 		// one active top-nav item: Findings
 		nav := b[strings.Index(b, `<nav class="nav">`):]
 		nav = nav[:strings.Index(nav, "</nav>")]
-		if strings.Count(nav, `class="on"`) != 1 || !strings.Contains(nav, `<a class="on" href="/e/acme" aria-keyshortcuts="F">Findings`) {
+		if strings.Count(nav, `class="on"`) != 1 || !strings.Contains(nav, `<a data-list="acme" class="on" href="/e/acme" aria-keyshortcuts="F">Findings`) {
 			t.Fatalf("%s: top nav:\n%s", path, nav)
 		}
 		noInline(t, path, b)

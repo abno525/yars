@@ -2,7 +2,7 @@
 <form class="newf" method="post" action="/e/{{.Eng.ID}}/findings/new">
   <div class="titlerow">
     <div class="titlecol">
-      <nav class="crumbs"><a href="/e/{{.Eng.ID}}">{{.Eng.Name}}</a><span class="sep" aria-hidden="true">/</span><span class="idchip">New</span></nav>
+      <nav class="crumbs"><a href="/e/{{.Eng.ID}}" data-list="{{.Eng.ID}}">{{.Eng.Name}}</a><span class="sep" aria-hidden="true">/</span><span class="idchip">New</span></nav>
       <h1>New finding</h1>
     </div>
   </div>
@@ -27,7 +27,7 @@
     </div>
     <aside class="newside">
       <div class="actions endrow">
-        <a class="btn secondary w128" href="/e/{{.Eng.ID}}">Cancel</a>
+        <a class="btn secondary w128" href="/e/{{.Eng.ID}}" data-list="{{.Eng.ID}}">Cancel</a>
         <button class="btn primary w128">Create</button>
       </div>
       {{template "tpl_preview" .Tpl.Preview}}

@@ -1,7 +1,7 @@
 {{define "content"}}
 <div class="titlerow">
   <div class="titlecol">
-    <nav class="crumbs"><a href="/e/{{.Eng.ID}}">{{.Eng.Name}}</a><span class="sep" aria-hidden="true">/</span><a href="/e/{{.Eng.ID}}/export">Export</a><span class="sep" aria-hidden="true">/</span><span class="muted">Destinations</span></nav>
+    <nav class="crumbs"><a href="/e/{{.Eng.ID}}" data-list="{{.Eng.ID}}">{{.Eng.Name}}</a><span class="sep" aria-hidden="true">/</span><a href="/e/{{.Eng.ID}}/export">Export</a><span class="sep" aria-hidden="true">/</span><span class="muted">Destinations</span></nav>
     <h1>Destinations</h1>
   </div>
   <div class="actions"><a class="btn primary w160" href="/e/{{.Eng.ID}}/export/setup" aria-keyshortcuts="N">New destination</a></div>
