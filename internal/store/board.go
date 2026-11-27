@@ -140,7 +140,20 @@ func (s *Store) CreateNote(eng, title, host, state, text string, u config.User) 
 		return Note{}, fieldErr("text", "No ## heading or open ``` fence: it becomes the description")
 	}
 	n, err := s.db.CreateNote(db.Note{Eng: eng, Title: title, Host: host, Author: u.Username, State: state}, text)
+	if err == nil {
+		s.boardPosted(n, text, u)
+	}
 	return n, boardErr(err)
+}
+
+// boardPosted tells of a message on lead n that names someone (@name), once
+// the message is stored. The board is in the database only: the event is for
+// notifications, no webhook takes it.
+func (s *Store) boardPosted(n Note, text string, u config.User) {
+	if len(Mentions(text)) == 0 {
+		return
+	}
+	s.Emit(Event{Kind: EventBoard, Actor: u.Username, Eng: n.Eng, Note: NoteID(n.Num), Title: n.Title, Text: text})
 }
 
 // Note returns one note of eng.
@@ -197,8 +210,16 @@ func (s *Store) PostNote(eng string, num int, text string, u config.User) error 
 	if err != nil {
 		return err
 	}
-	_, err = s.db.PostNote(eng, num, u.Username, text)
-	return boardErr(err)
+	if _, err = s.db.PostNote(eng, num, u.Username, text); err != nil {
+		return boardErr(err)
+	}
+	if len(Mentions(text)) > 0 {
+		// the lead's title, for the notice; the message is stored either way
+		if n, err := s.db.Note(eng, num); err == nil {
+			s.boardPosted(n, text, u)
+		}
+	}
+	return nil
 }
 
 func validState(st string) bool { return slices.Contains(NoteStates, st) }

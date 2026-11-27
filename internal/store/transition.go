@@ -457,7 +457,13 @@ func (s *Store) SetReviewersFrom(engID, dir, base string, names []string, u conf
 		}
 		sort.Strings(list)
 		var next []db.Reviewer
-		done.Reviewers, done.Added = list, nil
+		done.Reviewers, done.Added, done.Removed = list, nil, nil
+		for _, old := range st.Reviewers {
+			// the author's own entry (a director's sign-off, Q25) is no assignment
+			if old.Name != m.Author && !slices.Contains(list, old.Name) {
+				done.Removed = append(done.Removed, old.Name)
+			}
+		}
 		for _, n := range list {
 			r := db.Reviewer{Name: n}
 			added := true
@@ -474,7 +480,7 @@ func (s *Store) SetReviewersFrom(engID, dir, base string, names []string, u conf
 		st.Reviewers = next
 		return nil, nil
 	})
-	if err == nil && len(done.Added) > 0 {
+	if err == nil && len(done.Added)+len(done.Removed) > 0 {
 		s.Emit(done)
 	}
 	return err

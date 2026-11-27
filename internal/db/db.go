@@ -444,6 +444,28 @@ var migrations = []migration{
 	// that is no finding: a webhook's id, a lead's id (addHookFailures, in Go
 	// as v22)
 	{name: "029-webhook-failures-notice-ref", fn: addHookFailures},
+	// notices that came after accounts could save their choices: an account
+	// that saved before has no row for them, and no row reads as off (Wants).
+	// Each such account gets the in-app row, the default of an account that
+	// never chose (laterNoticeDefaults, in Go)
+	{name: "030-later-notice-defaults", fn: laterNoticeDefaults},
+}
+
+// LaterNoticeKeys are the notification events migration 030 switches on in
+// app for the accounts that had saved their choices before (notify names
+// them: Unassigned, Thread, SignedOff, Withdrawn, Reported, Retest). A key
+// added after these needs a migration of its own.
+var LaterNoticeKeys = []string{"unassigned", "thread", "signed_off", "withdrawn", "reported", "retest"}
+
+// laterNoticeDefaults gives every account that saved notification choices
+// the in-app row of each of LaterNoticeKeys.
+func laterNoticeDefaults(tx *sql.Tx) error {
+	for _, k := range LaterNoticeKeys {
+		if _, err := tx.Exec("INSERT OR IGNORE INTO notify_prefs(username, event, channel) SELECT username, ?, 'app' FROM users WHERE notify_set = 1", k); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // addHookFailures adds webhooks.failures and notifications.ref unless they

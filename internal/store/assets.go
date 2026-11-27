@@ -331,16 +331,29 @@ func (s *Store) changeFilesLocked(engID, dir string, who Actor, fn func(ref Find
 	}
 	fp := findingPath(engID, ref.Dir)
 	var serr error
+	var voided []string
+	// a text change in the same commit: the sign-offs for the old text count
+	// no longer (read before the attachments' sign-offs are dropped)
+	if files[fp] != nil && ApprovalHash(prev[fp]) != ApprovalHash(files[fp]) {
+		voided = voidedBy(s.db, engID, ref.F.Meta.ID, ApprovalHash(prev[fp]))
+	}
 	for p := range files {
 		if p != fp && ref.F.Meta.Status == "verification" {
 			// an attachment changed: the sign-offs go, as a text change's do
 			// (before the page hears of the change)
-			serr = dropSignOffs(s.db, engID, ref.F.Meta.ID)
+			var dropped []string
+			dropped, serr = dropSignOffs(s.db, engID, ref.F.Meta.ID)
+			for _, n := range dropped {
+				if !slices.Contains(voided, n) {
+					voided = append(voided, n)
+				}
+			}
 			break
 		}
 	}
 	s.notify(Change{Eng: engID, Fid: ref.F.Meta.ID, Kind: ChangeContent})
 	*ev = filesEvent(who.GitAuthor().Name, ref, fp, prev, files)
+	ev.Voided = voided
 	// a director's edit of a complete or reported finding keeps its approval
 	if files[fp] != nil {
 		serr = errors.Join(serr, s.carryApproval(ref, ApprovalHash(prev[fp]), ApprovalHash(files[fp])))

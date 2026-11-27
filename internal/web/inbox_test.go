@@ -57,8 +57,12 @@ func TestInboxLists(t *testing.T) {
 	if !strings.Contains(section(b, "Returned to me"), "SQL injection") {
 		t.Fatalf("alice returned list:\n%s", b)
 	}
-	// badge also on other pages
-	if b := e.do(t, "alice", "GET", "/e/acme", nil, nil).Body.String(); !strings.Contains(b, `class="badge">1<`) {
+	// badge also on other pages: the returned finding, and the notice of
+	// bob's sign-off before it
+	if !strings.Contains(section(b, "Notifications"), "Signed off") {
+		t.Fatalf("alice has no notice of the sign-off:\n%s", b)
+	}
+	if b := e.do(t, "alice", "GET", "/e/acme", nil, nil).Body.String(); !strings.Contains(b, `class="badge">2<`) {
 		t.Fatal("badge missing on engagement page")
 	}
 }

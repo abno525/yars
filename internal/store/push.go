@@ -213,6 +213,8 @@ type pushedFinding struct {
 	prev  []byte           // finding.md before the push in this folder (nil: none)
 	md    byte             // A or M of finding.md; 0 when untouched
 	files bool             // other files of the folder changed
+	// voided are the reviewers whose sign-off the push voided (pushState)
+	voided []string
 }
 
 // pushedFindings diffs before..after of eng's repo per finding folder.
@@ -300,7 +302,16 @@ func (s *Store) pushState(eng string, u config.User, ps []pushedFinding) {
 		return serr != nil || ok && want(st)
 	}
 	director := workflow.AtLeast(u, "director")
-	for _, pf := range ps {
+	for i := range ps {
+		pf := &ps[i]
+		// a pushed text change of a finding in verification voids the
+		// sign-offs given for the text before it (no state is written: they
+		// are bound to that text's hash)
+		if pf.md != 0 && pf.prev != nil && may(pf.cur.Meta.ID, signedOff) {
+			if old := ApprovalHash(pf.prev); old != ApprovalHash(pf.raw) {
+				pf.voided = voidedBy(s.db, eng, pf.cur.Meta.ID, old)
+			}
+		}
 		if director && pf.md != 0 && pf.prev != nil {
 			if of, err := finding.Parse(pf.prev); err == nil {
 				old := ApprovalHash(pf.prev)
@@ -312,8 +323,14 @@ func (s *Store) pushState(eng string, u config.User, ps []pushedFinding) {
 			}
 		}
 		if pf.files && may(pf.cur.Meta.ID, signedOff) {
-			if err := dropSignOffs(s.db, eng, pf.cur.Meta.ID); err != nil {
+			dropped, err := dropSignOffs(s.db, eng, pf.cur.Meta.ID)
+			if err != nil {
 				s.Log().Error("push: the sign-offs are not dropped", "eng", eng, "finding", LogID(pf.cur.Meta.ID), "err", err)
+			}
+			for _, n := range dropped {
+				if !slices.Contains(pf.voided, n) {
+					pf.voided = append(pf.voided, n)
+				}
 			}
 		}
 	}
@@ -341,6 +358,7 @@ func (s *Store) pushEvents(eng, actor string, ps []pushedFinding) ([]Event, erro
 			evs = append(evs, findingEvent(EventCreated, actor, ref))
 		case pf.old != nil && pf.md != 0 || pf.files:
 			ev := updatedEvent(actor, ref, pf.old, pf.files)
+			ev.Voided = pf.voided
 			if len(ev.Changed) > 0 {
 				evs = append(evs, ev)
 			}

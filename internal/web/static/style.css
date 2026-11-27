@@ -1744,10 +1744,11 @@ button.noteopen:focus-visible { outline: 2px solid var(--accent); outline-offset
 .notetable tr.unread td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 .notetable .tag { width: 152px; }
 .tag.nev-returned, .tag.nev-webhook { background: var(--red); color: var(--on-fill); }
-.tag.nev-review { background: var(--verification); color: var(--on-fill); }
-.tag.nev-reply { background: var(--navy-600); color: var(--on-fill); }
-.tag.nev-approved { background: var(--green); color: var(--on-fill); }
+.tag.nev-review, .tag.nev-retest { background: var(--verification); color: var(--on-fill); }
+.tag.nev-reply, .tag.nev-thread { background: var(--navy-600); color: var(--on-fill); }
+.tag.nev-approved, .tag.nev-signed_off, .tag.nev-reported { background: var(--green); color: var(--on-fill); }
 .tag.nev-reverted, .tag.nev-taken_back { background: var(--accent); color: var(--on-accent); }
+.tag.nev-unassigned, .tag.nev-withdrawn { background: var(--accent); color: var(--on-accent); }
 .tag.nev-mentioned { background: var(--accent); color: var(--on-accent); }
 .tag.nev-check { background: var(--navy); color: var(--on-fill); border-color: var(--navy); }
 .tag.nev-token { background: var(--warn-tag); color: var(--on-pale); }

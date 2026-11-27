@@ -19,8 +19,9 @@ import (
 // notesInboxRows caps the section.
 const notesInboxRows = 50
 
-// notesInboxSkip are the events whose finding another section lists.
-var notesInboxSkip = []string{notify.Returned, notify.Review}
+// notesInboxSkip are the events whose finding another section lists
+// (Returned to me, Awaiting my review, Open threads on my findings).
+var notesInboxSkip = []string{notify.Returned, notify.Review, notify.Thread}
 
 // notesInbox lists the section for u (engs name the engagements), and how
 // many notices it has in all.

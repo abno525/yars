@@ -985,9 +985,9 @@ var coreTools = []tool{
 			}
 			return ok(out)
 		}},
-	{name: "list_notifications", readOnly: true, untrusted: true, serverOnly: true, desc: "Your notifications, newest first, a page at a time (the cursor is the id of the last one given, so marking some read between pages skips none): returned to you, review requested, replies, approvals, mentions, finished checks, tokens about to expire." + theirNote,
+	{name: "list_notifications", readOnly: true, untrusted: true, serverOnly: true, desc: "Your notifications, newest first, a page at a time (the cursor is the id of the last one given, so marking some read between pages skips none): returned to you, review requested (also after an edit voided your sign-off), taken back, unassigned, replies, new threads on your findings, sign-offs, approvals, reverts, withdrawals, reports, mentions (in a finding's chat or on the team board: ref is then the lead's id), finished checks, retests assigned to you, tokens about to expire, and for admins a webhook switched off (ref is its id)." + theirNote,
 		optional: []param{pLimit, pCursor}, boolArgs: []param{{"unread", "only unread ones"}},
-		simple: &toolText{desc: "Your notifications, newest first, a page at a time (the cursor is the id of the last one given, so marking some read between pages skips none): replies, completions, mentions, finished checks, tokens about to expire." + theirNote},
+		simple: &toolText{desc: "Your notifications, newest first, a page at a time (the cursor is the id of the last one given, so marking some read between pages skips none): replies, new threads on your findings, completions, reverts, withdrawals, reports, mentions (in a finding's chat or on the team board: ref is then the lead's id), finished checks, retests assigned to you, tokens about to expire, and for admins a webhook switched off (ref is its id)." + theirNote},
 		run: func(s *Server, ctx context.Context, u config.User, a args) (string, error) {
 			unread, _ := a["unread"].(bool)
 			limit, before, err := pageArgs(a)
@@ -1017,6 +1017,7 @@ var coreTools = []tool{
 				Engagement string `json:"engagement"`
 				Finding    string `json:"finding,omitempty"`
 				Dir        string `json:"dir,omitempty"`
+				Ref        string `json:"ref,omitempty"` // a lead's id (L-001) or a webhook's id: the server's own value
 				By         string `json:"by,omitempty"`
 				At         string `json:"at"`
 				Read       bool   `json:"read"`
@@ -1032,7 +1033,7 @@ var coreTools = []tool{
 			}
 			f := s.flow()
 			for _, n := range l {
-				x := note{ID: n.ID, Event: eventIn(f, n.Event), Engagement: n.Eng, Finding: n.Fid, Dir: n.Dir, By: n.Actor, At: n.TS, Read: n.Read}
+				x := note{ID: n.ID, Event: eventIn(f, n.Event), Engagement: n.Eng, Finding: n.Fid, Dir: n.Dir, Ref: n.Ref, By: n.Actor, At: n.TS, Read: n.Read}
 				x.Theirs.Title, x.Theirs.Text = title(n.Eng, n.Fid, n.Title), n.Text
 				out = append(out, x)
 			}

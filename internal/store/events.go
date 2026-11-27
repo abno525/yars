@@ -15,7 +15,9 @@ const (
 	EventChat      = "chat.posted"
 	EventExport    = "export.sent"
 	EventCheck     = "check.finished"
-	EventReviewers = "finding.reviewers" // reviewers added (notifications only)
+	EventReviewers = "finding.reviewers" // reviewers added or removed (notifications only)
+	EventRetest    = "retest.assigned"   // a retest was made for Assignee (notifications only)
+	EventBoard     = "board.posted"      // a message on a lead of the team board (notifications only; no webhook takes it)
 )
 
 // Event is one domain event. Which fields are set depends on Kind.
@@ -29,8 +31,17 @@ type Event struct {
 	Reviewers                         []string
 	// finding.status_changed
 	Action, From, To, Reason string
-	// finding.reviewers: who was added (State is the finding's status)
-	Added []string
+	// finding.reviewers: who was added and who was taken off the list (State
+	// is the finding's status)
+	Added, Removed []string
+	// finding.updated: the reviewers whose sign-off the change voided (the
+	// finding is in verification and they had signed off what it replaced)
+	Voided []string
+	// retest.assigned: the retester
+	Assignee string
+	// board.posted: the lead's id (L-001); Text is the message, Title the
+	// lead's title
+	Note string
 	// finding.updated: the parts that changed ("Title", "Severity", "CVSS",
 	// "Details", "Assets", section names, "Attachments")
 	Changed []string

@@ -259,10 +259,39 @@ func (s *Store) mutateLockedIn(engID, dir string, a gitrepo.Author, fn func(f *f
 	}
 	defer s.notify(Change{Eng: engID, Fid: ref.F.Meta.ID, Kind: ChangeContent})
 	ev := updatedEvent(a.Name, ref, old, false)
+	oldHash, newHash := ApprovalHash(before), ApprovalHash(after)
+	var terr error
 	if then != nil {
-		return ev, then(ref, ApprovalHash(before), ApprovalHash(after))
+		terr = then(ref, oldHash, newHash)
 	}
-	return ev, nil
+	// after then: a rename has moved the sign-offs to the new content by now,
+	// so it voids none
+	if oldHash != newHash {
+		ev.Voided = voidedBy(s.db, engID, ref.F.Meta.ID, oldHash)
+	}
+	return ev, terr
+}
+
+// voidedBy lists the reviewers of eng/fid whose sign-off is for the content
+// oldHash while the finding is in verification: the ones a change of that
+// content voided. It is read under the engagement's lock, right after the
+// change. A later change voids nobody again: the stored sign-off is for the
+// content before the first one.
+func voidedBy(d *db.DB, eng, fid, oldHash string) []string {
+	if d == nil {
+		return nil
+	}
+	st, err := d.State(eng, fid)
+	if err != nil || st.Status != "verification" {
+		return nil
+	}
+	var out []string
+	for _, r := range st.Reviewers {
+		if r.ClearedHash != "" && boundTo(r.ClearedHash, oldHash) {
+			out = append(out, r.Name)
+		}
+	}
+	return out
 }
 
 // mutateContent is mutate for content edits by u, refused once the finding
@@ -322,19 +351,28 @@ func signedOff(st db.State) bool {
 // dropSignOffs drops the sign-offs of eng/fid while it is in verification
 // (used after a change to its attachments, through YARS or by push): a
 // sign-off covers them too, but is bound to finding.md's hash, which they
-// leave as it is. A complete or reported finding keeps its own.
-func dropSignOffs(d *db.DB, eng, fid string) error {
+// leave as it is. A complete or reported finding keeps its own. It returns
+// the reviewers whose sign-off it dropped.
+func dropSignOffs(d *db.DB, eng, fid string) ([]string, error) {
 	if d == nil {
-		return nil
+		return nil, nil
 	}
-	return d.TxFor(eng, func(tx *db.Tx) error {
+	var voided []string
+	err := d.TxFor(eng, func(tx *db.Tx) error {
 		st, err := tx.State(eng, fid)
 		if err != nil || !signedOff(st) {
 			return err
 		}
 		for i := range st.Reviewers {
+			if st.Reviewers[i].ClearedHash != "" {
+				voided = append(voided, st.Reviewers[i].Name)
+			}
 			st.Reviewers[i].ClearedHash = ""
 		}
 		return tx.PutState(eng, fid, st)
 	})
+	if err != nil {
+		return nil, err
+	}
+	return voided, nil
 }
