@@ -1,9 +1,11 @@
 package store
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/abno525/yars/internal/chat"
 	"github.com/abno525/yars/internal/db"
 	"github.com/abno525/yars/internal/rules"
 	"github.com/abno525/yars/internal/workflow"
@@ -86,6 +88,120 @@ func TestStepCountsRows(t *testing.T) {
 	w.Quote = "x"
 	if x := stepOutcome(1, rules.Rule{ID: "tick"}, []rules.Violation{v, v, w}); x.Hits != 2 {
 		t.Fatalf("hits %d", x.Hits)
+	}
+}
+
+// A rule with more results than it shows has a last row that counts the
+// rest. The rule's step counts them too, and a dismissal of that row covers
+// its count only: one more hidden result is a new row.
+func TestRowThatCountsTheRest(t *testing.T) {
+	s, dir, fd := ready(t)
+	withRules(t, s, dir, "- id: tee\n  target: sections\n  regex_forbid: 'T\\d+'\n  message: no T numbers\n")
+	words := func(n int) string {
+		var b strings.Builder
+		for i := range n {
+			b.WriteString("T" + strconv.Itoa(i) + " ")
+		}
+		return b.String()
+	}
+	more := func(vs []rules.Violation) (rows int, last rules.Violation) {
+		for _, v := range vs {
+			if v.Rule != "tee" {
+				continue
+			}
+			if _, ok := rules.More(v); ok {
+				last = v
+			} else {
+				rows++
+			}
+		}
+		return rows, last
+	}
+	s.UpdateSection(eng, fd, "Description", words(25), "", alice)
+	st := checked(t, s, fd)
+	if x := stepOf(t, st, "tee"); x.State != db.StepHits || x.Hits != 25 {
+		t.Fatalf("step %+v", x)
+	}
+	open, err := s.OpenChecks(eng, fd)
+	rows, last := more(open)
+	if err != nil || rows != rules.MaxPerRule || last.Message != "and 5 more" || last.Level != "error" {
+		t.Fatalf("open checks: %d rows, last %+v, %v", rows, last, err)
+	}
+	if err := s.DismissWhy(eng, fd, "tee", last.Target, "", "seen them all", uBob); err != nil {
+		t.Fatal(err)
+	}
+	open, _ = s.OpenChecks(eng, fd)
+	if rows, last := more(open); rows != rules.MaxPerRule || last.Message != "" {
+		t.Fatalf("after the dismissal: %d rows, last %+v", rows, last)
+	}
+	s.UpdateSection(eng, fd, "Description", words(26), "", alice)
+	open, _ = s.OpenChecks(eng, fd)
+	if _, last := more(open); last.Message != "and 6 more" {
+		t.Fatalf("one more hidden result: last %+v", last)
+	}
+	// the row is not one Fix with AI works on: it quotes nothing
+	if n := FixCount(checked(t, s, fd)); n != rules.MaxPerRule {
+		t.Fatalf("fixable %d", n)
+	}
+}
+
+// The row that counts the rest is a row of the checks table only: the chat
+// gets no thread for it (it has no place and no quote, and its count is part
+// of its key), so a count that changes posts and resolves nothing.
+func TestRowThatCountsTheRestHasNoThread(t *testing.T) {
+	s, dir, fd := ready(t)
+	withRules(t, s, dir, "- id: tee\n  target: sections\n  regex_forbid: 'T\\d+'\n  message: no T numbers\n")
+	words := func(n int) string {
+		var b strings.Builder
+		for i := range n {
+			b.WriteString("T" + strconv.Itoa(i) + " ")
+		}
+		return b.String()
+	}
+	// the check threads of the rule, and every message of the chat
+	chatNow := func() (threads, msgs int) {
+		t.Helper()
+		all, err := s.Chat(eng, fd)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range all {
+			if m.Kind != chat.KindCheck {
+				continue
+			}
+			if strings.HasPrefix(m.Text, "and ") {
+				t.Fatalf("a check thread without the rule's message and a quote: %q", m.Text)
+			}
+			if strings.Contains(m.Text, "no T numbers") {
+				threads++
+			}
+		}
+		return threads, len(all)
+	}
+	for _, n := range []int{25, 24, 23} {
+		s.UpdateSection(eng, fd, "Description", words(n), "", alice)
+		before := 0
+		if n != 25 {
+			_, before = chatNow()
+		}
+		st := checked(t, s, fd)
+		rest := 0
+		for _, r := range st.Results {
+			if r.Rule == "tee" && strings.HasPrefix(r.Target, "more:") {
+				rest++
+				if r.Thread != "" {
+					t.Fatalf("%d hits: the counting row has a thread: %+v", n, r)
+				}
+			}
+		}
+		threads, after := chatNow()
+		if rest != 1 || threads != rules.MaxPerRule {
+			t.Fatalf("%d hits: %d counting rows, %d check threads of the rule", n, rest, threads)
+		}
+		// the 20 shown are the same: a smaller rest adds nothing to the chat
+		if n != 25 && after != before {
+			t.Fatalf("%d hits: the chat grew from %d to %d messages", n, before, after)
+		}
 	}
 }
 

@@ -1,6 +1,6 @@
 # Config
 
-`.yars/config.yaml` in the main repository; admins change it under **Admin › Structure**, or by push as a director with the admin flag. A value that is not valid is refused when the server loads the file. A key YARS does not know is ignored, so check the spelling of each key.
+`.yars/config.yaml` in the main repository; admins change it under **Admin › Structure**, or by push as a director with the admin flag. A value that is not valid is refused when the server loads the file. So is a key YARS does not know, such as `base-url` for `base_url`: the message names the key and its line.
 
 | Key | Type | Default | Rule |
 |---|---|---|---|
@@ -16,9 +16,9 @@
 | `ai.model` | string | — | — |
 | `ai.api_key_env` | string | — | name of the environment variable holding the key; must start with `YARS_` |
 | `base_url` | string | — | the server's address; links in webhooks and email, and the clone and MCP addresses on the pages |
-| `smtp.host` | string | — | set with `smtp.from` to send notification email |
-| `smtp.port` | number | 25 | — |
-| `smtp.from` | string | — | sender address |
+| `smtp.host` | string | — | a host name or an address alone, no scheme and no port (IPv6 in `[ ]`); set with `smtp.from` to send notification email |
+| `smtp.port` | number | 25 | 1 to 65535 |
+| `smtp.from` | string | — | sender address alone, such as `yars@example.com`, no name in front |
 | `smtp.username` | string | — | empty = no login |
 | `smtp.password_env` | string | — | name of the environment variable holding the password; must start with `YARS_` |
 | `checks.max_running` | number | 4 | at least 1; check runs the server runs at once |
@@ -57,6 +57,16 @@ log:
 ```
 
 Without `smtp.host` and `smtp.from` the Email column of the notification settings is hidden.
+
+## A file that is refused
+
+A file with an unknown key or a value that is not valid is refused in three places: on Admin › Structure, on a push, and at the start. `yars serve` then does not start and names the key. A server that does not start takes no push. To fix it:
+
+1. Correct the key or the value in `.yars/config.yaml` in the data folder.
+2. Commit it there as the service account: `git -C /srv/yars commit .yars/config.yaml -m config`. An edit that is not committed is undone at the next start.
+3. Start the service.
+
+A file that loaded before an upgrade can be refused after it: an unknown key was ignored before, and `smtp.host`, `smtp.port` and `smtp.from` were not checked.
 
 ## Environment variables
 

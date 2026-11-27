@@ -30,6 +30,37 @@ func TestDestKeepsUnlistedFormat(t *testing.T) {
 	}
 }
 
+// The priorities a Jira destination's file names have no field in the
+// editor: a save keeps them, also a second one, and also a director's.
+func TestDestKeepsJiraPriorities(t *testing.T) {
+	e := setupSerial(t)
+	e.exporters(t, fakePandoc)
+	j := e.jira(t, true)
+	e.addUser(t, config.User{Username: "dir2", Role: "director"})
+	base := "http://" + j.host()
+	file := filepath.Join(e.srv.Export.Dir, "jira.yaml")
+	os.WriteFile(file, []byte("name: Jira\ntype: jira\njira:\n  base_url: "+base+"\n  project: PEN\n  user_env: JIRA_USER\n  token_env: JIRA_TOKEN\n  priorities:\n    critical: Blocker\n    info: \"\"\n"), 0o644)
+	form := url.Values{"id": {"jira"}, "name": {"Jira PEN"}, "type": {"jira"}, "base_url": {base}, "project": {"PEN"},
+		"user_env": {"JIRA_USER"}, "token_env": {"JIRA_TOKEN"}, "status": {"complete"}, "mark_reported": {"1"}}
+	for i, who := range []string{"dora", "dir2"} {
+		form.Set("name", "Jira PEN "+who)
+		if rec := e.do(t, who, "POST", "/e/acme/export/setup", form, nil); rec.Code != http.StatusSeeOther {
+			t.Fatalf("save %d by %s: %d\n%s", i+1, who, rec.Code, between(rec.Body.String(), `class="pstate error"`, "</span>"))
+		}
+		es, errs := export.Load(e.srv.Export.Dir)
+		ex, ok := findExporter(es, "jira")
+		p, has := map[string]string(nil), false
+		if ok && ex.Jira != nil {
+			p = ex.Jira.Priorities
+			_, has = p["info"]
+		}
+		if !ok || ex.Name != "Jira PEN "+who || len(p) != 2 || p["critical"] != "Blocker" || !has || p["info"] != "" {
+			b, _ := os.ReadFile(file)
+			t.Fatalf("after save %d by %s: %+v %v\n%s", i+1, who, p, errs, b)
+		}
+	}
+}
+
 // Only an admin sets where a service destination sends its keys: a
 // director who is not an admin can't change its address or key variables
 // or create one, but can edit the rest.

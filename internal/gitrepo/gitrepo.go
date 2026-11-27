@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path"
@@ -25,8 +26,8 @@ type Repo struct {
 	Dir string
 }
 
-// Timeout bounds every git command run through Repo.run (not the long-lived
-// cat-file --batch processes, not git http-backend).
+// Timeout bounds every git command run through Repo.run, Sizes, Blobs and
+// Init (not the long-lived cat-file --batch processes, not git http-backend).
 var Timeout = 2 * time.Minute
 
 // waitDelay is how long a timed-out git's output is still read: a process it
@@ -42,25 +43,39 @@ func (r *Repo) run(env []string, args ...string) (string, error) {
 
 // runWithin is run with its own time limit.
 func (r *Repo) runWithin(timeout time.Duration, env []string, args ...string) (string, error) {
+	out, err := r.runIn(timeout, env, nil, args...)
+	return string(out), err
+}
+
+// runIn is runWithin with something to read on stdin, and the output as
+// bytes (a batch of blobs is not copied into a string and back).
+func (r *Repo) runIn(timeout time.Duration, env []string, stdin io.Reader, args ...string) ([]byte, error) {
+	return within(timeout, env, stdin, append([]string{"-C", r.Dir, "-c", "commit.gpgsign=false", "-c", "advice.addEmbeddedRepo=false"}, args...), args)
+}
+
+// within runs git with argv inside the time limit; an error names the
+// command as named says it.
+func within(timeout time.Duration, env []string, stdin io.Reader, argv, named []string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", r.Dir, "-c", "commit.gpgsign=false", "-c", "advice.addEmbeddedRepo=false"}, args...)...)
+	cmd := exec.CommandContext(ctx, "git", argv...)
 	cmd.WaitDelay = waitDelay
 	cmd.Env = append(os.Environ(), env...)
+	cmd.Stdin = stdin
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	spawned.Add(1)
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
-			return "", fmt.Errorf("git %s: timed out after %s", shown(args), timeout)
+			return nil, fmt.Errorf("git %s: timed out after %s", shown(named), timeout)
 		}
 		msg := strings.TrimSpace(stderr.String())
 		if msg == "" { // some commands say what is wrong on stdout (fsck)
 			msg, _, _ = strings.Cut(strings.TrimSpace(stdout.String()), "\n")
 		}
-		return "", fmt.Errorf("git %s: %w: %s", shown(args), err, msg)
+		return nil, fmt.Errorf("git %s: %w: %s", shown(named), err, msg)
 	}
-	return stdout.String(), nil
+	return stdout.Bytes(), nil
 }
 
 // shown is a command line as an error names it: without -m and the commit
@@ -107,14 +122,11 @@ func Init(dir string) (*Repo, error) {
 		return nil, err
 	}
 	if _, err := os.Stat(filepath.Join(dir, ".git")); os.IsNotExist(err) {
-		spawned.Add(1)
-		cmd := exec.Command("git", "init", "-q", "-b", "main", dir)
 		// refs as files, whatever init.defaultRefFormat says: ReadHead reads
 		// them without git. (Not --ref-format: git before 2.45 has no such
 		// option, and ignores the variable.)
-		cmd.Env = append(os.Environ(), RefFormatEnv)
-		if out, err := cmd.CombinedOutput(); err != nil {
-			return nil, fmt.Errorf("git init: %w: %s", err, out)
+		if _, err := within(Timeout, []string{RefFormatEnv}, nil, []string{"init", "-q", "-b", "main", dir}, []string{"init"}); err != nil {
+			return nil, err
 		}
 	}
 	return Open(dir)
@@ -300,15 +312,11 @@ func (r *Repo) Sizes(specs []string) ([]int64, error) {
 	if len(specs) == 0 {
 		return nil, nil
 	}
-	cmd := exec.Command("git", "-C", r.Dir, "cat-file", "--batch-check=%(objectsize)")
-	cmd.Stdin = strings.NewReader(strings.Join(specs, "\n") + "\n")
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	spawned.Add(1)
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("git cat-file: %w: %s", err, strings.TrimSpace(stderr.String()))
+	stdout, err := r.runIn(Timeout, nil, strings.NewReader(strings.Join(specs, "\n")+"\n"), "cat-file", "--batch-check=%(objectsize)")
+	if err != nil {
+		return nil, err
 	}
-	lines := strings.Split(strings.TrimSuffix(stdout.String(), "\n"), "\n")
+	lines := strings.Split(strings.TrimSuffix(string(stdout), "\n"), "\n")
 	if len(lines) != len(specs) {
 		return nil, fmt.Errorf("git cat-file: %d sizes for %d files", len(lines), len(specs))
 	}
@@ -449,15 +457,10 @@ func (r *Repo) Blobs(specs []string) ([][]byte, error) {
 	if len(specs) == 0 {
 		return nil, nil
 	}
-	cmd := exec.Command("git", "-C", r.Dir, "cat-file", "--batch")
-	cmd.Stdin = strings.NewReader(strings.Join(specs, "\n") + "\n")
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	spawned.Add(1)
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("git cat-file: %w: %s", err, strings.TrimSpace(stderr.String()))
+	out, err := r.runIn(Timeout, nil, strings.NewReader(strings.Join(specs, "\n")+"\n"), "cat-file", "--batch")
+	if err != nil {
+		return nil, err
 	}
-	out := stdout.Bytes()
 	res := make([][]byte, 0, len(specs))
 	for range specs {
 		nl := bytes.IndexByte(out, '\n')

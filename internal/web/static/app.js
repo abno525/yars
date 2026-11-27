@@ -1170,3 +1170,19 @@ document.addEventListener('click', function (evt) {
 document.addEventListener('close', function (evt) {
   if (yarsRx && evt.target === yarsRx.dlg) yarsRedactClose();
 }, true);
+
+// Destinations: Marks reported follows the kind of destination. A service
+// (jira, or confluence with an address) marks and a file does not, until the
+// box is changed; the hidden mark_for says which kind the box stands for
+// (the server does the same for a form saved without this script).
+function yarsDestKind(evt) {
+  var form = evt.target.closest && evt.target.closest('form.destform');
+  if (!form || !evt.target.matches('[name=type], [name=base_url]')) return;
+  var e = form.elements, type = e.type.value;
+  var kind = type === 'jira' || (type === 'confluence' && e.base_url.value.trim() !== '') ? 'service' : 'file';
+  if (!e.mark_for || !e.mark_reported || e.mark_for.value === kind) return;
+  e.mark_for.value = kind;
+  e.mark_reported.checked = kind === 'service';
+}
+document.addEventListener('change', yarsDestKind);
+document.addEventListener('input', yarsDestKind);

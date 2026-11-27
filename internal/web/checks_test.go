@@ -103,6 +103,39 @@ func TestChecksStripClosedByDefault(t *testing.T) {
 	}
 }
 
+// A rule with more results than it shows: the strip's last row of the rule
+// says how many more, in the table's own cells, with nothing in Quote and
+// Section, and it can be dismissed as any row.
+func TestChecksRowThatCountsTheRest(t *testing.T) {
+	e := setup(t)
+	e.gateClean(t)
+	e.rules(t, "- id: tee\n  level: warning\n  target: sections\n  regex_forbid: 'T\\d+'\n  message: no T numbers\n", nil)
+	var b strings.Builder
+	for i := range 25 {
+		b.WriteString("T" + itoa(int64(i)) + " ")
+	}
+	if err := e.srv.Store.UpdateSection("acme", fdir, "Description", b.String(), "", e.authorOf(wAlice)); err != nil {
+		t.Fatal(err)
+	}
+	p := checksPanel(t, e.do(t, "bob", "GET", fpath, nil, nil).Body.String())
+	row := `<td title="and 5 more · tee">and 5 more</td>
+          <td title=""><span class="muted">—</span></td>
+          <td title=""><span class="muted">—</span></td>`
+	if !strings.Contains(p, row) {
+		t.Fatalf("no row counts the rest:\n%s", p)
+	}
+	if n := strings.Count(p, `title="no T numbers · tee"`); n != rules.MaxPerRule {
+		t.Fatalf("%d rows of the rule", n)
+	}
+	if !strings.Contains(p, `<input type="hidden" name="rule" value="tee"><input type="hidden" name="target" value="more:5"><input type="hidden" name="quote" value="">`) {
+		t.Fatalf("the row has no dismiss form:\n%s", p)
+	}
+	rec := e.do(t, "bob", "POST", fpath+"/checks/dismiss", url.Values{"rule": {"tee"}, "target": {"more:5"}, "quote": {""}, "reason": {"seen them"}}, nil)
+	if p := checksPanel(t, rec.Body.String()); rec.Code != 200 || strings.Contains(p, row) || !strings.Contains(p, "and 5 more") {
+		t.Fatalf("dismiss %d:\n%s", rec.Code, p)
+	}
+}
+
 // D2: the author of a draft with errors finds the strip open.
 func TestChecksStripOpenForAuthorWithErrors(t *testing.T) {
 	e := setup(t)

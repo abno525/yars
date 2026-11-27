@@ -2,14 +2,20 @@
 package config
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
+	"net"
+	"net/mail"
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
+	"unicode"
 
 	"gopkg.in/yaml.v3"
 
@@ -149,6 +155,9 @@ func validate(c *Config) error {
 		}
 		c.BaseURL = strings.TrimRight(b, "/")
 	}
+	if p := smtpProblem(c.SMTP); p != "" {
+		return errors.New("config: " + p)
+	}
 	if c.SMTP.Port == 0 {
 		c.SMTP.Port = 25
 	}
@@ -277,8 +286,13 @@ func Parse(b []byte) (Config, error) {
 	// set before the YAML: only a max_running written there replaces it, so
 	// an explicit 0 is refused rather than taken for unset
 	c := Config{Checks: ChecksConfig{MaxRunning: DefaultMaxRunning}}
-	if err := yaml.Unmarshal(b, &c); err != nil {
-		return c, err
+	// a key the file has and Config lacks is refused: a typo (base-url) would
+	// read as "not set" without a word. A file without a document (empty,
+	// comments only) ends the decoder at once and is all defaults.
+	dec := yaml.NewDecoder(bytes.NewReader(b))
+	dec.KnownFields(true)
+	if err := dec.Decode(&c); err != nil && !errors.Is(err, io.EOF) {
+		return c, unknownKeys(err)
 	}
 	d := Default()
 	if len(c.Severities) == 0 {
@@ -307,6 +321,57 @@ func Parse(b []byte) (Config, error) {
 	}
 	c.CVSS.Standard = std
 	return c, validate(&c)
+}
+
+// unknownField is yaml's complaint about a key the struct lacks.
+var unknownField = regexp.MustCompile(`^line (\d+): field (.+) not found in type \S+$`)
+
+// unknownKeys rewords the decoder's error for keys Config does not have:
+// the key and its line, not a Go type, and the whole fix, as envName says
+// it (a server that does not start takes no push, and an edit that is not
+// committed is put back at the next start). Any other error is returned as
+// it is.
+func unknownKeys(err error) error {
+	var te *yaml.TypeError
+	if !errors.As(err, &te) {
+		return err
+	}
+	var keys []string
+	for _, e := range te.Errors {
+		m := unknownField.FindStringSubmatch(e)
+		if m == nil {
+			return err
+		}
+		keys = append(keys, fmt.Sprintf("unknown key %q (line %s)", m[2], m[1]))
+	}
+	return fmt.Errorf("config: %s: correct or remove it in .yars/config.yaml in the data folder and commit it there (git -C <data folder> commit .yars/config.yaml)",
+		strings.Join(keys, ", "))
+}
+
+// smtpProblem checks the values of the smtp block that are set ("" = fine).
+// The host is joined with the port and the sender is the envelope's as well
+// as the From header's, so each is one plain value: a line break or a name
+// in front would be a command or a header of its own.
+func smtpProblem(s SMTPConfig) string {
+	plain := func(v string) bool {
+		return !strings.ContainsFunc(v, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) })
+	}
+	if s.Port < 0 || s.Port > 65535 {
+		return fmt.Sprintf("smtp.port %d must be between 1 and 65535", s.Port)
+	}
+	if f := s.From; f != "" {
+		if a, err := mail.ParseAddress(f); err != nil || a.Address != f || !plain(f) {
+			return fmt.Sprintf("smtp.from %q must be an address alone, such as yars@example.com", f)
+		}
+	}
+	if h := s.Host; h != "" {
+		name, _, err := net.SplitHostPort(h + ":25")
+		bare := strings.HasPrefix(h, "[") || name == h // an IPv6 address stands in [ ]
+		if err != nil || name == "" || !bare || !plain(h) || strings.ContainsAny(h, "/\\@") {
+			return fmt.Sprintf("smtp.host %q must be a host name or an address alone, such as mail.example.com; the port is smtp.port", h)
+		}
+	}
+	return ""
 }
 
 func LoadUsers(dataDir string) ([]User, error) {

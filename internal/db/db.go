@@ -426,6 +426,15 @@ var migrations = []migration{
 	// (uniqueUsernames, in Go: a database that holds such a pair keeps both
 	// accounts and gets no index; AddUser refuses new ones either way)
 	{name: "025-usernames-unique-without-case", fn: uniqueUsernames},
+	// the names of deleted accounts: none is given out again (AddUser), since
+	// sign-offs, chat, dismissals and the author of a finding name an account
+	// without a foreign key. Names deleted before this step left no row.
+	{name: "026-deleted-usernames", sql: `CREATE TABLE IF NOT EXISTS deleted_users (
+		username TEXT PRIMARY KEY,
+		deleted  TEXT NOT NULL
+	) WITHOUT ROWID;`},
+	// the audit log is pruned and filtered by time
+	{name: "027-audit-time-index", sql: `CREATE INDEX IF NOT EXISTS audit_ts ON audit(ts);`},
 }
 
 // uniqueUsernames makes the usernames unique without the case of their

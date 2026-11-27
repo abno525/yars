@@ -123,7 +123,8 @@ func TestDocsAgree(t *testing.T) {
 	if m := read("mcp.md"); strings.Contains(m, "/srv/yars-data") || !strings.Contains(m, "yars token add --data /srv/yars alice") {
 		t.Error("mcp.md does not use deploy.md's data folder")
 	}
-	if c := read("config.md"); strings.Contains(c, "Unknown values are rejected") || !strings.Contains(c, "A key YARS does not know is ignored") {
+	if c := read("config.md"); strings.Contains(c, "is ignored") || !strings.Contains(c, "So is a key YARS does not know") ||
+		!strings.Contains(c, "| `smtp.port` | number | 25 | 1 to 65535 |") {
 		t.Error("config.md: what an unknown key does")
 	}
 	if g := read("git.md"); !strings.Contains(g, "The Clone panel clones into `yars`") {

@@ -54,7 +54,8 @@ func (s *Server) daily(d *db.DB) {
 	switch p, err := s.prune(d); {
 	case err == nil:
 		s.log().Info("retention: the daily prune finished", "audit", p.Audit, "check_runs", p.CheckRuns, "sessions", p.Sessions,
-			"ai_calls", p.AIUsage, "rule_results", p.RuleResults, "ms", time.Since(start).Milliseconds())
+			"ai_calls", p.AIUsage, "rule_results", p.RuleResults, "webhook_deliveries", p.Deliveries, "notifications", p.Notifications,
+			"ms", time.Since(start).Milliseconds())
 	case !stopping():
 		s.log().Error("retention: the daily prune failed", "err", err)
 	}
@@ -80,13 +81,19 @@ func (s *Server) prune(d *db.DB) (db.Pruned, error) {
 	if err != nil {
 		return p, err
 	}
-	if p.Audit+p.CheckRuns+p.Sessions+p.AIUsage+p.RuleResults > 0 {
+	if p.Audit+p.CheckRuns+p.Sessions+p.AIUsage+p.RuleResults+p.Deliveries+p.Notifications > 0 {
 		detail := fmt.Sprintf("audit %d · check runs %d · sessions %d", p.Audit, p.CheckRuns, p.Sessions)
 		if p.AIUsage > 0 {
 			detail += fmt.Sprintf(" · AI calls %d", p.AIUsage)
 		}
 		if p.RuleResults > 0 {
 			detail += fmt.Sprintf(" · rule results %d", p.RuleResults)
+		}
+		if p.Deliveries > 0 {
+			detail += fmt.Sprintf(" · deliveries %d", p.Deliveries)
+		}
+		if p.Notifications > 0 {
+			detail += fmt.Sprintf(" · notifications %d", p.Notifications)
 		}
 		err = d.Audit("yars", "retention.prune", "", detail)
 	}

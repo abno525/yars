@@ -128,6 +128,11 @@ func (s *Server) setup(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	if errors.Is(err, db.ErrUserExists) { // the name of a deleted account
+		p.Error = err.Error()
+		s.renderStatus(w, http.StatusBadRequest, "setup.html", p)
+		return
+	}
 	if err != nil {
 		s.fail(w, err)
 		return

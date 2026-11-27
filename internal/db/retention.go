@@ -7,7 +7,10 @@ import (
 )
 
 // Retention is how long things are kept, in days (D24, Admin › System). 0
-// keeps the audit log and the check runs for good. SessionDays is how long
+// keeps the audit log and the check runs for good. The check run days also
+// keep what else quotes finding text or chat: stored rule results, finished
+// webhook deliveries and notifications (an unread one at least
+// UnreadNoticeDays). SessionDays is how long
 // a session lives without being used; 0 there is the default, 14 days
 // (SessionIdle): a session is never kept for good, and none lives longer
 // than SessionMax from its login.
@@ -22,6 +25,11 @@ const (
 
 // retainMax is the longest retention one may set (ten years).
 const retainMax = 3650
+
+// UnreadNoticeDays is the least a notification nobody read is kept when the
+// check run days prune notifications: fewer days there delete the read ones
+// sooner, not the list of someone who was away.
+const UnreadNoticeDays = 90
 
 // Retention returns the settings with the defaults applied (one query: it
 // is read on every request through SessionUser).
@@ -60,13 +68,17 @@ func (d *DB) SetRetention(r Retention) error {
 
 // Pruned counts what a Prune deleted (AIUsage: calls to the AI provider,
 // which the audit days keep as long as the audit log; RuleResults: stored
-// script and AI results, which the check run days keep).
-type Pruned struct{ Audit, CheckRuns, Sessions, AIUsage, RuleResults int }
+// script and AI results, which the check run days keep; Deliveries: finished
+// webhook deliveries, and Notifications, both kept by the check run days
+// too).
+type Pruned struct{ Audit, CheckRuns, Sessions, AIUsage, RuleResults, Deliveries, Notifications int }
 
 // Prune deletes what is older than r allows at now: audit entries, finished
 // check runs other than each finding's latest (their results and steps go
-// with them), stored rule results, and sessions not used for SessionDays
-// or made longer than SessionMax ago. A value of 0 keeps that kind for good,
+// with them), stored rule results, finished webhook deliveries other than
+// each webhook's newest, notifications (an unread one only once it is
+// UnreadNoticeDays old), and sessions not used for
+// SessionDays or made longer than SessionMax ago. A value of 0 keeps that kind for good,
 // except sessions: 0 there is the default idle time.
 func (d *DB) Prune(now time.Time, r Retention) (Pruned, error) {
 	var p Pruned
@@ -102,6 +114,20 @@ func (d *DB) Prune(now time.Time, r Retention) (Pruned, error) {
 		// they quote finding text: kept no longer than the runs (a check
 		// runs the rule again)
 		if err := del(&p.RuleResults, "DELETE FROM rule_cache WHERE created < ?", now.AddDate(0, 0, -r.CheckRunDays).Unix()); err != nil {
+			return p, err
+		}
+		// a delivery keeps its whole payload (chat text, titles) and a
+		// notification its text: both kept no longer than the runs. A delivery
+		// still waiting stays, and each webhook's newest one (the Last delivery
+		// column reads it, Redeliver copies it). A notification nobody read
+		// goes too, or the table grows for every account that never opens its
+		// list, but not before it is UnreadNoticeDays old
+		if err := del(&p.Deliveries, `DELETE FROM webhook_deliveries WHERE state != ? AND finished != '' AND finished < ?
+			AND id NOT IN (SELECT max(id) FROM webhook_deliveries GROUP BY hook_id)`, DeliveryPending, cutoff(r.CheckRunDays)); err != nil {
+			return p, err
+		}
+		if err := del(&p.Notifications, "DELETE FROM notifications WHERE ts < ? AND (read = 1 OR ts < ?)",
+			cutoff(r.CheckRunDays), cutoff(max(r.CheckRunDays, UnreadNoticeDays))); err != nil {
 			return p, err
 		}
 	}

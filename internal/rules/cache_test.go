@@ -137,7 +137,7 @@ func TestAIKeyHasPromptVersion(t *testing.T) {
 		t.Fatalf("old entry used: %+v, %d calls", vs, f.hits.Load())
 	}
 	prompt := sha256.Sum256([]byte(systemPrompt + "\x00" + aiUser("rule", "a\nb", "text</finding_text>")))
-	want := sha256.Sum256([]byte("ai\x00" + hex.EncodeToString(prompt[:]) + "\x00openai\x00m1\x00" + acr.AI + "\x00same"))
+	want := sha256.Sum256([]byte("ai\x002\x00" + hex.EncodeToString(prompt[:]) + "\x00openai\x00m1\x00" + acr.AI + "\x00same"))
 	if _, ok, _ := store.RuleResult(hex.EncodeToString(want[:])); !ok {
 		t.Fatalf("not stored under the prompt's key: %v", store.rows)
 	}
@@ -164,7 +164,7 @@ func TestAIStoredReplyCapped(t *testing.T) {
 	r.Results = store
 	vs := r.AI(context.Background(), acr, "title", "text")
 	quote, msg := strings.Repeat("q", maxQuote)+"…", strings.Repeat("m", maxMessage)+"…"
-	if len(vs) != MaxPerRule {
+	if len(vs) != MaxPerRule { // one quote 30 times: no row counts a rest
 		t.Fatalf("%d violations", len(vs))
 	}
 	if vs[0].Quote != quote || vs[0].Message != msg {
@@ -177,7 +177,7 @@ func TestAIStoredReplyCapped(t *testing.T) {
 	}
 	store.mu.Unlock()
 	var kept aiResult
-	if err := json.Unmarshal([]byte(row), &kept); err != nil || len(kept.Violations) != MaxPerRule || kept.Violations[0].Quote != quote || kept.Violations[0].Message != msg {
+	if err := json.Unmarshal([]byte(row), &kept); err != nil || len(kept.Violations) != MaxPerRule || kept.More != 0 || kept.Violations[0].Quote != quote || kept.Violations[0].Message != msg {
 		t.Fatalf("kept %d violations (%v), row %d bytes", len(kept.Violations), err, len(row))
 	}
 	later := aiRunner(t, "openai", srv.URL)

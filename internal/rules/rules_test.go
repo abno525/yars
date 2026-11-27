@@ -229,7 +229,7 @@ func TestViolationCap(t *testing.T) {
 	d := doc()
 	d.Sections = []Section{{"Description", strings.Repeat("x", 10000)}}
 	vs := run(t, "- id: any\n  target: section:Description\n  regex_forbid: 'x'\n", d)
-	if len(vs) != MaxPerRule {
+	if len(vs) != MaxPerRule { // one wording in one place: no row counts a rest
 		t.Fatalf("got %d", len(vs))
 	}
 	d.Sections[0].Body = strings.Repeat("y", 500)

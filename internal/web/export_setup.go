@@ -26,7 +26,19 @@ type destForm struct {
 	ID, Name, Type, Format, Template, BaseURL, Space, ParentID string
 	Project, IssueType, UserEnv, TokenEnv, Script, Extension   string
 	Complete, Reported, Marks                                  bool
-	Error                                                      string
+	// MarksFor is the kind of destination ("file", "service") the Marks box
+	// is shown for: saved as the other kind, the box counts for nothing
+	MarksFor string
+	Error    string
+}
+
+// markKind is the kind of destination that decides whether it marks findings
+// reported when its file does not say (Q7): a service does, a file does not.
+func markKind(ex export.Exporter) string {
+	if ex.Service() {
+		return "service"
+	}
+	return "file"
 }
 
 type destSetup struct {
@@ -80,7 +92,7 @@ func (s *Server) setupBase(w http.ResponseWriter, r *http.Request) (*page, bool)
 // formOfExporter fills the editor from a destination.
 func formOfExporter(ex export.Exporter) destForm {
 	f := destForm{ID: ex.ID, Name: ex.Name, Type: ex.Type, Format: ex.Format, Template: ex.Template, Script: ex.Script, Extension: ex.Extension,
-		Complete: slices.Contains(ex.Statuses, "complete"), Reported: slices.Contains(ex.Statuses, "reported"), Marks: ex.Marks()}
+		Complete: slices.Contains(ex.Statuses, "complete"), Reported: slices.Contains(ex.Statuses, "reported"), Marks: ex.Marks(), MarksFor: markKind(ex)}
 	if c := ex.Confluence; c != nil {
 		f.BaseURL, f.Space, f.ParentID, f.UserEnv, f.TokenEnv = c.BaseURL, c.Space, c.ParentID, c.UserEnv, c.TokenEnv
 	}
@@ -90,8 +102,11 @@ func formOfExporter(ex export.Exporter) destForm {
 	return f
 }
 
+// newDestForm is the editor for a new destination: a file, which does not
+// mark findings reported unless the box is ticked (Q7). Saved as a service,
+// it marks (destFromForm).
 func newDestForm() destForm {
-	return destForm{New: true, Type: "pandoc", Format: "pdf", Complete: true, Marks: true}
+	return destForm{New: true, Type: "pandoc", Format: "pdf", Complete: true, MarksFor: "file"}
 }
 
 // fillSetup lists the destinations; editing is the open one.
@@ -162,6 +177,9 @@ func destFromForm(r *http.Request, cur export.Exporter) (destForm, export.Export
 	case "jira":
 		ex.Jira = &export.JiraConf{BaseURL: f.BaseURL, Project: f.Project, IssueType: f.IssueType,
 			UserEnv: env(f.UserEnv, "JIRA_USER"), TokenEnv: env(f.TokenEnv, "JIRA_TOKEN")}
+		if cur.Jira != nil { // written by hand in the file: kept, as pandoc args are
+			ex.Jira.Priorities = cur.Jira.Priorities
+		}
 	}
 	ex.Statuses = nil
 	if f.Complete {
@@ -169,6 +187,17 @@ func destFromForm(r *http.Request, cur export.Exporter) (destForm, export.Export
 	}
 	if f.Reported {
 		ex.Statuses = append(ex.Statuses, "reported")
+	}
+	// the box was shown for a file or for a service (mark_for). Saved as the
+	// other kind (another type, an address added or taken away), it says
+	// nothing: the key is left out and the kind's default holds, so a push
+	// destination marks and a file does not (Q7). A form without mark_for is
+	// taken at its word.
+	f.MarksFor = markKind(ex)
+	if was := v("mark_for"); was != "" && was != f.MarksFor {
+		ex.MarkReported = nil
+		f.Marks = ex.Marks()
+		return f, ex
 	}
 	marks := f.Marks
 	ex.MarkReported = &marks

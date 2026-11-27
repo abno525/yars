@@ -78,6 +78,9 @@ func (d *DB) AddUser(u config.User) error {
 		case !errors.Is(err, sql.ErrNoRows):
 			return err
 		}
+		if err := neverDeleted(tx, u.Username); err != nil {
+			return err
+		}
 		if err := emailFree(tx, u.Username, u.Email); err != nil {
 			return err
 		}
@@ -85,6 +88,22 @@ func (d *DB) AddUser(u config.User) error {
 			u.Username, u.Email, u.Role, u.PasswordHash, d.stamp(), b2i(u.IsAdmin), b2i(u.Disabled), u.Theme, b2i(u.MustChange), b2i(u.KeysOff))
 		return err
 	})
+}
+
+// neverDeleted returns an ErrUserExists when an account of that name was
+// deleted (DeleteUser), compared as AddUser compares names: the rows that
+// name an account without a foreign key (sign-offs, chat, dismissals, the
+// author of a finding) must not pass to another person.
+func neverDeleted(tx *Tx, name string) error {
+	var was string
+	err := tx.QueryRow("SELECT username FROM deleted_users WHERE lower(username) = lower(?) ORDER BY username = ? DESC, username LIMIT 1", name, name).Scan(&was)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return userExists(fmt.Sprintf("user %s was deleted: the name stays taken", was))
 }
 
 // UsernameClashes lists the accounts whose usernames differ only in the
@@ -127,6 +146,9 @@ func (d *DB) AddFirstUser(u config.User) error {
 		return fmt.Errorf("invalid role %q (want %s)", u.Role, strings.Join(config.Roles, ", "))
 	}
 	return d.Tx(func(tx *Tx) error {
+		if err := neverDeleted(tx, u.Username); err != nil {
+			return err
+		}
 		res, err := tx.Exec(`INSERT INTO users(username, email, role, password_hash, created, is_admin, disabled, theme)
 			SELECT ?, ?, ?, ?, ?, ?, 0, '' WHERE NOT EXISTS (SELECT 1 FROM users)`,
 			u.Username, u.Email, u.Role, u.PasswordHash, d.stamp(), b2i(u.IsAdmin))
@@ -229,7 +251,8 @@ func (d *DB) update(name, q string, args ...any) error {
 }
 
 // DeleteUser removes an account with its sessions, tokens, keys,
-// notification choices, team places and board read state.
+// notification choices, team places and board read state. Its name is
+// remembered and never given out again (AddUser, AddFirstUser).
 func (d *DB) DeleteUser(name string) error {
 	return d.Tx(func(tx *Tx) error {
 		res, err := tx.Exec("DELETE FROM users WHERE username = ?", name)
@@ -238,6 +261,9 @@ func (d *DB) DeleteUser(name string) error {
 		}
 		if n, _ := res.RowsAffected(); n != 1 {
 			return fmt.Errorf("no user %s", name)
+		}
+		if _, err := tx.Exec("INSERT OR REPLACE INTO deleted_users(username, deleted) VALUES (?, ?)", name, tx.stamp()); err != nil {
+			return err
 		}
 		// no foreign key: a new account of the same name must not follow
 		// the notes this one opened

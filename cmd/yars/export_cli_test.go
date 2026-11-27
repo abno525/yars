@@ -13,9 +13,63 @@ import (
 	"github.com/abno525/yars/internal/store"
 )
 
+// marking makes the data folder's confluence destination (an HTML file) one
+// that marks its findings reported: a file destination does only when its
+// file says so.
+func marking(t *testing.T, dir string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, ".yars", "exporters", "confluence.yaml"),
+		[]byte("name: Confluence HTML\ntype: confluence\nstatuses: [complete]\nmark_reported: true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// yars init's destinations make files, and a file marks nothing reported
+// unless its own file says so (Q7): neither example says mark_reported:
+// true, and --mark on them says that nothing was marked.
+func TestExportCLIFileDestinationDoesNotMark(t *testing.T) {
+	dir := exportFixture2(t)
+	for name, want := range map[string]string{"docx.yaml": "mark_reported: false\n", "confluence.yaml": "type: confluence\n"} {
+		b, err := os.ReadFile(filepath.Join(dir, ".yars", "exporters", name))
+		if err != nil || strings.Contains(string(b), "mark_reported: true\n") || !strings.Contains(string(b), want) {
+			t.Fatalf("%s: %v\n%s", name, err, b)
+		}
+	}
+	d := openDB(t, dir)
+	out := filepath.Join(t.TempDir(), "r.html")
+	var log bytes.Buffer
+	code, err := cmdExport([]string{"--data", dir, "--exporter", "confluence", "--out", out, "--mark", "--as", "dora", "acme", "F-001"}, &log)
+	if code != 0 || err != nil || !strings.Contains(log.String(), "not marked: confluence has mark_reported off\n") || strings.Contains(log.String(), "marked reported") {
+		t.Fatalf("code %d err %v: %s", code, err, log.String())
+	}
+	if s, _ := d.State("acme", "F-001"); s.Status != "complete" {
+		t.Fatalf("F-001 is %s", s.Status)
+	}
+	// the same destination with mark_reported: true marks
+	marking(t, dir)
+	log.Reset()
+	code, err = cmdExport([]string{"--data", dir, "--exporter", "confluence", "--out", out, "--force", "--mark", "--as", "dora", "acme", "F-001"}, &log)
+	if code != 0 || err != nil || !strings.Contains(log.String(), "marked reported F-001") || strings.Contains(log.String(), "not marked") {
+		t.Fatalf("with mark_reported: true: code %d err %v: %s", code, err, log.String())
+	}
+	if s, _ := d.State("acme", "F-001"); s.Status != "reported" {
+		t.Fatalf("F-001 is %s", s.Status)
+	}
+}
+
 // exportFixture is a data folder with engagement acme: F-001 complete,
-// F-002 draft; dora is a director and bob a reviewer.
+// F-002 draft; dora is a director and bob a reviewer. Its confluence
+// destination marks reported (marking).
 func exportFixture(t *testing.T) string {
+	t.Helper()
+	dir := exportFixture2(t)
+	marking(t, dir)
+	return dir
+}
+
+// exportFixture2 is exportFixture with the destinations as yars init wrote
+// them.
+func exportFixture2(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	if err := cmdInit([]string{dir}); err != nil {

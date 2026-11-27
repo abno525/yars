@@ -113,6 +113,55 @@ func TestExportFailedOwnKey(t *testing.T) {
 	}
 }
 
+// A stored personal key that cannot be read fails the finding with the
+// reason: nothing goes out under the server's name unless the sender picks
+// Use server key.
+func TestExportUnreadableOwnKey(t *testing.T) {
+	e := setupSerial(t)
+	e.toComplete(t)
+	e.exporters(t, fakePandoc)
+	j := e.jira(t, true)
+	svc := "jira@" + j.host()
+	if rec := e.do(t, "alice", "POST", "/settings/connections", url.Values{"service": {svc}, "key": {"alice@acme:ownkey"}}, nil); rec.Code != http.StatusSeeOther {
+		t.Fatalf("key %d", rec.Code)
+	}
+	if _, err := e.srv.Store.DB().Exec("UPDATE connections SET secret_enc = 'x' WHERE username = 'alice'"); err != nil {
+		t.Fatal(err)
+	}
+	send := func(path string, form url.Values) string {
+		return e.follow(t, "alice", e.do(t, "alice", "POST", path, form, nil))
+	}
+	page := send("/e/acme/export", url.Values{"dest": {"jira"}, "finding": {fdir}})
+	if len(j.users) != 0 || len(j.writes) != 0 {
+		t.Fatalf("the service was reached: logins %v, writes %v", j.users, j.writes)
+	}
+	h, _ := e.srv.Store.DB().Exports("acme", 1)
+	items := itemsOf(h[0])
+	if h[0].OK || len(items) != 1 || items[0].OK || items[0].Marked || items[0].SentAs != "alice" || items[0].Error != "alice: personal key unreadable" {
+		t.Fatalf("history %+v, items %+v", h[0], items)
+	}
+	if st := e.status(t); st != "complete" {
+		t.Fatalf("status %s", st)
+	}
+	server := "/e/acme/export/history/" + itoa(h[0].ID) + "/server"
+	for _, want := range []string{"alice: personal key unreadable", "Renew key", `formaction="` + server + `"`, "Use server key"} {
+		if !strings.Contains(page, want) {
+			t.Errorf("failed send lacks %q", want)
+		}
+	}
+	// a retry with the key still broken fails again and can be tried again
+	send("/e/acme/export/history/"+itoa(h[0].ID)+"/retry", nil)
+	h, _ = e.srv.Store.DB().Exports("acme", 1)
+	if items := itemsOf(h[0]); h[0].OK || len(items) != 1 || !items[0].retryable() || len(j.users) != 0 || e.status(t) != "complete" {
+		t.Fatalf("retry: history %+v, logins %v", h[0], j.users)
+	}
+	// the sender picks the server's key, in the open
+	page = send("/e/acme/export/history/"+itoa(h[0].ID)+"/server", url.Values{"dir": {fdir}})
+	if len(j.users) == 0 || j.users[len(j.users)-1] != "bot:srvkey5c2e" || !strings.Contains(page, "server key") || e.status(t) != "reported" {
+		t.Fatalf("server key send %v:\n%s", j.users, page)
+	}
+}
+
 // Without a server key there is no server-key button; its slot stays.
 func TestExportFailedNoServerKey(t *testing.T) {
 	e := setupSerial(t)

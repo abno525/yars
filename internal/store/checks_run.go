@@ -207,6 +207,10 @@ func stepOutcome(run int64, r rules.Rule, vs []rules.Violation) db.CheckStep {
 			if k := v.Level + "\x00" + ViolationHash(v.Target, v.Quote); !rows[k] {
 				rows[k] = true
 				x.Hits++
+				// the row that counts the results not shown stands for them
+				if n, ok := rules.More(v); ok {
+					x.Hits += n - 1
+				}
 			}
 		}
 	}
@@ -414,7 +418,8 @@ func knownThreads(tx *db.Tx, eng, fid string, threads map[string]*chat.Thread) (
 //   - one whose thread is still open keeps it, and nothing is posted; one
 //     whose thread someone resolved although it is still there gets it
 //     reopened (a reopen marker, no comment);
-//   - a dismissed violation gets no comment;
+//   - a dismissed violation gets no comment, and neither does the row that
+//     counts a rule's results not shown ("and 5 more");
 //   - an open thread whose violation is gone is resolved silently (a resolve
 //     marker only; not for a rule that failed to run or only reported a
 //     notice).
@@ -505,8 +510,14 @@ func finishCheck(tx *db.Tx, id int64, eng, fid string, vs []rules.Violation) err
 		}
 		stored[row] = true
 		k := threadKey(r.Rule, r.QuoteHash, sectionOf(v.Target))
+		_, rest := rules.More(v)
 		switch th, seen := found[k]; {
 		case notice(v):
+		case rest:
+			// the row that counts the results not shown is a row of the table
+			// only: it has no place and no quote to comment on, and its count
+			// is part of its key, so a thread would be resolved and posted
+			// again each time the count moves
 		case seen:
 			r.Thread = th
 		case dismissedRow(dismissed, v):

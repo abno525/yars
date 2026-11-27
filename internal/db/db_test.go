@@ -107,13 +107,13 @@ func legacyDB(t *testing.T, list []migration) string {
 
 // Opening an older database keeps a copy of it as it was, private.
 func TestMigrateKeepsSnapshot(t *testing.T) {
-	p := openAtVersion(t, schemaVersion-1)
+	p := openAtVersion(t, legacySchema)
 	d, err := Open(p)
 	if err != nil {
 		t.Fatal(err)
 	}
 	d.Close()
-	snap := fmt.Sprintf("%s.before-v%d", p, schemaVersion-1)
+	snap := fmt.Sprintf("%s.before-v%d", p, legacySchema)
 	info, err := os.Stat(snap)
 	if err != nil {
 		t.Fatal(err)
@@ -121,14 +121,14 @@ func TestMigrateKeepsSnapshot(t *testing.T) {
 	if info.Mode().Perm() != 0o600 {
 		t.Fatalf("snapshot mode %v", info.Mode().Perm())
 	}
-	if v, err := SchemaOf(snap); err != nil || v != schemaVersion-1 {
+	if v, err := SchemaOf(snap); err != nil || v != legacySchema {
 		t.Fatalf("snapshot schema %d %v", v, err)
 	}
 }
 
 // Only the two newest snapshots are kept.
 func TestMigrateKeepsTwoSnapshots(t *testing.T) {
-	p := openAtVersion(t, schemaVersion-1)
+	p := openAtVersion(t, legacySchema)
 	for _, v := range []int{3, 7, 9} {
 		if err := os.WriteFile(fmt.Sprintf("%s.before-v%d", p, v), []byte("old"), 0o600); err != nil {
 			t.Fatal(err)
@@ -149,7 +149,7 @@ func TestMigrateKeepsTwoSnapshots(t *testing.T) {
 			snaps = append(snaps, e.Name())
 		}
 	}
-	want := []string{"yars.db.before-v" + strconv.Itoa(schemaVersion-1), "yars.db.before-v9"}
+	want := []string{"yars.db.before-v" + strconv.Itoa(legacySchema), "yars.db.before-v9"}
 	slices.Sort(snaps)
 	slices.Sort(want)
 	if !slices.Equal(snaps, want) {
