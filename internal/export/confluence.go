@@ -175,12 +175,6 @@ func reportHTML(body string, confluenceMacros bool) string {
 	return out
 }
 
-// isSummary reports whether a report section is the executive summary,
-// which the themed report puts above the severity counts.
-func isSummary(name string) bool {
-	return strings.EqualFold(strings.TrimSpace(name), "Executive summary")
-}
-
 // XHTML renders the report body; confluenceMacros turns code blocks into
 // Confluence code macros (push mode).
 func XHTML(in Input, confluenceMacros bool) string {
@@ -296,30 +290,26 @@ func (r *Runner) confluence(ctx context.Context, e Exporter, in Input) (Result, 
 		return p
 	}
 	payload := page(xmlChars(XHTML(in, true)))
-	// the page this finding became before, read for its current version
+	// the page these findings became before (one finding: its own page;
+	// several: the page under PageKey), read for its current version. With
+	// none remembered, one that is gone or one in another space, a new page
+	// is made: a page is never taken by its title, which another engagement
+	// of the same name, or a person, may have used.
 	var cur *confPage
+	key := PageKey
 	if len(in.Findings) == 1 {
-		if k, ok := in.Known[in.Findings[0].Meta.ID]; ok && k.ID != "" {
-			data, err := call("GET", base+"/"+url.PathEscape(k.ID)+"?expand=version,space", nil)
-			switch {
-			case err == nil:
-				var p confPage
-				if json.Unmarshal(data, &p) == nil && p.ID != "" && (p.Space.Key == "" || p.Space.Key == c.Space) {
-					cur = &p
-				}
-			case !notFound(err): // gone: found by title or made again
-				return Result{}, err
-			}
-		}
+		key = in.Findings[0].Meta.ID
 	}
-	// otherwise the page with this title (titles are unique per space)
-	if cur == nil {
-		q := url.Values{"title": {title}, "spaceKey": {c.Space}, "expand": {"version"}}
-		if data, err := call("GET", base+"?"+q.Encode(), nil); err == nil {
-			var found struct{ Results []confPage }
-			if json.Unmarshal(data, &found) == nil && len(found.Results) > 0 {
-				cur = &found.Results[0]
+	if k, ok := in.Known[key]; ok && k.ID != "" {
+		data, err := call("GET", base+"/"+url.PathEscape(k.ID)+"?expand=version,space", nil)
+		switch {
+		case err == nil:
+			var p confPage
+			if json.Unmarshal(data, &p) == nil && p.ID != "" && (p.Space.Key == "" || p.Space.Key == c.Space) {
+				cur = &p
 			}
+		case !notFound(err): // gone: made again
+			return Result{}, err
 		}
 	}
 	created := cur == nil
@@ -327,7 +317,7 @@ func (r *Runner) confluence(ctx context.Context, e Exporter, in Input) (Result, 
 		body, _ := json.Marshal(page(""))
 		data, err := call("POST", base, body)
 		if err != nil {
-			return Result{}, err
+			return Result{}, newPageErr(err)
 		}
 		var p confPage
 		json.Unmarshal(data, &p)
@@ -362,6 +352,9 @@ func (r *Runner) confluence(ctx context.Context, e Exporter, in Input) (Result, 
 	body, _ := json.Marshal(payload)
 	data, err := call(method, target, body)
 	if err != nil {
+		if method == "POST" {
+			err = newPageErr(err)
+		}
 		return Result{}, err
 	}
 	// last the pictures a push left that the body no longer shows: a current
@@ -391,6 +384,17 @@ func (r *Runner) confluence(ctx context.Context, e Exporter, in Input) (Result, 
 		res.Items = append(res.Items, Item{ID: f.Meta.ID, URL: res.URL, Remote: rm, Action: action})
 	}
 	return res, nil
+}
+
+// newPageErr is the refusal of a new page with why one was being made:
+// Confluence takes one page of a title in a space, and answers 400 when the
+// title is taken.
+func newPageErr(err error) error {
+	var se *statusError
+	if errors.As(err, &se) && se.code == http.StatusBadRequest {
+		return &statusError{se.code, se.msg + " (no page is remembered for this destination, so a new one is made; if the space has a page of this title, rename or remove it)"}
+	}
+	return err
 }
 
 // confPage is a Confluence page as the content API returns it.

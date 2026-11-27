@@ -292,7 +292,8 @@ type Input struct {
 	// server's key from the environment.
 	Creds *Creds
 	// Known is the page or issue each finding (by ID) became at this
-	// destination before; it is updated instead of making another.
+	// destination before; it is updated instead of making another. The
+	// Confluence page that holds several findings is under PageKey.
 	Known map[string]Remote
 	// imageSrc, when set, replaces inlining: it stores an attachment and
 	// returns the src to use (the HTML ZIP).
@@ -304,6 +305,10 @@ type Input struct {
 	// fails on a broken one.
 	strictImages bool
 }
+
+// PageKey is the key, in Input.Known and in the remembered pages, of the one
+// Confluence page a push of several findings makes: no finding's ID.
+const PageKey = ""
 
 // ReportText is one report-level section: its name and Markdown body.
 type ReportText struct {

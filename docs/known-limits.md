@@ -50,6 +50,8 @@ What YARS does not do, or does in a way that can surprise. Each row states today
 |---|---|
 | Some pandoc builds cannot write docx under `--sandbox`; the fallback runs without it | The text pandoc gets is already cleaned (no raw HTML, images inlined). A static pandoc release keeps the sandbox ([deploy.md](deploy.md)). |
 | The Confluence push's attachment calls were tested against a fake server only | Unconfirmed on a real Confluence: attachment PUT on older Server/DC, the comment in the attachment list, DELETE on Server/DC. An upload failure on a new page leaves it empty until the next send. |
+| A Confluence push updates only the page it made before | The page is remembered per destination, engagement and finding; a push of several findings (`yars export`) has one page of its own. With no page remembered, or when it was deleted or moved to another space, a new page is made. Confluence refuses that when the space has a page of the same title: rename or remove that page. `yars export` on a clone without the server's database remembers nothing. |
+| The report's first chapter is headed "Executive summary" whatever the first report section is called | The first report section (Admin › Structure) is the summary: its text stands above the severity counts. The others open "Scope and overview". |
 
 ## Redaction
 
