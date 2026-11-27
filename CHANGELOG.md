@@ -25,6 +25,8 @@ What changed for people who run or use YARS. Newest first.
 ### Changed
 
 - The Go module is `github.com/abno525/yars`: `go install github.com/abno525/yars/cmd/yars@latest` builds the binary.
+- Over MCP, `transition` with `clear`, `sign_off`, `approve` or `complete` needs `base`, the `hash` from `read_finding` (before: optional, so an agent could sign off a version it never read). Without it the call is refused with `invalid` and `missing argument "base": call read_finding and pass its hash as base, …`. An agent that signs off or approves must read the finding first and pass the hash. `read_finding` lists these actions with `needs: "base"`. The other actions are unchanged.
+- Over MCP, `read_finding` gives `attachments_hash`, and `transition` takes it as `attachments_base`: a sign-off, an approval or a completion is then refused with `conflict` when an attachment was added, replaced or removed since. Without it the attachments are not compared.
 - The binary embeds the six developer pages only.
 - `docs/deploy.md`: a `0700` data folder, systemd hardening, backup pruning, the minimum git version, uninstalling.
 - `docs/rules.md` covers every kind of rule, its limits and its failures.

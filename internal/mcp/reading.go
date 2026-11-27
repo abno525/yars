@@ -365,6 +365,7 @@ func fixChecks(s *Server, ctx context.Context, u config.User, a args) (string, e
 // approve, sign off and complete the store's own blocks with the fast rules
 // (script and AI rules run at the transition itself). The actions are those
 // of the data folder's workflow (AllowedActions reads it from the config).
+// A sign-off, an approval and a completion need base.
 func (s *Server) allowedActions(ctx context.Context, u config.User, ref store.FindingRef) []workflow.Allowed {
 	out := workflow.AllowedActions(u, ref.F.Meta, s.conf())
 	tk, hasTok := tokenFrom(ctx)
@@ -374,6 +375,9 @@ func (s *Server) allowedActions(ctx context.Context, u config.User, ref store.Fi
 	for i := range out {
 		al := &out[i]
 		act := workflow.Action(al.Action)
+		if store.SignsOff(act) {
+			al.Needs = "base" // transition refuses it without (none of them takes a reason)
+		}
 		why := ""
 		switch need := actionOf(transition, args{"action": al.Action}); {
 		case hasTok && !tk.Allows(need):

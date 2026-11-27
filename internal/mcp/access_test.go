@@ -16,6 +16,7 @@ import (
 func (f *fx) callTok(u config.User, tk db.TokenInfo, tool string, args map[string]any) (string, bool) {
 	f.t.Helper()
 	f.id++
+	args = f.signed(tool, args)
 	msg, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": f.id, "method": "tools/call",
 		"params": map[string]any{"name": tool, "arguments": args}})
 	var resp struct {

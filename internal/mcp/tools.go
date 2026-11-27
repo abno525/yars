@@ -237,6 +237,16 @@ func actionNames(f workflow.Flow) string {
 	return strings.Join(names, ", ")
 }
 
+// missingBase is the refusal of a sign-off, an approval or a completion
+// called without base, in workflow f's words: the argument and where its
+// value comes from.
+func missingBase(f workflow.Flow) string {
+	if f.Simple {
+		return `missing argument "base": call read_finding and pass its hash as base, so that you complete the version you read`
+	}
+	return `missing argument "base": call read_finding and pass its hash as base, so that you sign off or approve the version you read`
+}
+
 // explain turns store/workflow errors into messages for the assistant.
 func explain(err error) string {
 	var d *workflow.Denied
@@ -443,9 +453,9 @@ var coreTools = []tool{
 			}
 			return listPage(a, out)
 		}},
-	{name: "read_finding", desc: "Read one finding: its workflow state (status, reviewers, clearances, return reason, retest), the raw finding.md content (YAML front matter + ## sections; workflow state is not in the file) and the file's hash (transition's base), each section's name, body and base hash for safe edits, open chat threads (an AI reply is marked ai), style-rule violations, and allowed_actions: every action of the status with whether you may take it now (enabled), why not (reason) and whether it needs a reason.",
+	{name: "read_finding", desc: "Read one finding: its workflow state (status, reviewers, clearances, return reason, retest), the raw finding.md content (YAML front matter + ## sections; workflow state is not in the file), the file's hash (transition's base) and attachments_hash (transition's attachments_base), each section's name, body and base hash for safe edits, open chat threads (an AI reply is marked ai), style-rule violations, and allowed_actions: every action of the status with whether you may take it now (enabled), why not (reason) and what it needs (needs: reason or base).",
 		required: []param{pEng, pFinding},
-		simple:   &toolText{desc: "Read one finding: its workflow state (status, withdrawal, retest), the raw finding.md content (YAML front matter + ## sections; workflow state is not in the file) and the file's hash (transition's base), each section's name, body and base hash for safe edits, open chat threads (an AI reply is marked ai), style-rule violations, and allowed_actions: every action of the status with whether you may take it now (enabled), why not (reason) and whether it needs a reason."},
+		simple:   &toolText{desc: "Read one finding: its workflow state (status, withdrawal, retest), the raw finding.md content (YAML front matter + ## sections; workflow state is not in the file), the file's hash (transition's base) and attachments_hash (transition's attachments_base), each section's name, body and base hash for safe edits, open chat threads (an AI reply is marked ai), style-rule violations, and allowed_actions: every action of the status with whether you may take it now (enabled), why not (reason) and what it needs (needs: reason or base)."},
 		run: func(s *Server, ctx context.Context, u config.User, a args) (string, error) {
 			ref, err := s.ref(a)
 			if err != nil {
@@ -487,7 +497,8 @@ var coreTools = []tool{
 				Dir         string             `json:"dir"`
 				State       state              `json:"state"`
 				Markdown    string             `json:"finding_md"`
-				Hash        string             `json:"hash"` // the file's as stored, its full SHA-256: transition's base
+				Hash        string             `json:"hash"`             // the file's as stored, its full SHA-256: transition's base
+				Files       string             `json:"attachments_hash"` // the attachments' as they are: transition's attachments_base
 				Sections    []sec              `json:"sections"`
 				CVSSBase    string             `json:"cvss_base"`
 				DetailsBase string             `json:"details_base"`
@@ -505,6 +516,9 @@ var coreTools = []tool{
 			// edit, each is checked against its row only
 			out.DetailsBase = rowsToken(out.Bases, "details.")
 			out.CVSSBase = rowsToken(out.Bases, "cvss")
+			if out.Files, err = s.Store.AttachmentsHash(ref.EngID, ref.Dir); err != nil {
+				return "", err
+			}
 			if e, err := s.Store.Engagement(ref.EngID); err != nil || e.Archived {
 				out.CanEdit = false // every write is refused while archived
 			}
@@ -613,14 +627,16 @@ var coreTools = []tool{
 		optional: []param{{"base", "the field's entry in field_bases from read_finding (details.*, cvss, cvss_reason.*: refused only if that one row changed since; each set_field answer gives the row's new base; after cvss, one base for the vector and every reason), or cvss_base, details_base or assets_base (assets); refuses the edit if it changed since you read it"}},
 		simple:   &toolText{desc: "Set a field: title, severity (no CVSS vector), cvss (vector or empty to clear; a metric whose value changes loses its cvss_reason, and clearing removes every reason), cvss_reason.<METRIC> (explanation for a non-standard value, e.g. cvss_reason.AC), details.<Row> (details table, e.g. details.Location), retest_result (fixed | not_fixed | partially_fixed), assets (the whole affected-asset list as JSON: [{\"host\":\"app.example\",\"url\":\"https://app.example/x\",\"port\":\"443\",\"note\":\"…\"}], [] to clear). Use transition for status."},
 		run:      setField},
-	{name: "transition", action: "status", serverOnly: true, desc: "Move a finding through the workflow: submit (draft→verification), return (verification→draft, needs reason), clear or sign_off (an assigned reviewer or a director; a director also on their own finding), approve (director, after a sign-off by an assigned reviewer other than them: verification→complete), reopen (author or director: complete→verification, needs reason), report (author or director: complete→reported), unreport (author or director: reported→complete, needs reason; the approval stays), revert (the step back from where the finding is: reopen or unreport), withdraw (author while draft or verification, director also when complete or reported; needs reason; takes it out of the report), revise (author or director: withdrawn→draft), take_back (author or director: verification→draft, no reason; sign-offs start over). The statuses are draft, verification, complete, reported, withdrawn. Pass base (the hash from read_finding) so a sign-off or an approval is of the version you read.",
+	{name: "transition", action: "status", serverOnly: true, desc: "Move a finding through the workflow: submit (draft→verification), return (verification→draft, needs reason), clear or sign_off (an assigned reviewer or a director; a director also on their own finding), approve (director, after a sign-off by an assigned reviewer other than them: verification→complete), reopen (author or director: complete→verification, needs reason), report (author or director: complete→reported), unreport (author or director: reported→complete, needs reason; the approval stays), revert (the step back from where the finding is: reopen or unreport), withdraw (author while draft or verification, director also when complete or reported; needs reason; takes it out of the report), revise (author or director: withdrawn→draft), take_back (author or director: verification→draft, no reason; sign-offs start over). The statuses are draft, verification, complete, reported, withdrawn. clear, sign_off and approve need base, the hash from read_finding: they are refused without it, and when the finding changed since you read it. With attachments_base (read_finding's attachments_hash) they are refused when an attachment changed since, too.",
 		required: []param{pEng, pFinding, {"action", "submit | return | clear | sign_off | approve | reopen | report | unreport | revert | withdraw | revise | take_back"}},
 		optional: []param{{"reason", "required for return, withdraw, reopen, unreport and revert"},
-			{"base", "the hash from read_finding: clear, sign_off and approve are refused if the finding changed since you read it (other actions ignore it)"}},
-		simple: &toolText{desc: "Move a finding through the simple workflow, draft → complete → reported: complete (draft→complete), reopen (complete→draft, needs reason), report (complete→reported), unreport (reported→complete, needs reason; the completion stays), revert (the step back from where the finding is: reopen or unreport), withdraw (from draft, complete or reported; needs reason; takes it out of the report), revise (withdrawn→draft). The statuses are draft, complete, reported, withdrawn. Pass base (the hash from read_finding) so a completion is of the version you read.",
+			{"base", "the hash from read_finding: required for clear, sign_off and approve, which are refused if the finding changed since you read it (other actions ignore it)"},
+			{"attachments_base", "attachments_hash from read_finding: clear, sign_off and approve are refused if an attachment was added, replaced or removed since you read it (other actions ignore it)"}},
+		simple: &toolText{desc: "Move a finding through the simple workflow, draft → complete → reported: complete (draft→complete), reopen (complete→draft, needs reason), report (complete→reported), unreport (reported→complete, needs reason; the completion stays), revert (the step back from where the finding is: reopen or unreport), withdraw (from draft, complete or reported; needs reason; takes it out of the report), revise (withdrawn→draft). The statuses are draft, complete, reported, withdrawn. complete needs base, the hash from read_finding: it is refused without it, and when the finding changed since you read it. With attachments_base (read_finding's attachments_hash) it is refused when an attachment changed since, too.",
 			params: map[string]string{"action": "complete | reopen | report | unreport | revert | withdraw | revise",
-				"reason": "required for withdraw, reopen, unreport and revert",
-				"base":   "the hash from read_finding: complete is refused if the finding changed since you read it (other actions ignore it)"}},
+				"reason":           "required for withdraw, reopen, unreport and revert",
+				"base":             "the hash from read_finding: required for complete, which is refused if the finding changed since you read it (other actions ignore it)",
+				"attachments_base": "attachments_hash from read_finding: complete is refused if an attachment was added, replaced or removed since you read it (other actions ignore it)"}},
 		run: func(s *Server, ctx context.Context, u config.User, a args) (string, error) {
 			ref, err := s.ref(a)
 			if err != nil {
@@ -658,9 +674,25 @@ var coreTools = []tool{
 				return "", refuse("invalid", "a reason is required to "+what+" a finding")
 			}
 			// base: the version read, as the website's page sends it (kept for
-			// a sign-off or an approval only); finding.md's, not the
-			// attachments' (no attachments hash over MCP)
-			if err := s.Store.TransitionSeen(ref.EngID, ref.Dir, act, a.str("reason"), a.str("base"), "", u); err != nil {
+			// a sign-off, an approval or a completion only). Such a step
+			// without it would sign a version nobody named, so it never
+			// reaches the store: what refuses the step anyway is said first,
+			// in the store's order, then the missing argument
+			base := strings.TrimSpace(a.str("base"))
+			if store.SignsOff(act) && base == "" {
+				switch err := f.Check(u, ref.F.Meta, act); {
+				case s.Store.DB() == nil:
+					return "", store.ErrNoDB
+				case s.Store.Archived(ref.EngID):
+					return "", store.ErrArchived
+				case err != nil:
+					return "", err
+				}
+				return "", refuse("invalid", missingBase(f))
+			}
+			// attachments_base: the attachments as read (not compared when
+			// left out)
+			if err := s.Store.TransitionSeen(ref.EngID, ref.Dir, act, a.str("reason"), base, strings.TrimSpace(a.str("attachments_base")), u); err != nil {
 				return "", err
 			}
 			_, to := f.Target(act)

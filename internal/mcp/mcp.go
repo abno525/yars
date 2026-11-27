@@ -73,7 +73,7 @@ const latestProtocol = "2025-06-18"
 var protocols = []string{"2025-06-18", "2024-11-05"}
 
 const instructions = "YARS manages pentest findings. Use list_engagements and list_findings to navigate, " +
-	"read_finding before editing (pass the returned base hashes to avoid overwriting others, and its hash as transition's base to sign off or approve the version you read), " +
+	"read_finding before editing (pass the returned base hashes to avoid overwriting others, and its hash as transition's base to sign off or approve the version you read: without base they are refused), " +
 	"update_section/set_field to edit, transition to move a finding through draft → verification → complete " +
 	"(the statuses are draft, verification, complete, reported, withdrawn; a finding is named by its ID, F-001, or its folder name), " +
 	"add_chat_message to discuss, lint_finding or start_check/get_check_results to check the team's style rules, " +
@@ -86,7 +86,7 @@ const instructions = "YARS manages pentest findings. Use list_engagements and li
 // simpleInstructions are instructions for the simple workflow: draft →
 // complete → reported, with no reviewers or roles.
 const simpleInstructions = "YARS manages pentest findings. Use list_engagements and list_findings to navigate, " +
-	"read_finding before editing (pass the returned base hashes to avoid overwriting others, and its hash as transition's base to complete the version you read), " +
+	"read_finding before editing (pass the returned base hashes to avoid overwriting others, and its hash as transition's base to complete the version you read: without base it is refused), " +
 	"update_section/set_field to edit, transition to move a finding through draft → complete → reported " +
 	"(the simple workflow: no reviewers or roles; the statuses are draft, complete, reported, withdrawn; a finding is named by its ID, F-001, or its folder name), " +
 	"add_chat_message to discuss, lint_finding or start_check/get_check_results to check the team's style rules, " +

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -21,6 +22,7 @@ import (
 	"github.com/abno525/yars/internal/index"
 	"github.com/abno525/yars/internal/rules"
 	"github.com/abno525/yars/internal/store"
+	"github.com/abno525/yars/internal/workflow"
 )
 
 var (
@@ -72,8 +74,41 @@ func (f *fx) rpc(u config.User, method string, params any) map[string]any {
 	return resp
 }
 
-// call invokes a tool; returns its text and isError.
+// call invokes a tool; returns its text and isError. A sign-off, an approval
+// or a completion that names no base is sent with the finding's hash, as an
+// agent that has just read the finding sends it (signed); bare sends the
+// arguments as they are.
 func (f *fx) call(u config.User, tool string, args map[string]any) (string, bool) {
+	f.t.Helper()
+	return f.bare(u, tool, f.signed(tool, args))
+}
+
+// signed is a with base set to the finding's hash as it is now, for a
+// transition that needs one (store.SignsOff) and has no base key; any other
+// call is returned as it is.
+func (f *fx) signed(tool string, a map[string]any) map[string]any {
+	if _, has := a["base"]; has || tool != "transition" {
+		return a
+	}
+	name, _ := a["action"].(string)
+	act, ok := workflow.ParseAction(name)
+	if !ok || !store.SignsOff(act) {
+		return a
+	}
+	eng, _ := a["engagement"].(string)
+	fid, _ := a["finding"].(string)
+	ref, err := f.s.resolve(eng, fid)
+	if err != nil {
+		return a
+	}
+	out := maps.Clone(a)
+	out["base"] = ref.Full
+	return out
+}
+
+// bare invokes a tool with exactly these arguments; returns its text and
+// isError.
+func (f *fx) bare(u config.User, tool string, args map[string]any) (string, bool) {
 	f.t.Helper()
 	resp := f.rpc(u, "tools/call", map[string]any{"name": tool, "arguments": args})
 	res, ok := resp["result"].(map[string]any)
