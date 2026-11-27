@@ -21,6 +21,8 @@ type hookSink struct {
 	codes []int
 	got   []string
 	sigs  []string
+	ts    []int64  // X-YARS-Timestamp
+	evs   []string // X-YARS-Event
 }
 
 func (h *hookSink) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -28,6 +30,9 @@ func (h *hookSink) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.mu.Lock()
 	h.got = append(h.got, string(b))
 	h.sigs = append(h.sigs, r.Header.Get("X-YARS-Signature"))
+	ts, _ := strconv.ParseInt(r.Header.Get("X-YARS-Timestamp"), 10, 64)
+	h.ts = append(h.ts, ts)
+	h.evs = append(h.evs, r.Header.Get("X-YARS-Event"))
 	code := 200
 	if len(h.codes) > 0 {
 		code, h.codes = h.codes[0], h.codes[1:]
@@ -125,7 +130,7 @@ func TestAdminWebhooks(t *testing.T) {
 		t.Fatal(err)
 	}
 	sink.mu.Lock()
-	if len(sink.got) != 1 || !strings.Contains(sink.got[0], `"event":"chat.posted"`) || sink.sigs[0] != webhook.Sign(sec, []byte(sink.got[0])) {
+	if len(sink.got) != 1 || !strings.Contains(sink.got[0], `"event":"chat.posted"`) || sink.ts[0] == 0 || sink.sigs[0] != webhook.Sign(sec, sink.ts[0], []byte(sink.got[0])) {
 		t.Fatalf("delivery %v %v", sink.got, sink.sigs)
 	}
 	sink.mu.Unlock()

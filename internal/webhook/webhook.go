@@ -1,8 +1,9 @@
 // Package webhook sends YARS events to outside services: each event a
 // webhook takes is queued in the database (webhook_deliveries) and POSTed
 // as JSON by a background worker, signed with the webhook's secret
-// (X-YARS-Signature: sha256=<HMAC-SHA256 of the body>). A failed try is
-// retried with exponential backoff, at most MaxTries times.
+// (X-YARS-Signature: sha256=<HMAC-SHA256 of "timestamp.body">, the time in
+// X-YARS-Timestamp). A failed try is retried with a growing wait, at most
+// MaxTries times.
 package webhook
 
 import (
@@ -20,6 +21,7 @@ import (
 	"net/url"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -105,11 +107,33 @@ func ValidEvents(ev []string) error {
 	return nil
 }
 
-// Sign is the X-YARS-Signature of body.
-func Sign(secret string, body []byte) string {
+// Sign is the X-YARS-Signature of a body sent at ts (unix seconds, the
+// X-YARS-Timestamp header): the HMAC-SHA256 of "<ts>.<body>". The time is
+// digits only and joined with one dot, so the signed text reads one way.
+func Sign(secret string, ts int64, body []byte) string {
 	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(strconv.FormatInt(ts, 10)))
+	mac.Write([]byte{'.'})
 	mac.Write(body)
 	return "sha256=" + hex.EncodeToString(mac.Sum(nil))
+}
+
+// newEventID is the id of one event's payload: random, so it says nothing of
+// the event, and the same for every webhook, retry and redelivery of it.
+func newEventID() string {
+	b := make([]byte, 16)
+	rand.Read(b)
+	return "evt_" + hex.EncodeToString(b)
+}
+
+// eventID reads the id out of a stored payload ("" for one queued before
+// payloads had one).
+func eventID(payload string) string {
+	var p struct {
+		ID string `json:"id"`
+	}
+	json.Unmarshal([]byte(payload), &p)
+	return p.ID
 }
 
 // Create adds a webhook and returns its id and its secret (shown once).
@@ -153,6 +177,7 @@ type messageJSON struct {
 }
 
 type payload struct {
+	ID         string       `json:"id"`
 	Event      string       `json:"event"`
 	At         string       `json:"at"`
 	Actor      string       `json:"actor"`
@@ -186,7 +211,7 @@ func (s *Service) Payload(e store.Event) []byte {
 	if s.BaseURL != nil {
 		base = s.BaseURL()
 	}
-	p := payload{Event: e.Kind, At: e.At.UTC().Format(time.RFC3339), Actor: e.Actor, Engagement: e.Eng, URL: base + "/e/" + e.Eng}
+	p := payload{ID: newEventID(), Event: e.Kind, At: e.At.UTC().Format(time.RFC3339), Actor: e.Actor, Engagement: e.Eng, URL: base + "/e/" + e.Eng}
 	if e.Fid != "" {
 		p.Finding = &findingJSON{ID: e.Fid, Dir: e.Dir, Title: e.Title, Severity: e.Severity, Author: e.Author}
 		p.URL = base + "/e/" + e.Eng + "/f/" + store.ShortID(e.Dir)
@@ -342,7 +367,13 @@ func (s *Service) send(d db.Delivery) (int, string, string) {
 	req.Header.Set("User-Agent", "YARS-Webhook")
 	req.Header.Set("X-YARS-Event", d.Event)
 	req.Header.Set("X-YARS-Delivery", strconv.FormatInt(d.ID, 10))
-	req.Header.Set("X-YARS-Signature", Sign(sec, body))
+	if id := eventID(d.Payload); id != "" && !strings.ContainsAny(id, "\r\n") {
+		req.Header.Set("X-YARS-Event-ID", id)
+	}
+	// the time of this try, not of the event: a late retry is still fresh
+	ts := s.now().Unix()
+	req.Header.Set("X-YARS-Timestamp", strconv.FormatInt(ts, 10))
+	req.Header.Set("X-YARS-Signature", Sign(sec, ts, body))
 	c := s.Client
 	if c == nil {
 		// the signed payload goes to the webhook's own address only

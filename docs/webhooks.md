@@ -9,22 +9,40 @@ Admins add webhooks at `/admin/webhooks` (the **Webhooks** button on this page):
 | `Content-Type` | `application/json` |
 | `X-YARS-Event` | the event, e.g. `finding.status_changed` |
 | `X-YARS-Delivery` | the delivery number (a redelivery gets a new one) |
-| `X-YARS-Signature` | `sha256=` + hex HMAC-SHA256 of the body with the webhook's secret |
+| `X-YARS-Event-ID` | the event's ID, the payload's `id`: the same on every try, on a redelivery and for every webhook that takes the event |
+| `X-YARS-Timestamp` | when this try was sent, in Unix seconds |
+| `X-YARS-Signature` | `sha256=` + hex HMAC-SHA256 of the timestamp, a dot and the body (`1762351929.{"id":…`) with the webhook's secret |
 
-The secret (`whsec_…`) is shown once, when the webhook is added. Check the signature before trusting a request:
+The secret (`whsec_…`) is shown once, when the webhook is added. Check the signature before trusting a request. Refuse a timestamp older than a few minutes, and remember the event IDs you have handled: a request caught on the way cannot be sent again later, and a retry or a redelivery is not handled twice.
 
 ```python
-import hmac, hashlib
+import hmac, hashlib, time
 
-def valid(secret: str, body: bytes, header: str) -> bool:
-    want = "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
-    return hmac.compare_digest(want, header)
+seen = set()  # event IDs already handled; keep them at least as long as the window
+
+def valid(secret: str, body: bytes, headers) -> bool:
+    ts = headers["X-YARS-Timestamp"]
+    if not ts.isdigit() or abs(time.time() - int(ts)) > 300:
+        return False
+    signed = ts.encode() + b"." + body
+    want = "sha256=" + hmac.new(secret.encode(), signed, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(want, headers["X-YARS-Signature"])
+
+def first_time(headers) -> bool:
+    event_id = headers["X-YARS-Event-ID"]
+    if event_id in seen:
+        return False
+    seen.add(event_id)
+    return True
 ```
+
+A delivery queued by a version without event IDs has no `X-YARS-Event-ID` header and no `id`.
 
 ## Example payload
 
 ```json
 {
+  "id": "evt_3f9c2a1b7d4e5f60718293a4b5c6d7e8",
   "event": "finding.status_changed",
   "at": "2026-11-05T14:12:09Z",
   "actor": "rev1",

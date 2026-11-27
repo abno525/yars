@@ -21,7 +21,7 @@
 {{define "admin_webhooks"}}
 {{with .Secret}}
 <section class="panel once">
-  <div class="panelhead"><h2>Secret</h2><span class="mono">X-YARS-Signature: sha256=…</span></div>
+  <div class="panelhead"><h2>Secret</h2><span class="mono">X-YARS-Signature: sha256=HMAC(timestamp.body)</span></div>
   <div class="copyrow flush"><code id="hook-secret">{{.}}</code><button type="button" class="btn save sm w96" data-copy="hook-secret">Copy</button></div>
 </section>
 {{end}}
