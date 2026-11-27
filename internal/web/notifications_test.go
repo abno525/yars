@@ -220,9 +220,11 @@ func TestNotificationSettingsChannels(t *testing.T) {
 	if got := unread(t, e, "alice"); got != "0" {
 		t.Fatalf("notified against the choice: %s", got)
 	}
-	// with SMTP configured the column is there
+	// with SMTP and base_url configured the column is there (without base_url
+	// no mail is sent: TestNoMailWithoutBaseURL)
 	c := e.srv.conf()
 	c.SMTP = config.SMTPConfig{Host: "mail.example", Port: 25, From: "yars@example.com"}
+	c.BaseURL = "https://yars.example.com"
 	e.srv.setConfig(c)
 	if b := e.do(t, "alice", "GET", "/settings", nil, nil).Body.String(); !strings.Contains(b, `value="returned.email"`) {
 		t.Fatal("email column missing with SMTP")

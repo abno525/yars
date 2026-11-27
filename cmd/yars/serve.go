@@ -197,6 +197,10 @@ func firstRunCode(d *db.DB, cfg config.Config, dir string, lg *slog.Logger) stri
 func warnNoBaseURL(cfg config.Config, lg *slog.Logger) {
 	if cfg.BaseURL == "" {
 		logs.Or(lg).Warn("base_url is not set in .yars/config.yaml: the clone and MCP addresses shown on the pages take their host from each request's Host header; set base_url to the address people open")
+		if cfg.SMTP.Configured() {
+			// a mail's link would be a bare path
+			logs.Or(lg).Warn("smtp is set but base_url is not: no notification email is sent until base_url is set")
+		}
 	}
 }
 
@@ -283,7 +287,7 @@ func logStart(lg *slog.Logger, srv *web.Server, cfg config.Config, dir, addr str
 	ai := srv.Rules != nil && srv.Rules.AIConfigured()
 	pandoc := srv.Export != nil && srv.Export.PandocPath != ""
 	logs.Or(lg).Info("yars serving", "version", buildVersion(), "schema", db.SchemaVersion, "workflow", workflow.FlowOf(cfg).Name(),
-		"addr", addr, "https", secure, "data", dir, "ai", ai, "smtp", cfg.SMTP.Configured(), "pandoc", pandoc)
+		"addr", addr, "https", secure, "data", dir, "ai", ai, "smtp", cfg.MailOn(), "pandoc", pandoc)
 }
 
 // serverParts builds the server on prepared data: the rules, the accounts,

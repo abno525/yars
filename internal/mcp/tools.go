@@ -847,7 +847,7 @@ var coreTools = []tool{
 			_, to := f.Target(act)
 			return okMsg(string(act) + " done; status is now " + to)
 		}},
-	{name: "add_chat_message", action: "comment", serverOnly: true, desc: "Post a message in the finding's chat, optionally about a section or as a reply to a thread. @name mentions notify that person.",
+	{name: "add_chat_message", action: "comment", serverOnly: true, desc: "Post a message in the finding's chat, optionally about a section or as a reply to a thread. @name mentions notify that person; the answer's not_notified lists the names that got no notice (no such account on the team).",
 		required: []param{pEng, pFinding, {"text", "Markdown message"}},
 		optional: []param{{"section", "section the message is about (ignored with reply: the thread carries it)"}, {"reply", "thread ID to reply to"}},
 		run: func(s *Server, ctx context.Context, u config.User, a args) (string, error) {
@@ -859,9 +859,13 @@ var coreTools = []tool{
 			if err != nil {
 				return "", err
 			}
+			// the @names that got no notice (the caller's own words, so outside
+			// untrusted); one answer for an unknown name, a disabled account and
+			// one off the team
 			return ok(struct {
-				ID string `json:"id"`
-			}{m.ID})
+				ID          string   `json:"id"`
+				NotNotified []string `json:"not_notified,omitempty"`
+			}{m.ID, s.Store.Unheard(ref.EngID, m.Text, u)})
 		}},
 	{name: "resolve_thread", action: "comment", serverOnly: true, desc: "Mark a chat thread as resolved.",
 		required: []param{pEng, pFinding, {"thread", "thread ID"}},

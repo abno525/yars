@@ -301,8 +301,9 @@ func TestConnectionsMasked(t *testing.T) {
 
 func TestNotificationPrefs(t *testing.T) {
 	e := setup(t)
-	c := e.srv.conf() // the email column needs mail settings
+	c := e.srv.conf() // the email column needs mail settings and base_url
 	c.SMTP = config.SMTPConfig{Host: "mail.example", Port: 25, From: "yars@example.com"}
+	c.BaseURL = "https://yars.example.com"
 	e.srv.setConfig(c)
 	rec := e.do(t, "alice", "POST", "/settings/notifications", url.Values{"n": {"returned.app", "returned.email", "review.app", "bogus.app", "review.fax"}}, nil)
 	if rec.Code != http.StatusSeeOther {

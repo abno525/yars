@@ -465,7 +465,18 @@ func (s *Server) teamBoardCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.boardChanged(eng)
-	s.boardAfter(w, r, http.StatusOK, eng, n.Num, nil)
+	s.boardAfter(w, r, http.StatusOK, eng, n.Num, s.boardUnheard(eng, f.Text, u))
+}
+
+// boardUnheard is what a lead's panel says after a message whose @names did
+// not all get a notice (nil when they did): the message is posted, the line
+// stands where a refused change is said.
+func (s *Server) boardUnheard(eng, text string, u config.User) func(*leadView) {
+	line := store.UnheardLine(s.Store.Unheard(eng, text, u))
+	if line == "" {
+		return nil
+	}
+	return func(v *leadView) { v.Error = line }
 }
 
 // boardAfter answers a change with the board showing note num; refused,
@@ -528,7 +539,11 @@ func (s *Server) teamBoardAct(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case err == nil:
 		s.boardChanged(eng)
-		s.boardAfter(w, r, http.StatusOK, eng, num, nil)
+		var said func(*leadView)
+		if r.PathValue("act") == "post" {
+			said = s.boardUnheard(eng, r.FormValue("text"), u)
+		}
+		s.boardAfter(w, r, http.StatusOK, eng, num, said)
 	case errors.As(err, &fe):
 		s.boardAfter(w, r, http.StatusBadRequest, eng, num, func(v *leadView) {
 			if fe.Field == "text" {

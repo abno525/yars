@@ -5,6 +5,8 @@ package notify
 
 import (
 	"cmp"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -13,6 +15,7 @@ import (
 	"net/textproto"
 	"net/url"
 	"os"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -513,7 +516,11 @@ func (n *Notifier) mailFor(x db.Notification) (string, string) {
 }
 
 // SMTP sends email through the configured server.
-type SMTP struct{ Cfg config.SMTPConfig }
+type SMTP struct {
+	Cfg config.SMTPConfig
+	// Now is the clock a mail's Date comes from; nil = time.Now.
+	Now func() time.Time
+}
 
 // NewSMTP is the mailer for c, or nil when email isn't configured.
 func NewSMTP(c config.SMTPConfig) Mailer {
@@ -529,7 +536,29 @@ func (m SMTP) Send(to, subject, body string) error {
 	if m.Cfg.Username != "" {
 		a = smtp.PlainAuth("", m.Cfg.Username, os.Getenv(m.Cfg.PasswordEnv), m.Cfg.Host)
 	}
-	return smtp.SendMail(addr, a, m.Cfg.From, []string{to}, message(m.Cfg.From, to, subject, body))
+	now := time.Now
+	if m.Now != nil {
+		now = m.Now
+	}
+	return smtp.SendMail(addr, a, m.Cfg.From, []string{to}, messageAt(m.Cfg.From, to, subject, body, now(), newMessageID(m.Cfg.From)))
+}
+
+// msgIDDomain is a host name as a Message-ID takes it after the @.
+var msgIDDomain = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?$`)
+
+// newMessageID is a mail's Message-ID: random, at the domain of the sender
+// address (smtp.from, a bare address). It names no finding, engagement or
+// account, and nothing of the recipient. A sender without a usable domain
+// gets a reserved one, so the ID is still well formed.
+func newMessageID(from string) string {
+	b := make([]byte, 16)
+	rand.Read(b)
+	domain := "yars.invalid"
+	from = oneLine(from)
+	if i := strings.LastIndexByte(from, '@'); i >= 0 && msgIDDomain.MatchString(from[i+1:]) {
+		domain = from[i+1:]
+	}
+	return "<" + hex.EncodeToString(b) + "@" + domain + ">"
 }
 
 // oneLine keeps a header value on one line.
@@ -540,9 +569,18 @@ func oneLine(s string) string {
 	return s
 }
 
-// message is a plain-text email with CRLF line ends.
+// message is messageAt now, with a new Message-ID.
 func message(from, to, subject, body string) []byte {
+	return messageAt(from, to, subject, body, time.Now(), newMessageID(from))
+}
+
+// messageAt is a plain-text email with CRLF line ends, dated at and known by
+// id (a Message-ID with its angle brackets). Strict servers refuse or mark
+// down a mail without a Date; clients thread and drop doubles by the ID.
+func messageAt(from, to, subject, body string, at time.Time, id string) []byte {
 	var b strings.Builder
+	b.WriteString("Date: " + at.Format(time.RFC1123Z) + "\r\n")
+	b.WriteString("Message-ID: " + oneLine(id) + "\r\n")
 	b.WriteString("From: " + oneLine(from) + "\r\n")
 	b.WriteString("To: " + oneLine(to) + "\r\n")
 	b.WriteString("Subject: " + mime.QEncoding.Encode("utf-8", oneLine(subject)) + "\r\n")

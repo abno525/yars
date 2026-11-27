@@ -53,6 +53,38 @@ func TestMarkNotificationsRead(t *testing.T) {
 	}
 }
 
+// add_chat_message says which @names got no notice: an unknown name, a
+// disabled account and one off the team read the same, as plain names
+// beside the id. When everyone is told the key is left out.
+func TestChatSaysWhoIsNotNotified(t *testing.T) {
+	f := newFx(t)
+	d := f.s.Store.DB()
+	for _, u := range []config.User{alice, bob, {Username: "out", Role: "pentester"}, {Username: "gone", Role: "pentester"}} {
+		if err := d.AddUser(u); err != nil {
+			t.Fatal(err)
+		}
+	}
+	d.SetDisabled("gone", true)
+	d.AddMembers("acme", "gone")
+	text, _ := f.wire(bob, "add_chat_message", map[string]any{"engagement": "acme", "finding": "F-001", "text": "@alice @out @gone @nobody @bob which roles?"})
+	var got struct {
+		OK          bool     `json:"ok"`
+		ID          string   `json:"id"`
+		NotNotified []string `json:"not_notified"`
+		Untrusted   any      `json:"untrusted"`
+	}
+	if err := json.Unmarshal([]byte(text), &got); err != nil {
+		t.Fatal(err)
+	}
+	if !got.OK || got.ID == "" || strings.Join(got.NotNotified, ",") != "out,gone,nobody" || got.Untrusted != nil {
+		t.Fatalf("answer %s", text)
+	}
+	text, _ = f.wire(bob, "add_chat_message", map[string]any{"engagement": "acme", "finding": "F-001", "text": "@alice thanks"})
+	if strings.Contains(text, "not_notified") {
+		t.Fatalf("a key although everyone is told: %s", text)
+	}
+}
+
 // A token limited to some engagements marks only their notifications.
 func TestMarkReadKeepsToTheToken(t *testing.T) {
 	f := newFx(t)

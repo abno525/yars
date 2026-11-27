@@ -299,7 +299,13 @@ func (s *Server) chatPost(w http.ResponseWriter, r *http.Request) {
 	}
 	m := chat.Message{Text: r.FormValue("text"), Section: r.FormValue("section"),
 		Reply: r.FormValue("reply"), Resolves: r.FormValue("resolves"), Reopens: r.FormValue("reopens")}
-	_, err := s.Store.PostChat(ref.EngID, ref.Dir, m, auth.UserFrom(r.Context()))
+	u := auth.UserFrom(r.Context())
+	_, err := s.Store.PostChat(ref.EngID, ref.Dir, m, u)
+	// the message is posted; the writer hears whom its @names did not reach
+	unheard := ""
+	if err == nil && m.Resolves == "" && m.Reopens == "" {
+		unheard = store.UnheardLine(s.Store.Unheard(ref.EngID, m.Text, u))
+	}
 	stamp := s.chatStamp(ref)
 	msgs, lerr := s.loadChat(ref)
 	if lerr != nil {
@@ -317,6 +323,8 @@ func (s *Server) chatPost(w http.ResponseWriter, r *http.Request) {
 		} else if err != nil {
 			s.fail(w, err)
 			return
+		} else {
+			v.ListError = unheard
 		}
 		s.execStatus(w, status, "finding.html", "chat_list", v)
 		return
@@ -330,5 +338,6 @@ func (s *Server) chatPost(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
+	v.Error = unheard
 	s.exec(w, "finding.html", "chat_panel", v)
 }

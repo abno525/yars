@@ -24,8 +24,15 @@ func (s *Server) wireNotifications() {
 	base := func() string { return s.conf().BaseURL }
 	if s.Notifier == nil && s.Auth != nil {
 		s.Notifier = &notify.Notifier{DB: d, Users: s.Auth.Users, CanSee: s.Store.CanSee, BaseURL: base,
-			MailFor: func() notify.Mailer { return notify.NewSMTP(s.conf().SMTP) },
-			Simple:  func() bool { return s.flow().Simple }, Logger: s.Logger}
+			// no mailer without base_url: a mail's link would be a bare path,
+			// whatever a user chose while mail was on
+			MailFor: func() notify.Mailer {
+				if c := s.conf(); c.MailOn() {
+					return notify.NewSMTP(c.SMTP)
+				}
+				return nil
+			},
+			Simple: func() bool { return s.flow().Simple }, Logger: s.Logger}
 	}
 	if s.Webhooks == nil {
 		s.Webhooks = &webhook.Service{DB: d, BaseURL: base, Logger: s.Logger,

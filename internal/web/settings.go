@@ -73,11 +73,12 @@ func (s *Server) tokenActions() []string {
 // Connections: outside services a user can keep a personal key for.
 var connServices = []option{{Value: "confluence", Label: "Confluence"}, {Value: "jira", Label: "Jira"}}
 
-// Notification channels; email only when the server can send mail.
+// Notification channels; email only when the server sends mail (SMTP and
+// base_url are set: config.MailOn, which the mailer asks too).
 var notifyChannels = []option{{Value: "app", Label: "In app"}, {Value: "email", Label: "Email"}}
 
 func (s *Server) channels() []option {
-	if s.conf().SMTP.Configured() {
+	if s.conf().MailOn() {
 		return notifyChannels
 	}
 	return notifyChannels[:1]

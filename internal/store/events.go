@@ -3,7 +3,10 @@ package store
 import (
 	"regexp"
 	"slices"
+	"strconv"
 	"time"
+
+	"github.com/abno525/yars/internal/config"
 )
 
 // Domain events: what happened to a finding, for webhooks and notifications.
@@ -84,6 +87,47 @@ func findingEvent(kind, actor string, ref FindingRef) Event {
 	m := ref.F.Meta
 	return Event{Kind: kind, Actor: actor, Eng: ref.EngID, Dir: ref.Dir, Fid: m.ID, Title: m.Title,
 		Severity: m.Severity, Author: m.Author, Reviewers: slices.Clone(m.Reviewers)}
+}
+
+// Unheard lists the names text mentions (@name, in order) that get no notice
+// of a message in eng: no account of that name, a disabled one, or one that
+// cannot see the engagement: the rule the notifier applies to every notice.
+// The writer is told, with one wording for all three: who has an account is
+// not for every member to learn. The writer's own name is left out (nobody is
+// told of what they did themselves). Without a database nobody is told of
+// anything, and the list is empty.
+func (s *Store) Unheard(eng, text string, by config.User) []string {
+	if s.db == nil {
+		return nil
+	}
+	var out []string
+	for _, name := range Mentions(text) {
+		if name == by.Username {
+			continue
+		}
+		if u, ok, err := s.db.User(name); err != nil || !ok || u.Disabled || !s.CanSee(u, eng) {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+// UnheardLine is the line a page shows the writer for names (Unheard): "Not
+// notified: @out @nobody", five names at most and then the count of the
+// rest; "" for none.
+func UnheardLine(names []string) string {
+	if len(names) == 0 {
+		return ""
+	}
+	const most = 5
+	line := "Not notified:"
+	for _, n := range names[:min(len(names), most)] {
+		line += " @" + n
+	}
+	if len(names) > most {
+		line += " and " + strconv.Itoa(len(names)-most) + " more"
+	}
+	return line
 }
 
 var mentionRe = regexp.MustCompile(`(?:^|[\s(\[{>,;])@([A-Za-z0-9][A-Za-z0-9._-]*)`)
