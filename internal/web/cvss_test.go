@@ -148,6 +148,31 @@ func TestCVSSPaste30IsSaid(t *testing.T) {
 	}
 }
 
+// Save takes the paste field too, without Apply: the panel that answers a
+// saved CVSS:3.0 paste says the vector is stored as 3.1; a 3.1 paste says
+// nothing.
+func TestCVSSPaste30SavedIsSaid(t *testing.T) {
+	e := setup(t)
+	const said = `<p class="error">CVSS:3.0 vector, stored as CVSS:3.1</p>`
+	rec := e.do(t, "alice", "POST", fpath+"/cvss", url.Values{"paste": {"CVSS:3.0/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"}}, nil)
+	b := rec.Body.String()
+	if rec.Code != 200 || !strings.Contains(e.meta(t), "cvss: CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H") {
+		t.Fatalf("the 3.0 vector was not saved: code %d\n%s", rec.Code, e.meta(t))
+	}
+	if !strings.Contains(b, said) {
+		t.Fatalf("the panel does not say the vector is rewritten:\n%s", b)
+	}
+	rec = e.do(t, "alice", "POST", fpath+"/cvss", url.Values{"paste": {"CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:H/A:H"}}, nil)
+	if b = rec.Body.String(); rec.Code != 200 || !strings.Contains(e.meta(t), "/C:L/I:H/A:H") || strings.Contains(b, "stored as") {
+		t.Fatalf("a saved 3.1 paste: code %d\n%s", rec.Code, b)
+	}
+	// a clear writes no vector: nothing is said
+	rec = e.do(t, "alice", "POST", fpath+"/cvss", url.Values{"action": {"clear"}, "paste": {"CVSS:3.0/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"}}, nil)
+	if b = rec.Body.String(); rec.Code != 200 || strings.Contains(e.meta(t), "cvss: CVSS") || strings.Contains(b, "stored as") {
+		t.Fatalf("a clear with a 3.0 paste: code %d\n%s", rec.Code, b)
+	}
+}
+
 func TestFindingForeignCVSS(t *testing.T) {
 	e := setup(t)
 	ref, _ := e.srv.Store.Finding("acme", "F-001-sql-injection")
