@@ -219,7 +219,7 @@ func TestStaticCarriesLicences(t *testing.T) {
 	for path, wants := range map[string][]string{
 		"/static/fonts/OFL-IBM-Plex.txt": {`IBM Corp. with Reserved Font Name "Plex"`, "SIL OPEN FONT LICENSE Version 1.1"},
 		"/static/fonts/OFL-Bungee.txt":   {"The Bungee Project Authors", "SIL OPEN FONT LICENSE Version 1.1"},
-		"/static/htmx.LICENSE.txt":       {"Zero-Clause BSD", "htmx 2.0.4"},
+		"/static/htmx.LICENSE.txt":       {"Zero-Clause BSD", "htmx " + htmxVersion},
 	} {
 		rec := e.do(t, "alice", "GET", path, nil, nil)
 		if rec.Code != http.StatusOK {
