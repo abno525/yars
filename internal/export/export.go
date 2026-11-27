@@ -314,8 +314,8 @@ type ReportText struct {
 // Creds is a login for an outside service.
 type Creds struct{ User, Token string }
 
-// ordered returns findings by severity (config order), then ID.
-// Ordered is the findings in report order (the preview's contents).
+// Ordered is the findings in report order (the preview's contents): by
+// severity (config order), then by the ID's number (store.CompareIDs).
 func (in Input) Ordered() []*finding.Finding { return in.ordered() }
 
 func (in Input) ordered() []*finding.Finding {
@@ -331,7 +331,7 @@ func (in Input) ordered() []*finding.Finding {
 		if ri, rj := rank(fs[i]), rank(fs[j]); ri != rj {
 			return ri < rj
 		}
-		return fs[i].Meta.ID < fs[j].Meta.ID
+		return store.CompareIDs(fs[i].Meta.ID, fs[j].Meta.ID) < 0
 	})
 	return fs
 }

@@ -6,6 +6,7 @@ import (
 	"unicode"
 
 	"github.com/abno525/yars/internal/finding"
+	"github.com/abno525/yars/internal/store"
 	"github.com/abno525/yars/internal/workflow"
 )
 
@@ -111,7 +112,7 @@ func (ix *Index) Similar(eng, title string, assets []finding.Asset, exclude stri
 		if out[i].Score != out[j].Score {
 			return out[i].Score > out[j].Score
 		}
-		return out[i].Dir < out[j].Dir
+		return store.CompareIDs(out[i].Dir, out[j].Dir) < 0
 	})
 	if len(out) > DupMax {
 		out = out[:DupMax]

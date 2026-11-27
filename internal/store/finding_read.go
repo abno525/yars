@@ -1,13 +1,14 @@
 package store
 
 import (
+	"cmp"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"io/fs"
 	"path"
 	"regexp"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -94,7 +95,8 @@ func Approved(st db.State, hash string) bool {
 }
 
 // FindingDirs lists the engagement's finding folders (those holding a
-// finding.md, readable or not), sorted, without reading them.
+// finding.md, readable or not), in the order of CompareIDs, without reading
+// them.
 func (s *Store) FindingDirs(engID string) ([]string, error) {
 	if _, err := s.Engagement(engID); err != nil {
 		return nil, err
@@ -115,11 +117,12 @@ func (s *Store) FindingDirs(engID string) ([]string, error) {
 			out = append(out, e.Name())
 		}
 	}
-	sort.Strings(out)
+	slices.SortFunc(out, CompareIDs)
 	return out, nil
 }
 
-// ListFindings returns parseable findings of an engagement, sorted by dir.
+// ListFindings returns parseable findings of an engagement, sorted by dir
+// (CompareIDs: by number).
 // Unparseable finding files are logged and skipped so one bad local edit
 // cannot hide the whole table.
 func (s *Store) ListFindings(engID string) ([]FindingRef, error) {
@@ -154,7 +157,7 @@ func (s *Store) ListFindings(engID string) ([]FindingRef, error) {
 		}
 		out = append(out, ref)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Dir < out[j].Dir })
+	slices.SortFunc(out, func(a, b FindingRef) int { return CompareIDs(a.Dir, b.Dir) })
 	return out, nil
 }
 
@@ -162,6 +165,47 @@ var (
 	shortRe  = regexp.MustCompile(`^F-(\d+)(?:-|$)`)
 	idOnlyRe = regexp.MustCompile(`^F-(\d+)$`)
 )
+
+// CompareIDs orders finding IDs and folder names (F-7, F-012-xss) by their
+// number, then by the whole name: F-999 is before F-1000. Names outside the
+// F-<n> scheme come after those, by name. The number is compared as digits,
+// so no length of it overflows.
+func CompareIDs(a, b string) int {
+	na, oka := idDigits(a)
+	nb, okb := idDigits(b)
+	switch {
+	case !oka && !okb:
+		return strings.Compare(a, b)
+	case !oka:
+		return 1
+	case !okb:
+		return -1
+	}
+	if c := cmp.Compare(len(na), len(nb)); c != 0 {
+		return c
+	}
+	if c := strings.Compare(na, nb); c != 0 {
+		return c
+	}
+	return strings.Compare(a, b)
+}
+
+// idDigits is the number of a name in the F-<n> scheme (as shortRe reads
+// it), without its leading zeros.
+func idDigits(s string) (string, bool) {
+	rest, ok := strings.CutPrefix(s, "F-")
+	if !ok {
+		return "", false
+	}
+	i := 0
+	for i < len(rest) && rest[i] >= '0' && rest[i] <= '9' {
+		i++
+	}
+	if i == 0 || (i < len(rest) && rest[i] != '-') {
+		return "", false
+	}
+	return strings.TrimLeft(rest[:i], "0"), true
+}
 
 // ShortID is how a finding appears in URLs: just its number ("001" for
 // F-001-sqli). Directories that don't follow the F-<n> scheme keep their name.

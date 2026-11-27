@@ -80,3 +80,4 @@ What changed for people who run or use YARS. Newest first.
 - A finding file is written with CRLF line endings only when its front matter uses them on every line (before: one CRLF line anywhere, a pasted HTTP response say, turned every line of the file to CRLF at the next edit). A CRLF line in an LF file is written back with LF.
 - History lists every commit as it is: a pushed commit whose author name or subject holds a control character is no longer left out or shown as two entries, and a file name with a quote or a space at its end is read as it is.
 - The board's and the Report tab's severity counts follow a change of the severities at once (before: the old names and order stayed until a finding of the engagement changed).
+- Findings are ordered by their number in every list and in exports: F-999 comes before F-1000, and a pushed F-7 before F-012 (before: as text). A folder outside the F-number scheme comes last.

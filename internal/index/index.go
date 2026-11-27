@@ -256,7 +256,7 @@ type engRows struct {
 	eng  store.Engagement
 	head string // engagement repo HEAD the rows were read at
 	seq  int64  // engagement change counter the rows reflect
-	rows []Row  // sorted by Dir
+	rows []Row  // sorted by Dir (store.CompareIDs: by number)
 }
 
 type Index struct {
@@ -694,12 +694,12 @@ func (ix *Index) Rows(q Query) ([]Row, error) {
 		case "result":
 			return rank(resultOrder, a.RetestResult) - rank(resultOrder, b.RetestResult)
 		}
-		return strings.Compare(a.Dir, b.Dir)
+		return store.CompareIDs(a.Dir, b.Dir)
 	}
 	sort.SliceStable(out, func(i, j int) bool {
 		c := less(out[i], out[j])
 		if c == 0 {
-			c = strings.Compare(out[i].Dir, out[j].Dir)
+			c = store.CompareIDs(out[i].Dir, out[j].Dir)
 			return c < 0
 		}
 		if q.Desc {
