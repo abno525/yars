@@ -31,6 +31,8 @@
   <form class="panel compact destform" method="post" action="/e/{{$.Eng.ID}}/export/setup">
     <div class="panelhead"><h2>{{if .New}}New destination{{else}}Edit destination{{end}}</h2><span class="mono fname" title="{{.ID}}.yaml">{{if .ID}}{{.ID}}.yaml{{end}}</span></div>
     {{if .New}}<input type="hidden" name="new" value="1">{{end}}
+    {{/* the kind the Marks reported box is shown for; app.js keeps both in step with the type and the address */}}
+    <input type="hidden" name="mark_for" value="{{.MarksFor}}">
     <div class="rfields">
       <div class="rgrid">
         <label class="rf">ID<input class="monoin" name="id" value="{{.ID}}" required{{if not .New}} readonly{{end}}></label>
