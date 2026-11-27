@@ -29,11 +29,12 @@ func TestAdminUsersDeletedNameRefused(t *testing.T) {
 }
 
 // The first account cannot take a deleted account's name either: /setup
-// shows the form again with the reason.
+// shows the form again with the reason. (The deleted account is no admin:
+// the last admin is not deleted.)
 func TestSetupDeletedNameRefused(t *testing.T) {
 	e := fresh(t)
 	d := e.srv.Store.DB()
-	if err := d.AddUser(config.User{Username: "dir1", Role: "director", IsAdmin: true}); err != nil {
+	if err := d.AddUser(config.User{Username: "dir1", Role: "director"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := d.DeleteUser("dir1"); err != nil {

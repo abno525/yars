@@ -75,6 +75,10 @@ func TestAdminCommand(t *testing.T) {
 	if u, _, _ := d.User("ann"); !u.IsAdmin || u.Role != "pentester" {
 		t.Fatalf("ann %+v", u)
 	}
+	// a second admin: the last one keeps the flag (TestCLILastAdminStays)
+	if err := cmdUseradd([]string{"--data", dir, "--role", "director", "--admin", "bea"}, strings.NewReader("password-1\n"), &out); err != nil {
+		t.Fatal(err)
+	}
 	if err := cmdAdmin([]string{"--data", dir, "ann", "off"}, &out); err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +89,7 @@ func TestAdminCommand(t *testing.T) {
 		t.Fatal("bad value accepted")
 	}
 	l, _ := d.AuditLog(10)
-	if len(l) != 2 || l[0].Action != "user.admin" || l[1].Action != "user.add" || l[1].Detail != "role pentester, admin" {
+	if len(l) != 3 || l[0].Action != "user.admin" || l[1].Action != "user.add" || l[2].Action != "user.add" || l[2].Detail != "role pentester, admin" {
 		t.Fatalf("audit %+v", l)
 	}
 }

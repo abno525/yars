@@ -9,6 +9,8 @@
 //	  (useradd, passwd: the password is asked twice on a terminal, unseen; a
 //	  piped one must be changed at the next login)
 //	yars admin --data <dir> <username> on|off
+//	yars users --data <dir>; yars disable|enable --data <dir> <username>
+//	  (admin off, disable and userdel leave the last admin who can sign in as it is)
 //	yars serve --data <dir> [--addr :8080] [--tls-cert <file> --tls-key <file>] [--https]
 //	yars status --data <dir>   (what the running server does now, read over a socket in the data folder)
 //	yars migrate --data <dir>   (move state and chat from files into the database)
@@ -972,12 +974,16 @@ const usageText = `usage (flags first; --data defaults to $YARS_DATA, then yars 
   yars use [<dir>]   (set the default data folder, or show it)
   yars serve --data <dir> [--addr :8080] [--tls-cert <file> --tls-key <file>] [--https] [--log-level debug|info|warn|error]
   yars status --data <dir>   (what the running server does now; run it as the server's account)
+  yars users --data <dir>   (the accounts: name, role, admin, disabled, created)
   yars useradd --data <dir> --role pentester|reviewer|director [--email e] [--admin] <user>   (no --role in the simple workflow)
   yars admin --data <dir> <user> on|off
+  yars disable --data <dir> <user>   (no login, sessions end, tokens refused; the name and the work stay)
+  yars enable --data <dir> <user>
+      (admin off, disable, userdel: refused for the last admin who can sign in)
   yars passwd --data <dir> <user>
       (useradd, passwd: the password is asked twice on a terminal; a piped one must be changed at the next login)
   yars role --data <dir> <user> pentester|reviewer|director   (not in the simple workflow)
-  yars userdel --data <dir> <user>
+  yars userdel --data <dir> <user>   (the name stays taken for good; yars disable keeps the account)
   yars unlock --data <dir> <user>   (end a login lockout)
   yars token add --data <dir> [--kind mcp|git] [--scopes all|read|a,b] [--engagements e1,e2] [--days N | --expires YYYY-MM-DD|never] [--name n] <user>   (90 days without either; --days 0 = never)
   yars token list --data <dir>
@@ -1009,7 +1015,7 @@ func serverSide(args []string) bool {
 	case "hook":
 		return len(args) > 1 && args[1] == "pre-receive"
 	case "init", "serve", "useradd", "passwd", "role", "userdel", "admin", "unlock", "token",
-		"migrate", "backup", "restore", "seed", "export":
+		"users", "disable", "enable", "migrate", "backup", "restore", "seed", "export":
 		return true
 	}
 	return false
@@ -1058,6 +1064,12 @@ func run(args []string, in io.Reader, out, errOut io.Writer) int {
 		err = cmdAdmin(rest, errOut)
 	case "unlock":
 		err = cmdUnlock(rest, out)
+	case "users":
+		err = cmdUsers(rest, out)
+	case "disable":
+		err = cmdDisabled(true, rest, out)
+	case "enable":
+		err = cmdDisabled(false, rest, out)
 	case "use":
 		err = cmdUse(rest, out)
 	case "migrate":
@@ -1426,7 +1438,7 @@ func cmdAdmin(args []string, out io.Writer) error {
 		return fmt.Errorf("usage: yars admin --data <dir> <user> on|off")
 	}
 	if err := d.SetAdmin(fs.Arg(0), on); err != nil {
-		return err
+		return lastAdmin(err, fs.Arg(0), "the admin flag stays")
 	}
 	d.Audit("cli", "user.admin", fs.Arg(0), fs.Arg(1))
 	fmt.Fprintln(out, fs.Arg(0), "admin", fs.Arg(1))
@@ -1489,7 +1501,7 @@ func cmdUserdel(args []string, out io.Writer) error {
 	}
 	defer d.Close()
 	if err := d.DeleteUser(fs.Arg(0)); err != nil {
-		return err
+		return lastAdmin(err, fs.Arg(0), "the account stays")
 	}
 	d.Audit("cli", "user.delete", fs.Arg(0), "")
 	fmt.Fprintln(out, "deleted", fs.Arg(0), "(their sessions and API tokens too)")

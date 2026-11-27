@@ -47,6 +47,20 @@ The umask is that of everything these commands start: rule scripts, script desti
 
 An account with the admin flag can add a rule or exporter script, and scripts run on the server as the service account, with its `HOME`. So an admin can run commands on the server. Give the flag only to people who may.
 
+The accounts from the shell. These commands work while the server runs:
+
+```sh
+sudo -u yars yars users --data /srv/yars            # name, role, admin, disabled, created
+sudo -u yars yars disable --data /srv/yars bob
+sudo -u yars yars enable --data /srv/yars bob
+sudo -u yars yars admin --data /srv/yars bob on     # or off
+sudo -u yars yars userdel --data /srv/yars bob
+```
+
+`yars disable` is the usual way to take access away. The account cannot log in, its sessions end at once and its tokens are refused. Its name and its work stay, and `yars enable` brings it back. `yars userdel` deletes the account for good: its name stays taken and no new account gets it.
+
+One admin who can sign in always remains. `yars admin <user> off`, `yars disable` and `yars userdel` refuse the last one: `bob is the last admin: the admin flag stays`. Give another account the flag first. Admin › Users follows the same rule.
+
 For a solo reporter or a team of two, `sudo -u yars yars init --simple /srv/yars` sets up the simple workflow instead: draft → complete → reported, with no roles, reviewers or sign-off; `useradd` then takes no `--role` (`yars useradd --data /srv/yars --admin alice`), and `yars role` is refused. The workflow is fixed at init: it is written to `.yars/config.yaml` and the database, `yars serve` does not start when the two disagree, and a push cannot change it. In the simple workflow every account has a director's rights, so the Team panel does not limit who sees an engagement: every account sees them all.
 
 A new data folder has no check rules. Add the ones you want in Admin › Rules, or in a clone pushed by a director with the admin flag ([rules.md](rules.md)); a file put straight into the server's `.yars/rules/` is not in git.

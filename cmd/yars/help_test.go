@@ -13,13 +13,33 @@ import (
 
 // commandNames are the commands of the dispatch (run). The usage text names
 // each, and none of them is answered as unknown.
-var commandNames = []string{"version", "help", "init", "use", "serve", "status", "useradd", "admin", "passwd", "role",
+var commandNames = []string{"version", "help", "init", "use", "serve", "status", "users", "useradd", "admin", "disable", "enable", "passwd", "role",
 	"userdel", "unlock", "token", "migrate", "backup", "restore", "lint", "hook", "export", "mcp", "seed"}
+
+// keepUmask gives the process its umask back when the test ends: run sets
+// the private one for a server-side command and, as main, never undoes it.
+func keepUmask(t *testing.T) {
+	t.Helper()
+	restore := privateUmask()
+	restore()
+	t.Cleanup(restore)
+}
+
+// yars runs a command line as main does and returns the exit code and the
+// two streams.
+func yars(t *testing.T, in string, args ...string) (code int, out, errOut string) {
+	t.Helper()
+	keepUmask(t)
+	var o, e bytes.Buffer
+	code = run(args, strings.NewReader(in), &o, &e)
+	return code, o.String(), e.String()
+}
 
 // nowhere runs a test in an empty folder with no data folder set, and
 // returns a check that nothing was written there.
 func nowhere(t *testing.T) (unchanged func()) {
 	t.Helper()
+	keepUmask(t)
 	dir := t.TempDir()
 	t.Chdir(dir)
 	t.Setenv("YARS_DATA", "")

@@ -41,10 +41,11 @@ func TestDeletedUsernameStaysTaken(t *testing.T) {
 }
 
 // The first account is made the same way: after every account was deleted,
-// an old name is refused and a new one is taken.
+// an old name is refused and a new one is taken. (The deleted account is no
+// admin: the last admin is not deleted.)
 func TestFirstUserNotADeletedName(t *testing.T) {
 	d, _ := open(t)
-	if err := d.AddFirstUser(config.User{Username: "dora", Role: "director", IsAdmin: true}); err != nil {
+	if err := d.AddFirstUser(config.User{Username: "dora", Role: "director"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := d.DeleteUser("dora"); err != nil {

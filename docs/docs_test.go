@@ -392,6 +392,31 @@ func TestDeployGuideHealthProbe(t *testing.T) {
 	}
 }
 
+// The deploy guide lists the account commands of the shell, says that
+// disable is the usual way and that a deleted name stays taken, and names
+// the last-admin rule with the words the command prints.
+func TestDeployGuideAccountCommands(t *testing.T) {
+	b, err := os.ReadFile("deploy.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := string(b)
+	for _, want := range []string{
+		"sudo -u yars yars users --data /srv/yars", "sudo -u yars yars disable --data /srv/yars bob\n", "sudo -u yars yars enable --data /srv/yars bob\n",
+		"sudo -u yars yars userdel --data /srv/yars bob\n", "These commands work while the server runs",
+		"`yars disable` is the usual way to take access away", "its name stays taken",
+		"One admin who can sign in always remains", "`bob is the last admin: the admin flag stays`",
+		"`yars help` lists every command", "`yars --version` prints the same",
+	} {
+		if !strings.Contains(g, want) {
+			t.Errorf("the deploy guide lacks %q", want)
+		}
+	}
+	if r, err := os.ReadFile("../README.md"); err != nil || !strings.Contains(string(r), "| `yars help` |") || !strings.Contains(string(r), "| `yars users` |") {
+		t.Error("the README's commands lack yars help or yars users")
+	}
+}
+
 // ciJob returns one job of the CI workflow: from its name to the next job's.
 func ciJob(t *testing.T, name string) string {
 	t.Helper()

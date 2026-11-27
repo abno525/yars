@@ -122,7 +122,7 @@ func TestServerCommandsPrivateUmask(t *testing.T) {
 	// a clone's own commands keep the user's umask
 	for cmd, want := range map[string]bool{
 		"serve": true, "init": true, "useradd": true, "passwd": true, "role": true, "admin": true, "userdel": true,
-		"unlock": true, "token": true, "migrate": true, "backup": true, "restore": true, "seed": true, "export": true,
+		"unlock": true, "token": true, "users": true, "disable": true, "enable": true, "migrate": true, "backup": true, "restore": true, "seed": true, "export": true,
 		"hook pre-receive": true, "hook install": false, "mcp": false, "lint": false, "use": false, "version": false,
 	} {
 		if got := serverSide(strings.Fields(cmd)); got != want {

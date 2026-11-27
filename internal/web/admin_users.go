@@ -2,12 +2,14 @@ package web
 
 import (
 	"crypto/rand"
+	"errors"
 	"net/http"
 	"net/url"
 	"strings"
 
 	"github.com/abno525/yars/internal/auth"
 	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/db"
 	"github.com/abno525/yars/internal/store"
 )
 
@@ -231,6 +233,16 @@ func (s *Server) userFlag(flag string) http.HandlerFunc {
 			if on {
 				action = "user.disable"
 			}
+		}
+		if errors.Is(err, db.ErrLastAdmin) {
+			// the other admin lost the flag, or was disabled, in the same moment
+			// (a second admin, or the command line): an enabled admin remains
+			text := u.Username + " is the last admin: the admin flag stays"
+			if flag == "disabled" {
+				text = u.Username + " is the last admin: the account stays enabled"
+			}
+			s.usersPage(w, r, http.StatusBadRequest, usersAdmin{Error: text})
+			return
 		}
 		if err != nil {
 			s.fail(w, err)

@@ -46,6 +46,7 @@ Draft → complete → reported. Admin or not. That's all.
 | `yars use data` | Makes `data` the default, so `--data` can go. |
 | `yars hook install` | In a clone: the server checks each commit. |
 | `yars unlock alice` | Ends a lockout after 5 wrong passwords. |
+| `yars users` | Lists the accounts. `yars disable alice` locks one out. |
 | `yars backup --out yars.zip` | Backs up everything. Safe while it runs. |
 | `yars seed --data demo` | Fills a demo folder (`--simple` too). |
 
