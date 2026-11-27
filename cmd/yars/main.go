@@ -1529,10 +1529,23 @@ func cmdUserdel(args []string, out io.Writer) error {
 		return err
 	}
 	defer d.Close()
-	if err := d.DeleteUser(fs.Arg(0)); err != nil {
+	gone, err := d.DeleteUserReport(fs.Arg(0))
+	if err != nil {
 		return lastAdmin(err, fs.Arg(0), "the account stays")
 	}
-	d.Audit("cli", "user.delete", fs.Arg(0), "")
+	// the reviews the account was still to do went with it (db.Deleted)
+	detail := ""
+	if gone.Assignments > 0 {
+		detail = fmt.Sprintf("review assignments removed: %d", gone.Assignments)
+	}
+	d.Audit("cli", "user.delete", fs.Arg(0), detail)
 	fmt.Fprintln(out, "deleted", fs.Arg(0), "(their sessions and API tokens too)")
+	if detail != "" {
+		fmt.Fprintln(out, detail)
+	}
+	if len(gone.Unreviewed) > 0 {
+		// IDs only; each needs a reviewer before it can be approved
+		fmt.Fprintln(out, "in verification without a reviewer:", strings.Join(gone.Unreviewed, ", "))
+	}
 	return nil
 }

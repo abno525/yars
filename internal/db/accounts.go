@@ -273,12 +273,40 @@ func (d *DB) update(name, q string, args ...any) error {
 	})
 }
 
-// DeleteUser removes an account with its sessions, tokens, keys,
+// Deleted is what DeleteUserReport took off the findings with an account.
+type Deleted struct {
+	// Assignments counts the reviewer rows removed: those without a sign-off
+	// on drafts and on findings in verification.
+	Assignments int
+	// Unreviewed names, as <engagement>/<finding ID>, the findings in
+	// verification that are left with no reviewer at all.
+	Unreviewed []string
+}
+
+// DeleteUser is DeleteUserReport without the report.
+func (d *DB) DeleteUser(name string) error {
+	_, err := d.DeleteUserReport(name)
+	return err
+}
+
+// DeleteUserReport removes an account with its sessions, tokens, keys,
 // notification choices, team places and board read state. Its name is
 // remembered and never given out again (AddUser, AddFirstUser). The last
 // enabled admin is not deleted (ErrLastAdmin).
-func (d *DB) DeleteUser(name string) error {
-	return d.Tx(func(tx *Tx) error {
+//
+// What the account was still to do goes with it: its reviewer rows without
+// a sign-off on drafts and on findings in verification (it can no longer
+// review them), and the threads it hid. What it did stays under its name,
+// which no account gets again: its sign-offs, its place on the reviewer
+// list of a complete, reported or withdrawn finding, chat, dismissals,
+// board messages, check runs and the audit log. Every engagement that lost
+// a row is marked changed. A finding in verification left with no reviewer
+// is not moved: it is named in the report, and its author or a director
+// assigns another.
+func (d *DB) DeleteUserReport(name string) (Deleted, error) {
+	var out Deleted
+	err := d.Tx(func(tx *Tx) error {
+		out = Deleted{}
 		if err := keepAnAdmin(tx, name); err != nil {
 			return err
 		}
@@ -311,11 +339,58 @@ func (d *DB) DeleteUser(name string) error {
 			engs = append(engs, e)
 		}
 		rows.Close()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		// a view setting of the account alone: no counter moves for it
+		if _, err := tx.Exec("DELETE FROM chat_hidden WHERE username = ?", name); err != nil {
+			return err
+		}
+		// the reviews it was still to do. A finding without a state row is a
+		// draft (stateOf).
+		rows, err = tx.Query(`DELETE FROM reviewers WHERE username = ? AND COALESCE(cleared_hash, '') = ''
+			AND COALESCE((SELECT s.status FROM finding_state s WHERE s.eng = reviewers.eng AND s.fid = reviewers.fid), 'draft') IN ('draft', 'verification')
+			RETURNING eng, fid`, name)
+		if err != nil {
+			return err
+		}
+		var taken [][2]string
+		for rows.Next() {
+			var e, f string
+			if err := rows.Scan(&e, &f); err != nil {
+				rows.Close()
+				return err
+			}
+			taken = append(taken, [2]string{e, f})
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		out.Assignments = len(taken)
+		for _, t := range taken {
+			engs = append(engs, t[0])
+			var status string
+			var left int
+			err := tx.QueryRow(`SELECT s.status, (SELECT count(*) FROM reviewers r WHERE r.eng = s.eng AND r.fid = s.fid)
+				FROM finding_state s WHERE s.eng = ? AND s.fid = ?`, t[0], t[1]).Scan(&status, &left)
+			if err != nil && !errors.Is(err, sql.ErrNoRows) {
+				return err
+			}
+			if status == "verification" && left == 0 {
+				out.Unreviewed = append(out.Unreviewed, t[0]+"/"+t[1])
+			}
+		}
+		slices.Sort(out.Unreviewed)
 		for _, e := range engs {
 			tx.touch(e)
 		}
-		return rows.Err()
+		return nil
 	})
+	if err != nil {
+		return Deleted{}, err
+	}
+	return out, nil
 }
 
 // SetPassword changes the password and ends every session of the account
