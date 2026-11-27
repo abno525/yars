@@ -181,7 +181,7 @@ A target that is well formed but names a section or details row the config lacks
 
 ## AI rules
 
-A rule with `ai:` asks the AI provider (**Admin › AI**, or `ai.*` in `config.yaml`) whether a text follows the instruction. Each part the target covers (the title, each section, each details row) is one question; an AI rule skips a part with no text. The model answers with the violations it finds: a quote from the text and a message.
+A rule with `ai:` asks the AI provider (**Admin › AI**, or `ai.*` in `config.yaml`) whether a text follows the instruction. Each part the target covers (the title, each section, each details row) is one question; an AI rule skips a part with no text. The model answers with the violations it finds: a quote from the text and a message. A violation whose quote is not in the text is dropped; a quote that differs only in its spaces and line breaks is taken as the text has it. A reply without the list of violations is a failed check.
 
 ```yaml
 - id: expand-acronyms

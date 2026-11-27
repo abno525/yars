@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/abno525/yars/internal/config"
 )
@@ -238,6 +239,63 @@ func (res aiResult) shown() aiResult {
 	return res
 }
 
+// anchor finds a model's quote q in text, the part that was checked, and
+// returns it as the text has it: q itself; else the text's own span when
+// only the white space differs (a model joins lines); else the same with a
+// delimiter the model was shown escaped (neutral) written back. ok is false
+// when the words are not in the text. An empty quote stays one: the
+// violation is about the whole part.
+func anchor(text, q string) (span string, ok bool) {
+	q = strings.TrimSpace(q)
+	if q == "" || strings.Contains(text, q) {
+		return q, true
+	}
+	tries := []string{q}
+	if neutral(text) != text {
+		tries = append(tries, neutralised.ReplaceAllString(q, "<$1"))
+	}
+	for _, q := range tries {
+		if strings.Contains(text, q) {
+			return q, true
+		}
+		words := strings.Fields(q)
+		for i, w := range words {
+			words[i] = regexp.QuoteMeta(w)
+		}
+		// the words are quoted, so this compiles; a quote too long for a
+		// pattern is not found
+		if re, err := regexp.Compile(strings.Join(words, `\s+`)); err == nil {
+			if m := re.FindString(text); m != "" {
+				return m, true
+			}
+		}
+	}
+	return "", false
+}
+
+// anchored keeps the violations of res whose quote is in text, each quote as
+// the text has it (anchor), and counts the ones it drops: a quote that is
+// not the text's is no row, no dismissal key and no place for a fix. With
+// kept, res was cut by shown before: a quote cut at maxQuote counts by the
+// part that is left and stays as it is.
+func (res aiResult) anchored(text string, kept bool) (aiResult, int) {
+	out := res
+	out.Violations = nil
+	for _, x := range res.Violations {
+		span, ok := anchor(text, x.Quote)
+		if cut, was := strings.CutSuffix(x.Quote, "…"); !ok && kept && was && utf8.RuneCountInString(cut) == maxQuote {
+			_, ok = anchor(text, cut)
+			span = x.Quote
+		}
+		if !ok {
+			continue
+		}
+		x.Quote = span
+		out.Violations = append(out.Violations, x)
+	}
+	return out, len(res.Violations) - len(out.Violations)
+}
+
 // AI asks the configured model whether text (from target) follows the rule.
 // A text checked before against the same rule, prompt, provider and model
 // is not sent again (Q1): the result is in memory or in rn.Results.
@@ -270,10 +328,19 @@ func (rn *Runner) AI(ctx context.Context, r Rule, target, text string) []Violati
 		if err != nil {
 			return aiWarning(r, "AI check failed: "+quote(err.Error()))
 		}
+		// before the cut, so that the row that counts the rest counts what
+		// is kept
+		var dropped int
+		if res, dropped = res.anchored(text, false); dropped > 0 {
+			rn.log().Warn("ai: violations whose words are not in the text are dropped", "rule", r.ID, "provider", c.Provider, "model", c.Model, "dropped", dropped)
+		}
 		res = res.shown()
 		rn.aiCache().Add(ck, res)
 		rn.keep(ck, "ai", res)
 	}
+	// a reply kept before quotes were checked is checked here: the text is
+	// at hand and nothing is sent
+	res, _ = res.anchored(text, true)
 	var vs []Violation
 	for _, x := range res.Violations {
 		msg := x.Message

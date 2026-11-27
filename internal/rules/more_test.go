@@ -139,6 +139,11 @@ func TestAIRuleCountsTheRest(t *testing.T) {
 		Quote   string `json:"quote"`
 		Message string `json:"message"`
 	}
+	// the quotes are words of both parts: one that is not is dropped
+	var words strings.Builder
+	for i := range 25 {
+		fmt.Fprint(&words, " q", i)
+	}
 	f := &fakeAI{body: func(map[string]any) string {
 		var hits []hit
 		for i := range 25 {
@@ -151,7 +156,7 @@ func TestAIRuleCountsTheRest(t *testing.T) {
 	srv := f.server(t)
 	store := newMemResults()
 	d := doc()
-	d.Sections = []Section{{"Description", "one"}, {"Impact", "two"}}
+	d.Sections = []Section{{"Description", "one" + words.String()}, {"Impact", "two" + words.String()}}
 	s := &Set{Rules: []Rule{{ID: "acr", Level: "warning", AI: "x", Target: "sections"}}}
 	for i := range 2 {
 		r := aiRunner(t, "openai", srv.URL)
