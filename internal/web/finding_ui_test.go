@@ -70,7 +70,7 @@ func TestFindingPageLayout(t *testing.T) {
 		t.Errorf("a vector:\n%s", meta)
 	}
 	b := e.do(t, "alice", "GET", fpath, nil, nil).Body.String()
-	toggle := `<button type="button" class="btn secondary w136" data-chat-toggle aria-controls="side" aria-expanded="true" aria-keyshortcuts="Control+H"><span class="ct-hide">Hide chat</span><span class="ct-show">Show chat</span></button>`
+	toggle := `<button type="button" class="btn secondary w136" data-chat-toggle aria-controls="side" aria-expanded="true" aria-keyshortcuts="Shift+L"><span class="ct-hide">Hide chat</span><span class="ct-show">Show chat</span></button>`
 	if i, h := strings.Index(b, toggle), strings.Index(b, `/history" aria-keyshortcuts="Shift+H">History`); i < 0 || h < i {
 		t.Errorf("no chat toggle before History:\n%s", b)
 	}
@@ -154,7 +154,8 @@ func TestD22TwoRowBar(t *testing.T) {
 func TestWorkflowSlotsFixed(t *testing.T) {
 	e := setup(t)
 	e.toVerification(t)
-	for u, want := range map[string]int{"alice": 1, "bob": 2, "carol": 0, "dora": 4} {
+	// the author: Take back and Withdraw; a director: all five
+	for u, want := range map[string]int{"alice": 2, "bob": 2, "carol": 0, "dora": 5} {
 		a := actionsOf(t, e.do(t, u, "GET", fpath, nil, nil).Body.String())
 		if n := strings.Count(a, "data-slot="); n != want {
 			t.Fatalf("%s: %d slots in verification, want %d:\n%s", u, n, want, a)
@@ -262,9 +263,9 @@ func TestWithdrawRightMost(t *testing.T) {
 	check("draft", "alice", []string{"submit", "withdraw"})
 	check("draft", "bob", nil)
 	e.toVerification(t)
-	check("verification", "dora", []string{"return", "clear", "approve", "withdraw"})
+	check("verification", "dora", []string{"return", "clear", "approve", "take_back", "withdraw"})
 	check("verification", "bob", []string{"return", "clear"})
-	check("verification", "alice", []string{"withdraw"}) // the author: no empty slots before it
+	check("verification", "alice", []string{"take_back", "withdraw"}) // the author: no empty slots before them
 	e = setup(t)
 	e.toComplete(t)
 	check("complete", "dora", []string{"reopen", "report", "withdraw"})

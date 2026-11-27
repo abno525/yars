@@ -435,6 +435,15 @@ var migrations = []migration{
 	) WITHOUT ROWID;`},
 	// the audit log is pruned and filtered by time
 	{name: "027-audit-time-index", sql: `CREATE INDEX IF NOT EXISTS audit_ts ON audit(ts);`},
+	// the chat thread a notification is about (its first message's id), so
+	// the notice leads to the thread; '' for every other notice and for the
+	// rows stored before (addNoteThread, in Go as v22)
+	{name: "028-notification-thread", fn: addNoteThread},
+}
+
+// addNoteThread adds notifications.thread unless it is there.
+func addNoteThread(tx *sql.Tx) error {
+	return addColumn(tx, "notifications", "thread", "TEXT NOT NULL DEFAULT ''")
 }
 
 // uniqueUsernames makes the usernames unique without the case of their

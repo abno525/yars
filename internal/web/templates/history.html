@@ -44,7 +44,7 @@
       {{if and $h.CanRestore .Section}}
       <form method="post" action="{{$h.RestoreURL}}">
         <input type="hidden" name="ev" value="{{$ev}}"><input type="hidden" name="section" value="{{.Section}}"><input type="hidden" name="base" value="{{.Base}}">
-        <button class="btn secondary sm w96">Restore</button>
+        <button class="btn secondary sm w96" data-confirm="Restore {{.Name}}?">Restore</button>
       </form>
       {{else}}<span class="slot w96"></span>{{end}}
     </div>

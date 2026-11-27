@@ -105,6 +105,23 @@ func TestHistoryPage(t *testing.T) {
 	}
 }
 
+// Restore replaces the section's text, so its button asks first (the page's
+// own dialog, data-confirm); a viewer who cannot restore has the empty slot.
+func TestHistoryRestoreAsks(t *testing.T) {
+	e := setup(t)
+	if err := e.srv.Store.UpdateSection("acme", fdir, "Impact", "Read the user table.", "", e.authorOf(wAlice)); err != nil {
+		t.Fatal(err)
+	}
+	ab := e.do(t, "alice", "GET", fshort+"/history", nil, nil).Body.String()
+	if !strings.Contains(ab, `<button class="btn secondary sm w96" data-confirm="Restore Impact?">Restore</button>`) {
+		t.Fatalf("Restore does not ask:\n%s", between(ab, `class="dhead flush"`, `class="lines flush"`))
+	}
+	bb := e.do(t, "bob", "GET", fshort+"/history", nil, nil).Body.String()
+	if strings.Contains(bb, `data-confirm="Restore`) || !strings.Contains(bb, `<span class="slot w96"></span>`) {
+		t.Fatalf("a viewer who cannot restore:\n%s", between(bb, `class="dhead flush"`, `class="lines flush"`))
+	}
+}
+
 // The history is read from git once per engagement HEAD.
 func TestHistoryCachedPerHead(t *testing.T) {
 	e := setupSerial(t) // counts git processes

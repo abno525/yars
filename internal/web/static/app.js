@@ -260,9 +260,97 @@ document.addEventListener('click', function (evt) {
     return;
   }
   var src = document.getElementById(el.getAttribute('data-copy'));
-  if (!src || !navigator.clipboard) return;
-  navigator.clipboard.writeText(src.textContent.trim()).then(function () { yarsToast('Copied'); });
+  if (src) yarsCopy(el, src);
 });
+
+// yarsCopy puts src's text on the clipboard for the Copy button el and says
+// how it went. A page on a plain http address (not localhost) has no
+// Clipboard API, and the API can refuse: then the old way (yarsCopyOld).
+// When neither worked the text is selected, so Ctrl+C takes it. The text
+// can be a secret (a token, a temporary password): it goes into no toast,
+// log line or attribute.
+function yarsCopy(el, src) {
+  var text = src.textContent.trim();
+  var done = function (ok) {
+    if (ok) { yarsToast('Copied'); return; }
+    yarsToast('Copy failed', true);
+    var s = window.getSelection ? window.getSelection() : null;
+    if (s) s.selectAllChildren(src);
+  };
+  var old = function () { done(yarsCopyOld(text, el)); };
+  if (!navigator.clipboard || !navigator.clipboard.writeText) { old(); return; }
+  navigator.clipboard.writeText(text).then(function () { done(true); }).catch(old);
+}
+// yarsCopyOld copies text with execCommand from a text box that is in the
+// page for the length of the call only (beside the button: under a modal
+// dialog the rest of the page takes no selection); the focus goes back to
+// the button. True when the browser says it copied.
+function yarsCopyOld(text, el) {
+  var ta = document.createElement('textarea');
+  ta.className = 'sr';
+  ta.setAttribute('readonly', '');
+  ta.setAttribute('aria-hidden', 'true');
+  ta.value = text;
+  (el.closest('dialog') || document.body).appendChild(ta);
+  var ok = false;
+  try {
+    ta.select();
+    ok = document.execCommand('copy');
+  } catch (e) {
+    ok = false;
+  } finally { ta.remove(); }
+  if (el.focus) el.focus({preventScroll: true});
+  return ok;
+}
+
+// Double submit: a plain form (method post, not htmx's) is sent once. A
+// sent form is marked (data-sent) and its second submit is stopped. Its
+// submit buttons are disabled only after the event: a button disabled
+// inside it would be left out of the form's data (name="op", "all", "dest",
+// a formaction). The mark stays until the answer is a page: a POST that
+// takes long (a slow commit, a push to Jira, a large restore) is not sent a
+// second time. It goes on pageshow (Back shows the page from the browser's
+// cache), and after a few seconds only for a form that answers with a file
+// (yarsSentFile): its page stays, and no event tells that the file came.
+var yarsSentMs = 3000;
+// yarsSentFile: the form f, sent by the button by, answers with a file: a
+// Download button of the export page (name="download") or a form marked
+// data-file (Download backup).
+function yarsSentFile(f, by) {
+  return f.hasAttribute('data-file') || !!(by && by.name === 'download');
+}
+function yarsSentButtons(form) {
+  return Array.prototype.filter.call(form.elements, function (el) {
+    return el.tagName === 'BUTTON' && el.type === 'submit';
+  });
+}
+function yarsSentClear(form) {
+  if (!form.hasAttribute('data-sent')) return;
+  form.removeAttribute('data-sent');
+  yarsSentButtons(form).forEach(function (b) {
+    if (!b.yarsSent) return;
+    b.yarsSent = false;
+    b.disabled = false;
+    // the pressed button lost the focus when it was disabled
+    if (b.yarsSentFocus && (!document.activeElement || document.activeElement === document.body)) b.focus({preventScroll: true});
+    b.yarsSentFocus = false;
+  });
+}
+document.addEventListener('submit', function (evt) {
+  var f = evt.target, by = evt.submitter;
+  if (!f || f.tagName !== 'FORM' || evt.defaultPrevented) return;
+  var method = String((by && by.getAttribute('formmethod')) || f.getAttribute('method') || 'get').toLowerCase();
+  if (method !== 'post' || f.hasAttribute('hx-post')) return;
+  if (f.hasAttribute('data-sent')) { evt.preventDefault(); return; }
+  f.setAttribute('data-sent', '');
+  setTimeout(function () {
+    if (!f.hasAttribute('data-sent')) return;
+    var a = document.activeElement;
+    yarsSentButtons(f).forEach(function (b) { if (!b.disabled) { b.disabled = true; b.yarsSent = true; b.yarsSentFocus = b === a; } });
+  }, 0);
+  if (yarsSentFile(f, by)) setTimeout(function () { yarsSentClear(f); }, yarsSentMs);
+});
+window.addEventListener('pageshow', function () { document.querySelectorAll('form[data-sent]').forEach(yarsSentClear); });
 
 // yarsComment points the chat composer at a section and focuses it (showing
 // the chat first when it is hidden).
@@ -675,8 +763,15 @@ function yarsGotoMove(step) {
   if (!rows.length) return;
   var i = rows.findIndex(function (r) { return r.classList.contains('sel'); });
   var next = Math.min(rows.length - 1, Math.max(0, i + step));
-  rows.forEach(function (r, k) { r.classList.toggle('sel', k === next); r.setAttribute('aria-selected', k === next ? 'true' : 'false'); });
+  yarsGotoSel(rows[next]);
   rows[next].scrollIntoView({block: 'nearest'});
+}
+// yarsGotoSel selects the row to of Go to's list: the class the page shows
+// and aria-selected (the rows are options of a listbox) change together.
+function yarsGotoSel(to) {
+  document.querySelectorAll('#goto-results .res').forEach(function (r) {
+    r.classList.toggle('sel', r === to); r.setAttribute('aria-selected', r === to ? 'true' : 'false');
+  });
 }
 // yarsLetter is the key a shortcut is matched by: evt.key, so every Latin
 // layout keeps its own letters (Dvorak, AZERTY). On a layout without Latin
@@ -720,9 +815,7 @@ document.addEventListener('click', function (evt) {
 });
 document.addEventListener('mousemove', function (evt) {
   var r = evt.target.closest && evt.target.closest('#goto-results .res');
-  if (!r || r.classList.contains('sel')) return;
-  document.querySelectorAll('#goto-results .res.sel').forEach(function (x) { x.classList.remove('sel'); });
-  r.classList.add('sel');
+  if (r && !r.classList.contains('sel')) yarsGotoSel(r);
 });
 document.addEventListener('close', function (evt) {
   if (evt.target && evt.target.id === 'goto') {

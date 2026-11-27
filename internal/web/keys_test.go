@@ -790,14 +790,14 @@ func TestOverlayListsEveryKey(t *testing.T) {
 	d := between(b, `id="keys"`, "</dialog>")
 	for _, k := range []string{"?", "/", "Ctrl+K", "Esc", "Ctrl+S", "Ctrl+Enter", "Ctrl+Z", "i", "f", "b", "n",
 		"j", "k", "↓", "↑", "l", "h", "→", "←", "e", "Enter", "c", "x", "Shift+Space",
-		"Shift+S", "Shift+O", "Shift+A", "Shift+P", "Shift+R", "Shift+W", "Shift+U", "Shift+C", "Shift+H"} {
+		"Shift+S", "Shift+O", "Shift+A", "Shift+P", "Shift+R", "Shift+W", "Shift+U", "Shift+T", "Shift+C", "Shift+H"} {
 		if !strings.Contains(d, "<kbd>"+k+"</kbd>") {
 			t.Errorf("the list lacks %s", k)
 		}
 	}
-	// no bar slot has Take back, so the list does not offer its key
-	if strings.Contains(d, "Shift+T") {
-		t.Error("the list offers Shift+T")
+	// Take back's row shows only where the bar has its button (data-keys-for)
+	if !strings.Contains(d, `<div class="krow" data-keys-for="Shift+T"><dt><kbd>Shift+T</kbd></dt><dd>Take back</dd></div>`) {
+		t.Error("Shift+T's row is not tied to the button")
 	}
 	for _, g := range []string{">Global<", ">Finding page<", ">Lists<", ">Chat<", `data-keys-group="finding"`} {
 		if !strings.Contains(d, g) {

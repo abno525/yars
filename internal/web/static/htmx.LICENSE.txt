@@ -1,4 +1,4 @@
-htmx 2.0.4 (htmx.min.js), https://github.com/bigskysoftware/htmx
+htmx 2.0.11 (htmx.min.js), https://github.com/bigskysoftware/htmx
 
 Zero-Clause BSD
 =============

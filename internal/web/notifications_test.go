@@ -120,16 +120,18 @@ func TestNotificationsFlow(t *testing.T) {
 	if id == nil || strings.Contains(b, `href="/notifications/`) {
 		t.Fatal("no open button")
 	}
-	// a GET (a prefetch, a crawler, a pasted link) goes there but changes nothing
+	// a GET (a prefetch, a crawler, a pasted link) goes there but changes
+	// nothing; the newest notice is the mention, which leads to its thread
+	thread := regexp.MustCompile(`^/e/acme/f/001#t-[0-9a-f]+$`)
 	rec = e.do(t, "alice", "GET", "/notifications/"+id[1], nil, nil)
-	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/e/acme/f/001" {
+	if rec.Code != http.StatusSeeOther || !thread.MatchString(rec.Header().Get("Location")) {
 		t.Fatalf("get %d %s", rec.Code, rec.Header().Get("Location"))
 	}
 	if got := unread(t, e, "alice"); got != "2" {
 		t.Fatalf("GET marked read: %s", got)
 	}
 	rec = e.do(t, "alice", "POST", "/notifications/"+id[1], url.Values{}, nil)
-	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/e/acme/f/001" {
+	if rec.Code != http.StatusSeeOther || !thread.MatchString(rec.Header().Get("Location")) {
 		t.Fatalf("open %d %s", rec.Code, rec.Header().Get("Location"))
 	}
 	if got := unread(t, e, "alice"); got != "1" {

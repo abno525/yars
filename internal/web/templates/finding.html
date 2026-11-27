@@ -31,7 +31,7 @@
   <div class="actions fhead">
     {{$fu := fpath .Eng.ID .Finding.Dir}}
     {{if or .CanMerge .Tpl.CanEdit}}<details class="pop more"><summary class="btn secondary w136">More</summary><div class="poplist">{{if .CanMerge}}<a href="{{$fu}}/merge">Merge into</a>{{end}}{{if .Tpl.CanEdit}}<a href="{{$fu}}/template">Save as template</a>{{end}}</div></details>{{else}}<span class="slot w136"></span>{{end}}
-    <button type="button" class="btn secondary w136" data-chat-toggle aria-controls="side" aria-expanded="true" aria-keyshortcuts="Control+H"><span class="ct-hide">Hide chat</span><span class="ct-show">Show chat</span></button>
+    <button type="button" class="btn secondary w136" data-chat-toggle aria-controls="side" aria-expanded="true" aria-keyshortcuts="Shift+L"><span class="ct-hide">Hide chat</span><span class="ct-show">Show chat</span></button>
     <a class="btn secondary w136" href="{{$fu}}/history" aria-keyshortcuts="Shift+H">History</a>
     {{if $wd}}<span class="slot w136"></span>{{else}}<a class="btn secondary w136" href="/e/{{.Eng.ID}}/export">Export</a>{{end}}
   </div>

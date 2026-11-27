@@ -9,7 +9,7 @@
   <div class="errslot">{{if .Error}}<p class="error" title="{{.Error}}">{{.Error}}</p>{{end}}</div>
   <div class="newgrid">
     <div class="newmain">
-      <label class="field">Title<input class="bigin" name="title" value="{{.Form.Get "title"}}" required autofocus
+      <label class="field">Title<input class="bigin" name="title" value="{{.Form.Get "title"}}" required autofocus maxlength="200"
         hx-get="/e/{{.Eng.ID}}/findings/new/dups" hx-trigger="input changed delay:400ms, load" hx-target="#dups" hx-swap="outerHTML"></label>
       {{template "dups_panel" .Dups}}
       <section class="panel tplpick">

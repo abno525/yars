@@ -465,7 +465,7 @@ func TestDeniedActionKeepsReason(t *testing.T) {
 	if !strings.Contains(b, "a reason is required to return a finding") {
 		t.Fatal("the page does not say why")
 	}
-	if !strings.Contains(b, `id="wf-return-reason">`) || !strings.Contains(b, `<textarea name="reason" required rows="4">`+typed+`</textarea>`) || !strings.Contains(b, `aria-controls="wf-return-reason" aria-expanded="true"`) {
+	if !strings.Contains(b, `id="wf-return-reason">`) || !strings.Contains(b, `<textarea name="reason" required rows="4" maxlength="4000">`+typed+`</textarea>`) || !strings.Contains(b, `aria-controls="wf-return-reason" aria-expanded="true"`) {
 		t.Fatalf("the reason panel is not open with the reason:\n%s", wfSection(t, b))
 	}
 	if b := e.do(t, "bob", "GET", fshort, nil, nil).Body.String(); !strings.Contains(b, `id="wf-return-reason" hidden>`) || strings.Contains(b, "a reason is required") {

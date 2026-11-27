@@ -61,10 +61,17 @@ func (s *Server) Close() {
 	})
 }
 
-// notesView is the notifications page.
+// notesView is the notifications page's list: one page of rows, and the
+// address of the next when there are more (the Load more row).
 type notesView struct {
-	Rows []noteRow
+	Rows     []noteRow
+	MoreURL  string
+	PageSize int
+	Later    bool // a page after the first: no empty row
 }
+
+// notesPage is how many notifications the page lists at a time.
+const notesPage = 50
 
 type noteRow struct {
 	ID                                    int64
@@ -89,15 +96,25 @@ func (s *Server) notificationsPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p.Nav = "inbox" // reached from the inbox's Notifications section
+	// the rows older than the notice before (the Load more row's address);
+	// anything that is no number is the first page
+	before, _ := strconv.ParseInt(r.URL.Query().Get("before"), 10, 64)
+	before = max(before, 0)
+	p.Notes.PageSize, p.Notes.Later = notesPage, before > 0
 	if s.Store.DB() != nil {
 		if p.Unread, err = s.Store.UnreadCount(p.User); err != nil {
 			s.fail(w, err)
 			return
 		}
-		l, err := s.Store.Notifications(p.User, false, 200)
+		// one more than a page, to know whether a next one exists
+		l, err := s.Store.NotificationPage(p.User, false, nil, before, notesPage+1)
 		if err != nil {
 			s.fail(w, err)
 			return
+		}
+		if len(l) > notesPage {
+			l = l[:notesPage]
+			p.Notes.MoreURL = "/notifications?before=" + strconv.FormatInt(l[notesPage-1].ID, 10)
 		}
 		// the findings' titles as they are now, not as they were then
 		current := s.Index.CurrentTitles()
@@ -110,6 +127,11 @@ func (s *Server) notificationsPage(w http.ResponseWriter, r *http.Request) {
 			}
 			p.Notes.Rows = append(p.Notes.Rows, row)
 		}
+	}
+	// Load more swaps its row for the next rows
+	if p.Notes.Later && r.Header.Get("HX-Request") == "true" {
+		s.exec(w, "notifications.html", "note_rows", p.Notes)
+		return
 	}
 	s.render(w, "notifications.html", p)
 }

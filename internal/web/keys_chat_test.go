@@ -89,7 +89,8 @@ func TestDupsKeys(t *testing.T) {
 // The chat on the keyboard: with the chat selected, j k ↓ ↑ pick a comment
 // (a thread, tinted as a list row), r resolves it, and any key no shortcut
 // takes starts its reply (a new message with none picked); ↓ ↑ with nothing
-// selected pick the first panel; Ctrl+H hides or shows the chat.
+// selected pick the first panel; Shift+L hides or shows the chat, and Ctrl+H
+// is the browser's own again (its History).
 func TestChatKeys(t *testing.T) {
 	e := setup(t)
 	m, err := e.srv.Store.PostChat("acme", fdir, chat.Message{Text: "why?"}, wBob)
@@ -100,14 +101,21 @@ func TestChatKeys(t *testing.T) {
 	if !strings.Contains(b, `<div class="thread" id="t-`+m.ID+`" data-thread="`+m.ID+`">`) {
 		t.Errorf("the thread is not marked:\n%s", between(b, `id="chat-list"`, "</form>"))
 	}
-	if !strings.Contains(b, `data-chat-toggle aria-controls="side" aria-expanded="true" aria-keyshortcuts="Control+H">`) {
-		t.Error("the chat toggle lacks Ctrl+H")
+	if !strings.Contains(b, `data-chat-toggle aria-controls="side" aria-expanded="true" aria-keyshortcuts="Shift+L">`) {
+		t.Error("the chat toggle lacks Shift+L")
+	}
+	if strings.Contains(b, "Control+H") || strings.Contains(b, "Ctrl+H") {
+		t.Error("the page still names Ctrl+H")
 	}
 	js := e.do(t, "alice", "GET", "/static/keys.js", nil, nil).Body.String()
 	for _, w := range []string{"function yarsThreadStep(d)", "case 'J': return side ? yarsThreadStep(1) || true : yarsStep(1);", "case 'K': return side ? yarsThreadStep(-1) || true : yarsStep(-1);",
 		"case 'ArrowDown': return side ? yarsThreadStep(1) : yarsStep(1);", "case 'ArrowUp': return side ? yarsThreadStep(-1) : yarsStep(-1);",
 		"function yarsResolveKey()", "if (key === 'R' && (yarsResolveKey() || yarsThread()))", "function yarsWrite(evt)", "yarsFire(key) || yarsBulkFire(key) || yarsWrite(evt)",
-		"key === 'Control+H'",
+		// Shift+L is a single key as the others: after the guard (never in a
+		// field or under a dialog), and hiding the selected chat goes back
+		// to the panel it was entered from
+		"function yarsChatKey()", "if (key === 'Shift+L' && yarsChatKey()) { evt.preventDefault(); return; }",
+		"if (inChat && yarsChatHidden()) {",
 		// a hidden panel is not selected: keys never act in a hidden chat
 		"return p && p.hasAttribute('data-kpanel') && p.getClientRects().length > 0 ? p : null;",
 		// in the chat j k h are its own, even with nothing to step to
@@ -116,6 +124,13 @@ func TestChatKeys(t *testing.T) {
 			t.Errorf("keys.js lacks %s", w)
 		}
 	}
+	// nothing of YARS takes Ctrl+H from the browser
+	if strings.Contains(js, "Control+H") {
+		t.Error("keys.js still handles Control+H")
+	}
+	if i, j := strings.Index(js, "if (key === 'Shift+L' && yarsChatKey())"), strings.Index(js, "// single keys and Shift+key: never into a field"); i < j {
+		t.Error("Shift+L is handled before the typing guard")
+	}
 	if css := e.do(t, "alice", "GET", "/static/style.css", nil, nil).Body.String(); !strings.Contains(css, "#chat-list .thread[data-tsel] { background: var(--mark-bg); }") {
 		t.Error("a picked comment is not tinted")
 	}
@@ -123,7 +138,7 @@ func TestChatKeys(t *testing.T) {
 	for _, w := range []string{`<div class="krow" data-keys-if="#chat-list .thread, #dups [data-pick]"><dt><kbd>j</kbd><kbd>k</kbd><kbd>↓</kbd><kbd>↑</kbd></dt><dd>Next or previous comment or duplicate</dd></div>`,
 		`<div class="krow" data-keys-if="#chat-list .thread-tools [name=resolves]"><dt><kbd>r</kbd></dt><dd>Resolve the comment</dd></div>`,
 		`<div class="krow" data-keys-if="#chat-text"><dt><kbd>Other keys</kbd></dt><dd>Write a reply</dd></div>`,
-		`<div class="krow" data-keys-for="Control+H"><dt><kbd>Ctrl+H</kbd></dt><dd>Hide or show the chat</dd></div>`} {
+		`<div class="krow" data-keys-for="Shift+L"><dt><kbd>Shift+L</kbd></dt><dd>Hide or show the chat</dd></div>`} {
 		if !strings.Contains(g, w) {
 			t.Errorf("the Chat group lacks %s:\n%s", w, g)
 		}

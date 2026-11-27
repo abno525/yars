@@ -222,13 +222,14 @@ func TestBulkAssignOnlyAdds(t *testing.T) {
 	}
 }
 
-// The author's new finding-page powers keep the bar's fixed slots: Take
-// back has no button there (bulk only), Mark reported uses its slot.
+// The author's finding-page powers keep the bar's fixed slots: Take back
+// has a slot of its own before Withdraw (pre1 5.16; before, it was in the
+// bulk bar only), Mark reported uses its slot.
 func TestAuthorBarSlots(t *testing.T) {
 	e := setup(t)
 	e.toVerification(t)
 	alice := actionsOf(t, e.do(t, "alice", "GET", fpath, nil, nil).Body.String())
-	if strings.Contains(alice, "take_back") || strings.Contains(alice, "Take back") {
-		t.Fatalf("take back on the finding page:\n%s", alice)
+	if strings.Count(alice, `data-slot="take_back"`) != 1 || !strings.Contains(alice, ">Take back</button>") || strings.Contains(alice, `class="slot`) {
+		t.Fatalf("the author's bar in verification:\n%s", alice)
 	}
 }

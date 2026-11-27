@@ -162,10 +162,13 @@ type wfSlotSpec struct {
 }
 
 // wfLayout fixes the button slots of each status, left to right. Withdraw
-// is always last, so it sits at the bar's right edge in every status.
+// is always last, so it sits at the bar's right edge in every status. Take
+// back stands right before it: the author, who has no review button, sees
+// the two side by side, and a reviewer's bar ends before both.
 var wfLayout = map[string][]wfSlotSpec{
-	"draft":            {{workflow.Submit, "w112"}, {workflow.Withdraw, "w136"}},
-	"verification":     {{workflow.Return, "w112"}, {workflow.Clear, "w112"}, {workflow.Approve, "w112"}, {workflow.Withdraw, "w136"}},
+	"draft": {{workflow.Submit, "w112"}, {workflow.Withdraw, "w136"}},
+	"verification": {{workflow.Return, "w112"}, {workflow.Clear, "w112"}, {workflow.Approve, "w112"},
+		{workflow.TakeBack, "w112"}, {workflow.Withdraw, "w136"}},
 	"complete":         {{workflow.Reopen, "w136"}, {workflow.Report, "w136"}, {workflow.Withdraw, "w136"}},
 	"reported":         {{workflow.Unreport, "w136"}, {workflow.Withdraw, "w136"}},
 	workflow.Withdrawn: {{workflow.Revise, "w136"}},
@@ -238,7 +241,7 @@ func (v *wfView) arrange(u config.User, m finding.Meta) {
 			switch {
 			case sp.act == workflow.Return || sp.act == workflow.Withdraw:
 				sl.Class = "danger"
-			case sp.act == workflow.Reopen || sp.act == workflow.Unreport || sp.act == workflow.Revise:
+			case sp.act == workflow.Reopen || sp.act == workflow.Unreport || sp.act == workflow.Revise || sp.act == workflow.TakeBack:
 				sl.Class = "secondary"
 			default:
 				sl.Class = "primary"

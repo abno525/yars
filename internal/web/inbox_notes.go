@@ -75,14 +75,14 @@ func (s *Server) markNotesRead(u config.User) error {
 	return s.Store.MarkNotesRead(u, notesInboxSkip, archivedIDs(engs))
 }
 
-// noteTarget is where a notice leads: the token list, its finding, or its
-// engagement.
+// noteTarget is where a notice leads: the token list, its finding (at the
+// chat thread it is about, when it has one), or its engagement.
 func noteTarget(n db.Notification) string {
 	switch {
 	case n.Event == notify.Token:
 		return "/settings#tokens"
 	case n.Dir != "" && store.ValidID(n.Eng) && store.ValidID(n.Dir):
-		return findingURL(n.Eng, n.Dir)
+		return findingURL(n.Eng, n.Dir) + notify.ThreadAnchor(n)
 	case store.ValidID(n.Eng):
 		return "/e/" + n.Eng
 	}

@@ -6,7 +6,7 @@ YARS ships the third-party work listed here. Each keeps its own licence.
 Vendored in internal/web/static (served by the binary)
 ------------------------------------------------------
 
-htmx 2.0.4 (htmx.min.js)
+htmx 2.0.11 (htmx.min.js)
   https://github.com/bigskysoftware/htmx
   Zero-Clause BSD. Text: internal/web/static/htmx.LICENSE.txt
 

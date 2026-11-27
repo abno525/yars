@@ -243,8 +243,36 @@ func (n *Notifier) Handle(e store.Event) {
 			continue
 		}
 		u, key := accounts[i], to[name]
-		n.deliver(u, db.Notification{User: u.Username, Event: key, Eng: e.Eng, Dir: e.Dir, Fid: e.Fid, Title: e.Title, Actor: e.Actor, Text: text(e)}, mail)
+		n.deliver(u, db.Notification{User: u.Username, Event: key, Eng: e.Eng, Dir: e.Dir, Fid: e.Fid, Title: e.Title, Actor: e.Actor, Text: text(e), Thread: thread(e)}, mail)
 	}
+}
+
+// thread is the chat thread e is about: the message a reply answers, else
+// the message itself (it starts a thread); "" for any other event, and for
+// an id that is not a plain ID (it becomes part of a link).
+func thread(e store.Event) string {
+	if e.Kind != store.EventChat {
+		return ""
+	}
+	id := e.Reply
+	if id == "" {
+		id = e.MsgID
+	}
+	if !store.ValidID(id) {
+		return ""
+	}
+	return id
+}
+
+// ThreadAnchor is the fragment of a finding's address that leads to the chat
+// thread a notice is about ("#t-<id>", the thread's element on the page), ""
+// when the notice has none. The id is checked again here: the fragment goes
+// into a Location header and a mail.
+func ThreadAnchor(x db.Notification) string {
+	if x.Thread == "" || !store.ValidID(x.Thread) {
+		return ""
+	}
+	return "#t-" + x.Thread
 }
 
 // deliver stores note in u's list and emails it, as u chose for its event.
@@ -369,7 +397,7 @@ func (n *Notifier) mailFor(x db.Notification) (string, string) {
 	if n.BaseURL != nil {
 		base = n.BaseURL()
 	}
-	b.WriteString("\n" + base + "/e/" + x.Eng + "/f/" + store.ShortID(x.Dir) + "\n")
+	b.WriteString("\n" + base + "/e/" + x.Eng + "/f/" + store.ShortID(x.Dir) + ThreadAnchor(x) + "\n")
 	return subject, b.String()
 }
 
