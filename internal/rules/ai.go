@@ -38,11 +38,13 @@ func aiUser(rule, target, text string) string {
 	return "Rule: " + neutral(rule) + "\n\nPart: " + target + "\n\n<finding_text>\n" + neutral(text) + "\n</finding_text>"
 }
 
+type aiViolation struct {
+	Quote   string `json:"quote"`
+	Message string `json:"message"`
+}
+
 type aiResult struct {
-	Violations []struct {
-		Quote   string `json:"quote"`
-		Message string `json:"message"`
-	} `json:"violations"`
+	Violations []aiViolation `json:"violations"`
 	// More counts the violations of the reply that shown cut off. It is
 	// never a model's own number (shown sets it).
 	More int `json:"more,omitempty"`
@@ -208,8 +210,7 @@ func (rn *Runner) Ping(ctx context.Context) (time.Duration, error) {
 	if err != nil {
 		return 0, err
 	}
-	var res aiResult
-	if err := parseAI(content, &res); err != nil {
+	if _, err := parseRule(content); err != nil {
 		return 0, err
 	}
 	return max(time.Since(start), time.Nanosecond), nil
@@ -260,7 +261,7 @@ func (rn *Runner) AI(ctx context.Context, r Rule, target, text string) []Violati
 		defer cancel()
 		content, err := rn.ask(ctx, c, key, systemPrompt, aiUser(r.AI, target, text), "rule", r.ID, ruleTokens)
 		if err == nil {
-			if err = parseAI(content, &res); err != nil {
+			if res, err = parseRule(content); err != nil {
 				// the call worked (its own line says so), the reply is not
 				// the JSON asked for; the error quotes one character at most
 				rn.log().Warn("ai: a rule's reply is not read", "rule", r.ID, "provider", c.Provider, "model", c.Model, "err", err)
@@ -295,6 +296,27 @@ func parseAI(content string, res any) error {
 		return errors.New("reply is not JSON")
 	}
 	return json.NewDecoder(strings.NewReader(content[i:])).Decode(res)
+}
+
+// errNoList: a rule check's reply is JSON without the violations list. The
+// words quote nothing of the reply: users and the log read them.
+var errNoList = errors.New("reply has no violations list")
+
+// parseRule reads a rule check's reply. The violations key must be there and
+// hold a list: a reply without it ({}, an error object, null) says nothing
+// about the text and is a failed check, not a pass.
+func parseRule(content string) (aiResult, error) {
+	var raw struct {
+		Violations json.RawMessage `json:"violations"`
+	}
+	if err := parseAI(content, &raw); err != nil {
+		return aiResult{}, err
+	}
+	var res aiResult
+	if !bytes.HasPrefix(bytes.TrimSpace(raw.Violations), []byte("[")) || json.Unmarshal(raw.Violations, &res.Violations) != nil {
+		return aiResult{}, errNoList
+	}
+	return res, nil
 }
 
 func (rn *Runner) post(ctx context.Context, url string, body any, hdr map[string]string, out any) error {
