@@ -307,10 +307,18 @@ function yarsCopyOld(text, el) {
 // sent form is marked (data-sent) and its second submit is stopped. Its
 // submit buttons are disabled only after the event: a button disabled
 // inside it would be left out of the form's data (name="op", "all", "dest",
-// a formaction). The mark goes after a few seconds and on pageshow: a form
-// that answers with a file (Download backup) stays on the page, and Back
-// shows the page from the browser's cache.
+// a formaction). The mark stays until the answer is a page: a POST that
+// takes long (a slow commit, a push to Jira, a large restore) is not sent a
+// second time. It goes on pageshow (Back shows the page from the browser's
+// cache), and after a few seconds only for a form that answers with a file
+// (yarsSentFile): its page stays, and no event tells that the file came.
 var yarsSentMs = 3000;
+// yarsSentFile: the form f, sent by the button by, answers with a file: a
+// Download button of the export page (name="download") or a form marked
+// data-file (Download backup).
+function yarsSentFile(f, by) {
+  return f.hasAttribute('data-file') || !!(by && by.name === 'download');
+}
 function yarsSentButtons(form) {
   return Array.prototype.filter.call(form.elements, function (el) {
     return el.tagName === 'BUTTON' && el.type === 'submit';
@@ -340,7 +348,7 @@ document.addEventListener('submit', function (evt) {
     var a = document.activeElement;
     yarsSentButtons(f).forEach(function (b) { if (!b.disabled) { b.disabled = true; b.yarsSent = true; b.yarsSentFocus = b === a; } });
   }, 0);
-  setTimeout(function () { yarsSentClear(f); }, yarsSentMs);
+  if (yarsSentFile(f, by)) setTimeout(function () { yarsSentClear(f); }, yarsSentMs);
 });
 window.addEventListener('pageshow', function () { document.querySelectorAll('form[data-sent]').forEach(yarsSentClear); });
 

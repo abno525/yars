@@ -9,6 +9,56 @@ import (
 	"github.com/abno525/yars/internal/chat"
 )
 
+// A sent form stays sent until its answer is a page: Create that waits on a
+// slow commit is not live again after a few seconds, to be sent a second
+// time. Only a form that answers with a file comes back on a timer, since
+// its page stays and no event tells the file came: the export page's
+// Download buttons (name="download") and Download backup (data-file). The
+// script half is a pin; the marks are read from the rendered pages.
+func TestDoubleSubmitWaits(t *testing.T) {
+	e := setupSerial(t)
+	app := e.do(t, "alice", "GET", "/static/app.js", nil, nil).Body.String()
+	for _, w := range []string{
+		"function yarsSentFile(f, by) {\n  return f.hasAttribute('data-file') || !!(by && by.name === 'download');\n}",
+		"  if (yarsSentFile(f, by)) setTimeout(function () { yarsSentClear(f); }, yarsSentMs);\n});",
+	} {
+		if !strings.Contains(app, w) {
+			t.Errorf("app.js lacks %s", w)
+		}
+	}
+	if strings.Contains(app, "\n  setTimeout(function () { yarsSentClear(f); }, yarsSentMs);") {
+		t.Error("every sent form is live again on a timer")
+	}
+	// the forms that answer with a file say so
+	rec := e.do(t, "dora", "POST", "/admin/system/backup", url.Values{}, nil)
+	if rec.Code != 200 || rec.Header().Get("Content-Disposition") == "" {
+		t.Fatalf("backup %d %v", rec.Code, rec.Header())
+	}
+	sys := e.do(t, "dora", "GET", "/admin/system", nil, nil).Body.String()
+	if !strings.Contains(sys, `<form class="panel sys" id="backup" method="post" action="/admin/system/backup" data-file>`) {
+		t.Errorf("Download backup is not marked as a file:\n%s", between(sys, `id="backup"`, "</h2>"))
+	}
+	e.toComplete(t)
+	e.exporters(t, fakePandoc)
+	rec = e.do(t, "alice", "POST", "/e/acme/export", url.Values{"download": {"pdf"}, "finding": {fdir}}, nil)
+	if rec.Code != 200 || rec.Header().Get("Content-Disposition") == "" {
+		t.Fatalf("pdf %d %v", rec.Code, rec.Header())
+	}
+	if ex := e.do(t, "alice", "GET", "/e/acme/export", nil, nil).Body.String(); !strings.Contains(ex, `<button class="destcard" name="download" value="pdf">`) {
+		t.Errorf("the PDF card is not sent as download:\n%s", between(ex, `<span class="dlabel">Download</span>`, "</div>"))
+	}
+	// a form that answers with a page has no mark: it waits for the page
+	for _, p := range []string{"/e/acme/findings/new", "/e/acme/export", "/admin/system"} {
+		user := "alice"
+		if strings.HasPrefix(p, "/admin") {
+			user = "dora"
+		}
+		if n := strings.Count(e.do(t, user, "GET", p, nil, nil).Body.String(), " data-file"); n != strings.Count(p, "/admin/system") {
+			t.Errorf("%s has %d forms marked as a file", p, n)
+		}
+	}
+}
+
 // The fields the server caps say so to the browser: a finding's title (200,
 // store.ValidTitle) and a workflow reason (4000, store.MaxReason). The
 // server's own refusal stays the guard.
@@ -30,8 +80,8 @@ func TestTitleAndReasonMaxlength(t *testing.T) {
 
 // A double click sends one request. Plain forms: app.js marks a sent form,
 // stops its second submit, and disables its buttons only after the first
-// went (a disabled button is left out of the form's data); the mark goes
-// after a few seconds and on pageshow, since a download stays on the page.
+// went (a disabled button is left out of the form's data); the mark goes on
+// pageshow (TestDoubleSubmitWaits has the forms that stay on the page).
 // The chat's htmx forms disable their button while the request is out, as
 // the bulk bar does. The script half is a pin: no click is run here.
 func TestDoubleSubmit(t *testing.T) {
@@ -55,7 +105,6 @@ func TestDoubleSubmit(t *testing.T) {
 		"yarsSentButtons(f).forEach(function (b) { if (!b.disabled) { b.disabled = true; b.yarsSent = true; b.yarsSentFocus = b === a; } });\n  }, 0);",
 		// only the buttons it disabled come back (a locked-out login's stay)
 		"if (!b.yarsSent) return;",
-		"setTimeout(function () { yarsSentClear(f); }, yarsSentMs);",
 		"window.addEventListener('pageshow', function () { document.querySelectorAll('form[data-sent]').forEach(yarsSentClear); });",
 	} {
 		if !strings.Contains(app, w) {
