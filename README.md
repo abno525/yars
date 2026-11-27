@@ -42,6 +42,7 @@ Draft → complete → reported. Admin or not. That's all.
 
 | Command | Does |
 |---|---|
+| `yars help` | Lists every command. `yars --version` names the build. |
 | `yars use data` | Makes `data` the default, so `--data` can go. |
 | `yars hook install` | In a clone: the server checks each commit. |
 | `yars unlock alice` | Ends a lockout after 5 wrong passwords. |

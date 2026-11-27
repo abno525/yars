@@ -18,7 +18,7 @@ sudo install -m 0755 yars /usr/local/bin/yars
 yars version
 ```
 
-`yars version` prints the version, the database schema it writes and the Go release, for example `yars v1.0.0 (schema 27, go1.27.2)`. Built in a clone without `-ldflags`, it shows the git revision; installed with `go install` without them, the release it installed, such as `v1.0.0`.
+`yars version` prints the version, the database schema it writes and the Go release, for example `yars v1.0.0 (schema 27, go1.27.2)`. `yars --version` prints the same. `yars help` lists every command, and `yars <command> -h` a command's flags. Built in a clone without `-ldflags`, it shows the git revision; installed with `go install` without them, the release it installed, such as `v1.0.0`.
 
 Without a clone, one command builds the newest release. The binary lands in `$(go env GOBIN)`, or in `$(go env GOPATH)/bin` when `GOBIN` is not set.
 

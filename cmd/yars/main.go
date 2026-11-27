@@ -1,6 +1,7 @@
 // Command yars: git-backed pentest findings tracker. Finding content lives
 // in git; accounts, workflow state and chat in .yars/yars.db (server only).
 //
+//	yars help   (the whole list; also -h, --help); yars version (also --version)
 //	yars init [--simple] <dir>   (--simple: the simple workflow, fixed after init)
 //	yars use [<dir>]   (set or show the default data folder)
 //	yars useradd --data <dir> --role <role> [--email e] <username>
@@ -962,9 +963,11 @@ func cmdLint(args []string, out io.Writer) (int, error) {
 	return code, nil
 }
 
-func usage() {
-	fmt.Fprintln(os.Stderr, `usage (flags first; --data defaults to $YARS_DATA, then yars use, then .):
-  yars version
+// usageText is what yars help prints, and what a command line that names no
+// command, or an unknown one, gets on stderr.
+const usageText = `usage (flags first; --data defaults to $YARS_DATA, then yars use, then .):
+  yars help   (this text; also -h and --help. yars <command> -h lists the command's flags)
+  yars version   (also --version)
   yars init [--simple] <dir>   (--simple: draft → complete → reported, no roles; fixed after init)
   yars use [<dir>]   (set the default data folder, or show it)
   yars serve --data <dir> [--addr :8080] [--tls-cert <file> --tls-key <file>] [--https] [--log-level debug|info|warn|error]
@@ -987,9 +990,12 @@ func usage() {
   yars hook install [--data <clone>]   (a pre-commit hook in every engagement of the clone)
   yars export --data <dir> --exporter <id> [--out <file>] [--force] <eng> [<finding>…]   (--force: replace the file)
   yars mcp --data <clone> --user <name>
-  yars seed [--simple] --data <new dir> [--engagements 2] [--findings 20] [--messages 50]   (development data; prints the accounts' password)`)
-	os.Exit(2)
-}
+  yars seed [--simple] --data <new dir> [--engagements 2] [--findings 20] [--messages 50]   (development data; prints the accounts' password)
+`
+
+// errUsage is a command line the usage text answers best: main prints the
+// text on stderr and exits 2.
+var errUsage = errors.New("wrong arguments; see yars help")
 
 // serverSide reports whether a command (args: its name and what follows)
 // works on the server's data folder, where everything it and its git child
@@ -1009,78 +1015,99 @@ func serverSide(args []string) bool {
 	return false
 }
 
-func main() {
-	if len(os.Args) < 2 {
-		usage()
+func main() { os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr)) }
+
+// run is the command line: args without the program's name, the command's
+// input, its answer (out) and what it says beside it (errOut: prompts,
+// mistakes). It returns the exit code: 0, 1 for a command that failed, 2
+// for a command line that is wrong, or the command's own.
+func run(args []string, in io.Reader, out, errOut io.Writer) int {
+	if len(args) == 0 {
+		fmt.Fprint(errOut, usageText)
+		return 2
 	}
-	if serverSide(os.Args[1:]) {
+	// help and the version are answered first: they need no data folder, no
+	// database and no git, and make none
+	switch args[0] {
+	case "help", "-h", "--help", "-help":
+		fmt.Fprint(out, usageText)
+		return 0
+	case "--version", "-version":
+		args = append([]string{"version"}, args[1:]...)
+	}
+	if serverSide(args) {
 		privateUmask()
 	}
+	name, rest := args[0], args[1:]
 	var err error
-	switch os.Args[1] {
+	code := -1 // the command's own exit code; none: 1 when it failed
+	switch name {
 	case "version":
-		err = cmdVersion(os.Args[2:], os.Stdout)
+		err = cmdVersion(rest, out)
 	case "init":
-		err = cmdInit(os.Args[2:])
+		err = cmdInitOut(rest, out)
 	case "useradd":
-		err = cmdUseradd(os.Args[2:], os.Stdin, os.Stderr)
+		err = cmdUseradd(rest, in, errOut)
 	case "passwd":
-		err = cmdPasswd(os.Args[2:], os.Stdin, os.Stderr)
+		err = cmdPasswd(rest, in, errOut)
 	case "role":
-		err = cmdRole(os.Args[2:], os.Stderr)
+		err = cmdRole(rest, errOut)
 	case "userdel":
-		err = cmdUserdel(os.Args[2:], os.Stderr)
+		err = cmdUserdel(rest, errOut)
 	case "admin":
-		err = cmdAdmin(os.Args[2:], os.Stderr)
+		err = cmdAdmin(rest, errOut)
 	case "unlock":
-		err = cmdUnlock(os.Args[2:], os.Stdout)
+		err = cmdUnlock(rest, out)
 	case "use":
-		err = cmdUse(os.Args[2:], os.Stdout)
+		err = cmdUse(rest, out)
 	case "migrate":
-		err = cmdMigrate(os.Args[2:], os.Stdout)
+		err = cmdMigrate(rest, out)
 	case "backup":
-		err = cmdBackup(os.Args[2:], os.Stdout)
+		err = cmdBackup(rest, out)
 	case "restore":
-		err = cmdRestore(os.Args[2:], os.Stdout)
+		err = cmdRestore(rest, out)
 	case "serve":
-		err = cmdServe(os.Args[2:])
+		err = cmdServe(rest)
 	case "status":
-		err = cmdStatus(os.Args[2:], os.Stdout)
+		err = cmdStatus(rest, out)
 	case "export":
-		code, xerr := cmdExport(os.Args[2:], os.Stdout)
-		if xerr != nil {
-			fmt.Fprintln(os.Stderr, "yars:", xerr)
-		}
-		os.Exit(code)
+		code, err = cmdExport(rest, out)
 	case "mcp":
-		err = runMCP(os.Args[2:], os.Stdin, os.Stdout)
+		err = runMCP(rest, in, out)
 	case "token":
-		code, terr := cmdToken(os.Args[2:], os.Stdout)
-		if terr != nil {
-			fmt.Fprintln(os.Stderr, "yars:", terr)
-		}
-		os.Exit(code)
+		code, err = cmdToken(rest, out)
 	case "hook":
-		if len(os.Args) > 2 && os.Args[2] == "install" {
-			err = cmdHookInstall(os.Args[3:], os.Stdout)
+		if len(rest) > 0 && rest[0] == "install" {
+			err = cmdHookInstall(rest[1:], out)
 			break
 		}
-		os.Exit(cmdHook(os.Args[2:], os.Stdin, os.Stderr))
+		code = cmdHook(rest, in, errOut)
 	case "seed":
-		err = cmdSeed(os.Args[2:], os.Stdout)
+		err = cmdSeed(rest, out)
 	case "lint":
-		code, lerr := cmdLint(os.Args[2:], os.Stdout)
-		if lerr != nil {
-			fmt.Fprintln(os.Stderr, "yars:", lerr)
-		}
-		os.Exit(code)
+		code, err = cmdLint(rest, out)
 	default:
-		usage()
+		// the word is the caller's text: quoted, so it cannot write to the terminal
+		fmt.Fprintf(errOut, "yars: unknown command %q\n", name)
+		err = errUsage
+	}
+	switch {
+	case errors.Is(err, flag.ErrHelp):
+		return 0 // <command> -h: the flag list was printed, and that was the answer
+	case errors.Is(err, errUsage):
+		fmt.Fprint(errOut, usageText)
+		return 2
 	}
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "yars:", err)
-		os.Exit(1)
+		fmt.Fprintln(errOut, "yars:", err)
 	}
+	switch {
+	case code >= 0:
+		return code
+	case err != nil:
+		return 1
+	}
+	return 0
 }
 
 func cmdInit(args []string) error { return cmdInitOut(args, os.Stdout) }
@@ -1098,7 +1125,7 @@ func cmdInitOut(args []string, out io.Writer) error {
 		return fmt.Errorf("usage: yars init [--simple] <dir>: flags go before the folder; %q is after it", fs.Arg(1))
 	}
 	if fs.NArg() != 1 {
-		usage()
+		return errUsage
 	}
 	if err := initDataMode(fs.Arg(0), *simple); err != nil {
 		return err
