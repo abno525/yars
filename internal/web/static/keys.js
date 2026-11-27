@@ -154,12 +154,14 @@ function yarsCommentKey() {
 }
 
 // yarsKeyOf names a key the way aria-keyshortcuts does: "Shift+A",
-// "Control+S", "Control+Enter", "E", "/", "?", "Escape". It reads evt.key
-// (never evt.code, so other layouts work), uppercases letters and counts
-// Meta as Control. Shift is named for a letter or a named key only: for a
-// symbol it is part of the character ("?", not "Shift+?").
+// "Control+S", "Control+Enter", "E", "/", "?", "Escape". It reads evt.key,
+// so a Latin layout keeps its own letters; only a letter key of a layout
+// without Latin letters counts by its place (yarsLetter, app.js). It
+// uppercases letters and counts Meta as Control. Shift is named for a
+// letter or a named key only: for a symbol it is part of the character
+// ("?", not "Shift+?").
 function yarsKeyOf(evt) {
-  var k = evt.key;
+  var k = yarsLetter(evt);
   if (!k || k === 'Unidentified' || k === 'Dead') return '';
   if (k === ' ') k = 'Space';
   var named = k.length > 1;

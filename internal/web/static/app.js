@@ -673,8 +673,20 @@ function yarsGotoMove(step) {
   rows.forEach(function (r, k) { r.classList.toggle('sel', k === next); r.setAttribute('aria-selected', k === next ? 'true' : 'false'); });
   rows[next].scrollIntoView({block: 'nearest'});
 }
+// yarsLetter is the key a shortcut is matched by: evt.key, so every Latin
+// layout keeps its own letters (Dvorak, AZERTY). On a layout without Latin
+// letters (Cyrillic, Greek) a letter key gives a character no shortcut
+// names; it then counts as the Latin letter of its place (evt.code KeyA to
+// KeyZ). Not with AltGr: there the character is what was meant.
+function yarsLetter(evt) {
+  var k = evt.key;
+  if (k && k.length === 1 && k.charCodeAt(0) > 127 && /^Key[A-Z]$/.test(evt.code || '') &&
+      !(evt.getModifierState && evt.getModifierState('AltGraph'))) return evt.code.charAt(3);
+  return k;
+}
 document.addEventListener('keydown', function (evt) {
-  if ((evt.ctrlKey || evt.metaKey) && !evt.altKey && (evt.key === 'k' || evt.key === 'K')) {
+  var gk = yarsLetter(evt);
+  if ((evt.ctrlKey || evt.metaKey) && !evt.altKey && (gk === 'k' || gk === 'K')) {
     evt.preventDefault();
     yarsGotoOpen();
     return;
