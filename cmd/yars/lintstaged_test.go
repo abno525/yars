@@ -50,7 +50,7 @@ func newLintServer(t *testing.T, code int, body string) *lintServer {
 			}
 			return
 		}
-		ls.bodies = append(ls.bodies, r.Method+" "+r.URL.Path+"\n"+string(b))
+		ls.bodies = append(ls.bodies, r.Method+" "+r.URL.RequestURI()+"\n"+string(b))
 		ls.auths = append(ls.auths, u+":"+p)
 		code, body, sleep := ls.code, ls.body, ls.sleep
 		ls.mu.Unlock()
@@ -169,6 +169,38 @@ func TestLintStagedReadsIndexNotWorktree(t *testing.T) {
 	reqs := ls.requests()
 	if len(reqs) != 1 || !strings.HasPrefix(reqs[0], "POST /git/e/acme/lint\n") || !strings.Contains(reqs[0], "title: SQL injection") || strings.Contains(reqs[0], "not staged") {
 		t.Fatalf("requests %q", reqs)
+	}
+}
+
+// The pre-commit check asks for the pattern and built-in rules: a commit
+// does not wait for scripts and AI calls. --all asks the server for every
+// rule (all=1); the login check before it asks for nothing.
+func TestLintStagedAsksForAllOnlyWithAll(t *testing.T) {
+	ls := newLintServer(t, 200, `{"violations":[]}`)
+	dir := lintClone(t, withLogin(t, ls.URL, "alice", "pw")+"/git/e/acme")
+	var out bytes.Buffer
+	for _, args := range [][]string{{"--staged"}, {"--staged", "--warn-only"}, {"--staged", "--fast"}} {
+		if code, err := cmdLint(append(args, "--data", dir), &out); code != 0 || err != nil {
+			t.Fatalf("%v: exit %d %v\n%s", args, code, err, out.String())
+		}
+	}
+	for _, args := range [][]string{{"--staged", "--all"}, {"--staged", "--all", "--warn-only"}} {
+		if code, err := cmdLint(append(args, "--data", dir), &out); code != 0 || err != nil {
+			t.Fatalf("%v: exit %d %v\n%s", args, code, err, out.String())
+		}
+	}
+	reqs := ls.requests()
+	if len(reqs) != 5 {
+		t.Fatalf("requests %q", reqs)
+	}
+	for i, r := range reqs {
+		want := "POST /git/e/acme/lint\n"
+		if i >= 3 {
+			want = "POST /git/e/acme/lint?all=1\n"
+		}
+		if !strings.HasPrefix(r, want) {
+			t.Errorf("request %d: %q", i, r)
+		}
 	}
 }
 

@@ -31,7 +31,7 @@ What changed for people who run or use YARS. Newest first.
 - The team of an archived engagement cannot change. Reopen the engagement first.
 - Only an admin sets where a service destination publishes (project, issue type, space, parent page).
 - Only a director pushes `README.md` to the main repository, as `.gitignore`.
-- The pre-commit check (`yars lint --staged`) with a Git token runs script and AI rules only when the token has the Run checks action. Other tokens get the pattern and built-in rules.
+- The pre-commit check (`yars lint --staged`, the hook) runs the pattern and built-in rules only, so a commit no longer waits for scripts and AI calls (before: every rule, up to two minutes). `yars lint --staged --all` asks the server for the scripts and AI rules too; with a Git token it gets them only when the token has the Run checks action, with a password always. An installed hook needs no change. An older `yars` with the new server gets the pattern and built-in rules; a new `yars lint --staged --all` with an older server gets what that server ran before.
 - `yars seed` gives its accounts a random password and prints it. Without the size flags it makes 2 engagements of 20 findings with 50 messages (before: 50 of 300, with 10,000).
 - `/setup` asks for a setup code. `yars serve` logs the code at each start while there is no account. `yars useradd --admin` needs no code.
 - Settings › Tokens › New token asks for your password. `yars token add` does not.

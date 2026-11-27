@@ -100,7 +100,17 @@ func setupLint(t *testing.T) *lintEnv {
 // post sends body to the lint URL of eng as user/pw ("" user: no login).
 func (e *lintEnv) post(t *testing.T, method, eng, user, pw string, body []byte) (*http.Response, string) {
 	t.Helper()
-	req, _ := http.NewRequest(method, e.srv.URL+"/git/e/"+eng+"/lint", bytes.NewReader(body))
+	return e.postQ(t, method, eng, "", user, pw, body)
+}
+
+// postQ is post with a query string ("all=1": every rule).
+func (e *lintEnv) postQ(t *testing.T, method, eng, query, user, pw string, body []byte) (*http.Response, string) {
+	t.Helper()
+	u := e.srv.URL + "/git/e/" + eng + "/lint"
+	if query != "" {
+		u += "?" + query
+	}
+	req, _ := http.NewRequest(method, u, bytes.NewReader(body))
 	if user != "" {
 		req.SetBasicAuth(user, pw)
 	}
@@ -270,10 +280,50 @@ func TestLintEndpointRestrictedToken(t *testing.T) {
 	}
 }
 
-// A token runs script and AI rules on a posted body only with the Run checks
-// action (as MCP asks for lint_finding all=true); any other token gets the
-// fast rules, with 200, so the pre-commit hook keeps working. A password
-// login is the account itself and runs every rule, as its Check button does.
+// The lint endpoint runs the pattern and built-in rules. Scripts and AI
+// rules run only when the request asks for every rule (?all=1) and the login
+// may: a script that would mark its run is not started by a plain request,
+// nor by a read-only token that asks for all.
+func TestLintEndpointFastByDefault(t *testing.T) {
+	e := setupLint(t)
+	rd := filepath.Join(e.r.Dir, ".yars", "rules")
+	ran := filepath.Join(t.TempDir(), "ran")
+	if err := os.WriteFile(filepath.Join(rd, "style.yaml"), []byte(lintRule+"- id: scripted\n  level: warning\n  script: mark.sh\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(rd, "mark.sh"), []byte("#!/bin/sh\ncat >/dev/null\necho run >> "+ran+"\necho '[{\"message\":\"script ran\"}]'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	e.st.Linter = rules.NewEngine(rd, config.Default())
+	runs := func() int {
+		b, _ := os.ReadFile(ran)
+		return strings.Count(string(b), "run")
+	}
+	for _, c := range []struct {
+		name, query, pw string
+		script          bool
+	}{
+		{"a password, plain", "", "pw", false},
+		{"a read-only token, plain", "", e.tokR, false},
+		{"a read-only token asking for all", "all=1", e.tokR, false},
+		{"a password asking for all", "all=1", "pw", true},
+	} {
+		before := runs()
+		resp, body := e.postQ(t, "POST", "acme", c.query, "alice", c.pw, e.raw)
+		if resp.StatusCode != 200 || !strings.Contains(body, "title-no-trailing-dot") {
+			t.Fatalf("%s: %d %s", c.name, resp.StatusCode, body)
+		}
+		if ranNow := runs() > before; ranNow != c.script || strings.Contains(body, "script ran") != c.script {
+			t.Errorf("%s: the script ran: %v\n%s", c.name, ranNow, body)
+		}
+	}
+}
+
+// A request that asks for every rule (?all=1) runs script and AI rules on a
+// posted body only for a token with the Run checks action (as MCP asks for
+// lint_finding all=true) and for a password login, which is the account
+// itself. Any other token gets the fast rules, with 200. Without the
+// parameter every login gets the fast rules: it can only lower what runs.
 func TestLintEndpointSlowRulesNeedChecks(t *testing.T) {
 	e := setupLint(t)
 	var got []rules.Kind
@@ -302,13 +352,15 @@ func TestLintEndpointSlowRulesNeedChecks(t *testing.T) {
 		{"a token with every action", token(db.ScopeAll), rules.All},
 		{"the password", "pw", rules.All},
 	} {
-		got = nil
-		resp, body := e.post(t, "POST", "acme", "alice", c.pw, e.raw)
-		if resp.StatusCode != 200 || !strings.Contains(body, `"violations":[]`) {
-			t.Fatalf("%s: %d %s", c.name, resp.StatusCode, body)
-		}
-		if len(got) != 1 || got[0] != c.want {
-			t.Errorf("%s ran kinds %v, want %v", c.name, got, c.want)
+		for query, want := range map[string]rules.Kind{"all=1": c.want, "": rules.Fast, "all=0": rules.Fast, "all=true": rules.Fast, "fast=1": rules.Fast} {
+			got = nil
+			resp, body := e.postQ(t, "POST", "acme", query, "alice", c.pw, e.raw)
+			if resp.StatusCode != 200 || !strings.Contains(body, `"violations":[]`) {
+				t.Fatalf("%s %q: %d %s", c.name, query, resp.StatusCode, body)
+			}
+			if len(got) != 1 || got[0] != want {
+				t.Errorf("%s %q ran kinds %v, want %v", c.name, query, got, want)
+			}
 		}
 	}
 }

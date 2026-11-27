@@ -20,8 +20,10 @@ import (
 	"time"
 )
 
-// lintTimeout bounds the whole hook run: the server's AI rules can take as
-// long as a Check does, but a commit never waits longer than this.
+// lintTimeout bounds the whole run. The hook asks for the pattern and
+// built-in rules, which answer at once; with --all the server's scripts and
+// AI rules can take as long as a Check does. A commit never waits longer
+// than this.
 var lintTimeout = 120 * time.Second
 
 // notChecked is the exit code of yars lint --staged when the server could
@@ -147,7 +149,7 @@ type lintAnswer struct {
 // one line and counts nothing: a commit is never held up by it. warnOnly
 // adds "(commit not blocked)" to the last line.
 func lintStaged(ctx context.Context, dir string, out io.Writer, warnOnly bool) (errs, warns int, err error) {
-	errs, warns, _, err = lintStagedChecked(ctx, dir, out, warnOnly)
+	errs, warns, _, err = lintStagedChecked(ctx, dir, out, warnOnly, false)
 	return errs, warns, err
 }
 
@@ -156,7 +158,7 @@ func lintStaged(ctx context.Context, dir string, out io.Writer, warnOnly bool) (
 // asked (the line printed says why), so that 0 errors does not read as
 // clean. A commit that stages no finding is checked: there was nothing to
 // ask.
-func lintStagedChecked(ctx context.Context, dir string, out io.Writer, warnOnly bool) (errs, warns int, checked bool, err error) {
+func lintStagedChecked(ctx context.Context, dir string, out io.Writer, warnOnly, all bool) (errs, warns int, checked bool, err error) {
 	paths, err := stagedFindings(ctx, dir)
 	if err != nil || len(paths) == 0 {
 		return 0, 0, err == nil, err
@@ -216,6 +218,12 @@ func lintStagedChecked(ctx context.Context, dir string, out io.Writer, warnOnly 
 		fmt.Fprintf(out, "yars: could not ask %s: %s; nothing checked\n", host, reason)
 		return 0, 0, false, nil
 	}
+	// the server runs the pattern and built-in rules; with all it is asked
+	// for the scripts and AI rules too, which it runs when the login may
+	ask := endpoint
+	if all {
+		ask += "?all=1"
+	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	var (
@@ -233,7 +241,7 @@ func lintStagedChecked(ctx context.Context, dir string, out io.Writer, warnOnly 
 			if ctx.Err() != nil {
 				return
 			}
-			a, code, reason := askLint(ctx, client, endpoint, user, pass, raws[i])
+			a, code, reason := askLint(ctx, client, ask, user, pass, raws[i])
 			mu.Lock()
 			defer mu.Unlock()
 			if reason != "" {

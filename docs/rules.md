@@ -48,8 +48,8 @@ A pattern is matched against one part at a time: the title, a section's body or 
 
 Pattern and built-in rules run wherever a finding is checked. Scripts and AI rules take longer and run in fewer places:
 
-- The Check button, `start_check` and `lint_finding all=true` (MCP), the pre-commit check and the Test bench on **Admin › Rules** run every rule.
-- The pre-commit check signed in with a Git token runs scripts and AI rules only when the token has the Run checks action. Any other token gets the pattern and built-in rules. A password runs every rule.
+- The Check button, `start_check` and `lint_finding all=true` (MCP) and the Test bench on **Admin › Rules** run every rule.
+- The pre-commit check (`yars lint --staged`) runs the pattern and built-in rules, so a commit does not wait. `yars lint --staged --all` asks the server for scripts and AI rules too. Signed in with a Git token it gets them only when the token has the Run checks action; a password gets them.
 - A git push runs scripts, not AI rules.
 - `yars lint` runs the pattern and built-in rules only. `yars lint --all` adds scripts and AI rules.
 - `yars lint` on the server's data folder leaves out the results dismissed on the finding page and uses the provider, address, model and key saved on **Admin › AI**. In a clone there is no database: nothing is dismissed there and `config.yaml` alone sets the provider.
@@ -131,7 +131,7 @@ json.dump(hits, sys.stdout)
 
 ## Stored results
 
-The server keeps a run that works, in memory and in its database: for Check, `start_check` and `lint_finding all=true` (MCP), the pre-commit check (`yars lint --staged`) and the Test bench on **Admin › Rules**. There the script does not run again while the rules folder (every file in it, helpers too), the rule and the finding as the script reads it on stdin stay the same. A failure, a timeout or invalid output is not kept: the next check runs the script again.
+The server keeps a run that works, in memory and in its database: for Check, `start_check` and `lint_finding all=true` (MCP), the pre-commit check with every rule (`yars lint --staged --all`) and the Test bench on **Admin › Rules**. There the script does not run again while the rules folder (every file in it, helpers too), the rule and the finding as the script reads it on stdin stay the same. A failure, a timeout or invalid output is not kept: the next check runs the script again.
 
 A git push and `yars lint --all` run the script each time.
 
@@ -152,7 +152,7 @@ A stored result is deleted after the days set for check runs on **Admin › Syst
 | Environment | `PATH`, `HOME` |
 | Working directory | the script's own folder (`.yars/rules`, or `.yars/rules/lib` for `lib/x.py`) |
 | Script path | inside `.yars/rules` · symlinks resolved · executable |
-| Runs | Check button · `start_check` and `lint_finding all=true` (MCP) · pre-commit check · Test bench · `yars lint --all` · git push |
+| Runs | Check button · `start_check` and `lint_finding all=true` (MCP) · `yars lint --staged --all` · Test bench · `yars lint --all` · git push |
 
 ## Failures
 

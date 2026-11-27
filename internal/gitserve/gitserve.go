@@ -466,13 +466,16 @@ func (s *Server) Handler() http.Handler {
 		if eng != "" && r.URL.Path == root+"/lint" {
 			// answered here, after the login, the team and the token's
 			// engagements. Any token may lint, a read-only one too (the
-			// pre-commit hook works with it), but scripts and AI run on the
-			// posted body only for a token with the Run checks action, as
-			// over MCP; a password login is the account itself and runs
-			// every rule, as its Check button does.
-			kinds := rules.All
-			if tok != nil && !tok.Allows("checks") {
-				kinds = rules.Fast
+			// pre-commit hook works with it). The pattern and built-in
+			// rules run: a commit does not wait for scripts and AI calls.
+			// Those run on the posted body only when the request asks for
+			// every rule (?all=1, yars lint --staged --all) and the login
+			// may: a token with the Run checks action, as over MCP, or a
+			// password, which is the account itself. The parameter can only
+			// ask; it never gives a token more than its actions.
+			kinds := rules.Fast
+			if r.URL.Query().Get("all") == "1" && (tok == nil || tok.Allows("checks")) {
+				kinds = rules.All
 			}
 			s.lint(w, r, u, eng, kinds)
 			return

@@ -816,7 +816,7 @@ func cmdLint(args []string, out io.Writer) (int, error) {
 	fs := flag.NewFlagSet("lint", flag.ContinueOnError)
 	data := dataFlag(fs)
 	fs.Bool("fast", true, "only regex and built-in rules (the default)")
-	all := fs.Bool("all", false, "also run script and AI rules (runs code from the repo and sends text to the AI provider)")
+	all := fs.Bool("all", false, "also run script and AI rules (runs code from the repo and sends text to the AI provider); with --staged: ask the server for them")
 	staged := fs.Bool("staged", false, "ask the server to check the findings staged in the engagement clone in the current folder (or --data)")
 	warnOnly := fs.Bool("warn-only", false, "with --staged: always exit 0")
 	if err := fs.Parse(args); err != nil {
@@ -838,7 +838,7 @@ func cmdLint(args []string, out io.Writer) (int, error) {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), lintTimeout)
 		defer cancel()
-		errs, _, checked, err := lintStagedChecked(ctx, dir, out, *warnOnly)
+		errs, _, checked, err := lintStagedChecked(ctx, dir, out, *warnOnly, *all)
 		switch {
 		case *warnOnly:
 			if err != nil {
@@ -983,7 +983,7 @@ func usage() {
   yars backup --data <dir> [--key] --out <file.zip>
   yars restore --from <file.zip> --data <new dir>
   yars lint --data <dir> [--all] [eng[/finding]]
-  yars lint --staged [--warn-only] [--data <engagement clone>]   (the server checks what is being committed; exit 1: errors, 3: not checked)
+  yars lint --staged [--all] [--warn-only] [--data <engagement clone>]   (the server checks what is being committed, with --all also by scripts and AI rules; exit 1: errors, 3: not checked)
   yars hook install [--data <clone>]   (a pre-commit hook in every engagement of the clone)
   yars export --data <dir> --exporter <id> [--out <file>] [--force] <eng> [<finding>…]   (--force: replace the file)
   yars mcp --data <clone> --user <name>
