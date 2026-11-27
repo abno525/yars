@@ -1809,6 +1809,10 @@ code.plain { font: 500 13px var(--mono); color: var(--text); background: transpa
 
 /* ---------- M18: admin › webhooks, footer ---------- */
 .adminfoot { display: flex; gap: 24px; padding-top: 16px; border-top: 1px solid var(--line); font: 600 14px var(--sans); }
+/* the Deliveries head: the webhook's address (cut), Send test 112, New secret 112 */
+.dlhead { min-width: 0; display: flex; align-items: center; gap: 8px; }
+.dlhead .clip { min-width: 0; margin-right: 8px; }
+.dlhead form { margin: 0; flex: none; display: flex; }
 .hooktable th.c-events { width: 300px; }
 .dltable th.c-events { width: 220px; }
 .hooktable th.c-last { width: 168px; }

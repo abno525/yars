@@ -21,6 +21,7 @@ What changed for people who run or use YARS. Newest first.
 - Admin › System › Log has the switch Debug level for 15 minutes: it sets the service log to `debug` without a restart and turns itself off. Each change is in Admin › Activity.
 - The finding page has a Take back button, beside Withdraw, for the author and a director while the finding is in verification (before: the bulk bar and MCP only). Its key is Shift+T, and it acts at once, as every workflow key.
 - Over MCP, `tools/list` gives each tool its annotations: `readOnlyHint`, `destructiveHint` and `openWorldHint` ([docs/mcp.md](docs/mcp.md)).
+- Admin › Webhooks: the Deliveries panel of a webhook has New secret and Send test. New secret replaces the secret in place and shows it once; the deliveries stay (before: delete the webhook and add it again, which removed them). Send test sends one signed delivery of the event `ping`, listed with its status. Both are in Admin › Activity (`webhook.rotate`, `webhook.test`).
 - `docs/deploy.md` has a Logs section: the journalctl commands, the levels, the fields, what a line never holds, the request ID, and a fail2ban example for the failed-login lines in their new form.
 
 ### Changed

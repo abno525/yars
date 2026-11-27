@@ -38,6 +38,13 @@ def first_time(headers) -> bool:
 
 A delivery queued by a version without event IDs has no `X-YARS-Event-ID` header and no `id`.
 
+## New secret and test
+
+Select a webhook in the list. Its Deliveries panel has two buttons.
+
+- **New secret** replaces the secret and shows the new one once. The webhook and its deliveries stay. There is no time in which both secrets work: a delivery still waiting is signed with the new secret at its next try. Change the receiver right after.
+- **Send test** queues one delivery of the event `ping`. It is signed and listed as any other, and it is tried once. Its payload is `{"id": …, "event": "ping", "at": …, "url": …}`. A test that fails does not count towards the switch-off. A webhook that is off cannot be tested.
+
 ## Example payload
 
 ```json

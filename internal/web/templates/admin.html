@@ -59,7 +59,8 @@
 </section>
 {{if .Selected}}
 <section class="panel">
-  <div class="panelhead"><h2>Deliveries</h2><span class="mono clip" title="{{.SelURL}}">{{.SelURL}}</span></div>
+  {{/* the head's right side: the address, then two buttons of a fixed width (Send test is disabled for a webhook that is off) */}}
+  <div class="panelhead"><h2>Deliveries</h2><div class="dlhead"><span class="mono clip" title="{{.SelURL}}">{{.SelURL}}</span><form method="post" action="/admin/webhooks/{{.Selected}}/test"><button class="btn secondary sm w112"{{if not .SelOn}} disabled{{end}}>Send test</button></form><form method="post" action="/admin/webhooks/{{.Selected}}/rotate"><button class="btn secondary sm w112" data-confirm="Replace the secret of the webhook to {{.SelURL}}?">New secret</button></form></div></div>
   <table class="table stable dltable">
     <thead><tr><th class="c-time">When</th><th class="c-events">Event</th><th class="c-state">State</th><th class="c-num">Status</th><th class="c-num">Tries</th><th>Error</th><th class="c-act2">Action</th></tr></thead>
     <tbody>

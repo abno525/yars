@@ -171,21 +171,71 @@ func (s *Service) Create(rawURL string, events []string, by string) (int64, stri
 	if err := ValidEvents(events); err != nil {
 		return 0, "", err
 	}
-	box, err := s.Secrets()
-	if err != nil {
-		return 0, "", err
-	}
-	b := make([]byte, 24)
-	if _, err := rand.Read(b); err != nil {
-		return 0, "", err
-	}
-	sec := "whsec_" + hex.EncodeToString(b)
-	enc, err := box.Encrypt(sec)
+	sec, enc, err := s.newSecret()
 	if err != nil {
 		return 0, "", err
 	}
 	id, err := s.DB.AddWebhook(db.Webhook{URL: rawURL, Events: events, SecretEnc: enc, Last4: sec[len(sec)-4:], Enabled: true, CreatedBy: by})
 	return id, sec, err
+}
+
+// newSecret makes a webhook secret and its stored (encrypted) form.
+func (s *Service) newSecret() (string, string, error) {
+	box, err := s.Secrets()
+	if err != nil {
+		return "", "", err
+	}
+	b := make([]byte, 24)
+	if _, err := rand.Read(b); err != nil {
+		return "", "", err
+	}
+	sec := "whsec_" + hex.EncodeToString(b)
+	enc, err := box.Encrypt(sec)
+	return sec, enc, err
+}
+
+// Rotate gives webhook id a new secret and returns it (shown once). The
+// webhook and its deliveries stay; a delivery still waiting is signed with
+// the new secret at its next try, since each try reads the secret.
+func (s *Service) Rotate(id int64) (string, error) {
+	sec, enc, err := s.newSecret()
+	if err != nil {
+		return "", err
+	}
+	return sec, s.DB.SetWebhookSecret(id, enc, sec[len(sec)-4:])
+}
+
+// Ping queues a test delivery for webhook id (ok false: the webhook is off,
+// nothing is queued). It is a delivery as any other: listed, signed, sent by
+// the worker through the same client. Its payload holds the event's ID, the
+// event and the time, and nothing of an engagement.
+func (s *Service) Ping(id int64) (bool, error) {
+	h, found, err := s.DB.WebhookByID(id)
+	if err != nil {
+		return false, err
+	}
+	if !found {
+		return false, db.ErrNotFound
+	}
+	if !h.Enabled {
+		return false, nil
+	}
+	base := ""
+	if s.BaseURL != nil {
+		base = s.BaseURL()
+	}
+	now := s.now()
+	b, _ := json.Marshal(struct {
+		ID    string `json:"id"`
+		Event string `json:"event"`
+		At    string `json:"at"`
+		URL   string `json:"url"`
+	}{newEventID(), EventPing, now.Format(time.RFC3339), base + "/"})
+	if _, err := s.DB.EnqueueDelivery(id, EventPing, string(b), now); err != nil {
+		return false, err
+	}
+	s.wake()
+	return true, nil
 }
 
 type findingJSON struct {
@@ -320,7 +370,8 @@ func (s *Service) attempt(d db.Delivery) error {
 	start := time.Now()
 	status, errText, why := s.send(d)
 	next := time.Time{}
-	if errText != "" && errText != errDisabled && d.Attempts+1 < MaxTries {
+	// a test delivery is tried once: its outcome is what the admin asked for
+	if errText != "" && errText != errDisabled && d.Attempts+1 < MaxTries && d.Event != EventPing {
 		next = s.now().Add(wait(d.Attempts + 1))
 	}
 	// the try's one line: IDs, the event, the status and the try's number.

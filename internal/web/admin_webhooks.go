@@ -20,6 +20,7 @@ type hooksAdmin struct {
 	Secret   string // a new webhook's secret, shown once
 	Selected int64  // the webhook whose deliveries are listed
 	SelURL   string
+	SelOn    bool // it is enabled: a test can be sent
 	Log      []deliveryRow
 }
 
@@ -52,6 +53,8 @@ func (s *Server) routesAdminWebhooks(mux *http.ServeMux) {
 	mux.HandleFunc("POST /admin/webhooks/{id}", s.adminOnly(s.hookUpdate))
 	mux.HandleFunc("POST /admin/webhooks/{id}/toggle", s.adminOnly(s.hookToggle))
 	mux.HandleFunc("POST /admin/webhooks/{id}/delete", s.adminOnly(s.hookDelete))
+	mux.HandleFunc("POST /admin/webhooks/{id}/rotate", s.adminOnly(s.hookRotate))
+	mux.HandleFunc("POST /admin/webhooks/{id}/test", s.adminOnly(s.hookTest))
 	mux.HandleFunc("POST /admin/webhooks/deliveries/{id}/redeliver", s.adminOnly(s.hookRedeliver))
 }
 
@@ -87,7 +90,7 @@ func (s *Server) hooksFill(p *page, sel int64, f hookForm, picked []string) erro
 		}
 		v.Rows = append(v.Rows, r)
 		if h.ID == sel {
-			v.Selected, v.SelURL = h.ID, h.URL
+			v.Selected, v.SelURL, v.SelOn = h.ID, h.URL, h.Enabled
 		}
 	}
 	if v.Selected != 0 {
@@ -100,8 +103,12 @@ func (s *Server) hooksFill(p *page, sel int64, f hookForm, picked []string) erro
 			if x.Status > 0 {
 				code = strconv.Itoa(x.Status)
 			}
+			tries := webhook.MaxTries
+			if x.Event == webhook.EventPing {
+				tries = 1 // a test is tried once
+			}
 			v.Log = append(v.Log, deliveryRow{ID: x.ID, Event: x.Event, At: when(x.Created), State: x.State, Status: code,
-				Tries: strconv.Itoa(x.Attempts) + "/" + strconv.Itoa(webhook.MaxTries), Error: x.Error})
+				Tries: strconv.Itoa(x.Attempts) + "/" + strconv.Itoa(tries), Error: x.Error})
 		}
 	}
 	for _, e := range webhook.Events {
@@ -236,6 +243,49 @@ func (s *Server) hookDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	s.Store.DB().Audit(u.Username, "webhook.delete", h.URL, "")
 	http.Redirect(w, r, "/admin/webhooks", http.StatusSeeOther)
+}
+
+// hookRotate gives a webhook a new secret, shown once on the page after the
+// redirect as a new webhook's is: never in the address, the answer, the
+// audit log or a log line.
+func (s *Server) hookRotate(w http.ResponseWriter, r *http.Request) {
+	u := auth.UserFrom(r.Context())
+	id, ok := hookID(r)
+	h, found, err := s.Store.DB().WebhookByID(id)
+	if !ok || err != nil || !found {
+		http.NotFound(w, r)
+		return
+	}
+	sec, err := s.Webhooks.Rotate(id)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	s.Store.DB().Audit(u.Username, "webhook.rotate", h.URL, "")
+	s.flash.put(r, "webhook", sec)
+	http.Redirect(w, r, "/admin/webhooks?hook="+strconv.FormatInt(id, 10), http.StatusSeeOther)
+}
+
+// hookTest queues a test delivery (event ping) for a webhook that is on; the
+// Deliveries table shows how it went.
+func (s *Server) hookTest(w http.ResponseWriter, r *http.Request) {
+	u := auth.UserFrom(r.Context())
+	id, ok := hookID(r)
+	h, found, err := s.Store.DB().WebhookByID(id)
+	if !ok || err != nil || !found {
+		http.NotFound(w, r)
+		return
+	}
+	sent, err := s.Webhooks.Ping(id)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	if sent {
+		s.startHooks()
+		s.Store.DB().Audit(u.Username, "webhook.test", h.URL, "")
+	}
+	http.Redirect(w, r, "/admin/webhooks?hook="+strconv.FormatInt(id, 10), http.StatusSeeOther)
 }
 
 func (s *Server) hookRedeliver(w http.ResponseWriter, r *http.Request) {

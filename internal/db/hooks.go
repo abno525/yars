@@ -138,6 +138,12 @@ func (d *DB) SetWebhookEnabled(id int64, on bool) error {
 	return d.hookUpdate("UPDATE webhooks SET enabled = ?, failures = CASE WHEN ? = 1 THEN 0 ELSE failures END WHERE id = ?", b2i(on), b2i(on), id)
 }
 
+// SetWebhookSecret gives a webhook another secret (its encrypted form and
+// its ending); the webhook and its deliveries stay.
+func (d *DB) SetWebhookSecret(id int64, enc, last4 string) error {
+	return d.hookUpdate("UPDATE webhooks SET secret_enc = ?, last4 = ? WHERE id = ?", enc, last4, id)
+}
+
 // DeleteWebhook removes a webhook and its deliveries.
 func (d *DB) DeleteWebhook(id int64) error {
 	return d.hookUpdate("DELETE FROM webhooks WHERE id = ?", id)
