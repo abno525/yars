@@ -209,9 +209,31 @@ func XHTML(in Input, confluenceMacros bool) string {
 	return b.String()
 }
 
-// writeSections renders the finding's non-empty sections, each under an h2.
-func writeSections(b *strings.Builder, f *finding.Finding, in Input, confluenceMacros bool) {
+// sectionsOf is a finding's sections in report order: the configured
+// sections in the configuration's order, then the ones it does not name in
+// the file's order. A file may have them in any order (a push), and a name
+// twice (an old file): those stay together, in the file's order.
+func sectionsOf(f *finding.Finding, in Input) []finding.Section {
+	out := make([]finding.Section, 0, len(f.Sections))
+	for _, name := range in.Cfg.Sections {
+		for _, s := range f.Sections {
+			if s.Name == name {
+				out = append(out, s)
+			}
+		}
+	}
 	for _, s := range f.Sections {
+		if !slices.Contains(in.Cfg.Sections, s.Name) {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// writeSections renders the finding's non-empty sections, each under an h2,
+// in report order (sectionsOf).
+func writeSections(b *strings.Builder, f *finding.Finding, in Input, confluenceMacros bool) {
+	for _, s := range sectionsOf(f, in) {
 		body := strings.Trim(s.Body, "\n")
 		if strings.TrimSpace(body) == "" {
 			continue

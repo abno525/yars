@@ -155,7 +155,7 @@ func jiraText(f *finding.Finding, in Input) string {
 			fmt.Fprintf(&b, "|%s|%s|%s|\n", cell(r[0]), cell(r[1]), cell(r[2]))
 		}
 	}
-	for _, s := range f.Sections {
+	for _, s := range sectionsOf(f, in) {
 		body := strings.Trim(s.Body, "\n")
 		if strings.TrimSpace(body) == "" {
 			continue
