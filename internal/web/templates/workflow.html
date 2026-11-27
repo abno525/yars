@@ -63,7 +63,7 @@
   <form method="post" action="{{.URL}}" class="wfpanel {{.Slot}}" id="{{.PanelID}}"{{if not .Open}} hidden{{end}}>
     <div class="panelhead"><h2>{{.PanelHead}}</h2></div>
     <label class="reason"><span>Reason <span class="req">Required</span></span>
-      <textarea name="reason" required rows="4">{{.Reason}}</textarea>
+      <textarea name="reason" required rows="4" maxlength="4000">{{.Reason}}</textarea>
     </label>
     <div class="pfoot">
       <button class="btn {{.Class}} sm w96" aria-keyshortcuts="Control+Enter">{{.Label}}</button>

@@ -6,7 +6,7 @@
   </div>
   {{template "chat_list" .}}
   {{if not .ReadOnly}}
-  <form class="composer" hx-post="{{.PostURL}}" hx-target="#chat" hx-swap="outerHTML">
+  <form class="composer" hx-post="{{.PostURL}}" hx-target="#chat" hx-swap="outerHTML" hx-disabled-elt="find button">
     {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
     <textarea name="text" rows="3" placeholder="Message" aria-label="Message" id="chat-text">{{.Text}}</textarea>
     <div class="composer-row">
@@ -59,7 +59,7 @@
       {{range .Replies}}<div class="reply">{{template "chat_msg" .}}</div>{{end}}
       {{if not $.ReadOnly}}
       <div class="thread-actions">
-        <form class="reply-form" hx-post="{{$.PostURL}}" hx-target="#chat-list" hx-swap="outerHTML">
+        <form class="reply-form" hx-post="{{$.PostURL}}" hx-target="#chat-list" hx-swap="outerHTML" hx-disabled-elt="find button">
           <input type="hidden" name="reply" value="{{.Root.ID}}">
           {{if $.All}}<input type="hidden" name="all" value="1">{{end}}
           <input name="text" id="reply-{{.Root.ID}}" placeholder="Reply" aria-label="Reply"{{if and $.ReplyTo (eq $.ReplyTo .Root.ID)}} value="{{$.ReplyText}}"{{end}}>

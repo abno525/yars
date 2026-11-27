@@ -264,6 +264,47 @@ document.addEventListener('click', function (evt) {
   navigator.clipboard.writeText(src.textContent.trim()).then(function () { yarsToast('Copied'); });
 });
 
+// Double submit: a plain form (method post, not htmx's) is sent once. A
+// sent form is marked (data-sent) and its second submit is stopped. Its
+// submit buttons are disabled only after the event: a button disabled
+// inside it would be left out of the form's data (name="op", "all", "dest",
+// a formaction). The mark goes after a few seconds and on pageshow: a form
+// that answers with a file (Download backup) stays on the page, and Back
+// shows the page from the browser's cache.
+var yarsSentMs = 3000;
+function yarsSentButtons(form) {
+  return Array.prototype.filter.call(form.elements, function (el) {
+    return el.tagName === 'BUTTON' && el.type === 'submit';
+  });
+}
+function yarsSentClear(form) {
+  if (!form.hasAttribute('data-sent')) return;
+  form.removeAttribute('data-sent');
+  yarsSentButtons(form).forEach(function (b) {
+    if (!b.yarsSent) return;
+    b.yarsSent = false;
+    b.disabled = false;
+    // the pressed button lost the focus when it was disabled
+    if (b.yarsSentFocus && (!document.activeElement || document.activeElement === document.body)) b.focus({preventScroll: true});
+    b.yarsSentFocus = false;
+  });
+}
+document.addEventListener('submit', function (evt) {
+  var f = evt.target, by = evt.submitter;
+  if (!f || f.tagName !== 'FORM' || evt.defaultPrevented) return;
+  var method = String((by && by.getAttribute('formmethod')) || f.getAttribute('method') || 'get').toLowerCase();
+  if (method !== 'post' || f.hasAttribute('hx-post')) return;
+  if (f.hasAttribute('data-sent')) { evt.preventDefault(); return; }
+  f.setAttribute('data-sent', '');
+  setTimeout(function () {
+    if (!f.hasAttribute('data-sent')) return;
+    var a = document.activeElement;
+    yarsSentButtons(f).forEach(function (b) { if (!b.disabled) { b.disabled = true; b.yarsSent = true; b.yarsSentFocus = b === a; } });
+  }, 0);
+  setTimeout(function () { yarsSentClear(f); }, yarsSentMs);
+});
+window.addEventListener('pageshow', function () { document.querySelectorAll('form[data-sent]').forEach(yarsSentClear); });
+
 // yarsComment points the chat composer at a section and focuses it (showing
 // the chat first when it is hidden).
 function yarsComment(section) {
