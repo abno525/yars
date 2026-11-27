@@ -66,7 +66,7 @@ A result that is right to ignore can be dismissed. A dismissal needs a reason. R
 - An error: the same, and the reviewer role or more.
 - An error on your own finding: another reviewer or a director dismisses it, whatever your role, and restores it. A team needs a second person with the reviewer role or more for that. In the simple workflow you dismiss it yourself.
 - A dismissal covers one result: that rule, that place and that quote. The same quote in another place still counts.
-- A rule renamed on **Admin › Rules** keeps its dismissals. A rule renamed by hand in its file does not: to the server it is a new rule.
+- A rule renamed on **Admin › Rules** keeps its dismissals, its stored results and their chat threads. A rule renamed by hand in its file does not: to the server it is a new rule.
 - In an archived engagement nothing is dismissed or restored.
 - Each dismissal and each restore is a row in the audit log (Admin › Activity): who, the finding, the rule, its level and place, and the reason. The quote is not in it.
 

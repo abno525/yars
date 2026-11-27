@@ -437,14 +437,19 @@ func (tx *Tx) Dismiss(x Dismissal) error {
 	return err
 }
 
-// MoveDismissals gives the dismissals of rule from to rule to, in every
-// engagement (the rule was renamed), and returns how many moved. A place
-// that rule to has a dismissal for already keeps that one; from's is
-// dropped, so none is left under the old ID.
-func (d *DB) MoveDismissals(from, to string) (int, error) {
-	moved := 0
-	err := d.Tx(func(tx *Tx) error {
-		rows, err := tx.Query("SELECT DISTINCT eng FROM dismissals WHERE rule = ?", from)
+// RenameRule gives what is stored under rule from to rule to, in every
+// engagement (the rule was renamed), in one transaction: its dismissals
+// (moved is how many), and the results and steps of the stored check runs,
+// so a result dismissed before is the dismissed result still, and its chat
+// thread stays the result's (CheckThreadRefs). A place that rule to has a
+// dismissal for already keeps that one; from's is dropped, so none is left
+// under the old ID. A run that has a step of rule to already keeps that step
+// and from's beside it.
+func (d *DB) RenameRule(from, to string) (moved int, err error) {
+	err = d.Tx(func(tx *Tx) error {
+		rows, err := tx.Query(`SELECT eng FROM dismissals WHERE rule = ?
+			UNION SELECT c.eng FROM check_runs c JOIN check_results r ON r.run_id = c.id WHERE r.rule = ?
+			UNION SELECT c.eng FROM check_runs c JOIN check_steps x ON x.run_id = c.id WHERE x.rule = ?`, from, from, from)
 		if err != nil {
 			return err
 		}
@@ -473,7 +478,13 @@ func (d *DB) MoveDismissals(from, to string) (int, error) {
 			return err
 		}
 		moved = int(n)
-		_, err = tx.Exec("DELETE FROM dismissals WHERE rule = ?", from)
+		if _, err = tx.Exec("DELETE FROM dismissals WHERE rule = ?", from); err != nil {
+			return err
+		}
+		if _, err = tx.Exec("UPDATE check_results SET rule = ? WHERE rule = ?", to, from); err != nil {
+			return err
+		}
+		_, err = tx.Exec("UPDATE OR IGNORE check_steps SET rule = ? WHERE rule = ?", to, from)
 		return err
 	})
 	return moved, err

@@ -138,10 +138,11 @@ func TestCheckRunLifecycle(t *testing.T) {
 	}
 }
 
-// A renamed rule's dismissals move to the new ID in every engagement. Where
-// the new ID has one for the same place already, that one stays and the old
-// one goes: nothing is left under the old ID.
-func TestMoveDismissals(t *testing.T) {
+// A renamed rule's dismissals move to the new ID in every engagement, and so
+// do the results and steps of its stored runs. Where the new ID has a
+// dismissal for the same place already, that one stays and the old one goes:
+// nothing is left under the old ID.
+func TestRenameRule(t *testing.T) {
 	d, _ := open(t)
 	for _, x := range []Dismissal{
 		{Eng: "e", Fid: "F-001", Rule: "old", QuoteHash: "q1", Level: "error", By: "bob", Reason: "r1"},
@@ -154,7 +155,20 @@ func TestMoveDismissals(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	n, err := d.MoveDismissals("old", "new")
+	// a stored run with results and a step of the old rule, and of another
+	run, err := d.StartRun("f", "F-001", "h", "alice", "v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.AddSteps([]CheckStep{{RunID: run, Pos: 0, Rule: "old", State: StepHits, Hits: 1}, {RunID: run, Pos: 1, Rule: "other", State: StepHits, Hits: 1}})
+	if err := d.TxFor("f", func(tx *Tx) error {
+		return tx.FinishRun(run, RunDone, "", []CheckResult{
+			{Rule: "old", Level: "warning", Message: "m", Target: "title", Quote: "q", QuoteHash: "q1", Thread: "c1"},
+			{Rule: "other", Level: "error", Message: "m", Target: "title", Quote: "q", QuoteHash: "q1", Thread: "c2"}})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	n, err := d.RenameRule("old", "new")
 	if err != nil || n != 2 {
 		t.Fatalf("moved %d, %v", n, err)
 	}
@@ -164,7 +178,18 @@ func TestMoveDismissals(t *testing.T) {
 		len(f) != 1 || f[DismissKey("new", "q1")].By != "alice" {
 		t.Fatalf("e %+v\nf %+v", e, f)
 	}
-	if n, err := d.MoveDismissals("old", "new"); err != nil || n != 0 {
+	// the stored run's results and steps are the new rule's: the dismissed
+	// result is not counted, and its thread is the new rule's
+	res, _ := d.RunResults(run)
+	steps, _ := d.RunSteps(run)
+	if len(res) != 2 || res[0].Rule != "new" || res[0].Thread != "c1" || res[1].Rule != "other" ||
+		len(steps) != 2 || steps[0].Rule != "new" || steps[0].Hits != 1 || steps[1].Rule != "other" {
+		t.Fatalf("results %+v\nsteps %+v", res, steps)
+	}
+	if runs, err := d.LatestRuns([][2]string{{"f", "F-001"}}); err != nil || runs["f/F-001"].Warnings != 0 || runs["f/F-001"].Errors != 1 {
+		t.Fatalf("counts %+v %v", runs, err)
+	}
+	if n, err := d.RenameRule("old", "new"); err != nil || n != 0 {
 		t.Fatalf("a second move: %d, %v", n, err)
 	}
 }

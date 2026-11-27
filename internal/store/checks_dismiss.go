@@ -136,15 +136,18 @@ func (s *Store) DismissWhy(engID, dir, rule, target, quote, reason string, u con
 }
 
 // RuleRenamed moves the dismissals of rule from to rule to in every
-// engagement, archived ones too: a rule renamed on Admin › Rules is the
-// same rule, and what was dismissed for it stays dismissed. It is called
-// once the rename is committed. The audit log gets one row with both IDs
-// and the count; the commit's own row names the new ID only.
+// engagement, archived ones too, and with them the results and steps of the
+// stored check runs: a rule renamed on Admin › Rules is the same rule, and
+// what was dismissed for it stays dismissed, also before the next check
+// (the stored results are what the gate and the Checks strip read, and what
+// a result's chat thread is found by). It is called once the rename is
+// committed. The audit log gets one row with both IDs and the count of
+// dismissals; the commit's own row names the new ID only.
 func (s *Store) RuleRenamed(from, to, actor string) error {
 	if s.db == nil || from == to {
 		return nil
 	}
-	n, err := s.db.MoveDismissals(from, to)
+	n, err := s.db.RenameRule(from, to)
 	if err != nil {
 		return err
 	}
@@ -153,9 +156,7 @@ func (s *Store) RuleRenamed(from, to, actor string) error {
 		moved = "1 dismissal moved"
 	}
 	s.db.Audit(actor, "rules.rename", to, from+" → "+to+" · "+moved)
-	if n > 0 {
-		s.Invalidate("")
-	}
+	s.Invalidate("") // stored results moved too, counted or not
 	return nil
 }
 
