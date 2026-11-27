@@ -936,12 +936,14 @@ setInterval(function () {
 // the next page load, whoever is signed in.
 function yarsUser() { return document.documentElement.getAttribute('data-user') || ''; }
 function yarsDraftKey(form) { return 'yars-draft:' + yarsUser() + ':' + (form.getAttribute('hx-post') || ''); }
-// yarsForget removes the localStorage entries whose key starts with prefix.
-function yarsForget(prefix) {
+// yarsForget removes the entries whose key starts with prefix from
+// localStorage, or from st (sessionStorage) when given.
+function yarsForget(prefix, st) {
   try {
-    for (var i = localStorage.length - 1; i >= 0; i--) {
-      var k = localStorage.key(i);
-      if (k && k.indexOf(prefix) === 0) localStorage.removeItem(k);
+    st = st || localStorage;
+    for (var i = st.length - 1; i >= 0; i--) {
+      var k = st.key(i);
+      if (k && k.indexOf(prefix) === 0) st.removeItem(k);
     }
   } catch (e) { /* no storage: nothing kept */ }
 }
@@ -970,7 +972,50 @@ document.addEventListener('submit', function (evt) {
   if (!evt.target.matches || !evt.target.matches('form[action="/logout"]')) return;
   try { localStorage.removeItem('htmx-history-cache'); } catch (e) { /* no storage */ }
   if (yarsUser()) yarsForget('yars-draft:' + yarsUser() + ':');
+  yarsForget('yars-list:' + yarsUser() + ':', sessionStorage);
 });
+
+// Findings list: its filter, sort and search are in its address only. The
+// list page keeps that query for this tab, account and engagement
+// (sessionStorage "yars-list:<user>:<engagement>"), and the links that lead
+// back to the list (data-list: the crumb, Findings in the top bar, the
+// Findings tab) get it on every other page. On the list itself they stay
+// bare: a click there is the way to the whole list. Log out forgets them.
+function yarsListKey(eng) { return 'yars-list:' + yarsUser() + ':' + eng; }
+// yarsOnList: the engagement whose findings list this page is, else ''.
+function yarsOnList() {
+  var m = /^\/e\/([^\/]+)$/.exec(location.pathname);
+  return m && document.getElementById('findings') ? m[1] : '';
+}
+function yarsListKeep() {
+  var eng = yarsOnList();
+  if (!eng) return;
+  try {
+    // offset and keep are a page of the list, not the list
+    var q = new URLSearchParams(location.search);
+    q.delete('offset');
+    q.delete('keep');
+    var s = q.toString();
+    sessionStorage.setItem(yarsListKey(eng), s ? '?' + s : '');
+  } catch (e) { /* not kept */ }
+}
+// the link's own path with the kept query: what is stored never becomes a
+// path or another address
+function yarsListLinks(root) {
+  if (yarsOnList() || !root || !root.querySelectorAll) return;
+  Array.prototype.forEach.call(root.querySelectorAll('a[data-list]'), function (a) {
+    var s = null;
+    try { s = sessionStorage.getItem(yarsListKey(a.getAttribute('data-list'))); } catch (e) { /* none kept */ }
+    if (!s || s.charAt(0) !== '?') return;
+    a.setAttribute('href', a.pathname + s);
+  });
+}
+document.addEventListener('DOMContentLoaded', function () { yarsListKeep(); yarsListLinks(document); });
+['htmx:pushedIntoHistory', 'htmx:replacedInHistory', 'htmx:historyRestore'].forEach(function (n) {
+  document.addEventListener(n, yarsListKeep);
+});
+// the finding's head swaps itself on live events and brings the bare link
+document.addEventListener('htmx:load', function (evt) { yarsListLinks(evt.detail.elt && evt.detail.elt.parentNode || document); });
 function yarsDraft(form) {
   try { var d = JSON.parse(localStorage.getItem(yarsDraftKey(form)) || 'null'); return d && typeof d.text === 'string' ? d : null; } catch (e) { return null; }
 }

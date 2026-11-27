@@ -105,7 +105,7 @@ the table's column count. */}}
   </div>
 </div>
 {{template "archive_bar" .Archive}}
-<nav class="etabs" aria-label="Engagement">{{range .ETab.Items}}<a{{with .Keys}} aria-keyshortcuts="{{.}}"{{end}} class="etab{{if .Active}} on{{end}}" href="{{.URL}}"{{if .Active}} aria-current="page"{{end}}>{{.Label}}{{if eq .Key "board"}} {{if .Count}}<span class="badge">{{.Count}}</span>{{else}}<span class="badge0">0</span>{{end}}{{end}}</a>{{end}}</nav>
+<nav class="etabs" aria-label="Engagement">{{range .ETab.Items}}<a{{with .Keys}} aria-keyshortcuts="{{.}}"{{end}}{{if eq .Key "findings"}} data-list="{{$.Eng.ID}}"{{end}} class="etab{{if .Active}} on{{end}}" href="{{.URL}}"{{if .Active}} aria-current="page"{{end}}>{{.Label}}{{if eq .Key "board"}} {{if .Count}}<span class="badge">{{.Count}}</span>{{else}}<span class="badge0">0</span>{{end}}{{end}}</a>{{end}}</nav>
 {{end}}
 
 {{define "chart"}}

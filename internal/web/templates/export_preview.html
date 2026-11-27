@@ -1,7 +1,7 @@
 {{define "content"}}
 <form class="titlerow" method="post" action="/e/{{.Eng.ID}}/export">
   <div class="titlecol">
-    <nav class="crumbs"><a href="/e/{{.Eng.ID}}">{{.Eng.Name}}</a><span class="sep" aria-hidden="true">/</span><a href="/e/{{.Eng.ID}}/export">Export</a><span class="sep" aria-hidden="true">/</span><span class="muted">Preview</span></nav>
+    <nav class="crumbs"><a href="/e/{{.Eng.ID}}" data-list="{{.Eng.ID}}">{{.Eng.Name}}</a><span class="sep" aria-hidden="true">/</span><a href="/e/{{.Eng.ID}}/export">Export</a><span class="sep" aria-hidden="true">/</span><span class="muted">Preview</span></nav>
     <h1>Report preview</h1>
   </div>
   <div class="actions">
