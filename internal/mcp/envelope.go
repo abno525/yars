@@ -164,13 +164,25 @@ func wording(err error) string {
 }
 
 // fail renders a refusal and its code from an error; the message is what
-// wording says.
+// wording says. For a finding file that does not parse the message names
+// the folder, and the parser's complaint, which can quote the file's own
+// text, is under "untrusted" as detail (untrusted.go).
 func fail(err error) string {
-	b, _ := json.Marshal(struct {
-		OK      bool   `json:"ok"`
-		Code    string `json:"code"`
-		Message string `json:"message"`
-	}{false, codeOf(err), wording(err)})
+	type theirs struct {
+		Detail string `json:"detail"`
+	}
+	out := struct {
+		OK      bool    `json:"ok"`
+		Code    string  `json:"code"`
+		Message string  `json:"message"`
+		Theirs  *theirs `json:"untrusted,omitempty"`
+	}{false, codeOf(err), wording(err), nil}
+	var bad *store.UnreadableError
+	if errors.As(err, &bad) && bad.Err != nil {
+		out.Message = bad.Eng + "/" + bad.Dir + ": " + store.ErrUnreadable.Error()
+		out.Theirs = &theirs{bad.Err.Error()}
+	}
+	b, _ := json.Marshal(out)
 	return string(b)
 }
 

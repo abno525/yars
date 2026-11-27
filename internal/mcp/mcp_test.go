@@ -107,8 +107,107 @@ func (f *fx) signed(tool string, a map[string]any) map[string]any {
 }
 
 // bare invokes a tool with exactly these arguments; returns its text and
-// isError.
+// isError. The text is flat: what an answer holds under "untrusted" is read
+// as fields of the object around it, which is how most tests read a title
+// or a body (wire gives the answer as it is sent).
 func (f *fx) bare(u config.User, tool string, args map[string]any) (string, bool) {
+	f.t.Helper()
+	text, isErr := f.wire(u, tool, args)
+	return flat(text), isErr
+}
+
+// flat is a tool's text with the members of every "untrusted" object moved
+// into the object that holds it, the other members in their order. A text
+// without one is returned as it is.
+func flat(text string) string {
+	if !strings.Contains(text, `"untrusted":`) {
+		return text
+	}
+	dec := json.NewDecoder(strings.NewReader(text))
+	dec.UseNumber()
+	var b strings.Builder
+	tok, err := dec.Token()
+	if err != nil || flatValue(dec, &b, tok) != nil {
+		return text
+	}
+	return b.String()
+}
+
+// flatValue writes the value that starts with tok.
+func flatValue(dec *json.Decoder, b *strings.Builder, tok json.Token) error {
+	switch d, _ := tok.(json.Delim); d {
+	case '{':
+		b.WriteByte('{')
+		n := 0
+		if err := flatMembers(dec, b, &n); err != nil {
+			return err
+		}
+		b.WriteByte('}')
+	case '[':
+		b.WriteByte('[')
+		for i := 0; dec.More(); i++ {
+			if i > 0 {
+				b.WriteByte(',')
+			}
+			next, err := dec.Token()
+			if err != nil {
+				return err
+			}
+			if err := flatValue(dec, b, next); err != nil {
+				return err
+			}
+		}
+		if _, err := dec.Token(); err != nil {
+			return err
+		}
+		b.WriteByte(']')
+	default:
+		enc, err := json.Marshal(tok)
+		if err != nil {
+			return err
+		}
+		b.Write(enc)
+	}
+	return nil
+}
+
+// flatMembers writes the members of the object dec is in, to its end; n
+// counts the members written so far (those of an "untrusted" object count
+// as the outer one's).
+func flatMembers(dec *json.Decoder, b *strings.Builder, n *int) error {
+	for dec.More() {
+		k, err := dec.Token()
+		if err != nil {
+			return err
+		}
+		v, err := dec.Token()
+		if err != nil {
+			return err
+		}
+		if d, _ := v.(json.Delim); k == "untrusted" && d == '{' {
+			if err := flatMembers(dec, b, n); err != nil {
+				return err
+			}
+			continue
+		}
+		if *n > 0 {
+			b.WriteByte(',')
+		}
+		*n++
+		key, _ := json.Marshal(k)
+		b.Write(key)
+		b.WriteByte(':')
+		if err := flatValue(dec, b, v); err != nil {
+			return err
+		}
+	}
+	_, err := dec.Token()
+	return err
+}
+
+// wire invokes a tool with exactly these arguments; returns its text as the
+// server sent it and isError.
+func (f *fx) wire(u config.User, tool string, args map[string]any) (string, bool) {
 	f.t.Helper()
 	resp := f.rpc(u, "tools/call", map[string]any{"name": tool, "arguments": args})
 	res, ok := resp["result"].(map[string]any)

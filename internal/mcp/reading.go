@@ -31,16 +31,16 @@ var readingTools = []tool{
 		required: []param{pEng}, optional: []param{pLimit, pCursor},
 		simple: &toolText{desc: "The engagement's team: each member's username."},
 		run:    listTeam},
-	{name: "read_chat", serverOnly: true, desc: "The finding's whole chat, oldest first, a page at a time: threads (with replies; an AI reply is marked ai, a check run's thread has kind check) and workflow events.",
+	{name: "read_chat", untrusted: true, serverOnly: true, desc: "The finding's whole chat, oldest first, a page at a time: threads (with replies; an AI reply is marked ai, a check run's thread has kind check) and workflow events." + theirNote,
 		required: []param{pEng, pFinding}, optional: []param{pLimit, pCursor},
 		run: readChat},
-	{name: "list_history", desc: "The finding's versions, newest first, a page at a time: commit, author (ai: made by Fix with AI for that user), time and the parts that changed.",
+	{name: "list_history", untrusted: true, desc: "The finding's versions, newest first, a page at a time: commit, author (ai: made by Fix with AI for that user), time and the parts that changed." + theirNote,
 		required: []param{pEng, pFinding}, optional: []param{pLimit, pCursor},
 		run: listHistory},
 	{name: "list_attachments", desc: "The finding's attachments: name, size, type (image or file) and whether an earlier version (before a redaction) is still in the history.",
 		required: []param{pEng, pFinding}, optional: []param{pLimit, pCursor},
 		run: listAttachments},
-	{name: "read_template", desc: "One finding template's Markdown (front matter and sections) by its slug from list_templates.",
+	{name: "read_template", untrusted: true, desc: "One finding template's Markdown (front matter and sections) by its slug from list_templates." + theirNote,
 		required: []param{{"template", "template slug from list_templates"}},
 		run:      readTemplate},
 }
@@ -134,12 +134,14 @@ func readChat(s *Server, ctx context.Context, u config.User, a args) (string, er
 	if err != nil {
 		return "", err
 	}
+	// a message's text, and an event's (a return's reason), are other
+	// people's: under "untrusted" (untrusted.go)
 	type reply struct {
-		ID   string `json:"id"`
-		User string `json:"user"`
-		At   string `json:"at"`
-		Text string `json:"text"`
-		AI   bool   `json:"ai,omitempty"`
+		ID     string    `json:"id"`
+		User   string    `json:"user"`
+		At     string    `json:"at"`
+		AI     bool      `json:"ai,omitempty"`
+		Theirs theirText `json:"untrusted"`
 	}
 	type item struct {
 		Type       string  `json:"type"` // thread | event
@@ -147,24 +149,29 @@ func readChat(s *Server, ctx context.Context, u config.User, a args) (string, er
 		User       string  `json:"user"`
 		At         string  `json:"at"`
 		Section    string  `json:"section,omitempty"`
-		Text       string  `json:"text,omitempty"`
 		Event      string  `json:"event,omitempty"`
 		Kind       string  `json:"kind,omitempty"` // check: a check run's thread
 		Resolved   bool    `json:"resolved,omitempty"`
 		ResolvedBy string  `json:"resolved_by,omitempty"`
 		Replies    []reply `json:"replies,omitempty"`
+		Theirs     struct {
+			Text string `json:"text,omitempty"`
+		} `json:"untrusted"`
 	}
 	out := []item{}
 	for _, it := range chat.Timeline(msgs) {
 		if e := it.Event; e != nil {
-			out = append(out, item{Type: "event", ID: e.ID, User: e.User, At: stamp(e.TS), Event: e.Event, Text: e.Text})
+			x := item{Type: "event", ID: e.ID, User: e.User, At: stamp(e.TS), Event: e.Event}
+			x.Theirs.Text = e.Text
+			out = append(out, x)
 			continue
 		}
 		t := it.Thread
-		x := item{Type: "thread", ID: t.Root.ID, User: t.Root.User, At: stamp(t.Root.TS), Section: t.Root.Section, Text: t.Root.Text,
+		x := item{Type: "thread", ID: t.Root.ID, User: t.Root.User, At: stamp(t.Root.TS), Section: t.Root.Section,
 			Kind: t.Root.Kind, Resolved: t.Resolved, ResolvedBy: t.ResolvedBy, Replies: []reply{}}
+		x.Theirs.Text = t.Root.Text
 		for _, r := range t.Replies {
-			x.Replies = append(x.Replies, reply{r.ID, r.User, stamp(r.TS), r.Text, r.Kind == chat.KindAI})
+			x.Replies = append(x.Replies, reply{ID: r.ID, User: r.User, At: stamp(r.TS), AI: r.Kind == chat.KindAI, Theirs: theirText{r.Text}})
 		}
 		out = append(out, x)
 	}
@@ -205,13 +212,17 @@ func listHistory(s *Server, ctx context.Context, u config.User, a args) (string,
 	if err != nil {
 		return "", err
 	}
+	// a pushed commit's subject is free text, and so are the names of the
+	// parts that changed (a section's name, or the subject again)
 	type version struct {
-		Commit  string   `json:"commit"`
-		Author  string   `json:"author"`
-		AI      bool     `json:"ai,omitempty"`
-		Time    string   `json:"time"`
-		Subject string   `json:"subject"`
-		Changed []string `json:"changed"`
+		Commit string `json:"commit"`
+		Author string `json:"author"`
+		AI     bool   `json:"ai,omitempty"`
+		Time   string `json:"time"`
+		Theirs struct {
+			Subject string   `json:"subject"`
+			Changed []string `json:"changed"`
+		} `json:"untrusted"`
 	}
 	out := []version{}
 	for _, i := range pg { // what changed: worked out for the page only
@@ -223,7 +234,9 @@ func listHistory(s *Server, ctx context.Context, u config.User, a args) (string,
 			}
 		}
 		who, ai := history.Who(v.Author)
-		out = append(out, version{v.Hash, who, ai, stamp(v.Time), v.Subject, changed})
+		x := version{Commit: v.Hash, Author: who, AI: ai, Time: stamp(v.Time)}
+		x.Theirs.Subject, x.Theirs.Changed = v.Subject, changed
+		out = append(out, x)
 	}
 	return list(out, next)
 }
@@ -276,13 +289,16 @@ func readTemplate(s *Server, ctx context.Context, u config.User, a args) (string
 		return "", err
 	}
 	m := t.F.Meta
+	type theirs struct {
+		Title    string `json:"title"`
+		Markdown string `json:"markdown"`
+	}
 	return ok(struct {
 		Slug     string `json:"slug"`
-		Title    string `json:"title"`
 		Severity string `json:"severity,omitempty"`
 		CVSS     string `json:"cvss,omitempty"`
-		Markdown string `json:"markdown"`
-	}{t.Slug, m.Title, m.Severity, m.CVSS, string(t.F.Bytes())})
+		Theirs   theirs `json:"untrusted"`
+	}{t.Slug, m.Severity, m.CVSS, theirs{m.Title, string(t.F.Bytes())}})
 }
 
 // writingTools are MCP v2's new writing tools (M32 task 6).

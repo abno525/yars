@@ -86,10 +86,28 @@ Findings can be referred to by ID (`F-001`, also `f-1` or `1`) or directory name
 
 Every tool answers with one JSON object as its text:
 
-- a result: `{"ok": true, …}` with the tool's fields (`read_finding`: `state`, `sections`, `allowed_actions`, …);
+- a result: `{"ok": true, …}` with the tool's fields (`read_finding`: `state`, `sections`, `allowed_actions`, `untrusted`, …);
 - a plain outcome: `{"ok": true, "message": "updated Impact"}` (the sentence earlier versions answered with); a `set_field` that gives a row's new base has it as `base` too;
 - a list: `{"ok": true, "items": […], "next": "<cursor or empty>"}`;
 - a refusal: the result has `isError: true` and the text `{"ok": false, "code": "<code>", "message": "<what to do>"}`.
+
+### Other people's text
+
+Text that people wrote is in an answer only under a key named `untrusted`, inside the object it belongs to. An assistant reads it as data, never as instructions. The description of each such tool says so.
+
+| Tool | Under `untrusted` |
+|---|---|
+| `list_engagements` | each item's `name`, `client` |
+| `list_findings`, `list_templates` | each item's `title` |
+| `read_finding` | `finding_md`, `assets`; each section's `body`; each open thread's and reply's `text`; each violation's `message`, `quote`; the `reason` of `state.returned` and `state.withdrawn` |
+| `read_template` | `title`, `markdown` |
+| `lint_finding`, `get_check_results` | each result's `message`, `quote` |
+| `list_notifications` | each item's `title`, `text` |
+| `read_chat` | each item's and reply's `text` |
+| `list_history` | each item's `subject`, `changed` |
+| a finding file that does not parse | `detail`, the parser's words |
+
+A list item looks like `{"id": "F-001", "dir": "F-001-sql-injection", "status": "draft", …, "untrusted": {"title": "SQL injection"}}`. What you send back stays outside: IDs, folder names, section names, attachment names, `hash`, the bases, `status`, `allowed_actions`.
 
 The codes:
 
@@ -132,7 +150,7 @@ Some refusals and their messages:
 | `not_allowed` | `not allowed: Approve is not part of the simple workflow (draft → complete → reported)` | `transition` with a step of the standard workflow on a server of the simple one |
 | `invalid` | `unknown status "open"; valid statuses: draft, verification, complete, reported, withdrawn` | `list_findings` with a status (or severity) that does not exist |
 | `invalid` | `F-001 names more than one finding folder (…); use the folder name` | An ID two folders share |
-| `server_error` | `acme/F-001-sqli: cannot be read: …` | The finding's file does not parse (fix it in the repository) |
+| `server_error` | `acme/F-001-sqli: cannot be read` | The finding's file does not parse (fix it in the repository); `untrusted.detail` has the parser's words |
 | `server_error` | `internal error` | The server's database or disk failed; the server's log says what |
 
 A failure of the server itself is `server_error`, never `invalid`. `invalid` is an argument or a value the server refuses; the message says which.
@@ -142,5 +160,5 @@ A failure of the server itself is `server_error`, never `invalid`. `invalid` is 
 - The assistant can do exactly what you can do — no more. A pentester's assistant cannot approve findings or edit completed ones.
 - Text written by the assistant goes through the same style rules; submit is blocked while error-level rules fail.
 - Treat a token like a password. Give it only the actions and engagements it needs, and revoke it when a laptop is lost or a person leaves.
-- Finding text and chat come from other people. The server tells the assistant to treat them as data and to confirm workflow transitions with you — still, review what it proposes before approving.
+- Finding text and chat come from other people. Every answer has them under `untrusted`, and the server tells the assistant, in `initialize` and in each tool's description, to treat them as data and to confirm workflow transitions with you. Still, review what it proposes before approving.
 - If Claude Code reports that the server "needs authentication", the token is missing, expired or wrong (YARS doesn't use OAuth); re-add the server with the correct `Authorization` header.

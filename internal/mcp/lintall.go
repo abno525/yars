@@ -55,18 +55,13 @@ func (s *Server) lintByCheck(ctx context.Context, ref store.FindingRef, u config
 		}
 		break
 	}
-	type marked struct {
-		rules.Violation
-		Dismissed   bool   `json:"dismissed,omitempty"`
-		DismissedBy string `json:"dismissed_by,omitempty"`
-	}
 	out := struct {
-		Items   []marked `json:"items"`
-		Next    string   `json:"next"`
-		RunID   int64    `json:"run_id"`
-		State   string   `json:"state"`
-		Message string   `json:"message,omitempty"`
-	}{Items: []marked{}, RunID: run.ID, State: run.State}
+		Items   []violation `json:"items"`
+		Next    string      `json:"next"`
+		RunID   int64       `json:"run_id"`
+		State   string      `json:"state"`
+		Message string      `json:"message,omitempty"`
+	}{Items: []violation{}, RunID: run.ID, State: run.State}
 	if st.HasRun {
 		out.RunID, out.State = st.Run.ID, st.Run.State
 	}
@@ -75,7 +70,7 @@ func (s *Server) lintByCheck(ctx context.Context, ref store.FindingRef, u config
 		return ok(out)
 	}
 	for _, x := range st.Results {
-		m := marked{Violation: rules.Violation{Rule: x.Rule, Level: x.Level, Message: x.Message, Target: x.Target, Quote: x.Quote}}
+		m := violationOf(rules.Violation{Rule: x.Rule, Level: x.Level, Message: x.Message, Target: x.Target, Quote: x.Quote})
 		if d, ok := db.Lookup(st.Dismissed, x.Rule, x.Target, x.Quote); ok {
 			m.Dismissed, m.DismissedBy = true, d.By
 		}

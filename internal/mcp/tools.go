@@ -77,10 +77,13 @@ type tool struct {
 	// serverOnly: the tool needs the server's database (workflow, chat,
 	// checks, notifications); on a local clone it answers ErrNoDB
 	serverOnly bool
-	required   []param
-	optional   []param
-	boolArgs   []param
-	run        func(s *Server, ctx context.Context, u config.User, a args) (string, error)
+	// untrusted: the tool's answers carry other people's text, under keys
+	// named "untrusted"; its descriptions end with theirNote
+	untrusted bool
+	required  []param
+	optional  []param
+	boolArgs  []param
+	run       func(s *Server, ctx context.Context, u config.User, a args) (string, error)
 	// simple is the tool's text in the simple workflow (nil: the same)
 	simple *toolText
 }
@@ -383,7 +386,7 @@ func (s *Server) ref(a args) (store.FindingRef, error) {
 var tools = slices.Concat(coreTools, readingTools, writingTools)
 
 var coreTools = []tool{
-	{name: "list_engagements", desc: "List the engagements you work on (pentests and retests). Archived engagements are read only.",
+	{name: "list_engagements", untrusted: true, desc: "List the engagements you work on (pentests and retests). Archived engagements are read only." + theirNote,
 		optional: []param{pLimit, pCursor},
 		run: func(s *Server, ctx context.Context, u config.User, a args) (string, error) {
 			es, err := s.Store.ListEngagements()
@@ -397,22 +400,26 @@ var coreTools = []tool{
 			tk, hasTok := tokenFrom(ctx)
 			type eng struct {
 				ID       string `json:"id"`
-				Name     string `json:"name"`
-				Client   string `json:"client,omitempty"`
 				Type     string `json:"type"`
 				Source   string `json:"source,omitempty"`
 				Archived bool   `json:"archived,omitempty"`
+				Theirs   struct {
+					Name   string `json:"name"`
+					Client string `json:"client,omitempty"`
+				} `json:"untrusted"`
 			}
 			out := []eng{}
 			for _, e := range es {
 				if (vis != nil && !vis[e.ID]) || (hasTok && !tk.AllowsEng(e.ID)) {
 					continue
 				}
-				out = append(out, eng{e.ID, e.Name, e.Client, e.Type, e.Source, e.Archived})
+				x := eng{ID: e.ID, Type: e.Type, Source: e.Source, Archived: e.Archived}
+				x.Theirs.Name, x.Theirs.Client = e.Name, e.Client
+				out = append(out, x)
 			}
 			return listPage(a, out)
 		}},
-	{name: "list_findings", desc: "List the findings of an engagement, optionally filtered by status or severity or searched (q), most severe first, a page at a time.",
+	{name: "list_findings", untrusted: true, desc: "List the findings of an engagement, optionally filtered by status or severity or searched (q), most severe first, a page at a time." + theirNote,
 		required: []param{pEng}, optional: []param{{"status", "one of draft, verification, complete, reported, withdrawn (withdrawn findings are listed only with this filter)"}, {"severity", "one of the configured severities (by default critical, high, medium, low, info)"},
 			{"q", "search: the findings whose ID (as written: F-002), title or an asset's host or URL holds this text, in any case"}, pLimit, pCursor},
 		simple: &toolText{params: map[string]string{"status": "one of draft, complete, reported, withdrawn (withdrawn findings are listed only with this filter)"}},
@@ -438,7 +445,6 @@ var coreTools = []tool{
 			type row struct {
 				ID           string   `json:"id"`
 				Dir          string   `json:"dir"`
-				Title        string   `json:"title"`
 				Status       string   `json:"status"`
 				Severity     string   `json:"severity,omitempty"`
 				Score        string   `json:"cvss_score,omitempty"`
@@ -446,49 +452,64 @@ var coreTools = []tool{
 				Reviewers    []string `json:"reviewers,omitempty"`
 				OpenThreads  int      `json:"open_threads,omitempty"`
 				RetestResult string   `json:"retest_result,omitempty"`
+				Theirs       struct {
+					Title string `json:"title"`
+				} `json:"untrusted"`
 			}
 			out := []row{}
 			for _, r := range rows {
-				out = append(out, row{r.ID, r.Dir, r.Title, r.Status, r.Severity, r.Score, r.Author, r.Reviewers, r.OpenThreads, r.RetestResult})
+				x := row{ID: r.ID, Dir: r.Dir, Status: r.Status, Severity: r.Severity, Score: r.Score, Author: r.Author, Reviewers: r.Reviewers,
+					OpenThreads: r.OpenThreads, RetestResult: r.RetestResult}
+				x.Theirs.Title = r.Title
+				out = append(out, x)
 			}
 			return listPage(a, out)
 		}},
-	{name: "read_finding", desc: "Read one finding: its workflow state (status, reviewers, clearances, return reason, retest), the raw finding.md content (YAML front matter + ## sections; workflow state is not in the file), the file's hash (transition's base) and attachments_hash (transition's attachments_base), each section's name, body and base hash for safe edits, open chat threads (an AI reply is marked ai), style-rule violations, and allowed_actions: every action of the status with whether you may take it now (enabled), why not (reason) and what it needs (needs: reason or base).",
+	{name: "read_finding", untrusted: true, desc: "Read one finding: its workflow state (status, reviewers, clearances, return reason, retest), the raw finding.md content (YAML front matter + ## sections; workflow state is not in the file), the file's hash (transition's base) and attachments_hash (transition's attachments_base), each section's name, body and base hash for safe edits, open chat threads (an AI reply is marked ai), style-rule violations, and allowed_actions: every action of the status with whether you may take it now (enabled), why not (reason) and what it needs (needs: reason or base)." + theirNote,
 		required: []param{pEng, pFinding},
-		simple:   &toolText{desc: "Read one finding: its workflow state (status, withdrawal, retest), the raw finding.md content (YAML front matter + ## sections; workflow state is not in the file), the file's hash (transition's base) and attachments_hash (transition's attachments_base), each section's name, body and base hash for safe edits, open chat threads (an AI reply is marked ai), style-rule violations, and allowed_actions: every action of the status with whether you may take it now (enabled), why not (reason) and what it needs (needs: reason or base)."},
+		simple:   &toolText{desc: "Read one finding: its workflow state (status, withdrawal, retest), the raw finding.md content (YAML front matter + ## sections; workflow state is not in the file), the file's hash (transition's base) and attachments_hash (transition's attachments_base), each section's name, body and base hash for safe edits, open chat threads (an AI reply is marked ai), style-rule violations, and allowed_actions: every action of the status with whether you may take it now (enabled), why not (reason) and what it needs (needs: reason or base)." + theirNote},
 		run: func(s *Server, ctx context.Context, u config.User, a args) (string, error) {
 			ref, err := s.ref(a)
 			if err != nil {
 				return "", err
 			}
+			// other people's text is under "untrusted", in the object it
+			// belongs to (untrusted.go)
 			type sec struct {
-				Name string `json:"name"`
-				Base string `json:"base"`
-				Body string `json:"body"`
+				Name   string `json:"name"`
+				Base   string `json:"base"`
+				Theirs struct {
+					Body string `json:"body"`
+				} `json:"untrusted"`
 			}
 			type msg struct {
-				User string `json:"user"`
-				Text string `json:"text"`
-				AI   bool   `json:"ai,omitempty"` // the AI wrote it for user (Fix with AI)
+				User   string    `json:"user"`
+				AI     bool      `json:"ai,omitempty"` // the AI wrote it for user (Fix with AI)
+				Theirs theirText `json:"untrusted"`
 			}
 			type thread struct {
-				ID      string `json:"id"`
-				User    string `json:"user"`
-				Section string `json:"section,omitempty"`
-				Text    string `json:"text"`
-				Replies []msg  `json:"replies"`
+				ID      string    `json:"id"`
+				User    string    `json:"user"`
+				Section string    `json:"section,omitempty"`
+				Theirs  theirText `json:"untrusted"`
+				Replies []msg     `json:"replies"`
 			}
 			type state struct {
-				Status       string            `json:"status"`
-				Reviewers    []string          `json:"reviewers"`
-				ClearedBy    []string          `json:"cleared_by"`
-				Returned     *finding.Returned `json:"returned,omitempty"`
-				Withdrawn    *finding.Returned `json:"withdrawn,omitempty"`
-				RetestSource string            `json:"retest_source,omitempty"`
-				RetestResult string            `json:"retest_result,omitempty"`
+				Status       string       `json:"status"`
+				Reviewers    []string     `json:"reviewers"`
+				ClearedBy    []string     `json:"cleared_by"`
+				Returned     *theirReason `json:"returned,omitempty"`
+				Withdrawn    *theirReason `json:"withdrawn,omitempty"`
+				RetestSource string       `json:"retest_source,omitempty"`
+				RetestResult string       `json:"retest_result,omitempty"`
+			}
+			type theirs struct {
+				Markdown string          `json:"finding_md"`
+				Assets   []finding.Asset `json:"assets"`
 			}
 			m := ref.F.Meta
-			st := state{Status: m.Status, Reviewers: append([]string{}, m.Reviewers...), ClearedBy: append([]string{}, m.ClearedBy...), Returned: m.Returned, Withdrawn: m.Withdrawn}
+			st := state{Status: m.Status, Reviewers: append([]string{}, m.Reviewers...), ClearedBy: append([]string{}, m.ClearedBy...),
+				Returned: reasonOf(m.Returned), Withdrawn: reasonOf(m.Withdrawn)}
 			if m.Retest != nil {
 				st.RetestSource, st.RetestResult = m.Retest.Source, m.Retest.Result
 			}
@@ -496,22 +517,22 @@ var coreTools = []tool{
 				Engagement  string             `json:"engagement"`
 				Dir         string             `json:"dir"`
 				State       state              `json:"state"`
-				Markdown    string             `json:"finding_md"`
 				Hash        string             `json:"hash"`             // the file's as stored, its full SHA-256: transition's base
 				Files       string             `json:"attachments_hash"` // the attachments' as they are: transition's attachments_base
 				Sections    []sec              `json:"sections"`
 				CVSSBase    string             `json:"cvss_base"`
 				DetailsBase string             `json:"details_base"`
 				Bases       map[string]string  `json:"field_bases"`
-				Assets      []finding.Asset    `json:"assets"`
 				AssetsBase  string             `json:"assets_base"`
 				CanEdit     bool               `json:"can_edit"`
 				Threads     []thread           `json:"open_threads"`
-				Violations  []rules.Violation  `json:"violations"`
+				Violations  []violation        `json:"violations"`
 				Allowed     []workflow.Allowed `json:"allowed_actions"`
-			}{Engagement: ref.EngID, Dir: ref.Dir, State: st, Markdown: string(ref.F.Bytes()), Hash: ref.Full, CVSSBase: store.CVSSHash(ref.F.Meta),
-				DetailsBase: store.DetailsHash(ref.F.Meta), Assets: append([]finding.Asset{}, ref.F.Meta.Assets...), AssetsBase: store.AssetsHash(ref.F.Meta),
-				CanEdit: workflow.CanEdit(u, ref.F.Meta), Threads: []thread{}, Violations: []rules.Violation{}, Bases: s.fieldBases(ref.F.Meta)}
+				Theirs      theirs             `json:"untrusted"`
+			}{Engagement: ref.EngID, Dir: ref.Dir, State: st, Hash: ref.Full, CVSSBase: store.CVSSHash(ref.F.Meta),
+				DetailsBase: store.DetailsHash(ref.F.Meta), AssetsBase: store.AssetsHash(ref.F.Meta),
+				CanEdit: workflow.CanEdit(u, ref.F.Meta), Threads: []thread{}, Violations: []violation{}, Bases: s.fieldBases(ref.F.Meta),
+				Theirs: theirs{Markdown: string(ref.F.Bytes()), Assets: append([]finding.Asset{}, ref.F.Meta.Assets...)}}
 			// the group bases carry each row's own: sent again with every
 			// edit, each is checked against its row only
 			out.DetailsBase = rowsToken(out.Bases, "details.")
@@ -526,26 +547,30 @@ var coreTools = []tool{
 				out.CanEdit = false // the token may not edit, whatever the account may
 			}
 			for _, sct := range ref.F.Sections {
-				out.Sections = append(out.Sections, sec{sct.Name, store.BodyHash(sct.Body), sct.Body})
+				x := sec{Name: sct.Name, Base: store.BodyHash(sct.Body)}
+				x.Theirs.Body = sct.Body
+				out.Sections = append(out.Sections, x)
 			}
 			out.Allowed = s.allowedActions(ctx, u, ref)
 			msgs, _ := s.Store.Chat(ref.EngID, ref.Dir)
 			for _, it := range chat.Timeline(msgs) {
 				if it.Thread != nil && !it.Thread.Resolved {
 					t := it.Thread
-					th := thread{ID: t.Root.ID, User: t.Root.User, Section: t.Root.Section, Text: t.Root.Text, Replies: []msg{}}
+					th := thread{ID: t.Root.ID, User: t.Root.User, Section: t.Root.Section, Theirs: theirText{t.Root.Text}, Replies: []msg{}}
 					for _, r := range t.Replies {
-						th.Replies = append(th.Replies, msg{r.User, r.Text, r.Kind == chat.KindAI})
+						th.Replies = append(th.Replies, msg{User: r.User, AI: r.Kind == chat.KindAI, Theirs: theirText{r.Text}})
 					}
 					out.Threads = append(out.Threads, th)
 				}
 			}
 			if s.Rules != nil {
-				out.Violations = append(out.Violations, s.Rules.Lint(ctx, ref.F, rules.Fast)...)
+				for _, v := range s.Rules.Lint(ctx, ref.F, rules.Fast) {
+					out.Violations = append(out.Violations, violationOf(v))
+				}
 			}
 			return ok(out)
 		}},
-	{name: "list_templates", desc: "List the finding templates (.yars/templates): slug, title, severity and how many findings were made from each. Pass a slug to create_finding as template.",
+	{name: "list_templates", untrusted: true, desc: "List the finding templates (.yars/templates): slug, title, severity and how many findings were made from each. Pass a slug to create_finding as template." + theirNote,
 		optional: []param{pLimit, pCursor},
 		run: func(s *Server, ctx context.Context, u config.User, a args) (string, error) {
 			ts, err := s.Store.Templates()
@@ -558,15 +583,19 @@ var coreTools = []tool{
 			}
 			type tpl struct {
 				Slug     string `json:"slug"`
-				Title    string `json:"title"`
 				Severity string `json:"severity,omitempty"`
 				CVSS     string `json:"cvss,omitempty"`
 				Uses     int    `json:"uses"`
+				Theirs   struct {
+					Title string `json:"title"`
+				} `json:"untrusted"`
 			}
 			out := []tpl{}
 			for _, t := range ts {
 				m := t.F.Meta
-				out = append(out, tpl{t.Slug, m.Title, m.Severity, m.CVSS, uses[t.Slug]})
+				x := tpl{Slug: t.Slug, Severity: m.Severity, CVSS: m.CVSS, Uses: uses[t.Slug]}
+				x.Theirs.Title = m.Title
+				out = append(out, x)
 			}
 			return listPage(a, out)
 		}},
@@ -627,12 +656,12 @@ var coreTools = []tool{
 		optional: []param{{"base", "the field's entry in field_bases from read_finding (title, severity, retest_result, details.*, cvss, cvss_reason.*: refused only if that one field changed since; each of these set_field answers gives the field's new base; after cvss, one base for the vector and every reason), or cvss_base, details_base or assets_base (assets); refuses the edit if it changed since you read it"}},
 		simple:   &toolText{desc: "Set a field: title, severity (no CVSS vector), cvss (vector or empty to clear; a metric whose value changes loses its cvss_reason, and clearing removes every reason), cvss_reason.<METRIC> (explanation for a non-standard value, e.g. cvss_reason.AC), details.<Row> (details table, e.g. details.Location), retest_result (fixed | not_fixed | partially_fixed), assets (the whole affected-asset list as JSON: [{\"host\":\"app.example\",\"url\":\"https://app.example/x\",\"port\":\"443\",\"note\":\"…\"}], [] to clear). Use transition for status."},
 		run:      setField},
-	{name: "transition", action: "status", serverOnly: true, desc: "Move a finding through the workflow: submit (draft→verification), return (verification→draft, needs reason), clear or sign_off (an assigned reviewer or a director; a director also on their own finding), approve (director, after a sign-off by an assigned reviewer other than them: verification→complete), reopen (author or director: complete→verification, needs reason), report (author or director: complete→reported), unreport (author or director: reported→complete, needs reason; the approval stays), revert (the step back from where the finding is: reopen or unreport), withdraw (author while draft or verification, director also when complete or reported; needs reason; takes it out of the report), revise (author or director: withdrawn→draft), take_back (author or director: verification→draft, no reason; sign-offs start over). The statuses are draft, verification, complete, reported, withdrawn. clear, sign_off and approve need base, the hash from read_finding: they are refused without it, and when the finding changed since you read it. With attachments_base (read_finding's attachments_hash) they are refused when an attachment changed since, too.",
+	{name: "transition", action: "status", serverOnly: true, desc: "Move a finding through the workflow: submit (draft→verification), return (verification→draft, needs reason), clear or sign_off (an assigned reviewer or a director; a director also on their own finding), approve (director, after a sign-off by an assigned reviewer other than them: verification→complete), reopen (author or director: complete→verification, needs reason), report (author or director: complete→reported), unreport (author or director: reported→complete, needs reason; the approval stays), revert (the step back from where the finding is: reopen or unreport), withdraw (author while draft or verification, director also when complete or reported; needs reason; takes it out of the report), revise (author or director: withdrawn→draft), take_back (author or director: verification→draft, no reason; sign-offs start over). The statuses are draft, verification, complete, reported, withdrawn. clear, sign_off and approve need base, the hash from read_finding: they are refused without it, and when the finding changed since you read it. With attachments_base (read_finding's attachments_hash) they are refused when an attachment changed since, too." + confirmNote,
 		required: []param{pEng, pFinding, {"action", "submit | return | clear | sign_off | approve | reopen | report | unreport | revert | withdraw | revise | take_back"}},
 		optional: []param{{"reason", "required for return, withdraw, reopen, unreport and revert"},
 			{"base", "the hash from read_finding: required for clear, sign_off and approve, which are refused if the finding changed since you read it (other actions ignore it)"},
 			{"attachments_base", "attachments_hash from read_finding: clear, sign_off and approve are refused if an attachment was added, replaced or removed since you read it (other actions ignore it)"}},
-		simple: &toolText{desc: "Move a finding through the simple workflow, draft → complete → reported: complete (draft→complete), reopen (complete→draft, needs reason), report (complete→reported), unreport (reported→complete, needs reason; the completion stays), revert (the step back from where the finding is: reopen or unreport), withdraw (from draft, complete or reported; needs reason; takes it out of the report), revise (withdrawn→draft). The statuses are draft, complete, reported, withdrawn. complete needs base, the hash from read_finding: it is refused without it, and when the finding changed since you read it. With attachments_base (read_finding's attachments_hash) it is refused when an attachment changed since, too.",
+		simple: &toolText{desc: "Move a finding through the simple workflow, draft → complete → reported: complete (draft→complete), reopen (complete→draft, needs reason), report (complete→reported), unreport (reported→complete, needs reason; the completion stays), revert (the step back from where the finding is: reopen or unreport), withdraw (from draft, complete or reported; needs reason; takes it out of the report), revise (withdrawn→draft). The statuses are draft, complete, reported, withdrawn. complete needs base, the hash from read_finding: it is refused without it, and when the finding changed since you read it. With attachments_base (read_finding's attachments_hash) it is refused when an attachment changed since, too." + confirmNote,
 			params: map[string]string{"action": "complete | reopen | report | unreport | revert | withdraw | revise",
 				"reason":           "required for withdraw, reopen, unreport and revert",
 				"base":             "the hash from read_finding: required for complete, which is refused if the finding changed since you read it (other actions ignore it)",
@@ -729,9 +758,9 @@ var coreTools = []tool{
 			}
 			return okMsg("resolved")
 		}},
-	{name: "lint_finding", desc: "Check a finding against the team's style rules (regex and built-in checks; with all=true also script and AI rules). Violations a reviewer dismissed are marked dismissed and do not block submit or approve. On the server all=true is a stored check run, as start_check starts: it waits in the queue, posts each new violation as a chat comment and is refused on an archived engagement. The answer waits for the run and has its run_id and state; when the run is still queued or running it lists nothing and says so: read get_check_results then.",
+	{name: "lint_finding", untrusted: true, desc: "Check a finding against the team's style rules (regex and built-in checks; with all=true also script and AI rules). Violations a reviewer dismissed are marked dismissed and do not block submit or approve. On the server all=true is a stored check run, as start_check starts: it waits in the queue, posts each new violation as a chat comment and is refused on an archived engagement. The answer waits for the run and has its run_id and state; when the run is still queued or running it lists nothing and says so: read get_check_results then." + theirNote,
 		required: []param{pEng, pFinding}, boolArgs: []param{{"all", "also run script and AI rules (slower; on the server a stored check run)"}},
-		simple: &toolText{desc: "Check a finding against the team's style rules (regex and built-in checks; with all=true also script and AI rules). Violations someone dismissed are marked dismissed and do not block complete. On the server all=true is a stored check run, as start_check starts: it waits in the queue, posts each new violation as a chat comment and is refused on an archived engagement. The answer waits for the run and has its run_id and state; when the run is still queued or running it lists nothing and says so: read get_check_results then."},
+		simple: &toolText{desc: "Check a finding against the team's style rules (regex and built-in checks; with all=true also script and AI rules). Violations someone dismissed are marked dismissed and do not block complete. On the server all=true is a stored check run, as start_check starts: it waits in the queue, posts each new violation as a chat comment and is refused on an archived engagement. The answer waits for the run and has its run_id and state; when the run is still queued or running it lists nothing and says so: read get_check_results then." + theirNote},
 		run: func(s *Server, ctx context.Context, u config.User, a args) (string, error) {
 			ref, err := s.ref(a)
 			if err != nil {
@@ -759,15 +788,10 @@ var coreTools = []tool{
 				return "", err
 			}
 			// dismissed violations no longer block submit or approve
-			type marked struct {
-				rules.Violation
-				Dismissed   bool   `json:"dismissed,omitempty"`
-				DismissedBy string `json:"dismissed_by,omitempty"`
-			}
-			out := []marked{}
+			out := []violation{}
 			// AI calls are recorded for the token's user on this finding (D24)
 			for _, v := range s.Rules.Lint(rules.WithCaller(ctx, rules.Caller{User: u.Username, Eng: ref.EngID, Fid: ref.F.Meta.ID}), ref.F, kinds) {
-				m := marked{Violation: v}
+				m := violationOf(v)
 				if d, ok := db.Lookup(ds, v.Rule, v.Target, v.Quote); ok {
 					m.Dismissed, m.DismissedBy = true, d.By
 				}
@@ -793,7 +817,7 @@ var coreTools = []tool{
 				Total int    `json:"total"`
 			}{run.ID, run.State, run.Done, run.Total})
 		}},
-	{name: "get_check_results", serverOnly: true, desc: "The finding's latest check run: state (queued, running, done, failed), progress, whether the finding changed since (stale), and its results with dismissals.",
+	{name: "get_check_results", untrusted: true, serverOnly: true, desc: "The finding's latest check run: state (queued, running, done, failed), progress, whether the finding changed since (stale), and its results with dismissals." + theirNote,
 		required: []param{pEng, pFinding},
 		run: func(s *Server, ctx context.Context, u config.User, a args) (string, error) {
 			ref, err := s.ref(a)
@@ -807,11 +831,13 @@ var coreTools = []tool{
 			type result struct {
 				Rule      string `json:"rule"`
 				Level     string `json:"level"`
-				Message   string `json:"message"`
 				Target    string `json:"target"`
-				Quote     string `json:"quote,omitempty"`
 				Thread    string `json:"thread,omitempty"`
 				Dismissed bool   `json:"dismissed,omitempty"`
+				Theirs    struct {
+					Message string `json:"message"`
+					Quote   string `json:"quote,omitempty"`
+				} `json:"untrusted"`
 			}
 			out := struct {
 				HasRun   bool     `json:"has_run"`
@@ -833,13 +859,15 @@ var coreTools = []tool{
 			}
 			for _, x := range st.Results {
 				_, dis := db.Lookup(st.Dismissed, x.Rule, x.Target, x.Quote)
-				out.Results = append(out.Results, result{x.Rule, x.Level, x.Message, x.Target, x.Quote, x.Thread, dis})
+				r := result{Rule: x.Rule, Level: x.Level, Target: x.Target, Thread: x.Thread, Dismissed: dis}
+				r.Theirs.Message, r.Theirs.Quote = x.Message, x.Quote
+				out.Results = append(out.Results, r)
 			}
 			return ok(out)
 		}},
-	{name: "list_notifications", serverOnly: true, desc: "Your notifications, newest first, a page at a time (the cursor is the id of the last one given, so marking some read between pages skips none): returned to you, review requested, replies, approvals, mentions, finished checks, tokens about to expire.",
+	{name: "list_notifications", untrusted: true, serverOnly: true, desc: "Your notifications, newest first, a page at a time (the cursor is the id of the last one given, so marking some read between pages skips none): returned to you, review requested, replies, approvals, mentions, finished checks, tokens about to expire." + theirNote,
 		optional: []param{pLimit, pCursor}, boolArgs: []param{{"unread", "only unread ones"}},
-		simple: &toolText{desc: "Your notifications, newest first, a page at a time (the cursor is the id of the last one given, so marking some read between pages skips none): replies, completions, mentions, finished checks, tokens about to expire."},
+		simple: &toolText{desc: "Your notifications, newest first, a page at a time (the cursor is the id of the last one given, so marking some read between pages skips none): replies, completions, mentions, finished checks, tokens about to expire." + theirNote},
 		run: func(s *Server, ctx context.Context, u config.User, a args) (string, error) {
 			unread, _ := a["unread"].(bool)
 			limit, before, err := pageArgs(a)
@@ -869,11 +897,13 @@ var coreTools = []tool{
 				Engagement string `json:"engagement"`
 				Finding    string `json:"finding,omitempty"`
 				Dir        string `json:"dir,omitempty"`
-				Title      string `json:"title,omitempty"`
 				By         string `json:"by,omitempty"`
-				Text       string `json:"text,omitempty"`
 				At         string `json:"at"`
 				Read       bool   `json:"read"`
+				Theirs     struct {
+					Title string `json:"title,omitempty"`
+					Text  string `json:"text,omitempty"`
+				} `json:"untrusted"`
 			}
 			out := []note{}
 			title := func(eng, fid, then string) string { return then }
@@ -882,7 +912,9 @@ var coreTools = []tool{
 			}
 			f := s.flow()
 			for _, n := range l {
-				out = append(out, note{n.ID, eventIn(f, n.Event), n.Eng, n.Fid, n.Dir, title(n.Eng, n.Fid, n.Title), n.Actor, n.Text, n.TS, n.Read})
+				x := note{ID: n.ID, Event: eventIn(f, n.Event), Engagement: n.Eng, Finding: n.Fid, Dir: n.Dir, By: n.Actor, At: n.TS, Read: n.Read}
+				x.Theirs.Title, x.Theirs.Text = title(n.Eng, n.Fid, n.Title), n.Text
+				out = append(out, x)
 			}
 			return list(out, next)
 		}},
