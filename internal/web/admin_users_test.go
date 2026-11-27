@@ -20,7 +20,10 @@ func TestFlagsAreSwitches(t *testing.T) {
 		`<form class="flag" method="post" action="/admin/users/alice/admin">`,
 		`<button class="toggle" role="switch" aria-checked="false" aria-label="Admin alice"><span></span></button>`,
 		`<button class="toggle on" role="switch" aria-checked="true" aria-label="Admin dora" disabled><span></span></button>`,
-		`<form class="flag" method="post" action="/admin/users/alice/disabled">`)
+		`<form class="flag" method="post" action="/admin/users/alice/disabled">`,
+		// Disabled is the same switch: turning it on asks first, your own is locked
+		`<button class="toggle" role="switch" aria-checked="false" aria-label="Disabled alice" data-confirm="Disable alice?" aria-keyshortcuts="D"><span></span></button>`,
+		`<button class="toggle" role="switch" aria-checked="false" aria-label="Disabled dora" data-confirm="Disable dora?" aria-keyshortcuts="D" disabled><span></span></button>`)
 	src, _ := templateFS.ReadFile("templates/admin.html")
 	for _, bad := range []string{`<form class="toggle"`, `<button class="cbx`, `aria-pressed`} {
 		if strings.Contains(string(src), bad) {
