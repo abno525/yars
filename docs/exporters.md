@@ -17,7 +17,7 @@ mark_reported: false
 |---|---|
 | `engagement` | `{id, name, client, type, source, start, end, archived}` |
 | `engagement_id` | string |
-| `findings` | rules.Doc + `html_sections` for each finding with one of `statuses`, by severity, then ID |
+| `findings` | rules.Doc + `html_sections` for each finding with one of `statuses`, by severity, then ID. Each finding's `sections` are in the configured order, then the sections the configuration does not name, as in every export |
 | `html_sections` | section name → rendered HTML |
 
 ## stdout

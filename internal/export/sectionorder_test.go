@@ -43,3 +43,38 @@ func TestSectionsExportInConfigOrder(t *testing.T) {
 		t.Errorf("Jira: sections %v, want %s", got, want)
 	}
 }
+
+// A script destination reads each finding's sections as a list: it has the
+// report's order too (empty sections included), and the attachments follow
+// it, in order of first use.
+func TestScriptSectionsInConfigOrder(t *testing.T) {
+	f, err := finding.Parse([]byte("---\nid: F-001\ntitle: T\nseverity: low\n---\n\n" +
+		"## Notes\n\nn1 attachments/n.png\n\n## Remediation\n\nr1 attachments/r.png\n\n## Description\n\nd1 attachments/d.png\n\n## Impact\n\n\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := input(t)
+	in.Findings = []*finding.Finding{f}
+	in.Cfg.Sections = []string{"Description", "Impact", "Remediation"}
+	docs := scriptDocs(in)
+	if len(docs) != 1 {
+		t.Fatalf("%d docs", len(docs))
+	}
+	var got []string
+	for _, s := range docs[0].Sections {
+		got = append(got, s.Name)
+	}
+	if strings.Join(got, " ") != "Description Impact Remediation Notes" {
+		t.Errorf("sections %v", got)
+	}
+	if a := strings.Join(docs[0].Attachments, " "); a != "d.png r.png n.png" {
+		t.Errorf("attachments %s", a)
+	}
+	if len(docs[0].HTMLSections) != 4 || !strings.Contains(docs[0].HTMLSections["Notes"], "n1") {
+		t.Errorf("html_sections %v", docs[0].HTMLSections)
+	}
+	// the finding itself keeps its file's order
+	if f.Sections[0].Name != "Notes" {
+		t.Error("the finding's own sections were reordered")
+	}
+}

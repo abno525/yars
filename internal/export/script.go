@@ -19,14 +19,15 @@ type scriptDoc struct {
 	HTMLSections map[string]string `json:"html_sections"`
 }
 
-func (r *Runner) script(ctx context.Context, e Exporter, in Input) (Result, error) {
-	p, err := r.safePath(e.Script)
-	if err != nil {
-		return Result{}, err
-	}
+// scriptDocs is the findings as a script reads them, in report order, each
+// with its sections in report order (sectionsOf): the list a script walks
+// is the order of every other export, and the attachments follow it.
+func scriptDocs(in Input) []scriptDoc {
 	var docs []scriptDoc
 	for _, f := range in.ordered() {
-		d := scriptDoc{Doc: rules.DocOf(f), HTMLSections: map[string]string{}}
+		g := *f // a copy: the finding keeps its file's order
+		g.Sections = sectionsOf(f, in)
+		d := scriptDoc{Doc: rules.DocOf(&g), HTMLSections: map[string]string{}}
 		for _, s := range f.Sections {
 			var buf bytes.Buffer
 			md.Convert([]byte(s.Body), &buf)
@@ -34,6 +35,15 @@ func (r *Runner) script(ctx context.Context, e Exporter, in Input) (Result, erro
 		}
 		docs = append(docs, d)
 	}
+	return docs
+}
+
+func (r *Runner) script(ctx context.Context, e Exporter, in Input) (Result, error) {
+	p, err := r.safePath(e.Script)
+	if err != nil {
+		return Result{}, err
+	}
+	docs := scriptDocs(in)
 	type reportDoc struct {
 		ReportText
 		HTML string `json:"html"`
