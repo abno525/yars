@@ -15,6 +15,7 @@ import (
 	"log/slog"
 	"slices"
 	"sync"
+	"time"
 
 	"github.com/abno525/yars/internal/config"
 	"github.com/abno525/yars/internal/history"
@@ -37,6 +38,9 @@ type Server struct {
 	Version string
 	// Logger takes the server's log lines; nil writes none.
 	Logger *slog.Logger
+	// LintWait is how long lint_finding all=true waits for its check run
+	// before it answers the run's state instead (0: lintWait).
+	LintWait time.Duration
 
 	histOnce sync.Once
 	hist     *history.Cache // list_history, per engagement HEAD
