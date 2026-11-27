@@ -16,11 +16,14 @@ import (
 const defaultSlow = 2 * time.Second
 
 // The routes whose lines are not at the usual level: static files are
-// written at debug, and the event stream is open for hours by design, so its
-// one line (written when it ends) is never a slow-request warning.
+// written at debug, and so is a health probe that was answered 200 (it asks
+// every few seconds; one that fails keeps its info line). The event stream
+// is open for hours by design, so its one line (written when it ends) is
+// never a slow-request warning.
 const (
 	routeStatic = "GET /static/"
 	routeEvents = "GET /events"
+	routeHealth = "GET /healthz"
 )
 
 // statusWriter remembers the status a handler answered with.
@@ -78,9 +81,9 @@ func (s *Server) logRequests(next http.Handler) http.Handler {
 	})
 }
 
-// requestLine writes a request's line: at debug for a static file, at warn
-// for a request that took longer than the server's slow time (the event
-// stream excepted), else at info.
+// requestLine writes a request's line: at debug for a static file and for a
+// health probe answered 200, at warn for a request that took longer than the
+// server's slow time (the event stream excepted), else at info.
 func (s *Server) requestLine(rq *logs.Request, method string, status int, took time.Duration) {
 	lg := s.Logger
 	if lg == nil {
@@ -96,6 +99,8 @@ func (s *Server) requestLine(rq *logs.Request, method string, status int, took t
 		level = slog.LevelDebug
 	case took > slow && rq.Route != routeEvents:
 		level = slog.LevelWarn
+	case rq.Route == routeHealth && status == http.StatusOK:
+		level = slog.LevelDebug
 	}
 	ctx := context.Background()
 	if !lg.Enabled(ctx, level) {

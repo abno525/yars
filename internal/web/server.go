@@ -148,6 +148,12 @@ type Server struct {
 	// slowAfter is how long a request may take before its log line is a
 	// warning (0 = defaultSlow)
 	slowAfter time.Duration
+	// GET /healthz: its state, how long a probe waits for the database
+	// (0 = defaultHealthWait) and the read itself (nil = the database's
+	// schema number; tests)
+	probe       probeState
+	healthWait  time.Duration
+	healthProbe func() error
 }
 
 // boardPage is how many findings the board shows before "Load more".
@@ -387,6 +393,11 @@ func (s *Server) Handler() http.Handler {
 	root.HandleFunc("POST /login", s.login)
 	root.HandleFunc("GET /setup", s.setupPage)
 	root.HandleFunc("POST /setup", s.setup)
+	root.HandleFunc(routeHealth, s.healthz) // no login: a probe's yes or no
+	root.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Allow", "GET, HEAD") // not the login's redirect
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	})
 	root.Handle("GET /static/", staticHandler())
 	root.HandleFunc("GET /favicon.ico", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, staticPrefix()+"/favicon.svg", http.StatusMovedPermanently)

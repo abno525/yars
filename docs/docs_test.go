@@ -372,6 +372,26 @@ func TestDeployGuideFail2banPattern(t *testing.T) {
 	}
 }
 
+// The deploy guide names the health probe: its address, its two answers,
+// that it needs no login and says no reason, and where the reason is.
+func TestDeployGuideHealthProbe(t *testing.T) {
+	b, err := os.ReadFile("deploy.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := string(b)
+	i := strings.Index(g, "\n### Health probe\n")
+	if i < 0 || i < strings.Index(g, "\n## Health\n") || i > strings.Index(g, "\n## Logs\n") {
+		t.Fatal("no Health probe part in the Health section")
+	}
+	for _, want := range []string{"`GET /healthz`", "It needs no login.", "| `200` and `ok` |", "| `503` and `unavailable` |",
+		"no version, no counts, no reason", "`health check failed`", "`health check passes again`", "static files, health probes,"} {
+		if !strings.Contains(g, want) {
+			t.Errorf("the deploy guide lacks %q", want)
+		}
+	}
+}
+
 // ciJob returns one job of the CI workflow: from its name to the next job's.
 func ciJob(t *testing.T, name string) string {
 	t.Helper()

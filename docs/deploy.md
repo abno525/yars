@@ -249,6 +249,21 @@ The same state is on the command line (see [Logs](#logs)):
 sudo -u yars yars status --data /srv/yars
 ```
 
+### Health probe
+
+`GET /healthz` is for a load balancer, a container runtime or a monitor. It needs no login.
+
+```sh
+curl -i http://127.0.0.1:8080/healthz
+```
+
+| Answer | Means |
+|---|---|
+| `200` and `ok` | the server answers and its database reads |
+| `503` and `unavailable` | the database gave an error, or no answer within 2 seconds |
+
+The answer holds nothing else: no version, no counts, no reason. The reason is in the service log, as one `warn` line, `health check failed`, when the answer turns bad, and one line, `health check passes again`, when it is good again. A long push or a running check does not turn the answer bad. A probe answered `200` is a `debug` line in the log, so probes do not fill it.
+
 ## Logs
 
 YARS writes its log to stderr. The journal of systemd keeps it. YARS writes no log file and rotates nothing.
@@ -271,7 +286,7 @@ A line is `time=… level=… msg=… key=value …`. A value with a space is in
 | `error` | a request or a job failed; someone should look | a commit failed, a template error, a check run crashed |
 | `warn` | it went on, but not as it should | a failed login, a failed AI call, a webhook tried again, a slow request |
 | `info` | one line for each thing that happened | a request, a check run, an export, a push, start and stop |
-| `debug` | detail for one problem | static files, the heartbeat of a live stream |
+| `debug` | detail for one problem | static files, health probes, the heartbeat of a live stream |
 
 The same field has the same name on every line:
 
@@ -309,6 +324,7 @@ Each job writes one line when it ends, with `ms` and its outcome.
 | `start: uncommitted files were removed from an engagement's findings folder` | the start removed files a stop had left between their write and their commit: the engagement and a count (`warn`) |
 | `start: another server runs on this data folder; uncommitted files in the findings folders are left` | a second `yars serve` on a data folder a server already runs on: it removes nothing (`warn`) |
 | `yars stopping`, `yars stopped` | the stop |
+| `health check failed`, `health check passes again` | the answer of `/healthz` changed: to `503` (`warn`, with the reason in `err`), and back to `200` |
 | `check run finished` | a check run ended: its state and the counts of errors and warnings |
 | `check run crashed` | a check run failed inside the server (`error`) |
 | `check run dropped` | a waiting check run was not run: the server stops (`interrupted`) or the engagement was archived (`archived`) |
