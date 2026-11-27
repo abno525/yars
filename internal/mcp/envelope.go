@@ -80,19 +80,18 @@ func page[T any](a args, items []T) (out []T, next string, err error) {
 }
 
 // pageArgs reads limit (1–200, default 50) and cursor (a whole number from
-// 0, default 0); anything else is invalid.
+// 0, default 0), each a JSON number or its digits in a string (args.whole);
+// anything else is invalid.
 func pageArgs(a args) (limit, cursor int, err error) {
 	limit = defaultLimit
-	if s := a.str("limit"); s != "" {
-		n, err := strconv.Atoi(s)
-		if err != nil || n < 1 || n > maxLimit {
+	if n, given, ok := a.whole("limit"); given {
+		if !ok || n < 1 || n > maxLimit {
 			return 0, 0, refuse("invalid", fmt.Sprintf("limit must be a whole number from 1 to %d", maxLimit))
 		}
 		limit = n
 	}
-	if s := a.str("cursor"); s != "" {
-		n, err := strconv.Atoi(s)
-		if err != nil || n < 0 {
+	if n, given, ok := a.whole("cursor"); given {
+		if !ok || n < 0 {
 			return 0, 0, refuse("invalid", "cursor must be the next of an earlier answer (a whole number from 0)")
 		}
 		cursor = n
@@ -164,13 +163,25 @@ func wording(err error) string {
 }
 
 // fail renders a refusal and its code from an error; the message is what
-// wording says.
+// wording says. For a finding file that does not parse the message names
+// the folder, and the parser's complaint, which can quote the file's own
+// text, is under "untrusted" as detail (untrusted.go).
 func fail(err error) string {
-	b, _ := json.Marshal(struct {
-		OK      bool   `json:"ok"`
-		Code    string `json:"code"`
-		Message string `json:"message"`
-	}{false, codeOf(err), wording(err)})
+	type theirs struct {
+		Detail string `json:"detail"`
+	}
+	out := struct {
+		OK      bool    `json:"ok"`
+		Code    string  `json:"code"`
+		Message string  `json:"message"`
+		Theirs  *theirs `json:"untrusted,omitempty"`
+	}{false, codeOf(err), wording(err), nil}
+	var bad *store.UnreadableError
+	if errors.As(err, &bad) && bad.Err != nil {
+		out.Message = bad.Eng + "/" + bad.Dir + ": " + store.ErrUnreadable.Error()
+		out.Theirs = &theirs{bad.Err.Error()}
+	}
+	b, _ := json.Marshal(out)
 	return string(b)
 }
 

@@ -80,12 +80,14 @@ func TestTransitionBase(t *testing.T) {
 	if m, isErr := tr(dora, "report", "stale"); isErr || status() != "reported" {
 		t.Fatalf("report with a base: %v", m)
 	}
-	// without base: as before, the finding as it is
+	// without base nothing is signed (TestTransitionNeedsBase)
 	g := stateFx(t, "verification")
-	g.ok(bob, "transition", map[string]any{"engagement": "acme", "finding": "F-001", "action": "clear"})
+	if text, isErr := g.bare(bob, "transition", map[string]any{"engagement": "acme", "finding": "F-001", "action": "clear"}); !isErr {
+		t.Fatalf("clear without a base: %s", text)
+	}
 	// the tool says so
 	tl := toolByName["transition"]
-	if len(tl.optional) != 2 || tl.optional[1].name != "base" || !strings.Contains(tl.optional[1].desc, "hash") ||
+	if len(tl.optional) != 3 || tl.optional[1].name != "base" || !strings.Contains(tl.optional[1].desc, "hash") || tl.optional[2].name != "attachments_base" ||
 		!strings.Contains(toolByName["read_finding"].desc, "hash") {
 		t.Fatalf("transition %+v", tl.optional)
 	}

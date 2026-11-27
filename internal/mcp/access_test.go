@@ -16,6 +16,7 @@ import (
 func (f *fx) callTok(u config.User, tk db.TokenInfo, tool string, args map[string]any) (string, bool) {
 	f.t.Helper()
 	f.id++
+	args = f.signed(tool, args)
 	msg, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": f.id, "method": "tools/call",
 		"params": map[string]any{"name": tool, "arguments": args}})
 	var resp struct {
@@ -28,7 +29,7 @@ func (f *fx) callTok(u config.User, tk db.TokenInfo, tool string, args map[strin
 	if err := json.Unmarshal(out, &resp); err != nil {
 		f.t.Fatal(err)
 	}
-	return resp.Result.Content[0].Text, resp.Result.IsError
+	return flat(resp.Result.Content[0].Text), resp.Result.IsError
 }
 
 func engIDs(t *testing.T, out string) string {

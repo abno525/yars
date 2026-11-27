@@ -17,30 +17,40 @@ import (
 	"github.com/abno525/yars/internal/workflow"
 )
 
+// read_finding gives a finding's open threads to act on, not its whole
+// chat: at most maxOpenThreads threads, the oldest first, and of each the
+// last maxThreadReplies replies. What is left out is counted in the answer
+// (open_threads_more, replies_more); read_chat pages all of it. Constants,
+// not arguments: a caller cannot raise them.
+const (
+	maxOpenThreads   = 20
+	maxThreadReplies = 20
+)
+
 // The reading tools of MCP v2 (M32 task 5): who the caller is, the
 // structure, the team, a finding's chat, history and attachments, a
 // template; and the actions read_finding offers.
 
 var readingTools = []tool{
-	{name: "whoami", desc: "Who you are here: username, role, whether you are an admin, and (over HTTP) your token's actions and engagements (an empty engagement list: every engagement of the account).",
+	{name: "whoami", readOnly: true, desc: "Who you are here: username, role, whether you are an admin, and (over HTTP) your token's actions and engagements (an empty engagement list: every engagement of the account).",
 		simple: &toolText{desc: "Who you are here: username, whether you are an admin, and (over HTTP) your token's actions and engagements (an empty engagement list: every engagement of the account)."},
 		run:    whoami},
-	{name: "get_config", desc: "The team's structure: the sections and details rows of a finding, the severities, the CVSS version and standard values (a different value needs a written reason), the statuses and the transition actions.",
+	{name: "get_config", readOnly: true, desc: "The team's structure: the sections and details rows of a finding, the severities, the CVSS version and standard values (a different value needs a written reason), the statuses and the transition actions.",
 		run: getConfig},
-	{name: "list_team", serverOnly: true, desc: "The engagement's team: each member's username and role.",
+	{name: "list_team", readOnly: true, serverOnly: true, desc: "The engagement's team: each member's username and role.",
 		required: []param{pEng}, optional: []param{pLimit, pCursor},
 		simple: &toolText{desc: "The engagement's team: each member's username."},
 		run:    listTeam},
-	{name: "read_chat", serverOnly: true, desc: "The finding's whole chat, oldest first, a page at a time: threads (with replies; an AI reply is marked ai, a check run's thread has kind check) and workflow events.",
+	{name: "read_chat", readOnly: true, untrusted: true, serverOnly: true, desc: "The finding's whole chat, oldest first, a page at a time: threads (with replies; an AI reply is marked ai, a check run's thread has kind check) and workflow events." + theirNote,
 		required: []param{pEng, pFinding}, optional: []param{pLimit, pCursor},
 		run: readChat},
-	{name: "list_history", desc: "The finding's versions, newest first, a page at a time: commit, author (ai: made by Fix with AI for that user), time and the parts that changed.",
+	{name: "list_history", readOnly: true, untrusted: true, desc: "The finding's versions, newest first, a page at a time: commit, time, and under untrusted the author's name as the commit has it (ai: made by Fix with AI for that user), the subject and the parts that changed." + theirNote,
 		required: []param{pEng, pFinding}, optional: []param{pLimit, pCursor},
 		run: listHistory},
-	{name: "list_attachments", desc: "The finding's attachments: name, size, type (image or file) and whether an earlier version (before a redaction) is still in the history.",
+	{name: "list_attachments", readOnly: true, desc: "The finding's attachments: name, size, type (image or file) and whether an earlier version (before a redaction) is still in the history.",
 		required: []param{pEng, pFinding}, optional: []param{pLimit, pCursor},
 		run: listAttachments},
-	{name: "read_template", desc: "One finding template's Markdown (front matter and sections) by its slug from list_templates.",
+	{name: "read_template", readOnly: true, untrusted: true, desc: "One finding template's Markdown (front matter and sections) by its slug from list_templates." + theirNote,
 		required: []param{{"template", "template slug from list_templates"}},
 		run:      readTemplate},
 }
@@ -134,12 +144,14 @@ func readChat(s *Server, ctx context.Context, u config.User, a args) (string, er
 	if err != nil {
 		return "", err
 	}
+	// a message's text, and an event's (a return's reason), are other
+	// people's: under "untrusted" (untrusted.go)
 	type reply struct {
-		ID   string `json:"id"`
-		User string `json:"user"`
-		At   string `json:"at"`
-		Text string `json:"text"`
-		AI   bool   `json:"ai,omitempty"`
+		ID     string    `json:"id"`
+		User   string    `json:"user"`
+		At     string    `json:"at"`
+		AI     bool      `json:"ai,omitempty"`
+		Theirs theirText `json:"untrusted"`
 	}
 	type item struct {
 		Type       string  `json:"type"` // thread | event
@@ -147,24 +159,31 @@ func readChat(s *Server, ctx context.Context, u config.User, a args) (string, er
 		User       string  `json:"user"`
 		At         string  `json:"at"`
 		Section    string  `json:"section,omitempty"`
-		Text       string  `json:"text,omitempty"`
 		Event      string  `json:"event,omitempty"`
 		Kind       string  `json:"kind,omitempty"` // check: a check run's thread
 		Resolved   bool    `json:"resolved,omitempty"`
 		ResolvedBy string  `json:"resolved_by,omitempty"`
 		Replies    []reply `json:"replies,omitempty"`
+		Theirs     struct {
+			Section string `json:"section,omitempty"` // one the configuration does not name
+			Text    string `json:"text,omitempty"`
+		} `json:"untrusted"`
 	}
 	out := []item{}
 	for _, it := range chat.Timeline(msgs) {
 		if e := it.Event; e != nil {
-			out = append(out, item{Type: "event", ID: e.ID, User: e.User, At: stamp(e.TS), Event: e.Event, Text: e.Text})
+			x := item{Type: "event", ID: e.ID, User: e.User, At: stamp(e.TS), Event: e.Event}
+			x.Theirs.Text = e.Text
+			out = append(out, x)
 			continue
 		}
 		t := it.Thread
-		x := item{Type: "thread", ID: t.Root.ID, User: t.Root.User, At: stamp(t.Root.TS), Section: t.Root.Section, Text: t.Root.Text,
+		x := item{Type: "thread", ID: t.Root.ID, User: t.Root.User, At: stamp(t.Root.TS),
 			Kind: t.Root.Kind, Resolved: t.Resolved, ResolvedBy: t.ResolvedBy, Replies: []reply{}}
+		x.Section, x.Theirs.Section = s.sectionOf(t.Root.Section)
+		x.Theirs.Text = t.Root.Text
 		for _, r := range t.Replies {
-			x.Replies = append(x.Replies, reply{r.ID, r.User, stamp(r.TS), r.Text, r.Kind == chat.KindAI})
+			x.Replies = append(x.Replies, reply{ID: r.ID, User: r.User, At: stamp(r.TS), AI: r.Kind == chat.KindAI, Theirs: theirText{r.Text}})
 		}
 		out = append(out, x)
 	}
@@ -205,13 +224,18 @@ func listHistory(s *Server, ctx context.Context, u config.User, a args) (string,
 	if err != nil {
 		return "", err
 	}
+	// a pushed commit's subject is free text, and so are the names of the
+	// parts that changed (a section's name, or the subject again) and the
+	// author's name: the pusher sets it, and the push compares the email only
 	type version struct {
-		Commit  string   `json:"commit"`
-		Author  string   `json:"author"`
-		AI      bool     `json:"ai,omitempty"`
-		Time    string   `json:"time"`
-		Subject string   `json:"subject"`
-		Changed []string `json:"changed"`
+		Commit string `json:"commit"`
+		AI     bool   `json:"ai,omitempty"`
+		Time   string `json:"time"`
+		Theirs struct {
+			Author  string   `json:"author"`
+			Subject string   `json:"subject"`
+			Changed []string `json:"changed"`
+		} `json:"untrusted"`
 	}
 	out := []version{}
 	for _, i := range pg { // what changed: worked out for the page only
@@ -223,7 +247,9 @@ func listHistory(s *Server, ctx context.Context, u config.User, a args) (string,
 			}
 		}
 		who, ai := history.Who(v.Author)
-		out = append(out, version{v.Hash, who, ai, stamp(v.Time), v.Subject, changed})
+		x := version{Commit: v.Hash, AI: ai, Time: stamp(v.Time)}
+		x.Theirs.Author, x.Theirs.Subject, x.Theirs.Changed = who, v.Subject, changed
+		out = append(out, x)
 	}
 	return list(out, next)
 }
@@ -276,13 +302,16 @@ func readTemplate(s *Server, ctx context.Context, u config.User, a args) (string
 		return "", err
 	}
 	m := t.F.Meta
+	type theirs struct {
+		Title    string `json:"title"`
+		Markdown string `json:"markdown"`
+	}
 	return ok(struct {
 		Slug     string `json:"slug"`
-		Title    string `json:"title"`
 		Severity string `json:"severity,omitempty"`
 		CVSS     string `json:"cvss,omitempty"`
-		Markdown string `json:"markdown"`
-	}{t.Slug, m.Title, m.Severity, m.CVSS, string(t.F.Bytes())})
+		Theirs   theirs `json:"untrusted"`
+	}{t.Slug, m.Severity, m.CVSS, theirs{m.Title, string(t.F.Bytes())}})
 }
 
 // writingTools are MCP v2's new writing tools (M32 task 6).
@@ -290,7 +319,7 @@ var writingTools = []tool{
 	{name: "mark_notifications_read", serverOnly: true, desc: "Mark your notifications read: ids (comma-separated, from list_notifications) or all. Your own state: a read-only token may do it; a token limited to some engagements marks only theirs.",
 		optional: []param{{"ids", "notification ids, comma-separated"}}, boolArgs: []param{{"all", "every unread notification"}},
 		run: markRead},
-	{name: "fix_checks", action: "checks", also: "edit", serverOnly: true, desc: "Fix with AI: the AI fixes the finding's open check results one by one in the background, answers each result's thread (marked AI) and a check run follows. Needs a finished check run on the current text and an AI provider; drafts and findings in verification only; a token needs run checks and edit findings. Read the outcome with get_check_results and read_chat.",
+	{name: "fix_checks", action: "checks", also: "edit", destructive: true, openWorld: true, serverOnly: true, desc: "Fix with AI: the AI fixes the finding's open check results one by one in the background, answers each result's thread (marked AI) and a check run follows. Needs a finished check run on the current text and an AI provider; drafts and findings in verification only; a token needs run checks and edit findings. Read the outcome with get_check_results and read_chat.",
 		required: []param{pEng, pFinding},
 		simple:   &toolText{desc: "Fix with AI: the AI fixes the finding's open check results one by one in the background, answers each result's thread (marked AI) and a check run follows. Needs a finished check run on the current text and an AI provider; drafts only; a token needs run checks and edit findings. Read the outcome with get_check_results and read_chat."},
 		run:      fixChecks},
@@ -365,6 +394,7 @@ func fixChecks(s *Server, ctx context.Context, u config.User, a args) (string, e
 // approve, sign off and complete the store's own blocks with the fast rules
 // (script and AI rules run at the transition itself). The actions are those
 // of the data folder's workflow (AllowedActions reads it from the config).
+// A sign-off, an approval and a completion need base.
 func (s *Server) allowedActions(ctx context.Context, u config.User, ref store.FindingRef) []workflow.Allowed {
 	out := workflow.AllowedActions(u, ref.F.Meta, s.conf())
 	tk, hasTok := tokenFrom(ctx)
@@ -374,6 +404,9 @@ func (s *Server) allowedActions(ctx context.Context, u config.User, ref store.Fi
 	for i := range out {
 		al := &out[i]
 		act := workflow.Action(al.Action)
+		if store.SignsOff(act) {
+			al.Needs = "base" // transition refuses it without (none of them takes a reason)
+		}
 		why := ""
 		switch need := actionOf(transition, args{"action": al.Action}); {
 		case hasTok && !tk.Allows(need):

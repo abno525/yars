@@ -178,6 +178,11 @@ func TestErrorCodes(t *testing.T) {
 			// statement): the log has them (pre1 2.29)
 			want = "internal error"
 		}
+		if errors.As(c.err, &bad) {
+			// the parser's words about the file are the answer's
+			// untrusted.detail (pre1 6.3)
+			want = "acme/F-001-x: cannot be read"
+		}
 		if m["ok"] != false || m["code"] != c.code || m["message"] != want {
 			t.Errorf("fail(%v) = %v", c.err, m)
 		}

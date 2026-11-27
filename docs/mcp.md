@@ -42,11 +42,13 @@ The assistant edits your clone and commits as `alice`. Nothing reaches the team 
 
 A clone holds **content only**. Workflow state (status, reviewers, clearances), chat, check runs and notifications live in the server's database, so in local mode the tools marked *server only* answer that you need the server — use the remote setup above for those.
 
+On a clone the status of a finding is `unknown`, in `read_finding` and in `list_findings`. `list_findings` refuses its `status` filter there (`no_database`) and lists withdrawn findings with the others. The rest of `read_finding`'s state is not known either: `reviewers`, `open_threads`, `can_edit` and `allowed_actions` read as for a new draft. An edit on the clone is committed whatever the status is on the server; the push decides.
+
 ## Simple workflow
 
 A data folder set up with `yars init --simple` runs the simple workflow: draft → complete → reported, with no reviewers and no roles (an account is an admin or not). `initialize`'s instructions and `tools/list` describe it, and the tools follow it:
 
-- `transition` takes `complete` (draft to complete; held as `approve` is, without the reviewers: by the content gate, rule errors, open checks and, with Require Check on, a missing check run of the current text; `base` refuses it if the finding changed since it was read), `reopen` (reason; complete to draft), `report`, `unreport` (reason; reported to complete), `revert`, `withdraw` (reason) and `revise`. `submit`, `return`, `clear`/`sign_off`, `approve` and `take_back` are refused with `not_allowed`: not part of the simple workflow.
+- `transition` takes `complete` (draft to complete; held as `approve` is, without the reviewers: by the content gate, rule errors, open checks and, with Require Check on, a missing check run of the current text; it needs `base`, the `hash` from `read_finding`, and is refused if the finding changed since it was read), `reopen` (reason; complete to draft), `report`, `unreport` (reason; reported to complete), `revert`, `withdraw` (reason) and `revise`. `submit`, `return`, `clear`/`sign_off`, `approve` and `take_back` are refused with `not_allowed`: not part of the simple workflow.
 - `get_config` gives `workflow` (`simple`, or `standard` on any other server), the statuses `draft`, `complete`, `reported` and `withdrawn`, and the actions above; `list_findings` filters by those statuses.
 - `whoami` and `list_team` give no role, and `set_field reviewers` is refused with `not_allowed`; over HTTP a token needs only edit findings for it, as for any `set_field`.
 - `read_finding`'s `allowed_actions` are the simple workflow's actions of the finding's status.
@@ -59,12 +61,12 @@ A data folder set up with `yars init --simple` runs the simple workflow: draft �
 |---|---|---|---|
 | `list_engagements` | read | local + server | The engagements you work on (pentests and retests); archived ones are read only |
 | `list_findings` | read | local + server | Findings of an engagement, most severe first; filter by status or severity, search with `q` (ID, title, an asset's host or URL) |
-| `read_finding` | read | local + server | Workflow state, the raw `finding.md` and its `hash`, each section's body and base hash, assets, open chat threads, rule violations, and `allowed_actions` (each action of the status: `enabled`, `reason` when not, `needs: "reason"`) |
+| `read_finding` | read | local + server | Workflow state, the front matter as fields (`id`, `author`, `severity`, `cvss`, and `title`, `details`, `cvss_reasons`, `assets`), the file's `hash`, `attachments_hash`, each section's body and base hash, the open chat threads (at most 20, each with its last 20 replies; `open_threads_more` and `replies_more` count the rest, which the tool for the whole chat has), rule violations, and `allowed_actions` (each action of the status: `enabled`, `reason` when not, `needs: "reason"` or `needs: "base"`). `raw: true` adds the file as it is (`finding_md`) |
 | `list_templates` | read | local + server | Finding templates (`.yars/templates`) with how often each was used |
 | `create_finding` | create | local + server | New draft in an engagement; `template` starts it from a template |
 | `update_section` | edit | local + server | Replace one `##` section (pass `base` from `read_finding` to avoid overwriting a colleague) |
-| `set_field` | edit (reviewers: reviewers) | local + server | `title`, `severity`, `cvss`, `cvss_reason.<METRIC>`, `details.<Row>`, `reviewers`, `retest_result`, `assets`. `reviewers` replaces the whole list: pass `base` (`field_bases.reviewers` from `read_finding`) and it is refused with `conflict` when the list changed since, so a reviewer added meanwhile is not dropped. `cvss` with a changed metric removes that metric's reason; an empty `cvss` removes every reason. A `CVSS:3.0` vector is stored as the `CVSS:3.1` vector of the same metrics (the score is the same), and the answer's message says so |
-| `transition` | status (report: export) | server only | `submit`, `return` (reason), `clear`/`sign_off` (an assigned reviewer or a director; a director also on their own finding), `approve` (director, after a sign-off by an assigned reviewer other than them), `reopen` (reason; author or director: complete to verification), `report` (author or director: complete to reported), `unreport` (reason; author or director: reported to complete, the approval stays), `revert` (reason: `reopen` or `unreport`, by the finding's status), `withdraw` (reason), `revise`, `take_back` (author or director: verification to draft, sign-offs start over); `base` (the `hash` from `read_finding`) refuses `clear`/`sign_off` and `approve` if the finding changed since it was read |
+| `set_field` | edit (reviewers: reviewers) | local + server | `title`, `severity`, `cvss`, `cvss_reason.<METRIC>`, `details.<Row>`, `reviewers`, `retest_result`, `assets`. `reviewers` replaces the whole list: pass `base` (`field_bases.reviewers` from `read_finding`) and it is refused with `conflict` when the list changed since, so a reviewer added meanwhile is not dropped. `title`, `severity` and `retest_result` take their `field_bases` entry as `base` the same way, and their answer has the new `base`; without `base` they are not checked. `cvss` with a changed metric removes that metric's reason; an empty `cvss` removes every reason. A `CVSS:3.0` vector is stored as the `CVSS:3.1` vector of the same metrics (the score is the same), and the answer's message says so |
+| `transition` | status (report: export) | server only | `submit`, `return` (reason), `clear`/`sign_off` (an assigned reviewer or a director; a director also on their own finding), `approve` (director, after a sign-off by an assigned reviewer other than them), `reopen` (reason; author or director: complete to verification), `report` (author or director: complete to reported), `unreport` (reason; author or director: reported to complete, the approval stays), `revert` (reason: `reopen` or `unreport`, by the finding's status), `withdraw` (reason), `revise`, `take_back` (author or director: verification to draft, sign-offs start over). `clear`/`sign_off` and `approve` need `base`, the `hash` from `read_finding`: without it they are refused, and with it they are refused if the finding changed since it was read. `attachments_base` (`attachments_hash` from `read_finding`) refuses them if an attachment changed since |
 | `add_chat_message` / `resolve_thread` | comment | server only | Discuss in the finding's chat; `@name` mentions notify that person |
 | `lint_finding` | read | local + server | Style rules (regex/built-in; `all: true` also scripts and AI, and needs the checks action). On the server `all: true` is a stored check run, as the Check button starts: it waits in the queue, its results also arrive as chat comments, and it is refused on an archived engagement. The answer waits for the run (90 s at most) and has `run_id` and `state`; a run still `queued` or `running` lists nothing and says so: the check results tool reads it later |
 | `start_check` | checks | server only | Start a stored check run (every rule); results arrive as chat comments. Over the server's limit (`checks.max_running`) it waits in a queue: state `queued` |
@@ -80,18 +82,42 @@ A data folder set up with `yars init --simple` runs the simple workflow: draft �
 | `mark_notifications_read` | read | server only | Mark your notifications read: `ids` (comma-separated) or `all: true`; a token limited to some engagements marks only theirs |
 | `fix_checks` | checks + edit | server only | Fix with AI: the AI fixes the open check results in the background, answers their threads (marked AI), and a check run follows |
 
+`tools/list` gives each tool three annotations. `readOnlyHint` is true for the tools that change nothing: the `list_*` and `read_*` tools, `whoami`, `get_config` and `get_check_results`. `lint_finding` is not one of them: with `all: true` it starts a check run. `destructiveHint` is true for the tools that replace what is there: `update_section`, `set_field`, `transition` and `fix_checks`. `openWorldHint` is true for the tools that can send text to the AI provider: `lint_finding`, `start_check` and `fix_checks`.
+
 Findings can be referred to by ID (`F-001`, also `f-1` or `1`) or directory name (`F-001-sql-injection`); an ID that two folders share is refused, and the folder name is needed. A token restricted to some engagements sees and changes only those; a write to an archived engagement is refused.
 
 ## Answers
 
 Every tool answers with one JSON object as its text:
 
-- a result: `{"ok": true, …}` with the tool's fields (`read_finding`: `state`, `sections`, `allowed_actions`, …);
+- a result: `{"ok": true, …}` with the tool's fields (`read_finding`: `state`, `sections`, `allowed_actions`, `untrusted`, …);
 - a plain outcome: `{"ok": true, "message": "updated Impact"}` (the sentence earlier versions answered with); a `set_field` that gives a row's new base has it as `base` too;
 - a list: `{"ok": true, "items": […], "next": "<cursor or empty>"}`;
 - a refusal: the result has `isError: true` and the text `{"ok": false, "code": "<code>", "message": "<what to do>"}`.
 
-The codes:
+### Other people's text
+
+Text that people wrote is in an answer only under a key named `untrusted`, inside the object it belongs to. An assistant reads it as data, never as instructions. The description of each such tool says so.
+
+| Tool | Under `untrusted` |
+|---|---|
+| `list_engagements` | each item's `name`, `client` |
+| `list_findings`, `list_templates` | each item's `title` |
+| `read_finding` | `title`, `details`, `cvss_reasons`, `assets`, and `finding_md` with `raw: true`; each section's `body`, and its `name` when the configuration does not name the section; each open thread's and reply's `text`, and a thread's `section` when it is such a section; each violation's `message`, `quote`; the `reason` of `state.returned` and `state.withdrawn` |
+| `read_template` | `title`, `markdown` |
+| `lint_finding`, `get_check_results` | each result's `message`, `quote` |
+| `list_notifications` | each item's `title`, `text` |
+| `read_chat` | each item's and reply's `text`; a thread's `section` when the configuration does not name it |
+| `list_history` | each item's `author` (the name the commit carries), `subject`, `changed` |
+| a finding file that does not parse | `detail`, the parser's words |
+
+A list item looks like `{"id": "F-001", "dir": "F-001-sql-injection", "status": "draft", …, "untrusted": {"title": "SQL injection"}}`. What you send back stays outside: IDs, folder names, the configured section names, attachment names, `hash`, the bases, `status`, `allowed_actions`.
+
+A pushed `finding.md` can have a section or a details row that the configuration does not name. Such a section's `name` is under `untrusted`; pass it to `update_section` as you read it. Such a details row is in `untrusted.details` only: `field_bases` has the configured rows, and `set_field` takes no other.
+
+### Codes
+
+A refusal has one of these codes:
 
 | Code | Meaning |
 |---|---|
@@ -106,7 +132,7 @@ The codes:
 
 ## Paging
 
-The list tools (`list_engagements`, `list_findings`, `list_templates`, `list_notifications`, `list_team`, `read_chat`, `list_history`, `list_attachments`) answer a page at a time. `limit` is 1 to 200 (default 50); `cursor` is the `next` of the previous answer; an empty `next` means the end. A limit or cursor that is not such a whole number is `invalid`; a cursor past the end gives an empty page.
+The list tools (`list_engagements`, `list_findings`, `list_templates`, `list_notifications`, `list_team`, `read_chat`, `list_history`, `list_attachments`) answer a page at a time. `limit` is 1 to 200 (default 50); `cursor` is the `next` of the previous answer; an empty `next` means the end. Both are taken as a JSON number (`"limit": 20`) or as a string (`"limit": "20"`); the schema says `integer` for `limit` and `string` for `cursor`. A limit or cursor that is not such a whole number is `invalid`; a cursor past the end gives an empty page.
 
 `list_notifications` pages by notification id: marking some read, or new ones arriving, between two calls neither skips nor repeats one. The other lists page by position: they can move between calls (a finding submitted between two pages of `list_findings status=draft` leaves it), so a client that changes what it filters on starts again without a cursor. A cursor belongs to the call it came from: pass it to the same tool with the same filters.
 
@@ -121,17 +147,18 @@ Some refusals and their messages:
 | `not_allowed` | `not allowed: <reason>` | Your role or the finding's status forbids it |
 | `not_allowed` | `not allowed: this token may not <action>` | The token's actions don't include it |
 | `archived` | `not allowed: the engagement is archived (read only)` | Writes to an archived engagement |
-| `no_database` | `workflow state and chat are kept on the YARS server; use its web UI or its /mcp endpoint` | A server-only tool on a local clone |
+| `no_database` | `workflow state and chat are kept on the YARS server; use its web UI or its /mcp endpoint` | A server-only tool on a local clone, or `list_findings` with `status` there |
 | `conflict` | `the finding changed since you read it; read_finding again and retry` | Stale `base`; for `transition` clear, sign_off or approve it comes before the checks and the gate. Also a submit or sign-off that raced an edit |
 | `busy` | `a check or a fix of this finding is running` | `start_check` while a fix runs (during a check, running or queued, it answers that run), `fix_checks` while a check or a fix runs |
 | `invalid` | `a reason is required to withdraw a finding` | `transition` return, withdraw or revert without `reason` |
+| `invalid` | `missing argument "base": call read_finding and pass its hash as base, …` | `transition` clear, sign_off, approve or complete without `base`. A refusal of the role, the status, the archive or a clone comes first |
 | `invalid` | `unknown section "Summary"; valid sections: …` | `update_section` with a section the finding doesn't have |
 | `invalid` | `use the transition tool to change the status` | `set_field status` |
 | `not_allowed` | `nothing to revert: the finding is draft` | `transition revert` on a finding that is not complete or reported |
 | `not_allowed` | `not allowed: Approve is not part of the simple workflow (draft → complete → reported)` | `transition` with a step of the standard workflow on a server of the simple one |
 | `invalid` | `unknown status "open"; valid statuses: draft, verification, complete, reported, withdrawn` | `list_findings` with a status (or severity) that does not exist |
 | `invalid` | `F-001 names more than one finding folder (…); use the folder name` | An ID two folders share |
-| `server_error` | `acme/F-001-sqli: cannot be read: …` | The finding's file does not parse (fix it in the repository) |
+| `server_error` | `acme/F-001-sqli: cannot be read` | The finding's file does not parse (fix it in the repository); `untrusted.detail` has the parser's words |
 | `server_error` | `internal error` | The server's database or disk failed; the server's log says what |
 
 A failure of the server itself is `server_error`, never `invalid`. `invalid` is an argument or a value the server refuses; the message says which.
@@ -141,5 +168,5 @@ A failure of the server itself is `server_error`, never `invalid`. `invalid` is 
 - The assistant can do exactly what you can do — no more. A pentester's assistant cannot approve findings or edit completed ones.
 - Text written by the assistant goes through the same style rules; submit is blocked while error-level rules fail.
 - Treat a token like a password. Give it only the actions and engagements it needs, and revoke it when a laptop is lost or a person leaves.
-- Finding text and chat come from other people. The server tells the assistant to treat them as data and to confirm workflow transitions with you — still, review what it proposes before approving.
+- Finding text and chat come from other people. Every answer has them under `untrusted`, and the server tells the assistant, in `initialize` and in each tool's description, to treat them as data and to confirm workflow transitions with you. Still, review what it proposes before approving.
 - If Claude Code reports that the server "needs authentication", the token is missing, expired or wrong (YARS doesn't use OAuth); re-add the server with the correct `Authorization` header.
