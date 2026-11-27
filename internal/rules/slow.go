@@ -19,6 +19,7 @@ import (
 	"github.com/abno525/yars/internal/config"
 	"github.com/abno525/yars/internal/logs"
 	"github.com/abno525/yars/internal/lru"
+	"github.com/abno525/yars/internal/outbound"
 )
 
 // Runner evaluates script and AI rules. Scripts live in Dir (.yars/rules).
@@ -40,6 +41,11 @@ type Runner struct {
 	Results ResultStore
 	// Logger takes the runner's log lines; nil writes none.
 	Logger *slog.Logger
+	// Backoff is the wait before a provider call is tried again; it doubles
+	// for the next try. Zero waits not at all (tests).
+	Backoff time.Duration
+	// wait, when set, stands in for the wait before a next try (tests).
+	wait func(ctx context.Context, d time.Duration) error
 
 	cacheOnce sync.Once
 	cache     *lru.Cache[string, aiResult]    // AI replies by prompt, provider, model, rule and text
@@ -63,9 +69,13 @@ func (rn *Runner) aiConf() config.AIConfig {
 	return rn.AIConf
 }
 
+// NewRunner is a runner with the usual limits. Its HTTP client follows a
+// redirect only on the provider's own address (outbound.SameAddress): the
+// key and the finding's text go nowhere else. It has no timeout of its own;
+// each call's context bounds it.
 func NewRunner(dir string, ai config.AIConfig) *Runner {
-	return &Runner{Dir: dir, AIConf: ai, HTTP: &http.Client{}, ScriptTimeout: 10 * time.Second,
-		AITimeout: 60 * time.Second, Getenv: os.Getenv}
+	return &Runner{Dir: dir, AIConf: ai, HTTP: &http.Client{CheckRedirect: outbound.SameAddress}, ScriptTimeout: 10 * time.Second,
+		AITimeout: 60 * time.Second, Getenv: os.Getenv, Backoff: time.Second}
 }
 
 func failed(r Rule, msg string) []Violation {

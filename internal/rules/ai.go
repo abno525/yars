@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -110,21 +111,85 @@ func EnvKeyApplies(conf, eff config.AIConfig) bool {
 // check, which blocks a sign-off (Q11).
 const ruleTokens = 4096
 
+// aiRetries is how often a call the provider answered with a status of
+// retryStatus is made again; maxRetryAfter caps the wait a provider asks
+// for (Retry-After).
+const (
+	aiRetries     = 2
+	maxRetryAfter = 10 * time.Second
+)
+
+// retryStatus reports whether a call answered with status is worth making
+// again: too many requests, or the provider's own trouble (529 is
+// Anthropic's "overloaded"). Not a status that says the request is wrong.
+func retryStatus(status int) bool {
+	switch status {
+	case 429, 500, 502, 503, 504, 529:
+		return true
+	}
+	return false
+}
+
+// pause waits d before a call is made again, or until ctx ends (its error).
+func (rn *Runner) pause(ctx context.Context, d time.Duration) error {
+	if rn.wait != nil {
+		return rn.wait(ctx, d)
+	}
+	if d <= 0 {
+		return ctx.Err()
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
+}
+
 // ask sends one prompt (system and user) to the provider in c for purpose
 // (and rule), with a reply limit of maxTokens where the provider takes one,
-// and tells OnUsage about the call, whether it worked or not.
+// and tells OnUsage about the call, whether it worked or not. A call the
+// provider answers with a status of retryStatus is made again, aiRetries
+// times at most, after a wait that doubles (Backoff, or what the provider
+// asks for up to maxRetryAfter). The tries share ctx's time: a wait that
+// would end after it is not begun. All of it is one call for OnUsage and
+// the log (its tokens are those of the try that worked); each try that is
+// made again has a warn line of its own.
 func (rn *Runner) ask(ctx context.Context, c config.AIConfig, key, system, user, purpose, rule string, maxTokens int) (string, error) {
 	start := time.Now()
+	who := CallerOf(ctx)
 	var content string
 	var in, out int
 	var err error
-	if c.Provider == "anthropic" {
-		content, in, out, err = rn.anthropic(ctx, c, key, system, user, maxTokens)
-	} else {
-		content, in, out, err = rn.openai(ctx, c, key, system, user)
+	tries := 0
+	// again writes the line of a try that failed and is made again
+	again := func(ref *refused) {
+		tries++
+		rn.log().LogAttrs(ctx, slog.LevelWarn, "ai call failed; it is tried again", append(callAttrs(who, c, purpose, rule),
+			slog.Int("attempt", tries), slog.Int("status", ref.status), slog.String("host", ref.host))...)
+	}
+	for n, wait := 0, rn.Backoff; ; n, wait = n+1, wait*2 {
+		if c.Provider == "anthropic" {
+			content, in, out, err = rn.anthropic(ctx, c, key, system, user, maxTokens)
+		} else {
+			content, in, out, err = rn.openai(ctx, c, key, system, user)
+		}
+		var ref *refused
+		if n >= aiRetries || !errors.As(err, &ref) || !retryStatus(ref.status) {
+			break
+		}
+		d := max(wait, min(ref.retryAfter, maxRetryAfter))
+		if end, ok := ctx.Deadline(); ok && time.Now().Add(d).After(end) {
+			break
+		}
+		again(ref)
+		if rn.pause(ctx, d) != nil {
+			break // err stays the provider's answer
+		}
 	}
 	took := max(time.Since(start), time.Nanosecond)
-	who := CallerOf(ctx)
 	if rn.OnUsage != nil {
 		rn.OnUsage(Usage{Purpose: purpose, Provider: c.Provider, Model: c.Model, Rule: rule, User: who.User, Eng: who.Eng, Fid: who.Fid,
 			In: in, Out: out, Took: took, OK: err == nil})
@@ -140,6 +205,23 @@ func (rn *Runner) ask(ctx context.Context, c config.AIConfig, key, system, user,
 // provider's host when the provider refused it. Never the rest of the
 // address, the prompt or the reply.
 func (rn *Runner) logCall(ctx context.Context, who Caller, c config.AIConfig, purpose, rule string, in, out int, took time.Duration, err error) {
+	attrs := append(callAttrs(who, c, purpose, rule), slog.Int("in", in), slog.Int("out", out), slog.Int64("ms", took.Milliseconds()))
+	if err != nil {
+		var ref *refused
+		if errors.As(err, &ref) {
+			attrs = append(attrs, slog.Int("status", ref.status), slog.String("host", ref.host))
+		}
+		attrs = append(attrs, slog.String("err", callErr(err)))
+		rn.log().LogAttrs(ctx, slog.LevelWarn, "ai call failed", attrs...)
+		return
+	}
+	rn.log().LogAttrs(ctx, slog.LevelInfo, "ai call finished", attrs...)
+}
+
+// callAttrs are the attributes every line about a provider call starts
+// with: what it is for, the rule, the provider and model, who asked and on
+// which finding.
+func callAttrs(who Caller, c config.AIConfig, purpose, rule string) []slog.Attr {
 	attrs := []slog.Attr{slog.String("purpose", purpose)}
 	if rule != "" {
 		attrs = append(attrs, slog.String("rule", rule))
@@ -154,17 +236,7 @@ func (rn *Runner) logCall(ctx context.Context, who Caller, c config.AIConfig, pu
 	if who.Fid != "" {
 		attrs = append(attrs, slog.String("finding", logFinding(who.Fid)))
 	}
-	attrs = append(attrs, slog.Int("in", in), slog.Int("out", out), slog.Int64("ms", took.Milliseconds()))
-	if err != nil {
-		var ref *refused
-		if errors.As(err, &ref) {
-			attrs = append(attrs, slog.Int("status", ref.status), slog.String("host", ref.host))
-		}
-		attrs = append(attrs, slog.String("err", callErr(err)))
-		rn.log().LogAttrs(ctx, slog.LevelWarn, "ai call failed", attrs...)
-		return
-	}
-	rn.log().LogAttrs(ctx, slog.LevelInfo, "ai call finished", attrs...)
+	return attrs
 }
 
 // findingID is the form of a finding's ID.
@@ -408,16 +480,23 @@ func (rn *Runner) post(ctx context.Context, url string, body any, hdr map[string
 	if resp.StatusCode/100 != 2 {
 		// the body can echo the key, the account or the request (the
 		// finding's text): users and the server log get the status only
-		return &refused{status: resp.StatusCode, host: req.URL.Host}
+		ref := &refused{status: resp.StatusCode, host: req.URL.Host}
+		if s, err := strconv.Atoi(strings.TrimSpace(resp.Header.Get("Retry-After"))); err == nil && s > 0 {
+			ref.retryAfter = time.Duration(min(s, 3600)) * time.Second
+		}
+		return ref
 	}
 	return json.Unmarshal(data, out)
 }
 
 // refused is a provider's answer whose status is not 2xx: the status and
-// the host asked, for the call's log line. Its text is the status alone.
+// the host asked, for the call's log line, and the wait the provider asked
+// for (Retry-After in seconds; 0 when it named none). Its text is the
+// status alone.
 type refused struct {
-	status int
-	host   string
+	status     int
+	host       string
+	retryAfter time.Duration
 }
 
 func (e *refused) Error() string { return fmt.Sprintf("HTTP %d", e.status) }

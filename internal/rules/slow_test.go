@@ -167,21 +167,31 @@ func TestScriptTimeoutKillsChildren(t *testing.T) {
 type fakeAI struct {
 	hits   atomic.Int32
 	status int
-	body   func(req map[string]any) string
-	check  func(r *http.Request)
+	// statusOf, when set, is the status of the n-th request (from 1); 0 is 200
+	statusOf   func(n int) int
+	retryAfter string // the Retry-After header of an answer that is not 200
+	body       func(req map[string]any) string
+	check      func(r *http.Request)
 }
 
 func (f *fakeAI) server(t *testing.T) *httptest.Server {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		f.hits.Add(1)
+		n := f.hits.Add(1)
 		if f.check != nil {
 			f.check(r)
 		}
 		var req map[string]any
 		b, _ := io.ReadAll(r.Body)
 		json.Unmarshal(b, &req)
-		if f.status != 0 {
-			w.WriteHeader(f.status)
+		status := f.status
+		if f.statusOf != nil {
+			status = f.statusOf(int(n))
+		}
+		if status != 0 {
+			if f.retryAfter != "" {
+				w.Header().Set("Retry-After", f.retryAfter)
+			}
+			w.WriteHeader(status)
 		}
 		io.WriteString(w, f.body(req))
 	}))
@@ -197,6 +207,8 @@ func aiRunner(t *testing.T, provider, url string) *Runner {
 		}
 		return ""
 	}
+	// a call that is tried again does not wait in a test
+	r.Backoff = 0
 	return r
 }
 
@@ -293,7 +305,8 @@ func TestAIErrorShowsStatusOnly(t *testing.T) {
 // The server log gets one warn line for a call the provider refused, the
 // call's own, with the status and the provider's host, and nothing of the
 // error body: a provider can echo the request there (the finding's text) or
-// the key.
+// the key. A 500 is tried again twice, and each of those tries has a warn
+// line of the same kind.
 func TestAIErrorLogHasNoBody(t *testing.T) {
 	lg, logged := logs.NewRecorder()
 	for i, provider := range []string{"anthropic", "openai"} {
@@ -314,7 +327,7 @@ func TestAIErrorLogHasNoBody(t *testing.T) {
 		}
 	}
 	if out := logged.Text(); strings.Contains(out, "secret") || strings.Contains(out, "hunter2") || strings.Contains(out, "fake log line") ||
-		len(logged.With("ai call failed")) != 2 || len(logged.Records()) != 2 {
+		len(logged.With("ai call failed")) != 2 || len(logged.With(retryLine)) != 2*aiRetries || len(logged.Records()) != 2+2*aiRetries {
 		t.Fatalf("log:\n%s", out)
 	}
 }
@@ -411,7 +424,7 @@ func TestAICacheBounded(t *testing.T) {
 
 func TestAIErrorIsWarning(t *testing.T) {
 	for _, f := range []*fakeAI{
-		{status: 500, body: func(map[string]any) string { return "oops" }},
+		{status: 401, body: func(map[string]any) string { return "oops" }},
 		{body: func(map[string]any) string { return `{"choices":[{"message":{"content":"not json at all"}}]}` }},
 	} {
 		srv := f.server(t)
@@ -448,7 +461,8 @@ func TestAIFailureSkipsRemainingParts(t *testing.T) {
 	d := doc()
 	d.Sections = []Section{{"A", "one"}, {"B", "two"}, {"C", "three"}}
 	vs := s.Run(context.Background(), d, config.Default(), All, r)
-	if f.hits.Load() != 1 || len(vs) != 1 {
+	// one question, asked three times (a 500 is tried again)
+	if f.hits.Load() != 1+aiRetries || len(vs) != 1 {
 		t.Fatalf("hits %d, violations %d", f.hits.Load(), len(vs))
 	}
 }

@@ -194,7 +194,7 @@ AI rules run where script rules run, except on a git push. Without a provider or
 
 ### Unchanged text is not sent again
 
-The server keeps a result, in memory and in its database, for the same text, instruction (`ai:`), provider and model, where it keeps script results. A check after a restart uses it too. A text that changed is sent again, and so is every text after an update of YARS that changes the prompt. A failed call (`AI check failed: …`, always a warning) is not kept. `yars lint --all` sends the text each time. Stored results are deleted as script results are.
+The server keeps a result, in memory and in its database, for the same text, instruction (`ai:`), provider and model, where it keeps script results. A check after a restart uses it too. A text that changed is sent again, and so is every text after an update of YARS that changes the prompt. A call the provider answers with status 429, 500, 502, 503, 504 or 529 is made again, twice at most, within the question's time. A failed call (`AI check failed: …`, always a warning) is not kept. `yars lint --all` sends the text each time. Stored results are deleted as script results are.
 
 ### The text is data
 
@@ -206,7 +206,9 @@ A model can still be talked into passing a text. Keep AI rules at `level: warnin
 
 | Limit | Value |
 |---|---|
-| Time per question | 60 s · 90 s for one check's scripts and AI questions together |
+| Time per question | 60 s, its tries included · 90 s for one check's scripts and AI questions together |
+| Tries per question | 3 · the wait is 1 s, then 2 s, or what the provider's `Retry-After` asks, up to 10 s |
+| Redirects | followed on the provider's own address only |
 | Reply | 4,096 tokens (Anthropic) |
 | Quote, message | as script rules |
 | Stored results | 2,000 in memory per kind · 50,000 in the database, script and AI together; the oldest go first · deleted after the check run days |
