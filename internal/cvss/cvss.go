@@ -95,18 +95,28 @@ func (m Metric) codes(prefix string) string {
 	return strings.Join(cs[:len(cs)-1], ", ") + " or " + cs[len(cs)-1]
 }
 
+// Version is the CVSS version a vector is written in, by its prefix: "3.1",
+// "3.0", or "" for anything Parse does not read. A 3.0 vector is read as the
+// 3.1 vector of the same metrics (the base score is the same) and written
+// back as 3.1 (String): whoever takes one in says so.
+func Version(s string) string {
+	s = strings.ToUpper(strings.TrimSpace(s))
+	for _, v := range []string{"3.1", "3.0"} {
+		if strings.HasPrefix(s, "CVSS:"+v+"/") {
+			return v
+		}
+	}
+	return ""
+}
+
 // ParsePartial is Parse but allows missing metrics.
 func ParsePartial(s string) (Vector, error) {
 	s = strings.ToUpper(strings.TrimSpace(s))
-	var rest string
-	switch {
-	case strings.HasPrefix(s, "CVSS:3.1/"):
-		rest = s[len("CVSS:3.1/"):]
-	case strings.HasPrefix(s, "CVSS:3.0/"):
-		rest = s[len("CVSS:3.0/"):]
-	default:
+	ver := Version(s)
+	if ver == "" {
 		return nil, fmt.Errorf("not a CVSS 3.x vector: missing CVSS:3.1/ prefix")
 	}
+	rest := s[len("CVSS:"+ver+"/"):]
 	v := Vector{}
 	for _, part := range strings.Split(rest, "/") {
 		if part == "" {

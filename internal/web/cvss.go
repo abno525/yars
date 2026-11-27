@@ -133,10 +133,12 @@ func (s *Server) cvssFromForm(ref store.FindingRef, form url.Values) cvssView {
 		}
 	}
 	var pasteErr error
+	pasted30 := false
 	if p := strings.TrimSpace(form.Get("paste")); p != "" {
 		var pv cvss.Vector
 		if pv, pasteErr = cvss.ParsePartial(p); pasteErr == nil {
 			sel = pv
+			pasted30 = cvss.Version(p) == "3.0"
 		}
 	}
 	// A stored reason explains the stored value of its metric. At another
@@ -182,11 +184,19 @@ func (s *Server) cvssFromForm(ref store.FindingRef, form url.Values) cvssView {
 	if posted := cvssBases(form); len(posted) > 0 {
 		v.RowBases = posted
 	}
-	if pasteErr != nil {
+	switch {
+	case pasteErr != nil:
 		v.Error = "Could not read pasted vector: " + pasteErr.Error()
+	case pasted30:
+		// taken as the 3.1 vector of the same metrics (the score is the same)
+		v.Error = said30
 	}
 	return v
 }
+
+// said30 is the message line after a CVSS:3.0 vector was pasted: in the
+// editor after Apply, and in the panel after a Save that took the paste.
+const said30 = "CVSS:3.0 vector, stored as CVSS:3.1"
 
 func (s *Server) cvssRef(w http.ResponseWriter, r *http.Request) (store.FindingRef, bool) {
 	ref, err := s.Store.Finding(r.PathValue("eng"), r.PathValue("fid"))
@@ -257,7 +267,11 @@ func (s *Server) cvssSave(w http.ResponseWriter, r *http.Request) {
 	v := s.cvssFromForm(ref, form)
 	vector := ""
 	reasons := map[string]string{}
+	said := "" // the saved panel's message line
 	if form.Get("action") != "clear" {
+		if v.Error == said30 { // Save takes the paste field without Apply
+			said = said30
+		}
 		if !v.Complete {
 			v.Error = "All 8 base metrics required"
 			s.execStatus(w, http.StatusBadRequest, "finding.html", "cvss_editor", v)
@@ -287,6 +301,10 @@ func (s *Server) cvssSave(w http.ResponseWriter, r *http.Request) {
 				ch.Reasons[k], ch.Bases[k] = val, b
 			}
 		}
+		if form.Get("action") == "clear" && ch.Vector == nil && len(ref.F.Meta.CVSSReasons) > 0 {
+			// reasons without a vector (a pushed file): the clear takes them
+			ch.Vector, ch.Bases[store.CVSSRow] = &vector, bases[store.CVSSRow]
+		}
 		switch {
 		case ch.Vector == nil && len(ch.Reasons) == 0:
 		case ch.Vector == nil && v.HasStored:
@@ -314,7 +332,7 @@ func (s *Server) cvssSave(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	s.panelAfterWrite(w, ref)
+	s.panelSaying(w, ref, said)
 }
 
 // conflictText is the conflict state of an editor: it never blames anyone
@@ -333,6 +351,12 @@ func cvssBases(form url.Values) map[string]string {
 }
 
 func (s *Server) panelAfterWrite(w http.ResponseWriter, ref store.FindingRef) {
+	s.panelSaying(w, ref, "")
+}
+
+// panelSaying is the read panel after a write, with said ("" for none) on
+// its message line.
+func (s *Server) panelSaying(w http.ResponseWriter, ref store.FindingRef, said string) {
 	ref, err := s.Store.Finding(ref.EngID, ref.Dir)
 	if err != nil {
 		s.fail(w, err)
@@ -340,6 +364,7 @@ func (s *Server) panelAfterWrite(w http.ResponseWriter, ref store.FindingRef) {
 	}
 	v := s.cvssPanel(ref)
 	v.OOB = true
+	v.Error = said
 	s.exec(w, "finding.html", "cvss_panel", v)
 }
 

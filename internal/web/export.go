@@ -729,12 +729,15 @@ func (s *Server) send(ctx context.Context, u config.User, eng store.Engagement, 
 			res, err := s.Export.Run(ctx, ex, in)
 			if err != nil {
 				items[i].Error = err.Error()
-				continue
+			} else {
+				items[i].OK, items[i].URL = true, res.URL
 			}
-			items[i].OK, items[i].URL = true, res.URL
+			// also the page a failed send made: the next send fills it
 			if len(res.Items) == 1 && res.Items[0].Remote.ID != "" {
 				it := res.Items[0]
-				items[i].Action = it.Action
+				if err == nil {
+					items[i].Action = it.Action
+				}
 				if d != nil {
 					rm := db.ExportRemote{Destination: ex.ID, Eng: eng.ID, Finding: fid, Target: ex.Target(), RemoteID: it.Remote.ID, Version: it.Remote.Version, URL: it.URL}
 					if err := d.SetExportRemote(rm); err != nil {

@@ -109,18 +109,47 @@ func (f *Finding) SetMeta(key string, value any) error {
 	if src == "" || encodeMeta(&f.Meta) != f.metaSnap {
 		src = encodeMeta(&f.Meta)
 	}
+	out, absent, err := spliceKey(src, key, value)
+	if err != nil || absent {
+		return err
+	}
+	var meta Meta
+	if err := yaml.Unmarshal([]byte(out), &meta); err != nil {
+		return err
+	}
+	// the workflow state is not in the file: it stays as it was
+	was := f.Meta
+	meta.Status, meta.Reviewers, meta.ClearedBy = was.Status, was.Reviewers, was.ClearedBy
+	meta.Returned, meta.Withdrawn, meta.Retest = was.Returned, was.Withdrawn, was.Retest
+	f.Meta, f.rawMeta = meta, out
+	f.metaSnap = encodeMeta(&f.Meta)
+	return nil
+}
+
+// SpliceKey sets (or, with a nil value, deletes) one top-level key of the
+// block mapping src (a front matter, an engagement.yaml) as SetMeta does:
+// only that key's lines are rewritten, every other byte stays. It refuses a
+// mapping written between { } and a top-level key that is indented.
+func SpliceKey(src, key string, value any) (string, error) {
+	out, _, err := spliceKey(src, key, value)
+	return out, err
+}
+
+// spliceKey is SpliceKey; absent says the key to delete was not there (out
+// is src then).
+func spliceKey(src, key string, value any) (out string, absent bool, err error) {
 	if src != "" && !strings.HasSuffix(src, "\n") {
 		src += "\n"
 	}
 	var doc yaml.Node
 	if err := yaml.Unmarshal([]byte(src), &doc); err != nil {
-		return err
+		return "", false, err
 	}
 	var m *yaml.Node
 	if doc.Kind != 0 && len(doc.Content) > 0 {
 		m = doc.Content[0]
 		if m.Kind != yaml.MappingNode || m.Style&yaml.FlowStyle != 0 {
-			return errors.New("finding: front matter must be a block mapping")
+			return "", false, errors.New("finding: front matter must be a block mapping")
 		}
 	}
 	var vn *yaml.Node
@@ -130,7 +159,7 @@ func (f *Finding) SetMeta(key string, value any) error {
 		} else {
 			vn = &yaml.Node{}
 			if err := vn.Encode(value); err != nil {
-				return err
+				return "", false, err
 			}
 		}
 	}
@@ -145,7 +174,7 @@ func (f *Finding) SetMeta(key string, value any) error {
 			continue
 		}
 		if k.Column != 1 {
-			return errors.New("finding: top-level front matter keys must start at column 1")
+			return "", false, errors.New("finding: top-level front matter keys must start at column 1")
 		}
 		old, start = m.Content[i+1], k.Line-1
 		end = start + 1
@@ -158,7 +187,7 @@ func (f *Finding) SetMeta(key string, value any) error {
 		break
 	}
 	if start < 0 && vn == nil {
-		return nil // deleting an absent key
+		return src, true, nil // deleting an absent key
 	}
 	snippet := ""
 	if vn != nil {
@@ -167,14 +196,14 @@ func (f *Finding) SetMeta(key string, value any) error {
 		}
 		one := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map",
 			Content: []*yaml.Node{{Kind: yaml.ScalarNode, Tag: "!!str", Value: key}, vn}}
-		var out bytes.Buffer
-		enc := yaml.NewEncoder(&out)
+		var buf bytes.Buffer
+		enc := yaml.NewEncoder(&buf)
 		enc.SetIndent(4)
 		if err := enc.Encode(one); err != nil {
-			return err
+			return "", false, err
 		}
 		enc.Close()
-		snippet = out.String()
+		snippet = buf.String()
 	}
 	var b strings.Builder
 	if start >= 0 {
@@ -185,17 +214,7 @@ func (f *Finding) SetMeta(key string, value any) error {
 		b.WriteString(src)
 		b.WriteString(snippet)
 	}
-	var meta Meta
-	if err := yaml.Unmarshal([]byte(b.String()), &meta); err != nil {
-		return err
-	}
-	// the workflow state is not in the file: it stays as it was
-	was := f.Meta
-	meta.Status, meta.Reviewers, meta.ClearedBy = was.Status, was.Reviewers, was.ClearedBy
-	meta.Returned, meta.Withdrawn, meta.Retest = was.Returned, was.Withdrawn, was.Retest
-	f.Meta, f.rawMeta = meta, b.String()
-	f.metaSnap = encodeMeta(&f.Meta)
-	return nil
+	return b.String(), false, nil
 }
 
 // RawMeta is the front matter text as the file had it (or as SetMeta left
@@ -374,9 +393,15 @@ func encodeMeta(m *Meta) string {
 // Parse reads a finding file. It takes what editors write too: a UTF-8 byte
 // order mark (not written back), empty front matter, and a closing "---"
 // that ends the file without a newline.
+//
+// The front matter decides the line endings Bytes writes: CRLF when the
+// opening "---" line and every line up to and with the closing "---" end
+// with CRLF, LF otherwise (front matter with both counts as LF). The text is
+// read with LF either way, so a CRLF line in an LF file is written back with
+// LF.
 func Parse(b []byte) (*Finding, error) {
 	s := strings.TrimPrefix(string(b), "\xef\xbb\xbf")
-	f := &Finding{crlf: strings.Contains(s, "\r\n"), parsed: true}
+	f := &Finding{crlf: crlfMeta(s), parsed: true}
 	s = strings.ReplaceAll(s, "\r\n", "\n")
 	if !strings.HasPrefix(s, "---\n") {
 		return nil, errors.New("finding: missing front matter")
@@ -427,6 +452,27 @@ func Parse(b []byte) (*Finding, error) {
 	}
 	flush()
 	return f, nil
+}
+
+// crlfMeta reports whether the front matter of s is written with CRLF: its
+// opening "---" line and every line up to and with the closing "---" (which
+// may end the file without a line ending).
+func crlfMeta(s string) bool {
+	rest, ok := strings.CutPrefix(s, "---\r\n")
+	for ok && rest != "" {
+		line, after, found := strings.Cut(rest, "\n")
+		if !found {
+			return line == "---"
+		}
+		if !strings.HasSuffix(line, "\r") {
+			return false
+		}
+		if line == "---\r" {
+			return true
+		}
+		rest = after
+	}
+	return false
 }
 
 func (f *Finding) Bytes() []byte {

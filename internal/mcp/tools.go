@@ -973,7 +973,12 @@ func setField(s *Server, ctx context.Context, u config.User, a args) (string, er
 		if err == nil {
 			// a reason's base covers its metric's value: the vector's edit
 			// changes them, so the answer carries every CVSS row's base
-			return okBase("set cvss", rowsToken(cvssBases(nb), "cvss"))
+			msg := "set cvss"
+			if v, perr := cvss.Parse(value); perr == nil && cvss.Version(value) == "3.0" {
+				// taken, and written as this server's version: said, not silent
+				msg += "; the CVSS:3.0 vector is stored as " + v.String()
+			}
+			return okBase(msg, rowsToken(cvssBases(nb), "cvss"))
 		}
 	case strings.HasPrefix(field, "cvss_reason."):
 		key := strings.ToUpper(strings.TrimPrefix(field, "cvss_reason."))

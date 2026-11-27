@@ -292,7 +292,8 @@ type Input struct {
 	// server's key from the environment.
 	Creds *Creds
 	// Known is the page or issue each finding (by ID) became at this
-	// destination before; it is updated instead of making another.
+	// destination before; it is updated instead of making another. The
+	// Confluence page that holds several findings is under PageKey.
 	Known map[string]Remote
 	// imageSrc, when set, replaces inlining: it stores an attachment and
 	// returns the src to use (the HTML ZIP).
@@ -305,6 +306,10 @@ type Input struct {
 	strictImages bool
 }
 
+// PageKey is the key, in Input.Known and in the remembered pages, of the one
+// Confluence page a push of several findings makes: no finding's ID.
+const PageKey = ""
+
 // ReportText is one report-level section: its name and Markdown body.
 type ReportText struct {
 	Name string `json:"name"`
@@ -314,8 +319,8 @@ type ReportText struct {
 // Creds is a login for an outside service.
 type Creds struct{ User, Token string }
 
-// ordered returns findings by severity (config order), then ID.
-// Ordered is the findings in report order (the preview's contents).
+// Ordered is the findings in report order (the preview's contents): by
+// severity (config order), then by the ID's number (store.CompareIDs).
 func (in Input) Ordered() []*finding.Finding { return in.ordered() }
 
 func (in Input) ordered() []*finding.Finding {
@@ -331,7 +336,7 @@ func (in Input) ordered() []*finding.Finding {
 		if ri, rj := rank(fs[i]), rank(fs[j]); ri != rj {
 			return ri < rj
 		}
-		return fs[i].Meta.ID < fs[j].Meta.ID
+		return store.CompareIDs(fs[i].Meta.ID, fs[j].Meta.ID) < 0
 	})
 	return fs
 }
@@ -394,7 +399,10 @@ type Result struct {
 	Data                  []byte
 	Pushed                bool   // published remotely (Confluence, Jira) instead of a file
 	URL                   string // a push: the (first) page or issue
-	Items                 []Item // a push: what each finding became
+	// Items is, for a push, what each finding became. A Confluence push that
+	// fails after it made its page returns that page here beside the error
+	// (Pushed false): the caller remembers it, and the next push fills it.
+	Items []Item
 }
 
 // Item is one finding's page or issue. Action is "created" or "updated".

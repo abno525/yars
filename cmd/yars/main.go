@@ -211,7 +211,48 @@ func cmdExport(args []string, out io.Writer) (int, error) {
 		in.Findings = append(in.Findings, p.F)
 		dirOf[p.F] = p.Dir
 	}
+	// a service destination updates the page or issue it made before, as the
+	// website does and from the same rows: a finding's own, or, for the one
+	// Confluence page of several findings, the row without a finding
+	remoteKey := func(id string) string {
+		if ex.Type == "confluence" && len(picked) > 1 {
+			return export.PageKey
+		}
+		return id
+	}
+	if ex.Service() && d != nil {
+		in.Known = map[string]export.Remote{}
+		for _, p := range picked {
+			k := remoteKey(p.F.Meta.ID)
+			if _, seen := in.Known[k]; seen {
+				continue
+			}
+			rm, ok, err := d.ExportRemote(ex.ID, e.ID, k)
+			if err != nil {
+				return 1, err
+			}
+			if ok && rm.Target == ex.Target() {
+				in.Known[k] = export.Remote{ID: rm.RemoteID, Version: rm.Version}
+			}
+		}
+	}
 	res, err := run.Run(context.Background(), *ex, in)
+	// with an error too: the page a failed push made, which the next run fills
+	if d != nil {
+		stored := map[string]bool{}
+		for _, it := range res.Items {
+			k := remoteKey(it.ID)
+			if it.Remote.ID == "" || stored[k] {
+				continue
+			}
+			stored[k] = true
+			rm := db.ExportRemote{Destination: ex.ID, Eng: e.ID, Finding: k, Target: ex.Target(), RemoteID: it.Remote.ID, Version: it.Remote.Version, URL: it.URL}
+			if err := d.SetExportRemote(rm); err != nil {
+				// the push stands; the next run would make another page or issue
+				fmt.Fprintln(out, "not remembered:", err)
+			}
+		}
+	}
 	if err != nil {
 		return 1, err
 	}

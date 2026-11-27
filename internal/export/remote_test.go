@@ -382,14 +382,15 @@ func TestConfluenceKnownPage(t *testing.T) {
 	if it := res.Items[0]; it.Action != "created" || it.Remote != (Remote{ID: "1", Version: 1}) || it.URL != "https://w/p/1" {
 		t.Fatalf("gone %+v calls %v", it, c.calls)
 	}
-	// unknown, but a page with the title is there: updated
+	// unknown, and a page with the title is there: it is left alone, a new
+	// page is made (the fake takes a title twice; Confluence refuses it)
 	in.Known = nil
 	res, err = r.Run(context.Background(), e, in)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if it := res.Items[0]; it.Action != "updated" || it.Remote != (Remote{ID: "1", Version: 2}) || c.n != 1 {
-		t.Fatalf("by title %+v calls %v", it, c.calls)
+	if it := res.Items[0]; it.Action != "created" || it.Remote != (Remote{ID: "2", Version: 1}) || c.n != 2 || c.pages["1"].Version != 1 {
+		t.Fatalf("not remembered %+v calls %v", it, c.calls)
 	}
 }
 
@@ -443,7 +444,7 @@ func TestConfluenceImagesNewPage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"GET /rest/api/content", "POST /rest/api/content", "PUT /rest/api/content/1/child/attachment", "PUT /rest/api/content/1/child/attachment", "PUT /rest/api/content/1"}
+	want := []string{"POST /rest/api/content", "PUT /rest/api/content/1/child/attachment", "PUT /rest/api/content/1/child/attachment", "PUT /rest/api/content/1"}
 	if strings.Join(c.calls, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("calls %v", c.calls)
 	}
@@ -552,8 +553,9 @@ func unchangedNotUploaded(t *testing.T, commentIn string) {
 		t.Fatal(err)
 	}
 	upload := "PUT /rest/api/content/1/child/attachment"
-	// again, remembered and found by title
-	for _, known := range []map[string]Remote{{"F-001": res.Items[0].Remote}, nil} {
+	// again, twice, to the remembered page
+	known := map[string]Remote{"F-001": res.Items[0].Remote}
+	for range 2 {
 		c.calls = nil
 		in := confImages(t, files)
 		in.Known = known
@@ -570,7 +572,9 @@ func unchangedNotUploaded(t *testing.T, commentIn string) {
 	}
 	c.calls = nil
 	files["F-001/shot.png"] = append(pngBytes(), 0)
-	if _, err := r.Run(context.Background(), e, confImages(t, files)); err != nil {
+	in := confImages(t, files)
+	in.Known = known
+	if _, err := r.Run(context.Background(), e, in); err != nil {
 		t.Fatal(err)
 	}
 	shot := p.Attachments["F-001-shot.png"]
@@ -715,7 +719,7 @@ func TestConfluenceNewPageWithoutID(t *testing.T) {
 	r, e := confSetup(t, &fakeConfluence{})
 	e.Confluence.BaseURL = strings.Replace(srv.URL, "127.0.0.1", "localhost", 1)
 	_, err := r.Run(context.Background(), e, confImages(t, confFiles()))
-	if err == nil || err.Error() != "confluence push failed: the new page has no id" || !slices.Equal(calls, []string{"GET /rest/api/content", "POST /rest/api/content"}) {
+	if err == nil || err.Error() != "confluence push failed: the new page has no id" || !slices.Equal(calls, []string{"POST /rest/api/content"}) {
 		t.Fatalf("err %v calls %v", err, calls)
 	}
 }

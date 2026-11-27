@@ -284,8 +284,17 @@ func (s *Server) renderTemplate(w http.ResponseWriter, r *http.Request, status i
 }
 
 func (s *Server) templatePage(w http.ResponseWriter, r *http.Request) {
-	s.renderTemplate(w, r, http.StatusOK, r.PathValue("slug"), nil)
+	slug := r.PathValue("slug")
+	var fill func(*tplView)
+	if s.flash.take(r, tplSaid) == slug {
+		fill = func(v *tplView) { v.Error = said30 }
+	}
+	s.renderTemplate(w, r, http.StatusOK, slug, fill)
 }
+
+// tplSaid is the flash of a template save that stored a CVSS:3.0 vector as
+// 3.1: the template's slug, for the page the save redirects to.
+const tplSaid = "tplcvss30"
 
 // templateHistory lists a template's versions from git, newest first.
 func (s *Server) templateHistory(w http.ResponseWriter, r *http.Request) {
@@ -353,6 +362,11 @@ func (s *Server) templateSaveMeta(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			s.fail(w, err)
 			return
+		}
+		if parsed != nil && cvss.Version(vec) == "3.0" {
+			// taken as the 3.1 vector of the same metrics: said on the page
+			// the save goes to, once
+			s.flash.put(r, tplSaid, slug)
 		}
 		http.Redirect(w, r, "/templates/"+slug, http.StatusSeeOther)
 		return

@@ -138,9 +138,11 @@ func Report(in Input) string {
 	}
 	b.WriteString("</p>\n</div>\n")
 
+	// the summary is the first report section (config order), whatever it
+	// is called; an empty one leaves the chapter with its counts alone
 	b.WriteString(`<h1 id="rp-summary">Executive summary</h1>` + "\n")
-	for _, rt := range in.Report {
-		if out := reportHTML(rt.Body, false); out != "" && isSummary(rt.Name) {
+	if len(in.Report) > 0 {
+		if out := reportHTML(in.Report[0].Body, false); out != "" {
 			b.WriteString(out + "\n")
 		}
 	}
@@ -156,8 +158,8 @@ func Report(in Input) string {
 
 	b.WriteString(`<h1 id="rp-scope">Scope and overview</h1>` + "\n")
 	// the other report sections (scope, methodology, …) open this chapter
-	for _, rt := range in.Report {
-		if out := reportHTML(rt.Body, false); out != "" && !isSummary(rt.Name) {
+	for i, rt := range in.Report {
+		if out := reportHTML(rt.Body, false); out != "" && i > 0 {
 			fmt.Fprintf(&b, "<h2>%s</h2>\n%s\n", esc(rt.Name), out)
 		}
 	}

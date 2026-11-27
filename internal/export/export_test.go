@@ -548,12 +548,17 @@ func TestConfluenceTaskList(t *testing.T) {
 	}
 }
 
+// A second push of the engagement's findings updates the page the first one
+// made: the remembered page (PageKey) is read for its version and written.
 func TestConfluenceRepublish(t *testing.T) {
 	var method, path string
 	var got map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "GET" {
-			io.WriteString(w, `{"results":[{"id":"99","version":{"number":3}}]}`)
+			if !strings.HasPrefix(r.URL.Path, "/rest/api/content/99") {
+				t.Errorf("read %s", r.URL)
+			}
+			io.WriteString(w, `{"id":"99","version":{"number":3}}`)
 			return
 		}
 		method, path = r.Method, r.URL.Path
@@ -565,7 +570,9 @@ func TestConfluenceRepublish(t *testing.T) {
 	r, _ := runner(t, "")
 	r.Getenv = func(k string) string { return map[string]string{"CONFLUENCE_U": "u", "CONFLUENCE_T": "t"}[k] }
 	e := Exporter{ID: "c", Type: "confluence", Confluence: &ConfluenceConf{BaseURL: strings.Replace(srv.URL, "127.0.0.1", "localhost", 1), Space: "S", UserEnv: "CONFLUENCE_U", TokenEnv: "CONFLUENCE_T"}}
-	res, err := r.Run(context.Background(), e, input(t))
+	in := input(t)
+	in.Known = map[string]Remote{PageKey: {ID: "99", Version: 2}}
+	res, err := r.Run(context.Background(), e, in)
 	if err != nil || res.URL != "https://w/p/99" || !res.Pushed {
 		t.Fatalf("%v %+v", err, res)
 	}

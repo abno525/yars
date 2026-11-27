@@ -372,7 +372,7 @@ type LogEntry struct {
 // LogFollow lists the commits touching p (following renames), newest
 // first: one git process.
 func (r *Repo) LogFollow(p string) ([]LogEntry, error) {
-	out, err := r.run(nil, "-c", "core.quotePath=false", "log", "--follow", "--name-only", "--format=%x1e%H%x1f%an%x1f%at%x1f%s", "--", p)
+	out, err := r.run(nil, "log", "-z", "--follow", "--name-only", logFormat, "--", p)
 	if err != nil {
 		return nil, err
 	}
@@ -382,36 +382,65 @@ func (r *Repo) LogFollow(p string) ([]LogEntry, error) {
 // LogDir lists the commits touching files under dir, newest first, each
 // with the files it touched there: one git process.
 func (r *Repo) LogDir(dir string) ([]LogEntry, error) {
-	out, err := r.run(nil, "-c", "core.quotePath=false", "log", "--name-only", "--format=%x1e%H%x1f%an%x1f%at%x1f%s", "--", dir)
+	out, err := r.run(nil, "log", "-z", "--name-only", logFormat, "--", dir)
 	if err != nil {
 		return nil, err
 	}
 	return parseLog(out), nil
 }
 
+// logFormat is a commit as LogFollow and LogDir ask for it: a NUL, then the
+// hash, the time, the author's name and the subject, each ended by a NUL.
+// A name and a subject can hold any other byte, and git writes file names
+// as they are under -z.
+const logFormat = "--format=%x00%H%x00%at%x00%an%x00%s%x00"
+
+// parseLog reads git log -z --name-only with logFormat. Between NULs a
+// commit is: an empty field (logFormat's first NUL), its four fields, an
+// empty field (the NUL -z ends a commit with), then its file names, the
+// first one after a line break. No file name is empty, so the empty field
+// that starts the next commit ends the names.
 func parseLog(out string) []LogEntry {
 	var es []LogEntry
-	for _, chunk := range strings.Split(out, "\x1e") {
-		head, rest, _ := strings.Cut(chunk, "\n")
-		f := strings.Split(head, "\x1f")
-		if len(f) != 4 {
-			continue
-		}
-		e := LogEntry{Hash: f[0], Author: f[1], Subject: f[3]}
-		if sec, err := strconv.ParseInt(f[2], 10, 64); err == nil {
+	tok := strings.Split(out, "\x00")
+	for i := 0; i+5 < len(tok) && tok[i] == "" && tok[i+5] == ""; {
+		e := LogEntry{Hash: tok[i+1], Author: tok[i+3], Subject: tok[i+4]}
+		if sec, err := strconv.ParseInt(tok[i+2], 10, 64); err == nil {
 			e.Time = time.Unix(sec, 0)
 		}
-		for _, l := range strings.Split(rest, "\n") {
-			if l = strings.TrimSpace(l); l != "" {
-				if e.Path == "" {
-					e.Path = l
-				}
-				e.Paths = append(e.Paths, l)
+		i += 6
+		for first := true; i < len(tok) && tok[i] != ""; i, first = i+1, false {
+			name := tok[i]
+			if first {
+				name = strings.TrimPrefix(name, "\n")
 			}
+			if name == "" {
+				continue
+			}
+			if e.Path == "" {
+				e.Path = name
+			}
+			e.Paths = append(e.Paths, name)
+		}
+		if !hexID(e.Hash) {
+			break // not what git writes: nothing after it can be trusted
 		}
 		es = append(es, e)
 	}
 	return es
+}
+
+// hexID reports whether s has the form of a commit id.
+func hexID(s string) bool {
+	if len(s) != 40 && len(s) != 64 {
+		return false
+	}
+	for _, c := range s {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 // Blobs reads files at revisions ("<rev>:<path>" each) in one git process;

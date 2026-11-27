@@ -27,6 +27,7 @@ import (
 	"strings"
 
 	"github.com/abno525/yars/internal/finding"
+	"github.com/abno525/yars/internal/store"
 
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
@@ -87,18 +88,24 @@ func macros(x string) string {
 
 var imgTag = regexp.MustCompile(`<img src="([^"]*)" alt="([^"]*)"(?: title="[^"]*")? ?/?>`)
 var attachmentRef = regexp.MustCompile(`^attachments/[A-Za-z0-9][A-Za-z0-9._-]*$`)
-var imageTypes = map[string]string{".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp"}
+var imageTypes = map[string]string{".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp", ".bmp": "image/bmp"}
 
 // images inlines the finding's own attachments as data URIs (a push shows
 // them as attachments of the page) and removes every other image, so a
-// report can never pull in server files or remote URLs.
+// report can never pull in server files or remote URLs. A BMP or WebP
+// picture (an upload is stored as PNG; a push or an earlier version may
+// have left one) goes out as a PNG, named with .png added.
 func images(x string, f *finding.Finding, in Input) string {
 	return imgTag.ReplaceAllStringFunc(x, func(m string) string {
 		sub := imgTag.FindStringSubmatch(m)
 		src, alt := html.UnescapeString(sub[1]), sub[2]
 		ct := imageTypes[strings.ToLower(path.Ext(src))]
 		if attachmentRef.MatchString(src) && ct != "" && in.Attachment != nil {
-			if data, ok := in.Attachment(f, src); ok && (!in.strictImages || decodes(data)) {
+			data, ok := in.Attachment(f, src)
+			if ok {
+				data, ct, src, ok = readable(data, ct, src)
+			}
+			if ok && (!in.strictImages || decodes(data)) {
 				if in.attach != nil {
 					return `<ac:image ac:alt="` + alt + `"><ri:attachment ri:filename="` + html.EscapeString(in.attach(f, src, ct, data)) + `" /></ac:image>`
 				}
@@ -110,6 +117,24 @@ func images(x string, f *finding.Finding, in Input) string {
 		}
 		return `<em>[image removed: ` + alt + `]</em>`
 	})
+}
+
+// readable is a picture as the export formats read it. The bytes decide its
+// type, not the file's name: a BMP or WebP picture becomes a PNG (ok false
+// when it cannot be converted), with .png added to its name; a PNG, JPEG or
+// GIF keeps its bytes and gets its own type; anything else keeps ct.
+func readable(data []byte, ct, src string) ([]byte, string, string, bool) {
+	switch t := store.AttachmentType(data); {
+	case t == "image/bmp" || t == "image/webp":
+		out, _, err := store.PNGOf(data)
+		if err != nil {
+			return nil, "", "", false
+		}
+		return out, "image/png", src + ".png", true
+	case strings.HasPrefix(t, "image/"):
+		ct = t
+	}
+	return data, ct, src, true
 }
 
 // decodes reports a whole, readable PNG, JPEG or GIF.
@@ -150,12 +175,6 @@ func reportHTML(body string, confluenceMacros bool) string {
 	return out
 }
 
-// isSummary reports whether a report section is the executive summary,
-// which the themed report puts above the severity counts.
-func isSummary(name string) bool {
-	return strings.EqualFold(strings.TrimSpace(name), "Executive summary")
-}
-
 // XHTML renders the report body; confluenceMacros turns code blocks into
 // Confluence code macros (push mode).
 func XHTML(in Input, confluenceMacros bool) string {
@@ -184,9 +203,31 @@ func XHTML(in Input, confluenceMacros bool) string {
 	return b.String()
 }
 
-// writeSections renders the finding's non-empty sections, each under an h2.
-func writeSections(b *strings.Builder, f *finding.Finding, in Input, confluenceMacros bool) {
+// sectionsOf is a finding's sections in report order: the configured
+// sections in the configuration's order, then the ones it does not name in
+// the file's order. A file may have them in any order (a push), and a name
+// twice (an old file): those stay together, in the file's order.
+func sectionsOf(f *finding.Finding, in Input) []finding.Section {
+	out := make([]finding.Section, 0, len(f.Sections))
+	for _, name := range in.Cfg.Sections {
+		for _, s := range f.Sections {
+			if s.Name == name {
+				out = append(out, s)
+			}
+		}
+	}
 	for _, s := range f.Sections {
+		if !slices.Contains(in.Cfg.Sections, s.Name) {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// writeSections renders the finding's non-empty sections, each under an h2,
+// in report order (sectionsOf).
+func writeSections(b *strings.Builder, f *finding.Finding, in Input, confluenceMacros bool) {
+	for _, s := range sectionsOf(f, in) {
 		body := strings.Trim(s.Body, "\n")
 		if strings.TrimSpace(body) == "" {
 			continue
@@ -249,38 +290,38 @@ func (r *Runner) confluence(ctx context.Context, e Exporter, in Input) (Result, 
 		return p
 	}
 	payload := page(xmlChars(XHTML(in, true)))
-	// the page this finding became before, read for its current version
+	// the page these findings became before (one finding: its own page;
+	// several: the page under PageKey), read for its current version. With
+	// none remembered, one that is gone or one in another space, a new page
+	// is made: a page is never taken by its title, which another engagement
+	// of the same name, or a person, may have used.
 	var cur *confPage
+	key := PageKey
 	if len(in.Findings) == 1 {
-		if k, ok := in.Known[in.Findings[0].Meta.ID]; ok && k.ID != "" {
-			data, err := call("GET", base+"/"+url.PathEscape(k.ID)+"?expand=version,space", nil)
-			switch {
-			case err == nil:
-				var p confPage
-				if json.Unmarshal(data, &p) == nil && p.ID != "" && (p.Space.Key == "" || p.Space.Key == c.Space) {
-					cur = &p
-				}
-			case !notFound(err): // gone: found by title or made again
-				return Result{}, err
-			}
-		}
+		key = in.Findings[0].Meta.ID
 	}
-	// otherwise the page with this title (titles are unique per space)
-	if cur == nil {
-		q := url.Values{"title": {title}, "spaceKey": {c.Space}, "expand": {"version"}}
-		if data, err := call("GET", base+"?"+q.Encode(), nil); err == nil {
-			var found struct{ Results []confPage }
-			if json.Unmarshal(data, &found) == nil && len(found.Results) > 0 {
-				cur = &found.Results[0]
+	if k, ok := in.Known[key]; ok && k.ID != "" {
+		data, err := call("GET", base+"/"+url.PathEscape(k.ID)+"?expand=version,space", nil)
+		switch {
+		case err == nil:
+			var p confPage
+			if json.Unmarshal(data, &p) == nil && p.ID != "" && (p.Space.Key == "" || p.Space.Key == c.Space) {
+				cur = &p
 			}
+		case !notFound(err): // gone: made again
+			return Result{}, err
 		}
 	}
 	created := cur == nil
+	// half goes back with the error of a push that fails after it made its
+	// page: the page is there, and the caller remembers it so the next push
+	// fills it (a second page of the title is refused)
+	var half Result
 	if created && len(pics) > 0 { // attachments need the page: made empty first
 		body, _ := json.Marshal(page(""))
 		data, err := call("POST", base, body)
 		if err != nil {
-			return Result{}, err
+			return Result{}, newPageErr(err)
 		}
 		var p confPage
 		json.Unmarshal(data, &p)
@@ -289,6 +330,9 @@ func (r *Runner) confluence(ctx context.Context, e Exporter, in Input) (Result, 
 		}
 		cur = &p
 		cur.Version.Number = max(cur.Version.Number, 1)
+		for _, f := range in.ordered() {
+			half.Items = append(half.Items, Item{ID: f.Meta.ID, Remote: Remote{ID: cur.ID, Version: cur.Version.Number}, Action: "created"})
+		}
 	}
 	// what an existing page holds: unchanged pictures are not sent again
 	var had []confAttachment
@@ -300,7 +344,7 @@ func (r *Runner) confluence(ctx context.Context, e Exporter, in Input) (Result, 
 	}
 	for _, pic := range pics { // then the pictures, then the body that shows them
 		if err := r.putAttachment(ctx, user, token, base+"/"+url.PathEscape(cur.ID)+"/child/attachment", pic, had); err != nil {
-			return Result{}, err
+			return half, err
 		}
 	}
 	method, target, action, version := "POST", base, "created", 1
@@ -315,7 +359,10 @@ func (r *Runner) confluence(ctx context.Context, e Exporter, in Input) (Result, 
 	body, _ := json.Marshal(payload)
 	data, err := call(method, target, body)
 	if err != nil {
-		return Result{}, err
+		if method == "POST" {
+			err = newPageErr(err)
+		}
+		return half, err
 	}
 	// last the pictures a push left that the body no longer shows: a current
 	// attachment stays downloadable to anyone who can view the page
@@ -344,6 +391,17 @@ func (r *Runner) confluence(ctx context.Context, e Exporter, in Input) (Result, 
 		res.Items = append(res.Items, Item{ID: f.Meta.ID, URL: res.URL, Remote: rm, Action: action})
 	}
 	return res, nil
+}
+
+// newPageErr is the refusal of a new page with why one was being made:
+// Confluence takes one page of a title in a space, and answers 400 when the
+// title is taken.
+func newPageErr(err error) error {
+	var se *statusError
+	if errors.As(err, &se) && se.code == http.StatusBadRequest {
+		return &statusError{se.code, se.msg + " (no page is remembered for this destination, so a new one is made; if the space has a page of this title, rename or remove it)"}
+	}
+	return err
 }
 
 // confPage is a Confluence page as the content API returns it.

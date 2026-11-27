@@ -65,6 +65,32 @@ func TestMCPReasonAfterVectorEdit(t *testing.T) {
 	}
 }
 
+// A CVSS:3.0 vector is taken and stored as the 3.1 vector of the same
+// metrics, and the answer says so; a 3.1 vector's answer does not.
+func TestMCPCVSS30StoredAs31IsSaid(t *testing.T) {
+	f := newFx(t)
+	args := func(value string) map[string]any {
+		return map[string]any{"engagement": "acme", "finding": "F-001", "field": "cvss", "value": value}
+	}
+	const v31 = "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:N"
+	out := f.ok(alice, "set_field", args("CVSS:3.0/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:N"))
+	if ref, _ := f.s.Store.Finding("acme", "001"); ref.F.Meta.CVSS != v31 {
+		t.Fatalf("stored %q", ref.F.Meta.CVSS)
+	}
+	msg := message(t, out)
+	if !strings.Contains(msg, "CVSS:3.0") || !strings.Contains(msg, "stored as "+v31) {
+		t.Fatalf("the answer does not say the vector was rewritten: %q", msg)
+	}
+	// the new base is still the end of the message
+	nb, _ := object(t, "set_field", out)["base"].(string)
+	if _, inMsg, _ := strings.Cut(msg, "new base "); nb == "" || inMsg != nb {
+		t.Fatalf("no new base in %q", out)
+	}
+	if msg := message(t, f.ok(alice, "set_field", args(v31))); strings.Contains(msg, "stored as") {
+		t.Fatalf("a 3.1 vector's answer: %q", msg)
+	}
+}
+
 // A vector edit that changes a metric removes that metric's reason (it
 // explained the old value) and keeps the others; the base the answer gives
 // is the one of the emptied row, so the new reason is set with it. Clearing

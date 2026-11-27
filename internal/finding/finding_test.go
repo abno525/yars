@@ -245,6 +245,55 @@ func TestCRLFWriteBack(t *testing.T) {
 	}
 }
 
+// The front matter decides the file's line endings: the opening "---" line
+// and every line up to the closing one. One CRLF line in the text (a pasted
+// HTTP response) does not turn an LF file into a CRLF one.
+func TestCRLFOnlyWhenTheFrontMatterUsesIt(t *testing.T) {
+	pasted := strings.Replace(canonical, "text\n", "```\nHTTP/1.1 200 OK\r\nServer: x\r\n```\n", 1)
+	f, err := Parse([]byte(pasted))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.SetSection("Location", "/admin")
+	if out := string(f.Bytes()); strings.Contains(out, "\r") {
+		t.Fatalf("an LF file with one CRLF line was written with CRLF:\n%q", out)
+	}
+	// a pure CRLF file stays CRLF on every line through a metadata edit
+	crlf := strings.ReplaceAll(canonical, "\n", "\r\n")
+	if f, err = Parse([]byte(crlf)); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.SetMeta("severity", "low"); err != nil {
+		t.Fatal(err)
+	}
+	out := string(f.Bytes())
+	if !strings.Contains(out, "severity: low\r\n") || strings.Contains(strings.ReplaceAll(out, "\r\n", ""), "\n") {
+		t.Fatalf("a CRLF file lost its line endings:\n%q", out)
+	}
+	// untouched files come back as they were
+	for _, in := range []string{canonical, crlf, "---\r\n---\r\n\r\n## Impact\r\n\r\nx\r\n"} {
+		f, err := Parse([]byte(in))
+		if err != nil || string(f.Bytes()) != in {
+			t.Fatalf("%q: %v, written back %q", in, err, f.Bytes())
+		}
+	}
+	// front matter with both kinds of line ending counts as LF, and so does
+	// CRLF front matter under an LF opening line
+	for _, in := range []string{
+		"---\r\nid: F-001\ntitle: X\r\n---\r\n\r\n## Impact\r\n\r\nx\r\n",
+		"---\nid: F-001\r\ntitle: X\r\n---\r\n\r\n## Impact\r\n\r\nx\r\n",
+		"---\r\nid: F-001\r\ntitle: X\r\n---\n\n## Impact\n\nx\n",
+	} {
+		f, err := Parse([]byte(in))
+		if err != nil || f.Meta.ID != "F-001" || f.Meta.Title != "X" {
+			t.Fatalf("%q: %v", in, err)
+		}
+		if out := string(f.Bytes()); strings.Contains(out, "\r") {
+			t.Errorf("%q: mixed front matter written with CRLF: %q", in, out)
+		}
+	}
+}
+
 func TestNew(t *testing.T) {
 	defaults := []string{"Description", "Location", "Impact", "Steps to Reproduce", "Remediation", "References"}
 	f := New("F-002", "XSS", "alice", defaults)
