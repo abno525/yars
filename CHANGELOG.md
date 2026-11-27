@@ -19,6 +19,7 @@ What changed for people who run or use YARS. Newest first.
 - `yars status --data <dir>` prints what the running server does now: the checks running and queued, the waiting webhook deliveries, the open event streams, the repository locks and the last 200 warnings and errors. It reads the server over a socket in the data folder (`.yars/status.sock`), needs no password, and runs as the service account. A second `yars serve` on the same data folder leaves the first one's socket alone: it writes one `warn` line and runs without `yars status`.
 - Admin › System has two new panels. Current state shows the same as `yars status`. Log shows the last 200 warnings and errors of the service log; they are kept in memory and lost at a restart.
 - Admin › System › Log has the switch Debug level for 15 minutes: it sets the service log to `debug` without a restart and turns itself off. Each change is in Admin › Activity.
+- The finding page has a Take back button, beside Withdraw, for the author and a director while the finding is in verification (before: the bulk bar and MCP only). Its key is Shift+T, and it acts at once, as every workflow key.
 - `docs/deploy.md` has a Logs section: the journalctl commands, the levels, the fields, what a line never holds, the request ID, and a fail2ban example for the failed-login lines in their new form.
 
 ### Changed
