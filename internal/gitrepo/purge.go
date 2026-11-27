@@ -276,11 +276,13 @@ func (r *Repo) DropOldBlobsWith(path, keep string, oldIDs []string, beforeGC fun
 	return r.gone(ids)
 }
 
-// gone checks that none of ids is on disk any more.
+// gone checks that none of ids is on disk any more. It runs after the
+// rewrite and the gc, so a failed check is a failed cleanup: the caller must
+// not put the old commit back.
 func (r *Repo) gone(ids []string) error {
 	sizes, err := r.Sizes(ids)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %v", ErrPurgeCleanup, err)
 	}
 	for i, n := range sizes {
 		if n >= 0 {
