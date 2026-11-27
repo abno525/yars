@@ -183,6 +183,37 @@ func TestTemplateEdit(t *testing.T) {
 	}
 }
 
+// A template's CVSS field takes a CVSS:3.0 vector as the 3.1 vector of the
+// same metrics, and the page after the save says so, once; a 3.1 vector says
+// nothing.
+func TestTemplateCVSS30IsSaid(t *testing.T) {
+	e := setup(t)
+	e.addTemplate(t, "hsts", "Missing HSTS header")
+	const said = `<span class="pstate error" title="CVSS:3.0 vector, stored as CVSS:3.1">CVSS:3.0 vector, stored as CVSS:3.1</span>`
+	save := func(vec string) string {
+		t.Helper()
+		rec := e.do(t, "dora", "POST", "/templates/hsts", url.Values{"title": {"Missing HSTS header"}, "severity": {""}, "cvss": {vec}}, nil)
+		if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/templates/hsts" {
+			t.Fatalf("save of %s: %d %s", vec, rec.Code, rec.Body.String())
+		}
+		return e.do(t, "dora", "GET", "/templates/hsts", nil, nil).Body.String()
+	}
+	b := save("CVSS:3.0/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H")
+	if tp, _ := e.srv.Store.Template("hsts"); tp.F.Meta.CVSS != "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H" {
+		t.Fatalf("stored %q", tp.F.Meta.CVSS)
+	}
+	if !strings.Contains(b, said) {
+		t.Fatalf("the page does not say the vector is rewritten:\n%s", between(b, `<form class="panel"`, `<div class="fgrid tplmeta">`))
+	}
+	// said once, to the one who saved, on that template's page
+	if b := e.do(t, "dora", "GET", "/templates/hsts", nil, nil).Body.String(); strings.Contains(b, "stored as") {
+		t.Fatal("said a second time")
+	}
+	if b := save("CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:H/A:H"); strings.Contains(b, "stored as") {
+		t.Fatal("a 3.1 vector is commented")
+	}
+}
+
 func TestSaveFindingAsTemplate(t *testing.T) {
 	e := setup(t)
 	st := e.srv.Store
