@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -57,12 +58,12 @@ func TestDeliveryIsLogged(t *testing.T) {
 	}
 	s.Handle(store.Event{Kind: store.EventCreated, Eng: "demo", Fid: "F-002", Dir: "F-002-zqslug7f3kq"})
 	for range MaxTries + 2 {
-		*now = now.Add(time.Hour)
+		*now = now.Add(2 * time.Hour)
 		s.RunDue()
 	}
 	gone := out.With("webhook delivery given up")
 	if len(out.With("webhook delivery failed; it is tried again")) != MaxTries-1 || len(gone) != 1 || gone[0].Level != slog.LevelWarn ||
-		gone[0].Str("try") != "6" || gone[0].Str("status") != "500" {
+		gone[0].Str("try") != strconv.Itoa(MaxTries) || gone[0].Str("status") != "500" {
 		t.Fatalf("log:\n%s", out.Text())
 	}
 	if text := out.Text(); strings.Contains(text, "zq") || strings.Contains(text, "127.0.0.1") || strings.Contains(text, "Internal Server Error") {
@@ -91,7 +92,7 @@ func TestDeliveryFailureSaysWhy(t *testing.T) {
 	}
 	const again = "webhook delivery failed; it is tried again"
 
-	t.Run("no answer", func(t *testing.T) {
+	t.Run("connection refused", func(t *testing.T) {
 		s, _, _ := newService(t)
 		lg, out := logs.NewRecorder()
 		s.Logger = lg
@@ -101,7 +102,7 @@ func TestDeliveryFailureSaysWhy(t *testing.T) {
 		}
 		srv.Close() // nothing listens there now
 		s.Handle(returned())
-		if r := one(t, s, out, again, "no answer"); r.Level != slog.LevelWarn {
+		if r := one(t, s, out, again, "connection refused"); r.Level != slog.LevelWarn {
 			t.Fatalf("line: %s", r)
 		}
 	})

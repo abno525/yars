@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/abno525/yars/internal/auth"
+	"github.com/abno525/yars/internal/db"
 	"github.com/abno525/yars/internal/index"
 	"github.com/abno525/yars/internal/notify"
 	"github.com/abno525/yars/internal/store"
@@ -29,6 +30,14 @@ func (s *Server) wireNotifications() {
 	if s.Webhooks == nil {
 		s.Webhooks = &webhook.Service{DB: d, BaseURL: base, Logger: s.Logger,
 			Secrets: func() (webhook.Sealer, error) { return s.secrets() }}
+	}
+	if s.Webhooks.SwitchedOff == nil {
+		// the admins hear of a webhook switched off after failed deliveries
+		s.Webhooks.SwitchedOff = func(h db.Webhook) {
+			if s.Notifier != nil {
+				s.Notifier.HookOff(h)
+			}
+		}
 	}
 	s.Store.OnEvent(func(e store.Event) {
 		if s.Notifier != nil {
@@ -121,9 +130,9 @@ func (s *Server) notificationsPage(w http.ResponseWriter, r *http.Request) {
 		simple := s.flow().Simple
 		for _, n := range l {
 			row := noteRow{ID: n.ID, Event: n.Event, Label: notify.LabelFor(n.Event, simple), Eng: n.Eng, Fid: n.Fid,
-				Title: n.Title, By: n.Actor, At: when(n.TS), Text: n.Text, Read: n.Read, Ref: "Token"}
-			if n.Event != notify.Token {
-				row.Title, row.Ref = current(n.Eng, n.Fid, n.Title), n.Eng+" · "+n.Fid
+				Title: n.Title, By: n.Actor, At: when(n.TS), Text: n.Text, Read: n.Read, Ref: noteRef(n)}
+			if n.Fid != "" {
+				row.Title = current(n.Eng, n.Fid, n.Title)
 			}
 			p.Notes.Rows = append(p.Notes.Rows, row)
 		}

@@ -439,6 +439,20 @@ var migrations = []migration{
 	// the notice leads to the thread; '' for every other notice and for the
 	// rows stored before (addNoteThread, in Go as v22)
 	{name: "028-notification-thread", fn: addNoteThread},
+	// how many of a webhook's deliveries were given up in a row (it is
+	// switched off at webhook.DisableAfter), and what a notice is about when
+	// that is no finding: a webhook's id, a lead's id (addHookFailures, in Go
+	// as v22)
+	{name: "029-webhook-failures-notice-ref", fn: addHookFailures},
+}
+
+// addHookFailures adds webhooks.failures and notifications.ref unless they
+// are there.
+func addHookFailures(tx *sql.Tx) error {
+	if err := addColumn(tx, "webhooks", "failures", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	return addColumn(tx, "notifications", "ref", "TEXT NOT NULL DEFAULT ''")
 }
 
 // addNoteThread adds notifications.thread unless it is there.

@@ -322,6 +322,7 @@ Each job writes one line when it ends, with `ms` and its outcome.
 | `webhook delivery failed; it is tried again` | a delivery failed and waits for its next try (`warn`) |
 | `webhook delivery given up` | the last try failed (`warn`) |
 | `webhook delivery dropped` | the webhook was turned off with this delivery waiting |
+| `webhook switched off after failed deliveries` | five deliveries of a webhook in a row were given up and the server turned it off: the webhook's ID and the count (`warn`) |
 | `notification email sent`, `notification email not sent` | one mail; a refusal is named by its SMTP code (`warn`) |
 | `push accepted`, `push refused` | a git push, with who pushed |
 | `backup downloaded` | a backup download from Admin › System |
@@ -333,7 +334,7 @@ Each job writes one line when it ends, with `ms` and its outcome.
 | `log: the debug level ended by itself` | the 15 minutes of debug are over |
 | `lock: a long wait for a repository's lock` | a write waited over 5 seconds for another one (`warn`) |
 
-A webhook delivery that got no HTTP answer has `status=0` and one word in `err`: `no answer`, `redirect refused`, `secret`, `address`, `removed`, `disabled` or `database`. The line never holds the webhook's address.
+A webhook delivery that got no HTTP answer has `status=0` and a fixed word in `err`: `timeout`, `DNS`, `connection refused`, `TLS`, `no answer`, `redirect refused`, `secret`, `address`, `removed`, `disabled` or `database`. The line never holds the webhook's address.
 
 ### Failed logins
 

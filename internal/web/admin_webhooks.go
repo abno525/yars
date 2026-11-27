@@ -30,6 +30,7 @@ type hookRow struct {
 	Last                string // last delivery: "204", "500 · retrying", "—"
 	LastState           string // ok | pending | failed | ""
 	LastAt              string
+	Off                 string // why the server switched it off (the switch's title), else ""
 }
 
 type hookForm struct {
@@ -80,6 +81,9 @@ func (s *Server) hooksFill(p *page, sel int64, f hookForm, picked []string) erro
 		r := hookRow{ID: h.ID, URL: h.URL, Events: strings.Join(h.Events, " · "), Ending: "…" + h.Last4, Enabled: h.Enabled, Last: "—"}
 		if l, ok := last[h.ID]; ok {
 			r.Last, r.LastState, r.LastAt = deliveryStatus(l), l.State, when(l.Created)
+		}
+		if !h.Enabled && h.Failures >= webhook.DisableAfter {
+			r.Off = "Off after " + strconv.Itoa(h.Failures) + " failed deliveries"
 		}
 		v.Rows = append(v.Rows, r)
 		if h.ID == sel {

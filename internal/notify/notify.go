@@ -10,6 +10,7 @@ import (
 	"mime"
 	"net/smtp"
 	"net/textproto"
+	"net/url"
 	"os"
 	"slices"
 	"strconv"
@@ -44,14 +45,69 @@ type Event struct{ Key, Label string }
 var Events = []Event{{Returned, "Returned to me"}, {Review, "Review requested"}, {TakenBack, "Taken back"}, {Reply, "Reply in my thread"},
 	{Approved, "Approved"}, {Reverted, "Reverted"}, {Mentioned, "Mentioned"}, {Check, "Check finished"}, {Token, "Token expiring"}}
 
+// Webhook is the admins' notice that a webhook was switched off after failed
+// deliveries. Nobody chooses it away: it is always in app, never mailed, and
+// the settings do not list it.
+const Webhook = "webhook"
+
+// fixed are the events outside the choices of the settings.
+var fixed = []Event{{Webhook, "Webhook off"}}
+
 // Label is an event's name for people.
 func Label(key string) string {
-	for _, e := range Events {
-		if e.Key == key {
-			return e.Label
+	for _, l := range [][]Event{Events, fixed} {
+		for _, e := range l {
+			if e.Key == key {
+				return e.Label
+			}
 		}
 	}
 	return key
+}
+
+// Target is the path a notice leads to: the token list, the webhooks page,
+// its finding (at the chat thread it is about, when it has one), or its
+// engagement. The pages, the mail and MCP all take it from here.
+func Target(x db.Notification) string {
+	switch {
+	case x.Event == Token:
+		return "/settings#tokens"
+	case x.Event == Webhook:
+		if _, err := strconv.ParseUint(x.Ref, 10, 63); err == nil {
+			return "/admin/webhooks?hook=" + x.Ref
+		}
+		return "/admin/webhooks"
+	case x.Dir != "" && store.ValidID(x.Eng) && store.ValidID(x.Dir):
+		return "/e/" + x.Eng + "/f/" + store.ShortID(x.Dir) + ThreadAnchor(x)
+	case store.ValidID(x.Eng):
+		return "/e/" + x.Eng
+	}
+	return "/notifications"
+}
+
+// HookOff tells every admin whose account is not disabled that webhook h
+// was switched off after failed deliveries. The notice names the webhook's
+// host only: the whole address can hold a token, and the webhooks page the
+// notice leads to shows it.
+func (n *Notifier) HookOff(h db.Webhook) {
+	if n.Users == nil {
+		return
+	}
+	host := ""
+	if u, err := url.Parse(h.URL); err == nil {
+		host = u.Host
+	}
+	note := db.Notification{Event: Webhook, Title: host, Actor: "yars", Ref: strconv.FormatInt(h.ID, 10),
+		Text: strconv.Itoa(h.Failures) + " deliveries given up in a row"}
+	for _, u := range n.Users() {
+		if !u.IsAdmin || u.Disabled {
+			continue
+		}
+		note.User = u.Username
+		if _, err := n.DB.AddNotification(note); err != nil {
+			n.log().Error("notification not stored", "user", u.Username, "event", Webhook, "err", err)
+		}
+	}
 }
 
 // simpleEvents are the events of the simple workflow: no review, so no
@@ -397,7 +453,7 @@ func (n *Notifier) mailFor(x db.Notification) (string, string) {
 	if n.BaseURL != nil {
 		base = n.BaseURL()
 	}
-	b.WriteString("\n" + base + "/e/" + x.Eng + "/f/" + store.ShortID(x.Dir) + ThreadAnchor(x) + "\n")
+	b.WriteString("\n" + base + Target(x) + "\n")
 	return subject, b.String()
 }
 

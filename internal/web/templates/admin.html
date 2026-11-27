@@ -36,7 +36,7 @@
         <td class="stack"><a href="/admin/webhooks?hook={{.ID}}" title="{{.URL}}" data-nav id="row-hook-{{.ID}}">{{.URL}}</a><span class="mono">{{.Ending}}</span></td>
         <td class="stack"><span class="mono" title="{{.Events}}">{{.Events}}</span></td>
         <td class="stack">{{if .LastState}}<span class="tag dl-{{.LastState}}">{{.Last}}</span><span class="mono">{{.LastAt}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
-        <td><form method="post" action="/admin/webhooks/{{.ID}}/toggle"><button class="toggle{{if .Enabled}} on{{end}}" role="switch" aria-checked="{{if .Enabled}}true{{else}}false{{end}}" aria-label="Enabled" aria-keyshortcuts="D"><span></span></button></form></td>
+        <td><form method="post" action="/admin/webhooks/{{.ID}}/toggle"><button class="toggle{{if .Enabled}} on{{end}}" role="switch" aria-checked="{{if .Enabled}}true{{else}}false{{end}}" aria-label="Enabled" aria-keyshortcuts="D"{{with .Off}} title="{{.}}"{{end}}><span></span></button></form></td>
         <td><div class="actions"><a class="btn secondary sm w96" href="/admin/webhooks?edit={{.ID}}&amp;hook={{.ID}}" aria-keyshortcuts="E">Edit</a><form method="post" action="/admin/webhooks/{{.ID}}/delete"><button class="btn danger sm w96" data-confirm="Delete the webhook to {{.URL}}?">Delete</button></form></div></td>
       </tr>
       {{else}}

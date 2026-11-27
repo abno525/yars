@@ -1743,7 +1743,7 @@ button.noteopen:focus-visible { outline: 2px solid var(--accent); outline-offset
 .notetable tr.unread td { background: var(--sel-bg); }
 .notetable tr.unread td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 .notetable .tag { width: 152px; }
-.tag.nev-returned { background: var(--red); color: var(--on-fill); }
+.tag.nev-returned, .tag.nev-webhook { background: var(--red); color: var(--on-fill); }
 .tag.nev-review { background: var(--verification); color: var(--on-fill); }
 .tag.nev-reply { background: var(--navy-600); color: var(--on-fill); }
 .tag.nev-approved { background: var(--green); color: var(--on-fill); }

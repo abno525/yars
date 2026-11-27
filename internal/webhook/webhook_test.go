@@ -121,7 +121,7 @@ func TestUpdatedPayload(t *testing.T) {
 	}
 }
 
-// A failing endpoint is retried with exponential backoff, at most 6 tries.
+// A failing endpoint is retried with a growing wait, at most MaxTries times.
 func TestRetryBackoff(t *testing.T) {
 	s, d, now := newService(t)
 	rc := &receiver{statuses: []int{500, 502, 204}}
@@ -151,7 +151,7 @@ func TestRetryBackoff(t *testing.T) {
 		t.Fatalf("after 3 %+v", dl[0])
 	}
 
-	// always failing: gives up after 6 tries
+	// always failing: gives up after MaxTries tries
 	bad := &receiver{statuses: []int{500}}
 	srv2 := httptest.NewServer(bad)
 	defer srv2.Close()

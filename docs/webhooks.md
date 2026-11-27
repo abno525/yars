@@ -77,6 +77,8 @@ A delivery queued by a version without event IDs has no `X-YARS-Event-ID` header
 
 - A 2xx answer within 10 s counts as delivered; anything else is retried.
 - A redirect is followed only on the webhook's own scheme, host and port. A redirect to another host is refused and counts as a failed try: the delivery's error is `redirect to <host> refused`. Give the webhook the final URL.
-- Retries wait 10 s, 20 s, 40 s, 80 s and 160 s; after 6 tries the delivery is given up.
+- Retries wait 10 s, 20 s, 40 s and so on, doubling up to one hour. After 12 tries, about three and a half hours after the first, the delivery is given up.
+- A try without an HTTP answer says why in the delivery's Error: `timeout`, `DNS`, `connection refused`, `TLS` or `no answer`.
 - Each webhook shows its last delivery; **Redeliver** sends a delivery again.
 - A disabled webhook gets nothing; events are not kept for it.
+- After 5 deliveries given up in a row YARS switches the webhook off. Every admin gets a notification, and Admin › Activity has a `webhook.disable` row by `yars`. A delivery that arrives starts the count again. So does switching the webhook on again, and saving it with another URL.

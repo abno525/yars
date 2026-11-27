@@ -40,8 +40,14 @@ func (s *Server) notesInbox(u config.User, engs []store.Engagement) ([]inboxRow,
 	for _, n := range l {
 		ir := inboxRow{NoteID: n.ID, Title: n.Title, URL: noteTarget(n), TagClass: "nev-" + n.Event, Tag: notify.LabelFor(n.Event, simple),
 			Who: n.Actor, What: excerpt(n.Text), Act: "Open"}
-		if n.Event != notify.Token {
-			ir.Title, ir.EngID, ir.EngName, ir.ID = current(n.Eng, n.Fid, n.Title), n.Eng, names[n.Eng], n.Fid
+		// a token's and a webhook's notice have no engagement and no finding
+		if n.Eng != "" {
+			ir.EngID, ir.EngName, ir.ID = n.Eng, names[n.Eng], n.Fid
+			if n.Fid != "" {
+				ir.Title = current(n.Eng, n.Fid, n.Title)
+			} else {
+				ir.ID = n.Ref
+			}
 		}
 		ir.ActURL = ir.URL
 		ir.At, _ = time.Parse(time.RFC3339, n.TS)
@@ -75,16 +81,22 @@ func (s *Server) markNotesRead(u config.User) error {
 	return s.Store.MarkNotesRead(u, notesInboxSkip, archivedIDs(engs))
 }
 
-// noteTarget is where a notice leads: the token list, its finding (at the
-// chat thread it is about, when it has one), or its engagement.
-func noteTarget(n db.Notification) string {
+// noteTarget is where a notice leads (notify.Target: the mail's link is the
+// same).
+func noteTarget(n db.Notification) string { return notify.Target(n) }
+
+// noteRef is what a notice is about, for its row: engagement · finding, the
+// engagement alone, or the kind of a notice that has neither.
+func noteRef(n db.Notification) string {
 	switch {
 	case n.Event == notify.Token:
-		return "/settings#tokens"
-	case n.Dir != "" && store.ValidID(n.Eng) && store.ValidID(n.Dir):
-		return findingURL(n.Eng, n.Dir) + notify.ThreadAnchor(n)
-	case store.ValidID(n.Eng):
-		return "/e/" + n.Eng
+		return "Token"
+	case n.Event == notify.Webhook:
+		return "Webhook"
+	case n.Fid != "":
+		return n.Eng + " · " + n.Fid
+	case n.Ref != "":
+		return n.Eng + " · " + n.Ref
 	}
-	return "/notifications"
+	return n.Eng
 }
