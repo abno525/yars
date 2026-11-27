@@ -489,6 +489,7 @@ func TestExportMarkSimple(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	marking(t, dir) // a file destination marks only when its file says so
 	out := filepath.Join(t.TempDir(), "r.html")
 	var log bytes.Buffer
 	if code, err := cmdExport([]string{"--data", dir, "--exporter", "confluence", "--out", out, "--mark", "acme"}, &log); code != 2 || err == nil || err.Error() != "--mark needs --as <account>" {

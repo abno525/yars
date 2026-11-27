@@ -90,8 +90,10 @@ func formOfExporter(ex export.Exporter) destForm {
 	return f
 }
 
+// newDestForm is the editor for a new destination: a file, which does not
+// mark findings reported unless the box is ticked (Q7).
 func newDestForm() destForm {
-	return destForm{New: true, Type: "pandoc", Format: "pdf", Complete: true, Marks: true}
+	return destForm{New: true, Type: "pandoc", Format: "pdf", Complete: true}
 }
 
 // fillSetup lists the destinations; editing is the open one.

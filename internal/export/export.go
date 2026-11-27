@@ -60,8 +60,16 @@ type Exporter struct {
 	Jira         *JiraConf       `yaml:"jira,omitempty"`
 }
 
-// Marks reports whether a successful export should mark findings reported.
-func (e Exporter) Marks() bool { return e.MarkReported == nil || *e.MarkReported }
+// Marks reports whether a successful export should mark findings reported:
+// what mark_reported says, and without the key a destination that publishes
+// to a service does, one that makes a file does not (the file is not yet in
+// the client's hands when it is made).
+func (e Exporter) Marks() bool {
+	if e.MarkReported == nil {
+		return e.Service()
+	}
+	return *e.MarkReported
+}
 
 // Service reports a destination that publishes to an outside service
 // (Confluence REST, Jira) with a key, instead of producing a file.

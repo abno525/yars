@@ -73,7 +73,8 @@ func TestLoad(t *testing.T) {
 	if !strings.Contains(all, "bad.yaml") || !strings.Contains(all, "typo.yaml") {
 		t.Fatalf("errors:\n%s", all)
 	}
-	if !es[1].Marks() || len(es[1].Statuses) != 1 || es[1].Statuses[0] != "complete" {
+	// a file marks nothing reported unless it says so (Q7)
+	if es[1].Marks() || es[0].Marks() || len(es[1].Statuses) != 1 || es[1].Statuses[0] != "complete" {
 		t.Fatalf("defaults %+v", es[1])
 	}
 }

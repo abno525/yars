@@ -10,7 +10,8 @@ type: pandoc
 format: docx
 args: [--toc]
 statuses: [complete]
-mark_reported: true
+# true: making the file marks its findings reported
+mark_reported: false
 `,
 	"confluence.yaml": `# HTML for pasting into Confluence. To publish directly instead, add:
 #   confluence:
@@ -20,9 +21,10 @@ mark_reported: true
 #       user_env: CONFLUENCE_USER     # env vars on the YARS server
 #       token_env: CONFLUENCE_TOKEN
 # The account needs permission to add pages and to add and delete attachments in the space.
+# Without mark_reported, the HTML file marks nothing and a published page
+# marks its findings reported; mark_reported: true or false sets it.
 name: Confluence HTML
 type: confluence
 statuses: [complete]
-mark_reported: true
 `,
 }

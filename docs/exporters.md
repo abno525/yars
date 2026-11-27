@@ -35,6 +35,7 @@ The file itself, saved as `<engagement id>.<extension>` (`application/octet-stre
 | Working directory | `.yars/exporters` |
 | Script path | inside `.yars/exporters` · symlinks resolved · executable |
 | After success | `mark_reported: true` moves the sent complete findings to reported |
+| Without `mark_reported` | a destination that makes a file (pandoc, script, Confluence HTML) marks nothing · one that publishes (Jira, Confluence with `base_url`) marks |
 
 ## Failures
 

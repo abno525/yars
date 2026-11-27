@@ -272,6 +272,10 @@ func cmdExport(args []string, out io.Writer) (int, error) {
 		d.Audit("cli", "export", e.ID, fmt.Sprintf("%s, %d findings", ex.ID, len(picked)))
 	}
 	code := 0
+	if *mark && !ex.Marks() {
+		// said, so the command does not look as if it marked
+		fmt.Fprintln(out, "not marked:", ex.ID, "has mark_reported off")
+	}
 	if *mark && ex.Marks() {
 		for _, p := range picked {
 			if p.F.Meta.Status == "complete" {
