@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/abno525/yars/internal/db"
 	"github.com/abno525/yars/internal/store"
@@ -21,6 +22,8 @@ type hookSink struct {
 	codes []int
 	got   []string
 	sigs  []string
+	ts    []int64  // X-YARS-Timestamp
+	evs   []string // X-YARS-Event
 }
 
 func (h *hookSink) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -28,6 +31,9 @@ func (h *hookSink) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.mu.Lock()
 	h.got = append(h.got, string(b))
 	h.sigs = append(h.sigs, r.Header.Get("X-YARS-Signature"))
+	ts, _ := strconv.ParseInt(r.Header.Get("X-YARS-Timestamp"), 10, 64)
+	h.ts = append(h.ts, ts)
+	h.evs = append(h.evs, r.Header.Get("X-YARS-Event"))
 	code := 200
 	if len(h.codes) > 0 {
 		code, h.codes = h.codes[0], h.codes[1:]
@@ -60,6 +66,68 @@ func TestExportSentEvent(t *testing.T) {
 	}
 	if st := got[0]; st.Action != "report" || st.To != "reported" || st.Destination == "" {
 		t.Fatalf("%+v", st)
+	}
+}
+
+// A webhook switched off after failed deliveries: the admins get a notice
+// that names the host only and leads to the webhooks page, and the page says
+// why it is off.
+func TestWebhookOffNotice(t *testing.T) {
+	e := setup(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusInternalServerError) }))
+	defer srv.Close()
+	var mu sync.Mutex
+	now := time.Now()
+	e.srv.Webhooks.Now = func() time.Time { mu.Lock(); defer mu.Unlock(); return now }
+	rec := e.do(t, "dora", "POST", "/admin/webhooks", url.Values{"url": {srv.URL + "/zqhook7f3kq?key=zqkey7f3kq"}, "event": {"chat.posted"}}, nil)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("create %d", rec.Code)
+	}
+	d := e.srv.Store.DB()
+	hooks, _ := d.Webhooks()
+	id := strconv.FormatInt(hooks[0].ID, 10)
+	for range webhook.DisableAfter {
+		if rec := e.do(t, "bob", "POST", "/e/acme/f/001/chat", url.Values{"text": {"hello"}}, map[string]string{"HX-Request": "true"}); rec.Code >= 300 {
+			t.Fatalf("chat %d", rec.Code)
+		}
+		for range webhook.MaxTries {
+			if _, err := e.srv.Webhooks.RunDue(); err != nil {
+				t.Fatal(err)
+			}
+			mu.Lock()
+			now = now.Add(2 * time.Hour)
+			mu.Unlock()
+		}
+	}
+	if h, _, _ := d.WebhookByID(hooks[0].ID); h.Enabled {
+		t.Fatalf("still enabled: %+v", h)
+	}
+	l, _ := d.Notifications("dora", 10)
+	if len(l) != 1 || l[0].Event != "webhook" || l[0].Title != strings.TrimPrefix(srv.URL, "http://") || l[0].Actor != "yars" || l[0].Eng != "" {
+		t.Fatalf("dora's notices %+v", l)
+	}
+	if l, _ := d.Notifications("bob", 10); len(l) != 0 {
+		t.Fatalf("bob is no admin and was told: %+v", l)
+	}
+	b := e.do(t, "dora", "GET", "/notifications", nil, nil).Body.String()
+	if !strings.Contains(b, "Webhook off") || !strings.Contains(b, "5 deliveries given up in a row") || strings.Contains(b, "zq") || strings.Contains(b, " ·  · ") {
+		t.Fatalf("notifications page:\n%s", b)
+	}
+	if b := e.do(t, "dora", "GET", "/inbox", nil, nil).Body.String(); !strings.Contains(b, "Webhook off") || strings.Contains(b, "zq") {
+		t.Fatal("the inbox lacks the notice")
+	}
+	rec = e.do(t, "dora", "POST", "/notifications/"+strconv.FormatInt(l[0].ID, 10), url.Values{}, nil)
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/admin/webhooks?hook="+id {
+		t.Fatalf("open %d %q", rec.Code, rec.Header().Get("Location"))
+	}
+	b = e.do(t, "dora", "GET", "/admin/webhooks?hook="+id, nil, nil).Body.String()
+	if !strings.Contains(b, `title="Off after 5 failed deliveries"`) || !strings.Contains(b, ">"+strconv.Itoa(webhook.MaxTries)+"/"+strconv.Itoa(webhook.MaxTries)+"<") {
+		t.Fatal("the webhooks page does not say why it is off")
+	}
+	// Enable starts the count again
+	e.do(t, "dora", "POST", "/admin/webhooks/"+id+"/toggle", url.Values{}, nil)
+	if h, _, _ := d.WebhookByID(hooks[0].ID); !h.Enabled || h.Failures != 0 {
+		t.Fatalf("after Enable: %+v", h)
 	}
 }
 
@@ -125,7 +193,7 @@ func TestAdminWebhooks(t *testing.T) {
 		t.Fatal(err)
 	}
 	sink.mu.Lock()
-	if len(sink.got) != 1 || !strings.Contains(sink.got[0], `"event":"chat.posted"`) || sink.sigs[0] != webhook.Sign(sec, []byte(sink.got[0])) {
+	if len(sink.got) != 1 || !strings.Contains(sink.got[0], `"event":"chat.posted"`) || sink.ts[0] == 0 || sink.sigs[0] != webhook.Sign(sec, sink.ts[0], []byte(sink.got[0])) {
 		t.Fatalf("delivery %v %v", sink.got, sink.sigs)
 	}
 	sink.mu.Unlock()

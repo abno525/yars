@@ -125,6 +125,8 @@ func (s *Server) inboxFor(u config.User, engs []store.Engagement) (inboxView, er
 	// open threads are a pentester's and a reviewer's queue only (in the
 	// simple workflow everyone's)
 	threads := slices.Contains(f.Queues(u), workflow.InboxThreads)
+	// the sections every finding page has a panel for, whatever its file holds
+	panels := append(slices.Clone(s.conf().Sections), store.PanelTargets...)
 	for _, r := range rows {
 		if r.Meta == nil {
 			continue
@@ -133,7 +135,7 @@ func (s *Server) inboxFor(u config.User, engs []store.Engagement) (inboxView, er
 			v.Lists[k] = append(v.Lists[k], findingRowFor(f, k, u, r, names[r.EngID]))
 		}
 		if threads {
-			v.Lists[workflow.InboxThreads] = append(v.Lists[workflow.InboxThreads], threadRows(u, r, names[r.EngID])...)
+			v.Lists[workflow.InboxThreads] = append(v.Lists[workflow.InboxThreads], threadRows(u, r, names[r.EngID], panels)...)
 		}
 	}
 	slices.SortStableFunc(v.Lists[workflow.InboxThreads], func(a, b inboxRow) int { return b.At.Compare(a.At) })
@@ -243,8 +245,11 @@ func findingRowFor(f workflow.Flow, k workflow.Inbox, u config.User, r index.Row
 
 // threadRows are u's open threads of a finding u wrote or reviews whose
 // last message is someone else's. A check run's thread counts only once a
-// person wrote in it (the AI's answer for a user is not that).
-func threadRows(u config.User, r index.Row, engName string) []inboxRow {
+// person wrote in it (the AI's answer for a user is not that). panels are
+// the sections every finding page shows (configured ones and the panels a
+// comment can point at): a thread on a section that is neither one of them
+// nor in the finding's file leads to the chat, as a general one does.
+func threadRows(u config.User, r index.Row, engName string, panels []string) []inboxRow {
 	if r.Author != u.Username && !slices.Contains(r.Reviewers, u.Username) {
 		return nil
 	}
@@ -256,7 +261,7 @@ func threadRows(u config.User, r index.Row, engName string) []inboxRow {
 		ir := baseRow(r, engName)
 		ir.Who, ir.What, ir.At, ir.Act = t.LastUser, excerpt(t.LastText), t.LastTS, "Reply"
 		// the anchor is a slug of the section name: letters, digits, dashes
-		if t.Section != "" {
+		if t.Section != "" && (slices.Contains(r.Sections, t.Section) || slices.Contains(panels, t.Section)) {
 			ir.ActURL += "#s-" + anchor(t.Section)
 		} else {
 			ir.ActURL += "#chat"

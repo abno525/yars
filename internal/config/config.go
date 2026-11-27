@@ -83,6 +83,12 @@ type SMTPConfig struct {
 // Configured reports whether email can be sent.
 func (s SMTPConfig) Configured() bool { return s.Host != "" && s.From != "" }
 
+// MailOn reports whether notification email is sent: SMTP is configured and
+// base_url is set. Without base_url a mail's link would be a bare path
+// (/e/demo/f/005), so no mail goes out and the settings offer no Email
+// column. The mailer, the settings and the start line all ask here.
+func (c Config) MailOn() bool { return c.SMTP.Configured() && c.BaseURL != "" }
+
 // AIConfig selects the LLM used by AI rules. The key itself is read from the
 // environment variable named by APIKeyEnv and never stored in the repo.
 type AIConfig struct {

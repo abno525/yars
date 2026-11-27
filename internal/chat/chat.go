@@ -83,6 +83,12 @@ type Item struct {
 }
 
 // Timeline folds messages into events and threads, ordered by first message.
+// A thread is resolved by its resolve marker and open again after a reopen
+// marker or a person's reply: a reply to a resolved thread (over MCP, or
+// from a page that still showed it open) is a question nobody would see
+// there. A reply the AI wrote (KindAI) changes nothing: the check run that
+// follows a fix resolves or reopens by what it finds. Every reader folds
+// through here, so the page, the counts, the inbox and MCP agree.
 func Timeline(msgs []Message) []Item {
 	var items []Item
 	threads := map[string]*Thread{}
@@ -94,6 +100,9 @@ func Timeline(msgs []Message) []Item {
 		case m.Reply != "":
 			if t := threads[m.Reply]; t != nil {
 				t.Replies = append(t.Replies, m)
+				if m.Kind != KindAI {
+					t.Resolved, t.ResolvedBy = false, ""
+				}
 			}
 		case m.Resolves != "":
 			if t := threads[m.Resolves]; t != nil {

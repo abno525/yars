@@ -53,10 +53,10 @@ func TestEventsForSimple(t *testing.T) {
 	for _, e := range EventsFor(true) {
 		keys, labels = append(keys, e.Key), append(labels, e.Label)
 	}
-	if strings.Join(keys, ",") != "reply,approved,reverted,mentioned,check,token" {
+	if strings.Join(keys, ",") != "reply,thread,approved,reverted,withdrawn,reported,mentioned,check,retest,token" {
 		t.Fatalf("simple keys %v", keys)
 	}
-	if strings.Join(labels, ",") != "Reply in my thread,Completed,Reverted,Mentioned,Check finished,Token expiring" {
+	if strings.Join(labels, ",") != "Reply in my thread,New thread,Completed,Reverted,Withdrawn,Reported,Mentioned,Check finished,Retest assigned,Token expiring" {
 		t.Fatalf("simple labels %v", labels)
 	}
 	for _, c := range []struct {

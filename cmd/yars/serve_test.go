@@ -273,9 +273,19 @@ func TestServeWarnsWithoutBaseURL(t *testing.T) {
 	if recs := out.Records(); len(recs) != 1 || recs[0].Level != slog.LevelWarn || !strings.Contains(recs[0].Msg, "base_url is not set in .yars/config.yaml") {
 		t.Fatalf("log:\n%s", out.Text())
 	}
+	// with SMTP set it also says that no mail is sent
+	out.Reset()
+	cfg.SMTP = config.SMTPConfig{Host: "mail.example", Port: 25, From: "yars@acme.example"}
+	warnNoBaseURL(cfg, lg)
+	if recs := out.With("smtp is set but base_url is not: no notification email is sent until base_url is set"); len(recs) != 1 || recs[0].Level != slog.LevelWarn || len(out.Records()) != 2 {
+		t.Fatalf("log:\n%s", out.Text())
+	}
+	if cfg.MailOn() {
+		t.Fatal("mail is on without base_url")
+	}
 	out.Reset()
 	cfg.BaseURL = "https://yars.example.com"
-	if warnNoBaseURL(cfg, lg); len(out.Records()) != 0 {
+	if warnNoBaseURL(cfg, lg); len(out.Records()) != 0 || !cfg.MailOn() {
 		t.Fatalf("with base_url:\n%s", out.Text())
 	}
 }
@@ -384,8 +394,13 @@ func TestServeStartLine(t *testing.T) {
 	}
 	t.Setenv("YARS_TEST_AI_KEY", "zqaikey7f3kq")
 	t.Setenv("YARS_TEST_SMTP_PW", "zqsmtppw7f3kq")
+	const smtpOn = "smtp:\n  host: zqsmtphost7f3kq.example\n  port: 587\n  from: yars@zqfrom7f3kq.example\n  username: zqsmtpuser7f3kq\n  password_env: YARS_TEST_SMTP_PW\n"
 	on := start("ai:\n  provider: openai\n  base_url: https://zqaihost7f3kq.example/v1\n  model: zqmodel7f3kq\n  api_key_env: YARS_TEST_AI_KEY\n" +
-		"smtp:\n  host: zqsmtphost7f3kq.example\n  port: 587\n  from: yars@zqfrom7f3kq.example\n  username: zqsmtpuser7f3kq\n  password_env: YARS_TEST_SMTP_PW\n")
+		"base_url: https://zqbase7f3kq.example\n" + smtpOn)
+	// SMTP without base_url sends no mail: the line says so
+	if half := start(smtpOn); half.Attrs["smtp"] != false {
+		t.Fatalf("line with SMTP and no base_url: %s", half)
+	}
 	if on.Str("version") != buildVersion() || on.Str("schema") != strconv.Itoa(db.SchemaVersion) || on.Str("workflow") != "standard" ||
 		on.Str("addr") != "127.0.0.1:8443" || on.Str("data") != dir || on.Attrs["https"] != true || on.Attrs["ai"] != true || on.Attrs["smtp"] != true || !on.Has("pandoc") {
 		t.Fatalf("line: %s", on)

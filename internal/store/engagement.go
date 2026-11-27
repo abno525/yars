@@ -170,6 +170,14 @@ func (s *Store) CreateRetest(e Engagement, source string, dirs []string, assigne
 			return fmt.Errorf("%w: retester %s is disabled", ErrInvalidValue, assignee)
 		}
 	}
+	// the retester is told once the retest is whole and its lock released
+	// (this runs after unlock): they are on its team by then
+	made := false
+	defer func() {
+		if made && assignee != "" {
+			s.Emit(Event{Kind: EventRetest, Actor: u.Username, Eng: e.ID, Title: e.Name, Assignee: assignee})
+		}
+	}()
 	unlock := s.lockNew(e.ID)
 	defer unlock()
 	dir := engDir(e.ID)
@@ -274,6 +282,7 @@ func (s *Store) CreateRetest(e Engagement, source string, dirs []string, assigne
 		s.db.TxFor(e.ID, func(tx *db.Tx) error { return tx.Purge(e.ID) })
 		return err
 	}
+	made = true
 	return nil
 }
 

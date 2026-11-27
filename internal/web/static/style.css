@@ -1743,11 +1743,12 @@ button.noteopen:focus-visible { outline: 2px solid var(--accent); outline-offset
 .notetable tr.unread td { background: var(--sel-bg); }
 .notetable tr.unread td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 .notetable .tag { width: 152px; }
-.tag.nev-returned { background: var(--red); color: var(--on-fill); }
-.tag.nev-review { background: var(--verification); color: var(--on-fill); }
-.tag.nev-reply { background: var(--navy-600); color: var(--on-fill); }
-.tag.nev-approved { background: var(--green); color: var(--on-fill); }
+.tag.nev-returned, .tag.nev-webhook { background: var(--red); color: var(--on-fill); }
+.tag.nev-review, .tag.nev-retest { background: var(--verification); color: var(--on-fill); }
+.tag.nev-reply, .tag.nev-thread { background: var(--navy-600); color: var(--on-fill); }
+.tag.nev-approved, .tag.nev-signed_off, .tag.nev-reported { background: var(--green); color: var(--on-fill); }
 .tag.nev-reverted, .tag.nev-taken_back { background: var(--accent); color: var(--on-accent); }
+.tag.nev-unassigned, .tag.nev-withdrawn { background: var(--accent); color: var(--on-accent); }
 .tag.nev-mentioned { background: var(--accent); color: var(--on-accent); }
 .tag.nev-check { background: var(--navy); color: var(--on-fill); border-color: var(--navy); }
 .tag.nev-token { background: var(--warn-tag); color: var(--on-pale); }
@@ -1809,6 +1810,10 @@ code.plain { font: 500 13px var(--mono); color: var(--text); background: transpa
 
 /* ---------- M18: admin › webhooks, footer ---------- */
 .adminfoot { display: flex; gap: 24px; padding-top: 16px; border-top: 1px solid var(--line); font: 600 14px var(--sans); }
+/* the Deliveries head: the webhook's address (cut), Send test 112, New secret 112 */
+.dlhead { min-width: 0; display: flex; align-items: center; gap: 8px; }
+.dlhead .clip { min-width: 0; margin-right: 8px; }
+.dlhead form { margin: 0; flex: none; display: flex; }
 .hooktable th.c-events { width: 300px; }
 .dltable th.c-events { width: 220px; }
 .hooktable th.c-last { width: 168px; }

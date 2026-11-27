@@ -1,9 +1,6 @@
 package webhook
 
 import (
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -22,6 +19,7 @@ import (
 type got struct {
 	sig, event, id string
 	body           []byte
+	ts, eventID    string
 }
 
 // receiver is a webhook endpoint answering the given statuses in turn
@@ -35,7 +33,8 @@ type receiver struct {
 func (rc *receiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	b, _ := io.ReadAll(r.Body)
 	rc.mu.Lock()
-	rc.reqs = append(rc.reqs, got{r.Header.Get("X-YARS-Signature"), r.Header.Get("X-YARS-Event"), r.Header.Get("X-YARS-Delivery"), b})
+	rc.reqs = append(rc.reqs, got{r.Header.Get("X-YARS-Signature"), r.Header.Get("X-YARS-Event"), r.Header.Get("X-YARS-Delivery"), b,
+		r.Header.Get("X-YARS-Timestamp"), r.Header.Get("X-YARS-Event-ID")})
 	st := rc.statuses[min(len(rc.reqs)-1, len(rc.statuses)-1)]
 	rc.mu.Unlock()
 	w.WriteHeader(st)
@@ -85,9 +84,7 @@ func TestSignedDelivery(t *testing.T) {
 		t.Fatalf("requests %d", rc.count())
 	}
 	r := rc.reqs[0]
-	mac := hmac.New(sha256.New, []byte(sec))
-	mac.Write(r.body)
-	if r.sig != "sha256="+hex.EncodeToString(mac.Sum(nil)) || r.event != store.EventStatus || r.id == "" {
+	if r.sig != mac(sec, r.ts+"."+string(r.body)) || r.event != store.EventStatus || r.id == "" {
 		t.Fatalf("headers %+v", r)
 	}
 	var p map[string]any
@@ -124,7 +121,7 @@ func TestUpdatedPayload(t *testing.T) {
 	}
 }
 
-// A failing endpoint is retried with exponential backoff, at most 6 tries.
+// A failing endpoint is retried with a growing wait, at most MaxTries times.
 func TestRetryBackoff(t *testing.T) {
 	s, d, now := newService(t)
 	rc := &receiver{statuses: []int{500, 502, 204}}
@@ -154,7 +151,7 @@ func TestRetryBackoff(t *testing.T) {
 		t.Fatalf("after 3 %+v", dl[0])
 	}
 
-	// always failing: gives up after 6 tries
+	// always failing: gives up after MaxTries tries
 	bad := &receiver{statuses: []int{500}}
 	srv2 := httptest.NewServer(bad)
 	defer srv2.Close()

@@ -18,6 +18,8 @@ type Webhook struct {
 	SecretEnc, Last4   string
 	Enabled            bool
 	Created, CreatedBy string
+	// Failures is how many of its deliveries were given up in a row.
+	Failures int
 }
 
 // Delivery states.
@@ -37,12 +39,12 @@ type Delivery struct {
 	Error, Finished  string
 }
 
-const hookCols = "id, url, events, secret_enc, last4, enabled, created, created_by"
+const hookCols = "id, url, events, secret_enc, last4, enabled, created, created_by, failures"
 
 func scanHook(sc interface{ Scan(...any) error }) (Webhook, error) {
 	var h Webhook
 	var ev string
-	if err := sc.Scan(&h.ID, &h.URL, &ev, &h.SecretEnc, &h.Last4, &h.Enabled, &h.Created, &h.CreatedBy); err != nil {
+	if err := sc.Scan(&h.ID, &h.URL, &ev, &h.SecretEnc, &h.Last4, &h.Enabled, &h.Created, &h.CreatedBy, &h.Failures); err != nil {
 		return h, err
 	}
 	json.Unmarshal([]byte(ev), &h.Events)
@@ -123,13 +125,23 @@ func (d *DB) hookUpdate(q string, args ...any) error {
 }
 
 // UpdateWebhook changes a webhook's URL, events and switch (not its secret).
+// Another URL, or switching it on, starts the count of failed deliveries
+// again.
 func (d *DB) UpdateWebhook(id int64, url string, events []string, enabled bool) error {
-	return d.hookUpdate("UPDATE webhooks SET url = ?, events = ?, enabled = ? WHERE id = ?", url, eventsJSON(events), b2i(enabled), id)
+	return d.hookUpdate(`UPDATE webhooks SET failures = CASE WHEN url <> ? OR (enabled = 0 AND ? = 1) THEN 0 ELSE failures END,
+		url = ?, events = ?, enabled = ? WHERE id = ?`, url, b2i(enabled), url, eventsJSON(events), b2i(enabled), id)
 }
 
-// SetWebhookEnabled turns a webhook on or off.
+// SetWebhookEnabled turns a webhook on or off; on starts the count of failed
+// deliveries again.
 func (d *DB) SetWebhookEnabled(id int64, on bool) error {
-	return d.hookUpdate("UPDATE webhooks SET enabled = ? WHERE id = ?", b2i(on), id)
+	return d.hookUpdate("UPDATE webhooks SET enabled = ?, failures = CASE WHEN ? = 1 THEN 0 ELSE failures END WHERE id = ?", b2i(on), b2i(on), id)
+}
+
+// SetWebhookSecret gives a webhook another secret (its encrypted form and
+// its ending); the webhook and its deliveries stay.
+func (d *DB) SetWebhookSecret(id int64, enc, last4 string) error {
+	return d.hookUpdate("UPDATE webhooks SET secret_enc = ?, last4 = ? WHERE id = ?", enc, last4, id)
 }
 
 // DeleteWebhook removes a webhook and its deliveries.
@@ -191,6 +203,14 @@ func (d *DB) PendingDeliveries() (int, error) {
 // = no answer), errText "" means it was delivered. A failed try is retried
 // at next; a zero next gives up.
 func (d *DB) FinishAttempt(id int64, status int, errText string, next, now time.Time) error {
+	_, err := finishAttempt(d.DB, id, status, errText, next, now)
+	return err
+}
+
+// finishAttempt is FinishAttempt on ex; it returns the delivery's new state.
+func finishAttempt(ex interface {
+	Exec(string, ...any) (sql.Result, error)
+}, id int64, status int, errText string, next, now time.Time) (string, error) {
 	state, nextAt, finished := DeliveryPending, "", ""
 	switch {
 	case errText == "":
@@ -200,8 +220,53 @@ func (d *DB) FinishAttempt(id int64, status int, errText string, next, now time.
 	default:
 		nextAt = stampAt(next)
 	}
-	return d.hookUpdate(`UPDATE webhook_deliveries SET state = ?, attempts = attempts + 1, status = ?, error = ?, finished = ?,
+	res, err := ex.Exec(`UPDATE webhook_deliveries SET state = ?, attempts = attempts + 1, status = ?, error = ?, finished = ?,
 		next_at = CASE WHEN ? = '' THEN next_at ELSE ? END WHERE id = ?`, state, status, errText, finished, nextAt, nextAt, id)
+	if err != nil {
+		return "", err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return "", ErrNotFound
+	}
+	return state, nil
+}
+
+// FinishCounted is FinishAttempt that keeps the webhook's count of
+// deliveries given up in a row, in the same transaction: a delivered one
+// sets the count to 0; a given-up one adds one when gaveUp counts it, and at
+// limit turns an enabled webhook off. It returns whether this call turned
+// the webhook off, and the webhook as it was read before that.
+func (d *DB) FinishCounted(id int64, status int, errText string, next, now time.Time, gaveUp bool, limit int) (bool, Webhook, error) {
+	tx, err := d.Begin()
+	if err != nil {
+		return false, Webhook{}, err
+	}
+	defer tx.Rollback()
+	state, err := finishAttempt(tx, id, status, errText, next, now)
+	if err != nil {
+		return false, Webhook{}, err
+	}
+	h, err := scanHook(tx.QueryRow("SELECT "+hookCols+" FROM webhooks WHERE id = (SELECT hook_id FROM webhook_deliveries WHERE id = ?)", id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, h, ErrNotFound
+	}
+	if err != nil {
+		return false, h, err
+	}
+	off := false
+	switch {
+	case state == DeliveryOK && h.Failures != 0:
+		h.Failures = 0
+		_, err = tx.Exec("UPDATE webhooks SET failures = 0 WHERE id = ?", h.ID)
+	case state == DeliveryFailed && gaveUp:
+		h.Failures++
+		off = h.Enabled && limit > 0 && h.Failures >= limit
+		_, err = tx.Exec("UPDATE webhooks SET failures = ?, enabled = CASE WHEN ? = 1 THEN 0 ELSE enabled END WHERE id = ?", h.Failures, b2i(off), h.ID)
+	}
+	if err != nil {
+		return false, h, err
+	}
+	return off, h, tx.Commit()
 }
 
 // Delivery returns one delivery.
@@ -248,21 +313,24 @@ type Notification struct {
 	User, Event, Eng, Dir, Fid, Title string
 	Actor, Text, TS                   string
 	Thread                            string
-	Read                              bool
+	// Ref is what a notice without a finding is about: a webhook's id, a
+	// lead's id (L-001); "" otherwise.
+	Ref  string
+	Read bool
 }
 
-const noteCols = "id, username, event, eng, dir, fid, title, actor, text, ts, read, thread"
+const noteCols = "id, username, event, eng, dir, fid, title, actor, text, ts, read, thread, ref"
 
 func scanNote(sc interface{ Scan(...any) error }) (Notification, error) {
 	var n Notification
-	err := sc.Scan(&n.ID, &n.User, &n.Event, &n.Eng, &n.Dir, &n.Fid, &n.Title, &n.Actor, &n.Text, &n.TS, &n.Read, &n.Thread)
+	err := sc.Scan(&n.ID, &n.User, &n.Event, &n.Eng, &n.Dir, &n.Fid, &n.Title, &n.Actor, &n.Text, &n.TS, &n.Read, &n.Thread, &n.Ref)
 	return n, err
 }
 
 // AddNotification stores a notification for n.User (TS is set now).
 func (d *DB) AddNotification(n Notification) (int64, error) {
-	res, err := d.Exec("INSERT INTO notifications(username, event, eng, dir, fid, title, actor, text, ts, thread) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		n.User, n.Event, n.Eng, n.Dir, n.Fid, n.Title, n.Actor, n.Text, d.stamp(), n.Thread)
+	res, err := d.Exec("INSERT INTO notifications(username, event, eng, dir, fid, title, actor, text, ts, thread, ref) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		n.User, n.Event, n.Eng, n.Dir, n.Fid, n.Title, n.Actor, n.Text, d.stamp(), n.Thread, n.Ref)
 	if err != nil {
 		return 0, err
 	}

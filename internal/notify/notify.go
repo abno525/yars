@@ -4,13 +4,18 @@
 package notify
 
 import (
+	"cmp"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
 	"mime"
 	"net/smtp"
 	"net/textproto"
+	"net/url"
 	"os"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -34,31 +39,102 @@ const (
 	Check     = "check"
 	Token     = "token"
 	TakenBack = "taken_back" // the author took a finding I review back to draft
-	Reverted  = "reverted"   // a finding I wrote or review went back a step (R4)
+	Reverted  = "reverted"   // a finding I wrote or review went back a step (R4), or was restored after a withdrawal
+	// the keys below came later: a database that held choices before has
+	// their in-app row from migration 030 (db.newNoticeKeys names them too)
+	Unassigned = "unassigned" // I was taken off the reviewers of a finding in verification
+	Thread     = "thread"     // a new thread on a finding I wrote
+	SignedOff  = "signed_off" // a reviewer signed off a finding I wrote
+	Withdrawn  = "withdrawn"  // a finding I wrote or review was withdrawn
+	Reported   = "reported"   // a finding I wrote or review was marked reported
+	Retest     = "retest"     // a retest was made for me
 )
 
 // Event is one choosable notification event.
 type Event struct{ Key, Label string }
 
 // Events in the order the settings list them.
-var Events = []Event{{Returned, "Returned to me"}, {Review, "Review requested"}, {TakenBack, "Taken back"}, {Reply, "Reply in my thread"},
-	{Approved, "Approved"}, {Reverted, "Reverted"}, {Mentioned, "Mentioned"}, {Check, "Check finished"}, {Token, "Token expiring"}}
+var Events = []Event{{Returned, "Returned to me"}, {Review, "Review requested"}, {TakenBack, "Taken back"}, {Unassigned, "Unassigned"},
+	{Reply, "Reply in my thread"}, {Thread, "New thread"}, {SignedOff, "Signed off"}, {Approved, "Approved"}, {Reverted, "Reverted"},
+	{Withdrawn, "Withdrawn"}, {Reported, "Reported"}, {Mentioned, "Mentioned"}, {Check, "Check finished"}, {Retest, "Retest assigned"},
+	{Token, "Token expiring"}}
+
+// Webhook is the admins' notice that a webhook was switched off after failed
+// deliveries. Nobody chooses it away: it is always in app, never mailed, and
+// the settings do not list it.
+const Webhook = "webhook"
+
+// fixed are the events outside the choices of the settings.
+var fixed = []Event{{Webhook, "Webhook off"}}
 
 // Label is an event's name for people.
 func Label(key string) string {
-	for _, e := range Events {
-		if e.Key == key {
-			return e.Label
+	for _, l := range [][]Event{Events, fixed} {
+		for _, e := range l {
+			if e.Key == key {
+				return e.Label
+			}
 		}
 	}
 	return key
 }
 
+// Target is the path a notice leads to: the token list, the webhooks page,
+// its finding (at the chat thread it is about, when it has one), or its
+// engagement. The pages, the mail and MCP all take it from here.
+func Target(x db.Notification) string {
+	switch {
+	case x.Event == Token:
+		return "/settings#tokens"
+	case x.Event == Webhook:
+		if _, err := strconv.ParseUint(x.Ref, 10, 63); err == nil {
+			return "/admin/webhooks?hook=" + x.Ref
+		}
+		return "/admin/webhooks"
+	case x.Dir != "" && store.ValidID(x.Eng) && store.ValidID(x.Dir):
+		return "/e/" + x.Eng + "/f/" + store.ShortID(x.Dir) + ThreadAnchor(x)
+	case store.ValidID(x.Eng):
+		// a lead of the team board (the id is written again from its number:
+		// it goes into a Location header and a mail)
+		if num, ok := store.ParseNoteID(x.Ref); ok && x.Dir == "" {
+			return "/e/" + x.Eng + "/board?n=" + store.NoteID(num)
+		}
+		return "/e/" + x.Eng
+	}
+	return "/notifications"
+}
+
+// HookOff tells every admin whose account is not disabled that webhook h
+// was switched off after failed deliveries. The notice names the webhook's
+// host only: the whole address can hold a token, and the webhooks page the
+// notice leads to shows it.
+func (n *Notifier) HookOff(h db.Webhook) {
+	if n.Users == nil {
+		return
+	}
+	host := ""
+	if u, err := url.Parse(h.URL); err == nil {
+		host = u.Host
+	}
+	note := db.Notification{Event: Webhook, Title: host, Actor: "yars", Ref: strconv.FormatInt(h.ID, 10),
+		Text: strconv.Itoa(h.Failures) + " deliveries given up in a row"}
+	for _, u := range n.Users() {
+		if !u.IsAdmin || u.Disabled {
+			continue
+		}
+		note.User = u.Username
+		if _, err := n.DB.AddNotification(note); err != nil {
+			n.log().Error("notification not stored", "user", u.Username, "event", Webhook, "err", err)
+		}
+	}
+}
+
 // simpleEvents are the events of the simple workflow: no review, so no
-// Returned to me, Review requested or Taken back; Approved is what Complete
-// tells the author.
-var simpleEvents = []Event{{Reply, "Reply in my thread"}, {Approved, "Completed"}, {Reverted, "Reverted"},
-	{Mentioned, "Mentioned"}, {Check, "Check finished"}, {Token, "Token expiring"}}
+// Returned to me, Review requested, Taken back, Unassigned or Signed off;
+// Approved is what Complete tells the author.
+var simpleEvents = []Event{{Reply, "Reply in my thread"}, {Thread, "New thread"}, {Approved, "Completed"}, {Reverted, "Reverted"},
+	{Withdrawn, "Withdrawn"}, {Reported, "Reported"}, {Mentioned, "Mentioned"}, {Check, "Check finished"}, {Retest, "Retest assigned"},
+	{Token, "Token expiring"}}
 
 // EventsFor is the events the settings list in the standard workflow
 // (Events) or the simple one.
@@ -150,13 +226,30 @@ func recipients(e store.Event) map[string]string {
 			}
 		}
 	}
+	// both tells the author and the reviewers
+	both := func(key string) {
+		add(e.Author, key)
+		for _, u := range e.Reviewers {
+			add(u, key)
+		}
+	}
 	switch e.Kind {
 	case store.EventReviewers:
-		// on a draft there is nothing to review yet: submit asks them
+		// on a draft there is nothing to review yet: submit asks them, and
+		// one taken off the list before that was never asked
 		if e.State == "verification" {
 			for _, u := range e.Added {
 				add(u, Review)
 			}
+			for _, u := range e.Removed {
+				add(u, Unassigned)
+			}
+		}
+	case store.EventUpdated:
+		// their sign-off is gone with the content it was for: the finding
+		// waits for them again
+		for _, u := range e.Voided {
+			add(u, Review)
 		}
 	case store.EventStatus:
 		switch e.Action {
@@ -166,6 +259,8 @@ func recipients(e store.Event) map[string]string {
 			}
 		case "return":
 			add(e.Author, Returned)
+		case "clear":
+			add(e.Author, SignedOff)
 		case "approve", "complete":
 			// complete is the simple workflow's approval
 			add(e.Author, Approved)
@@ -174,22 +269,33 @@ func recipients(e store.Event) map[string]string {
 			for _, u := range e.Reviewers {
 				add(u, TakenBack)
 			}
-		case "reopen", "unreport":
-			// R4: back a step, with a reason, for its author and reviewers
-			add(e.Author, Reverted)
-			for _, u := range e.Reviewers {
-				add(u, Reverted)
-			}
+		case "reopen", "unreport", "revise":
+			// R4: back a step, with a reason, for its author and reviewers;
+			// revise restores a withdrawn finding to a draft
+			both(Reverted)
+		case "withdraw":
+			both(Withdrawn)
+		case "report":
+			both(Reported)
 		}
 	case store.EventChat:
+		// the more specific notice first: add keeps the first key of a name
 		for _, u := range store.Mentions(e.Text) {
 			add(u, Mentioned)
 		}
 		add(e.ReplyTo, Reply)
-	case store.EventCheck:
-		if e.Author != "" {
-			out[e.Author] = Check // the author hears even of their own run
+		if e.Reply == "" {
+			add(e.Author, Thread) // a new thread on their finding
 		}
+	case store.EventBoard:
+		for _, u := range store.Mentions(e.Text) {
+			add(u, Mentioned)
+		}
+	case store.EventRetest:
+		add(e.Assignee, Retest)
+	case store.EventCheck:
+		// a run the author started tells them nothing: they are on the page
+		add(e.Author, Check)
 	}
 	return out
 }
@@ -199,7 +305,9 @@ func text(e store.Event) string {
 	switch e.Kind {
 	case store.EventStatus:
 		return e.Reason
-	case store.EventChat:
+	case store.EventUpdated:
+		return "sign-off voided"
+	case store.EventChat, store.EventBoard:
 		t := strings.Join(strings.Fields(e.Text), " ")
 		if r := []rune(t); len(r) > 200 {
 			t = string(r[:200]) + "…"
@@ -243,7 +351,7 @@ func (n *Notifier) Handle(e store.Event) {
 			continue
 		}
 		u, key := accounts[i], to[name]
-		n.deliver(u, db.Notification{User: u.Username, Event: key, Eng: e.Eng, Dir: e.Dir, Fid: e.Fid, Title: e.Title, Actor: e.Actor, Text: text(e), Thread: thread(e)}, mail)
+		n.deliver(u, db.Notification{User: u.Username, Event: key, Eng: e.Eng, Dir: e.Dir, Fid: e.Fid, Title: e.Title, Actor: e.Actor, Text: text(e), Thread: thread(e), Ref: e.Note}, mail)
 	}
 }
 
@@ -387,9 +495,15 @@ func (n *Notifier) mailFor(x db.Notification) (string, string) {
 		}
 		return subject, Label(x.Event) + " · " + x.Actor + "\n" + x.Title + " · " + x.Text + "\n\n" + base + "/settings#tokens\n"
 	}
-	subject := "[YARS] " + n.label(x.Event) + ": " + x.Fid + " " + x.Title
+	// what it is about: the finding's ID or the lead's, then the title (a
+	// retest's notice has the title alone)
+	about := x.Title
+	if id := cmp.Or(x.Fid, x.Ref); id != "" {
+		about = id + " " + x.Title
+	}
+	subject := "[YARS] " + n.label(x.Event) + ": " + about
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s · %s\n%s · %s %s\n", n.label(x.Event), x.Actor, x.Eng, x.Fid, x.Title)
+	fmt.Fprintf(&b, "%s · %s\n%s · %s\n", n.label(x.Event), x.Actor, x.Eng, about)
 	if x.Text != "" {
 		b.WriteString("\n" + x.Text + "\n")
 	}
@@ -397,12 +511,16 @@ func (n *Notifier) mailFor(x db.Notification) (string, string) {
 	if n.BaseURL != nil {
 		base = n.BaseURL()
 	}
-	b.WriteString("\n" + base + "/e/" + x.Eng + "/f/" + store.ShortID(x.Dir) + ThreadAnchor(x) + "\n")
+	b.WriteString("\n" + base + Target(x) + "\n")
 	return subject, b.String()
 }
 
 // SMTP sends email through the configured server.
-type SMTP struct{ Cfg config.SMTPConfig }
+type SMTP struct {
+	Cfg config.SMTPConfig
+	// Now is the clock a mail's Date comes from; nil = time.Now.
+	Now func() time.Time
+}
 
 // NewSMTP is the mailer for c, or nil when email isn't configured.
 func NewSMTP(c config.SMTPConfig) Mailer {
@@ -418,7 +536,29 @@ func (m SMTP) Send(to, subject, body string) error {
 	if m.Cfg.Username != "" {
 		a = smtp.PlainAuth("", m.Cfg.Username, os.Getenv(m.Cfg.PasswordEnv), m.Cfg.Host)
 	}
-	return smtp.SendMail(addr, a, m.Cfg.From, []string{to}, message(m.Cfg.From, to, subject, body))
+	now := time.Now
+	if m.Now != nil {
+		now = m.Now
+	}
+	return smtp.SendMail(addr, a, m.Cfg.From, []string{to}, messageAt(m.Cfg.From, to, subject, body, now(), newMessageID(m.Cfg.From)))
+}
+
+// msgIDDomain is a host name as a Message-ID takes it after the @.
+var msgIDDomain = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?$`)
+
+// newMessageID is a mail's Message-ID: random, at the domain of the sender
+// address (smtp.from, a bare address). It names no finding, engagement or
+// account, and nothing of the recipient. A sender without a usable domain
+// gets a reserved one, so the ID is still well formed.
+func newMessageID(from string) string {
+	b := make([]byte, 16)
+	rand.Read(b)
+	domain := "yars.invalid"
+	from = oneLine(from)
+	if i := strings.LastIndexByte(from, '@'); i >= 0 && msgIDDomain.MatchString(from[i+1:]) {
+		domain = from[i+1:]
+	}
+	return "<" + hex.EncodeToString(b) + "@" + domain + ">"
 }
 
 // oneLine keeps a header value on one line.
@@ -429,9 +569,18 @@ func oneLine(s string) string {
 	return s
 }
 
-// message is a plain-text email with CRLF line ends.
+// message is messageAt now, with a new Message-ID.
 func message(from, to, subject, body string) []byte {
+	return messageAt(from, to, subject, body, time.Now(), newMessageID(from))
+}
+
+// messageAt is a plain-text email with CRLF line ends, dated at and known by
+// id (a Message-ID with its angle brackets). Strict servers refuse or mark
+// down a mail without a Date; clients thread and drop doubles by the ID.
+func messageAt(from, to, subject, body string, at time.Time, id string) []byte {
 	var b strings.Builder
+	b.WriteString("Date: " + at.Format(time.RFC1123Z) + "\r\n")
+	b.WriteString("Message-ID: " + oneLine(id) + "\r\n")
 	b.WriteString("From: " + oneLine(from) + "\r\n")
 	b.WriteString("To: " + oneLine(to) + "\r\n")
 	b.WriteString("Subject: " + mime.QEncoding.Encode("utf-8", oneLine(subject)) + "\r\n")

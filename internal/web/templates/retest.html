@@ -3,8 +3,9 @@
 <div class="retestgrid" id="retest">
   <details class="panel compact orig">
     <summary class="panelhead">
-      <div class="panelname"><h2>Original</h2><span class="mono clip" title="{{.Source}}">{{.Source}}</span>{{if not .SourceMissing}}<span class="tag status-{{.SourceStatus}}">{{statusLabel .SourceStatus}}</span>{{end}}</div>
-      {{if .SourceMissing}}<span class="slot w96"></span>{{else}}<a class="btn secondary sm w96" href="{{.SourceURL}}">Open</a>{{end}}
+      <div class="panelname"><h2>Original</h2><span class="mono clip" title="{{.Source}}">{{.Source}}</span>{{if not (or .SourceMissing .Copied)}}<span class="tag status-{{.SourceStatus}}">{{statusLabel .SourceStatus}}</span>{{end}}</div>
+      {{/* Open only for who is on the original's team; the slot keeps the head's width */}}
+      {{if or .SourceMissing .Copied}}<span class="slot w96"></span>{{else}}<a class="btn secondary sm w96" href="{{.SourceURL}}">Open</a>{{end}}
     </summary>
     {{if .SourceMissing}}<p class="muted">—</p>{{else}}
     {{if or .Details .Vector .SourceSev}}

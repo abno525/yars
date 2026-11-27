@@ -15,7 +15,7 @@
 | `ai.base_url` | string | — | https; plain http only for localhost |
 | `ai.model` | string | — | — |
 | `ai.api_key_env` | string | — | name of the environment variable holding the key; must start with `YARS_` |
-| `base_url` | string | — | the server's address; links in webhooks and email, and the clone and MCP addresses on the pages |
+| `base_url` | string | — | the server's address; links in webhooks and email, and the clone and MCP addresses on the pages; no email is sent without it |
 | `smtp.host` | string | — | a host name or an address alone, no scheme and no port (IPv6 in `[ ]`); set with `smtp.from` to send notification email |
 | `smtp.port` | number | 25 | 1 to 65535 |
 | `smtp.from` | string | — | sender address alone, such as `yars@example.com`, no name in front |
@@ -56,7 +56,7 @@ log:
   format: text
 ```
 
-Without `smtp.host` and `smtp.from` the Email column of the notification settings is hidden.
+Notification email needs `smtp.host`, `smtp.from` and `base_url`. Without one of them no mail is sent and the Email column of the notification settings is hidden. A mail's link starts with `base_url`. `yars serve` logs at the start when SMTP is set and `base_url` is not.
 
 ## A file that is refused
 

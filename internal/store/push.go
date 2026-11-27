@@ -211,8 +211,11 @@ type pushedFinding struct {
 	raw   []byte           // its bytes
 	old   *finding.Finding // before the push, here or in the folder it was renamed from (nil: new)
 	prev  []byte           // finding.md before the push in this folder (nil: none)
+	moved []byte           // finding.md in the folder it was renamed from (nil: not renamed)
 	md    byte             // A or M of finding.md; 0 when untouched
 	files bool             // other files of the folder changed
+	// voided are the reviewers whose sign-off the push voided (pushState)
+	voided []string
 }
 
 // pushedFindings diffs before..after of eng's repo per finding folder.
@@ -270,6 +273,7 @@ func (s *Store) pushedFindings(eng, before, after string) ([]pushedFinding, erro
 				// the folder was renamed: the same finding, not a new one
 				if b, err := r.Show(before, path.Join("findings", prev, "finding.md")); err == nil {
 					pf.old, _ = finding.Parse(b)
+					pf.moved = b
 				}
 				// its other files moved along: changed only if they differ
 				// from the old folder's
@@ -300,7 +304,16 @@ func (s *Store) pushState(eng string, u config.User, ps []pushedFinding) {
 		return serr != nil || ok && want(st)
 	}
 	director := workflow.AtLeast(u, "director")
-	for _, pf := range ps {
+	for i := range ps {
+		pf := &ps[i]
+		// a pushed text change of a finding in verification voids the
+		// sign-offs given for the text before it (no state is written: they
+		// are bound to that text's hash)
+		if pf.md != 0 && pf.prev != nil && may(pf.cur.Meta.ID, signedOff) {
+			if old := ApprovalHash(pf.prev); old != ApprovalHash(pf.raw) {
+				pf.voided = voidedBy(s.db, eng, pf.cur.Meta.ID, old)
+			}
+		}
 		if director && pf.md != 0 && pf.prev != nil {
 			if of, err := finding.Parse(pf.prev); err == nil {
 				old := ApprovalHash(pf.prev)
@@ -312,8 +325,22 @@ func (s *Store) pushState(eng string, u config.User, ps []pushedFinding) {
 			}
 		}
 		if pf.files && may(pf.cur.Meta.ID, signedOff) {
-			if err := dropSignOffs(s.db, eng, pf.cur.Meta.ID); err != nil {
+			// the text the sign-offs may still be for: as the push left it,
+			// as it was before, here or in the folder it was renamed from
+			hashes := []string{ApprovalHash(pf.raw)}
+			for _, b := range [][]byte{pf.prev, pf.moved} {
+				if b != nil {
+					hashes = append(hashes, ApprovalHash(b))
+				}
+			}
+			dropped, err := dropSignOffs(s.db, eng, pf.cur.Meta.ID, hashes...)
+			if err != nil {
 				s.Log().Error("push: the sign-offs are not dropped", "eng", eng, "finding", LogID(pf.cur.Meta.ID), "err", err)
+			}
+			for _, n := range dropped {
+				if !slices.Contains(pf.voided, n) {
+					pf.voided = append(pf.voided, n)
+				}
 			}
 		}
 	}
@@ -341,6 +368,7 @@ func (s *Store) pushEvents(eng, actor string, ps []pushedFinding) ([]Event, erro
 			evs = append(evs, findingEvent(EventCreated, actor, ref))
 		case pf.old != nil && pf.md != 0 || pf.files:
 			ev := updatedEvent(actor, ref, pf.old, pf.files)
+			ev.Voided = pf.voided
 			if len(ev.Changed) > 0 {
 				evs = append(evs, ev)
 			}

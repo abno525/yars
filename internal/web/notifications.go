@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/abno525/yars/internal/auth"
+	"github.com/abno525/yars/internal/db"
 	"github.com/abno525/yars/internal/index"
 	"github.com/abno525/yars/internal/notify"
 	"github.com/abno525/yars/internal/store"
@@ -23,12 +24,27 @@ func (s *Server) wireNotifications() {
 	base := func() string { return s.conf().BaseURL }
 	if s.Notifier == nil && s.Auth != nil {
 		s.Notifier = &notify.Notifier{DB: d, Users: s.Auth.Users, CanSee: s.Store.CanSee, BaseURL: base,
-			MailFor: func() notify.Mailer { return notify.NewSMTP(s.conf().SMTP) },
-			Simple:  func() bool { return s.flow().Simple }, Logger: s.Logger}
+			// no mailer without base_url: a mail's link would be a bare path,
+			// whatever a user chose while mail was on
+			MailFor: func() notify.Mailer {
+				if c := s.conf(); c.MailOn() {
+					return notify.NewSMTP(c.SMTP)
+				}
+				return nil
+			},
+			Simple: func() bool { return s.flow().Simple }, Logger: s.Logger}
 	}
 	if s.Webhooks == nil {
 		s.Webhooks = &webhook.Service{DB: d, BaseURL: base, Logger: s.Logger,
 			Secrets: func() (webhook.Sealer, error) { return s.secrets() }}
+	}
+	if s.Webhooks.SwitchedOff == nil {
+		// the admins hear of a webhook switched off after failed deliveries
+		s.Webhooks.SwitchedOff = func(h db.Webhook) {
+			if s.Notifier != nil {
+				s.Notifier.HookOff(h)
+			}
+		}
 	}
 	s.Store.OnEvent(func(e store.Event) {
 		if s.Notifier != nil {
@@ -121,9 +137,9 @@ func (s *Server) notificationsPage(w http.ResponseWriter, r *http.Request) {
 		simple := s.flow().Simple
 		for _, n := range l {
 			row := noteRow{ID: n.ID, Event: n.Event, Label: notify.LabelFor(n.Event, simple), Eng: n.Eng, Fid: n.Fid,
-				Title: n.Title, By: n.Actor, At: when(n.TS), Text: n.Text, Read: n.Read, Ref: "Token"}
-			if n.Event != notify.Token {
-				row.Title, row.Ref = current(n.Eng, n.Fid, n.Title), n.Eng+" · "+n.Fid
+				Title: n.Title, By: n.Actor, At: when(n.TS), Text: n.Text, Read: n.Read, Ref: noteRef(n)}
+			if n.Fid != "" {
+				row.Title = current(n.Eng, n.Fid, n.Title)
 			}
 			p.Notes.Rows = append(p.Notes.Rows, row)
 		}

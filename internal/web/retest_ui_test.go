@@ -74,6 +74,61 @@ func TestRetestOriginalCollapsed(t *testing.T) {
 	}
 }
 
+// A retester who is not on the original's team sees the text that was copied
+// into the retest: the copy's first version, read from the retest's own
+// repository. Never the original as it is now, no link to it, no status of
+// it; pictures come from the copy.
+func TestRetestOriginalForOffTeamRetester(t *testing.T) {
+	e := setup(t)
+	st := e.srv.Store
+	st.UpdateSection("acme", fdir, "Steps to Reproduce", "Send `user=admin'--`.\n\n![shot](attachments/shot.png)", "", e.authorOf(wAlice))
+	if _, err := st.AddAttachment("acme", fdir, "shot.png", testPNG(t, color.Black), e.authorOf(wAlice)); err != nil {
+		t.Fatal(err)
+	}
+	st.UpdateDetails("acme", fdir, map[string]string{"Location": "POST /login"}, "", e.authorOf(wAlice))
+	e.retestOfTest(t, "rt")
+	// the original changes after the copy, and alice leaves its team
+	st.UpdateSection("acme", fdir, "Impact", "Later secret.", "", e.authorOf(wAlice))
+	if err := st.AddMembers("rt", []string{"alice"}, wDora); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RemoveMember("acme", "alice", wDora); err != nil {
+		t.Fatal(err)
+	}
+	orig := func() string {
+		t.Helper()
+		b := e.do(t, "alice", "GET", "/e/rt/f/"+fdir, nil, nil).Body.String()
+		i := strings.Index(b, `<details class="panel compact orig"`)
+		if i < 0 {
+			t.Fatalf("no Original panel:\n%s", b)
+		}
+		return b[i : i+strings.Index(b[i:], "</details>")]
+	}
+	p := orig()
+	for _, want := range []string{"<h2>Original</h2>", "POST /login", "<code>user=admin", `src="/e/rt/f/001/attachments/shot.png?v=`, `<span class="slot w96"></span>`} {
+		if !strings.Contains(p, want) {
+			t.Fatalf("the Original panel lacks %q:\n%s", want, p)
+		}
+	}
+	for _, no := range []string{"Later secret.", `href="/e/acme/f/001"`, `/e/acme/f/001/attachments`, `class="tag status-`, `<p class="muted">—</p>`} {
+		if strings.Contains(p, no) {
+			t.Fatalf("the Original panel holds %q:\n%s", no, p)
+		}
+	}
+	// the retester edits the copy: the Original still shows what was copied
+	if err := st.UpdateSection("rt", fdir, "Steps to Reproduce", "Retested: the payload is refused now.", "", e.authorOf(wAlice)); err != nil {
+		t.Fatal(err)
+	}
+	if p := orig(); !strings.Contains(p, "<code>user=admin") || strings.Contains(p, "Retested: the payload is refused now.") {
+		t.Fatalf("the Original follows the copy's edits:\n%s", p)
+	}
+	// back on the team: the original as it is, with Open
+	st.AddMembers("acme", []string{"alice"}, wDora)
+	if p := orig(); !strings.Contains(p, `href="/e/acme/f/001">Open</a>`) || !strings.Contains(p, "Later secret.") || !strings.Contains(p, `src="/e/acme/f/001/attachments/shot.png?v=`) {
+		t.Fatalf("on the team again:\n%s", p)
+	}
+}
+
 func TestRetestSideBySide(t *testing.T) {
 	e := setup(t)
 	st := e.srv.Store

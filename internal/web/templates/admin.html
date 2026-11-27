@@ -21,7 +21,7 @@
 {{define "admin_webhooks"}}
 {{with .Secret}}
 <section class="panel once">
-  <div class="panelhead"><h2>Secret</h2><span class="mono">X-YARS-Signature: sha256=…</span></div>
+  <div class="panelhead"><h2>Secret</h2><span class="mono">X-YARS-Signature: sha256=HMAC(timestamp.body)</span></div>
   <div class="copyrow flush"><code id="hook-secret">{{.}}</code><button type="button" class="btn save sm w96" data-copy="hook-secret">Copy</button></div>
 </section>
 {{end}}
@@ -36,7 +36,7 @@
         <td class="stack"><a href="/admin/webhooks?hook={{.ID}}" title="{{.URL}}" data-nav id="row-hook-{{.ID}}">{{.URL}}</a><span class="mono">{{.Ending}}</span></td>
         <td class="stack"><span class="mono" title="{{.Events}}">{{.Events}}</span></td>
         <td class="stack">{{if .LastState}}<span class="tag dl-{{.LastState}}">{{.Last}}</span><span class="mono">{{.LastAt}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
-        <td><form method="post" action="/admin/webhooks/{{.ID}}/toggle"><button class="toggle{{if .Enabled}} on{{end}}" role="switch" aria-checked="{{if .Enabled}}true{{else}}false{{end}}" aria-label="Enabled" aria-keyshortcuts="D"><span></span></button></form></td>
+        <td><form method="post" action="/admin/webhooks/{{.ID}}/toggle"><button class="toggle{{if .Enabled}} on{{end}}" role="switch" aria-checked="{{if .Enabled}}true{{else}}false{{end}}" aria-label="Enabled" aria-keyshortcuts="D"{{with .Off}} title="{{.}}"{{end}}><span></span></button></form></td>
         <td><div class="actions"><a class="btn secondary sm w96" href="/admin/webhooks?edit={{.ID}}&amp;hook={{.ID}}" aria-keyshortcuts="E">Edit</a><form method="post" action="/admin/webhooks/{{.ID}}/delete"><button class="btn danger sm w96" data-confirm="Delete the webhook to {{.URL}}?">Delete</button></form></div></td>
       </tr>
       {{else}}
@@ -59,7 +59,8 @@
 </section>
 {{if .Selected}}
 <section class="panel">
-  <div class="panelhead"><h2>Deliveries</h2><span class="mono clip" title="{{.SelURL}}">{{.SelURL}}</span></div>
+  {{/* the head's right side: the address, then two buttons of a fixed width (Send test is disabled for a webhook that is off) */}}
+  <div class="panelhead"><h2>Deliveries</h2><div class="dlhead"><span class="mono clip" title="{{.SelURL}}">{{.SelURL}}</span><form method="post" action="/admin/webhooks/{{.Selected}}/test"><button class="btn secondary sm w112"{{if not .SelOn}} disabled{{end}}>Send test</button></form><form method="post" action="/admin/webhooks/{{.Selected}}/rotate"><button class="btn secondary sm w112" data-confirm="Replace the secret of the webhook to {{.SelURL}}?">New secret</button></form></div></div>
   <table class="table stable dltable">
     <thead><tr><th class="c-time">When</th><th class="c-events">Event</th><th class="c-state">State</th><th class="c-num">Status</th><th class="c-num">Tries</th><th>Error</th><th class="c-act2">Action</th></tr></thead>
     <tbody>

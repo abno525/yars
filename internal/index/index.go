@@ -46,6 +46,9 @@ type Row struct {
 	// Shared between copies of the row: read only.
 	Threads []Thread
 	Events  []Event
+	// Sections are the names of the file's sections, in its order (a thread
+	// on a section that is gone has no panel to lead to). Shared: read only.
+	Sections []string
 	// Meta is the full front matter with workflow state, for workflow
 	// classification. Shared between copies of the row: read only.
 	Meta  *finding.Meta
@@ -98,6 +101,9 @@ func rowOf(engID string, ref store.FindingRef, msgs []chat.Message) Row {
 		Score: txt, score: sc, Meta: &m, tgrams: Trigrams(m.Title), agrams: assetGrams(m.Assets), hay: hayOf(m)}
 	if m.Retest != nil {
 		r.IsRetest, r.RetestResult = true, m.Retest.Result
+	}
+	for _, sec := range ref.F.Sections {
+		r.Sections = append(r.Sections, sec.Name)
 	}
 	for _, msg := range msgs {
 		if msg.Event != "" {

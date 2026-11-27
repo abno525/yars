@@ -82,6 +82,45 @@ func TestTimelineThreads(t *testing.T) {
 	}
 }
 
+// A person's reply to a resolved thread opens it again: the reply is a
+// question or an objection nobody would see on a resolved thread. A reply
+// and then a resolve (how a dismissal is written) ends resolved; a reply by
+// the AI changes nothing.
+func TestReplyReopensThread(t *testing.T) {
+	root := msg("t1", "alice", "is this right?")
+	res := msg("x1", "bob", "")
+	res.Resolves = "t1"
+	rep := msg("r1", "carol", "no: see the PoC")
+	rep.Reply = "t1"
+	res2 := msg("x2", "bob", "")
+	res2.Resolves = "t1"
+	ai := msg("r2", "alice", "Fixed.")
+	ai.Reply, ai.Kind = "t1", KindAI
+	for _, c := range []struct {
+		name     string
+		msgs     []Message
+		resolved bool
+		open     int
+	}{
+		{"root, resolve, reply", []Message{root, res, rep}, false, 1},
+		{"root, reply, resolve", []Message{root, rep, res}, true, 0},
+		{"root, resolve, reply, resolve", []Message{root, res, rep, res2}, true, 0},
+		{"root, resolve, AI reply", []Message{root, res, ai}, true, 0},
+	} {
+		th := Timeline(c.msgs)[0].Thread
+		if th.Resolved != c.resolved || (th.ResolvedBy != "") != c.resolved {
+			t.Errorf("%s: resolved %v by %q", c.name, th.Resolved, th.ResolvedBy)
+		}
+		if n, _ := OpenCount(c.msgs); n != c.open {
+			t.Errorf("%s: %d open", c.name, n)
+		}
+	}
+	// after the reply the thread can be resolved again
+	if err := Validate([]Message{root, res, rep}, Message{ID: "x3", Resolves: "t1"}); err != nil {
+		t.Fatalf("resolve after the reply: %v", err)
+	}
+}
+
 func TestOpenCount(t *testing.T) {
 	a := msg("t1", "alice", "x")
 	a.Section = "Impact"
