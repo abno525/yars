@@ -65,9 +65,11 @@ For a solo reporter or a team of two, `sudo -u yars yars init --simple /srv/yars
 
 A new data folder has no check rules. Add the ones you want in Admin › Rules, or in a clone pushed by a director with the admin flag ([rules.md](rules.md)); a file put straight into the server's `.yars/rules/` is not in git.
 
-Put no file of your own into an engagement's `findings/` folder on the server. Each start of `yars serve` removes what is there and in no commit: a stop between a file's write and its commit leaves such files, and they would read as real findings. The start logs the engagement and a count. It removes nothing while another `yars serve` answers on the same data folder.
+Put no file of your own into an engagement's `findings/` folder on the server. Each start of `yars serve` removes what is there and in no commit: a stop between a file's write and its commit leaves such files, and they would read as real findings. The start logs the engagement and a count.
 
-A change to a finding is a commit, and for some changes a write to the database after it: the approval that follows a director's edit, and what follows a rename in Admin › Structure. YARS notes such a write in the database before the commit. A server stopped between the two leaves the note, and the next start makes the write. It does so only when the finding's file is the one the commit wrote; in any other case it changes nothing and logs one line. Each write made this way is in Admin › Activity as `system.repair`. While another `yars serve` answers on the same data folder the start makes no such write.
+One `yars serve` runs on a data folder. It holds a lock on the file `.yars/yars.db.lock` while it runs. A second `yars serve` on the same folder stops at once with `another yars serve runs on this data folder` and changes nothing. The lock goes when the server's process ends, however it ends; the file stays, and is no sign of a running server. The other commands (`yars useradd`, `yars disable`, `yars token`, `yars backup` and the rest) take no lock and work beside the server. A start that cannot take the lock for another reason, such as a file system without `flock`, stops too.
+
+A change to a finding is a commit, and for some changes a write to the database after it: the approval that follows a director's edit, and what follows a rename in Admin › Structure. YARS notes such a write in the database before the commit. A server stopped between the two leaves the note, and the next start makes the write. It does so only when the finding's file is the one the commit wrote; in any other case it changes nothing and logs one line. Each write made this way is in Admin › Activity as `system.repair`.
 
 Admin › System › Restore writes the restored folder next to the data folder, so it needs `/srv` writable by `yars`. With `/srv` owned by root, restore from the shell instead (see the restore drill).
 
@@ -345,7 +347,6 @@ Each job writes one line when it ends, with `ms` and its outcome.
 |---|---|
 | `yars serving` | the start: version, schema, workflow, address, and whether AI, SMTP and pandoc are on |
 | `start: uncommitted files were removed from an engagement's findings folder` | the start removed files a stop had left between their write and their commit: the engagement and a count (`warn`) |
-| `start: another server runs on this data folder; uncommitted files in the findings folders are left` | a second `yars serve` on a data folder a server already runs on: it removes nothing (`warn`) |
 | `start: a database write that a stop cut off was made` | the start made a write that a stop had cut off after its commit: the engagement, the finding and the kind (`carry`: an approval follows a director's edit; `rename`: approval, sign-offs and threads follow a renamed text) (`warn`) |
 | `start: a journal row matches nothing and is dropped; nothing was changed` | a noted write did not fit the finding's file any more; the finding is as it was, and may need its approval again (`warn`) |
 | `start: the database and the finding files disagree; see Admin, System, Health` | the start's compare found a finding ID in two folders or a `finding.md` that does not read: the counts (`warn`) |
