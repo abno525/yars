@@ -31,6 +31,27 @@ func TestScore(t *testing.T) {
 	}
 }
 
+// Version names the version a vector is written in; Parse reads both and
+// String writes 3.1.
+func TestVersion(t *testing.T) {
+	for in, want := range map[string]string{
+		"CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H":   "3.1",
+		"CVSS:3.0/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H":   "3.0",
+		" cvss:3.0/av:n/ac:l/pr:n/ui:n/s:u/c:h/i:h/a:h ": "3.0",
+		"CVSS:4.0/AV:N": "",
+		"AV:N/AC:L":     "",
+		"":              "",
+	} {
+		if got := Version(in); got != want {
+			t.Errorf("Version(%q) = %q, want %q", in, got, want)
+		}
+	}
+	v, err := Parse("CVSS:3.0/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H")
+	if err != nil || v.String() != "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H" {
+		t.Fatalf("3.0 read as %v %v", v, err)
+	}
+}
+
 func TestRating(t *testing.T) {
 	cases := map[float64]string{0: "info", 0.1: "low", 3.9: "low", 4.0: "medium", 6.9: "medium",
 		7.0: "high", 8.9: "high", 9.0: "critical", 10: "critical"}

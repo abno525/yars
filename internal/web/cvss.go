@@ -133,10 +133,12 @@ func (s *Server) cvssFromForm(ref store.FindingRef, form url.Values) cvssView {
 		}
 	}
 	var pasteErr error
+	pasted30 := false
 	if p := strings.TrimSpace(form.Get("paste")); p != "" {
 		var pv cvss.Vector
 		if pv, pasteErr = cvss.ParsePartial(p); pasteErr == nil {
 			sel = pv
+			pasted30 = cvss.Version(p) == "3.0"
 		}
 	}
 	// A stored reason explains the stored value of its metric. At another
@@ -182,8 +184,12 @@ func (s *Server) cvssFromForm(ref store.FindingRef, form url.Values) cvssView {
 	if posted := cvssBases(form); len(posted) > 0 {
 		v.RowBases = posted
 	}
-	if pasteErr != nil {
+	switch {
+	case pasteErr != nil:
 		v.Error = "Could not read pasted vector: " + pasteErr.Error()
+	case pasted30:
+		// taken as the 3.1 vector of the same metrics (the score is the same)
+		v.Error = "CVSS:3.0 vector, stored as CVSS:3.1"
 	}
 	return v
 }

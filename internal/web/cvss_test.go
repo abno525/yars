@@ -130,6 +130,24 @@ func TestCVSSPaste(t *testing.T) {
 	}
 }
 
+// A pasted CVSS:3.0 vector is taken as the 3.1 vector of the same metrics,
+// and the editor says so; a 3.1 paste says nothing.
+func TestCVSSPaste30IsSaid(t *testing.T) {
+	e := setup(t)
+	const said = `<p class="error">CVSS:3.0 vector, stored as CVSS:3.1</p>`
+	b := e.do(t, "alice", "POST", fpath+"/cvss/calc", url.Values{"paste": {"CVSS:3.0/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"}}, nil).Body.String()
+	if !strings.Contains(b, "9.8") || !strings.Contains(b, `title="CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"`) {
+		t.Fatalf("the 3.0 vector was not taken:\n%s", b)
+	}
+	if !strings.Contains(b, said) {
+		t.Fatalf("the editor does not say the vector is rewritten:\n%s", between(b, `<div class="panelhead">`, `<div class="metrics flush">`))
+	}
+	b = e.do(t, "alice", "POST", fpath+"/cvss/calc", url.Values{"paste": {"CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"}}, nil).Body.String()
+	if strings.Contains(b, "stored as") || strings.Contains(b, `class="error">C`) {
+		t.Fatalf("a 3.1 paste is commented:\n%s", between(b, `<div class="panelhead">`, `<div class="metrics flush">`))
+	}
+}
+
 func TestFindingForeignCVSS(t *testing.T) {
 	e := setup(t)
 	ref, _ := e.srv.Store.Finding("acme", "F-001-sql-injection")
