@@ -3,8 +3,6 @@ package web
 import (
 	"strings"
 	"testing"
-
-	"github.com/abno525/yars/internal/store"
 )
 
 // The retest result control is a segmented control like the others (40 px
@@ -14,9 +12,7 @@ import (
 // are the segments: they opt out with flush.
 func TestRetestResultSegmentsHaveNoPanelMargin(t *testing.T) {
 	e := setup(t)
-	if err := e.srv.Store.CreateRetest(store.Engagement{ID: "rt", Name: "RT"}, "acme", []string{fdir}, "", wDora); err != nil {
-		t.Fatal(err)
-	}
+	e.retestOfTest(t, "rt")
 	b := e.do(t, "alice", "GET", "/e/rt/f/"+fdir, nil, nil).Body.String()
 	form := between(b, `<form class="seg result-seg"`, "</form>")
 	if n := strings.Count(form, "<label"); n != 3 || strings.Count(form, `<label class="flush">`) != n {

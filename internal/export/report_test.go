@@ -94,6 +94,7 @@ func TestReportPreviewEmptyDetails(t *testing.T) {
 	for _, f := range in.Findings {
 		f.SetMeta("details", map[string]string{})
 		f.SetMeta("cvss", "")
+		f.Meta.Retest = nil // its result is a details row; SetMeta keeps the state
 	}
 	x := Report(in)
 	want := `<table class="rp-details">` + kvHead + `<tbody>` + "\n" + `<tr class="emptyrow"><td colspan="2">—</td></tr>`

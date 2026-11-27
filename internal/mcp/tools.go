@@ -608,10 +608,10 @@ var coreTools = []tool{
 			}
 			return okMsg("updated " + a.str("section"))
 		}},
-	{name: "set_field", action: "edit", desc: "Set a field: title, severity (no CVSS vector), cvss (vector or empty to clear), cvss_reason.<METRIC> (explanation for a non-standard value, e.g. cvss_reason.AC), details.<Row> (details table, e.g. details.Location), reviewers (comma-separated usernames; replaces the whole list, so a reviewer who is not the author or a director must include the current names and cannot add themselves), retest_result (fixed | not_fixed | partially_fixed), assets (the whole affected-asset list as JSON: [{\"host\":\"app.example\",\"url\":\"https://app.example/x\",\"port\":\"443\",\"note\":\"…\"}], [] to clear). Use transition for status.",
+	{name: "set_field", action: "edit", desc: "Set a field: title, severity (no CVSS vector), cvss (vector or empty to clear; a metric whose value changes loses its cvss_reason, and clearing removes every reason), cvss_reason.<METRIC> (explanation for a non-standard value, e.g. cvss_reason.AC), details.<Row> (details table, e.g. details.Location), reviewers (comma-separated usernames; replaces the whole list, so a reviewer who is not the author or a director must include the current names and cannot add themselves; with base, the list's field_bases entry, it is refused when the list changed since, so nobody added meanwhile is dropped), retest_result (fixed | not_fixed | partially_fixed), assets (the whole affected-asset list as JSON: [{\"host\":\"app.example\",\"url\":\"https://app.example/x\",\"port\":\"443\",\"note\":\"…\"}], [] to clear). Use transition for status.",
 		required: []param{pEng, pFinding, {"field", "field name"}, {"value", "new value"}},
 		optional: []param{{"base", "the field's entry in field_bases from read_finding (details.*, cvss, cvss_reason.*: refused only if that one row changed since; each set_field answer gives the row's new base; after cvss, one base for the vector and every reason), or cvss_base, details_base or assets_base (assets); refuses the edit if it changed since you read it"}},
-		simple:   &toolText{desc: "Set a field: title, severity (no CVSS vector), cvss (vector or empty to clear), cvss_reason.<METRIC> (explanation for a non-standard value, e.g. cvss_reason.AC), details.<Row> (details table, e.g. details.Location), retest_result (fixed | not_fixed | partially_fixed), assets (the whole affected-asset list as JSON: [{\"host\":\"app.example\",\"url\":\"https://app.example/x\",\"port\":\"443\",\"note\":\"…\"}], [] to clear). Use transition for status."},
+		simple:   &toolText{desc: "Set a field: title, severity (no CVSS vector), cvss (vector or empty to clear; a metric whose value changes loses its cvss_reason, and clearing removes every reason), cvss_reason.<METRIC> (explanation for a non-standard value, e.g. cvss_reason.AC), details.<Row> (details table, e.g. details.Location), retest_result (fixed | not_fixed | partially_fixed), assets (the whole affected-asset list as JSON: [{\"host\":\"app.example\",\"url\":\"https://app.example/x\",\"port\":\"443\",\"note\":\"…\"}], [] to clear). Use transition for status."},
 		run:      setField},
 	{name: "transition", action: "status", serverOnly: true, desc: "Move a finding through the workflow: submit (draft→verification), return (verification→draft, needs reason), clear or sign_off (an assigned reviewer or a director; a director also on their own finding), approve (director, after a sign-off by an assigned reviewer other than them: verification→complete), reopen (author or director: complete→verification, needs reason), report (author or director: complete→reported), unreport (author or director: reported→complete, needs reason; the approval stays), revert (the step back from where the finding is: reopen or unreport), withdraw (author while draft or verification, director also when complete or reported; needs reason; takes it out of the report), revise (author or director: withdrawn→draft), take_back (author or director: verification→draft, no reason; sign-offs start over). The statuses are draft, verification, complete, reported, withdrawn. Pass base (the hash from read_finding) so a sign-off or an approval is of the version you read.",
 		required: []param{pEng, pFinding, {"action", "submit | return | clear | sign_off | approve | reopen | report | unreport | revert | withdraw | revise | take_back"}},
@@ -869,8 +869,9 @@ var toolByName = func() map[string]tool {
 }()
 
 // fieldBases are the per-row bases of set_field, by field name: each
-// details row (configured or present), cvss and each cvss_reason. An edit
-// is refused only when its own row changed since it was read.
+// details row (configured or present), cvss and each cvss_reason, and the
+// reviewer list. An edit is refused only when its own row changed since it
+// was read.
 func (s *Server) fieldBases(m finding.Meta) map[string]string {
 	out := map[string]string{}
 	for _, row := range s.conf().DetailsRows {
@@ -880,6 +881,9 @@ func (s *Server) fieldBases(m finding.Meta) map[string]string {
 		out["details."+row] = store.RowHash(v)
 	}
 	maps.Copy(out, cvssBases(store.CVSSRowHashes(m)))
+	if s.flow().HasReviewers() {
+		out["reviewers"] = store.ReviewersHash(m)
+	}
 	return out
 }
 
@@ -1026,7 +1030,13 @@ func setField(s *Server, ctx context.Context, u config.User, a args) (string, er
 				}
 			}
 		}
-		err = st.SetReviewers(eng, dir, names, u)
+		// base: field_bases.reviewers. The value replaces the list, so a list
+		// changed since it was read is refused. A group's token (details_base,
+		// cvss_base) holds no reviewers entry: not checked.
+		if strings.HasPrefix(base, rowsPrefix) {
+			base = ""
+		}
+		err = st.SetReviewersFrom(eng, dir, base, names, u)
 	case field == "retest_result":
 		err = st.SetRetestResult(eng, dir, value, u)
 	case field == "assets":

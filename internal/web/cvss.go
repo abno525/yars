@@ -22,7 +22,14 @@ type cvssMetric struct {
 	// Reason is kept for every metric (typed or stored) so a reason survives
 	// toggling the metric back to standard and away again.
 	Reason string
+	// Cut: the stored reason was taken out of the field, since the metric
+	// is no longer at the value it explains (cvssFromForm).
+	Cut bool
 }
+
+// cutField prefixes the editor's hidden mark of a metric whose stored
+// reason was taken out of its field.
+const cutField = "reasoncut_"
 
 type cvssReason struct{ Key, Metric, Standard, Value, Reason string }
 
@@ -132,16 +139,42 @@ func (s *Server) cvssFromForm(ref store.FindingRef, form url.Values) cvssView {
 			sel = pv
 		}
 	}
-	reasons := map[string]string{}
-	for k, r := range ref.F.Meta.CVSSReasons {
-		reasons[k] = r
+	// A stored reason explains the stored value of its metric. At another
+	// value the editor does not offer it: the field is emptied once (cut),
+	// and what it holds after that is the user's. Back at the stored value
+	// an emptied field shows the stored reason again.
+	stored := ref.F.Meta.CVSSReasons
+	was, err := cvss.ParsePartial(ref.F.Meta.CVSS)
+	if err != nil {
+		was = cvss.Vector{}
 	}
+	reasons, cut := map[string]string{}, map[string]bool{}
 	for _, mt := range cvss.Metrics {
-		if form.Has("reason_" + mt.Key) {
-			reasons[mt.Key] = form.Get("reason_" + mt.Key)
+		k := mt.Key
+		posted, has := form.Get("reason_"+k), form.Has("reason_"+k)
+		marked := form.Has(cutField + k)
+		r := stored[k]
+		if has {
+			r = posted
+		}
+		if stored[k] != "" {
+			switch moved := sel[k] != was[k]; {
+			case moved && marked && has:
+				cut[k] = true
+			case moved && (!has || strings.TrimSpace(posted) == stored[k]):
+				r, cut[k] = "", true
+			case !moved && marked && strings.TrimSpace(r) == "":
+				r = stored[k]
+			}
+		}
+		if has || r != "" {
+			reasons[k] = r
 		}
 	}
 	v := s.buildCVSS(ref, sel, reasons)
+	for i := range v.Metrics {
+		v.Metrics[i].Cut = cut[v.Metrics[i].Key]
+	}
 	if b := form.Get("base"); b != "" {
 		v.Base = b
 	}
@@ -232,8 +265,10 @@ func (s *Server) cvssSave(w http.ResponseWriter, r *http.Request) {
 		}
 		vector = v.Vector
 		for _, m := range v.Metrics {
+			// the reason as the editor shows it: a stored one is not sent
+			// along for another value (cvssFromForm)
 			if m.NonStandard && form.Has("reason_"+m.Key) {
-				reasons[m.Key] = form.Get("reason_" + m.Key)
+				reasons[m.Key] = m.Reason
 			}
 		}
 	}

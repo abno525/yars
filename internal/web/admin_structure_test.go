@@ -15,6 +15,7 @@ func TestStructureRenameKeepsReportText(t *testing.T) {
 	}
 	v := e.structForm()
 	v["report"] = []string{"Methodology", "Executive summary", "Scope and approach"} // moved and renamed
+	v["was_report"] = []string{"Methodology", "Executive summary", "Scope"}
 	v.Set("op", "save")
 	if rec := e.do(t, "dora", "POST", "/admin/structure", v, nil); rec.Code != http.StatusSeeOther {
 		t.Fatalf("save %d:\n%s", rec.Code, rec.Body.String())

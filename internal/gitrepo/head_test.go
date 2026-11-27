@@ -47,6 +47,68 @@ func TestReadHeadNoProcess(t *testing.T) {
 	check("detached")
 }
 
+// reftableGit skips the test when this git cannot make a reftable
+// repository (before 2.45).
+func reftableGit(t *testing.T) {
+	t.Helper()
+	if out, err := exec.Command("git", "init", "-q", "--ref-format=reftable", t.TempDir()).CombinedOutput(); err != nil {
+		t.Skipf("git has no reftable: %v %s", err, out)
+	}
+}
+
+// A service account whose git config asks for reftable still gets a
+// repository ReadHead can read: Init makes the files format.
+func TestInitMakesFilesRefFormat(t *testing.T) {
+	reftableGit(t)
+	t.Setenv("GIT_CONFIG_COUNT", "1")
+	t.Setenv("GIT_CONFIG_KEY_0", "init.defaultRefFormat")
+	t.Setenv("GIT_CONFIG_VALUE_0", "reftable")
+	dir := t.TempDir()
+	r, err := Init(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(dir, "a"), []byte("1"), 0o644)
+	if err := r.Commit([]string{"a"}, "1", Author{"a", "a@x"}); err != nil {
+		t.Fatal(err)
+	}
+	want, _ := r.Head()
+	n := Spawned()
+	got, err := ReadHead(dir)
+	if err != nil || got != want || got == "" {
+		t.Fatalf("ReadHead %q %v, want %q", got, err, want)
+	}
+	if Spawned() != n {
+		t.Fatal("ReadHead started git in a repository Init made")
+	}
+}
+
+// A repository that is reftable already (made before, or restored from a
+// backup) is read by asking git: ReadHead agrees with Head, with and
+// without a commit.
+func TestReadHeadReftable(t *testing.T) {
+	reftableGit(t)
+	dir := t.TempDir()
+	if out, err := exec.Command("git", "init", "-q", "-b", "main", "--ref-format=reftable", dir).CombinedOutput(); err != nil {
+		t.Fatalf("%v %s", err, out)
+	}
+	r, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := ReadHead(dir); err != nil || got != "" {
+		t.Fatalf("no commit yet: ReadHead %q %v", got, err)
+	}
+	os.WriteFile(filepath.Join(dir, "a"), []byte("1"), 0o644)
+	if err := r.Commit([]string{"a"}, "1", Author{"a", "a@x"}); err != nil {
+		t.Fatal(err)
+	}
+	want, _ := r.Head()
+	if got, err := ReadHead(dir); err != nil || got != want || got == "" {
+		t.Fatalf("ReadHead %q %v, want %q", got, err, want)
+	}
+}
+
 // CommitGitlinks records exactly the given pointers, whatever the nested
 // repos' HEADs are by now, and leaves nothing staged.
 func TestCommitGitlinks(t *testing.T) {

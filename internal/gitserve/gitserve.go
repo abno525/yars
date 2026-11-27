@@ -151,9 +151,10 @@ func (s *Server) Setup() error {
 
 // RestoreTrees puts the main repo's and every engagement repo's work tree
 // back to HEAD. A push interrupted between git checking its tree out and
-// moving the branch leaves a tree that is not HEAD; YARS commits everything
-// it writes, so nothing else can be lost. Run it on start, before the config
-// is loaded or anything is committed.
+// moving the branch leaves a tree that is not HEAD. Only tracked files are
+// put back; what a stop left untracked is CleanLeftovers' to remove. A
+// repository without a commit is left as it is. Run it on start, before the
+// config is loaded or anything is committed.
 func RestoreTrees(main *gitrepo.Repo) error {
 	if _, err := main.RestoreHead(); err != nil {
 		return err
@@ -172,6 +173,46 @@ func RestoreTrees(main *gitrepo.Repo) error {
 		}
 	}
 	return nil
+}
+
+// Cleaned is what CleanLeftovers removed from one engagement.
+type Cleaned struct {
+	Eng string
+	N   int // files; an empty folder is removed and not counted
+}
+
+// CleanLeftovers removes, from the findings folder of every engagement
+// repository, what no commit holds. YARS writes a finding's files and then
+// commits them: a stop in between leaves a new finding's folder or a new
+// attachment behind, and every read would take it for real (a changed
+// tracked file is put back by RestoreTrees). It returns what it removed, per
+// engagement, for the log: counts only, a folder's name holds a title.
+//
+// Only the start of yars serve calls it, after RestoreTrees and before
+// anything is read or written, and never while another server runs on the
+// data folder: that server's files between write and commit look the same.
+// The main repository is never cleaned: its root holds the database, the
+// accounts and the key, all untracked.
+func CleanLeftovers(main *gitrepo.Repo) ([]Cleaned, error) {
+	var out []Cleaned
+	ents, _ := os.ReadDir(filepath.Join(main.Dir, "engagements"))
+	for _, e := range ents {
+		if !engIDRe.MatchString(e.Name()) || strings.Contains(e.Name(), "..") {
+			continue
+		}
+		r, err := gitrepo.Open(filepath.Join(main.Dir, "engagements", e.Name()))
+		if err != nil {
+			continue // not a repository of its own: never the main one's files
+		}
+		n, err := r.CleanUntracked("findings")
+		if err != nil {
+			return out, err
+		}
+		if n > 0 {
+			out = append(out, Cleaned{Eng: e.Name(), N: n})
+		}
+	}
+	return out, nil
 }
 
 func (s *Server) setupRepo(r *gitrepo.Repo) error {

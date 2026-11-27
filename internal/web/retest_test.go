@@ -14,6 +14,39 @@ import (
 	"github.com/abno525/yars/internal/workflow"
 )
 
+// whileComplete runs fn with the test finding of acme stored as complete,
+// then puts its state back. Only a complete finding is retested (Q11); the
+// tests that use this go on to work on the original as a draft.
+func (e *env) whileComplete(t *testing.T, fn func()) {
+	t.Helper()
+	d := e.srv.Store.DB()
+	put := func(st db.State) {
+		t.Helper()
+		if err := d.TxFor("acme", func(tx *db.Tx) error { return tx.PutState("acme", "F-001", st) }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	prev, err := d.State("acme", "F-001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := prev
+	st.Status, st.ApprovedHash = "complete", ""
+	put(st)
+	fn()
+	put(prev)
+}
+
+// retestOfTest makes the retest id of acme with the test finding copied.
+func (e *env) retestOfTest(t *testing.T, id string) {
+	t.Helper()
+	e.whileComplete(t, func() {
+		if err := e.srv.Store.CreateRetest(store.Engagement{ID: id, Name: "RT"}, "acme", []string{fdir}, "", wDora); err != nil {
+			t.Fatal(err)
+		}
+	})
+}
+
 func TestNewRetestFlow(t *testing.T) {
 	e := setup(t)
 	e.toComplete(t)
@@ -22,9 +55,10 @@ func TestNewRetestFlow(t *testing.T) {
 		t.Fatalf("pentester form code %d", rec.Code)
 	}
 	b := e.do(t, "dora", "GET", "/e/acme/retest/new", nil, nil).Body.String()
-	// the complete finding is pre-selected, the draft isn't
-	if !strings.Contains(b, `id="pick-F-001-sql-injection" checked`) || strings.Contains(b, `id="pick-F-002-open-redirect" checked`) {
-		t.Fatalf("form selection:\n%s", b)
+	// Q11: the complete finding is listed and pre-selected; the draft cannot
+	// be retested and is not listed
+	if !strings.Contains(b, `id="pick-F-001-sql-injection" checked`) || strings.Contains(b, `F-002-open-redirect`) {
+		t.Fatalf("form selection:\n%s", between(b, `<section class="panel pickpanel">`, "</section>"))
 	}
 	if !strings.Contains(b, `value="acme-retest"`) || !strings.Contains(b, `name="assignee"`) {
 		t.Fatal("id not prefilled or no retester field")
@@ -32,13 +66,23 @@ func TestNewRetestFlow(t *testing.T) {
 	if rec := e.do(t, "dora", "POST", "/e/acme/retest/new", url.Values{"id": {"x"}, "name": {"X"}, "finding": {"F-001-sql-injection"}, "assignee": {"mallory"}}, nil); rec.Code != http.StatusBadRequest {
 		t.Fatalf("unknown assignee code %d", rec.Code)
 	}
+	// a draft posted all the same is refused by name, and the form comes back
 	form := url.Values{"id": {"acme-rt"}, "name": {"ACME retest"}, "finding": {"F-001-sql-injection", "F-002-open-redirect"}}
 	rec := e.do(t, "dora", "POST", "/e/acme/retest/new", form, nil)
+	if b := rec.Body.String(); rec.Code != http.StatusBadRequest || !strings.Contains(between(b, `<div class="errslot">`, "</div>"), "finding F-002-open-redirect is draft") || !strings.Contains(b, `value="ACME retest"`) {
+		t.Fatalf("a draft: code %d:\n%s", rec.Code, b)
+	}
+	// a finding named by its number is copied under its own folder's name
+	form["finding"] = []string{"1"}
+	rec = e.do(t, "dora", "POST", "/e/acme/retest/new", form, nil)
 	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/e/acme-rt" {
 		t.Fatalf("code %d loc %q body %s", rec.Code, rec.Header().Get("Location"), rec.Body.String())
 	}
+	if refs, err := e.srv.Store.ListFindings("acme-rt"); err != nil || len(refs) != 1 || refs[0].Dir != "F-001-sql-injection" {
+		t.Fatalf("copies %+v %v", refs, err)
+	}
 	b = e.do(t, "alice", "GET", "/e/acme-rt", nil, nil).Body.String()
-	if !strings.Contains(b, "Retest of") || !strings.Contains(b, `href="/e/acme"`) || !strings.Contains(b, "Open redirect") || !strings.Contains(b, `<th class="col-result"><a`) || !strings.Contains(b, ">Result") {
+	if !strings.Contains(b, "Retest of") || !strings.Contains(b, `href="/e/acme"`) || !strings.Contains(b, "SQL injection") || !strings.Contains(b, `<th class="col-result"><a`) || !strings.Contains(b, ">Result") {
 		t.Fatalf("retest engagement page:\n%s", b)
 	}
 	if rec := e.do(t, "dora", "POST", "/e/acme/retest/new", url.Values{"id": {"x"}, "name": {"X"}}, nil); rec.Code != http.StatusBadRequest {
@@ -59,7 +103,8 @@ func TestNewRetestPickHeadFirst(t *testing.T) {
 	if head < 0 || table < 0 || head > table {
 		t.Fatalf("pick panel order:\n%s", panel)
 	}
-	if !strings.Contains(panel, `<span class="mono selof" data-of="2">1 of 2</span>`) {
+	// the draft is not listed, so it is not counted (Q11)
+	if !strings.Contains(panel, `<span class="mono selof" data-of="1">1 of 1</span>`) {
 		t.Fatalf("no count in the head:\n%s", panel)
 	}
 	// drawn again after a refusal, it counts the ticked rows: not a finding
@@ -67,7 +112,7 @@ func TestNewRetestPickHeadFirst(t *testing.T) {
 	for _, picks := range [][]string{{"F-001-sql-injection", "F-009-gone"}, {"F-001-sql-injection", "F-001-sql-injection"}} {
 		rec := e.do(t, "dora", "POST", "/e/acme/retest/new", url.Values{"id": {"acme"}, "name": {"X"}, "finding": picks}, nil)
 		panel := between(rec.Body.String(), `<section class="panel pickpanel">`, "</section>")
-		if rec.Code != http.StatusBadRequest || !strings.Contains(panel, `data-of="2">1 of 2</span>`) || strings.Count(panel, " checked>") != 1 {
+		if rec.Code != http.StatusBadRequest || !strings.Contains(panel, `data-of="1">1 of 1</span>`) || strings.Count(panel, " checked>") != 1 {
 			t.Fatalf("%v: %d\n%s", picks, rec.Code, panel)
 		}
 	}
@@ -75,6 +120,7 @@ func TestNewRetestPickHeadFirst(t *testing.T) {
 
 func TestRetestPanel(t *testing.T) {
 	e := setup(t)
+	e.toComplete(t)
 	if err := e.srv.Store.CreateRetest(store.Engagement{ID: "rt", Name: "RT"}, "acme", []string{"F-001-sql-injection"}, "", wDora); err != nil {
 		t.Fatal(err)
 	}
@@ -107,6 +153,7 @@ func TestRetestPanel(t *testing.T) {
 // empty link and status (backlog, M7).
 func TestRetestSourceWithoutFinding(t *testing.T) {
 	e := setup(t)
+	e.toComplete(t)
 	if err := e.srv.Store.CreateRetest(store.Engagement{ID: "rt", Name: "RT"}, "acme", []string{"F-001-sql-injection"}, "", wDora); err != nil {
 		t.Fatal(err)
 	}
@@ -136,6 +183,7 @@ func TestRetestSourceWithoutFinding(t *testing.T) {
 // the panel comes back with the result as it is now (backlog, M7).
 func TestRetestResultBase(t *testing.T) {
 	e := setup(t)
+	e.toComplete(t)
 	if err := e.srv.Store.CreateRetest(store.Engagement{ID: "rt", Name: "RT"}, "acme", []string{"F-001-sql-injection"}, "", wDora); err != nil {
 		t.Fatal(err)
 	}
@@ -169,6 +217,7 @@ func TestRetestCreateFailureKeepsForm(t *testing.T) {
 		t.Skip("root writes into read-only folders")
 	}
 	e := setup(t)
+	e.toComplete(t)
 	engs := filepath.Join(e.dir, "engagements")
 	if err := os.Chmod(engs, 0o555); err != nil {
 		t.Fatal(err)
@@ -186,6 +235,7 @@ func TestRetestCreateFailureKeepsForm(t *testing.T) {
 // hand) is named in the New retest form with the limit, not "try again".
 func TestRetestOversizeAttachmentForm(t *testing.T) {
 	e := setup(t)
+	e.toComplete(t)
 	big := filepath.Join(e.dir, "engagements", "acme", "findings", fdir, "attachments", "dump.png")
 	if err := os.MkdirAll(filepath.Dir(big), 0o755); err != nil {
 		t.Fatal(err)
@@ -234,7 +284,10 @@ func TestRetestHeadWithoutSource(t *testing.T) {
 func TestRetestPanelLocked(t *testing.T) {
 	e := setup(t)
 	st := e.srv.Store
-	st.CreateRetest(store.Engagement{ID: "rt", Name: "RT"}, "acme", []string{"F-001-sql-injection"}, "", wDora)
+	e.toComplete(t)
+	if err := st.CreateRetest(store.Engagement{ID: "rt", Name: "RT"}, "acme", []string{"F-001-sql-injection"}, "", wDora); err != nil {
+		t.Fatal(err)
+	}
 	d := "F-001-sql-injection"
 	st.SetRetestResult("rt", d, "fixed", wDora)
 	st.SetReviewers("rt", d, []string{"bob"}, wDora)

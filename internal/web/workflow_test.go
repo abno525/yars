@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/store"
 	"github.com/abno525/yars/internal/workflow"
 )
 
@@ -540,6 +541,51 @@ func TestReviewersAssignAll(t *testing.T) {
 	}
 	if got := strings.Join(ref.F.Meta.Reviewers, ","); got != "bob,carol" {
 		t.Fatalf("reviewers %q", got)
+	}
+}
+
+// The picker's boxes are the list as the page read it. Saved after someone
+// else added a reviewer, they would drop that reviewer and their sign-off:
+// the save is refused on the bar. Assign all only adds, so it goes through
+// from the same old page.
+func TestReviewersStaleFormRefused(t *testing.T) {
+	e := setup(t)
+	st := e.srv.Store
+	if err := st.SetReviewers("acme", fdir, []string{"bob"}, wAlice); err != nil {
+		t.Fatal(err)
+	}
+	ref, _ := st.Finding("acme", fdir)
+	base := store.ReviewersHash(ref.F.Meta)
+	if b := e.do(t, "alice", "GET", fpath, nil, nil).Body.String(); !strings.Contains(b, `class="picker">
+          <input type="hidden" name="base" value="`+base+`">`) {
+		t.Fatalf("no base in the picker:\n%s", between(b, `class="wfrevs"`, "</form>"))
+	}
+	if err := st.AddReviewers("acme", fdir, []string{"dora"}, wDora); err != nil {
+		t.Fatal(err)
+	}
+	reviewers := func() string {
+		ref, _ := st.Finding("acme", fdir)
+		return strings.Join(ref.F.Meta.Reviewers, ",")
+	}
+	if b := e.denied(t, "alice", fpath+"/reviewers", url.Values{"reviewer": {"bob"}, "base": {base}}); !strings.Contains(b, "the reviewers changed since you opened the page") {
+		t.Fatal("no refusal on the page")
+	}
+	if got := reviewers(); got != "bob,dora" {
+		t.Fatalf("after the stale save: %q", got)
+	}
+	if rec := e.do(t, "alice", "POST", fpath+"/reviewers", url.Values{"all": {"1"}, "base": {base}}, nil); rec.Code != http.StatusSeeOther {
+		t.Fatalf("assign all %d", rec.Code)
+	}
+	if got := reviewers(); got != "bob,carol,dora" {
+		t.Fatalf("after assign all: %q", got)
+	}
+	// the page as it is now saves
+	ref, _ = st.Finding("acme", fdir)
+	if rec := e.do(t, "alice", "POST", fpath+"/reviewers", url.Values{"reviewer": {"bob"}, "base": {store.ReviewersHash(ref.F.Meta)}}, nil); rec.Code != http.StatusSeeOther {
+		t.Fatalf("fresh save %d", rec.Code)
+	}
+	if got := reviewers(); got != "bob" {
+		t.Fatalf("after the fresh save: %q", got)
 	}
 }
 

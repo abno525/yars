@@ -51,6 +51,8 @@ For a solo reporter or a team of two, `sudo -u yars yars init --simple /srv/yars
 
 A new data folder has no check rules. Add the ones you want in Admin › Rules, or in a clone pushed by a director with the admin flag ([rules.md](rules.md)); a file put straight into the server's `.yars/rules/` is not in git.
 
+Put no file of your own into an engagement's `findings/` folder on the server. Each start of `yars serve` removes what is there and in no commit: a stop between a file's write and its commit leaves such files, and they would read as real findings. The start logs the engagement and a count. It removes nothing while another `yars serve` answers on the same data folder.
+
 Admin › System › Restore writes the restored folder next to the data folder, so it needs `/srv` writable by `yars`. With `/srv` owned by root, restore from the shell instead (see the restore drill).
 
 ## Run as a service
@@ -292,6 +294,8 @@ Each job writes one line when it ends, with `ms` and its outcome.
 | `msg` | When |
 |---|---|
 | `yars serving` | the start: version, schema, workflow, address, and whether AI, SMTP and pandoc are on |
+| `start: uncommitted files were removed from an engagement's findings folder` | the start removed files a stop had left between their write and their commit: the engagement and a count (`warn`) |
+| `start: another server runs on this data folder; uncommitted files in the findings folders are left` | a second `yars serve` on a data folder a server already runs on: it removes nothing (`warn`) |
 | `yars stopping`, `yars stopped` | the stop |
 | `check run finished` | a check run ended: its state and the counts of errors and warnings |
 | `check run crashed` | a check run failed inside the server (`error`) |

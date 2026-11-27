@@ -65,6 +65,75 @@ func TestMCPReasonAfterVectorEdit(t *testing.T) {
 	}
 }
 
+// A vector edit that changes a metric removes that metric's reason (it
+// explained the old value) and keeps the others; the base the answer gives
+// is the one of the emptied row, so the new reason is set with it. Clearing
+// the vector removes every reason.
+func TestMCPVectorEditDropsStaleReason(t *testing.T) {
+	f := newFx(t)
+	args := func(field, value, base string) map[string]any {
+		return map[string]any{"engagement": "acme", "finding": "F-001", "field": field, "value": value, "base": base}
+	}
+	f.ok(alice, "set_field", args("cvss", "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:N/I:N/A:N", ""))
+	f.ok(alice, "set_field", args("cvss_reason.PR", "a low account is enough", ""))
+	f.ok(alice, "set_field", args("cvss_reason.AC", "needs a race", ""))
+	out := f.ok(alice, "set_field", args("cvss", "CVSS:3.1/AV:N/AC:H/PR:H/UI:N/S:U/C:N/I:N/A:N", ""))
+	var rd struct {
+		Reasons map[string]string `json:"cvss_reasons"`
+	}
+	json.Unmarshal([]byte(f.ok(alice, "read_finding", map[string]any{"engagement": "acme", "finding": "F-001"})), &rd)
+	ref, _ := f.s.Store.Finding("acme", "001")
+	if m := ref.F.Meta; m.CVSSReasons["PR"] != "" || m.CVSSReasons["AC"] != "needs a race" || rd.Reasons["PR"] != "" {
+		t.Fatalf("reasons after PR:L to PR:H: %v (read_finding %v)", m.CVSSReasons, rd.Reasons)
+	}
+	nb, _ := object(t, "set_field", out)["base"].(string)
+	f.ok(alice, "set_field", args("cvss_reason.PR", "an admin account is needed", nb))
+	f.ok(alice, "set_field", args("cvss", "", ""))
+	if ref, _ := f.s.Store.Finding("acme", "001"); len(ref.F.Meta.CVSSReasons) != 0 {
+		t.Fatalf("reasons after the clear: %v", ref.F.Meta.CVSSReasons)
+	}
+}
+
+// set_field reviewers replaces the whole list: with the list's base from
+// read_finding it is refused when someone was added since; without a base
+// it is not checked.
+func TestMCPReviewersBase(t *testing.T) {
+	f := newFx(t)
+	args := func(value, base string) map[string]any {
+		a := map[string]any{"engagement": "acme", "finding": "F-001", "field": "reviewers", "value": value}
+		if base != "" {
+			a["base"] = base
+		}
+		return a
+	}
+	f.ok(alice, "set_field", args("bob", ""))
+	read := func() string {
+		var rd struct {
+			Bases map[string]string `json:"field_bases"`
+		}
+		json.Unmarshal([]byte(f.ok(alice, "read_finding", map[string]any{"engagement": "acme", "finding": "F-001"})), &rd)
+		if rd.Bases["reviewers"] == "" {
+			t.Fatalf("no base for reviewers: %v", rd.Bases)
+		}
+		return rd.Bases["reviewers"]
+	}
+	stale := read()
+	if err := f.s.Store.AddReviewers("acme", "001", []string{"dora"}, dora); err != nil {
+		t.Fatal(err)
+	}
+	if text, isErr := f.call(alice, "set_field", args("bob", stale)); !isErr || !strings.Contains(text, "changed since you read it") {
+		t.Fatalf("stale list: %v %s", isErr, text)
+	}
+	if ref, _ := f.s.Store.Finding("acme", "001"); strings.Join(ref.F.Meta.Reviewers, ",") != "bob,dora" {
+		t.Fatalf("reviewers %v", ref.F.Meta.Reviewers)
+	}
+	f.ok(alice, "set_field", args("bob,dora", read()))
+	f.ok(alice, "set_field", args("bob", ""))
+	if ref, _ := f.s.Store.Finding("acme", "001"); strings.Join(ref.F.Meta.Reviewers, ",") != "bob" {
+		t.Fatalf("reviewers %v", ref.F.Meta.Reviewers)
+	}
+}
+
 // D14, the DeepSeek case: one read_finding, then several Details rows and
 // CVSS reasons edited one after another, each with its own field_bases
 // entry. Nobody else touched the finding, so none is refused; a stale base

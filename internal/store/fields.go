@@ -31,8 +31,9 @@ func CVSSHash(m finding.Meta) string {
 func DetailsHash(m finding.Meta) string { return BodyHash(sortedPairs(m.Details)) }
 
 // UpdateCVSS sets the CVSS vector (canonicalised) and derived severity, and
-// merges reasons (empty value deletes, absent keys are kept). An empty
-// vector clears CVSS and keeps the last severity as a manual value.
+// merges reasons (empty value deletes, absent keys are kept while their
+// metric keeps its value: reasonsAfter). An empty vector clears CVSS with
+// its reasons and keeps the last severity as a manual value.
 func (s *Store) UpdateCVSS(engID, dir, vector string, reasons map[string]string, base string, a Actor) error {
 	_, err := s.UpdateCVSSRows(engID, dir, CVSSChange{Vector: &vector, Reasons: reasons, Table: base}, a)
 	return err
@@ -130,17 +131,36 @@ func (s *Store) UpdateCVSSRows(engID, dir string, ch CVSSChange, a Actor) (map[s
 		msg, err := writeCVSS(f, m, v, reasons)
 		if err == nil {
 			nm := m
-			nm.CVSS, nm.CVSSReasons = "", mergeReasons(m.CVSSReasons, reasons)
+			nm.CVSS, nm.CVSSReasons = "", reasonsAfter(m, v, reasons)
 			if v != nil {
 				nm.CVSS = v.String()
-			} else {
-				nm.CVSSReasons = m.CVSSReasons
 			}
 			out = CVSSRowHashes(nm)
 		}
 		return msg, err
 	})
 	return out, err
+}
+
+// reasonsAfter is the reasons of m once vector v (nil clears it) and
+// reasons are written. A reason explains one value of its metric: when v
+// changes that value and reasons brings no text for the metric, the stored
+// reason goes, and a cleared vector keeps none.
+func reasonsAfter(m finding.Meta, v cvss.Vector, reasons map[string]string) map[string]string {
+	if v == nil {
+		return map[string]string{}
+	}
+	merged := mergeReasons(m.CVSSReasons, reasons)
+	was, err := cvss.ParsePartial(m.CVSS)
+	if err != nil {
+		was = cvss.Vector{}
+	}
+	for k := range m.CVSSReasons {
+		if was[k] != v[k] && strings.TrimSpace(reasons[k]) == "" {
+			delete(merged, k)
+		}
+	}
+	return merged
 }
 
 // mergeReasons is old with reasons applied (an empty one deletes).
@@ -159,11 +179,17 @@ func mergeReasons(old, reasons map[string]string) map[string]string {
 	return merged
 }
 
-// writeCVSS sets vector v (nil clears it) and merges reasons into f, whose
-// meta was m.
+// writeCVSS sets vector v (nil clears it) and the reasons that go with it
+// (reasonsAfter) in f, whose meta was m.
 func writeCVSS(f *finding.Finding, m finding.Meta, v cvss.Vector, reasons map[string]string) (string, error) {
 	{
 		if v == nil {
+			// the reasons explain values that are gone
+			if len(m.CVSSReasons) > 0 {
+				if err := f.SetMeta("cvss_reasons", nil); err != nil {
+					return "", err
+				}
+			}
 			if m.CVSS == "" {
 				return "clear CVSS", nil
 			}
@@ -173,7 +199,7 @@ func writeCVSS(f *finding.Finding, m finding.Meta, v cvss.Vector, reasons map[st
 			return "clear CVSS", f.SetMeta("cvss", nil)
 		}
 		score, _ := cvss.Score(v)
-		merged := mergeReasons(m.CVSSReasons, reasons)
+		merged := reasonsAfter(m, v, reasons)
 		if err := f.SetMeta("severity", cvss.Rating(score)); err != nil {
 			return "", err
 		}

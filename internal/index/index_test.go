@@ -373,6 +373,7 @@ func TestSortResultOrder(t *testing.T) {
 	var dirs []string
 	for _, r := range refs {
 		dirs = append(dirs, r.Dir)
+		setStatus(t, s, "acme", r.F.Meta.ID, "complete") // only what was delivered is retested
 	}
 	if err := s.CreateRetest(store.Engagement{ID: "rt", Name: "RT"}, "acme", dirs, "", dora); err != nil {
 		t.Fatal(err)

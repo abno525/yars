@@ -183,6 +183,10 @@ func TestArchivedTeamIsFixed(t *testing.T) {
 func TestRetestCopiesTeam(t *testing.T) {
 	s, _, fd := newFinding(t)
 	s.AddMembers(eng, []string{"alice", "bob"}, uDora)
+	approve(t, s, eng, fd)                         // only a complete finding is retested
+	if err := s.DB().AddUser(uCarol); err != nil { // the retester is an account
+		t.Fatal(err)
+	}
 	if err := s.CreateRetest(Engagement{ID: "rt", Name: "Retest"}, eng, []string{fd}, "carol", uDora); err != nil {
 		t.Fatal(err)
 	}

@@ -28,6 +28,7 @@ type structList struct {
 
 type structItem struct {
 	Value  string
+	Was    string // the name on disk this row had; "" = added
 	Used   string // "" = not counted
 	Locked bool   // a CVSS rating: can't be renamed or removed
 	Last   bool
@@ -92,17 +93,35 @@ func setList(c *config.Config, key string, v []string) {
 	}
 }
 
-// structFromForm reads the edited structure (empty names dropped).
-func structFromForm(form url.Values, cur config.Config) config.Config {
+// structWas holds, per list key and beside the list, the name each row had
+// when the page was made ("" = none: an added row). It is what tells a
+// rename from a removal with an addition.
+type structWas map[string][]string
+
+// structFromForm reads the edited structure (empty names dropped) and each
+// row's original name as posted, read as pairs so a dropped row takes its
+// original with it. A form without the originals has none.
+func structFromForm(form url.Values, cur config.Config) (config.Config, structWas) {
 	c := cur
+	was := structWas{}
 	for _, l := range structLists {
-		var v []string
-		for _, x := range form[l.field] {
+		var v, w []string
+		orig := form["was_"+l.field]
+		if len(orig) != len(form[l.field]) {
+			orig = nil
+		}
+		for i, x := range form[l.field] {
 			if x = strings.TrimSpace(x); x != "" {
 				v = append(v, x)
+				if orig != nil {
+					w = append(w, strings.TrimSpace(orig[i]))
+				} else {
+					w = append(w, "")
+				}
 			}
 		}
 		setList(&c, l.key, v)
+		was[l.key] = w
 	}
 	c.CVSS.Version = form.Get("version")
 	if c.CVSS.Version == "" {
@@ -114,11 +133,63 @@ func structFromForm(form url.Values, cur config.Config) config.Config {
 			c.CVSS.Standard[m.Key] = v
 		}
 	}
-	return c
+	return c, was
 }
 
-// applyOp moves, removes or adds one list item.
-func applyOp(c *config.Config, op string, form url.Values) {
+// cleanWas is was with only the originals that can be one, against the
+// structure on disk. The names come from the client, so a row is a rename
+// (original differs from its name) only when the original is a name on disk
+// that no row holds any more, one row alone claims it, the new name is not
+// on disk, and it is not a locked rating severity. Any other row is itself
+// when its name is on disk, and added ("") when not.
+func cleanWas(c config.Config, was structWas, disk config.Config) structWas {
+	out := structWas{}
+	for _, l := range structLists {
+		names, on := listOf(c, l.key), listOf(disk, l.key)
+		claims := map[string]int{}
+		for i := range names {
+			if i < len(was[l.key]) {
+				claims[was[l.key][i]]++
+			}
+		}
+		w := make([]string, len(names))
+		for i, x := range names {
+			o := ""
+			if i < len(was[l.key]) {
+				o = was[l.key][i]
+			}
+			locked := l.key == "severity" && slices.Contains(config.RatingSeverities, o)
+			switch {
+			case slices.Contains(on, x):
+				w[i] = x
+			case o != "" && slices.Contains(on, o) && !slices.Contains(names, o) && claims[o] == 1 && !locked:
+				w[i] = o
+			}
+		}
+		out[l.key] = w
+	}
+	return out
+}
+
+// renamesOf is the renames (old → new) per list key: the rows whose
+// original differs from their name. was must be clean (cleanWas).
+func renamesOf(c config.Config, was structWas) map[string]map[string]string {
+	out := map[string]map[string]string{}
+	for _, l := range structLists {
+		for i, x := range listOf(c, l.key) {
+			if o := was[l.key][i]; o != "" && o != x {
+				if out[l.key] == nil {
+					out[l.key] = map[string]string{}
+				}
+				out[l.key][o] = x
+			}
+		}
+	}
+	return out
+}
+
+// applyOp moves, removes or adds one list item, with its original name.
+func applyOp(c *config.Config, was structWas, op string, form url.Values) {
 	parts := strings.Split(op, ":")
 	if len(parts) < 2 {
 		return
@@ -128,9 +199,11 @@ func applyOp(c *config.Config, op string, form url.Values) {
 		return
 	}
 	v := slices.Clone(listOf(*c, key))
+	w := was[key]
 	if parts[0] == "add" {
 		if x := strings.TrimSpace(form.Get("new_" + key)); x != "" {
 			v = append(v, x)
+			was[key] = append(w, "")
 		}
 		setList(c, key, v)
 		return
@@ -146,14 +219,17 @@ func applyOp(c *config.Config, op string, form url.Values) {
 	case "up":
 		if i > 0 {
 			v[i-1], v[i] = v[i], v[i-1]
+			w[i-1], w[i] = w[i], w[i-1]
 		}
 	case "down":
 		if i+1 < len(v) {
 			v[i+1], v[i] = v[i], v[i+1]
+			w[i+1], w[i] = w[i], w[i+1]
 		}
 	case "del":
 		if key != "severity" || !slices.Contains(config.RatingSeverities, v[i]) {
 			v = slices.Delete(v, i, i+1)
+			was[key] = slices.Delete(w, i, i+1)
 		}
 	}
 	setList(c, key, v)
@@ -195,31 +271,6 @@ func changesOf(a, b config.Config) int {
 	return n
 }
 
-// renamesOf pairs the names that left a list with the names that joined
-// it, in order, when as many left as joined (old → new); otherwise a
-// rename can't be told from a removal and an addition, and none is made.
-func renamesOf(was, now []string) map[string]string {
-	var gone, added []string
-	for _, x := range was {
-		if !slices.Contains(now, x) {
-			gone = append(gone, x)
-		}
-	}
-	for _, x := range now {
-		if !slices.Contains(was, x) {
-			added = append(added, x)
-		}
-	}
-	if len(gone) == 0 || len(gone) != len(added) {
-		return nil
-	}
-	out := map[string]string{}
-	for i, x := range gone {
-		out[x] = added[i]
-	}
-	return out
-}
-
 // checkStructure rejects names that can't be used (the rules a git push
 // of config.yaml is held to as well).
 func checkStructure(c config.Config) error { return store.CheckStructure(c) }
@@ -244,8 +295,10 @@ func (s *Server) diskStructure() (config.Config, string) {
 	return c, store.BodyHash(string(raw))
 }
 
-// structureView shows the edited structure c against the saved one.
-func (s *Server) structureView(c, saved config.Config) (structView, error) {
+// structureView shows the edited structure c against the saved one, each
+// row with its original name (was, cleaned here; nil = no row was renamed).
+func (s *Server) structureView(c, saved config.Config, was structWas) (structView, error) {
+	was = cleanWas(c, was, saved)
 	v := structView{Version: c.CVSS.Version}
 	if n := changesOf(saved, c); n > 0 {
 		v.Changes = plural(n, "change")
@@ -278,7 +331,7 @@ func (s *Server) structureView(c, saved config.Config) (structView, error) {
 		sl := structList{Key: l.key, Field: l.field, Title: l.title, Placeholder: l.placeholder}
 		items := listOf(c, l.key)
 		for i, x := range items {
-			it := structItem{Value: x, Last: i == len(items)-1}
+			it := structItem{Value: x, Was: was[l.key][i], Last: i == len(items)-1}
 			switch l.key {
 			case "severity":
 				it.Used, it.Sev = strconv.Itoa(sevUse[x]), true
@@ -299,9 +352,9 @@ func (s *Server) structureView(c, saved config.Config) (structView, error) {
 
 // structureRender shows the edited structure c against disk (config.yaml
 // as it is), with base the hash the page's save is checked against.
-func (s *Server) structureRender(w http.ResponseWriter, r *http.Request, status int, c, disk config.Config, base, errMsg, saved string) {
+func (s *Server) structureRender(w http.ResponseWriter, r *http.Request, status int, c, disk config.Config, was structWas, base, errMsg, saved string) {
 	s.adminPage(w, r, "structure", status, func(p *page) error {
-		v, err := s.structureView(c, disk)
+		v, err := s.structureView(c, disk, was)
 		if err != nil {
 			return err
 		}
@@ -317,7 +370,7 @@ func (s *Server) structurePage(w http.ResponseWriter, r *http.Request) {
 		saved = ""
 	}
 	disk, base := s.diskStructure()
-	s.structureRender(w, r, http.StatusOK, disk, disk, base, "", saved)
+	s.structureRender(w, r, http.StatusOK, disk, disk, nil, base, "", saved)
 }
 
 func isHexID(h string) bool {
@@ -335,32 +388,35 @@ func isHexID(h string) bool {
 func (s *Server) structurePost(w http.ResponseWriter, r *http.Request) {
 	r.ParseForm()
 	disk, _ := s.diskStructure()
-	c := structFromForm(r.PostForm, disk)
+	c, was := structFromForm(r.PostForm, disk)
 	base := r.PostForm.Get("base") // the page's, kept through moves and adds
 	op := r.PostForm.Get("op")
 	if op != "save" {
-		applyOp(&c, op, r.PostForm)
-		s.structureRender(w, r, http.StatusOK, c, disk, base, "", "")
+		applyOp(&c, was, op, r.PostForm)
+		s.structureRender(w, r, http.StatusOK, c, disk, was, base, "", "")
 		return
 	}
 	if err := checkStructure(c); err != nil {
-		s.structureRender(w, r, http.StatusBadRequest, c, disk, base, err.Error(), "")
+		s.structureRender(w, r, http.StatusBadRequest, c, disk, was, base, err.Error(), "")
 		return
 	}
+	// the renames of this save: the rows that kept their identity under a
+	// new name, and nothing else
+	renames := renamesOf(c, cleanWas(c, was, disk))
 	// Q10: a name findings or templates still use cannot be removed (a
 	// rename is not a removal: the rename reaches them below)
-	if msg, err := s.removedInUse(disk, c); err != nil || msg != "" {
+	if msg, err := s.removedInUse(disk, c, renames); err != nil || msg != "" {
 		if err != nil {
 			msg = err.Error()
 		}
-		s.structureRender(w, r, http.StatusBadRequest, c, disk, base, msg, "")
+		s.structureRender(w, r, http.StatusBadRequest, c, disk, was, base, msg, "")
 		return
 	}
 	// Q10: nor a rename that would stop at a finding or template (text under
 	// both names): tried before the save, so none is left behind
-	for _, l := range renameLists(disk, c) {
+	for _, l := range renameLists(renames) {
 		if err := s.Store.RenameConflict(l.list, l.renames); err != nil {
-			s.structureRender(w, r, http.StatusBadRequest, c, disk, base, err.Error(), "")
+			s.structureRender(w, r, http.StatusBadRequest, c, disk, was, base, err.Error(), "")
 			return
 		}
 	}
@@ -389,14 +445,14 @@ func (s *Server) structurePost(w http.ResponseWriter, r *http.Request) {
 		// the page shows the edits against the file as it is now; saving
 		// again overwrites it knowingly
 		now, nowBase := s.diskStructure()
-		s.structureRender(w, r, http.StatusConflict, c, now, nowBase, "The structure changed since you read it", "")
+		// (a row whose original is gone from the new file reads as added)
+		s.structureRender(w, r, http.StatusConflict, c, now, was, nowBase, "The structure changed since you read it", "")
 		return
 	}
 	if err != nil {
-		s.structureRender(w, r, http.StatusBadRequest, c, disk, base, strings.TrimPrefix(err.Error(), "config: "), "")
+		s.structureRender(w, r, http.StatusBadRequest, c, disk, was, base, strings.TrimPrefix(err.Error(), "config: "), "")
 		return
 	}
-	was := disk.ReportSections
 	// read again as it is on disk now, in order with a push's: never a
 	// stale copy applied after a newer one
 	if now, err := s.Store.ReloadConfig(); err == nil {
@@ -404,9 +460,19 @@ func (s *Server) structurePost(w http.ResponseWriter, r *http.Request) {
 	} else {
 		s.setConfig(loaded)
 	}
+	// the renames of the form, less any the file on disk no longer holds (a
+	// push that came in between): the old name gone and the new one there
+	for _, l := range structLists {
+		on := listOf(loaded, l.key)
+		for o, n := range renames[l.key] {
+			if slices.Contains(on, o) || !slices.Contains(on, n) {
+				delete(renames[l.key], o)
+			}
+		}
+	}
 	head, _ := gitrepo.ReadHead(dir)
 	// renamed report sections keep their text in every engagement
-	if rn := renamesOf(was, loaded.ReportSections); len(rn) > 0 {
+	if rn := renames["report"]; len(rn) > 0 {
 		if err := s.Store.RenameReportSections(rn, author(u)); err != nil {
 			s.log().Error("structure: report sections are not renamed", "user", u.Username, "err", err)
 		}
@@ -414,12 +480,12 @@ func (s *Server) structurePost(w http.ResponseWriter, r *http.Request) {
 	// Q10: renamed sections, details rows and severities are renamed inside
 	// every finding and template
 	done := 0
-	for _, l := range renameLists(disk, loaded) {
+	for _, l := range renameLists(renames) {
 		changed, err := s.Store.RenameNames(l.list, l.renames, author(u))
 		done += len(changed)
 		if err != nil {
 			now, nowBase := s.diskStructure()
-			s.structureRender(w, r, http.StatusInternalServerError, now, now, nowBase,
+			s.structureRender(w, r, http.StatusInternalServerError, now, now, nil, nowBase,
 				"Renamed in "+plural(done, "finding")+"; then: "+err.Error(), "")
 			return
 		}
@@ -436,14 +502,14 @@ type nameRenames struct {
 	renames map[string]string
 }
 
-// renameLists pairs the renamed names of the finding sections, details rows
-// and severities between two structures (renamesOf).
-func renameLists(was, now config.Config) []nameRenames {
+// renameLists is the renames of the finding sections, details rows and
+// severities (renamesOf), under the names Store.RenameNames knows.
+func renameLists(renames map[string]map[string]string) []nameRenames {
 	var out []nameRenames
 	for _, l := range []nameRenames{
-		{"section", renamesOf(was.Sections, now.Sections)},
-		{"details row", renamesOf(was.DetailsRows, now.DetailsRows)},
-		{"severity", renamesOf(was.Severities, now.Severities)},
+		{"section", renames["section"]},
+		{"details row", renames["detail"]},
+		{"severity", renames["severity"]},
 	} {
 		if len(l.renames) > 0 {
 			out = append(out, l)
@@ -455,12 +521,12 @@ func renameLists(was, now config.Config) []nameRenames {
 // removedInUse is the refusal for a structure that removes a name findings
 // or templates still use (NameUse.String of the first, as a push gives it),
 // "" when none does. Renamed names do not count: they are renamed in place.
-func (s *Server) removedInUse(was, now config.Config) (string, error) {
+func (s *Server) removedInUse(was, now config.Config, renames map[string]map[string]string) (string, error) {
 	chk := now
 	chk.Sections = slices.Clone(now.Sections)
 	chk.DetailsRows = slices.Clone(now.DetailsRows)
 	chk.Severities = slices.Clone(now.Severities)
-	for _, l := range renameLists(was, now) {
+	for _, l := range renameLists(renames) {
 		for old := range l.renames {
 			switch l.list {
 			case "section":

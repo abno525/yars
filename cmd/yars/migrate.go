@@ -350,6 +350,7 @@ func cmdMigrate(args []string, out io.Writer) error {
 
 func gitIn(dir string, args ...string) (string, error) {
 	cmd := exec.Command("git", append([]string{"-C", dir, "-c", "commit.gpgsign=false", "-c", "advice.addEmbeddedRepo=false"}, args...)...)
+	cmd.Env = append(os.Environ(), gitrepo.RefFormatEnv) // its init makes refs as files, as gitrepo.Init
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))

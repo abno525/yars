@@ -69,8 +69,10 @@ func TestUpdateCVSSConflict(t *testing.T) {
 
 func TestUpdateCVSSReasonsKept(t *testing.T) {
 	s, _, fd := newFinding(t)
+	// a reason not named in a change stays while its metric keeps its value
+	// (here another metric moves)
 	s.UpdateCVSS(eng, fd, "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H", map[string]string{"AC": "x"}, "", bob)
-	if err := s.UpdateCVSS(eng, fd, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H", map[string]string{}, "", bob); err != nil {
+	if err := s.UpdateCVSS(eng, fd, "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:N", map[string]string{}, "", bob); err != nil {
 		t.Fatal(err)
 	}
 	if r := load(t, s, fd).F.Meta.CVSSReasons["AC"]; r != "x" {

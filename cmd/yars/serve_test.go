@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -40,6 +41,157 @@ func startData(r *gitrepo.Repo) (config.Config, *db.DB, *store.Store, error) {
 		return config.Config{}, nil, nil, err
 	}
 	return cfg, d, st, nil
+}
+
+// A finding's folder that no commit holds (a stop between its write and its
+// commit) is gone after the next start, and the log says so with the
+// engagement and a count, not with the folder's name.
+func TestStartRemovesUncommittedFindings(t *testing.T) {
+	dir := t.TempDir()
+	if err := initData(dir); err != nil {
+		t.Fatal(err)
+	}
+	r, err := gitrepo.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, d, st, err := startData(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := gitrepo.Author{Name: "alice", Email: "alice@yars.local"}
+	if err := st.CreateEngagement(store.Engagement{ID: "acme", Name: "ACME"}, a); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateFinding("acme", "SQL injection", a); err != nil {
+		t.Fatal(err)
+	}
+	d.Close()
+	left := filepath.Join(dir, "engagements", "acme", "findings", "F-009-leftover-private-title")
+	if err := os.MkdirAll(left, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(left, "finding.md"), []byte("---\nid: F-009\ntitle: Leftover private title\nauthor: alice\n---\n\n## Description\n\nx\n"), 0o600)
+
+	cfg, err := startConfig(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lg, out := logs.NewRecorder()
+	d, st, err = prepareData(r, cfg, lg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	refs, err := st.ListFindings("acme")
+	if err != nil || len(refs) != 1 || refs[0].F.Meta.ID != "F-001" {
+		t.Fatalf("findings after the start: %d %v", len(refs), err)
+	}
+	if _, err := os.Stat(left); !os.IsNotExist(err) {
+		t.Fatal("the uncommitted folder is still there")
+	}
+	recs := out.With("start: uncommitted files were removed from an engagement's findings folder")
+	if len(recs) != 1 || recs[0].Str("eng") != "acme" || recs[0].Str("count") != "1" {
+		t.Fatalf("log:\n%s", out.Text())
+	}
+	if strings.Contains(strings.ToLower(out.Text()), "leftover") {
+		t.Fatalf("the log names the folder:\n%s", out.Text())
+	}
+}
+
+// A start after an engagement was made, with no finding in it yet, removes
+// no file and says nothing: the engagement's empty findings folder is not a
+// file a stop left.
+func TestStartSaysNothingForEmptyFindingsFolder(t *testing.T) {
+	dir := t.TempDir()
+	if err := initData(dir); err != nil {
+		t.Fatal(err)
+	}
+	r, err := gitrepo.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, d, st, err := startData(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := gitrepo.Author{Name: "alice", Email: "alice@yars.local"}
+	if err := st.CreateEngagement(store.Engagement{ID: "acme", Name: "ACME"}, a); err != nil {
+		t.Fatal(err)
+	}
+	d.Close()
+	if fi, err := os.Stat(filepath.Join(dir, "engagements", "acme", "findings")); err != nil || !fi.IsDir() {
+		t.Fatalf("a new engagement has no findings folder: %v", err)
+	}
+	cfg, err := startConfig(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lg, out := logs.NewRecorder()
+	d, st, err = prepareData(r, cfg, lg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	if n := len(out.With("start: uncommitted files were removed from an engagement's findings folder")); n != 0 {
+		t.Fatalf("log:\n%s", out.Text())
+	}
+	if refs, err := st.ListFindings("acme"); err != nil || len(refs) != 0 {
+		t.Fatalf("findings after the start: %d %v", len(refs), err)
+	}
+	if _, err := st.CreateFinding("acme", "SQL injection", a); err != nil {
+		t.Fatalf("a finding after the start: %v", err)
+	}
+}
+
+// While another server answers on the data folder, a second start removes
+// nothing: a file that server has written and not yet committed looks the
+// same as a leftover.
+func TestStartLeavesFilesWhileAnotherServerRuns(t *testing.T) {
+	dir := t.TempDir()
+	if err := initData(dir); err != nil {
+		t.Fatal(err)
+	}
+	r, err := gitrepo.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, d, st, err := startData(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := gitrepo.Author{Name: "alice", Email: "alice@yars.local"}
+	if err := st.CreateEngagement(store.Engagement{ID: "acme", Name: "ACME"}, a); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateFinding("acme", "SQL injection", a); err != nil {
+		t.Fatal(err)
+	}
+	d.Close()
+	ln, err := net.Listen("unix", statusSocket(dir))
+	if err != nil {
+		t.Skipf("no Unix socket here: %v", err)
+	}
+	defer ln.Close()
+	left := filepath.Join(dir, "engagements", "acme", "findings", "F-009-in-flight", "finding.md")
+	os.MkdirAll(filepath.Dir(left), 0o700)
+	os.WriteFile(left, []byte("---\nid: F-009\ntitle: In flight\nauthor: alice\n---\n\n## Description\n\nx\n"), 0o600)
+	cfg, err := startConfig(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lg, out := logs.NewRecorder()
+	d, _, err = prepareData(r, cfg, lg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	if _, err := os.Stat(left); err != nil {
+		t.Fatalf("the other server's file was removed: %v", err)
+	}
+	if n := len(out.With("start: another server runs on this data folder; uncommitted files in the findings folders are left")); n != 1 {
+		t.Fatalf("log:\n%s", out.Text())
+	}
 }
 
 // A certificate needs its key and the key its certificate.

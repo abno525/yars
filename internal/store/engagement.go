@@ -152,6 +152,24 @@ func (s *Store) CreateRetest(e Engagement, source string, dirs []string, assigne
 	if s.db == nil { // the links to the originals and the team live there
 		return ErrNoDB
 	}
+	// the retest's own values, as its Settings tab would take them
+	e.Type, e.Source = "retest", source
+	if err := CheckEngagement(nil, e); err != nil {
+		return err
+	}
+	// the retester becomes an author and a team member: an account that can
+	// sign in, not any string
+	if assignee != "" {
+		acc, ok, err := s.db.User(assignee)
+		switch {
+		case err != nil:
+			return err
+		case !ok:
+			return fmt.Errorf("%w: unknown retester %s", ErrInvalidValue, assignee)
+		case acc.Disabled:
+			return fmt.Errorf("%w: retester %s is disabled", ErrInvalidValue, assignee)
+		}
+	}
 	unlock := s.lockNew(e.ID)
 	defer unlock()
 	dir := engDir(e.ID)
@@ -164,13 +182,28 @@ func (s *Store) CreateRetest(e Engagement, source string, dirs []string, assigne
 		attachs []string // its attachments' names (each read as it is written)
 	}
 	var copies []copyOf
+	seen := map[string]bool{}
 	for _, d := range dirs {
 		ref, err := s.Finding(source, d)
 		if err != nil {
 			return fmt.Errorf("%w: finding %s: %v", ErrInvalidValue, d, err)
 		}
-		if !workflow.Active(ref.F.Meta.Status) {
+		// d is the caller's spelling ("1", "001", an ID, a folder); from here
+		// on the finding goes by its own folder: one copy of it, in a folder
+		// and with a link of that name
+		if seen[ref.Dir] {
+			continue
+		}
+		seen[ref.Dir] = true
+		d = ref.Dir
+		// Q11: what was delivered is retested. The status is the one the
+		// pages show (a complete finding whose text changed since its
+		// approval reads as in verification), read before SetMeta below.
+		switch st := ref.F.Meta.Status; {
+		case !workflow.Active(st):
 			return fmt.Errorf("%w: finding %s is withdrawn", ErrInvalidValue, d)
+		case st != "complete" && st != "reported":
+			return fmt.Errorf("%w: finding %s is %s; only complete and reported findings are retested", ErrInvalidValue, d, st)
 		}
 		f := ref.F
 		if assignee != "" {
@@ -191,7 +224,6 @@ func (s *Store) CreateRetest(e Engagement, source string, dirs []string, assigne
 		}
 		copies = append(copies, c)
 	}
-	e.Type, e.Source = "retest", source
 	b, err := yaml.Marshal(e)
 	if err != nil {
 		return err

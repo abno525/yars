@@ -53,13 +53,16 @@ type wfView struct {
 	CanAssign    bool
 	HasGated     bool
 	ReviewersURL string
-	URL          string // the bar alone (live refresh)
-	Seen         string // the full digest of the version shown (store.ApprovalHash): Sign off, Approve and Complete are for it
-	SeenFiles    string // and the attachments shown (store.AttachmentsHash)
-	Returned     *finding.Returned
-	Withdrawn    *finding.Returned // who withdrew the finding and why
-	IsWithdrawn  bool              // no step is current or done
-	ReadOnly     bool              // the engagement is archived: no actions
+	// ReviewersBase is the list the picker's boxes were ticked from
+	// (store.ReviewersHash): a save from an older list is refused.
+	ReviewersBase string
+	URL           string // the bar alone (live refresh)
+	Seen          string // the full digest of the version shown (store.ApprovalHash): Sign off, Approve and Complete are for it
+	SeenFiles     string // and the attachments shown (store.AttachmentsHash)
+	Returned      *finding.Returned
+	Withdrawn     *finding.Returned // who withdrew the finding and why
+	IsWithdrawn   bool              // no step is current or done
+	ReadOnly      bool              // the engagement is archived: no actions
 
 	// The bar as drawn: the first chips, how many more, the fixed button
 	// slots of the status, the reason forms they open and the state text.
@@ -310,7 +313,7 @@ func (s *Server) wfFor(ref store.FindingRef, r *http.Request) wfView {
 	archived := s.Store.Archived(ref.EngID)
 	f := s.flow()
 	v := wfView{Status: m.Status, Shown: workflow.Shown(m), Steps: f.ShownSteps(), CanAssign: f.HasReviewers() && workflow.CanAssign(u, m) && !archived,
-		ReviewersURL: base + "/reviewers", URL: base + "/workflow", Seen: ref.Full, Returned: m.Returned, Withdrawn: m.Withdrawn,
+		ReviewersURL: base + "/reviewers", ReviewersBase: store.ReviewersHash(m), URL: base + "/workflow", Seen: ref.Full, Returned: m.Returned, Withdrawn: m.Withdrawn,
 		IsWithdrawn: m.Status == workflow.Withdrawn, ReadOnly: archived, Simple: f.Simple, Author: m.Author}
 	if v.IsWithdrawn {
 		v.Returned = nil // the withdrawal is what counts now
@@ -474,14 +477,21 @@ func (s *Server) wfReviewers(w http.ResponseWriter, r *http.Request) {
 	}
 	users := s.Auth.Users() // once per request, not per name
 	if r.PostForm.Get("all") != "" {
-		// keep whoever is assigned and add every reviewer-role account; a
-		// director author's own sign-off stays without being named (Q25)
-		names = slices.DeleteFunc(slices.Clone(ref.F.Meta.Reviewers), func(n string) bool { return n == ref.F.Meta.Author })
+		// add every reviewer-role account to the list as it is inside the
+		// change: whoever is assigned stays, also someone added since the
+		// page was read, and a director author's own sign-off (Q25)
+		names = nil
 		for _, c := range users {
-			if c.Role == "reviewer" && s.Store.CanReview(c, ref.EngID, ref.F.Meta) && !slices.Contains(names, c.Username) {
+			if c.Role == "reviewer" && s.Store.CanReview(c, ref.EngID, ref.F.Meta) {
 				names = append(names, c.Username)
 			}
 		}
+		if len(names) == 0 { // nobody to add: the list stays
+			s.wfDone(w, r, nil)
+			return
+		}
+		s.wfDone(w, r, s.Store.AddReviewers(ref.EngID, ref.Dir, names, auth.UserFrom(r.Context())))
+		return
 	}
 	for _, n := range names {
 		ok := slices.ContainsFunc(users, func(c config.User) bool {
@@ -492,5 +502,7 @@ func (s *Server) wfReviewers(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	s.wfDone(w, r, s.Store.SetReviewers(ref.EngID, ref.Dir, names, auth.UserFrom(r.Context())))
+	// the ticked names are the list as the page read it: a list changed
+	// since is refused, not replaced
+	s.wfDone(w, r, s.Store.SetReviewersFrom(ref.EngID, ref.Dir, r.PostForm.Get("base"), names, auth.UserFrom(r.Context())))
 }

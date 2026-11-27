@@ -1,9 +1,11 @@
 package store
 
 import (
+	"errors"
 	"slices"
 	"testing"
 
+	"github.com/abno525/yars/internal/config"
 	"github.com/abno525/yars/internal/finding"
 	"github.com/abno525/yars/internal/workflow"
 )
@@ -31,6 +33,50 @@ func TestAddReviewersMerges(t *testing.T) {
 	// names already on the list are no change, not a refusal
 	if err := s.AddReviewers(eng, fd, []string{"bob"}, uDora); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A reviewer list saved from a page older than the list is refused: the
+// reviewer added meanwhile, and their sign-off, stay. With the list's base
+// as it is now, or with none, the save goes through.
+func TestSetReviewersFromStaleBase(t *testing.T) {
+	s, _, fd := ready(t) // alice's, bob reviews
+	base := ReviewersHash(load(t, s, fd).F.Meta)
+	if err := s.AddReviewers(eng, fd, []string{"carol"}, uDora); err != nil {
+		t.Fatal(err)
+	}
+	s.Transition(eng, fd, workflow.Submit, "", uAlice)
+	if err := s.Transition(eng, fd, workflow.Clear, "", uCarol); err != nil {
+		t.Fatal(err)
+	}
+	err := s.SetReviewersFrom(eng, fd, base, []string{"bob"}, uAlice)
+	if !errors.Is(err, ErrConflict) || !denied(err) {
+		t.Fatalf("stale list saved: %v", err)
+	}
+	m := load(t, s, fd).F.Meta
+	if !slices.Equal(m.Reviewers, []string{"bob", "carol"}) || !slices.Equal(m.ClearedBy, []string{"carol"}) {
+		t.Fatalf("reviewers %v cleared %v", m.Reviewers, m.ClearedBy)
+	}
+	// a sign-off given since the page was read is no change of the list
+	fresh := ReviewersHash(m)
+	if err := s.Transition(eng, fd, workflow.Clear, "", uBob); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetReviewersFrom(eng, fd, fresh, []string{"bob"}, uAlice); err != nil {
+		t.Fatal(err)
+	}
+	m = load(t, s, fd).F.Meta
+	if !slices.Equal(m.Reviewers, []string{"bob"}) || !slices.Equal(m.ClearedBy, []string{"bob"}) {
+		t.Fatalf("reviewers %v cleared %v", m.Reviewers, m.ClearedBy)
+	}
+	// no base: not checked, as before
+	if err := s.SetReviewersFrom(eng, fd, "", []string{"bob", "carol"}, uAlice); err != nil {
+		t.Fatal(err)
+	}
+	// someone who may not change the list learns nothing from a wrong base
+	pen2 := config.User{Username: "pen2", Role: "pentester"}
+	if err := s.SetReviewersFrom(eng, fd, "stale", []string{"bob"}, pen2); errors.Is(err, ErrConflict) || !denied(err) {
+		t.Fatalf("outsider with a wrong base: %v", err)
 	}
 }
 

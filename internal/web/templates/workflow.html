@@ -26,6 +26,7 @@
       <details class="pop assign">
         <summary class="btn plus" aria-label="Change reviewers"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></summary>
         <form method="post" action="{{.ReviewersURL}}" class="picker">
+          <input type="hidden" name="base" value="{{.ReviewersBase}}">
           <div class="picklist">
             {{range .Candidates}}<label><input type="checkbox" name="reviewer" value="{{.Name}}"{{if .Checked}} checked{{end}}><span class="name" title="{{.Name}}">{{.Name}}</span></label>{{else}}<span class="muted">None</span>{{end}}
           </div>

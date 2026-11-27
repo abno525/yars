@@ -215,11 +215,15 @@ func retests(t *testing.T, e *env) {
 	if rec := e.sendFile(t, "alice", fpath+"/attachments", "shot.png", testPNG(t, color.White)); rec.Code != 200 {
 		t.Fatalf("upload %d", rec.Code)
 	}
-	for _, id := range []string{"rt1", "rt2"} {
-		if err := e.srv.Store.CreateRetest(store.Engagement{ID: id, Name: "Retest " + id}, "acme", []string{fdir}, "", wDora); err != nil {
-			t.Fatal(err)
+	// complete for the copies only (Q11): the tests go on to redact the
+	// original as its author
+	e.whileComplete(t, func() {
+		for _, id := range []string{"rt1", "rt2"} {
+			if err := e.srv.Store.CreateRetest(store.Engagement{ID: id, Name: "Retest " + id}, "acme", []string{fdir}, "", wDora); err != nil {
+				t.Fatal(err)
+			}
 		}
-	}
+	})
 	if err := e.srv.Store.Archive("rt2", wDora); err != nil {
 		t.Fatal(err)
 	}

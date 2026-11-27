@@ -4,8 +4,6 @@ import (
 	"regexp"
 	"strings"
 	"testing"
-
-	"github.com/abno525/yars/internal/store"
 )
 
 // tablesWithoutHead lists the opening tags of tables in b that have no
@@ -44,9 +42,7 @@ func TestRetestOriginalHasHeader(t *testing.T) {
 	e := setup(t)
 	st := e.srv.Store
 	st.UpdateDetails("acme", fdir, map[string]string{"Location": "POST /login"}, "", e.authorOf(wAlice))
-	if err := st.CreateRetest(store.Engagement{ID: "rt", Name: "RT"}, "acme", []string{fdir}, "", wDora); err != nil {
-		t.Fatal(err)
-	}
+	e.retestOfTest(t, "rt")
 	b := e.do(t, "alice", "GET", "/e/rt/f/"+fdir, nil, nil).Body.String()
 	orig := between(b, `class="panel compact orig"`, "</details>")
 	if !strings.Contains(orig, `<th scope="col">Field</th><th scope="col">Value</th>`) {

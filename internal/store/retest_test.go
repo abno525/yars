@@ -11,6 +11,8 @@ import (
 	"testing"
 
 	"github.com/abno525/yars/internal/chat"
+	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/db"
 	"github.com/abno525/yars/internal/workflow"
 )
 
@@ -33,6 +35,54 @@ func srcFixture(t *testing.T) (*Store, string) {
 }
 
 func chatMsgText(s string) chat.Message { return chat.Message{Text: s} }
+
+// approve takes finding fd of engagement e from draft to complete, as its
+// author, bob and dora would: only a complete finding is retested (Q11).
+func approve(t *testing.T, s *Store, e, fd string) {
+	t.Helper()
+	ref, err := s.Finding(e, fd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetReviewers(e, fd, []string{"bob"}, uDora); err != nil {
+		t.Fatal(err)
+	}
+	if ref.F.Meta.Severity == "" {
+		if err := s.UpdateSeverity(e, fd, "high", "", uDora); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, step := range []struct {
+		a workflow.Action
+		u config.User
+	}{{workflow.Submit, config.User{Username: ref.F.Meta.Author, Role: "pentester"}}, {workflow.Clear, uBob}, {workflow.Approve, uDora}} {
+		if err := s.Transition(e, fd, step.a, "", step.u); err != nil {
+			t.Fatalf("%s %s: %v", step.a, fd, err)
+		}
+	}
+}
+
+// whileComplete runs fn with finding fid of engagement e stored as complete,
+// then puts its state back: for tests that copy a finding into a retest and
+// go on to change the original as its author.
+func whileComplete(t *testing.T, s *Store, e, fid string, fn func()) {
+	t.Helper()
+	put := func(st db.State) {
+		t.Helper()
+		if err := s.db.TxFor(e, func(tx *db.Tx) error { return tx.PutState(e, fid, st) }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	prev, err := s.db.State(e, fid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := prev
+	st.Status, st.ApprovedHash = "complete", ""
+	put(st)
+	fn()
+	put(prev)
+}
 
 // A withdrawn finding is not part of the report, so it can't be retested.
 func TestRetestSkipsWithdrawn(t *testing.T) {
@@ -65,6 +115,7 @@ func treeHash(t *testing.T, root string) map[string][32]byte {
 func TestCreateRetest(t *testing.T) {
 	s, dir := srcFixture(t)
 	e := Engagement{ID: "2027-01-acme-retest", Name: "ACME retest"}
+	approve(t, s, eng, "F-003-csrf")
 	if err := s.CreateRetest(e, eng, []string{"F-001-sql-injection", "F-003-csrf"}, "", uDora); err != nil {
 		t.Fatal(err)
 	}
@@ -186,6 +237,7 @@ func TestRetestCopiesAttachments(t *testing.T) {
 	if _, err := s.AddAttachment(eng, "F-003-csrf", "notes.txt", []byte("steps"), alice); err != nil {
 		t.Fatal(err)
 	}
+	approve(t, s, eng, "F-003-csrf")
 	if err := s.CreateRetest(Engagement{ID: "rt", Name: "RT"}, eng, []string{"F-001-sql-injection", "F-003-csrf"}, "", uDora); err != nil {
 		t.Fatal(err)
 	}
@@ -219,6 +271,7 @@ func TestRetestOversizeAttachment(t *testing.T) {
 	}
 	f.Truncate(20<<20 + 1) // sparse: 20 MB and one byte
 	f.Close()
+	approve(t, s, eng, "F-003-csrf")
 	err = s.CreateRetest(Engagement{ID: "rt", Name: "RT"}, eng, []string{"F-001-sql-injection", "F-003-csrf"}, "", uDora)
 	if !errors.Is(err, ErrInvalidValue) || !strings.Contains(err.Error(), "finding F-003-csrf: attachment dump.png is larger than 20 MB") {
 		t.Fatalf("err %v", err)
@@ -242,6 +295,9 @@ func TestCreateRetestAuthorship(t *testing.T) {
 	if ref.F.Meta.Author != "alice" {
 		t.Fatalf("author %q", ref.F.Meta.Author)
 	}
+	if err := s.db.AddUser(uCarol); err != nil { // the retester is an account
+		t.Fatal(err)
+	}
 	if err := s.CreateRetest(Engagement{ID: "rt2", Name: "RT"}, eng, []string{"F-001-sql-injection", "F-001-sql-injection"}, "carol", uDora); err != nil {
 		t.Fatal(err)
 	}
@@ -254,8 +310,12 @@ func TestCreateRetestAuthorship(t *testing.T) {
 func TestRetestLeavesSourceUntouched(t *testing.T) {
 	s, dir := srcFixture(t)
 	src := filepath.Join(dir, "engagements", eng)
+	approve(t, s, eng, "F-002-xss")
+	approve(t, s, eng, "F-003-csrf")
 	before := treeHash(t, src)
-	s.CreateRetest(Engagement{ID: "rt", Name: "RT"}, eng, []string{"F-001-sql-injection", "F-002-xss", "F-003-csrf"}, "", uDora)
+	if err := s.CreateRetest(Engagement{ID: "rt", Name: "RT"}, eng, []string{"F-001-sql-injection", "F-002-xss", "F-003-csrf"}, "", uDora); err != nil {
+		t.Fatal(err)
+	}
 	after := treeHash(t, src)
 	if len(before) != len(after) {
 		t.Fatal("file count changed")
@@ -273,6 +333,11 @@ func TestRetestOfRetest(t *testing.T) {
 	if err := s.SetRetestResult("rt1", "F-001-sql-injection", "not_fixed", uDora); err != nil {
 		t.Fatal(err)
 	}
+	// the copy is a draft: a retest of the retest waits for its approval
+	if err := s.CreateRetest(Engagement{ID: "rt2", Name: "RT2"}, "rt1", []string{"F-001-sql-injection"}, "", uDora); !errors.Is(err, ErrInvalidValue) {
+		t.Fatalf("a draft copy was retested: %v", err)
+	}
+	approve(t, s, "rt1", "F-001-sql-injection")
 	if err := s.CreateRetest(Engagement{ID: "rt2", Name: "RT2"}, "rt1", []string{"F-001-sql-injection"}, "", uDora); err != nil {
 		t.Fatal(err)
 	}
@@ -310,6 +375,111 @@ func TestCreateRetestValidation(t *testing.T) {
 	}
 	if err := s.CreateRetest(Engagement{ID: "rt", Name: "RT"}, eng, []string{"F-001-sql-injection"}, "", uAlice); err == nil {
 		t.Fatal("pentester created a retest")
+	}
+}
+
+// A finding is named as on every page ("1", "001", its ID, its folder): the
+// copy lands in a folder of the finding's own name, linked to it, and two
+// spellings of one finding make one copy.
+func TestCreateRetestByAnySpelling(t *testing.T) {
+	s, dir := srcFixture(t)
+	if err := s.CreateRetest(Engagement{ID: "rt", Name: "RT"}, eng, []string{"1"}, "", uDora); err != nil {
+		t.Fatal(err)
+	}
+	refs, err := s.ListFindings("rt")
+	if err != nil || len(refs) != 1 || refs[0].Dir != "F-001-sql-injection" {
+		t.Fatalf("copies %+v %v", refs, err)
+	}
+	if r := refs[0].F.Meta.Retest; r == nil || r.Source != eng+"/F-001-sql-injection" {
+		t.Fatalf("link %+v", r)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "engagements", "rt", "findings", "1")); err == nil {
+		t.Fatal("a folder named after the caller's string")
+	}
+	if err := s.CreateRetest(Engagement{ID: "rt2", Name: "RT"}, eng, []string{"001", "F-001-sql-injection", "F-001"}, "", uDora); err != nil {
+		t.Fatal(err)
+	}
+	if refs, _ := s.ListFindings("rt2"); len(refs) != 1 || refs[0].Dir != "F-001-sql-injection" {
+		t.Fatalf("copies of one finding: %+v", refs)
+	}
+	if got := logOf(t, filepath.Join(dir, "engagements", "rt2"), "%s"); got != "engagement rt2: retest of 2026-11-acme (1 findings)" {
+		t.Fatalf("commit %q", got)
+	}
+}
+
+// Q11: only complete and reported findings are retested. A draft and a
+// finding in verification are refused by name, and nothing is written.
+func TestCreateRetestOnlyCompleteAndReported(t *testing.T) {
+	s, dir := srcFixture(t)
+	refuse := func(what string) {
+		t.Helper()
+		err := s.CreateRetest(Engagement{ID: "rt", Name: "RT"}, eng, []string{"F-001-sql-injection", "F-002-xss"}, "", uDora)
+		if !errors.Is(err, ErrInvalidValue) || !strings.Contains(err.Error(), "F-002") || !strings.Contains(err.Error(), what) {
+			t.Fatalf("%s: err %v", what, err)
+		}
+		if _, err := os.Stat(filepath.Join(dir, "engagements", "rt")); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("%s: the retest was written", what)
+		}
+		if st, _ := s.db.State("rt", "F-001"); st.RetestSource != "" {
+			t.Fatalf("%s: a link was left: %+v", what, st)
+		}
+	}
+	refuse("draft")
+	s.SetReviewers(eng, "F-002-xss", []string{"bob"}, uAlice)
+	s.UpdateSeverity(eng, "F-002-xss", "high", "", alice)
+	if err := s.Transition(eng, "F-002-xss", workflow.Submit, "", uAlice); err != nil {
+		t.Fatal(err)
+	}
+	refuse("verification")
+	if err := s.Transition(eng, "F-001-sql-injection", workflow.Report, "", uDora); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateRetest(Engagement{ID: "rt", Name: "RT"}, eng, []string{"F-001-sql-injection"}, "", uDora); err != nil {
+		t.Fatalf("a reported finding: %v", err)
+	}
+}
+
+// The retest's own values are held to the rules of an engagement's
+// settings, and the retester is an account that can sign in: nothing is
+// written for a date that is none, an end before the start, a client of two
+// lines, a name nobody has, or a disabled account.
+func TestCreateRetestChecksValuesAndRetester(t *testing.T) {
+	s, dir := srcFixture(t)
+	for _, u := range []config.User{{Username: "carol", Role: "reviewer"}, {Username: "gone", Role: "pentester", Disabled: true}} {
+		if err := s.db.AddUser(u); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fd := []string{"F-001-sql-injection"}
+	cases := []struct {
+		what     string
+		e        Engagement
+		assignee string
+		want     string
+	}{
+		{"date", Engagement{ID: "rt", Name: "RT", Start: "tomorrow"}, "", "dates are YYYY-MM-DD"},
+		{"order", Engagement{ID: "rt", Name: "RT", Start: "2027-02-01", End: "2027-01-01"}, "", "the end is before the start"},
+		{"client", Engagement{ID: "rt", Name: "RT", Client: "ACME\nGmbH"}, "", "client must be one line"},
+		{"unknown", Engagement{ID: "rt", Name: "RT"}, "nobody", "unknown retester nobody"},
+		{"disabled", Engagement{ID: "rt", Name: "RT"}, "gone", "retester gone is disabled"},
+	}
+	for _, c := range cases {
+		err := s.CreateRetest(c.e, eng, fd, c.assignee, uDora)
+		if !errors.Is(err, ErrInvalidValue) || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: err %v", c.what, err)
+		}
+		if _, err := os.Stat(filepath.Join(dir, "engagements", "rt")); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("%s: the retest was written", c.what)
+		}
+		if st, _ := s.db.State("rt", "F-001"); st.RetestSource != "" {
+			t.Fatalf("%s: a link was left: %+v", c.what, st)
+		}
+		if m, _ := s.db.Members("rt"); len(m) != 0 {
+			t.Fatalf("%s: a team was left: %v", c.what, m)
+		}
+	}
+	if err := s.CreateRetest(Engagement{ID: "rt", Name: "RT", Start: "2027-01-01", End: "2027-02-01"}, eng, fd, "carol", uDora); err != nil {
+		t.Fatal(err)
 	}
 }
 

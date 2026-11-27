@@ -635,6 +635,78 @@ func TestPolicyDuplicateSectionTemplate(t *testing.T) {
 	}
 }
 
+// rawFinding rewrites the pushed finding.md as text.
+func rawFinding(dir string, fn func(string) string) {
+	p := filepath.Join(dir, fdir, "finding.md")
+	b, _ := os.ReadFile(p)
+	os.WriteFile(p, []byte(fn(string(b))), 0o644)
+}
+
+// Text before the first section heading is on no page: a pushed finding
+// and a pushed template with such text are refused.
+func TestPolicyPreambleRefused(t *testing.T) {
+	f := newFx(t)
+	const want = "text before the first section heading"
+	note := func(s string) string { return strings.Replace(s, "---\n\n## ", "---\nHidden note.\n\n## ", 1) }
+	if ps := f.push("alice", func(d string) { rawFinding(d, note) }); !hasLine(ps, "commit "+short(t, f.clone, "HEAD")+" "+fdir+"/finding.md: ", want) {
+		t.Fatalf("finding with text before the first heading: %v", ps)
+	}
+	// a finding the server already holds that way takes another edit
+	rawFinding(f.repo().Dir, note)
+	if b, _ := os.ReadFile(filepath.Join(f.repo().Dir, fdir, "finding.md")); !strings.Contains(string(b), "Hidden note.") {
+		t.Fatalf("fixture not written:\n%s", b)
+	}
+	git(t, f.repo().Dir, "commit", "-qam", "old push without checks")
+	f.reclone()
+	if ps := f.push("alice", func(d string) {
+		editMeta(d, func(fd *finding.Finding) { fd.SetSection("Impact", "better words") })
+	}); len(ps) != 0 {
+		t.Fatalf("edit of another part refused: %v", ps)
+	}
+	f = newFx(t).on("")
+	if ps := f.push("dora", func(d string) {
+		write(d, ".yars/templates/sqli.md", "---\ntitle: SQLi\n---\nHidden note.\n\n## Impact\n\nfirst\n")
+	}); !has(ps, want) {
+		t.Fatalf("template with text before the first heading: %v", ps)
+	}
+}
+
+// A front matter the website cannot edit (the whole mapping between { },
+// or indented keys) is refused on push, for a finding and a template: every
+// metadata edit of it would fail, and a Structure rename would stop at it.
+// A file the server already holds that way takes an edit of another part.
+func TestPolicyFrontMatterLayout(t *testing.T) {
+	flow := func(s string) string {
+		_, rest, _ := strings.Cut(s[4:], "\n---\n")
+		return "---\n{id: F-001, title: SQLi, author: alice}\n---\n" + rest
+	}
+	indented := func(s string) string {
+		meta, rest, _ := strings.Cut(s[4:], "\n---\n")
+		return "---\n  " + strings.ReplaceAll(meta, "\n", "\n  ") + "\n---\n" + rest
+	}
+	for name, form := range map[string]func(string) string{"flow": flow, "indented": indented} {
+		f := newFx(t)
+		ps := f.push("alice", func(d string) { rawFinding(d, form) })
+		if !hasLine(ps, "commit "+short(t, f.clone, "HEAD")+" "+fdir+"/finding.md: ", "front matter") || len(ps) != 1 {
+			t.Fatalf("%s: %v", name, ps)
+		}
+		rawFinding(f.repo().Dir, form)
+		git(t, f.repo().Dir, "commit", "-qam", "old push without checks")
+		f.reclone()
+		if ps := f.push("alice", func(d string) {
+			rawFinding(d, func(s string) string { return strings.Replace(s, "## Impact\n", "## Impact\n\nbetter words\n", 1) })
+		}); len(ps) != 0 {
+			t.Fatalf("%s: edit of another part refused: %v", name, ps)
+		}
+	}
+	f := newFx(t).on("")
+	if ps := f.push("dora", func(d string) {
+		write(d, ".yars/templates/sqli.md", "---\n{title: SQLi, severity: high}\n---\n\n## Impact\n\nfirst\n")
+	}); !has(ps, "front matter") {
+		t.Fatalf("template between { }: %v", ps)
+	}
+}
+
 // A template is checked against config.yaml as its commit has it: a push
 // that adds a severity and uses it in a template is accepted, in one
 // commit or two; a template before the commit that adds it is refused.
@@ -1768,6 +1840,8 @@ func TestPolicySymlinkAndSeverity(t *testing.T) {
 // result are in the database.
 func TestRetestContentPush(t *testing.T) {
 	f := newFx(t)
+	// only what was delivered is retested
+	f.st.DB().Tx(func(tx *db.Tx) error { return tx.PutState("acme", "F-001", db.State{Status: "complete"}) })
 	if err := f.st.CreateRetest(store.Engagement{ID: "rt", Name: "RT"}, "acme", []string{"F-001-sqli"}, "", user("dora")); err != nil {
 		t.Fatal(err)
 	}

@@ -106,7 +106,14 @@ func TestSimpleNoReviewersColumn(t *testing.T) {
 	if !strings.Contains(sb, `<th class="col-reviewers">`) || !strings.Contains(frow(sb, fdir), `class="revs"`) {
 		t.Fatal("standard list lost its Reviewers column")
 	}
-	// a retest's list: its Result column, still no Reviewers
+	// a retest's list: its Result column, still no Reviewers. Only a complete
+	// finding is retested (Q11): here Complete makes it so.
+	if err := e.srv.Store.UpdateSeverity("acme", fdir, "high", "", sAnna); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.srv.Store.Transition("acme", fdir, workflow.Complete, "", sAnna); err != nil {
+		t.Fatal(err)
+	}
 	if err := e.srv.Store.CreateRetest(store.Engagement{ID: "acme-rt", Name: "ACME retest"}, "acme", []string{fdir}, "", sAnna); err != nil {
 		t.Fatal(err)
 	}

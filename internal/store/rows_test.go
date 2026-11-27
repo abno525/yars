@@ -61,8 +61,9 @@ func TestCVSSRowsCheckedPerRow(t *testing.T) {
 	if got["AC"] != ReasonHash("L", ac) {
 		t.Fatalf("new bases %v", got)
 	}
-	// someone moves the vector on; a PR reason with the base read before both
-	vec2 := "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H"
+	// someone moves the vector on (another metric: AC keeps its value and
+	// so its reason); a PR reason with the base read before both
+	vec2 := "CVSS:3.1/AV:L/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
 	if _, err := s.UpdateCVSSRows(eng, fd, CVSSChange{Vector: &vec2, Bases: map[string]string{CVSSRow: read[CVSSRow]}}, alice); err != nil {
 		t.Fatal(err)
 	}
