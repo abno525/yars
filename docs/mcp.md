@@ -42,6 +42,8 @@ The assistant edits your clone and commits as `alice`. Nothing reaches the team 
 
 A clone holds **content only**. Workflow state (status, reviewers, clearances), chat, check runs and notifications live in the server's database, so in local mode the tools marked *server only* answer that you need the server — use the remote setup above for those.
 
+On a clone the status of a finding is `unknown`, in `read_finding` and in `list_findings`. `list_findings` refuses its `status` filter there (`no_database`) and lists withdrawn findings with the others. The rest of `read_finding`'s state is not known either: `reviewers`, `open_threads`, `can_edit` and `allowed_actions` read as for a new draft. An edit on the clone is committed whatever the status is on the server; the push decides.
+
 ## Simple workflow
 
 A data folder set up with `yars init --simple` runs the simple workflow: draft → complete → reported, with no reviewers and no roles (an account is an admin or not). `initialize`'s instructions and `tools/list` describe it, and the tools follow it:
@@ -143,7 +145,7 @@ Some refusals and their messages:
 | `not_allowed` | `not allowed: <reason>` | Your role or the finding's status forbids it |
 | `not_allowed` | `not allowed: this token may not <action>` | The token's actions don't include it |
 | `archived` | `not allowed: the engagement is archived (read only)` | Writes to an archived engagement |
-| `no_database` | `workflow state and chat are kept on the YARS server; use its web UI or its /mcp endpoint` | A server-only tool on a local clone |
+| `no_database` | `workflow state and chat are kept on the YARS server; use its web UI or its /mcp endpoint` | A server-only tool on a local clone, or `list_findings` with `status` there |
 | `conflict` | `the finding changed since you read it; read_finding again and retry` | Stale `base`; for `transition` clear, sign_off or approve it comes before the checks and the gate. Also a submit or sign-off that raced an edit |
 | `busy` | `a check or a fix of this finding is running` | `start_check` while a fix runs (during a check, running or queued, it answers that run), `fix_checks` while a check or a fix runs |
 | `invalid` | `a reason is required to withdraw a finding` | `transition` return, withdraw or revert without `reason` |

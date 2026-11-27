@@ -435,10 +435,18 @@ func (s *Server) ref(a args) (store.FindingRef, error) {
 	return s.resolve(a.str("engagement"), a.str("finding"))
 }
 
+// statusUnknown is the status a finding has in the answers of yars mcp on a
+// clone, which holds no workflow state. It is no status of a workflow: no
+// filter takes it and get_config does not list it.
+const statusUnknown = "unknown"
+
+// onClone ends the description of the tools that give a status.
+const onClone = " On a local clone (yars mcp) the status is unknown: workflow state is kept on the server."
+
 // readFindingRest is what read_finding gives besides the workflow state, as
 // both workflows word it. The numbers are maxOpenThreads and
 // maxThreadReplies.
-const readFindingRest = ", its front matter as fields (id, author, severity, cvss; under untrusted: title, details, cvss_reasons, assets), the file's hash (transition's base) and attachments_hash (transition's attachments_base), each section's name, body and base hash for safe edits, the open chat threads (at most 20, the oldest first, each with its last 20 replies; an AI reply is marked ai; open_threads_more and replies_more count what is left out, and read_chat has all of it), style-rule violations, and allowed_actions: every action of the status with whether you may take it now (enabled), why not (reason) and what it needs (needs: reason or base). Workflow state is not in finding.md; raw=true adds the file as it is (untrusted.finding_md)." + theirNote
+const readFindingRest = ", its front matter as fields (id, author, severity, cvss; under untrusted: title, details, cvss_reasons, assets), the file's hash (transition's base) and attachments_hash (transition's attachments_base), each section's name, body and base hash for safe edits, the open chat threads (at most 20, the oldest first, each with its last 20 replies; an AI reply is marked ai; open_threads_more and replies_more count what is left out, and read_chat has all of it), style-rule violations, and allowed_actions: every action of the status with whether you may take it now (enabled), why not (reason) and what it needs (needs: reason or base). Workflow state is not in finding.md; raw=true adds the file as it is (untrusted.finding_md)." + onClone + " There the rest of the state, the open threads, can_edit and allowed_actions are not known either: they read as for a new draft." + theirNote
 
 // tools are every tool, in the order tools/list gives them.
 var tools = slices.Concat(coreTools, readingTools, writingTools)
@@ -477,7 +485,7 @@ var coreTools = []tool{
 			}
 			return listPage(a, out)
 		}},
-	{name: "list_findings", readOnly: true, untrusted: true, desc: "List the findings of an engagement, optionally filtered by status or severity or searched (q), most severe first, a page at a time." + theirNote,
+	{name: "list_findings", readOnly: true, untrusted: true, desc: "List the findings of an engagement, optionally filtered by status or severity or searched (q), most severe first, a page at a time." + onClone + " The status filter is refused there, and withdrawn findings are in the list." + theirNote,
 		required: []param{pEng}, optional: []param{{"status", "one of draft, verification, complete, reported, withdrawn (withdrawn findings are listed only with this filter)"}, {"severity", "one of the configured severities (by default critical, high, medium, low, info)"},
 			{"q", "search: the findings whose ID (as written: F-002), title or an asset's host or URL holds this text, in any case"}, pLimit, pCursor},
 		simple: &toolText{params: map[string]string{"status": "one of draft, complete, reported, withdrawn (withdrawn findings are listed only with this filter)"}},
@@ -495,6 +503,13 @@ var coreTools = []tool{
 			}
 			if _, err := s.Store.Engagement(a.str("engagement")); err != nil {
 				return "", err
+			}
+			// a clone holds no workflow state: no status to filter by (the
+			// store reads every finding there as a draft, so that it can be
+			// edited; that is not the finding's status)
+			clone := s.Store.DB() == nil
+			if clone && a.str("status") != "" {
+				return "", store.ErrNoDB
 			}
 			rows, err := s.Index.Rows(index.Query{EngID: a.str("engagement"), Status: a.str("status"), Severity: a.str("severity"), Text: strings.TrimSpace(a.str("q")), Sort: "severity"})
 			if err != nil {
@@ -519,6 +534,9 @@ var coreTools = []tool{
 				x := row{ID: r.ID, Dir: r.Dir, Status: r.Status, Severity: r.Severity, Score: r.Score, Author: r.Author, Reviewers: r.Reviewers,
 					OpenThreads: r.OpenThreads, RetestResult: r.RetestResult}
 				x.Theirs.Title = r.Title
+				if clone {
+					x.Status = statusUnknown
+				}
 				out = append(out, x)
 			}
 			return listPage(a, out)
@@ -577,6 +595,11 @@ var coreTools = []tool{
 				Returned: reasonOf(m.Returned), Withdrawn: reasonOf(m.Withdrawn)}
 			if m.Retest != nil {
 				st.RetestSource, st.RetestResult = m.Retest.Source, m.Retest.Result
+			}
+			if s.Store.DB() == nil {
+				// a clone: the status is the server's to say. The answer only:
+				// the workflow's checks and the store never see this word
+				st.Status = statusUnknown
 			}
 			out := struct {
 				Engagement  string             `json:"engagement"`
