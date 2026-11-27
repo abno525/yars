@@ -28,10 +28,10 @@ type retestView struct {
 	// Copied: the panel shows the text as it was copied into the retest, not
 	// the original as it is (the viewer is not on the original's team): no
 	// status tag, no Open link
-	Copied  bool
-	Options []retestOption
-	URL, Error                string
-	Locked                    bool
+	Copied     bool
+	Options    []retestOption
+	URL, Error string
+	Locked     bool
 	// the original, shown beside the result
 	Details       []detailsRow
 	Vector, Score string
