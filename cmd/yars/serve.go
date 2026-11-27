@@ -232,6 +232,12 @@ func cmdServe(args []string) error {
 		}
 		tlsCfg = &tls.Config{Certificates: []tls.Certificate{pair}, MinVersion: tls.VersionTLS12}
 	}
+	// a git that is missing or too old stops the start before anything
+	// changes: with an old one the server would run and refuse every push
+	gitUnread, err := checkGit()
+	if err != nil {
+		return err
+	}
 	r, err := openData(fs, *data)
 	if err != nil {
 		return err
@@ -241,6 +247,9 @@ func cmdServe(args []string) error {
 		return err
 	}
 	lg, level, ring := serverLogRing(os.Stderr, cfg, *logLevel)
+	if gitUnread {
+		logGitUnread(lg)
+	}
 	d, st, err := prepareData(r, cfg, lg)
 	if err != nil {
 		return err

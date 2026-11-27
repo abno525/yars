@@ -4,7 +4,7 @@ Running YARS for a team: one server, one data folder, a proxy for HTTPS.
 
 ## Requirements
 
-- **git 2.30 or later**, on the server's `PATH`. An older git lacks an option YARS reads refs with. YARS keeps every engagement in a git repository and serves clones and pushes itself. Removing a file from history (Purge) uses `git filter-branch`; some small images package it apart from git.
+- **git 2.30 or later**, on the server's `PATH`. An older git lacks an option YARS reads refs with: `yars serve` and `yars init` check the version first and do not start with an older git, or without git. YARS keeps every engagement in a git repository and serves clones and pushes itself. Removing a file from history (Purge) uses `git filter-branch`; some small images package it apart from git.
 - **Go 1.27.2 or later**, to build the binary. Build with the newest patch release: it has the security fixes of Go's own packages, which end up in the binary.
 - **pandoc** (optional), for the PDF, Word and other pandoc downloads and destinations. Without it, those are refused; the ZIP downloads and the Confluence HTML destination still work.
   - Some packaged pandoc builds cannot load their own data files under `--sandbox`. YARS then runs pandoc without the sandbox: what it is given is already sanitised, and images are already inlined. A static release from pandoc's website keeps the sandbox.
@@ -337,6 +337,7 @@ Each job writes one line when it ends, with `ms` and its outcome.
 | `yars serving` | the start: version, schema, workflow, address, and whether AI, SMTP and pandoc are on |
 | `start: uncommitted files were removed from an engagement's findings folder` | the start removed files a stop had left between their write and their commit: the engagement and a count (`warn`) |
 | `start: another server runs on this data folder; uncommitted files in the findings folders are left` | a second `yars serve` on a data folder a server already runs on: it removes nothing (`warn`) |
+| `git: the version does not read; the start goes on (YARS needs git 2.30 or later)` | `git version` printed no version YARS reads, so the start could not check it (`warn`) |
 | `yars stopping`, `yars stopped` | the stop |
 | `health check failed`, `health check passes again` | the answer of `/healthz` changed: to `503` (`warn`, with the reason in `err`), and back to `200` |
 | `check run finished` | a check run ended: its state and the counts of errors and warnings |

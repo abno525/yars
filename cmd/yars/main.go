@@ -1139,6 +1139,11 @@ func cmdInitOut(args []string, out io.Writer) error {
 	if fs.NArg() != 1 {
 		return errUsage
 	}
+	// before the folder is made: git init -b fails on an old git with git's
+	// own words, and a version that does not read stops nothing
+	if _, err := checkGit(); err != nil {
+		return err
+	}
 	if err := initDataMode(fs.Arg(0), *simple); err != nil {
 		return err
 	}
@@ -1172,6 +1177,9 @@ func cmdSeed(args []string, out io.Writer) error {
 	}
 	if ents, err := os.ReadDir(*data); err == nil && len(ents) > 0 {
 		return fmt.Errorf("%s is not empty", *data)
+	}
+	if _, err := checkGit(); err != nil { // as yars init
+		return err
 	}
 	start := time.Now()
 	if err := initDataMode(*data, o.Simple); err != nil {

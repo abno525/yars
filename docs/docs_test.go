@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/abno525/yars/internal/gitrepo"
 	"github.com/abno525/yars/internal/logs"
 )
 
@@ -414,6 +415,30 @@ func TestDeployGuideAccountCommands(t *testing.T) {
 	}
 	if r, err := os.ReadFile("../README.md"); err != nil || !strings.Contains(string(r), "| `yars help` |") || !strings.Contains(string(r), "| `yars users` |") {
 		t.Error("the README's commands lack yars help or yars users")
+	}
+}
+
+// The git release the deploy guide asks for is the one the start checks
+// (gitrepo.MinVersion): the page and the check cannot drift apart. The
+// guide says the start checks it, and the changelog names the refusal.
+func TestDeployGuideGitVersionIsTheCheckedOne(t *testing.T) {
+	read := func(name string) string {
+		b, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	need := "git " + gitrepo.MinVersion() + " or later"
+	d := read("deploy.md")
+	for _, want := range []string{"**" + need + "**", "`yars serve` and `yars init` check the version first and do not start with an older git, or without git",
+		"`git: the version does not read; the start goes on (YARS needs " + need + ")`"} {
+		if !strings.Contains(d, want) {
+			t.Errorf("the deploy guide lacks %q", want)
+		}
+	}
+	if cl := read("../CHANGELOG.md"); !strings.Contains(cl, "`"+need+" is needed; this is git 2.25`") || !strings.Contains(cl, "`git is not on the PATH`") {
+		t.Error("CHANGELOG does not name the refusal of an old git and of no git")
 	}
 }
 
