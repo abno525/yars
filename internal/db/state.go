@@ -76,6 +76,40 @@ func (d *DB) Known(eng, fid string) (bool, error) {
 	return n > 0, err
 }
 
+// knownSQL lists what Known counts: the finding IDs with workflow state,
+// reviewers or chat.
+const knownSQL = `SELECT eng, fid FROM finding_state UNION SELECT eng, fid FROM reviewers UNION SELECT eng, fid FROM chat`
+
+// KnownIDs lists the finding IDs of an engagement that Known reports, sorted
+// as text.
+func (d *DB) KnownIDs(eng string) ([]string, error) {
+	return column(d, "SELECT fid FROM ("+knownSQL+") WHERE eng = ? ORDER BY fid", eng)
+}
+
+// KnownEngagements lists the engagements that hold a finding ID Known
+// reports, sorted.
+func (d *DB) KnownEngagements() ([]string, error) {
+	return column(d, "SELECT DISTINCT eng FROM ("+knownSQL+") ORDER BY eng")
+}
+
+// column reads a query's one text column.
+func column(d *DB, q string, args ...any) ([]string, error) {
+	rows, err := d.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var s string
+		if err := rows.Scan(&s); err != nil {
+			return nil, err
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
 // Purge drops all workflow state and chat of an engagement (used when an
 // engagement is created under the name of one that no longer exists).
 func (tx *Tx) Purge(eng string) error {

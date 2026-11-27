@@ -19,6 +19,7 @@ import (
 	"github.com/abno525/yars/internal/config"
 	"github.com/abno525/yars/internal/db"
 	"github.com/abno525/yars/internal/secret"
+	"github.com/abno525/yars/internal/store"
 )
 
 func zipNames(t *testing.T, body []byte) map[string][]byte {
@@ -377,6 +378,76 @@ func TestRunIntegrityReportsBrokenRepo(t *testing.T) {
 	row := healthRowOf(t, e.do(t, "dora", "GET", "/admin/system", nil, nil).Body.String(), "Git repositories")
 	if !strings.Contains(row, `<span class="tag bad">Error</span>`) || !strings.Contains(row, `title="acme">acme<`) || !strings.Contains(row, "missing blob "+blob) {
 		t.Fatalf("git row with a broken repository:\n%s", row)
+	}
+}
+
+// Run integrity compares the database with the files: rows of a finding no
+// folder holds and an approval given for other text are counted and named
+// by their IDs; neither is an error. A page load does not run it.
+func TestRunIntegrityComparesDatabaseWithFiles(t *testing.T) {
+	e := setup(t)
+	b := e.do(t, "dora", "GET", "/admin/system", nil, nil).Body.String()
+	if row := healthRowOf(t, b, "Database and files"); !strings.Contains(row, `<span class="tag off">Not run</span>`) {
+		t.Fatalf("row on a page load:\n%s", row)
+	}
+	if i, j := strings.Index(b, ">Git repositories<"), strings.Index(b, ">Database and files<"); i > j {
+		t.Fatal("Database and files is not after Git repositories")
+	}
+	st := e.srv.Store
+	ref, err := st.Finding("acme", fdir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fid := ref.F.Meta.ID
+	p := filepath.Join(e.dir, "engagements", "acme", "findings", fdir, "finding.md")
+	raw, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.DB().TxFor("acme", func(tx *db.Tx) error {
+		if err := tx.PutState("acme", fid, db.State{Status: "complete", ApprovedHash: store.ApprovalHash(raw)}); err != nil {
+			return err
+		}
+		return tx.PutState("acme", "F-099", db.State{Status: "verification"})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	check := func() string {
+		t.Helper()
+		if rec := e.do(t, "dora", "POST", "/admin/system/check", url.Values{}, nil); rec.Code != http.StatusSeeOther {
+			t.Fatalf("run %d", rec.Code)
+		}
+		return healthRowOf(t, e.do(t, "dora", "GET", "/admin/system", nil, nil).Body.String(), "Database and files")
+	}
+	row := check()
+	for _, want := range []string{`<span class="tag good">OK</span>`, `title="1 finding · 1 row without a finding">`, `title="acme/F-099">acme/F-099<`} {
+		if !strings.Contains(row, want) {
+			t.Fatalf("row lacks %s:\n%s", want, row)
+		}
+	}
+	// the approved finding's file changes outside YARS: its approval is for
+	// other text
+	if err := os.WriteFile(p, append(raw, []byte("\nmore\n")...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	row = check()
+	for _, want := range []string{`<span class="tag good">OK</span>`, `title="1 finding · 1 row without a finding · 1 approval for other text">`, `title="acme/F-099, acme/` + fid + `">`} {
+		if !strings.Contains(row, want) {
+			t.Fatalf("row lacks %s:\n%s", want, row)
+		}
+	}
+	if strings.Contains(row, fdir) {
+		t.Fatalf("the row names a folder:\n%s", row)
+	}
+	// a finding.md that does not parse is an error, named by its ID
+	if err := os.WriteFile(p, []byte("no front matter\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	row = check()
+	for _, want := range []string{`<span class="tag bad">Error</span>`, `title="1 unreadable finding">`, `title="acme/` + fid + `">`} {
+		if !strings.Contains(row, want) {
+			t.Fatalf("row lacks %s:\n%s", want, row)
+		}
 	}
 }
 
