@@ -69,6 +69,7 @@ What YARS does not do, or does in a way that can surprise. Each row states today
 |---|---|
 | In the assets editor, Add row after someone else saved asks before Cancel although nothing was typed | The rows on screen are not what is saved any more; asking is the safer side. |
 | In the inbox and Go to, a long engagement ID is cut at 96 px, the whole one on hover | Two date-prefixed IDs (2026-11-acme-webapp, 2026-11-acme-api) can look alike there. |
+| "is editing" stays up to 150 s after an editor's tab was closed | Cancel and Save end it at once. A closed tab sends nothing; the server forgets the editor after 150 s without a sign of it. |
 | The History page still scrolls when a selected change's diff is taller than the window | The list column fits the window; the diff panel has no height limit. |
 
 ## Simple workflow

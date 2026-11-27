@@ -900,9 +900,10 @@ document.addEventListener('input', function (evt) {
 });
 
 // Presence: an open editor tells the server every 20 s that it is still
-// open (the server forgets it after 60 s without one).
+// open, in a hidden tab too: the text is as open there. A hidden tab's
+// timers run once a minute at most, so the server forgets an editor only
+// after 150 s without a beat.
 setInterval(function () {
-  if (document.hidden) return;
   document.querySelectorAll('form[data-presence]').forEach(function (f) {
     fetch(f.getAttribute('data-presence'), {method: 'POST', credentials: 'same-origin', headers: {'HX-Request': 'true'}})
       .then(function (r) { if (r.status === 401) yarsExpired(); })
