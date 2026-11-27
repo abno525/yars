@@ -10,6 +10,7 @@ import (
 	"github.com/abno525/yars/internal/auth"
 	"github.com/abno525/yars/internal/config"
 	"github.com/abno525/yars/internal/cvss"
+	"github.com/abno525/yars/internal/finding"
 	"github.com/abno525/yars/internal/index"
 	"github.com/abno525/yars/internal/store"
 	"github.com/abno525/yars/internal/workflow"
@@ -24,7 +25,11 @@ type retestView struct {
 	Result, Source, SourceURL string
 	SourceStatus, SourceSev   string
 	SourceMissing             bool
-	Options                   []retestOption
+	// Copied: the panel shows the text as it was copied into the retest, not
+	// the original as it is (the viewer is not on the original's team): no
+	// status tag, no Open link
+	Copied  bool
+	Options []retestOption
 	URL, Error                string
 	Locked                    bool
 	// the original, shown beside the result
@@ -46,27 +51,40 @@ func (s *Server) retestFor(r *http.Request, ref store.FindingRef) *retestView {
 		return nil
 	}
 	v := &retestView{Result: rt.Result, Source: rt.Source, URL: findingURL(ref.EngID, ref.Dir) + "/retest", Locked: s.locked(r, ref)}
+	// show fills the panel's body from f; its pictures are those of at
+	show := func(f *finding.Finding, at store.FindingRef) {
+		m := f.Meta
+		v.SourceSev = cvss.Derive(m.CVSS, m.Severity)
+		for _, name := range s.conf().DetailsRows {
+			if x := strings.TrimSpace(m.Details[name]); x != "" {
+				v.Details = append(v.Details, detailsRow{Name: name, Value: x})
+			}
+		}
+		if vec, err := cvss.Parse(m.CVSS); err == nil {
+			n, _ := cvss.Score(vec)
+			v.Vector, v.Score = vec.String(), cvss.FormatScore(n)
+		}
+		for _, sec := range f.Sections {
+			if strings.TrimSpace(sec.Body) != "" {
+				v.Sections = append(v.Sections, tplSection{Name: sec.Name, HTML: s.linkAttachments(s.renderMD(sec.Body), at)})
+			}
+		}
+	}
 	if eng, dir, ok := strings.Cut(rt.Source, "/"); ok {
 		v.SourceURL = findingURL(eng, dir)
-		// the original is shown only to those on its engagement's team
+		// the original as it is now, with its status and a link to it, only
+		// for those on its engagement's team
 		if src, err := s.Store.Finding(eng, dir); err == nil && s.Store.CanSee(auth.UserFrom(r.Context()), eng) {
-			m := src.F.Meta
-			v.SourceStatus = workflow.Shown(m)
-			v.SourceSev = cvss.Derive(m.CVSS, m.Severity)
-			for _, name := range s.conf().DetailsRows {
-				if x := strings.TrimSpace(m.Details[name]); x != "" {
-					v.Details = append(v.Details, detailsRow{Name: name, Value: x})
-				}
-			}
-			if vec, err := cvss.Parse(m.CVSS); err == nil {
-				n, _ := cvss.Score(vec)
-				v.Vector, v.Score = vec.String(), cvss.FormatScore(n)
-			}
-			for _, sec := range src.F.Sections {
-				if strings.TrimSpace(sec.Body) != "" {
-					v.Sections = append(v.Sections, tplSection{Name: sec.Name, HTML: s.linkAttachments(s.renderMD(sec.Body), src)})
-				}
-			}
+			v.SourceStatus = workflow.Shown(src.F.Meta)
+			show(src.F, src)
+		} else if f := s.copiedOriginal(ref); f != nil {
+			// anyone else (the retester from outside that team; also when the
+			// original is gone) sees what was copied into the retest: the
+			// copy's first version, out of the retest's own repository, which
+			// they are on the team of. Nothing is read from the source, and
+			// the pictures are the copy's.
+			v.Copied = true
+			show(f, ref)
 		} else {
 			v.SourceMissing = true
 		}
@@ -77,6 +95,27 @@ func (s *Server) retestFor(r *http.Request, ref store.FindingRef) *retestView {
 		v.Options = append(v.Options, retestOption{Code: c, Label: workflow.RetestLabel(c), Checked: c == rt.Result})
 	}
 	return v
+}
+
+// copiedOriginal is the retest finding ref as it was copied from its
+// original: the first version of its file in the retest's repository (the
+// retest's first commit wrote it). nil when that cannot be read. It starts
+// git (cached per HEAD, as History), so it is asked only when the original
+// itself cannot be shown.
+func (s *Server) copiedOriginal(ref store.FindingRef) *finding.Finding {
+	vs, err := s.versions(ref)
+	if err != nil || len(vs) == 0 {
+		return nil
+	}
+	raw := vs[len(vs)-1].Raw // newest first: the last is the first version
+	if raw == nil {
+		return nil
+	}
+	f, err := finding.Parse(raw)
+	if err != nil {
+		return nil
+	}
+	return f
 }
 
 func (s *Server) retestSave(w http.ResponseWriter, r *http.Request) {
