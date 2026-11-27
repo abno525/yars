@@ -3,7 +3,11 @@ package main
 import (
 	"bytes"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
+	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -13,6 +17,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/abno525/yars/internal/auth"
 	"github.com/abno525/yars/internal/config"
@@ -216,6 +221,48 @@ func TestPushChunkedBodyCapped(t *testing.T) {
 	}
 	if ents, _ := os.ReadDir(tmp); len(ents) != 0 {
 		t.Fatalf("spool files left: %v", ents)
+	}
+}
+
+// A push that stops sending its body, to an engagement or to the main
+// repository, never takes the store's lock: after it was cut (408) the lock
+// is free and a save through the website goes on.
+func TestStalledPushHoldsNoLock(t *testing.T) {
+	p := newPushEnvWith(t, func(gs *gitserve.Server) { gs.IdleTimeout = 200 * time.Millisecond })
+	var reached atomic.Int32
+	note := func() { reached.Add(1) }
+	p.beforeReceive.Store(&note)
+	cred := base64.StdEncoding.EncodeToString([]byte("alice:pw"))
+	for _, path := range []string{"/git/e/acme/git-receive-pack", "/git/yars/git-receive-pack"} {
+		conn, err := net.Dial("tcp", strings.TrimPrefix(p.url, "http://"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		fmt.Fprintf(conn, "POST %s HTTP/1.1\r\nHost: x\r\nAuthorization: Basic %s\r\nContent-Type: application/x-git-receive-pack-request\r\nContent-Length: 1000\r\n\r\n0094", path, cred)
+		conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+		b, _ := io.ReadAll(conn)
+		conn.Close()
+		if !strings.HasPrefix(string(b), "HTTP/1.1 408 ") {
+			t.Fatalf("%s: a stalled push got %q", path, b)
+		}
+	}
+	if n := reached.Load(); n != 0 {
+		t.Fatalf("%d stalled pushes reached the store", n)
+	}
+	free := make(chan struct{})
+	go func() {
+		p.st.LockEngagement("acme")()
+		p.st.LockMain()()
+		close(free)
+	}()
+	select {
+	case <-free:
+	case <-time.After(10 * time.Second):
+		t.Fatal("a lock is still held after the stalled pushes")
+	}
+	alice := config.User{Username: "alice", Role: "pentester"}
+	if err := p.st.UpdateSection("acme", "F-001-sqli", "Remediation", "Web edit.", "", alice); err != nil {
+		t.Fatalf("a save after the stalled pushes: %v", err)
 	}
 }
 

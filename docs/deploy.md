@@ -169,6 +169,8 @@ server {
 
 The proxy must keep the `Host` header: YARS refuses cross-origin form posts by it. YARS does not read `X-Forwarded-Proto`. The clone and MCP addresses on the pages come from `base_url` (below). Without `base_url` they use the request's `Host` header, with `https` only when the server runs with `--https` or a certificate; `yars serve` then logs at the start that `base_url` is not set. The live-update stream asks nginx not to buffer it (`X-Accel-Buffering: no`) and sends a ping every 25 seconds.
 
+A push or a fetch whose client sends nothing for two minutes is cut. git then prints `RPC failed; HTTP 408`, and the log has one `warn` line. A push that keeps sending is never cut, however large it is and however slow the line. YARS writes each push to a temporary file before git reads it, so `TMPDIR` (`/tmp` by default) needs room for the largest push. With `PrivateTmp=yes` and a `/tmp` kept in memory, that room is memory. The lines git prints as `remote:` reach the pusher when the push has ended.
+
 Set the address people use in `.yars/config.yaml`, so links in mail and webhooks are whole and the pages show the right clone and MCP addresses:
 
 ```yaml
@@ -351,6 +353,7 @@ Each job writes one line when it ends, with `ms` and its outcome.
 | `start: a journal row matches nothing and is dropped; nothing was changed` | a noted write did not fit the finding's file any more; the finding is as it was, and may need its approval again (`warn`) |
 | `start: the database and the finding files disagree; see Admin, System, Health` | the start's compare found a finding ID in two folders or a `finding.md` that does not read: the counts (`warn`) |
 | `git: the version does not read; the start goes on (YARS needs git 2.30 or later)` | `git version` printed no version YARS reads, so the start could not check it (`warn`) |
+| `git: a request body stalled and was cut off` | a push or a fetch sent nothing for two minutes and got `408`: the engagement (none for the main repository), the user and the bytes read (`warn`) |
 | `yars stopping`, `yars stopped` | the stop |
 | `health check failed`, `health check passes again` | the answer of `/healthz` changed: to `503` (`warn`, with the reason in `err`), and back to `200` |
 | `check run finished` | a check run ended: its state and the counts of errors and warnings |
