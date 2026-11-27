@@ -72,6 +72,54 @@ func TestAttachmentVoidsSignOff(t *testing.T) {
 	}
 }
 
+// A sign-off a text edit voided is voided once: an attachment added after
+// it, through YARS or by push, names nobody again, and the stale sign-off is
+// gone from the state.
+func TestVoidedSignOffIsToldOnce(t *testing.T) {
+	var b bytes.Buffer
+	if err := png.Encode(&b, image.NewRGBA(image.Rect(0, 0, 2, 2))); err != nil {
+		t.Fatal(err)
+	}
+	for _, how := range []string{"upload", "push"} {
+		s, fd, rec := signedOffFinding(t)
+		if err := s.UpdateSection(eng, fd, "Impact", "DB read and write", "", alice); err != nil {
+			t.Fatal(err)
+		}
+		if e := rec.last(EventUpdated); !slices.Equal(e.Voided, []string{"bob"}) {
+			t.Fatalf("%s: after the edit: %+v", how, e)
+		}
+		n := len(rec.evs)
+		if how == "upload" {
+			if _, err := s.AddAttachment(eng, fd, "shot.png", b.Bytes(), alice); err != nil {
+				t.Fatal(err)
+			}
+		} else {
+			ed := filepath.Join(s.Repo().Dir, "engagements", eng)
+			s.ReceivePush(eng, uAlice, func() {
+				at := filepath.Join(ed, "findings", fd, "attachments")
+				os.MkdirAll(at, 0o755)
+				os.WriteFile(filepath.Join(at, "shot.png"), b.Bytes(), 0o644)
+				for _, args := range [][]string{{"add", "-A"}, {"-c", "user.name=alice", "-c", "user.email=alice@acme.example", "commit", "-q", "-m", "F-001: shot"}} {
+					if out, err := exec.Command("git", append([]string{"-C", ed}, args...)...).CombinedOutput(); err != nil {
+						t.Errorf("git %v: %v\n%s", args, err, out)
+					}
+				}
+			})
+		}
+		if len(rec.evs) == n {
+			t.Fatalf("%s: no event for the attachment", how)
+		}
+		for _, e := range rec.evs[n:] {
+			if len(e.Voided) != 0 {
+				t.Fatalf("%s: the attachment voided bob's sign-off again: %+v", how, e)
+			}
+		}
+		if st := stateOf(t, s, fd); st.Reviewers[0].ClearedHash != "" {
+			t.Fatalf("%s: the stale sign-off is kept: %+v", how, st.Reviewers)
+		}
+	}
+}
+
 // A pushed text change voids the sign-off too, and its event says whose.
 func TestPushVoidsSignOff(t *testing.T) {
 	s, fd, rec := signedOffFinding(t)

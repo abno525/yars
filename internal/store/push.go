@@ -211,6 +211,7 @@ type pushedFinding struct {
 	raw   []byte           // its bytes
 	old   *finding.Finding // before the push, here or in the folder it was renamed from (nil: new)
 	prev  []byte           // finding.md before the push in this folder (nil: none)
+	moved []byte           // finding.md in the folder it was renamed from (nil: not renamed)
 	md    byte             // A or M of finding.md; 0 when untouched
 	files bool             // other files of the folder changed
 	// voided are the reviewers whose sign-off the push voided (pushState)
@@ -272,6 +273,7 @@ func (s *Store) pushedFindings(eng, before, after string) ([]pushedFinding, erro
 				// the folder was renamed: the same finding, not a new one
 				if b, err := r.Show(before, path.Join("findings", prev, "finding.md")); err == nil {
 					pf.old, _ = finding.Parse(b)
+					pf.moved = b
 				}
 				// its other files moved along: changed only if they differ
 				// from the old folder's
@@ -323,7 +325,15 @@ func (s *Store) pushState(eng string, u config.User, ps []pushedFinding) {
 			}
 		}
 		if pf.files && may(pf.cur.Meta.ID, signedOff) {
-			dropped, err := dropSignOffs(s.db, eng, pf.cur.Meta.ID)
+			// the text the sign-offs may still be for: as the push left it,
+			// as it was before, here or in the folder it was renamed from
+			hashes := []string{ApprovalHash(pf.raw)}
+			for _, b := range [][]byte{pf.prev, pf.moved} {
+				if b != nil {
+					hashes = append(hashes, ApprovalHash(b))
+				}
+			}
+			dropped, err := dropSignOffs(s.db, eng, pf.cur.Meta.ID, hashes...)
 			if err != nil {
 				s.Log().Error("push: the sign-offs are not dropped", "eng", eng, "finding", LogID(pf.cur.Meta.ID), "err", err)
 			}

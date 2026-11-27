@@ -352,8 +352,11 @@ func signedOff(st db.State) bool {
 // (used after a change to its attachments, through YARS or by push): a
 // sign-off covers them too, but is bound to finding.md's hash, which they
 // leave as it is. A complete or reported finding keeps its own. It returns
-// the reviewers whose sign-off it dropped.
-func dropSignOffs(d *db.DB, eng, fid string) ([]string, error) {
+// the reviewers whose sign-off still counted: the ones bound to one of
+// hashes, the ApprovalHash values of finding.md as it was signed off. A
+// sign-off an earlier text edit voided is dropped too (the edit wrote no
+// state) but not named: its reviewer was told then.
+func dropSignOffs(d *db.DB, eng, fid string, hashes ...string) ([]string, error) {
 	if d == nil {
 		return nil, nil
 	}
@@ -364,7 +367,7 @@ func dropSignOffs(d *db.DB, eng, fid string) ([]string, error) {
 			return err
 		}
 		for i := range st.Reviewers {
-			if st.Reviewers[i].ClearedHash != "" {
+			if c := st.Reviewers[i].ClearedHash; c != "" && slices.ContainsFunc(hashes, func(h string) bool { return boundTo(c, h) }) {
 				voided = append(voided, st.Reviewers[i].Name)
 			}
 			st.Reviewers[i].ClearedHash = ""

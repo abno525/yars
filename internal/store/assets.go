@@ -342,7 +342,9 @@ func (s *Store) changeFilesLocked(engID, dir string, who Actor, fn func(ref Find
 			// an attachment changed: the sign-offs go, as a text change's do
 			// (before the page hears of the change)
 			var dropped []string
-			dropped, serr = dropSignOffs(s.db, engID, ref.F.Meta.ID)
+			// ref.Full: the text as it was read under this lock (a text
+			// change in the same commit named its reviewers above)
+			dropped, serr = dropSignOffs(s.db, engID, ref.F.Meta.ID, ref.Full)
 			for _, n := range dropped {
 				if !slices.Contains(voided, n) {
 					voided = append(voided, n)
