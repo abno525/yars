@@ -446,7 +446,7 @@ const onClone = " On a local clone (yars mcp) the status is unknown: workflow st
 // readFindingRest is what read_finding gives besides the workflow state, as
 // both workflows word it. The numbers are maxOpenThreads and
 // maxThreadReplies.
-const readFindingRest = ", its front matter as fields (id, author, severity, cvss; under untrusted: title, details, cvss_reasons, assets), the file's hash (transition's base) and attachments_hash (transition's attachments_base), each section's name, body and base hash for safe edits, the open chat threads (at most 20, the oldest first, each with its last 20 replies; an AI reply is marked ai; open_threads_more and replies_more count what is left out, and read_chat has all of it), style-rule violations, and allowed_actions: every action of the status with whether you may take it now (enabled), why not (reason) and what it needs (needs: reason or base). Workflow state is not in finding.md; raw=true adds the file as it is (untrusted.finding_md)." + onClone + " There the rest of the state, the open threads, can_edit and allowed_actions are not known either: they read as for a new draft." + theirNote
+const readFindingRest = ", its front matter as fields (id, author, severity, cvss; under untrusted: title, details, cvss_reasons, assets), the file's hash (transition's base) and attachments_hash (transition's attachments_base), each section's name (under untrusted when the configuration does not name the section; pass it to update_section all the same), body and base hash for safe edits, the open chat threads (at most 20, the oldest first, each with its last 20 replies; an AI reply is marked ai; open_threads_more and replies_more count what is left out, and read_chat has all of it), style-rule violations, and allowed_actions: every action of the status with whether you may take it now (enabled), why not (reason) and what it needs (needs: reason or base). Workflow state is not in finding.md; raw=true adds the file as it is (untrusted.finding_md)." + onClone + " There the rest of the state, the open threads, can_edit and allowed_actions are not known either: they read as for a new draft." + theirNote
 
 // tools are every tool, in the order tools/list gives them.
 var tools = slices.Concat(coreTools, readingTools, writingTools)
@@ -552,10 +552,13 @@ var coreTools = []tool{
 			}
 			// other people's text is under "untrusted", in the object it
 			// belongs to (untrusted.go)
+			// a section's name is outside when the configuration names it,
+			// else under "untrusted" (sectionOf); so is a thread's section
 			type sec struct {
-				Name   string `json:"name"`
+				Name   string `json:"name,omitempty"`
 				Base   string `json:"base"`
 				Theirs struct {
+					Name string `json:"name,omitempty"`
 					Body string `json:"body"`
 				} `json:"untrusted"`
 			}
@@ -565,12 +568,12 @@ var coreTools = []tool{
 				Theirs theirText `json:"untrusted"`
 			}
 			type thread struct {
-				ID      string    `json:"id"`
-				User    string    `json:"user"`
-				Section string    `json:"section,omitempty"`
-				Theirs  theirText `json:"untrusted"`
-				Replies []msg     `json:"replies"`      // the last maxThreadReplies
-				More    int       `json:"replies_more"` // earlier replies left out
+				ID      string      `json:"id"`
+				User    string      `json:"user"`
+				Section string      `json:"section,omitempty"`
+				Theirs  theirThread `json:"untrusted"`
+				Replies []msg       `json:"replies"`      // the last maxThreadReplies
+				More    int         `json:"replies_more"` // earlier replies left out
 			}
 			type state struct {
 				Status       string       `json:"status"`
@@ -646,7 +649,8 @@ var coreTools = []tool{
 				out.CanEdit = false // the token may not edit, whatever the account may
 			}
 			for _, sct := range ref.F.Sections {
-				x := sec{Name: sct.Name, Base: store.BodyHash(sct.Body)}
+				x := sec{Base: store.BodyHash(sct.Body)}
+				x.Name, x.Theirs.Name = s.sectionOf(sct.Name)
 				x.Theirs.Body = sct.Body
 				out.Sections = append(out.Sections, x)
 			}
@@ -666,7 +670,8 @@ var coreTools = []tool{
 					continue
 				}
 				t := it.Thread
-				th := thread{ID: t.Root.ID, User: t.Root.User, Section: t.Root.Section, Theirs: theirText{t.Root.Text}, Replies: []msg{}}
+				th := thread{ID: t.Root.ID, User: t.Root.User, Theirs: theirThread{Text: t.Root.Text}, Replies: []msg{}}
+				th.Section, th.Theirs.Section = s.sectionOf(t.Root.Section)
 				replies := t.Replies
 				if th.More = len(replies) - maxThreadReplies; th.More > 0 {
 					replies = replies[th.More:]
@@ -1054,16 +1059,15 @@ var toolByName = func() map[string]tool {
 }()
 
 // fieldBases are the per-row bases of set_field, by field name: each
-// details row (configured or present), cvss and each cvss_reason, the
-// reviewer list, the title, the severity and a retest finding's result. An
-// edit is refused only when its own row changed since it was read.
+// configured details row, cvss and each cvss_reason, the reviewer list, the
+// title, the severity and a retest finding's result. An edit is refused only
+// when its own row changed since it was read. A row a pushed file has and
+// the configuration does not name has no base: set_field does not take it,
+// and its name is the pusher's text (it is in untrusted.details).
 func (s *Server) fieldBases(m finding.Meta) map[string]string {
 	out := map[string]string{}
 	for _, row := range s.conf().DetailsRows {
 		out["details."+row] = store.RowHash(m.Details[row])
-	}
-	for row, v := range m.Details {
-		out["details."+row] = store.RowHash(v)
 	}
 	maps.Copy(out, cvssBases(store.CVSSRowHashes(m)))
 	if s.flow().HasReviewers() {

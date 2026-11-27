@@ -103,15 +103,17 @@ Text that people wrote is in an answer only under a key named `untrusted`, insid
 |---|---|
 | `list_engagements` | each item's `name`, `client` |
 | `list_findings`, `list_templates` | each item's `title` |
-| `read_finding` | `title`, `details`, `cvss_reasons`, `assets`, and `finding_md` with `raw: true`; each section's `body`; each open thread's and reply's `text`; each violation's `message`, `quote`; the `reason` of `state.returned` and `state.withdrawn` |
+| `read_finding` | `title`, `details`, `cvss_reasons`, `assets`, and `finding_md` with `raw: true`; each section's `body`, and its `name` when the configuration does not name the section; each open thread's and reply's `text`, and a thread's `section` when it is such a section; each violation's `message`, `quote`; the `reason` of `state.returned` and `state.withdrawn` |
 | `read_template` | `title`, `markdown` |
 | `lint_finding`, `get_check_results` | each result's `message`, `quote` |
 | `list_notifications` | each item's `title`, `text` |
-| `read_chat` | each item's and reply's `text` |
+| `read_chat` | each item's and reply's `text`; a thread's `section` when the configuration does not name it |
 | `list_history` | each item's `author` (the name the commit carries), `subject`, `changed` |
 | a finding file that does not parse | `detail`, the parser's words |
 
-A list item looks like `{"id": "F-001", "dir": "F-001-sql-injection", "status": "draft", …, "untrusted": {"title": "SQL injection"}}`. What you send back stays outside: IDs, folder names, section names, attachment names, `hash`, the bases, `status`, `allowed_actions`.
+A list item looks like `{"id": "F-001", "dir": "F-001-sql-injection", "status": "draft", …, "untrusted": {"title": "SQL injection"}}`. What you send back stays outside: IDs, folder names, the configured section names, attachment names, `hash`, the bases, `status`, `allowed_actions`.
+
+A pushed `finding.md` can have a section or a details row that the configuration does not name. Such a section's `name` is under `untrusted`; pass it to `update_section` as you read it. Such a details row is in `untrusted.details` only: `field_bases` has the configured rows, and `set_field` takes no other.
 
 ### Codes
 

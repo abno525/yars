@@ -1,8 +1,11 @@
 package mcp
 
 import (
+	"slices"
+
 	"github.com/abno525/yars/internal/finding"
 	"github.com/abno525/yars/internal/rules"
+	"github.com/abno525/yars/internal/store"
 )
 
 // Other people's text (a title, a section, a chat message, a reason, a
@@ -10,8 +13,9 @@ import (
 // an answer only
 // under a key named "untrusted", in the object it belongs to: an agent reads
 // it as data. What the server says itself and what the agent sends back
-// (ids, folder and section names, hashes, bases, statuses, allowed_actions)
-// stays outside it. JSON's own string encoding keeps a text inside its
+// (ids, folder names, the configured section and details row names, hashes,
+// bases, statuses, allowed_actions) stays outside it. A section name the
+// configuration does not name is a pushed file's heading: under the key. JSON's own string encoding keeps a text inside its
 // field; no text is marked inside the string.
 
 // theirNote ends the description of every tool whose answers have the key
@@ -24,6 +28,30 @@ const confirmNote = " Confirm each call with your user first."
 // theirText is one text of someone else: a chat message.
 type theirText struct {
 	Text string `json:"text"`
+}
+
+// theirThread is a thread's first message, and the section it is about when
+// that name is not the server's own (ownSection).
+type theirThread struct {
+	Section string `json:"section,omitempty"`
+	Text    string `json:"text"`
+}
+
+// ownSection reports whether a section's name is the server's own word: one
+// the configuration names, or a panel a comment may point at. Any other name
+// is a "## heading" of a pushed finding.md, free text: it goes under
+// "untrusted" (the agent sends it back from there all the same).
+func (s *Server) ownSection(name string) bool {
+	return slices.Contains(s.conf().Sections, name) || slices.Contains(store.PanelTargets, name)
+}
+
+// sectionOf splits a section's name into the place it has in an answer:
+// outside "untrusted" when it is the server's own, under it otherwise.
+func (s *Server) sectionOf(name string) (own, theirs string) {
+	if s.ownSection(name) {
+		return name, ""
+	}
+	return "", name
 }
 
 // theirReason is who sent a finding back or withdrew it, and why.

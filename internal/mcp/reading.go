@@ -165,7 +165,8 @@ func readChat(s *Server, ctx context.Context, u config.User, a args) (string, er
 		ResolvedBy string  `json:"resolved_by,omitempty"`
 		Replies    []reply `json:"replies,omitempty"`
 		Theirs     struct {
-			Text string `json:"text,omitempty"`
+			Section string `json:"section,omitempty"` // one the configuration does not name
+			Text    string `json:"text,omitempty"`
 		} `json:"untrusted"`
 	}
 	out := []item{}
@@ -177,8 +178,9 @@ func readChat(s *Server, ctx context.Context, u config.User, a args) (string, er
 			continue
 		}
 		t := it.Thread
-		x := item{Type: "thread", ID: t.Root.ID, User: t.Root.User, At: stamp(t.Root.TS), Section: t.Root.Section,
+		x := item{Type: "thread", ID: t.Root.ID, User: t.Root.User, At: stamp(t.Root.TS),
 			Kind: t.Root.Kind, Resolved: t.Resolved, ResolvedBy: t.ResolvedBy, Replies: []reply{}}
+		x.Section, x.Theirs.Section = s.sectionOf(t.Root.Section)
 		x.Theirs.Text = t.Root.Text
 		for _, r := range t.Replies {
 			x.Replies = append(x.Replies, reply{ID: r.ID, User: r.User, At: stamp(r.TS), AI: r.Kind == chat.KindAI, Theirs: theirText{r.Text}})
