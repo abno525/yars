@@ -670,33 +670,36 @@ func (s *Server) download(ctx context.Context, id string, eng store.Engagement, 
 // senderKey is the author's own key for service (a destination's KeyName:
 // the service at one host) when they keep one ("user:token", or a token
 // used with their e-mail or name), otherwise nil: the server's key. sentAs
-// names whose key it is.
-func (s *Server) senderKey(author, service string) (creds *export.Creds, sentAs string) {
+// names whose key it is. Only an author who keeps no key is sent with the
+// server's: a key that is stored and cannot be read gives failed, the reason
+// the finding is not sent (the sender may then pick the server's key).
+func (s *Server) senderKey(author, service string) (creds *export.Creds, sentAs, failed string) {
 	d := s.Store.DB()
 	if d == nil || author == "" || !strings.Contains(service, "@") {
-		return nil, "server"
+		return nil, "server", ""
 	}
 	enc, ok, err := d.Connection(author, service)
-	if err != nil || !ok {
-		return nil, "server"
-	}
-	box, err := s.secrets()
 	if err != nil {
-		return nil, "server"
+		return nil, author, author + ": personal key not read"
 	}
-	key, err := box.Decrypt(enc)
-	if err != nil || key == "" {
-		s.log().Warn("export: a personal key can't be read; sending as the server", "user", author)
-		return nil, "server"
+	if !ok {
+		return nil, "server", ""
+	}
+	key := ""
+	if box, err := s.secrets(); err == nil {
+		key, _ = box.Decrypt(enc)
+	}
+	if key == "" {
+		return nil, author, author + ": personal key unreadable"
 	}
 	if user, tok, found := strings.Cut(key, ":"); found && user != "" && tok != "" {
-		return &export.Creds{User: user, Token: tok}, author
+		return &export.Creds{User: user, Token: tok}, author, ""
 	}
 	login := author
 	if u, ok, _ := d.User(author); ok && u.Email != "" {
 		login = u.Email
 	}
-	return &export.Creds{User: login, Token: key}, author
+	return &export.Creds{User: login, Token: key}, author, ""
 }
 
 // send delivers refs to a destination: a service gets each finding with
@@ -719,7 +722,13 @@ func (s *Server) send(ctx context.Context, u config.User, eng store.Engagement, 
 			if serverKey {
 				items[i].SentAs = "server"
 			} else {
-				in.Creds, items[i].SentAs = s.senderKey(ref.F.Meta.Author, ex.KeyName())
+				var failed string
+				if in.Creds, items[i].SentAs, failed = s.senderKey(ref.F.Meta.Author, ex.KeyName()); failed != "" {
+					// nothing reaches the service: not with the server's login either
+					s.log().Warn("export: a personal key can't be read; the finding is not sent", "user", ref.F.Meta.Author, "eng", eng.ID, "finding", fid, "destination", ex.ID)
+					items[i].Error = failed
+					continue
+				}
 			}
 			if d != nil {
 				if rm, ok, err := d.ExportRemote(ex.ID, eng.ID, fid); err == nil && ok && rm.Target == ex.Target() {
