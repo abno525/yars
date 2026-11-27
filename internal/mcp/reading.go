@@ -44,7 +44,7 @@ var readingTools = []tool{
 	{name: "read_chat", readOnly: true, untrusted: true, serverOnly: true, desc: "The finding's whole chat, oldest first, a page at a time: threads (with replies; an AI reply is marked ai, a check run's thread has kind check) and workflow events." + theirNote,
 		required: []param{pEng, pFinding}, optional: []param{pLimit, pCursor},
 		run: readChat},
-	{name: "list_history", readOnly: true, untrusted: true, desc: "The finding's versions, newest first, a page at a time: commit, author (ai: made by Fix with AI for that user), time and the parts that changed." + theirNote,
+	{name: "list_history", readOnly: true, untrusted: true, desc: "The finding's versions, newest first, a page at a time: commit, time, and under untrusted the author's name as the commit has it (ai: made by Fix with AI for that user), the subject and the parts that changed." + theirNote,
 		required: []param{pEng, pFinding}, optional: []param{pLimit, pCursor},
 		run: listHistory},
 	{name: "list_attachments", readOnly: true, desc: "The finding's attachments: name, size, type (image or file) and whether an earlier version (before a redaction) is still in the history.",
@@ -223,13 +223,14 @@ func listHistory(s *Server, ctx context.Context, u config.User, a args) (string,
 		return "", err
 	}
 	// a pushed commit's subject is free text, and so are the names of the
-	// parts that changed (a section's name, or the subject again)
+	// parts that changed (a section's name, or the subject again) and the
+	// author's name: the pusher sets it, and the push compares the email only
 	type version struct {
 		Commit string `json:"commit"`
-		Author string `json:"author"`
 		AI     bool   `json:"ai,omitempty"`
 		Time   string `json:"time"`
 		Theirs struct {
+			Author  string   `json:"author"`
 			Subject string   `json:"subject"`
 			Changed []string `json:"changed"`
 		} `json:"untrusted"`
@@ -244,8 +245,8 @@ func listHistory(s *Server, ctx context.Context, u config.User, a args) (string,
 			}
 		}
 		who, ai := history.Who(v.Author)
-		x := version{Commit: v.Hash, Author: who, AI: ai, Time: stamp(v.Time)}
-		x.Theirs.Subject, x.Theirs.Changed = v.Subject, changed
+		x := version{Commit: v.Hash, AI: ai, Time: stamp(v.Time)}
+		x.Theirs.Author, x.Theirs.Subject, x.Theirs.Changed = who, v.Subject, changed
 		out = append(out, x)
 	}
 	return list(out, next)

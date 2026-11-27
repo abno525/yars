@@ -6,7 +6,8 @@ import (
 )
 
 // Other people's text (a title, a section, a chat message, a reason, a
-// rule's message and quote, a name, a commit's subject) is in an answer only
+// rule's message and quote, a name, a commit's subject and author name) is in
+// an answer only
 // under a key named "untrusted", in the object it belongs to: an agent reads
 // it as data. What the server says itself and what the agent sends back
 // (ids, folder and section names, hashes, bases, statuses, allowed_actions)

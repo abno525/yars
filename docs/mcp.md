@@ -108,7 +108,7 @@ Text that people wrote is in an answer only under a key named `untrusted`, insid
 | `lint_finding`, `get_check_results` | each result's `message`, `quote` |
 | `list_notifications` | each item's `title`, `text` |
 | `read_chat` | each item's and reply's `text` |
-| `list_history` | each item's `subject`, `changed` |
+| `list_history` | each item's `author` (the name the commit carries), `subject`, `changed` |
 | a finding file that does not parse | `detail`, the parser's words |
 
 A list item looks like `{"id": "F-001", "dir": "F-001-sql-injection", "status": "draft", …, "untrusted": {"title": "SQL injection"}}`. What you send back stays outside: IDs, folder names, section names, attachment names, `hash`, the bases, `status`, `allowed_actions`.
