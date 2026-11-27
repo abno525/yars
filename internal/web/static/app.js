@@ -962,7 +962,10 @@ function yarsExpired() {
   document.querySelectorAll('form[data-guard]').forEach(function (form) {
     var ta = form.querySelector('textarea[name=body]');
     if (!ta || !yarsDirty(form.parentNode)) return;
-    try { localStorage.setItem(yarsDraftKey(form), JSON.stringify({text: ta.value, at: Date.now()})); } catch (e) { /* not kept */ }
+    // with the base the editor was opened with: restored later, the text is
+    // saved against it, so a colleague's newer text shows as a conflict
+    var base = form.querySelector('input[name=base]');
+    try { localStorage.setItem(yarsDraftKey(form), JSON.stringify({text: ta.value, base: base ? base.value : '', at: Date.now()})); } catch (e) { /* not kept */ }
     var st = form.querySelector('[data-pstate]');
     if (st) { st.textContent = 'Session expired · not saved'; st.classList.add('error'); }
   });
@@ -991,6 +994,12 @@ document.addEventListener('click', function (evt) {
   var d = form && yarsDraft(form);
   if (!ta || !d) return;
   ta.value = d.text;
+  // the draft's own base, not this editor's: the text was written over what
+  // that one names. A draft kept by an earlier version has none; an empty
+  // base would save unchecked, so it gets one that matches no text and the
+  // conflict view decides.
+  var base = form.querySelector('input[name=base]');
+  if (base) base.value = typeof d.base === 'string' && d.base ? d.base : 'none';
   ta.setAttribute('data-dirty', '');
   form.classList.add('dirty');
   b.classList.add('invisible');
@@ -998,6 +1007,8 @@ document.addEventListener('click', function (evt) {
 });
 // a saved or cancelled editor drops its draft. The editor is swapped out by
 // then, so htmx fires afterRequest on an ancestor: the key rides on the xhr.
+// A conflict (409) or a refused text (400) is swapped in and is no error to
+// htmx, but the text is still unsaved: only a 2xx answer drops the draft.
 document.addEventListener('htmx:beforeRequest', function (evt) {
   var el = evt.detail.elt;
   if (!el || !el.matches || !evt.detail.xhr) return;
@@ -1005,8 +1016,8 @@ document.addEventListener('htmx:beforeRequest', function (evt) {
   if (form) evt.detail.xhr.yarsDraftKey = yarsDraftKey(form);
 });
 document.addEventListener('htmx:afterRequest', function (evt) {
-  var k = evt.detail.xhr && evt.detail.xhr.yarsDraftKey;
-  if (!evt.detail.successful || !k) return;
+  var x = evt.detail.xhr, k = x && x.yarsDraftKey;
+  if (!k || x.status < 200 || x.status > 299) return;
   try { localStorage.removeItem(k); } catch (e) { /* none kept */ }
 });
 
