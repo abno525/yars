@@ -1,6 +1,7 @@
 package store
 
 import (
+	"errors"
 	"slices"
 	"strings"
 
@@ -83,23 +84,48 @@ func (s *Store) checkGate(engID, fid, hash string) (string, error) {
 	if !s.gating() {
 		return "", nil
 	}
-	run, ok, err := s.db.LatestRun(engID, fid)
+	run, ok, running, err := s.latestSettled(engID, fid)
 	if err != nil || !ok {
 		return GateNoRun, err
 	}
-	if s.beforeGateMap != nil {
-		s.beforeGateMap()
-	}
-	// called inside Sign off's transaction: runningMu only, never checksMu
-	running := run.State == db.RunRunning && s.inProgress(checkKey(engID, fid), run.ID)
-	if run.State == db.RunRunning && !running {
-		// read again: it may have finished meanwhile (judged as it ended);
-		// still running, an earlier server left it
-		if run, err = s.db.Run(run.ID); err != nil {
-			return "", err
-		}
-	}
 	return gateOf(run.State, run.ContentHash, hash, running, run.Rules, s.RulesVersion()), nil
+}
+
+// latestTries is how often a reader takes the finding's latest run anew
+// because the one it read was cancelled meanwhile (each needs one more
+// cancel in the same instant).
+const latestTries = 4
+
+// latestSettled is the finding's latest run as it is now (ok: it has one)
+// and whether it is in progress in this server. A run read as running that
+// is not in progress is read again: it finished meanwhile (judged as it
+// ended) or an earlier server left it. Cancelled meanwhile, it is gone, and
+// the run before it is the latest again: that one is read. It takes
+// runningMu only, never checksMu (the gate runs inside Sign off's
+// transaction).
+func (s *Store) latestSettled(engID, fid string) (run db.CheckRun, ok, running bool, err error) {
+	for range latestTries {
+		run, ok, err = s.db.LatestRun(engID, fid)
+		if err != nil || !ok {
+			return db.CheckRun{}, false, false, err
+		}
+		if s.beforeGateMap != nil {
+			s.beforeGateMap()
+		}
+		if run.State != db.RunRunning {
+			return run, true, false, nil
+		}
+		if s.inProgress(checkKey(engID, fid), run.ID) {
+			return run, true, true, nil
+		}
+		again, err := s.db.Run(run.ID)
+		// cancelled: gone, or its number went to a run started since
+		if errors.Is(err, db.ErrNotFound) || (err == nil && (again.Eng != engID || again.Fid != fid)) {
+			continue
+		}
+		return again, err == nil, false, err
+	}
+	return db.CheckRun{}, false, false, ErrBusy // its runs keep being cancelled
 }
 
 // RulesVersion is the version of the rules in use ("" when the linter has
@@ -238,6 +264,15 @@ func (s *Store) CheckGates(keys []GateKey) (map[string]string, error) {
 		j.running = j.state == db.RunRunning && s.inProgress(checkKey(k.Eng, k.Fid), r.ID)
 		if j.state == db.RunRunning && !j.running {
 			run, err := s.db.Run(r.ID) // finished meanwhile, or left by an earlier server
+			if errors.Is(err, db.ErrNotFound) || (err == nil && (run.Eng != k.Eng || run.Fid != k.Fid)) {
+				// cancelled meanwhile (gone, or its number went to a run
+				// started since): the run before it is the latest again
+				var has bool
+				if run, has, j.running, err = s.latestSettled(k.Eng, k.Fid); err == nil && !has {
+					delete(runs, name) // it was the only one: never checked
+					continue
+				}
+			}
 			if err != nil {
 				return nil, err
 			}

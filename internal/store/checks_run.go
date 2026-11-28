@@ -51,6 +51,33 @@ type carried struct {
 }
 
 func (s *Store) startCheck(engID, dir, only string, u config.User, bulk bool) (db.CheckRun, error) {
+	for try := 1; ; try++ {
+		run, err := s.startOnce(engID, dir, only, u, bulk)
+		var gone *joinedGone
+		if !errors.As(err, &gone) {
+			return run, err
+		}
+		// the run under way was cancelled as it was joined: once the cancel
+		// is through, this start is a start of its own
+		if try == latestTries {
+			return db.CheckRun{}, ErrBusy
+		}
+		select {
+		case <-gone.done: // nil (no stop was kept): the wait alone
+		case <-time.After(cancelWait):
+		}
+	}
+}
+
+// joinedGone is startOnce's error when the run it found under way was
+// cancelled before it was read; done closes once that run is no longer the
+// finding's.
+type joinedGone struct{ done chan struct{} }
+
+func (*joinedGone) Error() string { return "the run under way was cancelled" }
+
+// startOnce is one try of startCheck.
+func (s *Store) startOnce(engID, dir, only string, u config.User, bulk bool) (db.CheckRun, error) {
 	if s.db == nil {
 		return db.CheckRun{}, ErrNoDB
 	}
@@ -81,13 +108,27 @@ func (s *Store) startCheck(engID, dir, only string, u config.User, bulk bool) (d
 	s.checksMu.Lock()
 	s.runningMu.Lock()
 	id, ok := s.running[key]
+	under := s.stops[key]
 	s.runningMu.Unlock()
 	if ok {
 		s.checksMu.Unlock()
 		if id == fixRun {
 			return db.CheckRun{}, ErrBusy // the AI is fixing it (StartFix)
 		}
-		return s.runNow(id)
+		if s.beforeJoin != nil {
+			s.beforeJoin()
+		}
+		run, err := s.runNow(id)
+		if errors.Is(err, db.ErrNotFound) || (err == nil && (run.Eng != engID || run.Fid != fid)) {
+			// a cancel does not wait for checksMu: the run went meanwhile (or
+			// its number went to a run of another finding started since)
+			gone := &joinedGone{}
+			if under != nil {
+				gone.done = under.done
+			}
+			return db.CheckRun{}, gone
+		}
+		return run, err
 	}
 	var keep *carried
 	asked := s.RulesVersion() // read once: what it keeps is of these rules
@@ -126,12 +167,19 @@ func (s *Store) startCheck(engID, dir, only string, u config.User, bulk bool) (d
 		}
 	}
 	s.db.RunProgress(id, 0, total) // "0/6" from the start
+	// read while nothing can take it away (a cancel waits for checksMu):
+	// the answer when it is cancelled before this start has answered
+	asStarted, startedErr := s.db.Run(id)
 	s.checkWG.Add(1)
 	j := checkJob{id: id, ref: ref, only: only, keep: keep, by: u.Username, stepRules: ruleList, rules: asked, bulk: bulk, ctx: stop.ctx}
 	queued := s.enqueue(j) // under checksMu: in the order of the starts
 	s.checksMu.Unlock()
 	s.admit(j, queued)
-	return s.runNow(id)
+	run, err := s.runNow(id)
+	if startedErr == nil && (errors.Is(err, db.ErrNotFound) || (err == nil && (run.Eng != engID || run.Fid != fid))) {
+		return asStarted, nil // cancelled already: the run as it was started
+	}
+	return run, err
 }
 
 // runSteps are run id's steps for the rules list: queued, but a retry of

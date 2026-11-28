@@ -180,7 +180,8 @@ type Store struct {
 	// beforePurgeGC (test hook) runs in a purge after the rewrite, before
 	// the old objects are removed; an error fails the purge there
 	beforePurgeGC func() error
-	beforeGateMap func() // test hook: the check gate, between reading the latest run and the running map
+	beforeGateMap func() // test hook: the check gate and CheckStatus, between reading the latest run and the running map
+	beforeJoin    func() // test hook: a check start that found a run under way, before it reads that run
 	beforeFinish  func() // test hook: a check run, between its rules and storing their results
 	beforeClaim   func() // test hook: Make finding, between reading the note and claiming it
 }
