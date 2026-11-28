@@ -117,6 +117,21 @@ type Violation struct {
 	// crashed, timed out or printed something that is not JSON): the reason,
 	// "invalid output" for unparseable output.
 	Fail string `json:"-"`
+	// Count is how many matches the row stands for when a pattern found the
+	// same wording more than once in the same place (those are one row); 0
+	// for one match and for every other kind of rule (Matches).
+	Count int `json:"-"`
+}
+
+// Matches is how many matches the row stands for: 1 or more.
+func (v Violation) Matches() int { return max(v.Count, 1) }
+
+// CountOf is the Count of a row that stands for n matches.
+func CountOf(n int) int {
+	if n > 1 {
+		return n
+	}
+	return 0
 }
 
 // InvalidOutput is the Fail reason of a script whose output is not JSON.
@@ -613,6 +628,17 @@ func (r Rule) fast(d Doc, cfg config.Config, memo codeMemo) []Violation {
 			for _, m := range r.re.FindAllString(p.Text, left) {
 				left--
 				vs = append(vs, r.v(p.Target, r.message(), m))
+			}
+		}
+		// the same wording in the same place is one row: each such row says
+		// how many matches it stands for
+		n := map[[2]string]int{}
+		for _, v := range vs {
+			n[[2]string{v.Target, v.Quote}]++
+		}
+		for i, v := range vs {
+			if c := n[[2]string{v.Target, v.Quote}]; c > 1 {
+				vs[i].Count = c
 			}
 		}
 	case r.RegexRequire != "":

@@ -182,7 +182,7 @@ func (c *carried) violations() []rules.Violation {
 	}
 	var out []rules.Violation
 	for _, r := range c.results {
-		v := rules.Violation{Rule: r.Rule, Level: r.Level, Message: r.Message, Target: r.Target, Quote: r.Quote}
+		v := rules.Violation{Rule: r.Rule, Level: r.Level, Message: r.Message, Target: r.Target, Quote: r.Quote, Count: rules.CountOf(r.Matches)}
 		if x := c.steps[r.Rule]; x.State == db.StepFailed && r.Target == "rules" {
 			v.Fail = x.Fail
 		}
@@ -358,7 +358,7 @@ func (s *Store) emitCheck(id int64, ref FindingRef) (ev Event, ok bool) {
 			if r.Target == "rules" || r.Target == "ai" {
 				continue
 			}
-			if _, ok := db.Lookup(dis, r.Rule, r.Target, r.Quote); ok {
+			if _, ok := db.Covering(dis, r.Rule, r.Target, r.Quote, r.Matches); ok {
 				continue
 			}
 			switch r.Level {
@@ -494,6 +494,21 @@ func finishCheck(tx *db.Tx, id int64, eng, fid string, vs []rules.Violation) err
 		}
 		delete(dismissed, lk)
 	}
+	// a dismissal made before counts were kept is settled by the first run
+	// that finds its row: it covers the matches the row has now
+	for _, v := range vs {
+		if notice(v) {
+			continue
+		}
+		own := db.DismissKey(v.Rule, ViolationHash(v.Target, v.Quote))
+		if d, ok := dismissed[own]; ok && d.Covers == 0 {
+			d.Covers = v.Matches()
+			if err := tx.Dismiss(d); err != nil {
+				return err
+			}
+			dismissed[own] = d
+		}
+	}
 	now := time.Now().UTC().Truncate(time.Second)
 	add := func(m chat.Message) error {
 		m.ID, m.TS, m.User = chat.NewID(), now, CheckUser
@@ -503,7 +518,7 @@ func finishCheck(tx *db.Tx, id int64, eng, fid string, vs []rules.Violation) err
 	results := make([]db.CheckResult, 0, len(vs))
 	stored := map[string]bool{} // rule, place and quote: one row each (D18)
 	for _, v := range vs {
-		r := db.CheckResult{Rule: v.Rule, Level: v.Level, Message: v.Message, Target: v.Target, Quote: v.Quote, QuoteHash: ViolationHash(v.Target, v.Quote)}
+		r := db.CheckResult{Rule: v.Rule, Level: v.Level, Message: v.Message, Target: v.Target, Quote: v.Quote, QuoteHash: ViolationHash(v.Target, v.Quote), Matches: v.Matches()}
 		row := db.DismissKey(r.Rule, r.QuoteHash) + "\x00" + r.Level
 		if !notice(v) && stored[row] {
 			continue
@@ -556,7 +571,9 @@ func finishCheck(tx *db.Tx, id int64, eng, fid string, vs []rules.Violation) err
 	return tx.FinishRun(id, state, reason, results)
 }
 
+// dismissedRow reports whether a dismissal covers the row of v, with the
+// matches the row stands for now.
 func dismissedRow(ds map[string]db.Dismissal, v rules.Violation) bool {
-	_, ok := db.Lookup(ds, v.Rule, v.Target, v.Quote)
+	_, ok := db.Covering(ds, v.Rule, v.Target, v.Quote, v.Matches())
 	return ok
 }

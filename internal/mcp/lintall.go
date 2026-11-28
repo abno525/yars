@@ -71,7 +71,7 @@ func (s *Server) lintByCheck(ctx context.Context, ref store.FindingRef, u config
 	}
 	for _, x := range st.Results {
 		m := violationOf(rules.Violation{Rule: x.Rule, Level: x.Level, Message: x.Message, Target: x.Target, Quote: x.Quote})
-		if d, ok := db.Lookup(st.Dismissed, x.Rule, x.Target, x.Quote); ok {
+		if d, ok := db.Covering(st.Dismissed, x.Rule, x.Target, x.Quote, x.Matches); ok {
 			m.Dismissed, m.DismissedBy = true, d.By
 		}
 		out.Items = append(out.Items, m)

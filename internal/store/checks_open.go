@@ -153,8 +153,8 @@ func (s *Store) openChecks(ref FindingRef, hash string) ([]rules.Violation, erro
 	}
 	var out []rules.Violation
 	for _, x := range all {
-		_, own := ds[x.key]
-		if !own && !dismissedRow(ds, x.v) {
+		d, own := ds[x.key]
+		if !(own && d.Holds(x.v.Matches())) && !dismissedRow(ds, x.v) {
 			out = append(out, x.v)
 		}
 	}
@@ -229,7 +229,7 @@ func (s *Store) storedChecks(eng, fid, hash string, add func(rules.Violation, st
 			if failed[r.Rule] || (wanted != nil && !wanted[r.Rule]) {
 				continue
 			}
-			add(rules.Violation{Rule: r.Rule, Level: r.Level, Message: r.Message, Target: r.Target, Quote: r.Quote}, r.QuoteHash)
+			add(rules.Violation{Rule: r.Rule, Level: r.Level, Message: r.Message, Target: r.Target, Quote: r.Quote, Count: rules.CountOf(r.Matches)}, r.QuoteHash)
 		}
 		if wanted == nil {
 			wanted = failed
@@ -306,7 +306,7 @@ func (s *Store) undismissed(engID, fid string, vs []rules.Violation) ([]rules.Vi
 	}
 	var out []rules.Violation
 	for _, v := range vs {
-		if _, ok := db.Lookup(ds, v.Rule, v.Target, v.Quote); !ok {
+		if !dismissedRow(ds, v) {
 			out = append(out, v)
 		}
 	}
@@ -359,9 +359,12 @@ func (s *Store) CheckStatus(engID, dir string) (CheckStatus, error) {
 }
 
 // violationLevel finds the level of the finding's violation (rule, quote)
-// in its latest run or among the fast rules now ("" = no such violation).
-func (s *Store) violationLevel(ref FindingRef, rule, qh string) (string, error) {
-	level := ""
+// in its latest run or among the fast rules now ("" = no such violation),
+// and how many matches its row stands for: what the fast rules find now,
+// else what the run stored. The server counts; a caller's number is never
+// taken (a dismissal must not cover matches that are not there).
+func (s *Store) violationLevel(ref FindingRef, rule, qh string) (string, int, error) {
+	level, n, live := "", 1, false
 	note := func(l string) {
 		if level != "error" {
 			level = l
@@ -369,16 +372,17 @@ func (s *Store) violationLevel(ref FindingRef, rule, qh string) (string, error) 
 	}
 	run, ok, err := s.db.LatestRun(ref.EngID, ref.F.Meta.ID)
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 	if ok {
 		res, err := s.db.RunResults(run.ID)
 		if err != nil {
-			return "", err
+			return "", 0, err
 		}
 		for _, r := range res {
 			if r.Rule == rule && r.QuoteHash == qh && r.Target != "rules" && r.Target != "ai" {
 				note(r.Level)
+				n = max(n, r.Matches)
 			}
 		}
 	}
@@ -386,10 +390,13 @@ func (s *Store) violationLevel(ref FindingRef, rule, qh string) (string, error) 
 		for _, v := range s.Linter.Lint(context.Background(), ref.F, rules.Fast) {
 			if v.Rule == rule && ViolationHash(v.Target, v.Quote) == qh && !notice(v) {
 				note(v.Level)
+				if !live {
+					n, live = v.Matches(), true // the text as it is now
+				}
 			}
 		}
 	}
-	return level, nil
+	return level, n, nil
 }
 
 // placeOf finds where the finding's violation (rule, quote) is when the

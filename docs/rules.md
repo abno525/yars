@@ -71,6 +71,9 @@ A result that is right to ignore can be dismissed. A dismissal needs a reason. R
 - An error: the same, and the reviewer role or more.
 - An error on your own finding: another reviewer or a director dismisses it, whatever your role, and restores it. A team needs a second person with the reviewer role or more for that. In the simple workflow you dismiss it yourself.
 - A dismissal covers one result: that rule, that place and that quote. The same quote in another place still counts.
+- The same wording a pattern finds more than once in one place is one result. Its dismissal covers the matches that were there when it was made; the Dismissed table shows the number in its Covers · By column. One more match in that place opens the result again. Fewer matches stay dismissed. Dismissing it again covers the new number.
+- A result of a built-in check, a script or an AI rule is one match. The row that counts the rest (`and 5 more`) shows no number.
+- A dismissal made before YARS kept the number shows —. It covers its result as before until the next Check of the finding, which writes the number it finds.
 - A rule renamed on **Admin › Rules** keeps its dismissals, its stored results and their chat threads. A rule renamed by hand in its file does not: to the server it is a new rule.
 - In an archived engagement nothing is dismissed or restored.
 - Each dismissal and each restore is a row in the audit log (Admin › Activity): who, the finding, the rule, its level and place, and the reason. The quote is not in it.

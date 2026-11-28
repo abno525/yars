@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -24,6 +25,9 @@ type checkRow struct {
 	Target                             string // identifies it with Rule and Quote
 	CanDismiss                         bool
 	By, At, Reason                     string // dismissed rows: who, when and why
+	// Covers is how many matches a dismissed row's dismissal covers; "—" for
+	// one made before counts were kept and for the row that counts the rest
+	Covers string
 }
 
 // stepRow is one rule of the latest run: its kind, how it went and how long
@@ -179,7 +183,8 @@ func (s *Server) checksFor(r *http.Request, ref store.FindingRef) checksView {
 	}
 	ds := st.Dismissed
 	dismissed := func(it rules.Violation) (db.Dismissal, bool) {
-		return db.Lookup(ds, it.Rule, it.Target, it.Quote)
+		// with the matches the row stands for now: one that grew is open
+		return db.Covering(ds, it.Rule, it.Target, it.Quote, it.Matches())
 	}
 	gated := map[string]bool{} // one line per result row, as the panel lists them
 	for _, it := range items {
@@ -263,7 +268,10 @@ func (s *Server) checksFor(r *http.Request, ref store.FindingRef) checksView {
 		seen[k] = true
 		row := checkRow{N: n, Rule: it.Rule, Level: it.Level, Message: it.Message, Quote: it.Quote, Where: where(it.Target), Target: it.Target}
 		if d, ok := dismissed(it); ok && !notice {
-			row.By, row.At, row.Reason = d.By, stamp(d.At), d.Reason
+			row.By, row.At, row.Reason, row.Covers = d.By, stamp(d.At), d.Reason, "—"
+			if _, rest := rules.More(it); d.Covers > 0 && !rest {
+				row.Covers = strconv.Itoa(d.Covers)
+			}
 			row.CanDismiss = !v.ReadOnly && s.Store.CanDismiss(u, ref.F.Meta, d.Level)
 			v.Dismissed = append(v.Dismissed, row)
 			continue
