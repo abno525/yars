@@ -428,18 +428,40 @@ const maxCheckStale = 100
 // reason alone: the rules changed since (store.GateRules). A finding never
 // checked, one whose text changed and one being checked are not among them.
 // With Require Check off there are none.
+//
+// The simple workflow has neither queue, and the check gates Complete
+// there: its findings are the drafts u wrote, in the open engagements u
+// sees. Those wait for u as a review waits for a reviewer.
 func (s *Server) staleRows(u config.User, engs []store.Engagement) ([]index.Row, error) {
-	v, err := s.inboxFor(u, engs)
-	if err != nil {
-		return nil, err
-	}
 	var rows []index.Row
-	var keys []store.GateKey
-	for _, k := range []workflow.Inbox{workflow.InboxReview, workflow.InboxApprove} {
-		for _, r := range v.Lists[k] {
-			rows = append(rows, r.row)
-			keys = append(keys, store.GateKey{Eng: r.EngID, Fid: r.row.ID, Hash: r.row.Full})
+	if s.flow().Simple {
+		vis, err := s.Store.Visible(u)
+		if err != nil {
+			return nil, err
 		}
+		open := map[string]bool{}
+		for _, e := range engs {
+			if (vis == nil || vis[e.ID]) && !e.Archived {
+				open[e.ID] = true
+			}
+		}
+		if rows, err = s.Index.Rows(index.Query{Status: "draft", Author: u.Username, Visible: open}); err != nil {
+			return nil, err
+		}
+	} else {
+		v, err := s.inboxFor(u, engs)
+		if err != nil {
+			return nil, err
+		}
+		for _, k := range []workflow.Inbox{workflow.InboxReview, workflow.InboxApprove} {
+			for _, r := range v.Lists[k] {
+				rows = append(rows, r.row)
+			}
+		}
+	}
+	keys := make([]store.GateKey, 0, len(rows))
+	for _, r := range rows {
+		keys = append(keys, store.GateKey{Eng: r.EngID, Fid: r.ID, Hash: r.Full})
 	}
 	if len(keys) == 0 || s.Store.Linter == nil {
 		return nil, nil

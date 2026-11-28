@@ -5,7 +5,81 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/abno525/yars/internal/store"
 )
+
+// The simple workflow has no review and no approve queue, and Require Check
+// gates Complete there: Check stale counts and starts the viewer's own
+// drafts whose check the rules left out of date (pre1 7.12).
+func TestInboxCheckStaleSimple(t *testing.T) {
+	e := setupSimple(t)
+	const one = "- id: none\n  target: title\n  regex_forbid: 'zzz'\n"
+	const fd = "F-001-sql-injection"
+	e.rules(t, one, nil)
+	st := e.srv.Store
+	latest := func() int64 {
+		t.Helper()
+		run, _, err := st.DB().LatestRun("acme", "F-001")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return run.ID
+	}
+	head := func(who string) string {
+		t.Helper()
+		b := e.do(t, who, "GET", "/inbox", nil, nil).Body.String()
+		return between(b, `<div class="titlerow">`, `</form>`)
+	}
+	const off = `<span class="qcnt zero">0</span>` + "\n    " + `<button class="btn secondary w152" disabled>Check stale</button>`
+	const on = `<span class="qcnt">1</span>` + "\n    " + `<button class="btn secondary w152">Check stale</button>`
+	press := func(who string) {
+		t.Helper()
+		rec := e.do(t, who, "POST", "/inbox/check-stale", url.Values{}, nil)
+		if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/inbox" {
+			t.Fatalf("%s: %d to %q\n%s", who, rec.Code, rec.Header().Get("Location"), rec.Body.String())
+		}
+		st.WaitChecks()
+	}
+	// never checked: nothing is stale
+	if h := head("anna"); !strings.Contains(h, off) {
+		t.Fatalf("never checked:\n%s", h)
+	}
+	e.do(t, "anna", "POST", "/e/acme/f/"+fd+"/checks", url.Values{}, nil)
+	st.WaitChecks()
+	first := latest()
+	if first == 0 {
+		t.Fatal("no check ran")
+	}
+	if h := head("anna"); !strings.Contains(h, off) {
+		t.Fatalf("checked with the rules as they are:\n%s", h)
+	}
+	e.rules(t, one+"- id: no-zebra\n  target: title\n  regex_forbid: 'zebra'\n", nil)
+	if g, err := st.CheckGate("acme", fd); err != nil || g != store.GateRules {
+		t.Fatalf("the gate after a rule change: %q %v", g, err)
+	}
+	if h := head("anna"); !strings.Contains(h, on) {
+		t.Fatalf("the author's inbox after a rule change:\n%s", h)
+	}
+	// another account's draft is not theirs to start
+	if h := head("ben"); !strings.Contains(h, off) {
+		t.Fatalf("another account's inbox:\n%s", h)
+	}
+	press("ben")
+	if latest() != first {
+		t.Fatal("an account that did not write the draft started its check")
+	}
+	press("anna")
+	if latest() == first {
+		t.Fatal("no check was started")
+	}
+	if g, err := st.CheckGate("acme", fd); err != nil || g != "" {
+		t.Fatalf("the gate after the new check: %q %v", g, err)
+	}
+	if h := head("anna"); !strings.Contains(h, off) {
+		t.Fatalf("after the check:\n%s", h)
+	}
+}
 
 // After a rule changes, every checked finding waits for a new check. The
 // inbox counts the findings of the viewer's review and approve queues whose
