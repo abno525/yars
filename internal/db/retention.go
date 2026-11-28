@@ -67,7 +67,8 @@ func (d *DB) SetRetention(r Retention) error {
 }
 
 // Pruned counts what a Prune deleted (AIUsage: calls to the AI provider,
-// which the audit days keep as long as the audit log; RuleResults: stored
+// which the audit days keep as long as the audit log and never fewer than
+// AILimitDays; RuleResults: stored
 // script and AI results, which the check run days keep; Deliveries: finished
 // webhook deliveries, and Notifications, both kept by the check run days
 // too).
@@ -96,7 +97,10 @@ func (d *DB) Prune(now time.Time, r Retention) (Pruned, error) {
 		if err := del(&p.Audit, "DELETE FROM audit WHERE ts < ?", cutoff(r.AuditDays)); err != nil {
 			return p, err
 		}
-		if err := del(&p.AIUsage, "DELETE FROM ai_usage WHERE ts < ?", cutoff(r.AuditDays)); err != nil {
+		// the AI spend limit sums the last AILimitDays days of usage: the rows
+		// stay that long with fewer audit days too, or the limit would forget
+		// what was spent
+		if err := del(&p.AIUsage, "DELETE FROM ai_usage WHERE ts < ?", cutoff(max(r.AuditDays, AILimitDays))); err != nil {
 			return p, err
 		}
 	}

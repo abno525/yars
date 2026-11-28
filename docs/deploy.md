@@ -201,6 +201,8 @@ Admin › System › Retention has three numbers of days. A prune runs each day 
 | Check runs | finished check runs, stored script and AI results, finished webhook deliveries, notifications | keep for good |
 | Sessions | logins not used for that long | 14 days |
 
+The list of AI calls is kept for at least 30 days, also when Audit log is set to fewer: the AI spend limit counts them ([rules.md](rules.md)).
+
 Some rows stay whatever their age: a finding's latest check run, a webhook's newest delivery and a delivery still waiting. A notification nobody read is kept for at least 90 days, also when Check runs is set to fewer. The database file does not shrink when rows are deleted: the space is used again.
 
 ## Backup

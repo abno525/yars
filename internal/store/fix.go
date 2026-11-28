@@ -111,6 +111,10 @@ func (s *Store) StartFix(engID, dir string, u config.User) error {
 	if !s.AICanFix() {
 		return fmt.Errorf("%w: no AI provider configured", ErrInvalidValue)
 	}
+	// the spend limit is reached: said at the press, not once per item
+	if l, ok := s.Linter.(interface{ AIOverLimit() bool }); ok && l.AIOverLimit() {
+		return fmt.Errorf("%w: %s", ErrInvalidValue, rules.ErrAILimit)
+	}
 	if s.CheckRunning(engID, ref.F.Meta.ID) {
 		return ErrBusy // checked again under the lock below
 	}

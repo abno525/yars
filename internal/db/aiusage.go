@@ -59,8 +59,24 @@ func (d *DB) AITotals(since time.Time) ([]AITotal, error) {
 	return out, rows.Err()
 }
 
+// AITokens sums the tokens of the calls since a time (one query: it is asked
+// before a provider call while a spend limit is set).
+func (d *DB) AITokens(since time.Time) (in, out int, err error) {
+	err = d.QueryRow("SELECT coalesce(sum(tokens_in), 0), coalesce(sum(tokens_out), 0) FROM ai_usage WHERE ts >= ?",
+		since.UTC().Format(time.RFC3339)).Scan(&in, &out)
+	return in, out, err
+}
+
 // AI price settings: per million tokens, decimal text ("" = no price).
 const AIPriceInKey, AIPriceOutKey = "ai.price_in", "ai.price_out"
+
+// AILimitKey is the AI spend limit: the most the calls of the last
+// AILimitDays days may cost at the prices, decimal text ("" = no limit).
+const AILimitKey = "ai.limit"
+
+// AILimitDays is the period the AI spend limit counts; usage rows are kept
+// at least that long (Prune).
+const AILimitDays = 30
 
 // The AI settings saved on Admin › AI (server_settings); the key is stored
 // encrypted with the data folder's secret key.

@@ -223,6 +223,20 @@ AI rules run where script rules run, except on a git push. Without a provider or
 
 An AI rule that cannot run never holds a finding, with a provider set up too: when the call fails, or the reply is cut off or cannot be read, Submit, Sign off and Approve go through. The badge and Retry stay on the finding, and what the rule found before on the same text still counts. With a provider set up, each step taken this way is a `warn` line in the service log ([deploy.md](deploy.md)).
 
+### Spend limit
+
+**Admin › AI** has a Limit beside the two prices. It is the most the AI calls of the last 30 days may cost at those prices: the 30-day Cost of the AI usage panel on **Admin › System**. An empty field is no limit. A limit needs a price.
+
+When the cost reaches the limit:
+
+- An AI rule is not sent to the provider. It reports the warning `AI rules skipped: the AI spend limit is reached`, and the Check goes on with the other rules. The finding shows "AI checks failed". Sign off and Approve are not held.
+- A text the server has an answer for is still answered from it: that costs nothing.
+- Fix with AI is refused: `the AI spend limit is reached`.
+- Admin › AI shows **Limit reached**, and the service log has one `warn` line.
+- Test on Admin › AI still calls the provider.
+
+The calls start again when the cost of the last 30 days is under the limit: raise the limit, or wait. Calls that are under way when the limit is reached still end and are counted.
+
 ### Unchanged text is not sent again
 
 The server keeps a result, in memory and in its database, for the same text, instruction (`ai:`), provider and model, where it keeps script results. A check after a restart uses it too. A text that changed is sent again, and so is every text after an update of YARS that changes the prompt. A call the provider answers with status 429, 500, 502, 503, 504 or 529 is made again, twice at most, within the question's time. Once a question has failed so in a check, the questions after it in that check are asked once. A failed call (`AI check failed: …`, always a warning) is not kept. `yars lint --all` sends the text each time. Stored results are deleted as script results are.

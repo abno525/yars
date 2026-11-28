@@ -13,6 +13,9 @@ What YARS does not do, or does in a way that can surprise. Each row states today
 | A git push and `yars lint --all` run every script each time, and `yars lint --all` sends the text to the AI provider each time | Stored results serve Check, MCP, `yars lint --staged --all` and the Test bench only ([rules.md](rules.md)). A push runs no AI rule; the plain `yars lint` runs neither scripts nor AI rules. |
 | Two OpenAI-compatible endpoints serving the same model name share stored AI results | The base URL is not part of the key. |
 | A Check has no time limit of its own | Each script has 10 s and each AI rule 90 s, so a Check with ten slow AI rules can take 15 minutes. It holds one of the `checks.max_running` places for that time. Cancel on the Checks strip stops it ([rules.md](rules.md)). An AI rule with more parts than fit in 90 s fails; give it a narrower `target`. |
+| The AI spend limit can be passed by what is under way | A call that runs when the limit is reached ends and is counted, and so does one of each Check running at that time. |
+| The AI spend limit is never reached with a provider that reports no tokens | The cost is worked out from the tokens the provider reports. Some OpenAI-compatible servers report none. |
+| `yars lint --all` on the server's data folder is not held by the AI spend limit, and its calls are not counted | It calls the provider with the stored key on its own. |
 | A cancelled Check holds its `checks.max_running` place until its running rule has stopped | A script is killed at once. A provider that does not close the connection is waited for until the AI time limit. |
 | No MCP tool cancels a check or a fix | Cancel is on the Checks strip. `lint_finding all=true` answers the state `cancelled` when its run was cancelled. |
 | A Fix with AI that is cancelled keeps what it committed | Each fix is its own commit. The item it was on and the items after it get no reply, and no Check follows: press Check. |

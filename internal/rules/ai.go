@@ -61,6 +61,10 @@ func aiWarning(r Rule, msg string) []Violation {
 	return []Violation{{Rule: r.ID, Level: "warning", Message: msg, Target: "ai"}}
 }
 
+// AILimitSkipped is the notice of an AI rule that did not run because the
+// spend limit is reached (Runner.OverLimit).
+const AILimitSkipped = "AI rules skipped: the AI spend limit is reached"
+
 // ProviderOff, saved on the admin page, turns AI rules off whatever
 // config.yaml says.
 const ProviderOff = "off"
@@ -400,9 +404,9 @@ func (res aiResult) anchored(text string, kept bool) (aiResult, int) {
 // AI asks the configured model whether text (from target) follows the rule.
 // A text checked before against the same rule, prompt, provider and model
 // is not sent again (Q1): the result is in memory or in rn.Results.
-// Provider errors are warnings, never blocking, and are not kept. It
-// returns at most MaxPerRule violations, and after them the row that counts
-// the rest.
+// Provider errors are warnings, never blocking, and are not kept; so is the
+// spend limit when it is reached (OverLimit). It returns at most MaxPerRule
+// violations, and after them the row that counts the rest.
 func (rn *Runner) AI(ctx context.Context, r Rule, target, text string) []Violation {
 	c, key, _ := rn.Effective()
 	if c.Provider == "" || key == "" {
@@ -415,6 +419,12 @@ func (rn *Runner) AI(ctx context.Context, r Rule, target, text string) []Violati
 		rn.aiCache().Add(ck, res)
 	}
 	if !ok {
+		// asked only now: a kept reply costs nothing and is served over the
+		// limit too. The notice is what a missing provider reports, so the
+		// check goes on and nothing is held; it is not kept
+		if rn.overLimit() {
+			return aiWarning(r, AILimitSkipped)
+		}
 		res = aiResult{}
 		ctx, cancel := context.WithTimeout(ctx, rn.AITimeout)
 		defer cancel()
