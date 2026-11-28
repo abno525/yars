@@ -480,10 +480,80 @@ func (s *Server) wfAction(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	u := auth.UserFrom(r.Context())
+	// where the finding stands in the account's queue, read before the action
+	// takes it out
+	queue, before := wfQueue(s.flow(), act), []inboxRow(nil)
+	if queue != workflow.InboxNone {
+		before = s.queueOf(u, queue)
+	}
 	// Sign off and Approve are for the version the page showed (its hash and
 	// its attachments)
-	err := s.Store.TransitionSeen(ref.EngID, ref.Dir, act, r.FormValue("reason"), r.FormValue("seen"), r.FormValue("seenfiles"), auth.UserFrom(r.Context()))
+	err := s.Store.TransitionSeen(ref.EngID, ref.Dir, act, r.FormValue("reason"), r.FormValue("seen"), r.FormValue("seenfiles"), u)
+	if err == nil && len(before) > 0 {
+		if to := nextInQueue(before, s.queueOf(u, queue), ref.EngID+"/"+ref.Dir); to != "" {
+			wfBack(w, r, to)
+			return
+		}
+	}
 	s.wfDone(w, r, err)
+}
+
+// wfQueue is the Inbox queue an action of the finding page works through:
+// Sign off the account's Awaiting my review, Approve its Ready to approve.
+// No other action has one, and the simple workflow has neither queue.
+func wfQueue(f workflow.Flow, act workflow.Action) workflow.Inbox {
+	switch {
+	case f.Simple:
+	case act == workflow.Clear:
+		return workflow.InboxReview
+	case act == workflow.Approve:
+		return workflow.InboxApprove
+	}
+	return workflow.InboxNone
+}
+
+// queueOf is u's queue k as the Inbox lists it now: the findings of the open
+// engagements u sees, and for Ready to approve only those that may be
+// approved (withoutOpenChecks). A queue that cannot be read is nil (logged):
+// the action it is read for is not held up by it.
+func (s *Server) queueOf(u config.User, k workflow.Inbox) []inboxRow {
+	vis, err := s.Store.Visible(u)
+	var v inboxView
+	if err == nil {
+		var engs []store.Engagement
+		if engs, err = s.Index.EngagementsFor(vis); err == nil {
+			if v, err = s.inboxFor(u, engs); err == nil {
+				v, err = s.withoutOpenChecks(v)
+			}
+		}
+	}
+	if err != nil {
+		s.log().Error("the queue is not read for the next finding", "user", u.Username, "err", err)
+		return nil
+	}
+	return v.Lists[k]
+}
+
+// nextInQueue is the page of the finding that follows key ("eng/dir") in
+// the queue before, among those still in the queue now: the first one after
+// it, and from the end on from the top. "" when key was not in the queue or
+// nothing else is left.
+func nextInQueue(before, now []inboxRow, key string) string {
+	at := slices.IndexFunc(before, func(r inboxRow) bool { return r.Key == key })
+	if at < 0 {
+		return ""
+	}
+	left := map[string]bool{}
+	for _, r := range now {
+		left[r.Key] = true
+	}
+	for _, r := range append(slices.Clone(before[at+1:]), before[:at]...) {
+		if r.Key != key && left[r.Key] {
+			return findingURL(r.EngID, r.row.Dir)
+		}
+	}
+	return ""
 }
 
 func (s *Server) wfReviewers(w http.ResponseWriter, r *http.Request) {

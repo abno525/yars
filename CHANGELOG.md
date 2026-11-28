@@ -6,6 +6,7 @@ What changed for people who run or use YARS. Newest first.
 
 ### Added
 
+- Sign off and Approve on the finding page open the next finding of the queue: Awaiting my review after a Sign off, Ready to approve after an Approve, in the Inbox's order (before: the same finding again). With none left the page stays on the finding.
 - A page opened without a session comes back after the login (before: always the start page). A form sent after the session expired comes back to the page it was on. The address is a path of this site only.
 - The Return, Withdraw and Revert reasons of the finding page are sent without leaving the page: with an expired session the reason stays in its box under a Session expired toast (before: the login page, and the reason was lost).
 - An error answered to a page request is a page in the layout, with the top bar: the status, the reason, and on a server error the request's ID (before: bare text). htmx requests, scripts and downloads get the plain text as before. A missing engagement and one the account is not on are the same page.
