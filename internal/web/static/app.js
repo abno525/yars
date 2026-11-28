@@ -1213,8 +1213,10 @@ document.addEventListener('htmx:load', function (evt) { yarsListLinks(evt.detail
 // name. yarsDraftFields picks them by an allow-list: text boxes, the checked
 // radio, and of the hidden fields only the bases (what the editor was opened
 // with: restored later, the text is saved against them, so a colleague's
-// newer value shows as a conflict). Never another kind of field, and never
-// one named like a secret.
+// newer value shows as a conflict) and those the template marks data-draft
+// (the assets editor's row count: without it the server draws no row of a
+// restored draft). Never another kind of field, and never one named like a
+// secret.
 var yarsDraftSecret = /passw|passphrase|token|secret|api.?key/i;
 function yarsDraftBase(name) { return name === 'base' || name.indexOf('base:') === 0; }
 function yarsDraftFields(form) {
@@ -1222,7 +1224,7 @@ function yarsDraftFields(form) {
     if (!el.name || el.disabled || yarsDraftSecret.test(el.name)) return false;
     if (el.tagName === 'TEXTAREA') return true;
     if (el.tagName !== 'INPUT') return false;
-    if (el.type === 'hidden') return yarsDraftBase(el.name);
+    if (el.type === 'hidden') return yarsDraftBase(el.name) || el.hasAttribute('data-draft');
     if (el.type === 'radio') return el.checked;
     return el.type === 'text'; // also an input without a type
   });

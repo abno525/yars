@@ -72,7 +72,7 @@ func TestDraftRestoreKeepsBase(t *testing.T) {
 	js := e.do(t, "alice", "GET", "/static/app.js", nil, nil).Body.String()
 	// the draft is written with the form's bases (the hidden fields named
 	// base or base:<row>)
-	if fn := jsFunc(t, js, "function yarsDraftFields(form)", "\n}\n"); !strings.Contains(fn, "if (el.type === 'hidden') return yarsDraftBase(el.name);") {
+	if fn := jsFunc(t, js, "function yarsDraftFields(form)", "\n}\n"); !strings.Contains(fn, "if (el.type === 'hidden') return yarsDraftBase(el.name) || el.hasAttribute('data-draft');") {
 		t.Fatalf("a draft keeps no base:\n%s", fn)
 	}
 	if !strings.Contains(js, "function yarsDraftBase(name) { return name === 'base' || name.indexOf('base:') === 0; }") {

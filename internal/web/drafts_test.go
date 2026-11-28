@@ -1,6 +1,7 @@
 package web
 
 import (
+	"html"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -95,6 +96,83 @@ func TestAssetsDrawPostedRows(t *testing.T) {
 	}
 	if ref, _ := e.srv.Store.Finding("acme", "F-001-sql-injection"); len(ref.F.Meta.Assets) != 0 {
 		t.Fatalf("drawing saved rows: %v", ref.F.Meta.Assets)
+	}
+}
+
+var (
+	inputTagRe  = regexp.MustCompile(`<input[^>]*>`)
+	inputAttrRe = regexp.MustCompile(` (type|name|value)="([^"]*)"`)
+)
+
+// draftOf picks the fields of the guarded form in page as the script's
+// yarsDraftFields does: text boxes, and of the hidden fields the bases and
+// those marked data-draft.
+func draftOf(t *testing.T, page, save string) url.Values {
+	t.Helper()
+	form := page[strings.Index(page, guardedForm(t, page, save)):]
+	form = form[:strings.Index(form, "</form>")]
+	out := url.Values{}
+	for _, tag := range inputTagRe.FindAllString(form, -1) {
+		at := map[string]string{}
+		for _, m := range inputAttrRe.FindAllStringSubmatch(tag, -1) {
+			at[m[1]] = html.UnescapeString(m[2])
+		}
+		name := at["name"]
+		switch at["type"] {
+		case "text":
+			out.Set(name, at["value"])
+		case "hidden":
+			if name == "base" || strings.HasPrefix(name, "base:") || strings.Contains(tag, " data-draft") {
+				out.Set(name, at["value"])
+			}
+		}
+	}
+	return out
+}
+
+// A draft of the assets editor is drawn back whole: the fields the script
+// keeps are enough for the server to draw every row of it.
+func TestAssetsDraftDrawsItsRows(t *testing.T) {
+	e := setup(t)
+	base := editorBase(t, e.do(t, "alice", "GET", fpath+"/assets/edit", nil, nil).Body.String())
+	rec := e.do(t, "alice", "POST", fpath+"/assets", url.Values{"base": {base}, "n": {"2"},
+		"host_0": {"a.acme.test"}, "host_1": {"b.acme.test"}}, nil)
+	if rec.Code != 200 {
+		t.Fatalf("save %d:\n%s", rec.Code, rec.Body.String())
+	}
+	// the editor with the two saved rows, Add row, and a third host typed
+	page := e.do(t, "alice", "GET", fpath+"/assets/edit", nil, nil).Body.String()
+	add := draftOf(t, page, fshort+"/assets")
+	add.Set("n", "2") // the button sends the whole form
+	add.Set("op", "add")
+	page = e.do(t, "alice", "POST", fpath+"/assets", add, nil).Body.String()
+	draft := draftOf(t, page, fshort+"/assets")
+	if _, ok := draft["host_2"]; !ok {
+		t.Fatalf("Add row drew no third row:\n%s", page)
+	}
+	draft.Set("host_2", "c.acme.test")
+	// Restore in an editor opened later posts the draft's fields, no others
+	draft.Set("op", "draw")
+	rec = e.do(t, "alice", "POST", fpath+"/assets", draft, nil)
+	b := rec.Body.String()
+	if rec.Code != 200 {
+		t.Fatalf("draw %d:\n%s", rec.Code, b)
+	}
+	for _, want := range []string{`name="n" value="3"`, `name="host_0" value="a.acme.test"`, `name="host_1" value="b.acme.test"`, `name="host_2" value="c.acme.test"`} {
+		if !strings.Contains(b, want) {
+			t.Errorf("the restored editor lacks %s:\n%s", want, b)
+		}
+	}
+	if tag := guardedForm(t, b, fshort+"/assets"); !strings.Contains(tag, "data-unsaved") {
+		t.Errorf("the restored rows are not unsaved: %s", tag)
+	}
+	// the script keeps a hidden field marked data-draft, and the row count is one
+	js := e.do(t, "alice", "GET", "/static/app.js", nil, nil).Body.String()
+	if fn := jsFunc(t, js, "function yarsDraftFields(form)", "\n}\n"); !strings.Contains(fn, "if (el.type === 'hidden') return yarsDraftBase(el.name) || el.hasAttribute('data-draft');") {
+		t.Errorf("yarsDraftFields keeps no marked hidden field:\n%s", fn)
+	}
+	if !strings.Contains(page, `<input type="hidden" name="n" value="3" data-draft>`) {
+		t.Errorf("the row count is not marked for the draft:\n%s", page)
 	}
 }
 
