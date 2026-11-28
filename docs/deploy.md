@@ -57,7 +57,7 @@ sudo -u yars yars admin --data /srv/yars bob on     # or off
 sudo -u yars yars userdel --data /srv/yars bob
 ```
 
-`yars disable` is the usual way to take access away. The account cannot log in, its sessions end at once and its tokens are refused. Its name and its work stay, and `yars enable` brings it back. `yars userdel` deletes the account for good: its name stays taken and no new account gets it. What the account did stays under its name: sign-offs, chat, dismissals and check runs. It is taken off the drafts and the findings in verification it had not signed off yet. The command prints how many, and the IDs of the findings in verification that now have no reviewer. Their author or a director assigns another.
+`yars disable` is the usual way to take access away. The account cannot log in, its sessions end at once and its tokens are refused. Its name and its work stay, and `yars enable` brings it back. `yars userdel` deletes the account for good: its name stays taken and no new account gets it. What the account did stays under its name: sign-offs, chat, dismissals and check runs. It is taken off the drafts and the findings in verification it had not signed off yet. The command prints how many, and the IDs of the findings in verification that now have no reviewer. Their author or a director assigns another. It also prints the findings in verification that only deleted accounts signed off: such a sign-off stays, but an edit voids it, and then nobody can sign off again. Assign another reviewer there too.
 
 One admin who can sign in always remains. `yars admin <user> off`, `yars disable` and `yars userdel` refuse the last one: `bob is the last admin: the admin flag stays`. Give another account the flag first. Admin › Users follows the same rule.
 

@@ -1547,5 +1547,10 @@ func cmdUserdel(args []string, out io.Writer) error {
 		// IDs only; each needs a reviewer before it can be approved
 		fmt.Fprintln(out, "in verification without a reviewer:", strings.Join(gone.Unreviewed, ", "))
 	}
+	if len(gone.SignedOnly) > 0 {
+		// a sign-off an edit voided since still stands in its row: such a
+		// finding needs another reviewer too
+		fmt.Fprintln(out, "in verification, signed off only by deleted accounts:", strings.Join(gone.SignedOnly, ", "))
+	}
 	return nil
 }

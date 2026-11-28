@@ -60,7 +60,14 @@ func TestUserdelNamesPendingReviews(t *testing.T) {
 		if err := tx.PutState("acme", "F-002", db.State{Status: "verification", Reviewers: []db.Reviewer{bob, cy}}); err != nil {
 			return err
 		}
-		return tx.PutState("acme", "F-003", db.State{Status: "verification", Reviewers: []db.Reviewer{{Name: "bob", ClearedHash: "h"}}})
+		if err := tx.PutState("acme", "F-003", db.State{Status: "verification", Reviewers: []db.Reviewer{{Name: "bob", ClearedHash: "h"}}}); err != nil {
+			return err
+		}
+		// complete: its reviewer list is history, never named
+		if err := tx.PutState("acme", "F-005", db.State{Status: "complete", Reviewers: []db.Reviewer{{Name: "bob", ClearedHash: "h"}}}); err != nil {
+			return err
+		}
+		return tx.PutState("acme", "F-004", db.State{Status: "verification", Reviewers: []db.Reviewer{{Name: "bob", ClearedHash: "h"}, {Name: "cy", ClearedHash: "h"}}})
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +75,11 @@ func TestUserdelNamesPendingReviews(t *testing.T) {
 	if err := cmdUserdel([]string{"--data", dir, "bob"}, &out); err != nil {
 		t.Fatal(err)
 	}
-	want := "deleted bob (their sessions and API tokens too)\nreview assignments removed: 2\nin verification without a reviewer: acme/F-001\n"
+	// F-003: bob's row stays with its sign-off, which an edit may have voided
+	// since (the database cannot tell); no account is left to review it.
+	// F-004 still has cy.
+	want := "deleted bob (their sessions and API tokens too)\nreview assignments removed: 2\nin verification without a reviewer: acme/F-001\n" +
+		"in verification, signed off only by deleted accounts: acme/F-003\n"
 	if out.String() != want {
 		t.Fatalf("userdel printed:\n%s", out.String())
 	}
@@ -84,8 +95,10 @@ func TestUserdelNamesPendingReviews(t *testing.T) {
 	if err := cmdUserdel([]string{"--data", dir, "cy"}, &out); err != nil {
 		t.Fatal(err)
 	}
-	// cy was still to review F-002
-	if out.String() != "deleted cy (their sessions and API tokens too)\nreview assignments removed: 1\nin verification without a reviewer: acme/F-002\n" {
+	// cy was still to review F-002, and was the last account on F-004. F-003
+	// was never cy's: it is not named again.
+	if out.String() != "deleted cy (their sessions and API tokens too)\nreview assignments removed: 1\nin verification without a reviewer: acme/F-002\n"+
+		"in verification, signed off only by deleted accounts: acme/F-004\n" {
 		t.Fatalf("userdel printed:\n%s", out.String())
 	}
 	if err := cmdUseradd([]string{"--data", dir, "--role", "reviewer", "dee"}, strings.NewReader("password-1\n"), &out); err != nil {

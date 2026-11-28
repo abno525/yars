@@ -281,6 +281,12 @@ type Deleted struct {
 	// Unreviewed names, as <engagement>/<finding ID>, the findings in
 	// verification that are left with no reviewer at all.
 	Unreviewed []string
+	// SignedOnly names, the same way, the findings in verification on which
+	// the account's row stays (it has a sign-off) and no reviewer is an
+	// account any more. The database cannot tell whether the sign-off still
+	// counts for the file (State.Cleared): after an edit it does not, and the
+	// finding then waits for a reviewer nobody can be.
+	SignedOnly []string
 }
 
 // DeleteUser is DeleteUserReport without the report.
@@ -302,7 +308,8 @@ func (d *DB) DeleteUser(name string) error {
 // board messages, check runs and the audit log. Every engagement that lost
 // a row is marked changed. A finding in verification left with no reviewer
 // is not moved: it is named in the report, and its author or a director
-// assigns another.
+// assigns another. So is one whose reviewers left are all deleted accounts
+// (Deleted.SignedOnly).
 func (d *DB) DeleteUserReport(name string) (Deleted, error) {
 	var out Deleted
 	err := d.Tx(func(tx *Tx) error {
@@ -382,6 +389,27 @@ func (d *DB) DeleteUserReport(name string) (Deleted, error) {
 			}
 		}
 		slices.Sort(out.Unreviewed)
+		// the rows that stayed: where every reviewer left is a deleted account
+		rows, err = tx.Query(`SELECT s.eng, s.fid FROM finding_state s WHERE s.status = 'verification'
+			AND EXISTS (SELECT 1 FROM reviewers r WHERE r.eng = s.eng AND r.fid = s.fid AND r.username = ?)
+			AND NOT EXISTS (SELECT 1 FROM reviewers r JOIN users u ON u.username = r.username WHERE r.eng = s.eng AND r.fid = s.fid)
+			ORDER BY s.eng, s.fid`, name)
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			var e, f string
+			if err := rows.Scan(&e, &f); err != nil {
+				rows.Close()
+				return err
+			}
+			out.SignedOnly = append(out.SignedOnly, e+"/"+f)
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		slices.Sort(out.SignedOnly)
 		for _, e := range engs {
 			tx.touch(e)
 		}
