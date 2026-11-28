@@ -4,6 +4,8 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -12,13 +14,36 @@ import (
 	"github.com/abno525/yars/internal/workflow"
 )
 
-// stuckAI runs scripts as the engine's own runner does and never answers an
-// AI question: the call ends with its context, as a provider that hangs.
-type stuckAI struct{ rules.SlowRunner }
+// stuckAI never answers an AI question: the call ends with its context, as
+// a provider that hangs, and notes the deadline it used up. A script that is
+// handed that same deadline has no time left and fails as the real runner's
+// does; any other script runs as the engine's own runner runs it, off the
+// test's short timer, so a slow machine changes no answer.
+type stuckAI struct {
+	rules.SlowRunner
+	mu    sync.Mutex
+	spent []time.Time
+}
 
-func (stuckAI) AI(ctx context.Context, r rules.Rule, target, text string) []rules.Violation {
+func (s *stuckAI) AI(ctx context.Context, r rules.Rule, target, text string) []rules.Violation {
 	<-ctx.Done()
+	if at, ok := ctx.Deadline(); ok {
+		s.mu.Lock()
+		s.spent = append(s.spent, at)
+		s.mu.Unlock()
+	}
 	return []rules.Violation{{Rule: r.ID, Level: "warning", Target: "ai", Message: "AI check failed: timeout"}}
+}
+
+func (s *stuckAI) Script(ctx context.Context, r rules.Rule, d rules.Doc) []rules.Violation {
+	at, ok := ctx.Deadline()
+	s.mu.Lock()
+	over := ok && slices.ContainsFunc(s.spent, at.Equal)
+	s.mu.Unlock()
+	if over {
+		return []rules.Violation{{Rule: r.ID, Level: r.Level, Target: "rules", Message: "rule failed: timed out", Fail: "timed out"}}
+	}
+	return s.SlowRunner.Script(context.WithoutCancel(ctx), r, d)
 }
 
 // A check whose AI rule used up its time does not take the script rule
@@ -38,7 +63,7 @@ func TestCheckSlowAIRuleFailsAlone(t *testing.T) {
 		t.Fatal(err)
 	}
 	e := s.Linter.(*rules.Engine)
-	e.Runner, e.Budget = stuckAI{e.Runner}, 30*time.Millisecond
+	e.Runner, e.Budget = &stuckAI{SlowRunner: e.Runner}, 30*time.Millisecond
 	checkNow(t, s, fd)
 	st, err := s.CheckStatus(eng, fd)
 	if err != nil {

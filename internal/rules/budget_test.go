@@ -2,6 +2,7 @@ package rules
 
 import (
 	"context"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -10,37 +11,54 @@ import (
 	"github.com/abno525/yars/internal/finding"
 )
 
-// slowFirst is a runner whose rule "slow" never answers: its calls wait for
-// their context to end. Every call on a context that is over fails as the
-// real runner's does: an AI rule with the notice, a script with "timed out".
+// slowFirst is a runner whose rule "slow" never answers: its call waits for
+// its context to end, however long that takes, and notes the deadline it
+// used up. Every other call answers at once. It fails, as the real runner's
+// does (an AI rule with the notice, a script with "timed out"), exactly when
+// its context has a deadline the slow rule used up: the same budget. No call
+// reads the clock, so a slow machine changes no answer.
 type slowFirst struct {
 	mu    sync.Mutex
 	calls map[string]int
+	spent []time.Time            // the deadlines the slow rule waited out
+	ends  map[string][]time.Time // each rule's deadlines, a call each
 }
 
-func (s *slowFirst) note(id string) {
+// note counts a call and reports whether its budget is one already used up.
+func (s *slowFirst) note(ctx context.Context, id string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.calls == nil {
-		s.calls = map[string]int{}
+		s.calls, s.ends = map[string]int{}, map[string][]time.Time{}
 	}
 	s.calls[id]++
+	at, ok := ctx.Deadline()
+	if !ok {
+		return false
+	}
+	s.ends[id] = append(s.ends[id], at)
+	return slices.ContainsFunc(s.spent, at.Equal)
 }
 
 func (s *slowFirst) Script(ctx context.Context, r Rule, d Doc) []Violation {
-	s.note(r.ID)
-	if ctx.Err() != nil {
+	if s.note(ctx, r.ID) {
 		return []Violation{{Rule: r.ID, Level: r.Level, Target: "rules", Message: "rule failed: timed out", Fail: "timed out"}}
 	}
 	return nil
 }
 
 func (s *slowFirst) AI(ctx context.Context, r Rule, target, text string) []Violation {
-	s.note(r.ID)
+	over := s.note(ctx, r.ID)
 	if r.ID == "slow" {
 		<-ctx.Done()
+		if at, ok := ctx.Deadline(); ok {
+			s.mu.Lock()
+			s.spent = append(s.spent, at)
+			s.mu.Unlock()
+		}
+		over = true
 	}
-	if ctx.Err() != nil {
+	if over {
 		return []Violation{{Rule: r.ID, Level: "warning", Target: "ai", Message: "AI check failed: timeout"}}
 	}
 	return nil
@@ -91,7 +109,23 @@ func TestCheckBudgetIsPerRule(t *testing.T) {
 			}
 			// the slow rule stops at its first part; the others ask both
 			if st.calls["slow"] != 1 || st.calls["second"] != 2 || st.calls["third"] != 2 || st.calls["script"] != 1 {
-				t.Errorf("calls %v", st.calls)
+				t.Fatalf("calls %v", st.calls)
+			}
+			// each slow rule has a deadline of its own, later than the one
+			// the rule before it had; the parts of one rule share theirs
+			order := []string{"slow", "second", "third", "script"}
+			for i, id := range order {
+				if len(st.ends[id]) != st.calls[id] {
+					t.Fatalf("%s ran without a deadline: %v", id, st.ends[id])
+				}
+				if i > 0 && !st.ends[id][0].After(st.ends[order[i-1]][0]) {
+					t.Errorf("%s has the deadline of %s: one budget for both", id, order[i-1])
+				}
+			}
+			for _, id := range []string{"second", "third"} {
+				if !st.ends[id][0].Equal(st.ends[id][1]) {
+					t.Errorf("the two parts of %s have a deadline each: %v", id, st.ends[id])
+				}
 			}
 		})
 	}
