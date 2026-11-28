@@ -414,6 +414,7 @@ func (c *Checker) checkRules(old, new string) []string {
 			status = c.status(c.Eng, f.Meta.ID, ob)
 		}
 		f.Meta.Status = status
+		f.Meta.Engagement = c.Eng // the engagement's own rules
 		if status == unreadable {
 			f.Meta.Status = "complete" // rules see a known status: the strictest
 		}

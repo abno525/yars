@@ -216,6 +216,18 @@ func TestNoPrivateTextInLog(t *testing.T) {
 			if ref, _ := e.srv.Store.Finding("acme", dir); ref.F.Meta.Status != "verification" {
 				t.Fatalf("not submitted: %s\n%s", ref.F.Meta.Status, checksPanel(t, e.do(t, "alice", "GET", fp, nil, nil).Body.String()))
 			}
+			// a check whose AI call fails: the provider's first two answers
+			// (Submit asks no AI rule, so the check is the first to call)
+			if rec := e.do(t, "bob", "POST", fp+"/checks", url.Values{}, hdr); rec.Code != 200 {
+				t.Fatalf("check %d %s", rec.Code, rec.Body.String())
+			}
+			e.srv.Store.WaitChecks()
+			if n := aiCalls.Load(); n != 2 {
+				t.Fatalf("the check whose AI call fails made %d calls", n)
+			}
+			// the sign-off goes through over the AI rule that could not run:
+			// the "gate stayed open" line
+			do("bob", "POST", fp+"/action/clear", url.Values{})
 			do("bob", "POST", fp+"/action/return", url.Values{"reason": {mark("returnreason")}})
 			if ref, _ := e.srv.Store.Finding("acme", dir); ref.F.Meta.Status != "draft" {
 				t.Fatalf("not returned: %s", ref.F.Meta.Status)

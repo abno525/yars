@@ -71,7 +71,7 @@ const budgetRules = "- id: slow\n  target: sections\n  ai: Be short.\n" +
 	"- id: fast\n  target: title\n  regex_forbid: 'zebra'\n"
 
 func budgetFinding() *finding.Finding {
-	return &finding.Finding{Meta: finding.Meta{ID: "F-001", Title: "A zebra"},
+	return &finding.Finding{Meta: finding.Meta{ID: "F-001", Title: "A zebra", Engagement: "acme"},
 		Sections: []finding.Section{{Name: "Description", Body: "One."}, {Name: "Impact", Body: "Two."}}}
 }
 

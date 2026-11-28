@@ -275,10 +275,11 @@ func (l failingAI) Lint(_ context.Context, _ *finding.Finding, k rules.Kind) []r
 	return []rules.Violation{{Rule: "plain-words", Level: "warning", Target: "ai", Message: "AI check failed: HTTP 503"}}
 }
 
-// Submit runs every rule in the request: an AI rule that cannot run then
-// does not hold it, and with a provider set up that is one warn line. A
-// script rule that cannot run still fails its check and still blocks.
-func TestSubmitGoesThroughWhenAIFails(t *testing.T) {
+// Submit runs no AI rule (and no script): an AI rule that cannot run is not
+// asked, so Submit goes through and writes no "gate stayed open" line, with
+// a provider set up or without one. Sign off and Approve write that line
+// (TestGateAIFailedNeverBlocks).
+func TestSubmitAsksNoAIRule(t *testing.T) {
 	for _, configured := range []bool{true, false} {
 		s, _, fd := ready(t)
 		lg, logged := logs.NewRecorder()
@@ -288,9 +289,8 @@ func TestSubmitGoesThroughWhenAIFails(t *testing.T) {
 		if err := s.Transition(eng, fd, workflow.Submit, "", uAlice); err != nil {
 			t.Fatalf("provider %v: submit: %v", configured, err)
 		}
-		recs := logged.With(aiOpenLine)
-		if runs != 1 || configured && (len(recs) != 1 || recs[0].Str("action") != "submit" || recs[0].Str("user") != "alice" || recs[0].Str("finding") != "F-001") || !configured && len(recs) != 0 {
-			t.Fatalf("provider %v: %d runs, log:\n%s", configured, runs, logged.Text())
+		if recs := logged.With(aiOpenLine); runs != 0 || len(recs) != 0 {
+			t.Fatalf("provider %v: %d runs of the slow rules, log:\n%s", configured, runs, logged.Text())
 		}
 		if strings.Contains(logged.Text(), "HTTP 503") {
 			t.Fatalf("the rule's message is in the log:\n%s", logged.Text())

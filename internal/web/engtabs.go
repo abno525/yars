@@ -55,6 +55,9 @@ type engSettingsView struct {
 	CanEdit bool // the General details (directors)
 	CanTeam bool // the team (directors and admins)
 	Error   string
+	// AIOn: the engagement's AI switch (engagement.yaml's ai key), read from
+	// the file now; a director flips it, everyone else sees it
+	AIOn    bool
 	Form    store.Engagement
 	Members []option // Value = user, Label = role
 	Others  []option
@@ -71,6 +74,7 @@ func (s *Server) routesEngTabs(mux *http.ServeMux) {
 	mux.HandleFunc("POST /e/{eng}/report/s/{section}", s.reportSectionSave)
 	mux.HandleFunc("GET /e/{eng}/settings", s.engSettings)
 	mux.HandleFunc("POST /e/{eng}/settings", s.engSettingsSave)
+	mux.HandleFunc("POST /e/{eng}/settings/ai", s.engAIToggle)
 	mux.HandleFunc("POST /e/{eng}/settings/team", s.engTeamAdd)
 	mux.HandleFunc("POST /e/{eng}/settings/team/remove", s.engTeamRemove)
 }
@@ -309,6 +313,9 @@ func (s *Server) renderEngSettings(w http.ResponseWriter, r *http.Request, statu
 	if form != nil {
 		v.Form = *form
 	}
+	if e, err := s.Store.Engagement(p.Eng.ID); err == nil {
+		v.AIOn = !e.AIOff() // a file that does not read shows as off
+	}
 	if err := s.teamLists(&v, p.Eng.ID); err != nil {
 		s.fail(w, err)
 		return
@@ -358,6 +365,17 @@ func (s *Server) engSettingsSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	http.Redirect(w, r, "/e/"+eng+"/settings", http.StatusSeeOther)
+}
+
+// engAIToggle turns the engagement's AI on or off (a director; the store
+// checks it, commits engagement.yaml and audits the change).
+func (s *Server) engAIToggle(w http.ResponseWriter, r *http.Request) {
+	eng := r.PathValue("eng")
+	if err := s.Store.SetEngagementAI(eng, r.FormValue("on") == "1", auth.UserFrom(r.Context())); err != nil {
 		s.fail(w, err)
 		return
 	}

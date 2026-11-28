@@ -55,12 +55,15 @@ type fileRule struct {
 	AI              string `yaml:"ai,omitempty"`
 	RequireNonempty bool   `yaml:"require_nonempty,omitempty"`
 	Exclude         string `yaml:"exclude,omitempty"`
-	Enabled         *bool  `yaml:"enabled,omitempty"`
+	// flow style: one line, as the rule files and the docs write it
+	Engagements []string `yaml:"engagements,omitempty,flow"`
+	Enabled     *bool    `yaml:"enabled,omitempty"`
 }
 
 func fileOf(r Rule) fileRule {
 	f := fileRule{ID: r.ID, Level: r.Level, Message: r.Message, Target: r.Target, RegexForbid: r.RegexForbid,
-		RegexRequire: r.RegexRequire, Check: r.Check, Script: r.Script, AI: r.AI, RequireNonempty: r.RequireNonempty, Exclude: r.Exclude}
+		RegexRequire: r.RegexRequire, Check: r.Check, Script: r.Script, AI: r.AI, RequireNonempty: r.RequireNonempty, Exclude: r.Exclude,
+		Engagements: r.Engagements}
 	if !r.On() {
 		off := false
 		f.Enabled = &off
@@ -192,11 +195,17 @@ func (e *Engine) Rule(id string) (Rule, bool) {
 
 // RunRule runs one rule (even a disabled one, scripts and AI included) on
 // a finding document within the time budget, and stores no check run. It
-// shares the script and AI results a check keeps (Q1, Q16).
+// shares the script and AI results a check keeps (Q1, Q16). A rule limited
+// to engagements runs on any finding here, as a rule that is off does. An AI
+// rule on a finding whose engagement takes no AI does not run: the answer is
+// one notice with the words (Doc.AIOff), never "no hits".
 func (e *Engine) RunRule(ctx context.Context, r Rule, d Doc) []Violation {
-	r.Enabled = nil
+	r.Enabled, r.Engagements = nil, nil
 	if err := r.prepare(); err != nil {
 		return []Violation{{Rule: r.ID, Level: "error", Target: "rules", Message: "rule invalid: " + err.Error()}}
+	}
+	if why := d.AIOff(); r.AI != "" && why != "" {
+		return []Violation{{Rule: r.ID, Level: "warning", Target: "ai", Message: why}}
 	}
 	if e.Budget > 0 {
 		var cancel context.CancelFunc

@@ -11,11 +11,12 @@ Every `*.yaml` or `*.yml` file in `.yars/rules/` is a list of rules:
 | Field | Value |
 |---|---|
 | `id` | required; one rule per id across the files |
-| `level` | `error` (default) or `warning`. An open error blocks Submit; any open result, a warning too, holds Sign off and Approve until it is fixed or dismissed |
+| `level` | `error` (default) or `warning`. An open error of a pattern or built-in rule blocks Submit; any open result, a warning too, holds Sign off and Approve until it is fixed or dismissed |
 | `message` | shown with each hit; empty → the id |
 | `target` | `text` (default: the title, every section and every details row), `title`, `sections`, `section:<Name>`, `details`, `details:<Row>` |
 | `enabled` | `false` turns the rule off |
 | `exclude` | `code`, on a pattern rule only (Patterns, below) |
+| `engagements` | a list of engagement IDs: the rule runs in those engagements only (Rules for some engagements, below) |
 
 and exactly one check:
 
@@ -33,6 +34,23 @@ and exactly one check:
   regex_forbid: '\.\s*$'
   message: The title must not end with a dot
 ```
+
+## Rules for some engagements
+
+A rule with `engagements` runs only in the engagements it lists. Everywhere else it does not run, is no step of a Check and holds nothing.
+
+```yaml
+- id: acme-no-product-names
+  target: text
+  regex_forbid: 'Portal\s?X'
+  message: Write "the portal", as the client asks
+  engagements: [2026-11-acme, 2027-01-acme-retest]
+```
+
+- A rule without the key runs in every engagement.
+- The ID is the engagement's folder name, shown in its address and on its Settings tab. A retest has its own ID: list it too.
+- The rule editor has no field for the key. Write it in the rule file and push it. A save, a switch and a rename on **Admin › Rules** keep it, and so does a rule pack.
+- The Test bench and Try unsaved run such a rule on the finding you pick, in any engagement.
 
 ## Starter rules and rule packs
 
@@ -75,6 +93,8 @@ A pattern is matched against one part at a time: the title, a section's body or 
 Pattern and built-in rules run wherever a finding is checked. Scripts and AI rules take longer and run in fewer places:
 
 - The Check button, `start_check` and `lint_finding all=true` (MCP) and the Test bench on **Admin › Rules** run every rule. On the server `lint_finding all=true` is a check run as the other two: stored, in the queue, and refused on an archived engagement.
+- Submit, on the page, in bulk and over MCP, runs the pattern and built-in rules only, so it answers at once. A script or an AI rule never holds a Submit and is not started by one: press Check for them. Sign off and Approve read that Check.
+- Approve, and Complete in the simple workflow, run every rule themselves only while Require Check is off (below).
 - **Try unsaved** in the rule editor runs the editor's values on the finding the Test bench has selected, before they are saved. It writes nothing. A script rule runs the script it has saved: save the rule to try a new upload.
 - The pre-commit check (`yars lint --staged`) runs the pattern and built-in rules, so a commit does not wait. `yars lint --staged --all` asks the server for scripts and AI rules too. Signed in with a Git token it gets them only when the token has the Run checks action; a password gets them.
 - A git push runs scripts, not AI rules.
@@ -83,7 +103,7 @@ Pattern and built-in rules run wherever a finding is checked. Scripts and AI rul
 
 A Check (the button, `start_check` and `lint_finding all=true` on the server) gives each script and each AI rule 90 s for itself, an AI rule's questions together. A rule that has not finished by then fails alone, and the rules after it run. Pattern and built-in rules have no limit.
 
-The checks that answer at once have 90 s for all their scripts and AI questions together: `yars lint --all`, the pre-commit check with every rule, a git push, the Test bench, and Submit and Approve where they run the rules themselves. A rule that has not finished by then fails, and so does every rule after it.
+The checks that answer at once have 90 s for all their scripts and AI questions together: `yars lint --all`, the pre-commit check with every rule, a git push, the Test bench, and Approve and Complete where they run the rules themselves (Require Check off). A rule that has not finished by then fails, and so does every rule after it.
 
 **Cancel** on the Checks strip stops the Check or the Fix with AI that runs on the finding, also one that waits in the queue. Anyone who can open the finding cancels its Check; a fix is cancelled by someone who may edit the finding.
 
@@ -128,6 +148,7 @@ Deleting the rule on **Admin › Rules**, or giving it another script, removes t
 | Field | Type | Value |
 |---|---|---|
 | `id` | string | `"F-005"` |
+| `engagement` | string | the engagement's ID, `"2026-11-acme"` |
 | `title` | string | `"SQL injection in report export"` |
 | `status` | string | `draft`, `verification`, `complete`, `reported`, `withdrawn` |
 | `severity` | string | `critical`, `high`, `medium`, `low`, `info` |
@@ -221,6 +242,7 @@ A rules file with a mistake reports `rule invalid (<file>): …`, always as an e
 | A built-in check that does not exist | `unknown check "<name>"` |
 | An `exclude` other than `code` | `unknown exclude "<value>" (use code)` |
 | `exclude` on a rule that is no pattern | `exclude is for regex_forbid and regex_require only` |
+| An `engagements` entry that cannot be an engagement's ID | `engagements: "<value>" is not an engagement ID` |
 | A target of another form | `unknown target "<target>" (use title, text, sections, details, section:<Name> or details:<Row>)` |
 
 A target that is well formed but names a section or details row the config lacks is a warning: `rule target section:<Name> (<file>) is not a configured section name; check the spelling`.
@@ -242,7 +264,32 @@ A rule with `ai:` asks the AI provider (**Admin › AI**, or `ai.*` in `config.y
 
 AI rules run where script rules run, except on a git push. Without a provider or a key an AI rule does not run: it reports the warning `AI rules skipped: no AI provider configured`, and the finding shows an "AI checks failed" badge after Check. Sign off and Approve are not held by it.
 
-An AI rule that cannot run never holds a finding, with a provider set up too: when the call fails, or the reply is cut off or cannot be read, Submit, Sign off and Approve go through. The badge and Retry stay on the finding, and what the rule found before on the same text still counts. With a provider set up, each step taken this way is a `warn` line in the service log ([deploy.md](deploy.md)).
+An AI rule that cannot run never holds a finding, with a provider set up too: when the call fails, or the reply is cut off or cannot be read, Sign off and Approve go through. Submit asks no AI rule at all. The badge and Retry stay on the finding, and what the rule found before on the same text still counts. With a provider set up, each step taken this way is a `warn` line in the service log ([deploy.md](deploy.md)).
+
+### Fix with AI
+
+**Fix with AI** on the Checks strip asks the provider to fix the open results of the last Check, one after the other, and a Check follows. It needs a provider and a finding that is a draft or in verification, and whoever presses it must be allowed to edit the finding.
+
+- It takes a result that has a quote and is about a section, the title or one details row. A result about the whole finding, the CVSS vector or the details table as a whole stays for you.
+- Each fix is a commit by `AI for <you>`: `edit <Section>`, `edit title` or `edit details`. There is no preview; the History tab shows the change, and a sign-off given before does not count for the new text.
+- A fix is kept only when it passes: the change is in the paragraph with the quote and nowhere else, it adds no raw HTML, code fence or link definition, the rule no longer finds the problem and finds no new one, and no other rule reports a new error in that place.
+- A new title must be one line of at most 200 characters as the model wrote it. A title with a line break is refused, never joined or cut.
+- A result that is not fixed says why in its chat thread: `Not fixed: …`. A text that changed while the AI worked is left as it is.
+
+### AI off for an engagement
+
+A client may allow no AI on its findings. The engagement's **Settings** tab has an AI switch for that; a director flips it. It is the key `ai: off` in the engagement's `engagement.yaml`, so a clone has it too.
+
+With AI off for an engagement:
+
+- No AI rule runs on its findings: not in a Check, not with `yars lint --all`, not over MCP, not on the Test bench. The rule is no step of the Check and shows no "AI checks failed" badge. The other rules run as before.
+- Fix with AI is off: its button is disabled and a press answers `AI is off for this engagement`. The Test bench and Try unsaved answer an AI rule with the same words.
+- An answer the server kept from before is not used.
+- Nothing of the engagement's findings is sent to the provider.
+
+Only `on` and `off` are taken for the key. Any other value is refused on the page and on a push; a value that is on disk all the same, and a file that does not read, count as off. The key is `ai` in small letters: `AI` or `Ai` is refused the same way, and so is an empty value. A key with another name (`a1: off`) is not read as the switch: after a push, look at the Settings tab. The switch is one commit in the engagement's repository and one row in Admin › Activity.
+
+A retest takes the switch of its source when it is made. Results an AI rule left before the switch went off stay on a finding until its next Check. A Retry of one rule after the switch moved is such a Check: it runs every rule the finding has now.
 
 ### Spend limit
 

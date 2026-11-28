@@ -361,17 +361,45 @@ func TestStaleRunListsRulesNow(t *testing.T) {
 }
 
 // D3: an error the last run found on this content (a script rule's) is
-// counted, and Submit, which runs every rule, waits for it too.
-func TestRunErrorDisablesSubmit(t *testing.T) {
+// counted. Submit runs the pattern and built-in rules only, so it does not
+// wait for it: the button is enabled, the press moves the finding and runs
+// no script. Sign off then waits for the error.
+func TestRunErrorDoesNotHoldSubmit(t *testing.T) {
 	e := setupSerial(t)
 	e.gateClean(t)
-	e.rules(t, "- id: scr\n  script: check.sh\n", map[string]string{"check.sh": `cat >/dev/null; echo '[{"message":"script says no","target":"section:Impact"}]'` + "\n"})
+	ran := filepath.Join(t.TempDir(), "ran")
+	e.rules(t, "- id: scr\n  script: check.sh\n", map[string]string{"check.sh": "cat >/dev/null; echo run >> " + ran + `; echo '[{"message":"script says no","target":"section:Impact"}]'` + "\n"})
+	runs := func() int {
+		b, _ := os.ReadFile(ran)
+		return strings.Count(string(b), "run")
+	}
 	e.do(t, "alice", "POST", fpath+"/checks", url.Values{}, nil)
 	e.srv.Store.WaitChecks()
 	wf := wfBar(t, e.do(t, "alice", "GET", fpath, nil, nil).Body.String())
 	i := strings.Index(wf, `data-action="submit"`)
-	if !strings.Contains(wf, ">1 error to fix<") || i < 0 || !strings.Contains(wf[i:i+strings.Index(wf[i:], ">")], "disabled") {
+	if !strings.Contains(wf, ">1 error to fix<") || i < 0 || strings.Contains(wf[i:i+strings.Index(wf[i:], ">")], "disabled") {
 		t.Fatalf("bar with a run's error:\n%s", wf)
+	}
+	if rec := e.do(t, "alice", "POST", fpath+"/action/submit", url.Values{}, nil); rec.Code != 303 || e.status(t) != "verification" {
+		t.Fatalf("submit over a run's script error: %d, %s", rec.Code, e.status(t))
+	}
+	if runs() != 1 {
+		t.Fatalf("the script ran %d times (the check's run is 1)", runs())
+	}
+	// the reviewer's Sign off waits for it
+	wf = wfBar(t, e.do(t, "bob", "GET", fpath, nil, nil).Body.String())
+	i = strings.Index(wf, `data-action="clear"`)
+	if !strings.Contains(wf, ">1 error open<") || i < 0 || !strings.Contains(wf[i:i+strings.Index(wf[i:], ">")], "disabled") {
+		t.Fatalf("the reviewer's bar:\n%s", wf)
+	}
+	// an error of a pattern rule still holds Submit
+	e2 := setupSerial(t)
+	e2.gateClean(t)
+	e2.rules(t, "- id: title-word\n  target: title\n  regex_forbid: 'injection'\n  message: Avoid the word injection\n", nil)
+	wf = wfBar(t, e2.do(t, "alice", "GET", fpath, nil, nil).Body.String())
+	i = strings.Index(wf, `data-action="submit"`)
+	if !strings.Contains(wf, ">1 error to fix<") || i < 0 || !strings.Contains(wf[i:i+strings.Index(wf[i:], ">")], "disabled") {
+		t.Fatalf("bar with a pattern error:\n%s", wf)
 	}
 }
 

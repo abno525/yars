@@ -203,8 +203,10 @@ func (s *Store) transition(engID, dir string, act workflow.Action, reason, seen,
 		// refuses it without reading the finding.
 		return f.Check(u, finding.Meta{}, act)
 	}
-	// Style rules (scripts, AI) can be slow, so they run outside the lock on
-	// a snapshot; the change is refused if the finding changed meanwhile.
+	// Style rules can be slow (Approve and Complete without the check gate
+	// run scripts and AI rules; Submit runs the fast rules only), so they run
+	// outside the lock on a snapshot; the change is refused if the finding
+	// changed meanwhile.
 	linted := ""
 	aiOpen := false // an AI rule could not run and held nothing (blocking)
 	if (workflow.Gated(act) || SignsOff(act)) && s.Linter != nil {

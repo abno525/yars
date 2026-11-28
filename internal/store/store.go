@@ -63,9 +63,17 @@ type Engagement struct {
 	Source string `yaml:"source,omitempty" json:"source"`
 	Start  string `yaml:"start,omitempty" json:"start"`
 	End    string `yaml:"end,omitempty" json:"end"`
+	// AI is "off" when the client allows no AI on its findings: no AI rule
+	// and no Fix with AI runs there. Absent or "on" is on (AIOff reads it).
+	AI string `yaml:"ai,omitempty" json:"ai,omitempty"`
 	// Archived is read from the database: the engagement is read only.
 	Archived bool `yaml:"-" json:"archived"`
 }
+
+// AIOff reports whether the engagement takes no AI: every value of ai but
+// none and "on" (a value the checks refuse reads as off where it is on disk
+// all the same).
+func (e Engagement) AIOff() bool { return e.AI != "" && e.AI != "on" }
 
 type FindingRef struct {
 	EngID, Dir string

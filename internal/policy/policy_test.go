@@ -1629,6 +1629,54 @@ func TestPolicyRulesOnPush(t *testing.T) {
 	}
 }
 
+// A push runs the engagement's own rules: a rule limited to this engagement
+// runs, one limited to another does not.
+func TestPolicyRulesOfTheEngagement(t *testing.T) {
+	f := newFx(t)
+	dir := t.TempDir()
+	write(dir, "style.yaml", "- id: ours\n  regex_forbid: TODO\n  message: No TODO left\n  engagements: [acme]\n"+
+		"- id: theirs\n  regex_forbid: FIXME\n  message: No FIXME\n  engagements: [beta]\n")
+	f.c.Linter = rules.NewEngine(dir, config.Default())
+	if ps := f.push("alice", func(d string) {
+		editMeta(d, func(fd *finding.Finding) { fd.SetSection("Impact", "TODO and FIXME") })
+	}); len(ps) != 0 {
+		t.Fatalf("draft refused: %v", ps)
+	}
+	if notes := strings.Join(f.c.Notes, "\n"); !strings.Contains(notes, "check ours (error; blocks Submit): No TODO left") || strings.Contains(notes, "check theirs") {
+		t.Fatalf("notes %v", f.c.Notes)
+	}
+}
+
+// The engagement's AI switch takes on and off only, on a push too: a typo
+// is refused, not read as on.
+func TestPolicyEngagementAISwitch(t *testing.T) {
+	f := newFx(t)
+	add := func(line string) func(string) {
+		return func(d string) {
+			b, err := os.ReadFile(filepath.Join(d, "engagement.yaml"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			write(d, "engagement.yaml", strings.TrimRight(string(b), "\n")+"\n"+line+"\n")
+		}
+	}
+	if ps := f.push("dora", add("ai: of")); !has(ps, "ai must be on or off") {
+		t.Fatalf("a typo in the switch: %v", ps)
+	}
+	// the key in another letter case, or with an empty value, is no switch
+	// that reads as on either
+	for _, line := range []string{"AI: off", "Ai: off", `ai: ""`} {
+		f.reclone()
+		if ps := f.push("dora", add(line)); !has(ps, "ai must be on or off") {
+			t.Fatalf("%s: %v", line, ps)
+		}
+	}
+	f.reclone()
+	if ps := f.push("dora", add("ai: off")); len(ps) != 0 {
+		t.Fatalf("ai: off refused: %v", ps)
+	}
+}
+
 // A dismissal made before they were per row (rule and quote only), which
 // the website still honours, is honoured by a push too (D9).
 func TestPolicyRulesLegacyDismissal(t *testing.T) {

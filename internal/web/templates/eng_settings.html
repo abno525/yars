@@ -1,6 +1,8 @@
 {{define "content"}}
 {{template "enghead" .}}
 {{$v := .EngSettings}}
+{{/* the AI switch posts on its own: its button names this form (the General form cannot hold a second one) */}}
+<form id="engai" method="post" action="/e/{{.Eng.ID}}/settings/ai" hidden><input type="hidden" name="on" value="{{if $v.AIOn}}0{{else}}1{{end}}"></form>
 <div class="twogrid">
   {{if $v.CanEdit}}
   <form class="panel" method="post" action="/e/{{.Eng.ID}}/settings">
@@ -12,6 +14,7 @@
       <div class="field"><span class="flabel">Type</span><span class="fvalue">{{.Eng.Type}}</span></div>
       <label class="field">Start<input class="monoin" name="start" type="date" value="{{$v.Form.Start}}"></label>
       <label class="field">End<input class="monoin" name="end" type="date" value="{{$v.Form.End}}"></label>
+      {{template "eng_ai" $v}}
     </div>
     <div class="pfoot flush"><a class="btn secondary sm w96" href="/e/{{.Eng.ID}}/settings">Cancel</a><button class="btn save sm w96">Save</button></div>
   </form>
@@ -25,6 +28,7 @@
       <div class="field"><span class="flabel">Type</span><span class="fvalue">{{.Eng.Type}}</span></div>
       <div class="field"><span class="flabel">Start</span><span class="fvalue mono">{{if .Eng.Start}}{{.Eng.Start}}{{else}}—{{end}}</span></div>
       <div class="field"><span class="flabel">End</span><span class="fvalue mono">{{if .Eng.End}}{{.Eng.End}}{{else}}—{{end}}</span></div>
+      {{template "eng_ai" $v}}
     </div>
   </section>
   {{end}}
@@ -51,4 +55,9 @@
     {{end}}
   </section>
 </div>
+{{end}}
+
+{{/* the AI field of the General panel, the same in both of its states: the switch, disabled for a viewer who may not change the engagement */}}
+{{define "eng_ai"}}
+      <div class="field"><span class="flabel">AI</span><span class="fvalue"><button class="toggle{{if .AIOn}} on{{end}}" role="switch" aria-checked="{{if .AIOn}}true{{else}}false{{end}}" aria-label="AI" form="engai"{{if not .CanEdit}} disabled{{end}}><span></span></button></span></div>
 {{end}}

@@ -79,6 +79,7 @@ Only `refs/heads/main` can be pushed, and every commit in the push is checked on
 | `commit 1a2b3c4: …/attachments/x.png brings back x.png, which was purged from this engagement's history; …` | The clone was made before a director purged the image's original (Purge from history); its old commits still hold it | clone the engagement again and redo your change |
 | `engagement.yaml: name is required` · `dates are YYYY-MM-DD` · `the end is before the start` | The engagement's Settings tab rules | correct the value |
 | `engagement.yaml: type is fixed when the engagement is created; keep type: …` | Type or source changed | restore `type` / `source` |
+| `engagement.yaml: ai must be on or off …` | The AI switch has another value ([rules.md](rules.md)) | write `ai: off`, or remove the key |
 | `refs/heads/wip: only refs/heads/main can be pushed` | Other branch | `git push origin wip:main` |
 | `refs/heads/main: deleting the branch is not allowed` | Branch delete | — |
 | `engagements/demo: engagement pointers are managed by the server` | Submodule pointer in the main repo | push inside `engagements/demo` · top: `git pull` |

@@ -100,9 +100,13 @@ type Rule struct {
 	// out of the rule's JSON when empty, so the key of a kept script result
 	// is what it was.
 	Exclude string `yaml:"exclude" json:",omitempty"`
-	Enabled *bool  `yaml:"enabled"`
-	File    string `yaml:"-"`
-	re      *regexp.Regexp
+	// Engagements limits the rule to the engagements with these IDs; empty
+	// means every engagement. Left out of the rule's JSON when empty, as
+	// Exclude.
+	Engagements []string `yaml:"engagements" json:",omitempty"`
+	Enabled     *bool    `yaml:"enabled"`
+	File        string   `yaml:"-"`
+	re          *regexp.Regexp
 }
 
 // ExcludeCode is the one value of a rule's exclude key.
@@ -145,7 +149,11 @@ type Section struct {
 
 // Doc is the JSON view of a finding given to rules, scripts and the AI.
 type Doc struct {
-	ID          string            `json:"id"`
+	ID string `json:"id"`
+	// Engagement is the ID of the finding's engagement ("" when the Doc was
+	// not read from one: no AI rule and no rule limited to engagements runs
+	// then).
+	Engagement  string            `json:"engagement"`
 	Title       string            `json:"title"`
 	Status      string            `json:"status"`
 	Severity    string            `json:"severity"`
@@ -161,14 +169,35 @@ type Doc struct {
 	// Attachments are the files of attachments/ the sections refer to, in
 	// order of first use.
 	Attachments []string `json:"attachments"`
+	// noAI: the engagement takes no AI (engagement.yaml's ai: off). Not in
+	// the JSON: a flip changes no script result's key.
+	noAI bool
 }
+
+// AIOff is why no AI rule, and no Fix with AI, runs for d: "" when one may.
+// AI runs only for a finding of a known engagement whose AI is not off.
+func (d Doc) AIOff() string {
+	if d.Engagement == "" || d.noAI {
+		return AIOffWords
+	}
+	return ""
+}
+
+// AIOff is Doc.AIOff for a finding as the store read it.
+func AIOff(f *finding.Finding) string {
+	return Doc{Engagement: f.Meta.Engagement, noAI: f.Meta.NoAI}.AIOff()
+}
+
+// AIOffWords is the refusal of AI work on a finding whose engagement takes
+// none.
+const AIOffWords = "AI is off for this engagement"
 
 // attachmentUse finds references to the finding's own attachments.
 var attachmentUse = regexp.MustCompile(`attachments/([A-Za-z0-9][A-Za-z0-9._-]*)`)
 
 func DocOf(f *finding.Finding) Doc {
 	m := f.Meta
-	d := Doc{ID: m.ID, Title: m.Title, Status: m.Status, Severity: m.Severity, CVSS: m.CVSS,
+	d := Doc{ID: m.ID, Engagement: m.Engagement, noAI: m.NoAI, Title: m.Title, Status: m.Status, Severity: m.Severity, CVSS: m.CVSS,
 		CVSSReasons: m.CVSSReasons, Details: m.Details, Author: m.Author, Reviewers: m.Reviewers, Attachments: []string{}}
 	if m.Retest != nil {
 		d.RetestResult = m.Retest.Result
@@ -321,7 +350,10 @@ func (s *Set) add(file string, b []byte, seen map[string]bool) {
 }
 
 var ruleKeys = map[string]bool{"id": true, "level": true, "message": true, "target": true, "regex_forbid": true,
-	"regex_require": true, "check": true, "script": true, "ai": true, "require_nonempty": true, "exclude": true, "enabled": true}
+	"regex_require": true, "check": true, "script": true, "ai": true, "require_nonempty": true, "exclude": true, "engagements": true, "enabled": true}
+
+// engagementID is the form of an engagement's ID (the store's ValidID).
+var engagementID = regexp.MustCompile(`^[A-Za-z0-9_-][A-Za-z0-9._-]*$`)
 
 func unknownKeys(m map[string]any) []string {
 	var bad []string
@@ -371,6 +403,12 @@ func (r *Rule) prepare() error {
 		return fmt.Errorf("%s: unknown exclude %q (use code)", r.ID, r.Exclude)
 	case r.re == nil:
 		return fmt.Errorf("%s: exclude is for regex_forbid and regex_require only", r.ID)
+	}
+	// a name that can be no engagement's would limit the rule to nothing
+	for _, e := range r.Engagements {
+		if !engagementID.MatchString(e) {
+			return fmt.Errorf("%s: engagements: %q is not an engagement ID", r.ID, e)
+		}
 	}
 	if r.Target == "" && r.Script == "" {
 		r.Target = "text"
@@ -505,11 +543,34 @@ type Hooks struct {
 	PerRule time.Duration
 }
 
-// Runs returns the rules a run of kinds runs, in order.
+// Runs returns the rules a run of kinds runs, in order, whatever the
+// finding (RunsFor: the ones of one finding).
 func (s *Set) Runs(kinds Kind, slow SlowRunner) []Rule {
 	var out []Rule
 	for _, r := range s.Rules {
 		if r.counts(kinds, slow) {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// For reports whether the rule is one of d's: a rule limited to engagements
+// is only theirs, and an AI rule is only for a finding whose engagement is
+// known and takes AI (Doc.AIOff). A rule that is not d's does not run, is no
+// step of a check and reports nothing.
+func (r Rule) For(d Doc) bool {
+	if len(r.Engagements) > 0 && !slices.Contains(r.Engagements, d.Engagement) {
+		return false
+	}
+	return r.AI == "" || d.AIOff() == ""
+}
+
+// RunsFor returns the rules a run of kinds runs on d, in order.
+func (s *Set) RunsFor(d Doc, kinds Kind, slow SlowRunner) []Rule {
+	var out []Rule
+	for _, r := range s.Rules {
+		if r.counts(kinds, slow) && r.For(d) {
 			out = append(out, r)
 		}
 	}
@@ -525,7 +586,7 @@ func (s *Set) RunWith(ctx context.Context, d Doc, cfg config.Config, kinds Kind,
 	ctx = withRun(ctx) // a provider that is down is waited for once
 	seen := map[Violation]bool{}
 	memo := codeMemo{} // a section's code is found once for all the rules
-	run := s.Runs(kinds, slow)
+	run := s.RunsFor(d, kinds, slow)
 	if h.Only != "" {
 		run = slices.DeleteFunc(run, func(r Rule) bool { return r.ID != h.Only })
 	}

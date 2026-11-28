@@ -300,7 +300,8 @@ func (s *Server) checksFor(r *http.Request, ref store.FindingRef) checksView {
 	// an approved or withdrawn finding is not fixed, not even by a director
 	if v.FixShow = !v.ReadOnly && workflow.CanEdit(u, m) && store.FixOpen(m.Status); v.FixShow {
 		v.Fixable = store.FixCount(st)
-		v.CanFix = s.Store.AICanFix() && v.Fixable > 0 && !v.Running && !v.Fixing
+		// an engagement that takes no AI keeps the button in its slot, disabled
+		v.CanFix = s.Store.AICanFix() && rules.AIOff(ref.F) == "" && v.Fixable > 0 && !v.Running && !v.Fixing
 	}
 	// a check is stopped by anyone who sees the finding (they can start one),
 	// a fix by those who may edit it; in an archived engagement too, since a

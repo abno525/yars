@@ -11,7 +11,8 @@ import (
 
 // D3: one count. These pin the bar's count, the strip's Errors and the
 // disabled Submit, Sign off and Approve to one source in the states where
-// they used to drift apart.
+// they used to drift apart. Submit is held by the pattern and built-in
+// rules' errors only (it runs no other rule); the count is the strip's.
 
 var (
 	stripErrors = regexp.MustCompile(`Errors <span class="badge0?">(\d+)</span>`)
@@ -130,7 +131,12 @@ func TestOneCountWhileRunningAgain(t *testing.T) {
 				e.want(t, "dora", "1", "1 error open", "approve")
 				e.want(t, "bob", "1", "1 error open", "clear")
 			} else {
-				e.want(t, "alice", "1", "1 error to fix", "submit")
+				// counted for the author too; Submit, which runs no script,
+				// is not held by it
+				e.want(t, "alice", "1", "1 error to fix")
+				if e.shown(t, "alice").disabled["submit"] {
+					t.Error("alice: submit is disabled by a script's error")
+				}
 			}
 		})
 	}

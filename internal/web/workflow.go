@@ -304,7 +304,7 @@ func plural(n int, word string) string {
 }
 
 func (s *Server) routesWorkflow(mux *http.ServeMux) {
-	mux.Handle("POST /e/{eng}/f/{fid}/action/{act}", s.lintLived(http.HandlerFunc(s.wfAction))) // submit and approve run every rule
+	mux.Handle("POST /e/{eng}/f/{fid}/action/{act}", s.lintLived(http.HandlerFunc(s.wfAction))) // approve and complete may run every rule (Require Check off)
 	mux.HandleFunc("POST /e/{eng}/f/{fid}/reviewers", s.wfReviewers)
 	mux.HandleFunc("GET /e/{eng}/f/{fid}/workflow", s.workflowBar)
 }
@@ -395,14 +395,17 @@ func (s *Server) wfGated(r *http.Request, ref store.FindingRef) (wfView, checksV
 	if errs := checks.Gate; len(errs) > 0 && wf.HasGated {
 		wf.Gate = append(wf.Gate, errs...)
 	}
-	// D3: Submit and Approve wait while the strip counts an error: the fast
-	// rules' now, or one the last run found on this content (they run every
-	// rule)
-	if len(checks.Gate) > 0 || checks.Errors > 0 {
-		for i, a := range wf.Actions {
-			if a.Gated {
-				wf.Actions[i].Disabled = true
-			}
+	// D3: Approve and Complete wait while the strip counts an error: the fast
+	// rules' now, or one the last run found on this content. Submit runs the
+	// fast rules only (the store's Submit): it waits for their open errors
+	// and for the workflow gate, not for an error a script or an AI rule left
+	// in the last run. The count shown stays the strip's
+	for i, a := range wf.Actions {
+		if !a.Gated {
+			continue
+		}
+		if len(checks.Gate) > 0 || (checks.Errors > 0 && a.Name != string(workflow.Submit)) {
+			wf.Actions[i].Disabled = true
 		}
 	}
 	wf.Problems = checks.Errors
