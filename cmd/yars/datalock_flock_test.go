@@ -14,6 +14,7 @@ import (
 	"github.com/abno525/yars/internal/config"
 	"github.com/abno525/yars/internal/db"
 	"github.com/abno525/yars/internal/finding"
+	"github.com/abno525/yars/internal/gitrepo"
 )
 
 // busyAddr is an address a start cannot listen on: a start that gets as far
@@ -136,17 +137,53 @@ func TestServeLockThroughLink(t *testing.T) {
 	}
 }
 
-// A folder without .yars is no data folder: no lock is taken there and no
-// .yars is made for one.
-func TestLockDataMakesNoFolder(t *testing.T) {
+// A folder without .yars is locked too: yars serve starts on one and makes
+// .yars a few steps on, so a start that took no lock there would run its
+// whole life without one. The lock makes .yars (for the service account
+// alone) and is held from then on: a second lock is refused.
+func TestLockDataOnFolderWithoutYars(t *testing.T) {
 	dir := t.TempDir()
 	release, err := lockData(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	release()
-	if _, err := os.Lstat(filepath.Join(dir, ".yars")); !os.IsNotExist(err) {
-		t.Fatalf(".yars was made: %v", err)
+	defer release()
+	// what the first server's start does next (dataDB)
+	if err := os.MkdirAll(filepath.Join(dir, ".yars"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	second, err := lockData(dir)
+	if err == nil {
+		second()
+		t.Fatal("a second lock was given on a folder that had no .yars at the first")
+	}
+	if err.Error() != "another yars serve runs on this data folder ("+dir+")" {
+		t.Fatalf("the second lock: %v", err)
+	}
+	if fi, err := os.Stat(filepath.Join(dir, ".yars")); err != nil || !fi.IsDir() || fi.Mode().Perm()&0o077 != 0 {
+		t.Fatalf(".yars: %v %v", fi, err)
+	}
+}
+
+// A second yars serve on a folder without .yars, while the first start is
+// still on its way (or runs without a status socket), is refused as on any
+// data folder: before the work tree is reset and before a database is made.
+func TestServeRefusedOnFolderWithoutYars(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "data")
+	if _, err := gitrepo.Init(dir); err != nil {
+		t.Fatal(err)
+	}
+	release, err := lockData(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	err = cmdServe([]string{"--data", dir, "--addr", busyAddr(t)})
+	if err == nil || err.Error() != "another yars serve runs on this data folder ("+dir+")" {
+		t.Fatalf("a second start: %v", err)
+	}
+	if _, err := os.Stat(db.Path(dir)); !os.IsNotExist(err) {
+		t.Fatalf("the refused start made a database: %v", err)
 	}
 }
 

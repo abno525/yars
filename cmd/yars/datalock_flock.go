@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path/filepath"
 
 	"golang.org/x/sys/unix"
 )
@@ -17,16 +18,20 @@ import (
 // removed; only the lock comes and goes. A lock another server holds is
 // errDataLocked's error; a lock that cannot be taken for any other reason
 // (the file cannot be made, a file system without flock) stops the start
-// too. A folder without .yars is no data folder: no lock is taken and
-// nothing is made there.
+// too.
+//
+// A folder without .yars gets one here (0700), for the lock file: yars
+// serve starts on such a folder and makes .yars a few steps on (dataDB), so
+// a start that took no lock there would serve its whole life without one,
+// and a second start would then take the lock itself.
 //
 // Only yars serve calls it. The account commands, yars backup and the push
 // hook open the database beside the running server and take no lock.
 func lockData(dir string) (release func(), err error) {
-	f, err := os.OpenFile(dataLockPath(dir), os.O_RDWR|os.O_CREATE, 0o600)
-	if errors.Is(err, fs.ErrNotExist) {
-		return func() {}, nil
+	if err := os.Mkdir(filepath.Dir(dataLockPath(dir)), 0o700); err != nil && !errors.Is(err, fs.ErrExist) {
+		return nil, fmt.Errorf("the data folder's lock: %w", err)
 	}
+	f, err := os.OpenFile(dataLockPath(dir), os.O_RDWR|os.O_CREATE, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("the data folder's lock: %w", err)
 	}
