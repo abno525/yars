@@ -412,6 +412,87 @@ func (l inboxList) Cols() int {
 type inboxLists struct {
 	Queues []inboxList
 	Bulk   *bulkBar // the director's bar ("" = none)
+	// Stale: the findings of the viewer's review and approve queues whose
+	// check is out of date only because the rules changed (Check stale)
+	Stale int
+}
+
+// maxCheckStale is how many checks one press of Check stale starts: the
+// queue holds each waiting finding in memory, and a check may ask the AI
+// provider. The count on the page says what is left.
+const maxCheckStale = 100
+
+// staleRows are the findings of u's Awaiting my review and Ready to approve
+// queues (before the approve queue is filtered: a finding that waits for a
+// check is not listed there) whose latest check is out of date for one
+// reason alone: the rules changed since (store.GateRules). A finding never
+// checked, one whose text changed and one being checked are not among them.
+// With Require Check off there are none.
+func (s *Server) staleRows(u config.User, engs []store.Engagement) ([]index.Row, error) {
+	v, err := s.inboxFor(u, engs)
+	if err != nil {
+		return nil, err
+	}
+	var rows []index.Row
+	var keys []store.GateKey
+	for _, k := range []workflow.Inbox{workflow.InboxReview, workflow.InboxApprove} {
+		for _, r := range v.Lists[k] {
+			rows = append(rows, r.row)
+			keys = append(keys, store.GateKey{Eng: r.EngID, Fid: r.row.ID, Hash: r.row.Full})
+		}
+	}
+	if len(keys) == 0 || s.Store.Linter == nil {
+		return nil, nil
+	}
+	gates, err := s.Store.CheckGates(keys)
+	if err != nil {
+		return nil, err
+	}
+	return slices.DeleteFunc(rows, func(r index.Row) bool { return gates[r.EngID+"/"+r.ID] != store.GateRules }), nil
+}
+
+// inboxCheckStale starts a check, as the viewer, for the findings staleRows
+// names, maxCheckStale at most. A finding that is being checked or fixed, or
+// whose engagement was archived meanwhile, is left out, not an error.
+func (s *Server) inboxCheckStale(w http.ResponseWriter, r *http.Request) {
+	p, err := s.base(r, "")
+	if err == nil {
+		err = p.inboxErr
+	}
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	rows, err := s.staleRows(p.User, p.Engagements)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	started := 0
+	for _, row := range rows {
+		if started == maxCheckStale {
+			break
+		}
+		before, had, err := s.Store.DB().LatestRun(row.EngID, row.ID)
+		if err != nil {
+			s.fail(w, err)
+			return
+		}
+		run, err := s.Store.StartCheck(row.EngID, row.Dir, p.User)
+		switch {
+		case err == nil:
+			if !had || run.ID != before.ID { // not a run that was under way
+				started++
+			}
+		case errors.Is(err, store.ErrBusy), errors.Is(err, store.ErrArchived), errors.Is(err, store.ErrNotFound):
+		default:
+			s.fail(w, err)
+			return
+		}
+	}
+	// counts only, never a title
+	s.log().Info("inbox: checks started for findings whose rules changed", "user", p.User.Username, "started", started, "left", len(rows)-started)
+	http.Redirect(w, r, "/inbox", http.StatusSeeOther)
 }
 
 // inboxPicks are the queues with checkboxes on a director's inbox.
@@ -580,6 +661,12 @@ func (s *Server) inbox(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
+	stale, err := s.staleRows(p.User, p.Engagements)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	p.InboxLists.Stale = len(stale)
 	s.render(w, "inbox.html", p)
 }
 
