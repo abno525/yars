@@ -45,8 +45,8 @@ func TestRulesRunForTheCaller(t *testing.T) {
 	if err := s.Transition(eng, fd, workflow.Submit, "", uAlice); err != nil {
 		t.Fatal(err)
 	}
-	// the check run's lint and the submit's (every rule) carry alice; fast
-	// lints for the page need none
+	// the check run's lint and the submit's (its fast rules) carry alice;
+	// fast lints for the page need none
 	want := rules.Caller{User: "alice", Eng: eng, Fid: "F-001"}
 	n := 0
 	for _, c := range got {

@@ -11,7 +11,7 @@ Every `*.yaml` or `*.yml` file in `.yars/rules/` is a list of rules:
 | Field | Value |
 |---|---|
 | `id` | required; one rule per id across the files |
-| `level` | `error` (default) or `warning`. An open error blocks Submit; any open result, a warning too, holds Sign off and Approve until it is fixed or dismissed |
+| `level` | `error` (default) or `warning`. An open error of a pattern or built-in rule blocks Submit; any open result, a warning too, holds Sign off and Approve until it is fixed or dismissed |
 | `message` | shown with each hit; empty → the id |
 | `target` | `text` (default: the title, every section and every details row), `title`, `sections`, `section:<Name>`, `details`, `details:<Row>` |
 | `enabled` | `false` turns the rule off |
@@ -93,6 +93,8 @@ A pattern is matched against one part at a time: the title, a section's body or 
 Pattern and built-in rules run wherever a finding is checked. Scripts and AI rules take longer and run in fewer places:
 
 - The Check button, `start_check` and `lint_finding all=true` (MCP) and the Test bench on **Admin › Rules** run every rule. On the server `lint_finding all=true` is a check run as the other two: stored, in the queue, and refused on an archived engagement.
+- Submit, on the page, in bulk and over MCP, runs the pattern and built-in rules only, so it answers at once. A script or an AI rule never holds a Submit and is not started by one: press Check for them. Sign off and Approve read that Check.
+- Approve, and Complete in the simple workflow, run every rule themselves only while Require Check is off (below).
 - **Try unsaved** in the rule editor runs the editor's values on the finding the Test bench has selected, before they are saved. It writes nothing. A script rule runs the script it has saved: save the rule to try a new upload.
 - The pre-commit check (`yars lint --staged`) runs the pattern and built-in rules, so a commit does not wait. `yars lint --staged --all` asks the server for scripts and AI rules too. Signed in with a Git token it gets them only when the token has the Run checks action; a password gets them.
 - A git push runs scripts, not AI rules.
@@ -101,7 +103,7 @@ Pattern and built-in rules run wherever a finding is checked. Scripts and AI rul
 
 A Check (the button, `start_check` and `lint_finding all=true` on the server) gives each script and each AI rule 90 s for itself, an AI rule's questions together. A rule that has not finished by then fails alone, and the rules after it run. Pattern and built-in rules have no limit.
 
-The checks that answer at once have 90 s for all their scripts and AI questions together: `yars lint --all`, the pre-commit check with every rule, a git push, the Test bench, and Submit and Approve where they run the rules themselves. A rule that has not finished by then fails, and so does every rule after it.
+The checks that answer at once have 90 s for all their scripts and AI questions together: `yars lint --all`, the pre-commit check with every rule, a git push, the Test bench, and Approve and Complete where they run the rules themselves (Require Check off). A rule that has not finished by then fails, and so does every rule after it.
 
 **Cancel** on the Checks strip stops the Check or the Fix with AI that runs on the finding, also one that waits in the queue. Anyone who can open the finding cancels its Check; a fix is cancelled by someone who may edit the finding.
 
@@ -262,7 +264,7 @@ A rule with `ai:` asks the AI provider (**Admin › AI**, or `ai.*` in `config.y
 
 AI rules run where script rules run, except on a git push. Without a provider or a key an AI rule does not run: it reports the warning `AI rules skipped: no AI provider configured`, and the finding shows an "AI checks failed" badge after Check. Sign off and Approve are not held by it.
 
-An AI rule that cannot run never holds a finding, with a provider set up too: when the call fails, or the reply is cut off or cannot be read, Submit, Sign off and Approve go through. The badge and Retry stay on the finding, and what the rule found before on the same text still counts. With a provider set up, each step taken this way is a `warn` line in the service log ([deploy.md](deploy.md)).
+An AI rule that cannot run never holds a finding, with a provider set up too: when the call fails, or the reply is cut off or cannot be read, Sign off and Approve go through. Submit asks no AI rule at all. The badge and Retry stay on the finding, and what the rule found before on the same text still counts. With a provider set up, each step taken this way is a `warn` line in the service log ([deploy.md](deploy.md)).
 
 ### Fix with AI
 

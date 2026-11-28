@@ -17,9 +17,10 @@ import (
 
 // BlockingNow is what would refuse act on the finding now beyond the role,
 // status and content gate, worded as Transition words it ("cannot sign
-// off: …"), with the fast rules only (script and AI rules run at the
-// transition itself); "" when nothing does, or when act runs no rules or
-// there are none (MCP's allowed actions).
+// off: …"), with the fast rules only (Submit runs no others; Approve and
+// Complete without the check gate run script and AI rules at the transition
+// itself); "" when nothing does, or when act runs no rules or there are none
+// (MCP's allowed actions).
 func (s *Store) BlockingNow(engID, dir string, act workflow.Action, u config.User) (string, error) {
 	if s.Linter == nil || !(workflow.Gated(act) || SignsOff(act)) {
 		return "", nil
@@ -36,16 +37,20 @@ func (s *Store) BlockingNow(engID, dir string, act workflow.Action, u config.Use
 }
 
 // blocking lists what blocks act on the finding (hash: its ApprovalHash, the
-// full digest check runs are kept under): Submit and
-// Approve (and Complete, the simple workflow's approval) run every rule now
-// (scripts and AI too: no check run may have covered the content) and are
-// blocked by its undismissed errors; Sign off, Approve and Complete are
+// full digest check runs are kept under). Submit runs the pattern and
+// built-in rules now and is blocked by their undismissed errors; it never
+// runs a script or an AI rule, whatever kinds says (a Submit does not wait
+// for them: the check run has them). Approve (and Complete, the simple
+// workflow's approval) run the rules of kinds now (scripts and AI too: no
+// check run may have covered the content) and are blocked by their
+// undismissed errors; Sign off, Approve and Complete are
 // blocked by every open check, warnings too (OpenChecks, the source the page
 // and Ready to approve show). With Require Check on, Sign off, Approve and
 // Complete first need a finished run on this content (checkGate), and
 // Approve and Complete run nothing inline: the run is the source. The rules
 // run for u on the finding (their AI calls are recorded so, D24); kinds are
-// the rules run inline (Transition: all; BlockingNow: fast).
+// the rules Approve and Complete run inline (Transition: all; BlockingNow:
+// fast).
 //
 // An AI rule that could not run blocks nothing (the failed call is a notice,
 // and a run with a failed AI step is a finished run). aiOpen reports that
@@ -65,6 +70,11 @@ func (s *Store) blocking(act workflow.Action, ref FindingRef, hash string, u con
 		}
 	}
 	if act == workflow.Submit || ((act == workflow.Approve || act == workflow.Complete) && !gate) {
+		if act == workflow.Submit {
+			// never a script or an AI rule in a Submit: the Check run has
+			// those, and Sign off and Approve read it
+			kinds = rules.Fast
+		}
 		ctx := rules.WithCaller(context.Background(), rules.Caller{User: u.Username, Eng: ref.EngID, Fid: ref.F.Meta.ID})
 		all := s.Linter.Lint(ctx, ref.F, kinds)
 		aiOpen = s.aiSetUp() && slices.ContainsFunc(all, func(v rules.Violation) bool { return v.Target == "ai" })

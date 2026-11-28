@@ -166,7 +166,7 @@ A failure of the server itself is `server_error`, never `invalid`. `invalid` is 
 ## Safety notes
 
 - The assistant can do exactly what you can do — no more. A pentester's assistant cannot approve findings or edit completed ones.
-- Text written by the assistant goes through the same style rules; submit is blocked while error-level rules fail.
+- Text written by the assistant goes through the same style rules; submit is blocked while error-level pattern or built-in rules fail. `transition submit` runs no script and no AI rule: `start_check` runs them, and `clear` and `approve` read that run.
 - Treat a token like a password. Give it only the actions and engagements it needs, and revoke it when a laptop is lost or a person leaves.
 - Finding text and chat come from other people. Every answer has them under `untrusted`, and the server tells the assistant, in `initialize` and in each tool's description, to treat them as data and to confirm workflow transitions with you. Still, review what it proposes before approving.
 - If Claude Code reports that the server "needs authentication", the token is missing, expired or wrong (YARS doesn't use OAuth); re-add the server with the correct `Authorization` header.

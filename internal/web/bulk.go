@@ -34,8 +34,9 @@ type bulkView struct {
 // A bulk run takes at most maxBulkIDs findings (each moved row sends its
 // notifications) and a reason of at most store.MaxReason characters (the
 // store's cap, refused here once for the whole run). It starts new rows for
-// at most bulkTime (submit and approve run every rule, AI too, per row); the
-// rows after that are skipped, to run again.
+// at most bulkTime (approve and complete without the check gate run every
+// rule, AI too, per row; submit runs the fast rules only); the rows after
+// that are skipped, to run again.
 const (
 	maxBulkIDs = 500
 	bulkTime   = 2 * time.Minute
@@ -89,7 +90,7 @@ func bulkBad(w http.ResponseWriter, r *http.Request, msg string) {
 }
 
 func (s *Server) routesBulk(mux *http.ServeMux) {
-	// submit and approve run every rule, once per row
+	// approve and complete may run every rule, once per row
 	mux.Handle("POST /e/{eng}/bulk", s.lintLived(http.HandlerFunc(s.bulk)))
 	mux.Handle("POST /inbox/bulk", s.lintLived(http.HandlerFunc(s.bulk)))
 }
@@ -200,7 +201,7 @@ func (s *Server) bulk(w http.ResponseWriter, r *http.Request) {
 				// again on the finding as it is inside the change
 				if err = f.BulkCheck(u, ref.F.Meta, act); err == nil {
 					if workflow.Gated(act) || store.SignsOff(act) {
-						s.lintDeadline(w) // each row may run every rule
+						s.lintDeadline(w) // an approve or complete row may run every rule
 					}
 					err = s.Store.TransitionChecked(e, ref.Dir, act, reason, u, func(m finding.Meta) error {
 						return f.BulkCheck(u, m, act)
