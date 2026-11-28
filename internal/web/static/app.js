@@ -472,16 +472,63 @@ document.addEventListener('click', function (evt) {
 // Live refreshes must never wipe a half-typed reply or reason: skip the
 // background refresh of #chat-list or #workflow while a text box inside has
 // focus or text, or the reviewer picker is open. (Posting a reply/resolve
-// still swaps, because that request is a POST.)
+// still swaps, because that request is a POST.) On the chat list only a
+// request a live event sent is held: the user's own GET (Show older) swaps,
+// and the typed replies are kept through it (yarsRepliesKeep).
 document.addEventListener('htmx:beforeSwap', function (evt) {
   var t = evt.detail.target;
   if (!t || (t.id !== 'chat-list' && t.id !== 'workflow' && t.id !== 'checks') || evt.detail.requestConfig.verb !== 'get') return;
+  var ev = evt.detail.requestConfig.triggeringEvent;
+  if (t.id === 'chat-list' && !(ev && String(ev.type).indexOf('sse:') === 0)) return;
   var busy = Array.prototype.some.call(t.querySelectorAll('input[name=text], input[name=reason], textarea'), function (i) {
     return i.value !== '' || i === document.activeElement;
   }) || (t.id === 'workflow' && !!t.querySelector('details[open], .wfpanel:not([hidden])')) ||
     (t.id === 'checks' && t.open && !!t.querySelector('.dismissrow:not([hidden])'));
   if (busy) evt.detail.shouldSwap = false;
 });
+
+// Half-typed replies are kept through every swap of the chat list or of the
+// whole chat: a reply sent in another thread, Resolve, Reopen, Hide, Show, a
+// new message and Show older all answer with every reply box drawn empty.
+// Before the swap each reply box with text is noted by its id
+// (reply-<thread id>, the same in every answer), with the focused one and
+// its selection; right after the swap the text goes back into the box of the
+// same id (not after the settle delay: the next key may already land in the
+// new box). Kept for the length of one swap, nowhere else. The box whose own
+// reply was just sent and taken (2xx) is left out, so it comes back empty; a
+// refused reply's text comes back from the server. A box that is gone (its
+// thread was resolved) takes its text with it.
+var yarsReplies = null;
+function yarsRepliesKeep(evt) {
+  yarsReplies = null;
+  var t = evt.detail.target;
+  if (!t || (t.id !== 'chat-list' && t.id !== 'chat')) return;
+  var x = evt.detail.xhr, cfg = evt.detail.requestConfig, form = cfg && cfg.elt;
+  var sent = form && form.querySelector && x && x.status >= 200 && x.status < 300 ? form.querySelector('input[name=text]') : null;
+  var kept = {texts: {}, focus: null};
+  Array.prototype.forEach.call(document.querySelectorAll('#chat-list input[name=text][id^="reply-"]'), function (i) {
+    if (i === sent) return;
+    if (i.value !== '') kept.texts[i.id] = i.value;
+    if (i === document.activeElement) kept.focus = {id: i.id, start: i.selectionStart, end: i.selectionEnd};
+  });
+  yarsReplies = kept;
+}
+function yarsRepliesBack() {
+  var was = yarsReplies;
+  yarsReplies = null;
+  if (!was) return;
+  Object.keys(was.texts).forEach(function (id) {
+    var i = document.getElementById(id);
+    // a box the server filled (a refused reply) keeps the server's text
+    if (i && i.name === 'text' && i.value === '') i.value = was.texts[id];
+  });
+  var f = was.focus && document.getElementById(was.focus.id);
+  if (!f) return;
+  if (document.activeElement !== f) f.focus({preventScroll: true});
+  try { f.setSelectionRange(was.focus.start, was.focus.end); } catch (e) { /* no selection to set */ }
+}
+document.addEventListener('htmx:beforeSwap', yarsRepliesKeep);
+document.addEventListener('htmx:afterSwap', yarsRepliesBack);
 
 // Checks strip: the server opens it while a check runs or the author's
 // draft has errors; a click on its head is the user's choice, kept for this
@@ -1008,8 +1055,9 @@ document.addEventListener('htmx:confirm', function (evt) {
   // posting that text (a POST from the guarded form itself); a live refresh
   // waits instead (htmx:beforeSwap)
   var tg = evt.detail.target, live = evt.detail.triggeringEvent && String(evt.detail.triggeringEvent.type).indexOf('sse:') === 0;
-  // every request passes here first: a question that was cancelled is over
-  yarsBoardDiscard = null;
+  // every request of the user's passes here first: a question that was
+  // cancelled is over
+  if (!live) yarsBoardDiscard = null;
   if (!q && tg && tg.id === 'board' && !live && !(evt.detail.verb !== 'get' && el && el.closest && el.closest('form[data-guard]')) && yarsDirty(tg)) {
     q = 'Discard changes?';
     ok = 'Discard';
@@ -1029,6 +1077,9 @@ document.addEventListener('htmx:confirm', function (evt) {
 // discards is not offered again as a draft.
 var yarsBoardDiscard = null;
 document.addEventListener('htmx:beforeRequest', function (evt) {
+  // a live refresh that comes while the question is open is not the answer
+  var ev = evt.detail.requestConfig && evt.detail.requestConfig.triggeringEvent;
+  if (ev && String(ev.type).indexOf('sse:') === 0) return;
   var b = yarsBoardDiscard;
   yarsBoardDiscard = null;
   if (b && evt.detail.target === b) Array.prototype.forEach.call(b.querySelectorAll('form[data-guard]'), yarsDraftDrop);
@@ -1164,7 +1215,7 @@ document.addEventListener('htmx:load', function (evt) { yarsListLinks(evt.detail
 // with: restored later, the text is saved against them, so a colleague's
 // newer value shows as a conflict). Never another kind of field, and never
 // one named like a secret.
-var yarsDraftSecret = /pass|token|secret|api.?key/i;
+var yarsDraftSecret = /passw|passphrase|token|secret|api.?key/i;
 function yarsDraftBase(name) { return name === 'base' || name.indexOf('base:') === 0; }
 function yarsDraftFields(form) {
   return Array.prototype.filter.call(form.elements, function (el) {
@@ -1216,7 +1267,11 @@ function yarsDraftWrite(form) {
   try {
     localStorage.setItem(k, s);
     yarsDraftTrim('yars-draft:' + yarsUser() + ':');
-  } catch (e) { /* storage full or blocked: not kept */ }
+  } catch (e) { return; /* storage full or blocked: not kept */ }
+  // what is typed now is the draft: an older one that was offered and not
+  // taken is replaced, so its Restore goes (the slot stays)
+  var b = form.querySelector('[data-draft-restore]');
+  if (b) b.classList.add('invisible');
 }
 // yarsDraftDrop forgets the form's draft and its pending write.
 function yarsDraftDrop(form) {

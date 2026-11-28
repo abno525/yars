@@ -175,7 +175,7 @@ func TestDraftScriptRules(t *testing.T) {
 			t.Errorf("yarsDraftFields names %q:\n%s", never, fields)
 		}
 	}
-	if !strings.Contains(js, "var yarsDraftSecret = /pass|token|secret|api.?key/i;") {
+	if !strings.Contains(js, "var yarsDraftSecret = /passw|passphrase|token|secret|api.?key/i;") {
 		t.Error("no rule for fields named like a secret")
 	}
 	write := jsFunc(t, js, "function yarsDraftWrite(form)", "\n}\n")
