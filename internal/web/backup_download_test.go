@@ -2,7 +2,10 @@ package web
 
 import (
 	"bytes"
+	"context"
 	"errors"
+	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -11,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -97,6 +101,190 @@ func TestBackupDownloadSendsWithoutLocks(t *testing.T) {
 	}
 	if rep, err := backup.Verify(p); err != nil || rep.Engagements != 1 || rep.Findings != 1 {
 		t.Fatalf("report %+v %v", rep, err)
+	}
+}
+
+// noise is n bytes a ZIP cannot make smaller, the same at every run.
+func noise(n int) []byte {
+	b := make([]byte, n)
+	x := uint64(88172645463325252)
+	for i := range b {
+		x ^= x << 13
+		x ^= x >> 7
+		x ^= x << 17
+		b[i] = byte(x)
+	}
+	return b
+}
+
+// deadlineRec is a client's connection with a write deadline
+// (http.ResponseController finds SetWriteDeadline): it notes, in order, each
+// deadline set at least half an hour ahead ("d") and each write ("w").
+// Deadlines nearer than that, and lifted ones, are another part's.
+type deadlineRec struct {
+	mu     sync.Mutex
+	hdr    http.Header
+	code   int
+	start  time.Time
+	events []string
+}
+
+func (d *deadlineRec) Header() http.Header { return d.hdr }
+
+func (d *deadlineRec) WriteHeader(code int) {
+	if d.code == 0 {
+		d.code = code
+	}
+}
+
+func (d *deadlineRec) Write(p []byte) (int, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.WriteHeader(http.StatusOK)
+	d.events = append(d.events, "w")
+	return len(p), nil
+}
+
+func (d *deadlineRec) SetWriteDeadline(at time.Time) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if at.After(d.start.Add(30 * time.Minute)) {
+		d.events = append(d.events, "d")
+	}
+	return nil
+}
+
+// The backup is sent under an idle deadline: it is set when the build ends
+// (the request's own has passed by then on a large folder), moved ahead
+// before each piece, so a slow line is never cut, and once more for what is
+// flushed after the handler.
+func TestBackupSendMovesDeadlinePerPiece(t *testing.T) {
+	e := setup(t)
+	// more than one piece of 32 KiB
+	if err := os.WriteFile(filepath.Join(e.dir, "noise.bin"), noise(100<<10), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	e.srv.backupIdle = time.Hour
+	w := &deadlineRec{hdr: http.Header{}, start: time.Now()}
+	e.h.ServeHTTP(w, e.backupRequest(url.Values{}))
+	seq := strings.Join(w.events, "")
+	writes := strings.Count(seq, "w")
+	if w.code != 200 || writes < 3 {
+		t.Fatalf("the download: %d, %d writes", w.code, writes)
+	}
+	if want := "d" + strings.Repeat("dw", writes) + "d"; seq != want {
+		t.Fatalf("deadlines and writes: %s, want %s", seq, want)
+	}
+}
+
+// A client that takes nothing of the download is cut once the idle time has
+// passed: the handler ends with one error line, the file is gone and no
+// audit row says the backup was downloaded.
+func TestBackupDownloadCutWhenClientTakesNothing(t *testing.T) {
+	e := setup(t)
+	// far more than a connection's buffers hold
+	if err := os.WriteFile(filepath.Join(e.dir, "noise.bin"), noise(16<<20), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	e.srv.backupIdle = 200 * time.Millisecond
+	built := make(chan string, 1)
+	e.srv.backupBuilt = func(path string) { built <- path }
+	srv := httptest.NewServer(e.h)
+	defer srv.Close()
+	conn, err := net.Dial("tcp", strings.TrimPrefix(srv.URL, "http://"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	// the form's POST, and then nothing is read
+	fmt.Fprintf(conn, "POST /admin/system/backup HTTP/1.1\r\nHost: %s\r\nCookie: %s=%s\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: 0\r\n\r\n",
+		strings.TrimPrefix(srv.URL, "http://"), auth.CookieName, e.toks["dora"])
+	var file string
+	select {
+	case file = <-built:
+	case <-time.After(60 * time.Second):
+		t.Fatal("the backup was never built")
+	}
+	deadline := time.Now().Add(30 * time.Second)
+	for len(e.log.With("backup: the download ended part way")) == 0 {
+		if len(e.log.With("backup downloaded")) > 0 {
+			t.Skip("the whole backup fit the connection's buffers: nothing to cut")
+		}
+		if time.Now().After(deadline) {
+			conn.Close() // lets the handler go, so the server can close
+			t.Fatal("the download of a client that takes nothing was not cut")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	// the handler's last steps follow its log line
+	for {
+		if _, err := os.Stat(file); os.IsNotExist(err) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the ZIP of a cut download is still there")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	l, _ := e.srv.Store.DB().AuditLog(10)
+	for _, row := range l {
+		if row.Action == "backup" {
+			t.Fatalf("a cut download is audited: %+v", row)
+		}
+	}
+}
+
+// One ZIP is built at a time. A download that comes while another is built
+// waits its turn and then builds its own; one whose client left meanwhile
+// builds nothing.
+func TestBackupBuildsOneAtATime(t *testing.T) {
+	e := setup(t)
+	var builds atomic.Int32
+	e.srv.backupBuilt = func(string) { builds.Add(1) }
+	serve := func(req *http.Request) (*httptest.ResponseRecorder, chan struct{}) {
+		rec, done := httptest.NewRecorder(), make(chan struct{})
+		go func() {
+			defer close(done)
+			e.h.ServeHTTP(rec, req)
+		}()
+		return rec, done
+	}
+	// the first build stops at the main repository's lock, which the test holds
+	unlock := e.srv.Store.LockMain()
+	first, firstDone := serve(e.backupRequest(url.Values{}))
+	deadline := time.Now().Add(30 * time.Second)
+	for e.srv.backupMu.TryLock() {
+		e.srv.backupMu.Unlock()
+		if time.Now().After(deadline) {
+			unlock()
+			<-firstDone
+			t.Fatal("a build takes no turn: two could run at once")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	// two more come while it is built; the client of one leaves
+	ctx, leave := context.WithCancel(context.Background())
+	left, leftDone := serve(e.backupRequest(url.Values{}).WithContext(ctx))
+	second, secondDone := serve(e.backupRequest(url.Values{}))
+	leave()
+	unlock()
+	for _, done := range []chan struct{}{firstDone, leftDone, secondDone} {
+		select {
+		case <-done:
+		case <-time.After(60 * time.Second):
+			t.Fatal("a download did not end")
+		}
+	}
+	for name, rec := range map[string]*httptest.ResponseRecorder{"the first": first, "the one that waited": second} {
+		if rec.Code != 200 || rec.Header().Get("Content-Type") != "application/zip" || rec.Header().Get("Content-Length") != strconv.Itoa(rec.Body.Len()) {
+			t.Fatalf("%s download: %d %v for %d bytes", name, rec.Code, rec.Header(), rec.Body.Len())
+		}
+	}
+	if left.Code == 200 || strings.Contains(left.Header().Get("Content-Type"), "zip") {
+		t.Fatalf("the download whose client left: %d %v", left.Code, left.Header())
+	}
+	if n := builds.Load(); n != 2 {
+		t.Fatalf("%d ZIPs were built for two clients that stayed and one that left", n)
 	}
 }
 

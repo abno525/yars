@@ -3,6 +3,7 @@ package gitserve
 import (
 	"bytes"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -212,6 +213,127 @@ func TestIdleReaderMovesDeadlinePerRead(t *testing.T) {
 		if at.IsZero() || (i > 0 && at.Before(set[i-1])) {
 			t.Fatalf("deadline %d: %v after %v", i, at, set[:i])
 		}
+	}
+}
+
+// deadlineWriter is a client's connection as the handler sees it, with a
+// write deadline (http.ResponseController finds SetWriteDeadline): it notes,
+// in order, each deadline set ("d") and each write ("w"), and keeps the
+// deadlines.
+type deadlineWriter struct {
+	mu     sync.Mutex
+	hdr    http.Header
+	code   int
+	events []string
+	at     []time.Time
+}
+
+func (d *deadlineWriter) Header() http.Header { return d.hdr }
+
+func (d *deadlineWriter) WriteHeader(code int) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.code == 0 {
+		d.code = code
+	}
+}
+
+func (d *deadlineWriter) Write(p []byte) (int, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.code == 0 {
+		d.code = 200
+	}
+	d.events = append(d.events, "w")
+	return len(p), nil
+}
+
+func (d *deadlineWriter) SetWriteDeadline(at time.Time) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.events = append(d.events, "d")
+	d.at = append(d.at, at)
+	return nil
+}
+
+// Every answer of a git route is written under the idle deadline: it is
+// moved ahead before each write to the client, and once more when the
+// handler ends (what is left is flushed after it). So for an answer git
+// streams (a fetch's refs) and for a push's answer, which is sent from its
+// record. Without it a client that stops reading holds its connection and
+// its git process for good: the server's own write deadline is lifted on
+// the git routes.
+func TestGitAnswerWrittenUnderIdleDeadline(t *testing.T) {
+	var gs *Server
+	setupServer(t, func(s *Server) {
+		s.IdleTimeout = time.Hour
+		gs = s
+	})
+	fetch := httptest.NewRequest("GET", "/git/e/acme/info/refs?service=git-upload-pack", nil)
+	// a push git answers with a report: the deletion of a branch that is not
+	// there (no pack to send)
+	zero := strings.Repeat("0", 40)
+	cmd := zero + " " + zero + " refs/heads/nope\x00report-status\n"
+	push := httptest.NewRequest("POST", "/git/e/acme/git-receive-pack", strings.NewReader(fmt.Sprintf("%04x%s0000", len(cmd)+4, cmd)))
+	push.Header.Set("Content-Type", "application/x-git-receive-pack-request")
+	for name, req := range map[string]*http.Request{"fetch": fetch, "push": push} {
+		req.SetBasicAuth("alice", "pw")
+		w := &deadlineWriter{hdr: http.Header{}}
+		start := time.Now()
+		gs.Handler().ServeHTTP(w, req)
+		if w.code != 200 {
+			t.Fatalf("%s: answered %d", name, w.code)
+		}
+		seq := strings.Join(w.events, "")
+		if !strings.Contains(seq, "w") {
+			t.Fatalf("%s: nothing was written", name)
+		}
+		// each write has its own deadline just before it, and one follows the last
+		if strings.Contains(seq, "ww") || strings.HasPrefix(seq, "w") || !strings.HasSuffix(seq, "d") {
+			t.Fatalf("%s: writes without a deadline of their own: %s", name, seq)
+		}
+		for _, at := range w.at {
+			// the idle time ahead, not a deadline lifted or one of the past
+			if at.Before(start.Add(30 * time.Minute)) {
+				t.Fatalf("%s: a write deadline of %v (the start was %v)", name, at, start)
+			}
+		}
+	}
+}
+
+// A client that stops reading an answer is cut once the idle time has
+// passed: the write fails with a timeout, so the handler (and git behind
+// it) ends. The server here has no write deadline of its own, as the git
+// routes have none.
+func TestStalledReaderOfAnswerIsCut(t *testing.T) {
+	result := make(chan error, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		out := &idleWriter{ResponseWriter: w, rc: http.NewResponseController(w), idle: 200 * time.Millisecond}
+		piece := make([]byte, 64<<10)
+		var err error
+		// far more than a connection's buffers hold
+		for i := 0; i < 16<<10 && err == nil; i++ {
+			_, err = out.Write(piece)
+		}
+		result <- err
+	}))
+	defer srv.Close()
+	conn, err := net.Dial("tcp", strings.TrimPrefix(srv.URL, "http://"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	// the request, and then nothing is read
+	fmt.Fprint(conn, "GET / HTTP/1.1\r\nHost: x\r\n\r\n")
+	select {
+	case err := <-result:
+		var ne net.Error
+		if !errors.As(err, &ne) || !ne.Timeout() {
+			t.Fatalf("the write to a client that reads nothing ended with %v, not a timeout", err)
+		}
+	case <-time.After(30 * time.Second):
+		conn.Close() // lets the handler go, so the server can close
+		t.Fatalf("the write to a client that reads nothing was not cut: %v", <-result)
 	}
 }
 
