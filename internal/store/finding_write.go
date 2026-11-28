@@ -332,8 +332,9 @@ func voidedBy(d *db.DB, eng, fid, oldHash string) []string {
 // is locked. Clearances need no reset: they are bound to the content hash,
 // so any change of the text voids them (attachments: dropSignOffs).
 func (s *Store) mutateContent(engID, dir string, who Actor, fn func(f *finding.Finding) (string, error)) error {
-	// the status as read: a front-matter edit (SetMeta) parses the meta
-	// again from the file, which holds no workflow state
+	// the status as read, kept apart from f, which fn changes (a
+	// front-matter edit, SetMeta, builds the meta again and carries the
+	// workflow state over)
 	status := ""
 	return s.mutateThen(engID, dir, who.GitAuthor(), func(f *finding.Finding) (string, error) {
 		status = f.Meta.Status

@@ -60,6 +60,11 @@ func fixReadyWith(t *testing.T, impact, extra string, scripts map[string]string,
 	if len(st.Results) == 0 {
 		t.Fatal("nothing found")
 	}
+	// these tests are about the section: the title's result (no-sql finds
+	// SQL in it, and a title is fixed too) is dismissed, so it is no item
+	if err := s.DismissWhy(eng, fd, "no-sql", "title", "SQL", "the name of the flaw", uBob); err != nil {
+		t.Fatal(err)
+	}
 	ff := &fakeFixer{Engine: s.Linter.(*rules.Engine), fn: fn}
 	s.Linter = ff
 	return s, dir, fd, ff
@@ -208,17 +213,8 @@ func TestFixRefusedForNonEditor(t *testing.T) {
 }
 
 func TestFixNeverChangesStatusOrDismissals(t *testing.T) {
+	// the title's result is dismissed (fixReady)
 	s, _, fd, _ := fixReady(t, "a foo here", "", removeFoo)
-	st := checked(t, s, fd)
-	var title rules.Violation
-	for _, r := range st.Results {
-		if r.Rule == "no-sql" {
-			title = rules.Violation{Rule: r.Rule, Target: r.Target, Quote: r.Quote}
-		}
-	}
-	if err := s.DismissWhy(eng, fd, title.Rule, title.Target, title.Quote, "house style", uBob); err != nil {
-		t.Fatal(err)
-	}
 	dis := func() map[string]db.Dismissal {
 		d, err := s.Dismissals(eng, "F-001")
 		if err != nil {
@@ -227,6 +223,9 @@ func TestFixNeverChangesStatusOrDismissals(t *testing.T) {
 		return d
 	}
 	before, status := dis(), load(t, s, fd).F.Meta.Status
+	if len(before) != 1 {
+		t.Fatalf("dismissals before: %v", before)
+	}
 	fixed(t, s, fd)
 	after := dis()
 	if load(t, s, fd).F.Meta.Status != status || len(after) != len(before) {

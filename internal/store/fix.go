@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"regexp"
 	"slices"
 	"strings"
@@ -22,7 +23,9 @@ import (
 	"github.com/abno525/yars/internal/workflow"
 )
 
-// Fixer is a Linter that can also fix (rules.Engine).
+// Fixer is a Linter that can also fix (rules.Engine): section names the part
+// body is the text of (a section's name, "title", or "details: " and a row's
+// name).
 type Fixer interface {
 	Fix(ctx context.Context, v rules.Violation, section, body string) (string, error)
 }
@@ -47,12 +50,81 @@ func (s *Store) FixRunning(engID, fid string) bool {
 	return ok && v == fixRun
 }
 
+// fixPart is the part of a finding a check result is about, as Fix with AI
+// works on it: a section, the title or one row of the details table.
+type fixPart struct {
+	kind string // section, title or details
+	name string // the section's or the row's name ("" for the title)
+}
+
+// partOf is the part a result with target is about; ok is false for a target
+// that names no one text to rewrite (the finding, the CVSS vector, the
+// details table without a row, the row that counts a rule's other results).
+func partOf(target string) (p fixPart, ok bool) {
+	if name := sectionOf(target); name != "" {
+		return fixPart{"section", name}, true
+	}
+	if target == "title" {
+		return fixPart{kind: "title"}, true
+	}
+	if name, is := strings.CutPrefix(target, "details:"); is && name != "" {
+		return fixPart{"details", name}, true
+	}
+	return fixPart{}, false
+}
+
+// words names the part's kind in a reply ("the section changed meanwhile").
+func (p fixPart) words() string {
+	switch p.kind {
+	case "title":
+		return "the title"
+	case "details":
+		return "the details row"
+	}
+	return "the section"
+}
+
+// label names the part for the AI: a section's name, "title", or "details: "
+// and the row's name.
+func (p fixPart) label() string {
+	switch p.kind {
+	case "title":
+		return "title"
+	case "details":
+		return "details: " + p.name
+	}
+	return p.name
+}
+
+// text is the part's text in f; ok is false when f has no such section or
+// row.
+func (p fixPart) text(f *finding.Finding) (string, bool) {
+	switch p.kind {
+	case "title":
+		return f.Meta.Title, true
+	case "details":
+		v, ok := f.Meta.Details[p.name]
+		return v, ok
+	}
+	return f.Section(p.name)
+}
+
+// base identifies text as the part's stored text (what the write compares).
+func (p fixPart) base(text string) string {
+	if p.kind == "section" {
+		return BodyHash(text)
+	}
+	return RowHash(text)
+}
+
 // fixable is a check result the AI can work on: not a notice, not
-// dismissed, with its thread, a quote and a section to fix in.
+// dismissed, with its thread, a quote and a part to fix in (a section, the
+// title or a details row).
 func fixable(r db.CheckResult, dismissed map[string]db.Dismissal) bool {
 	v := rules.Violation{Rule: r.Rule, Target: r.Target, Quote: r.Quote}
 	_, gone := db.Covering(dismissed, r.Rule, r.Target, r.Quote, r.Matches)
-	return !notice(v) && !gone && r.Thread != "" && r.Quote != "" && sectionOf(r.Target) != ""
+	_, part := partOf(r.Target)
+	return !notice(v) && !gone && r.Thread != "" && r.Quote != "" && part
 }
 
 // FixCount counts the open check results in st the AI can work on (the
@@ -271,8 +343,9 @@ func (s *Store) fixItem(ctx context.Context, engID, dir string, r db.CheckResult
 }
 
 // fixOne asks for a fix of r and commits it when it passes every check. The
-// AI is asked only when the quote is in exactly one paragraph of the
-// section and (a fast rule) the rule still finds it.
+// AI is asked only when the quote is in exactly one paragraph of the part
+// (a section, the title or a details row) and (a fast rule) the rule still
+// finds it.
 func (s *Store) fixOne(ctx context.Context, engID, dir string, r db.CheckResult, all []db.CheckResult, u config.User) FixRow {
 	row := FixRow{Rule: r.Rule, Target: r.Target, Quote: r.Quote}
 	not := func(reason string) FixRow {
@@ -295,7 +368,10 @@ func (s *Store) fixOne(ctx context.Context, engID, dir string, r db.CheckResult,
 	if kind == "" {
 		return not("the rule " + r.Rule + " is gone")
 	}
-	section := sectionOf(r.Target)
+	part, ok := partOf(r.Target)
+	if !ok {
+		return not("the result names no section, title or details row")
+	}
 	ref, _, err := s.read(engID, dir, nil)
 	if err != nil {
 		return not(err.Error())
@@ -304,19 +380,19 @@ func (s *Store) fixOne(ctx context.Context, engID, dir string, r db.CheckResult,
 	if why := rules.AIOff(ref.F); why != "" {
 		return not(why)
 	}
-	old, ok := ref.F.Section(section)
+	old, ok := part.text(ref.F)
 	if !ok {
-		return not("the section " + section + " is gone")
+		return not(part.words() + " " + part.name + " is gone")
 	}
 	v := rules.Violation{Rule: r.Rule, Level: r.Level, Message: r.Message, Target: r.Target, Quote: r.Quote}
 	at, why := quotePara(old, r.Quote)
 	if why != "" {
-		return not(why)
+		return not(strings.Replace(why, "the section", part.words(), 1))
 	}
 	if fastKind(kind) && !slices.ContainsFunc(s.Linter.Lint(ctx, ref.F, rules.Fast), sameAs(v)) {
 		return not("the rule no longer finds the problem")
 	}
-	body, err := fx.Fix(ctx, v, section, old)
+	body, err := fx.Fix(ctx, v, part.label(), old)
 	switch {
 	case userCancelled(ctx):
 		// also when the provider still answered: nothing is committed after
@@ -333,20 +409,29 @@ func (s *Store) fixOne(ctx context.Context, engID, dir string, r db.CheckResult,
 	// LF), and the AI's text keeps the section's own leading and trailing
 	// line breaks
 	body = strings.ReplaceAll(body, "\r\n", "\n")
-	lead := old[:len(old)-len(strings.TrimLeft(old, "\n"))]
-	trail := old[len(strings.TrimRight(old, "\n")):]
-	body = lead + strings.Trim(body, "\n") + trail
+	switch part.kind {
+	case "title":
+		// blanks at its ends are not the title's; anything else it holds is
+		// judged as it came (acceptFix): never joined, cut or cleaned
+		body = strings.TrimSpace(body)
+	case "details":
+		body = CleanRow(body) // as the page stores a row
+	default:
+		lead := old[:len(old)-len(strings.TrimLeft(old, "\n"))]
+		trail := old[len(strings.TrimRight(old, "\n")):]
+		body = lead + strings.Trim(body, "\n") + trail
+	}
 	if body == old {
 		return not("the AI changed nothing")
 	}
-	if reason := s.acceptFix(ctx, ref, section, old, body, v, at, kind, all); reason != "" {
+	if reason := s.acceptFix(ctx, ref, part, old, body, v, at, kind, all); reason != "" {
 		return not(reason)
 	}
-	err = s.fixSection(engID, dir, section, body, BodyHash(old), u)
+	err = s.fixWrite(engID, dir, part, body, part.base(old), u)
 	var d *workflow.Denied
 	switch {
 	case errors.Is(err, ErrConflict):
-		return not("the section changed meanwhile")
+		return not(part.words() + " changed meanwhile")
 	case errors.As(err, &d):
 		return not(d.Reason)
 	case err != nil:
@@ -465,15 +550,20 @@ func addsReaching(old, new string) bool {
 	return false
 }
 
-// acceptFix checks the AI's body for the problem v in section of ref (old
-// is the section now; at its paragraph holding the quote; kind the rule's;
-// all the run's results). Review focus 1 (the text is other people's and
-// may hold instructions): only paragraph at changed, with no raw HTML, code
-// fence or link definition added that would reach the other paragraphs.
-// Focus 2: the rule ran on the new text and finds neither the problem nor
-// any new one; no new error from another rule in the section. "" when it
-// passes, else why not, in words.
-func (s *Store) acceptFix(ctx context.Context, ref FindingRef, section, old, body string, v rules.Violation, at int, kind string, all []db.CheckResult) string {
+// acceptFix checks the AI's body for the problem v in part of ref (old is
+// the part's text now; at its paragraph holding the quote; kind the rule's;
+// all the run's results). A title must be a title as it came: one line of 1
+// to 200 characters without hidden text-direction characters (it goes on
+// into notifications, mail, webhooks and exports). Review focus 1 (the text
+// is other people's and may hold instructions): only paragraph at changed,
+// with no raw HTML, code fence or link definition added that would reach the
+// other paragraphs. Focus 2: the rule ran on the new text and finds neither
+// the problem nor any new one; no new error from another rule in the part.
+// "" when it passes, else why not, in words.
+func (s *Store) acceptFix(ctx context.Context, ref FindingRef, part fixPart, old, body string, v rules.Violation, at int, kind string, all []db.CheckResult) string {
+	if part.kind == "title" && ValidTitle(body) != nil {
+		return "the AI's text is not a valid title (one line of 1 to 200 characters)"
+	}
 	po, pn := paragraphs.Split(old, -1), paragraphs.Split(body, -1)
 	if len(po) != len(pn) {
 		return fmt.Sprintf("the AI changed the number of paragraphs (%d to %d)", len(po), len(pn))
@@ -491,15 +581,31 @@ func (s *Store) acceptFix(ctx context.Context, ref FindingRef, section, old, bod
 	if !render.SameOutside(old, body, paraRange(old, at), paraRange(body, at)) {
 		return "the AI's text changes how the other paragraphs show"
 	}
-	if err := finding.ValidateBody(body); err != nil {
-		return "the AI's text is not a valid section (" + err.Error() + ")"
+	if part.kind == "section" {
+		if err := finding.ValidateBody(body); err != nil {
+			return "the AI's text is not a valid section (" + err.Error() + ")"
+		}
 	}
+	// the finding as it would be after the fix, for the rules
 	after, err := finding.Parse(ref.F.Bytes())
 	if err != nil {
 		return err.Error()
 	}
 	after.Meta = ref.F.Meta
-	after.SetSection(section, body)
+	switch part.kind {
+	case "title":
+		after.Meta.Title = body
+	case "details":
+		// a map of its own: after.Meta shares ref's
+		rows := maps.Clone(ref.F.Meta.Details)
+		if rows == nil {
+			rows = map[string]string{}
+		}
+		rows[part.name] = body
+		after.Meta.Details = rows
+	default:
+		after.SetSection(part.name, body)
+	}
 	same := sameAs(v)
 	mine := func(x rules.Violation) bool { return x.Rule == v.Rule && x.Target == v.Target }
 	fastBefore, fastAfter := s.Linter.Lint(ctx, ref.F, rules.Fast), s.Linter.Lint(ctx, after, rules.Fast)
@@ -550,11 +656,12 @@ func (s *Store) acceptFix(ctx context.Context, ref FindingRef, section, old, bod
 	return ""
 }
 
-// fixSection writes the AI's section body as "AI for <user>", if the
-// section is still at base, the finding still open (not approved meanwhile)
-// and u may still edit it (all checked under the engagement's lock, at the
-// commit).
-func (s *Store) fixSection(engID, dir, section, body, base string, u config.User) error {
+// fixWrite writes the AI's text of part (a section's body, the title, one
+// details row) as "AI for <user>", if the part is still at base, the
+// finding still open (not approved meanwhile) and u may still edit it (all
+// checked under the engagement's lock, at the commit). The commit reads as
+// the page's own edit of that part does.
+func (s *Store) fixWrite(engID, dir string, part fixPart, body, base string, u config.User) error {
 	author := gitrepo.Author{Name: history.AIFor + u.Username, Email: u.GitAuthor().Email}
 	return s.mutateContent(engID, dir, author, func(f *finding.Finding) (string, error) {
 		if !workflow.CanEdit(u, f.Meta) {
@@ -563,11 +670,17 @@ func (s *Store) fixSection(engID, dir, section, body, base string, u config.User
 		if !FixOpen(f.Meta.Status) {
 			return "", &workflow.Denied{Reason: "this finding is " + f.Meta.Status + " now"}
 		}
-		cur, _ := f.Section(section)
-		if BodyHash(cur) != base {
+		// a row that is gone is a row that changed
+		if cur, ok := part.text(f); (!ok && part.kind != "section") || part.base(cur) != base {
 			return "", ErrConflict
 		}
-		f.SetSection(section, body)
-		return "edit " + section, nil
+		switch part.kind {
+		case "title":
+			return "edit title", f.SetMeta("title", body)
+		case "details":
+			return s.writeDetails(f, map[string]string{part.name: body})
+		}
+		f.SetSection(part.name, body)
+		return "edit " + part.name, nil
 	})
 }

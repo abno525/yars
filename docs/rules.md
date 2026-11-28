@@ -264,6 +264,16 @@ AI rules run where script rules run, except on a git push. Without a provider or
 
 An AI rule that cannot run never holds a finding, with a provider set up too: when the call fails, or the reply is cut off or cannot be read, Submit, Sign off and Approve go through. The badge and Retry stay on the finding, and what the rule found before on the same text still counts. With a provider set up, each step taken this way is a `warn` line in the service log ([deploy.md](deploy.md)).
 
+### Fix with AI
+
+**Fix with AI** on the Checks strip asks the provider to fix the open results of the last Check, one after the other, and a Check follows. It needs a provider and a finding that is a draft or in verification, and whoever presses it must be allowed to edit the finding.
+
+- It takes a result that has a quote and is about a section, the title or one details row. A result about the whole finding, the CVSS vector or the details table as a whole stays for you.
+- Each fix is a commit by `AI for <you>`: `edit <Section>`, `edit title` or `edit details`. There is no preview; the History tab shows the change, and a sign-off given before does not count for the new text.
+- A fix is kept only when it passes: the change is in the paragraph with the quote and nowhere else, it adds no raw HTML, code fence or link definition, the rule no longer finds the problem and finds no new one, and no other rule reports a new error in that place.
+- A new title must be one line of at most 200 characters as the model wrote it. A title with a line break is refused, never joined or cut.
+- A result that is not fixed says why in its chat thread: `Not fixed: …`. A text that changed while the AI worked is left as it is.
+
 ### AI off for an engagement
 
 A client may allow no AI on its findings. The engagement's **Settings** tab has an AI switch for that; a director flips it. It is the key `ai: off` in the engagement's `engagement.yaml`, so a clone has it too.
