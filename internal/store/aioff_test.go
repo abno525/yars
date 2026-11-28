@@ -9,6 +9,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/abno525/yars/internal/db"
 	"github.com/abno525/yars/internal/rules"
 	"github.com/abno525/yars/internal/workflow"
 )
@@ -180,6 +181,61 @@ func TestEngagementAIOff(t *testing.T) {
 	}
 	if err := s.SetEngagementAI(eng, false, uDora); !errors.Is(err, ErrArchived) {
 		t.Fatalf("an archived engagement: %v", err)
+	}
+}
+
+// hitAI answers every question with one result on the part asked about.
+type hitAI struct{ rules.SlowRunner }
+
+func (hitAI) AI(_ context.Context, r rules.Rule, target, _ string) []rules.Violation {
+	return []rules.Violation{{Rule: r.ID, Level: r.Level, Message: "Be plain", Target: target, Quote: "plain"}}
+}
+
+// A Retry of one rule keeps the other rules' results only while the finding's
+// rules are the ones of the run before. With the engagement's AI switched off
+// since, the retry is a run of every rule the finding has now: the AI rule's
+// result is not in it. Switched on again, the AI rule is asked, not left
+// queued.
+func TestRetryKeepsNoAIResultWhereAIIsOff(t *testing.T) {
+	s, dir, fd := ready(t)
+	withRules(t, s, dir, aiOffRules)
+	e := s.Linter.(*rules.Engine)
+	e.Runner = hitAI{e.Runner}
+	rulesOf := func(st CheckStatus) string {
+		var out []string
+		for _, r := range st.Results {
+			out = append(out, r.Rule)
+		}
+		return strings.Join(out, ",")
+	}
+	retry := func() CheckStatus {
+		t.Helper()
+		if _, err := s.RetryCheck(eng, fd, "re", uBob); err != nil {
+			t.Fatal(err)
+		}
+		s.WaitChecks()
+		st, err := s.CheckStatus(eng, fd)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return st
+	}
+	checkNow(t, s, fd)
+	// the switch as it was: the retry keeps the AI rule's result
+	if st := retry(); rulesOf(st) != "ai" || len(st.Steps) != 2 {
+		t.Fatalf("a retry where AI is on: results %q, steps %+v", rulesOf(st), st.Steps)
+	}
+	if err := s.SetEngagementAI(eng, false, uDora); err != nil {
+		t.Fatal(err)
+	}
+	if st := retry(); rulesOf(st) != "" || len(st.Steps) != 1 || st.Steps[0].Rule != "re" {
+		t.Fatalf("a retry where AI is off: results %q, steps %+v", rulesOf(st), st.Steps)
+	}
+	if err := s.SetEngagementAI(eng, true, uDora); err != nil {
+		t.Fatal(err)
+	}
+	if st := retry(); rulesOf(st) != "ai" || len(st.Steps) != 2 || stepOf(t, st, "ai").State != db.StepHits {
+		t.Fatalf("a retry where AI is on again: results %q, steps %+v", rulesOf(st), st.Steps)
 	}
 }
 

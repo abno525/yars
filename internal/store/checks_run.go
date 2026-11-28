@@ -138,6 +138,13 @@ func (s *Store) startOnce(engID, dir, only string, u config.User, bulk bool) (db
 		// kept only from a run on this content with these rules (Q13)
 		if err == nil && ok && prev.State != db.RunRunning && db.SameContent(prev.ContentHash, hash) && !RulesChanged(prev.Rules, asked) {
 			keep, err = s.carry(prev.ID, only)
+			// and only while the finding's rules are that run's: with the
+			// engagement's AI switched off or on since (the rules' version does
+			// not move), a kept result would be of a rule that is no step now,
+			// and a rule that is new would stay queued
+			if err == nil && !keep.of(ruleList) {
+				keep = nil
+			}
 		}
 		if err != nil {
 			s.checksMu.Unlock()
@@ -238,6 +245,20 @@ func (s *Store) carry(prev int64, rule string) (*carried, error) {
 		}
 	}
 	return c, nil
+}
+
+// of reports whether the run kept from had exactly the rules list as its
+// steps (id and kind).
+func (c *carried) of(list []rules.Rule) bool {
+	if c == nil || len(c.steps) != len(list) {
+		return false
+	}
+	for _, r := range list {
+		if x, ok := c.steps[r.ID]; !ok || x.Kind != r.KindName() {
+			return false
+		}
+	}
+	return true
 }
 
 func (c *carried) step(rule string) (db.CheckStep, bool) {
