@@ -23,6 +23,7 @@ type checkJob struct {
 	by        string
 	stepRules []rules.Rule
 	rules     string // the rules version it was asked with (its keep is of those)
+	bulk      bool   // one of many started with one press (StartCheckOfMany)
 }
 
 // checkLimit is how many check runs run at once (checks.max_running).

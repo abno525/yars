@@ -3,9 +3,11 @@ package web
 import (
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/abno525/yars/internal/notify"
 	"github.com/abno525/yars/internal/store"
 )
 
@@ -78,6 +80,64 @@ func TestInboxCheckStaleSimple(t *testing.T) {
 	}
 	if h := head("anna"); !strings.Contains(h, off) {
 		t.Fatalf("after the check:\n%s", h)
+	}
+}
+
+// One press of Check stale ends in one check event per finding. The author
+// is told of such a check only when it left an open error; a check with
+// nothing to do sends no notice (pre1 7.12).
+func TestInboxCheckStaleNotices(t *testing.T) {
+	e := setupSerial(t)
+	e.toVerification(t)
+	const one = "- id: none\n  target: title\n  regex_forbid: 'zzz'\n"
+	e.rules(t, one, nil)
+	st := e.srv.Store
+	d := st.DB()
+	if err := d.SetNotify("alice", notify.Check, "app", true); err != nil {
+		t.Fatal(err)
+	}
+	notices := func() []string {
+		t.Helper()
+		st.WaitChecks()
+		e.srv.Notifier.Wait()
+		l, err := d.Notifications("alice", 50)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for i := len(l) - 1; i >= 0; i-- { // oldest first
+			if l[i].Event == notify.Check {
+				out = append(out, l[i].Actor+": "+l[i].Text)
+			}
+		}
+		return out
+	}
+	press := func() {
+		t.Helper()
+		if rec := e.do(t, "bob", "POST", "/inbox/check-stale", url.Values{}, nil); rec.Code != http.StatusSeeOther {
+			t.Fatalf("press: %d\n%s", rec.Code, rec.Body.String())
+		}
+	}
+	// a check the reviewer starts on the finding tells its author, as before
+	e.do(t, "bob", "POST", fpath+"/checks", url.Values{}, nil)
+	if got := notices(); !slices.Equal(got, []string{"bob: 0 errors · 0 warnings"}) {
+		t.Fatalf("after bob's own check: %q", got)
+	}
+	// a rule changes and finds nothing: the press starts the check, no notice
+	e.rules(t, one+"- id: no-zebra\n  target: title\n  regex_forbid: 'zebra'\n", nil)
+	first, _, _ := d.LatestRun("acme", "F-001")
+	press()
+	if got := notices(); len(got) != 1 {
+		t.Fatalf("a check with nothing to do told the author: %q", got)
+	}
+	if run, _, _ := d.LatestRun("acme", "F-001"); run.ID == first.ID {
+		t.Fatal("the press started no check")
+	}
+	// a rule that leaves an error: the author is told
+	e.rules(t, one+"- id: any\n  target: title\n  regex_forbid: '^.'\n", nil)
+	press()
+	if got := notices(); len(got) != 2 || got[1] != "bob: 1 error · 0 warnings" {
+		t.Fatalf("a check that left an error: %q", got)
 	}
 }
 

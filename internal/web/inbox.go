@@ -500,7 +500,9 @@ func (s *Server) inboxCheckStale(w http.ResponseWriter, r *http.Request) {
 			s.fail(w, err)
 			return
 		}
-		run, err := s.Store.StartCheck(row.EngID, row.Dir, p.User)
+		// one of many: its end tells the author only of an open error
+		// one of many: its end tells the author only of an open error
+		run, err := s.Store.StartCheckOfMany(row.EngID, row.Dir, p.User)
 		switch {
 		case err == nil:
 			if !had || run.ID != before.ID { // not a run that was under way

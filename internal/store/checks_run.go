@@ -21,7 +21,15 @@ import (
 // are stored and each new violation is posted as a chat thread (see
 // finishCheck).
 func (s *Store) StartCheck(engID, dir string, u config.User) (db.CheckRun, error) {
-	return s.startCheck(engID, dir, "", u)
+	return s.startCheck(engID, dir, "", u, false)
+}
+
+// StartCheckOfMany is StartCheck for one of many checks started with one
+// press (Check stale on the Inbox): the event at its end says so
+// (Event.Bulk), and the author is then told only of an open error. A run of
+// the finding that is under way already is returned as it is.
+func (s *Store) StartCheckOfMany(engID, dir string, u config.User) (db.CheckRun, error) {
+	return s.startCheck(engID, dir, "", u, true)
 }
 
 // RetryCheck runs one rule of the finding's latest run again (a rule that
@@ -31,7 +39,7 @@ func (s *Store) RetryCheck(engID, dir, rule string, u config.User) (db.CheckRun,
 	if rule == "" {
 		return db.CheckRun{}, fmt.Errorf("%w: no rule", ErrInvalidValue)
 	}
-	return s.startCheck(engID, dir, rule, u)
+	return s.startCheck(engID, dir, rule, u, false)
 }
 
 // carried is what a retry keeps from the run before it.
@@ -40,7 +48,7 @@ type carried struct {
 	steps   map[string]db.CheckStep
 }
 
-func (s *Store) startCheck(engID, dir, only string, u config.User) (db.CheckRun, error) {
+func (s *Store) startCheck(engID, dir, only string, u config.User, bulk bool) (db.CheckRun, error) {
 	if s.db == nil {
 		return db.CheckRun{}, ErrNoDB
 	}
@@ -116,7 +124,7 @@ func (s *Store) startCheck(engID, dir, only string, u config.User) (db.CheckRun,
 	}
 	s.db.RunProgress(id, 0, total) // "0/6" from the start
 	s.checkWG.Add(1)
-	j := checkJob{id: id, ref: ref, only: only, keep: keep, by: u.Username, stepRules: ruleList, rules: asked}
+	j := checkJob{id: id, ref: ref, only: only, keep: keep, by: u.Username, stepRules: ruleList, rules: asked, bulk: bulk}
 	queued := s.enqueue(j) // under checksMu: in the order of the starts
 	s.checksMu.Unlock()
 	s.admit(j, queued)
@@ -283,7 +291,7 @@ func (s *Store) runCheck(j checkJob) {
 		}
 		s.setRunning(checkKey(eng, fid), 0, true)
 		s.notify(Change{Eng: eng, Fid: fid, Kind: ChangeCheck})
-		ev, ok := s.emitCheck(id, ref)
+		ev, ok := s.emitCheck(id, ref, j.bulk)
 		// the run's end, in one line: its state and counts, never why it
 		// failed (a script's or a provider's own words)
 		state := "unknown"
@@ -344,14 +352,14 @@ func (s *Store) runCheck(j checkJob) {
 
 // emitCheck tells the subscribers that run id of ref ended, with its counts,
 // and returns the event; ok is false when the run could not be read (nothing
-// is told then).
-func (s *Store) emitCheck(id int64, ref FindingRef) (ev Event, ok bool) {
+// is told then). bulk: the run was one of many started with one press.
+func (s *Store) emitCheck(id int64, ref FindingRef, bulk bool) (ev Event, ok bool) {
 	run, err := s.db.Run(id)
 	if err != nil {
 		return Event{}, false
 	}
 	ev = findingEvent(EventCheck, run.By, ref)
-	ev.State = run.State
+	ev.State, ev.Bulk = run.State, bulk
 	dis, _ := s.db.Dismissals(ref.EngID, ref.F.Meta.ID)
 	if res, err := s.db.RunResults(id); err == nil {
 		for _, r := range res {
