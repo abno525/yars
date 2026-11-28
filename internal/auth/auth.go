@@ -32,6 +32,10 @@ type Auth struct {
 	Secure bool
 	// Logger takes the failed-login and lockout lines; nil writes none.
 	Logger *slog.Logger
+	// LoginURL is where Require sends a page request without a session; nil
+	// means "/login". The website sets it, to come back to the page after the
+	// login; what it returns is used as the redirect's address as it is.
+	LoginURL func(*http.Request) string
 
 	db    *db.DB
 	dummy []byte
@@ -265,7 +269,11 @@ func (a *Auth) Require(next http.Handler) http.Handler {
 				http.Error(w, "Session expired", http.StatusUnauthorized)
 				return
 			}
-			http.Redirect(w, r, "/login", http.StatusSeeOther)
+			to := "/login"
+			if a.LoginURL != nil {
+				to = a.LoginURL(r)
+			}
+			http.Redirect(w, r, to, http.StatusSeeOther)
 			return
 		}
 		// a page load renews the cookie: an active session does not expire

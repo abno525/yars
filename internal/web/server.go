@@ -253,6 +253,7 @@ type page struct {
 	// seconds (the countdown runs from these, not the browser's clock)
 	LockLeft    string
 	LockSecs    int
+	Next        string      // the login page: the page to go on to (safeNext; "" = the start page)
 	Tpl         tplView     // templates, the template picker
 	History     historyView // a finding's history
 	ETab        engTabs     // the engagement tabs (Findings, Overview, Report, Settings)
@@ -361,6 +362,10 @@ func (s *Server) init() {
 
 func (s *Server) Handler() http.Handler {
 	s.init()
+	// a page asked for without a session comes back after the login
+	if s.Auth.LoginURL == nil {
+		s.Auth.LoginURL = loginURL
+	}
 
 	private := http.NewServeMux()
 	private.HandleFunc("GET /{$}", s.home)
@@ -649,17 +654,20 @@ func (s *Server) badges(p *page, u config.User, engs []store.Engagement) error {
 }
 
 func (s *Server) loginPage(w http.ResponseWriter, r *http.Request) {
-	s.render(w, "login.html", &page{Bare: true})
+	s.render(w, "login.html", &page{Bare: true, Next: safeNext(r.URL.Query().Get("next"))})
 }
 
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	// a disabled account gets the same answer as a wrong password
 	tok, ok := s.Auth.Login(r.FormValue("username"), r.FormValue("password"))
+	// the page to go on to: the form's field is the client's, so it is judged
+	// again here (safeNext); it goes into no log line
+	next := safeNext(r.FormValue("next"))
 	if !ok {
 		s.Auth.LogFailedLogin("login", r.FormValue("username"), r)
 		// the username stays filled in (never the password)
 		form := url.Values{"username": {r.FormValue("username")}}
-		p := &page{Bare: true, Error: "Wrong username or password", Form: form}
+		p := &page{Bare: true, Error: "Wrong username or password", Form: form, Next: next}
 		if until, locked := s.Auth.LockedUntil(r.FormValue("username")); locked {
 			left := time.Until(until)
 			p.LockLeft, p.LockSecs = lockLeft(left), max(int(left.Round(time.Second).Seconds()), 0)
@@ -668,7 +676,10 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.Auth.SetCookie(w, tok)
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	if next == "" {
+		next = "/"
+	}
+	http.Redirect(w, r, next, http.StatusSeeOther)
 }
 
 // lockLeft shows the rest of a lockout as m:ss.

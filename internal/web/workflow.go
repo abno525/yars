@@ -430,11 +430,24 @@ func (s *Server) allowEdit(w http.ResponseWriter, r *http.Request, ref store.Fin
 	return false
 }
 
+// wfBack sends the browser to the page to after a workflow action: 303 for
+// a plain form, and for a form htmx sent (a reason panel) HX-Redirect, which
+// loads the page (a 303 would be followed inside the request and its page
+// would land in the form).
+func wfBack(w http.ResponseWriter, r *http.Request, to string) {
+	if r.Header.Get("HX-Request") == "true" {
+		w.Header().Set("HX-Redirect", to)
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	http.Redirect(w, r, to, http.StatusSeeOther)
+}
+
 func (s *Server) wfDone(w http.ResponseWriter, r *http.Request, err error) {
 	var d *workflow.Denied
 	switch {
 	case err == nil:
-		http.Redirect(w, r, findingURL(r.PathValue("eng"), r.PathValue("fid")), http.StatusSeeOther)
+		wfBack(w, r, findingURL(r.PathValue("eng"), r.PathValue("fid")))
 	case errors.As(err, &d):
 		// back to the finding's own URL (a reload re-posts nothing), with the
 		// error and the typed reason kept for it
@@ -447,7 +460,11 @@ func (s *Server) wfDone(w http.ResponseWriter, r *http.Request, err error) {
 		}
 		js, _ := json.Marshal(wfDenial{Path: to, Act: r.PathValue("act"), Reason: reason, Error: d.Reason})
 		s.flash.put(r, "wfdenied", string(js))
-		http.Redirect(w, r, to, http.StatusSeeOther)
+		wfBack(w, r, to)
+	case errors.Is(err, store.ErrBusy) && r.Header.Get("HX-Request") == "true":
+		// htmx swaps a 409 without a word and the reason form swaps nothing:
+		// 422 is shown as a toast, and the reason stays in its box
+		http.Error(w, store.ErrBusy.Error(), http.StatusUnprocessableEntity)
 	default:
 		s.fail(w, err)
 	}

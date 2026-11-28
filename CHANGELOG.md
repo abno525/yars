@@ -6,6 +6,8 @@ What changed for people who run or use YARS. Newest first.
 
 ### Added
 
+- A page opened without a session comes back after the login (before: always the start page). A form sent after the session expired comes back to the page it was on. The address is a path of this site only.
+- The Return, Withdraw and Revert reasons of the finding page are sent without leaving the page: with an expired session the reason stays in its box under a Session expired toast (before: the login page, and the reason was lost).
 - An error answered to a page request is a page in the layout, with the top bar: the status, the reason, and on a server error the request's ID (before: bare text). htmx requests, scripts and downloads get the plain text as before. A missing engagement and one the account is not on are the same page.
 - The page of a finding that was merged into another opens that finding. The merged one is still opened from the link in the target's chat (`merged in: F-001`) or with `?source=1` on its address; its history and its Restore are unchanged.
 - Every editor keeps what is typed as a draft in the browser: a section, CVSS, Details, Affected assets, a team board reply and a new lead (before: a section only, and only when the session had expired). An editor opened again offers it with Restore. The draft is finding text stored in the browser's profile (`localStorage`), per account, for up to 14 days; it is never sent anywhere, and it goes on Save, Cancel, a confirmed Discard and Log out.

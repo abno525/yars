@@ -298,7 +298,7 @@ func TestWorkflowBarRevertSlots(t *testing.T) {
 		wf := wfSection(t, e.do(t, user, "GET", fpath, nil, nil).Body.String())
 		// its title says which revert, as the panel's head does
 		btn := `<button type="button" class="btn w136 secondary" id="wf-` + act + `" aria-keyshortcuts="Shift&#43;U" data-slot="` + act + `" data-action="` + act + `" title="` + head + `" aria-controls="wf-` + act + `-reason" aria-expanded="false" data-reason-toggle>Revert</button>`
-		panel := `<form method="post" action="/e/acme/f/001/action/` + act + `" class="wfpanel ` + act + `" id="wf-` + act + `-reason" hidden>
+		panel := `<form method="post" action="/e/acme/f/001/action/` + act + `" hx-post="/e/acme/f/001/action/` + act + `" hx-swap="none" hx-disabled-elt="find button" class="wfpanel ` + act + `" id="wf-` + act + `-reason" hidden>
     <div class="panelhead"><h2>` + head + `</h2></div>`
 		has := strings.Contains(wf, btn) && strings.Contains(wf, panel) && strings.Contains(wf, `<button class="btn secondary sm w96" aria-keyshortcuts="Control+Enter">Revert</button>`)
 		if has != want || (!want && strings.Contains(wf, `data-action="`+act+`"`)) {
