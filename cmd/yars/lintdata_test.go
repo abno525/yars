@@ -66,6 +66,34 @@ func TestLintHonoursDismissals(t *testing.T) {
 	}
 }
 
+// A dismissal covers the matches its row had: yars lint on the data folder
+// prints a row that has more matches now, as the website shows it open
+// (pre1 7.9).
+func TestLintDismissalCoversItsCount(t *testing.T) {
+	// "Bad title." holds the letter t twice: one row that stands for two
+	dir := lintData(t, "- id: no-t\n  target: title\n  regex_forbid: 't'\n  message: No t\n")
+	d := openDB(t, dir)
+	dismiss := func(covers int) {
+		t.Helper()
+		err := d.TxFor("acme", func(tx *db.Tx) error {
+			return tx.Dismiss(db.Dismissal{Eng: "acme", Fid: "F-001", Rule: "no-t", QuoteHash: db.ViolationHash("title", "t"), Level: "error", By: "bob", Reason: "fine", Covers: covers})
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	var out bytes.Buffer
+	dismiss(1)
+	if code, err := cmdLint([]string{"--data", dir}, &out); code != 1 || err != nil || !strings.Contains(out.String(), "acme/F-001 error no-t: No t") {
+		t.Fatalf("a dismissal of one match, two now: code %d err %v:\n%s", code, err, out.String())
+	}
+	out.Reset()
+	dismiss(2)
+	if code, err := cmdLint([]string{"--data", dir}, &out); code != 0 || err != nil || strings.Contains(out.String(), "no-t") {
+		t.Fatalf("a dismissal of both matches: code %d err %v:\n%s", code, err, out.String())
+	}
+}
+
 // aiCounter is a fake OpenAI-compatible provider: it counts its requests,
 // keeps the last key it was sent and answers with no violations.
 type aiCounter struct {
