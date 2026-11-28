@@ -71,6 +71,10 @@ type checksView struct {
 	FixShow        bool
 	CanFix, Fixing bool
 	Fixable        int // open results the AI can work on
+	// Cancel stops the check or the fix under way; its slot is always drawn,
+	// and holds the button while one runs that the viewer may stop
+	CancelURL string
+	CanCancel bool
 }
 
 // kindTag is a rule kind's short tag on a step row.
@@ -136,6 +140,7 @@ func (s *Server) routesChecks(mux *http.ServeMux) {
 	mux.HandleFunc("POST /e/{eng}/f/{fid}/checks", s.checksRun)
 	mux.HandleFunc("POST /e/{eng}/f/{fid}/checks/retry", s.checksRetry)
 	mux.HandleFunc("POST /e/{eng}/f/{fid}/checks/fix", s.checksFix)
+	mux.HandleFunc("POST /e/{eng}/f/{fid}/checks/cancel", s.checksCancel)
 	mux.HandleFunc("POST /e/{eng}/f/{fid}/checks/dismiss", s.checksDismiss(true))
 	mux.HandleFunc("POST /e/{eng}/f/{fid}/checks/undismiss", s.checksDismiss(false))
 }
@@ -297,6 +302,11 @@ func (s *Server) checksFor(r *http.Request, ref store.FindingRef) checksView {
 		v.Fixable = store.FixCount(st)
 		v.CanFix = s.Store.AICanFix() && v.Fixable > 0 && !v.Running && !v.Fixing
 	}
+	// a check is stopped by anyone who sees the finding (they can start one),
+	// a fix by those who may edit it; in an archived engagement too, since a
+	// cancel only stops work
+	v.CancelURL = base + "/cancel"
+	v.CanCancel = (v.Running && !v.Fixing) || (v.Fixing && workflow.CanEdit(u, m))
 	v.Open = v.Running || v.Fixing || (m.Status == "draft" && u.Username == m.Author && v.Errors > 0)
 	return v
 }
@@ -409,6 +419,30 @@ func (s *Server) checksStarted(w http.ResponseWriter, r *http.Request, ref store
 		WF     wfView
 		Checks checksView
 	}{wf, checks})
+}
+
+// checksCancel stops the check or the Fix with AI that runs on the finding
+// and answers the bar and the strip, as a start does. It names no run: it is
+// the finding's own. With nothing running it is 400 with the store's words
+// (422 for htmx, a toast).
+func (s *Server) checksCancel(w http.ResponseWriter, r *http.Request) {
+	ref, ok := s.cvssRef(w, r)
+	if !ok {
+		return
+	}
+	if s.Rules == nil {
+		http.NotFound(w, r)
+		return
+	}
+	err := s.Store.CancelRun(ref.EngID, ref.Dir, auth.UserFrom(r.Context()))
+	if checksRefused(w, r, err) {
+		return
+	}
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	s.checksStarted(w, r, ref)
 }
 
 // checksRetry runs one rule of the latest run again.

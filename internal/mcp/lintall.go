@@ -25,7 +25,9 @@ const lintPoll = 100 * time.Millisecond
 // way is joined), and the answer is that run's results in lint_finding's
 // form, dismissed ones marked. The call waits for the run, as long as ctx and
 // LintWait allow. When the run is not finished by then it lists nothing and
-// says the run's state: get_check_results reads it later.
+// says the run's state: get_check_results reads it later. A run someone
+// cancelled meanwhile (Store.CancelRun) lists nothing either, with the state
+// cancelled.
 func (s *Server) lintByCheck(ctx context.Context, ref store.FindingRef, u config.User) (string, error) {
 	run, err := s.Store.StartCheck(ref.EngID, ref.Dir, u)
 	if err != nil {
@@ -62,6 +64,12 @@ func (s *Server) lintByCheck(ctx context.Context, ref store.FindingRef, u config
 		State   string      `json:"state"`
 		Message string      `json:"message,omitempty"`
 	}{Items: []violation{}, RunID: run.ID, State: run.State}
+	if !st.HasRun || st.Run.ID < run.ID {
+		// its run is gone and an earlier one is the finding's latest again:
+		// someone cancelled it. That earlier run's results are not this call's
+		out.State, out.Message = "cancelled", "the check run was cancelled: nothing is listed"
+		return ok(out)
+	}
 	if st.HasRun {
 		out.RunID, out.State = st.Run.ID, st.Run.State
 	}

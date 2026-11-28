@@ -149,11 +149,21 @@ type Store struct {
 	// read or change the map, never across a database call
 	runningMu sync.Mutex
 	running   map[string]int64
-	checkWG   sync.WaitGroup
+	// stops is how each of those runs is cancelled (CancelRun), by the same
+	// key, under runningMu
+	stops   map[string]*runStop
+	checkWG sync.WaitGroup
 	// check runs holding a slot (checks.max_running) and the ones waiting
-	// for one, oldest first; queueMu is held only to read or change them
+	// for one, oldest first; queueMu is held only to read or change them.
+	// activeBy counts the slots each account's runs hold, and served is the
+	// turn (serveSeq) each account last got a slot at: the next free slot
+	// goes to the account that holds the fewest, then to the one that waited
+	// longest (pumpChecks)
 	queueMu       sync.Mutex
 	active        int
+	activeBy      map[string]int
+	served        map[string]uint64
+	serveSeq      uint64
 	queue         []checkJob
 	checksStopped bool // StopChecks: nothing more starts
 	// every Fix with AI runs under fixCtx; StopFixes cancels it
@@ -171,6 +181,7 @@ type Store struct {
 	// the old objects are removed; an error fails the purge there
 	beforePurgeGC func() error
 	beforeGateMap func() // test hook: the check gate, between reading the latest run and the running map
+	beforeFinish  func() // test hook: a check run, between its rules and storing their results
 	beforeClaim   func() // test hook: Make finding, between reading the note and claiming it
 }
 

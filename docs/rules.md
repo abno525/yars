@@ -64,6 +64,11 @@ A Check (the button, `start_check` and `lint_finding all=true` on the server) gi
 
 The checks that answer at once have 90 s for all their scripts and AI questions together: `yars lint --all`, the pre-commit check with every rule, a git push, the Test bench, and Submit and Approve where they run the rules themselves. A rule that has not finished by then fails, and so does every rule after it.
 
+**Cancel** on the Checks strip stops the Check or the Fix with AI that runs on the finding, also one that waits in the queue. Anyone who can open the finding cancels its Check; a fix is cancelled by someone who may edit the finding.
+
+- A cancelled Check leaves nothing: no results, no chat thread, no notification. The Check before it is the finding's latest again, so a cancel never holds Sign off or Approve as a failed Check does. A running script is killed.
+- A cancelled Fix with AI keeps the fixes it committed. The result it was working on and the ones after it get no reply, and no Check follows it.
+
 With **Require Check** on (Admin › Rules, the default), Sign off and Approve wait for a finished Check on the finding's current text and on the rules as they are now: after a rule changes, the finding is checked again. While no rule is on, they don't wait. A script rule that could not run fails the Check, and they wait for a new one. An AI rule that could not run does not (AI rules, below).
 
 Any change of a file in `.yars/rules` counts: a message, a rule turned off, a comment, a helper file, and a section renamed on **Admin › Structure** that a rule names. **Check stale** on the Inbox starts the new checks in one press. It takes the findings of your Awaiting my review and Ready to approve queues whose check is out of date only because the rules changed, 100 at most per press; the number beside the button counts them. In the simple workflow it takes the drafts you wrote. A check started this way notifies the finding's author only when it leaves an open error. A finding whose text changed, or that was never checked, is not among them: open it and press Check. Such a check costs little: an AI answer is kept for the same text and instruction, so only the scripts and the AI rules that changed run again.

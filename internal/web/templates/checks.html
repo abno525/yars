@@ -10,6 +10,9 @@
       <span class="cnt">Warnings {{if .Warnings}}<span class="badge">{{.Warnings}}</span>{{else}}<span class="badge0">0</span>{{end}}</span>
     </div>
     <div class="actions">
+      {{if .CanCancel}}<button type="button" class="btn ghost w96" hx-post="{{.CancelURL}}" hx-target="#workflow" hx-swap="outerHTML" id="checks-cancel" data-kskip>Cancel</button>
+      {{else}}<span class="slot w96" data-cancel-slot></span>
+      {{end}}
       {{if not .FixShow}}<span class="slot w152"></span>
       {{else if .Fixing}}<button type="button" class="btn secondary w152 checking" disabled aria-busy="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9"></path></svg>Fixing<progress></progress></button>
       {{else}}<button type="button" class="btn secondary w152" hx-post="{{.FixURL}}" hx-target="#workflow" hx-swap="outerHTML" id="checks-fix" data-kskip{{if not .CanFix}} disabled{{end}}>Fix with AI</button>
