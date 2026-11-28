@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"gopkg.in/yaml.v3"
@@ -498,6 +499,10 @@ type Hooks struct {
 	// Start is called before a rule runs, Done after it with what it found.
 	Start func(r Rule)
 	Done  func(r Rule, vs []Violation)
+	// PerRule, when set, is the time each script or AI rule has for itself
+	// (all its questions together): a rule that uses it up fails alone and
+	// the rules after it run. Pattern and built-in rules have no timer.
+	PerRule time.Duration
 }
 
 // Runs returns the rules a run of kinds runs, in order.
@@ -535,6 +540,12 @@ func (s *Set) RunWith(ctx context.Context, d Doc, cfg config.Config, kinds Kind,
 		}
 		start := len(out)
 		var vs []Violation
+		// a slow rule's own time, inside the run's context: what the run
+		// carries (the rules' version, a provider that is down) stays
+		rctx, end := ctx, context.CancelFunc(func() {})
+		if h.PerRule > 0 && r.re == nil && r.Check == "" {
+			rctx, end = context.WithTimeout(ctx, h.PerRule)
+		}
 		switch {
 		case r.re != nil || r.Check != "":
 			if kinds&Fast != 0 {
@@ -542,7 +553,7 @@ func (s *Set) RunWith(ctx context.Context, d Doc, cfg config.Config, kinds Kind,
 			}
 		case r.Script != "":
 			if kinds&Slow != 0 && slow != nil {
-				vs = slow.Script(ctx, r, d)
+				vs = slow.Script(rctx, r, d)
 			}
 		case r.AI != "":
 			if kinds&Slow != 0 && slow != nil {
@@ -551,7 +562,7 @@ func (s *Set) RunWith(ctx context.Context, d Doc, cfg config.Config, kinds Kind,
 					if strings.TrimSpace(p.Text) == "" {
 						continue
 					}
-					got := slow.AI(ctx, r, p.Target, p.Text)
+					got := slow.AI(rctx, r, p.Target, p.Text)
 					vs = append(vs, got...)
 					// provider down or not configured: don't repeat for every part
 					for _, v := range got {
@@ -562,6 +573,7 @@ func (s *Set) RunWith(ctx context.Context, d Doc, cfg config.Config, kinds Kind,
 				}
 			}
 		}
+		end()
 		// at most MaxPerRule rows, then one that counts the rest: what the
 		// rule's source did not show (its own counting rows) and what is cut
 		// here

@@ -59,7 +59,9 @@ Pattern and built-in rules run wherever a finding is checked. Scripts and AI rul
 - `yars lint` runs the pattern and built-in rules only. `yars lint --all` adds scripts and AI rules.
 - `yars lint` on the server's data folder leaves out the results dismissed on the finding page and uses the provider, address, model and key saved on **Admin › AI**. In a clone there is no database: nothing is dismissed there and `config.yaml` alone sets the provider.
 
-One check of a finding has 90 s for all its scripts and AI questions together. A rule that has not finished by then fails.
+A Check (the button, `start_check` and `lint_finding all=true` on the server) gives each script and each AI rule 90 s for itself, an AI rule's questions together. A rule that has not finished by then fails alone, and the rules after it run. Pattern and built-in rules have no limit.
+
+The checks that answer at once have 90 s for all their scripts and AI questions together: `yars lint --all`, the pre-commit check with every rule, a git push, the Test bench, and Submit and Approve where they run the rules themselves. A rule that has not finished by then fails, and so does every rule after it.
 
 With **Require Check** on (Admin › Rules, the default), Sign off and Approve wait for a finished Check on the finding's current text and on the rules as they are now: after a rule changes, the finding is checked again. While no rule is on, they don't wait. A script rule that could not run fails the Check, and they wait for a new one. An AI rule that could not run does not (AI rules, below).
 
@@ -151,7 +153,7 @@ A stored result is deleted after the days set for check runs on **Admin › Syst
 
 | Limit | Value |
 |---|---|
-| Timeout | 10 s per script · kill wait 1 s · 90 s for one check's scripts and AI questions together |
+| Timeout | 10 s per script · kill wait 1 s · 90 s per rule in a Check · 90 s for all scripts and AI questions of a check that answers at once |
 | stdout | 1 MB |
 | stderr | 64 KB · first 80 characters shown |
 | Hits per rule | 20 shown · the rest is counted in a last row, up to 1,000 |
@@ -170,7 +172,7 @@ A script that can't run reports a violation with target `rules` at the rule's le
 |---|---|
 | `rule failed: script outside rules dir` | Path |
 | `rule failed: <the system's message>` | The file is missing or not executable (`… no such file or directory`, `… permission denied`). The message can show a path on the server |
-| `rule failed: timed out` | Over 10 s, or the check's 90 s ran out |
+| `rule failed: timed out` | Over 10 s, or the 90 s ran out (When rules run, above) |
 | `rule failed: output too large (limit 1 MB)` | stdout |
 | `rule failed: <stderr>` | Non-zero exit |
 | `rule failed: <stderr>` or `rule failed: output too large` | stderr over 64 KB: the rule fails even when the script exits 0 |
@@ -223,7 +225,7 @@ A model can still be talked into passing a text, and a text can make its call fa
 
 | Limit | Value |
 |---|---|
-| Time per question | 60 s, its tries included · 90 s for one check's scripts and AI questions together |
+| Time per question | 60 s, its tries included · 90 s for all questions of one rule in a Check · 90 s for all scripts and AI questions of a check that answers at once |
 | Tries per question | 3 · the wait is 1 s, then 2 s, or what the provider's `Retry-After` asks, up to 10 s · 1 for the questions of a check after one that failed with all its tries |
 | Redirects | followed on the provider's own address only |
 | Reply | 4,096 tokens (Anthropic) · a reply cut at the model's limit is a failed check |

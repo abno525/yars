@@ -25,7 +25,9 @@ type Engine struct {
 	Dir    string
 	Cfg    config.Config
 	Runner SlowRunner
-	// Budget bounds one whole lint run (all scripts and AI calls together).
+	// Budget bounds one whole lint run inside a request (LintDoc, RunRule:
+	// all scripts and AI calls together), and each script or AI rule of a
+	// background check (CheckWith, CheckDoc).
 	Budget time.Duration
 
 	mu    sync.Mutex
@@ -288,8 +290,9 @@ func (e *Engine) LintDoc(ctx context.Context, d Doc, kinds Kind) []Violation {
 	return s.Run(withVersion(ctx, at), d, e.conf(), kinds, e.Runner)
 }
 
-// Check runs every rule kind on a finding within the time budget, telling
-// progress how many rules are done (see Set.RunProgress).
+// Check runs every rule kind on a finding, each script and AI rule within
+// the time budget, telling progress how many rules are done (see
+// Set.RunProgress).
 func (e *Engine) Check(ctx context.Context, f *finding.Finding, progress func(done, total int)) []Violation {
 	return e.CheckDoc(ctx, DocOf(f), progress)
 }
@@ -308,27 +311,22 @@ func (e *Engine) RuleCount() int {
 // CheckRules lists the rules a Check runs, in order.
 func (e *Engine) CheckRules() []Rule { return e.Rules().Runs(All, e.Runner) }
 
-// CheckWith runs every rule kind (or only h.Only) on a finding within the
-// time budget, telling h about each rule.
+// CheckWith runs every rule kind (or only h.Only) on a finding, telling h
+// about each rule. It is the background check: each script and AI rule has
+// the budget for itself (Hooks.PerRule), so a slow rule fails alone and the
+// run has no limit of its own beyond its rules' budgets. The paths that
+// answer inside a request (LintDoc, RunRule) keep one budget for the run.
 func (e *Engine) CheckWith(ctx context.Context, f *finding.Finding, h Hooks) []Violation {
-	if e.Budget > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, e.Budget)
-		defer cancel()
-	}
+	h.PerRule = e.Budget
 	s, at := e.currentAt()
 	return s.RunWith(withVersion(ctx, at), DocOf(f), e.conf(), All, e.Runner, h)
 }
 
-// CheckDoc is Check on a finding document.
+// CheckDoc is Check on a finding document, with the budget per rule as
+// CheckWith.
 func (e *Engine) CheckDoc(ctx context.Context, d Doc, progress func(done, total int)) []Violation {
-	if e.Budget > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, e.Budget)
-		defer cancel()
-	}
 	s, at := e.currentAt()
-	return s.RunProgress(withVersion(ctx, at), d, e.conf(), All, e.Runner, progress)
+	return s.RunWith(withVersion(ctx, at), d, e.conf(), All, e.Runner, Hooks{Progress: progress, PerRule: e.Budget})
 }
 
 // LintSection returns fast-rule hints for a section body being edited.
