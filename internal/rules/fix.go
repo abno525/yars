@@ -11,6 +11,18 @@ import (
 // ErrNoAI: no AI provider is set up (or no key for it).
 var ErrNoAI = errors.New("no AI provider configured")
 
+// ErrAILimit: the AI spend limit is reached (Runner.OverLimit).
+var ErrAILimit = errors.New("the AI spend limit is reached")
+
+// AIOverLimit reports whether the AI spend limit is reached: AI rules are
+// then skipped and a fix is refused. The provider stays configured.
+func (e *Engine) AIOverLimit() bool {
+	rn, ok := e.Runner.(*Runner)
+	return ok && rn.overLimit()
+}
+
+func (rn *Runner) overLimit() bool { return rn.OverLimit != nil && rn.OverLimit() }
+
 // errFixReply: the model's reply was not {"body": "..."}.
 var errFixReply = errors.New("the AI's reply was not the expected JSON")
 
@@ -29,12 +41,16 @@ const fixTokens = 8192
 const fixTimes = 3
 
 // Fix asks the AI for section body with the problem v fixed. It returns the
-// whole new body. ErrNoAI when no provider is set up. The call is recorded
-// with purpose fix (D24) and is never cached.
+// whole new body. ErrNoAI when no provider is set up, ErrAILimit when the
+// spend limit is reached. The call is recorded with purpose fix (D24) and is
+// never cached.
 func (rn *Runner) Fix(ctx context.Context, v Violation, ruleText, section, body string) (string, error) {
 	c, key, _ := rn.Effective()
 	if c.Provider == "" || key == "" {
 		return "", ErrNoAI
+	}
+	if rn.overLimit() {
+		return "", ErrAILimit
 	}
 	ctx, cancel := context.WithTimeout(ctx, fixTimes*rn.AITimeout)
 	defer cancel()

@@ -356,6 +356,34 @@ func (d *DB) FailRun(id int64, reason string) error {
 	return err
 }
 
+// DropRun removes a running check run with its steps and whatever results it
+// has (a run someone cancelled): the run before it is the finding's newest
+// again. It reports whether a run went; one that ended meanwhile, or is
+// gone, stays as it is. Like StartRun it moves no change counter.
+func (d *DB) DropRun(id int64) (bool, error) {
+	gone := false
+	err := d.Tx(func(tx *Tx) error {
+		var state string
+		switch err := tx.QueryRow("SELECT state FROM check_runs WHERE id = ?", id).Scan(&state); {
+		case errors.Is(err, sql.ErrNoRows):
+			return nil
+		case err != nil:
+			return err
+		}
+		if state != RunRunning {
+			return nil
+		}
+		for _, q := range []string{"DELETE FROM check_results WHERE run_id = ?", "DELETE FROM check_steps WHERE run_id = ?", "DELETE FROM check_runs WHERE id = ?"} {
+			if _, err := tx.Exec(q, id); err != nil {
+				return err
+			}
+		}
+		gone = true
+		return nil
+	})
+	return gone && err == nil, err
+}
+
 // FinishRun ends a check run in state with its results.
 func (tx *Tx) FinishRun(id int64, state, reason string, results []CheckResult) error {
 	var eng string

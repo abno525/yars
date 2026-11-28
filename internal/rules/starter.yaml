@@ -1,0 +1,43 @@
+# Starter rules. Admin › Rules adds them turned off: read each one, change
+# it to your house style, then turn it on.
+- id: title-no-trailing-dot
+  level: warning
+  target: title
+  regex_forbid: '\.\s*$'
+  message: The title does not end with a dot
+- id: title-not-too-long
+  level: warning
+  target: title
+  regex_forbid: '^.{101,}$'
+  message: The title has at most 100 characters
+- id: no-placeholder
+  level: error
+  target: text
+  regex_forbid: '(?i)\b(TODO|FIXME|TBD|XXX|lorem ipsum)\b'
+  message: A placeholder is left in the text
+  exclude: code
+- id: no-first-person
+  level: warning
+  target: sections
+  regex_forbid: '\b(I|We|we|Our|our|My|my)\b'
+  message: Write without I and we
+  exclude: code
+- id: no-double-space
+  level: warning
+  target: sections
+  regex_forbid: '[^\s.]  +\S'
+  message: Two spaces in a row
+  exclude: code
+- id: sections-not-empty
+  level: error
+  target: sections
+  check: not-empty
+  message: Every section has text
+- id: cvss-explained
+  level: error
+  check: cvss-explained
+  message: A CVSS value other than the standard one has a reason
+- id: no-backticks-in-tables
+  level: warning
+  check: table-cells-no-backticks
+  message: No backticks in table cells

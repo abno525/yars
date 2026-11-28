@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"slices"
 
 	"github.com/abno525/yars/internal/config"
@@ -24,6 +25,9 @@ type checkJob struct {
 	stepRules []rules.Rule
 	rules     string // the rules version it was asked with (its keep is of those)
 	bulk      bool   // one of many started with one press (StartCheckOfMany)
+	// ctx is the run's own context: CancelRun cancels it, with errCancelled
+	// as its cause
+	ctx context.Context
 }
 
 // checkLimit is how many check runs run at once (checks.max_running).
@@ -60,16 +64,28 @@ func (s *Store) admit(j checkJob, queued bool) {
 	}
 }
 
-// pumpChecks starts queued runs, oldest first, while a slot is free.
+// pumpChecks starts queued runs while a slot is free. A slot goes to the
+// account whose runs hold the fewest slots now, among those to the account
+// that got a slot longest ago (never, first), and of that account to its
+// oldest queued run: one account's many checks (Check stale) do not keep
+// another account's check waiting behind all of them, and an account's own
+// checks run in the order they were asked for.
 func (s *Store) pumpChecks() {
 	limit := s.checkLimit()
 	var next []checkJob
 	s.queueMu.Lock()
 	for !s.checksStopped && s.active < limit && len(s.queue) > 0 {
-		next = append(next, s.queue[0])
-		s.queue[0] = checkJob{}
-		s.queue = s.queue[1:]
+		i := s.fairest()
+		j := s.queue[i]
+		s.queue = slices.Delete(s.queue, i, i+1)
+		if s.activeBy == nil {
+			s.activeBy, s.served = map[string]int{}, map[string]uint64{}
+		}
 		s.active++
+		s.activeBy[j.by]++
+		s.serveSeq++
+		s.served[j.by] = s.serveSeq
+		next = append(next, j)
 	}
 	s.queueMu.Unlock()
 	for _, j := range next {
@@ -78,10 +94,29 @@ func (s *Store) pumpChecks() {
 	}
 }
 
-// endCheck frees a run's slot for the next queued run.
-func (s *Store) endCheck() {
+// fairest is the index of the queued run the next slot goes to (pumpChecks);
+// the queue is not empty and queueMu is held.
+func (s *Store) fairest() int {
+	best := 0
+	for i := 1; i < len(s.queue); i++ {
+		a, b := s.queue[i].by, s.queue[best].by
+		if a == b {
+			continue // the older run of the same account
+		}
+		if s.activeBy[a] < s.activeBy[b] || (s.activeBy[a] == s.activeBy[b] && s.served[a] < s.served[b]) {
+			best = i
+		}
+	}
+	return best
+}
+
+// endCheck frees run j's slot for the next queued run.
+func (s *Store) endCheck(j checkJob) {
 	s.queueMu.Lock()
 	s.active--
+	if s.activeBy[j.by]--; s.activeBy[j.by] <= 0 {
+		delete(s.activeBy, j.by)
+	}
 	s.queueMu.Unlock()
 	s.pumpChecks()
 }

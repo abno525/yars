@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -16,10 +17,11 @@ import (
 // StartCheck starts a run of every rule (fast, script, AI) on the finding in
 // the background, as u, and returns it. While a run of the finding is in
 // progress (or queued), that run is returned instead. With checks.max_running
-// runs under way the run waits in a queue, first in, first out, its State
-// RunQueued. Progress is announced as ChangeCheck; at the end the results
-// are stored and each new violation is posted as a chat thread (see
-// finishCheck).
+// runs under way the run waits in a queue, its State RunQueued: an account's
+// runs in the order they were asked for, the accounts in turn (pumpChecks).
+// Progress is announced as ChangeCheck; at the end the results are stored
+// and each new violation is posted as a chat thread (see finishCheck).
+// CancelRun stops it.
 func (s *Store) StartCheck(engID, dir string, u config.User) (db.CheckRun, error) {
 	return s.startCheck(engID, dir, "", u, false)
 }
@@ -49,6 +51,33 @@ type carried struct {
 }
 
 func (s *Store) startCheck(engID, dir, only string, u config.User, bulk bool) (db.CheckRun, error) {
+	for try := 1; ; try++ {
+		run, err := s.startOnce(engID, dir, only, u, bulk)
+		var gone *joinedGone
+		if !errors.As(err, &gone) {
+			return run, err
+		}
+		// the run under way was cancelled as it was joined: once the cancel
+		// is through, this start is a start of its own
+		if try == latestTries {
+			return db.CheckRun{}, ErrBusy
+		}
+		select {
+		case <-gone.done: // nil (no stop was kept): the wait alone
+		case <-time.After(cancelWait):
+		}
+	}
+}
+
+// joinedGone is startOnce's error when the run it found under way was
+// cancelled before it was read; done closes once that run is no longer the
+// finding's.
+type joinedGone struct{ done chan struct{} }
+
+func (*joinedGone) Error() string { return "the run under way was cancelled" }
+
+// startOnce is one try of startCheck.
+func (s *Store) startOnce(engID, dir, only string, u config.User, bulk bool) (db.CheckRun, error) {
 	if s.db == nil {
 		return db.CheckRun{}, ErrNoDB
 	}
@@ -79,13 +108,27 @@ func (s *Store) startCheck(engID, dir, only string, u config.User, bulk bool) (d
 	s.checksMu.Lock()
 	s.runningMu.Lock()
 	id, ok := s.running[key]
+	under := s.stops[key]
 	s.runningMu.Unlock()
 	if ok {
 		s.checksMu.Unlock()
 		if id == fixRun {
 			return db.CheckRun{}, ErrBusy // the AI is fixing it (StartFix)
 		}
-		return s.runNow(id)
+		if s.beforeJoin != nil {
+			s.beforeJoin()
+		}
+		run, err := s.runNow(id)
+		if errors.Is(err, db.ErrNotFound) || (err == nil && (run.Eng != engID || run.Fid != fid)) {
+			// a cancel does not wait for checksMu: the run went meanwhile (or
+			// its number went to a run of another finding started since)
+			gone := &joinedGone{}
+			if under != nil {
+				gone.done = under.done
+			}
+			return db.CheckRun{}, gone
+		}
+		return run, err
 	}
 	var keep *carried
 	asked := s.RulesVersion() // read once: what it keeps is of these rules
@@ -113,6 +156,7 @@ func (s *Store) startCheck(engID, dir, only string, u config.User, bulk bool) (d
 		return db.CheckRun{}, err
 	}
 	s.setRunning(key, id, false)
+	stop := s.newStop(key, context.Background())
 	if stepped {
 		s.db.AddSteps(runSteps(id, ruleList, only, keep))
 	}
@@ -123,12 +167,19 @@ func (s *Store) startCheck(engID, dir, only string, u config.User, bulk bool) (d
 		}
 	}
 	s.db.RunProgress(id, 0, total) // "0/6" from the start
+	// read while nothing can take it away (a cancel waits for checksMu):
+	// the answer when it is cancelled before this start has answered
+	asStarted, startedErr := s.db.Run(id)
 	s.checkWG.Add(1)
-	j := checkJob{id: id, ref: ref, only: only, keep: keep, by: u.Username, stepRules: ruleList, rules: asked, bulk: bulk}
+	j := checkJob{id: id, ref: ref, only: only, keep: keep, by: u.Username, stepRules: ruleList, rules: asked, bulk: bulk, ctx: stop.ctx}
 	queued := s.enqueue(j) // under checksMu: in the order of the starts
 	s.checksMu.Unlock()
 	s.admit(j, queued)
-	return s.runNow(id)
+	run, err := s.runNow(id)
+	if startedErr == nil && (errors.Is(err, db.ErrNotFound) || (err == nil && (run.Eng != engID || run.Fid != fid))) {
+		return asStarted, nil // cancelled already: the run as it was started
+	}
+	return run, err
 }
 
 // runSteps are run id's steps for the rules list: queued, but a retry of
@@ -256,6 +307,11 @@ func (s *Store) setRunning(key string, id int64, forget bool) {
 	defer s.runningMu.Unlock()
 	if forget {
 		delete(s.running, key)
+		if st := s.stops[key]; st != nil {
+			delete(s.stops, key)
+			st.cancel(nil) // frees the context; a cause set before stays
+			close(st.done)
+		}
 		return
 	}
 	if s.running == nil {
@@ -275,19 +331,35 @@ func (s *Store) WaitChecks() { s.checkWG.Wait() }
 func (s *Store) runCheck(j checkJob) {
 	id, ref, only, keep := j.id, j.ref, j.only, j.keep
 	eng, fid := ref.EngID, ref.F.Meta.ID
-	ctx := rules.WithCaller(context.Background(), rules.Caller{User: j.by, Eng: eng, Fid: fid})
+	own := j.ctx
+	if own == nil {
+		own = context.Background()
+	}
+	ctx := rules.WithCaller(own, rules.Caller{User: j.by, Eng: eng, Fid: fid})
 	defer s.checkWG.Done()
-	defer s.endCheck()
+	defer s.endCheck(j)
+	if userCancelled(own) { // cancelled in the instant it got its slot
+		s.cancelledCheck(j)
+		return
+	}
 	if err := s.writable(eng); err != nil {
 		s.dropCheck(j, err.Error())
 		return
 	}
 	start := time.Now()
+	// cancelled: someone cancelled the run before its results were stored. It
+	// then ends as if it had never been asked for (cancelledCheck): what its
+	// rules reported after the cancel is a killed script's "rule failed", not
+	// a result
+	cancelled := false
 	defer func() {
 		if p := recover(); p != nil {
 			// the panic's value is free text: in err only
 			s.Log().Error("check run crashed", "eng", eng, "finding", LogID(fid), "user", j.by, "err", fmt.Sprint(p))
 			s.db.FailRun(id, fmt.Sprint("crashed: ", p))
+		} else if cancelled {
+			s.cancelledCheck(j)
+			return
 		}
 		s.setRunning(checkKey(eng, fid), 0, true)
 		s.notify(Change{Eng: eng, Fid: fid, Kind: ChangeCheck})
@@ -342,7 +414,22 @@ func (s *Store) runCheck(j checkJob) {
 	if !s.rulesHold(stamp) {
 		s.db.SetRunRules(id, began+"+changed")
 	}
-	seq, err := s.db.TxForSeq(eng, func(tx *db.Tx) error { return finishCheck(tx, id, eng, fid, vs) })
+	if s.beforeFinish != nil {
+		s.beforeFinish()
+	}
+	// looked at once more inside the transaction: a cancel that comes before
+	// it stores nothing (the transaction rolls back), one that comes after it
+	// finds the run stored whole
+	seq, err := s.db.TxForSeq(eng, func(tx *db.Tx) error {
+		if userCancelled(own) {
+			return errCancelled
+		}
+		return finishCheck(tx, id, eng, fid, vs)
+	})
+	if errors.Is(err, errCancelled) {
+		cancelled = true
+		return
+	}
 	if err != nil {
 		s.db.FailRun(id, err.Error())
 		return

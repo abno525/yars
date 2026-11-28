@@ -163,6 +163,47 @@ func TestMCPLintAllWaitsInTheQueue(t *testing.T) {
 	}
 }
 
+// A run that is cancelled while all=true waits for it is said so: the call
+// lists nothing and does not answer with the results of the run before it.
+// get_check_results then reads that earlier run.
+func TestMCPLintAllCancelled(t *testing.T) {
+	f := newFx(t)
+	withScriptRule(t, f)
+	a := map[string]any{"engagement": "acme", "finding": "F-001", "all": true}
+	var first lintAll
+	if out := f.ok(alice, "lint_finding", a); json.Unmarshal([]byte(out), &first) != nil || first.State != "done" || len(first.Items) != 2 {
+		t.Fatalf("the first run: %s", out)
+	}
+	l := &holdLinter{release: make(chan struct{})}
+	f.s.Store.Linter = l
+	f.s.LintWait = time.Minute
+	answer := make(chan string, 1)
+	go func() { answer <- f.ok(alice, "lint_finding", a) }()
+	for deadline := time.Now().Add(30 * time.Second); l.in.Load() != 1; time.Sleep(5 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the run did not start")
+		}
+	}
+	if err := f.s.Store.CancelRun("acme", "F-001-sql-injection", alice); err != nil {
+		t.Fatal(err)
+	}
+	close(l.release) // the rules return; the run ends as cancelled
+	var got lintAll
+	out := <-answer
+	if err := json.Unmarshal([]byte(out), &got); err != nil || got.State != "cancelled" || len(got.Items) != 0 || got.RunID <= first.RunID || !strings.Contains(got.Message, "cancelled") {
+		t.Fatalf("after the cancel: %s %v", out, err)
+	}
+	f.s.Store.WaitChecks()
+	delete(a, "all")
+	var st struct {
+		HasRun bool  `json:"has_run"`
+		RunID  int64 `json:"run_id"`
+	}
+	if out := f.ok(alice, "get_check_results", a); json.Unmarshal([]byte(out), &st) != nil || !st.HasRun || st.RunID != first.RunID {
+		t.Fatalf("get_check_results after the cancel: %s", out)
+	}
+}
+
 // yars mcp on a clone has no database, so no queue and no archive: all=true
 // runs every rule inside the call, as before.
 func TestMCPLintAllLocal(t *testing.T) {

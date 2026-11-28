@@ -28,6 +28,7 @@ type aiAdmin struct {
 	Test                     *aiTestResult
 	Rules                    []option // Value = rule id, Label = level
 	PriceIn, PriceOut        string   // per million tokens ("" = no price; D24)
+	Limit                    string   // the spend limit over 30 days, in the prices' unit ("" = none)
 }
 
 type aiTestResult struct {
@@ -64,8 +65,9 @@ func (s *Server) runner() *rules.Runner {
 }
 
 // wireAI lets the AI rules use the settings saved on the admin page,
-// records every call to the provider (Admin › System, AI usage) and keeps
-// the results of script and AI rules in the database (Q1, Q16).
+// records every call to the provider (Admin › System, AI usage), keeps the
+// results of script and AI rules in the database (Q1, Q16) and holds the
+// calls to the spend limit.
 func (s *Server) wireAI() {
 	rn := s.runner()
 	if rn == nil || s.Store == nil || s.Store.DB() == nil {
@@ -79,6 +81,9 @@ func (s *Server) wireAI() {
 	}
 	if rn.Results == nil {
 		rn.Results = s.Store.DB()
+	}
+	if rn.OverLimit == nil {
+		rn.OverLimit = s.aiOverLimit(s.Store.DB())
 	}
 }
 
@@ -105,6 +110,12 @@ func (s *Server) aiPage(w http.ResponseWriter, r *http.Request, status int, errM
 		d := s.Store.DB()
 		v.PriceIn, _ = d.Setting(db.AIPriceInKey)
 		v.PriceOut, _ = d.Setting(db.AIPriceOutKey)
+		v.Limit, _ = d.Setting(db.AILimitKey)
+		// read for the tag only: a page view writes no log line
+		lim, err := aiLimitAt(d, time.Now())
+		if err != nil {
+			return err
+		}
 		if key != "" {
 			v.KeyEnding = ending(key)
 		}
@@ -123,6 +134,9 @@ func (s *Server) aiPage(w http.ResponseWriter, r *http.Request, status int, errM
 			v.State, v.StateLabel = "off", "Off"
 		case key == "" && !v.EnvSet:
 			v.State, v.StateLabel = "bad", "No key"
+		case lim.Reached:
+			// the provider is set up, and AI rules are skipped all the same
+			v.State, v.StateLabel = "warn", "Limit reached"
 		case v.Test != nil && !v.Test.OK:
 			v.State, v.StateLabel = "bad", "Failed"
 		case v.Test != nil:
@@ -162,9 +176,17 @@ func (s *Server) aiSave(w http.ResponseWriter, r *http.Request) {
 	model := strings.TrimSpace(r.FormValue("model"))
 	key := strings.TrimSpace(r.FormValue("key"))
 	priceIn, priceOut := strings.TrimSpace(r.FormValue("price_in")), strings.TrimSpace(r.FormValue("price_out"))
+	limit := strings.TrimSpace(r.FormValue("limit"))
 	switch {
 	case (priceIn != "" && !aiPrice.MatchString(priceIn)) || (priceOut != "" && !aiPrice.MatchString(priceOut)):
 		s.aiPage(w, r, http.StatusBadRequest, "Price: a number with up to 4 decimals, per 1M tokens")
+		return
+	case limit != "" && !aiPrice.MatchString(limit):
+		s.aiPage(w, r, http.StatusBadRequest, "Limit: a number with up to 4 decimals")
+		return
+	case limit != "" && priceIn == "" && priceOut == "":
+		// without a price the cost is unknown and the limit is never reached
+		s.aiPage(w, r, http.StatusBadRequest, "Limit: set a price first")
 		return
 	case prov != "" && prov != rules.ProviderOff && prov != "openai" && prov != "anthropic":
 		s.aiPage(w, r, http.StatusBadRequest, "Provider: OpenAI-compatible, Anthropic or Off")
@@ -174,7 +196,7 @@ func (s *Server) aiSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d := s.Store.DB()
-	for k, v := range map[string]string{aiProviderKey: prov, aiBaseKey: base, aiModelKey: model, db.AIPriceInKey: priceIn, db.AIPriceOutKey: priceOut} {
+	for k, v := range map[string]string{aiProviderKey: prov, aiBaseKey: base, aiModelKey: model, db.AIPriceInKey: priceIn, db.AIPriceOutKey: priceOut, db.AILimitKey: limit} {
 		if err := d.SetSetting(k, v); err != nil {
 			s.fail(w, err)
 			return
@@ -203,6 +225,9 @@ func (s *Server) aiSave(w http.ResponseWriter, r *http.Request) {
 	}
 	if priceIn != "" || priceOut != "" {
 		detail += " price " + priceIn + "/" + priceOut
+	}
+	if limit != "" {
+		detail += " limit " + limit
 	}
 	d.Audit(auth.UserFrom(r.Context()).Username, "settings.ai", "", strings.TrimSpace(detail))
 	http.Redirect(w, r, "/admin/ai", http.StatusSeeOther)

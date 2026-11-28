@@ -111,6 +111,10 @@ func (s *Store) StartFix(engID, dir string, u config.User) error {
 	if !s.AICanFix() {
 		return fmt.Errorf("%w: no AI provider configured", ErrInvalidValue)
 	}
+	// the spend limit is reached: said at the press, not once per item
+	if l, ok := s.Linter.(interface{ AIOverLimit() bool }); ok && l.AIOverLimit() {
+		return fmt.Errorf("%w: %s", ErrInvalidValue, rules.ErrAILimit)
+	}
 	if s.CheckRunning(engID, ref.F.Meta.ID) {
 		return ErrBusy // checked again under the lock below
 	}
@@ -133,10 +137,11 @@ func (s *Store) StartFix(engID, dir string, u config.User) error {
 		return ErrBusy
 	}
 	s.setRunning(key, fixRun, false)
+	stop := s.newStop(key, s.fixBase())
 	s.checkWG.Add(1)
 	s.checksMu.Unlock()
 	s.notify(Change{Eng: engID, Fid: fid, Kind: ChangeCheck})
-	go s.runFix(engID, dir, fid, list, st.Results, u)
+	go s.runFix(stop.ctx, engID, dir, fid, list, st.Results, u)
 	return nil
 }
 
@@ -165,7 +170,7 @@ func FixOpen(status string) bool { return status == "draft" || status == "verifi
 // runFix works through list for u (all: every result of the run, what the
 // rules found before), then clears the busy mark, audits the outcome and
 // starts a check run (which resolves the fixed threads).
-func (s *Store) runFix(engID, dir, fid string, list, all []db.CheckResult, u config.User) {
+func (s *Store) runFix(own context.Context, engID, dir, fid string, list, all []db.CheckResult, u config.User) {
 	defer s.checkWG.Done()
 	key := checkKey(engID, fid)
 	cleared := false
@@ -179,7 +184,7 @@ func (s *Store) runFix(engID, dir, fid string, list, all []db.CheckResult, u con
 		}
 	}()
 	base := s.fixBase()
-	job, cancel := context.WithTimeout(base, fixJobLimit)
+	job, cancel := context.WithTimeout(own, fixJobLimit)
 	defer cancel()
 	ctx := rules.WithCaller(job, rules.Caller{User: u.Username, Eng: engID, Fid: fid})
 	start := time.Now()
@@ -193,7 +198,13 @@ func (s *Store) runFix(engID, dir, fid string, list, all []db.CheckResult, u con
 		if s.writable(engID) != nil {
 			break // archived meanwhile: nothing more is written there
 		}
+		if userCancelled(own) {
+			break // cancelled: the items not reached get no reply
+		}
 		row := s.fixItem(ctx, engID, dir, r, all, u)
+		if !row.Fixed && userCancelled(own) {
+			break // nor does the item the cancel cut off
+		}
 		text := "Fixed."
 		if row.Fixed {
 			nFixed++
@@ -208,9 +219,15 @@ func (s *Store) runFix(engID, dir, fid string, list, all []db.CheckResult, u con
 	s.setRunning(key, 0, true)
 	cleared = true
 	s.notify(Change{Eng: engID, Fid: fid, Kind: ChangeCheck})
-	s.db.Audit(u.Username, "ai.fix", engID+"/"+fid, fmt.Sprintf("%d fixed · %d not fixed", nFixed, nSkipped))
-	if base.Err() != nil || s.writable(engID) != nil {
-		return // the server is stopping, or the engagement was archived
+	detail := fmt.Sprintf("%d fixed · %d not fixed", nFixed, nSkipped)
+	if userCancelled(own) {
+		detail += " · cancelled"
+	}
+	s.db.Audit(u.Username, "ai.fix", engID+"/"+fid, detail)
+	if base.Err() != nil || userCancelled(own) || s.writable(engID) != nil {
+		// the server is stopping, the fix was cancelled, or the engagement
+		// was archived: no check follows
+		return
 	}
 	if _, err := s.StartCheck(engID, dir, u); err != nil && !errors.Is(err, ErrBusy) {
 		s.Log().Error("check after a fix with AI not started", "eng", engID, "finding", fid, "err", err)
@@ -261,6 +278,8 @@ func (s *Store) fixOne(ctx context.Context, engID, dir string, r db.CheckResult,
 	switch err := ctx.Err(); {
 	case errors.Is(err, context.DeadlineExceeded):
 		return not(fmt.Sprintf("the fix took longer than %d minutes", int(fixJobLimit.Minutes())))
+	case userCancelled(ctx):
+		return not("cancelled")
 	case err != nil:
 		return not("the server is stopping")
 	}
@@ -291,6 +310,10 @@ func (s *Store) fixOne(ctx context.Context, engID, dir string, r db.CheckResult,
 	}
 	body, err := fx.Fix(ctx, v, section, old)
 	switch {
+	case userCancelled(ctx):
+		// also when the provider still answered: nothing is committed after
+		// a cancel
+		return not("cancelled")
 	case err != nil && errors.Is(ctx.Err(), context.Canceled):
 		return not("the server is stopping") // not the provider's error
 	case err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded):

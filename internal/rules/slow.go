@@ -35,6 +35,10 @@ type Runner struct {
 	// OnUsage, when set, is told about every provider call (never a cached
 	// reply).
 	OnUsage func(Usage)
+	// OverLimit, when set, is asked before a provider call for a rule or a
+	// fix whether the spend limit is reached: the call is then not made (a
+	// kept reply is still served; the admin's Test is not asked).
+	OverLimit func() bool
 	// Results, when set, keeps script and AI results across restarts; nil
 	// keeps them in memory only (the push hook, yars lint).
 	Results ResultStore

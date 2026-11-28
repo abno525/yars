@@ -4,7 +4,7 @@ A rule checks a finding's text and reports what breaks it. There are four kinds:
 
 ## Rule files
 
-A new data folder (`yars init`) has no rules. **Admin › Rules** writes them. To write them by hand, change `.yars/rules/` in a clone of the main repository and push it as a director with the admin flag ([git.md](git.md)); in the simple workflow every account is a director, so the admin flag is enough.
+A new data folder (`yars init`) has no rules. **Admin › Rules** writes them, and its Add starter rules button gives a first set (Starter rules and rule packs, below). To write them by hand, change `.yars/rules/` in a clone of the main repository and push it as a director with the admin flag ([git.md](git.md)); in the simple workflow every account is a director, so the admin flag is enough.
 
 Every `*.yaml` or `*.yml` file in `.yars/rules/` is a list of rules:
 
@@ -34,6 +34,27 @@ and exactly one check:
   message: The title must not end with a dot
 ```
 
+## Starter rules and rule packs
+
+The **Rule pack** panel on **Admin › Rules** has three buttons.
+
+- **Add starter rules** adds a small set of pattern and built-in rules that ships with YARS: a title without a trailing dot, no placeholder left in the text, no empty section and a few more. They are written to `starter.yaml`, each turned off. Read a rule, change it to your style, then turn it on. A rule that has one of their IDs already is left as it is, and the button is off once all of them are there.
+- **Export** downloads every rule, also the ones that are off, as one YAML file, `yars-rules.yaml`: a list of rules, as a rule file is.
+- **Import** adds the rules of such a file to `imported.yaml`. Every imported rule is turned off, whatever the file says: read it before you turn it on. A rule whose ID exists already is skipped and left as it is. The panel then shows the counts, such as `added 6 · skipped 1`.
+
+A pack is checked before anything is written, and one problem refuses all of it, with the reason in the panel:
+
+| Limit | Value |
+|---|---|
+| Size | 256 KiB · 200 rules |
+| ID | letters, digits, `.`, `_`, `-`, as in the editor |
+| Rule | as a rule file: a known level, exactly one check, a pattern that compiles, a known target, no unknown key, no ID twice |
+| Script rule | the pack brings no script; the rule is taken only when its script is in `.yars/rules` already |
+
+A pack rule whose target names a section or details row your configuration lacks is added; the page then shows the warning for it (Failures, below).
+
+The starter press and an import change `.yars/rules`, so every finding needs a new Check after them, also while the new rules are off (When rules run, below).
+
 ## Patterns
 
 A pattern is matched against one part at a time: the title, a section's body or a details row.
@@ -54,6 +75,7 @@ A pattern is matched against one part at a time: the title, a section's body or 
 Pattern and built-in rules run wherever a finding is checked. Scripts and AI rules take longer and run in fewer places:
 
 - The Check button, `start_check` and `lint_finding all=true` (MCP) and the Test bench on **Admin › Rules** run every rule. On the server `lint_finding all=true` is a check run as the other two: stored, in the queue, and refused on an archived engagement.
+- **Try unsaved** in the rule editor runs the editor's values on the finding the Test bench has selected, before they are saved. It writes nothing. A script rule runs the script it has saved: save the rule to try a new upload.
 - The pre-commit check (`yars lint --staged`) runs the pattern and built-in rules, so a commit does not wait. `yars lint --staged --all` asks the server for scripts and AI rules too. Signed in with a Git token it gets them only when the token has the Run checks action; a password gets them.
 - A git push runs scripts, not AI rules.
 - `yars lint` runs the pattern and built-in rules only. `yars lint --all` adds scripts and AI rules.
@@ -62,6 +84,11 @@ Pattern and built-in rules run wherever a finding is checked. Scripts and AI rul
 A Check (the button, `start_check` and `lint_finding all=true` on the server) gives each script and each AI rule 90 s for itself, an AI rule's questions together. A rule that has not finished by then fails alone, and the rules after it run. Pattern and built-in rules have no limit.
 
 The checks that answer at once have 90 s for all their scripts and AI questions together: `yars lint --all`, the pre-commit check with every rule, a git push, the Test bench, and Submit and Approve where they run the rules themselves. A rule that has not finished by then fails, and so does every rule after it.
+
+**Cancel** on the Checks strip stops the Check or the Fix with AI that runs on the finding, also one that waits in the queue. Anyone who can open the finding cancels its Check; a fix is cancelled by someone who may edit the finding.
+
+- A cancelled Check leaves nothing: no results, no chat thread, no notification. The Check before it is the finding's latest again, so a cancel never holds Sign off or Approve as a failed Check does. A running script is killed.
+- A cancelled Fix with AI keeps the fixes it committed. The result it was working on and the ones after it get no reply, and no Check follows it.
 
 With **Require Check** on (Admin › Rules, the default), Sign off and Approve wait for a finished Check on the finding's current text and on the rules as they are now: after a rule changes, the finding is checked again. While no rule is on, they don't wait. A script rule that could not run fails the Check, and they wait for a new one. An AI rule that could not run does not (AI rules, below).
 
@@ -216,6 +243,20 @@ A rule with `ai:` asks the AI provider (**Admin › AI**, or `ai.*` in `config.y
 AI rules run where script rules run, except on a git push. Without a provider or a key an AI rule does not run: it reports the warning `AI rules skipped: no AI provider configured`, and the finding shows an "AI checks failed" badge after Check. Sign off and Approve are not held by it.
 
 An AI rule that cannot run never holds a finding, with a provider set up too: when the call fails, or the reply is cut off or cannot be read, Submit, Sign off and Approve go through. The badge and Retry stay on the finding, and what the rule found before on the same text still counts. With a provider set up, each step taken this way is a `warn` line in the service log ([deploy.md](deploy.md)).
+
+### Spend limit
+
+**Admin › AI** has a Limit beside the two prices. It is the most the AI calls of the last 30 days may cost at those prices: the 30-day Cost of the AI usage panel on **Admin › System**. An empty field is no limit. A limit needs a price.
+
+When the cost reaches the limit:
+
+- An AI rule is not sent to the provider. It reports the warning `AI rules skipped: the AI spend limit is reached`, and the Check goes on with the other rules. The finding shows "AI checks failed". Sign off and Approve are not held.
+- A text the server has an answer for is still answered from it: that costs nothing.
+- Fix with AI is refused: `the AI spend limit is reached`.
+- Admin › AI shows **Limit reached**, and the service log has one `warn` line.
+- Test on Admin › AI still calls the provider.
+
+The calls start again when the cost of the last 30 days is under the limit: raise the limit, or wait. Calls that are under way when the limit is reached still end and are counted.
 
 ### Unchanged text is not sent again
 

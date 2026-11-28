@@ -221,6 +221,7 @@
       <label class="frow"><span class="flabel">Model</span><input class="monoin w360" name="model" value="{{.Model}}"></label>
       <label class="frow"><span class="flabel">Price in</span><span class="keyrow"><input class="monoin w128" name="price_in" value="{{.PriceIn}}" inputmode="decimal" autocomplete="off"><span class="muted">per 1M tokens</span></span></label>
       <label class="frow"><span class="flabel">Price out</span><span class="keyrow"><input class="monoin w128" name="price_out" value="{{.PriceOut}}" inputmode="decimal" autocomplete="off"><span class="muted">per 1M tokens</span></span></label>
+      <label class="frow"><span class="flabel">Limit</span><span class="keyrow"><input class="monoin w128" name="limit" value="{{.Limit}}" inputmode="decimal" autocomplete="off"><span class="muted">per 30 days</span></span></label>
       <label class="frow"><span class="flabel">API key</span>
         <span class="keyrow">
           <input class="monoin w360" type="password" name="key" autocomplete="off" placeholder="{{if .KeyEnding}}{{.KeyEnding}}{{end}}" aria-label="API key">
@@ -573,6 +574,12 @@
     </tbody>
   </table>
 </section>
+<form class="panel sys" id="rulepack" method="post" action="/admin/rules/import" enctype="multipart/form-data">
+  <div class="panelhead">
+    <h2>Rule pack</h2>
+    <div class="actions"><span class="pstate{{if .PackBad}} error{{end}}" title="{{.PackMsg}}">{{.PackMsg}}</span><input class="restorefile" type="file" name="pack" accept=".yaml,.yml" required aria-label="Rule pack"><button class="btn primary sm w128">Import</button><a class="btn ghost sm w128" href="/admin/rules/export" download>Export</a><button class="btn secondary sm w152" formaction="/admin/rules/starter" formnovalidate{{if not .StarterLeft}} disabled{{end}}>Add starter rules</button></div>
+  </div>
+</form>
 <div class="rulesgrid">
   {{template "rule_form" .Form}}
   {{template "bench" .Bench}}
@@ -635,6 +642,7 @@
   <div class="pfoot flush">
     {{if .New}}<span class="slot w112"></span>{{else}}<button class="btn danger sm w112" form="rule-delete">Delete</button>{{end}}
     <span class="pstate error" title="{{index .Errs "form"}}">{{index .Errs "form"}}</span>
+    <button class="btn secondary sm w128" type="button" hx-post="/admin/rules/try" hx-encoding="multipart/form-data" hx-target="#bench-out" hx-swap="outerHTML" hx-include="#bench [name='eng'], #bench-fid">Try unsaved</button>
     <button class="btn primary sm w128">Save</button>
   </div>
 </form>

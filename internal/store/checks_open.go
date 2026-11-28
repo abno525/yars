@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"slices"
@@ -327,15 +328,32 @@ func (s *Store) CheckStatus(engID, dir string) (CheckStatus, error) {
 	fid := ref.F.Meta.ID
 	st := CheckStatus{Ref: ref}
 	s.checksMu.Lock()
-	st.Run, st.HasRun, err = s.db.LatestRun(engID, fid)
-	if err == nil && st.HasRun && st.Run.State == db.RunRunning {
+	for try := 1; ; try++ {
+		st.Run, st.HasRun, err = s.db.LatestRun(engID, fid)
+		if s.beforeGateMap != nil {
+			s.beforeGateMap()
+		}
+		if err != nil || !st.HasRun || st.Run.State != db.RunRunning {
+			break
+		}
 		if s.inProgress(checkKey(engID, fid), st.Run.ID) {
 			st.Running = true
 			if st.Queued = s.queuedRun(st.Run.ID); st.Queued {
 				st.Run.State = RunQueued
 			}
-		} else if err = s.db.FailRun(st.Run.ID, "interrupted"); err == nil {
+			break
+		}
+		if err = s.db.FailRun(st.Run.ID, "interrupted"); err == nil {
 			st.Run, err = s.db.Run(st.Run.ID)
+		}
+		// cancelled meanwhile (a cancel does not wait for checksMu): the run
+		// is gone and the one before it is the latest again
+		if !errors.Is(err, db.ErrNotFound) {
+			break
+		}
+		if try == latestTries {
+			err = ErrBusy
+			break
 		}
 	}
 	s.checksMu.Unlock()
