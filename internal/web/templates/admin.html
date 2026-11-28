@@ -574,6 +574,12 @@
     </tbody>
   </table>
 </section>
+<form class="panel sys" id="rulepack" method="post" action="/admin/rules/import" enctype="multipart/form-data">
+  <div class="panelhead">
+    <h2>Rule pack</h2>
+    <div class="actions"><span class="pstate{{if .PackBad}} error{{end}}" title="{{.PackMsg}}">{{.PackMsg}}</span><input class="restorefile" type="file" name="pack" accept=".yaml,.yml" required aria-label="Rule pack"><button class="btn primary sm w128">Import</button><a class="btn ghost sm w128" href="/admin/rules/export" download>Export</a><button class="btn secondary sm w152" formaction="/admin/rules/starter" formnovalidate{{if not .StarterLeft}} disabled{{end}}>Add starter rules</button></div>
+  </div>
+</form>
 <div class="rulesgrid">
   {{template "rule_form" .Form}}
   {{template "bench" .Bench}}

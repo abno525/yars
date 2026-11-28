@@ -4,7 +4,7 @@ A rule checks a finding's text and reports what breaks it. There are four kinds:
 
 ## Rule files
 
-A new data folder (`yars init`) has no rules. **Admin › Rules** writes them. To write them by hand, change `.yars/rules/` in a clone of the main repository and push it as a director with the admin flag ([git.md](git.md)); in the simple workflow every account is a director, so the admin flag is enough.
+A new data folder (`yars init`) has no rules. **Admin › Rules** writes them, and its Add starter rules button gives a first set (Starter rules and rule packs, below). To write them by hand, change `.yars/rules/` in a clone of the main repository and push it as a director with the admin flag ([git.md](git.md)); in the simple workflow every account is a director, so the admin flag is enough.
 
 Every `*.yaml` or `*.yml` file in `.yars/rules/` is a list of rules:
 
@@ -33,6 +33,27 @@ and exactly one check:
   regex_forbid: '\.\s*$'
   message: The title must not end with a dot
 ```
+
+## Starter rules and rule packs
+
+The **Rule pack** panel on **Admin › Rules** has three buttons.
+
+- **Add starter rules** adds a small set of pattern and built-in rules that ships with YARS: a title without a trailing dot, no placeholder left in the text, no empty section and a few more. They are written to `starter.yaml`, each turned off. Read a rule, change it to your style, then turn it on. A rule that has one of their IDs already is left as it is, and the button is off once all of them are there.
+- **Export** downloads every rule, also the ones that are off, as one YAML file, `yars-rules.yaml`: a list of rules, as a rule file is.
+- **Import** adds the rules of such a file to `imported.yaml`. Every imported rule is turned off, whatever the file says: read it before you turn it on. A rule whose ID exists already is skipped and left as it is. The panel then shows the counts, such as `added 6 · skipped 1`.
+
+A pack is checked before anything is written, and one problem refuses all of it, with the reason in the panel:
+
+| Limit | Value |
+|---|---|
+| Size | 256 KiB · 200 rules |
+| ID | letters, digits, `.`, `_`, `-`, as in the editor |
+| Rule | as a rule file: a known level, exactly one check, a pattern that compiles, a known target, no unknown key, no ID twice |
+| Script rule | the pack brings no script; the rule is taken only when its script is in `.yars/rules` already |
+
+A pack rule whose target names a section or details row your configuration lacks is added; the page then shows the warning for it (Failures, below).
+
+The starter press and an import change `.yars/rules`, so every finding needs a new Check after them, also while the new rules are off (When rules run, below).
 
 ## Patterns
 

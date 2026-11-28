@@ -83,6 +83,11 @@ type rulesAdmin struct {
 	// RequireCheck: Sign off and Approve (Complete in the simple workflow)
 	// wait for a check run (a setting)
 	RequireCheck bool
+	// the Rule pack panel: its status slot (what a press added, or why it
+	// was refused) and how many starter rules are not there yet
+	PackMsg     string
+	PackBad     bool
+	StarterLeft int
 }
 
 var kindLabels = map[string]string{"pattern": "Pattern", "builtin": "Built-in", "script": "Script", "ai": "AI"}
@@ -106,6 +111,9 @@ func (s *Server) routesAdminRules(mux *http.ServeMux) {
 	// the write deadline of a lint run
 	mux.Handle("POST /admin/rules/bench", s.lintLived(h(s.ruleBench)))
 	mux.Handle("POST /admin/rules/try", s.lintLived(h(s.ruleTry)))
+	mux.HandleFunc("POST /admin/rules/starter", h(s.rulesStarter))
+	mux.HandleFunc("POST /admin/rules/import", h(s.rulesImport))
+	mux.HandleFunc("GET /admin/rules/export", h(s.rulesExport))
 	mux.HandleFunc("GET /admin/rules/bench/findings", h(s.benchFindings))
 }
 
@@ -306,6 +314,7 @@ func (s *Server) rulesView(r *http.Request, p *page, f ruleForm) error {
 		v.Filters = append(v.Filters, link{Label: l.label, URL: u, Active: l.key == level, Count: n, Keys: filterKey(len(v.Filters))})
 	}
 	v.RequireCheck = s.Store.RequireCheck()
+	v.StarterLeft, v.PackMsg = starterLeft(set), packCounts(r)
 	s.fill(&f)
 	v.Form = f
 	if !f.New {
