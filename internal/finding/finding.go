@@ -46,6 +46,11 @@ type Meta struct {
 	Returned  *Returned `yaml:"-"` // set when a reviewer sends the finding back to draft
 	Withdrawn *Returned `yaml:"-"` // who withdrew the finding and why (status withdrawn)
 	Retest    *Retest   `yaml:"-"` // only in retests
+
+	// Where the finding is (from the store, never the file): its engagement's
+	// ID, and whether that engagement takes no AI (engagement.yaml's ai: off).
+	Engagement string `yaml:"-"`
+	NoAI       bool   `yaml:"-"`
 }
 
 // Asset is one affected asset: a host and/or URL, an optional port and a
@@ -121,6 +126,7 @@ func (f *Finding) SetMeta(key string, value any) error {
 	was := f.Meta
 	meta.Status, meta.Reviewers, meta.ClearedBy = was.Status, was.Reviewers, was.ClearedBy
 	meta.Returned, meta.Withdrawn, meta.Retest = was.Returned, was.Withdrawn, was.Retest
+	meta.Engagement, meta.NoAI = was.Engagement, was.NoAI
 	f.Meta, f.rawMeta = meta, out
 	f.metaSnap = encodeMeta(&f.Meta)
 	return nil

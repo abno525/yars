@@ -11,6 +11,7 @@ import (
 	"github.com/abno525/yars/internal/chat"
 	"github.com/abno525/yars/internal/config"
 	"github.com/abno525/yars/internal/db"
+	"github.com/abno525/yars/internal/finding"
 	"github.com/abno525/yars/internal/rules"
 )
 
@@ -97,7 +98,7 @@ func (s *Store) startOnce(engID, dir, only string, u config.User, bulk bool) (db
 	sc, stepped := s.Linter.(StepChecker)
 	var ruleList []rules.Rule
 	if stepped {
-		ruleList = sc.CheckRules()
+		ruleList = stepRules(sc, ref.F)
 	}
 	if only != "" && !slices.ContainsFunc(ruleList, func(r rules.Rule) bool { return r.ID == only }) {
 		return db.CheckRun{}, fmt.Errorf("%w: no rule %s to run", ErrInvalidValue, only)
@@ -162,7 +163,9 @@ func (s *Store) startOnce(engID, dir, only string, u config.User, bulk bool) (db
 	}
 	total := 1
 	if only == "" {
-		if c, ok := s.Linter.(interface{ RuleCount() int }); ok {
+		if stepped {
+			total = len(ruleList) // the finding's own rules
+		} else if c, ok := s.Linter.(interface{ RuleCount() int }); ok {
 			total = c.RuleCount()
 		}
 	}
@@ -180,6 +183,18 @@ func (s *Store) startOnce(engID, dir, only string, u config.User, bulk bool) (db
 		return asStarted, nil // cancelled already: the run as it was started
 	}
 	return run, err
+}
+
+// stepRules lists the rules a check of f runs: the finding's own where the
+// checker tells them apart (a rule limited to other engagements, an AI rule
+// where the engagement takes no AI, is no step), else every rule.
+func stepRules(sc StepChecker, f *finding.Finding) []rules.Rule {
+	if c, ok := sc.(interface {
+		CheckRulesFor(*finding.Finding) []rules.Rule
+	}); ok {
+		return c.CheckRulesFor(f)
+	}
+	return sc.CheckRules()
 }
 
 // runSteps are run id's steps for the rules list: queued, but a retry of
@@ -346,6 +361,9 @@ func (s *Store) runCheck(j checkJob) {
 		s.dropCheck(j, err.Error())
 		return
 	}
+	// the engagement's AI switch as it is now, not as it was when the run was
+	// asked for (it may have waited): switched off since, no AI rule runs
+	ref.F.Meta.NoAI = s.noAI(eng)
 	start := time.Now()
 	// cancelled: someone cancelled the run before its results were stored. It
 	// then ends as if it had never been asked for (cancelledCheck): what its
@@ -389,7 +407,7 @@ func (s *Store) runCheck(j checkJob) {
 		// the rules changed since it was asked for (it waited): every rule
 		// as it is now, with steps to match; a retry keeps nothing (what it
 		// would keep is of the rules it was asked with)
-		if now := c.CheckRules(); !sameRules(now, j.stepRules) || began != j.rules {
+		if now := stepRules(c, ref.F); !sameRules(now, j.stepRules) || began != j.rules {
 			only, keep = "", nil
 			s.db.SetSteps(id, runSteps(id, now, "", nil))
 		}

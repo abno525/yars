@@ -192,6 +192,7 @@ func (s *Store) UpdateEngagement(e Engagement, u config.User) error {
 		return fmt.Errorf("engagement %s: %w", e.ID, err)
 	}
 	e.Type, e.Source = cur.Type, cur.Source // fixed at creation
+	e.AI = cur.AI                           // its own switch (SetEngagementAI)
 	if err := CheckEngagement(&cur, e); err != nil {
 		return err
 	}
@@ -217,11 +218,72 @@ func (s *Store) UpdateEngagement(e Engagement, u config.User) error {
 	}
 	// the file must read back as the values saved
 	got, err := ParseEngagement([]byte(next))
-	if want := (Engagement{Name: e.Name, Client: e.Client, Type: e.Type, Source: e.Source, Start: e.Start, End: e.End}); err != nil || got != want {
+	if want := (Engagement{Name: e.Name, Client: e.Client, Type: e.Type, Source: e.Source, Start: e.Start, End: e.End, AI: e.AI}); err != nil || got != want {
 		return unspliced
 	}
 	if err := s.writeFile(rel, []byte(next)); err != nil {
 		return err
 	}
 	return s.commit(map[string][]byte{rel: prev}, "engagement "+e.ID+": settings", u.GitAuthor(), "")
+}
+
+// SetEngagementAI turns AI on or off for engagement id (directors): the ai
+// key of its engagement.yaml, with one commit and one audit row. Off, no AI
+// rule and no Fix with AI runs on its findings, and none of their text goes
+// to the provider. Only the key's line is rewritten (finding.SpliceKey): on
+// takes the key away. A switch that is there already is no commit.
+func (s *Store) SetEngagementAI(id string, on bool, u config.User) error {
+	if !workflow.AtLeast(u, "director") {
+		return &workflow.Denied{Reason: "only a director can change the engagement"}
+	}
+	if _, err := s.Engagement(id); err != nil {
+		return err
+	}
+	l := s.engLock(id)
+	l.Lock()
+	defer l.Unlock()
+	if err := s.writable(id); err != nil {
+		return err
+	}
+	rel := path.Join(engDir(id), "engagement.yaml")
+	prev, err := s.readFile(rel)
+	if err != nil {
+		return err
+	}
+	cur, err := ParseEngagement(prev)
+	if err != nil {
+		return fmt.Errorf("engagement %s: %w", id, err)
+	}
+	if cur.AIOff() == !on && (cur.AI == "" || cur.AI == "on" || cur.AI == "off") {
+		return nil
+	}
+	var v any // on: no key
+	word := "on"
+	if !on {
+		v, word = "off", "off"
+	}
+	unspliced := fmt.Errorf("%w: engagement.yaml is not written one key per line, each at the first column; change it with git", ErrInvalidValue)
+	next, err := finding.SpliceKey(string(prev), "ai", v)
+	if err != nil {
+		return unspliced
+	}
+	// the file must read back as the switch set, with every other value kept
+	want := cur
+	want.AI = ""
+	if !on {
+		want.AI = "off"
+	}
+	if got, err := ParseEngagement([]byte(next)); err != nil || got != want {
+		return unspliced
+	}
+	if err := s.writeFile(rel, []byte(next)); err != nil {
+		return err
+	}
+	if err := s.commit(map[string][]byte{rel: prev}, "engagement "+id+": AI "+word, u.GitAuthor(), ""); err != nil {
+		return err
+	}
+	if s.db == nil {
+		return nil
+	}
+	return s.db.Audit(u.Username, "eng.ai", id, word)
 }

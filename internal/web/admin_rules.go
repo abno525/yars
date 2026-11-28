@@ -154,6 +154,10 @@ func (s *Server) ruleTry(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
+	if why := rules.AIOff(ref.F); rule.AI != "" && why != "" {
+		tryRefused(w, r, why) // words, not "0 hits": nothing was asked
+		return
+	}
 	v := benchView{Ran: true}
 	for _, it := range s.Rules.RunRule(benchCaller(r, ref), rule, rules.DocOf(ref.F)) {
 		v.Rows = append(v.Rows, checkRow{Rule: it.Rule, Level: it.Level, Message: it.Message, Quote: it.Quote, Where: where(it.Target)})
@@ -403,7 +407,9 @@ func (s *Server) ruleFromForm(r *http.Request) (ruleForm, rules.Rule, string, []
 		}
 		f.File, f.Script = old.File, old.Script
 	}
-	rule := rules.Rule{ID: f.ID, Level: f.Level, Message: f.Message, Target: f.Target, Enabled: old.Enabled}
+	// what the editor has no field for stays the saved rule's: on or off, and
+	// the engagements it is limited to
+	rule := rules.Rule{ID: f.ID, Level: f.Level, Message: f.Message, Target: f.Target, Enabled: old.Enabled, Engagements: old.Engagements}
 	if !store.ValidID(f.ID) {
 		errs["id"] = "letters, digits, . _ -"
 	}
@@ -722,6 +728,10 @@ func (s *Server) ruleBench(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
+	if why := rules.AIOff(ref.F); x.AI != "" && why != "" {
+		tryRefused(w, r, why) // as a Try: the engagement takes no AI
+		return
+	}
 	v := benchView{Ran: true}
 	for _, it := range s.Rules.RunRule(benchCaller(r, ref), x, rules.DocOf(ref.F)) {
 		v.Rows = append(v.Rows, checkRow{Rule: it.Rule, Level: it.Level, Message: it.Message, Quote: it.Quote, Where: where(it.Target)})
@@ -745,6 +755,11 @@ func (s *Server) ruleBenchAll(w http.ResponseWriter, r *http.Request, x rules.Ru
 	}
 	if _, ok := s.Index.Engagement(eng); !ok {
 		http.NotFound(w, r)
+		return
+	}
+	// an AI rule on an engagement that takes no AI: said once, nothing asked
+	if e, err := s.Store.Engagement(eng); x.AI != "" && (err != nil || e.AIOff()) {
+		tryRefused(w, r, rules.AIOffWords)
 		return
 	}
 	rows, err := s.Index.Rows(index.Query{EngID: eng})

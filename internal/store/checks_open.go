@@ -271,12 +271,15 @@ func (s *Store) LintContent(ctx context.Context, engID string, raw []byte, kinds
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalidValue, err)
 	}
-	if _, err := s.Engagement(engID); err != nil {
+	e, err := s.Engagement(engID)
+	if err != nil {
 		return nil, err
 	}
 	if s.Linter == nil {
 		return []rules.Violation{}, nil
 	}
+	// where it would be committed: that engagement's rules and AI switch
+	f.Meta.Engagement, f.Meta.NoAI = engID, e.AIOff()
 	// the finding as Check sees it (read): the title cleaned, the server's
 	// workflow state applied (the file never holds it)
 	f.Meta.Title = CleanTitle(f.Meta.Title)

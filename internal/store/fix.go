@@ -111,6 +111,10 @@ func (s *Store) StartFix(engID, dir string, u config.User) error {
 	if !s.AICanFix() {
 		return fmt.Errorf("%w: no AI provider configured", ErrInvalidValue)
 	}
+	// the engagement takes no AI: said at the press, and nothing is sent
+	if why := rules.AIOff(ref.F); why != "" {
+		return fmt.Errorf("%w: %s", ErrInvalidValue, why)
+	}
 	// the spend limit is reached: said at the press, not once per item
 	if l, ok := s.Linter.(interface{ AIOverLimit() bool }); ok && l.AIOverLimit() {
 		return fmt.Errorf("%w: %s", ErrInvalidValue, rules.ErrAILimit)
@@ -295,6 +299,10 @@ func (s *Store) fixOne(ctx context.Context, engID, dir string, r db.CheckResult,
 	ref, _, err := s.read(engID, dir, nil)
 	if err != nil {
 		return not(err.Error())
+	}
+	// switched off since the press: the items left are not sent
+	if why := rules.AIOff(ref.F); why != "" {
+		return not(why)
 	}
 	old, ok := ref.F.Section(section)
 	if !ok {

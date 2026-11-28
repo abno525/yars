@@ -142,12 +142,13 @@ func (s *Store) ListFindings(engID string) ([]FindingRef, error) {
 			return nil, err
 		}
 	}
+	noAI := s.noAI(engID) // read once for the list
 	var out []FindingRef
 	for _, e := range ents {
 		if !e.IsDir() || !ValidID(e.Name()) {
 			continue
 		}
-		ref, _, err := s.read(engID, e.Name(), states)
+		ref, _, err := s.readAs(engID, e.Name(), states, &noAI)
 		if err != nil {
 			if !errors.Is(err, ErrNotFound) {
 				// the folder's name holds the title's slug: the ID only
@@ -241,8 +242,16 @@ func (s *Store) Finding(engID, dir string) (FindingRef, error) {
 
 // read loads a finding and returns its raw file too. states, when non-nil,
 // holds the engagement's stored states (bulk listing); otherwise the
-// finding's state is queried.
+// finding's state is queried. The finding's Meta says where it is: its
+// engagement and whether that engagement takes no AI, read from
+// engagement.yaml now.
 func (s *Store) read(engID, dir string, states map[string]db.State) (FindingRef, []byte, error) {
+	return s.readAs(engID, dir, states, nil)
+}
+
+// readAs is read; noAI, when non-nil, is the engagement's AI switch as the
+// caller read it (a listing reads it once).
+func (s *Store) readAs(engID, dir string, states map[string]db.State, noAI *bool) (FindingRef, []byte, error) {
 	if !ValidID(engID) || !ValidID(dir) {
 		return FindingRef{}, nil, ErrNotFound
 	}
@@ -293,6 +302,11 @@ func (s *Store) read(engID, dir string, states map[string]db.State) (FindingRef,
 	}
 	full := ApprovalHash(b)
 	applyState(&f.Meta, st, full, s.Flow())
+	if f.Meta.Engagement = engID; noAI != nil {
+		f.Meta.NoAI = *noAI
+	} else {
+		f.Meta.NoAI = s.noAI(engID)
+	}
 	ref := FindingRef{EngID: engID, Dir: dir, F: f, Hash: contentHash(b), Full: full}
 	if fi, err := s.root.Stat(findingPath(engID, dir)); err == nil {
 		ref.Modified = fi.ModTime().UTC()

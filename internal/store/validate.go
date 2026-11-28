@@ -173,6 +173,7 @@ func sectionProblemNew(p string, old *finding.Finding) bool {
 
 // CheckEngagement accepts an engagement.yaml's values: a one-line name,
 // a one-line client, dates as YYYY-MM-DD with the end not before the start,
+// ai on or off when it is written,
 // type pentest or retest (a retest names its source engagement). With prev
 // (the engagement as it was), type and source must stay: they are fixed
 // when the engagement is created.
@@ -198,6 +199,10 @@ func EngagementProblems(prev *Engagement, e Engagement) []string {
 		ps = append(ps, "dates are YYYY-MM-DD")
 	} else if e.Start != "" && e.End != "" && e.End < e.Start {
 		ps = append(ps, "the end is before the start")
+	}
+	// a typo must not read as on: only the two values are taken
+	if e.AI != "" && e.AI != "on" && e.AI != "off" {
+		ps = append(ps, "ai must be on or off (write ai: off to keep the findings from the AI provider)")
 	}
 	if prev != nil {
 		if e.Type != prev.Type {

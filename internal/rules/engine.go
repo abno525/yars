@@ -308,8 +308,14 @@ func (e *Engine) RuleCount() int {
 	return n
 }
 
-// CheckRules lists the rules a Check runs, in order.
+// CheckRules lists the rules a Check runs, in order, whatever the finding.
 func (e *Engine) CheckRules() []Rule { return e.Rules().Runs(All, e.Runner) }
+
+// CheckRulesFor lists the rules a Check of f runs, in order: its steps. A
+// rule that is not f's (Rule.For) is none.
+func (e *Engine) CheckRulesFor(f *finding.Finding) []Rule {
+	return e.Rules().RunsFor(DocOf(f), All, e.Runner)
+}
 
 // CheckWith runs every rule kind (or only h.Only) on a finding, telling h
 // about each rule. It is the background check: each script and AI rule has

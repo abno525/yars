@@ -74,11 +74,32 @@ func (s *Store) Engagement(id string) (Engagement, error) {
 	return e, nil
 }
 
-// ParseEngagement reads an engagement.yaml.
+// ParseEngagement reads an engagement.yaml. An ai key without a value reads
+// as the value "~", which no check accepts and AIOff reads as off: a key
+// someone began to write never reads as on.
 func ParseEngagement(b []byte) (Engagement, error) {
 	var e Engagement
-	err := yaml.Unmarshal(b, &e)
-	return e, err
+	if err := yaml.Unmarshal(b, &e); err != nil {
+		return e, err
+	}
+	var keys map[string]any
+	if yaml.Unmarshal(b, &keys) == nil {
+		if v, ok := keys["ai"]; ok && v == nil {
+			e.AI = "~"
+		}
+	}
+	return e, nil
+}
+
+// noAI reports whether engagement id takes no AI, read from its
+// engagement.yaml now. A file that cannot be read or parsed counts as off.
+func (s *Store) noAI(id string) bool {
+	b, err := s.readFile(path.Join(engDir(id), "engagement.yaml"))
+	if err != nil {
+		return true
+	}
+	e, err := ParseEngagement(b)
+	return err != nil || e.AIOff()
 }
 
 func (s *Store) CreateEngagement(e Engagement, a gitrepo.Author) error {
@@ -143,7 +164,8 @@ func (s *Store) CreateRetest(e Engagement, source string, dirs []string, assigne
 	if len(dirs) == 0 {
 		return fmt.Errorf("%w: select at least one finding", ErrInvalidValue)
 	}
-	if _, err := s.Engagement(source); err != nil {
+	src, err := s.Engagement(source)
+	if err != nil {
 		return err
 	}
 	if s.rootErr != nil {
@@ -154,6 +176,11 @@ func (s *Store) CreateRetest(e Engagement, source string, dirs []string, assigne
 	}
 	// the retest's own values, as its Settings tab would take them
 	e.Type, e.Source = "retest", source
+	// the same client's text: a source that takes no AI makes a retest that
+	// takes none
+	if src.AIOff() {
+		e.AI = "off"
+	}
 	if err := CheckEngagement(nil, e); err != nil {
 		return err
 	}

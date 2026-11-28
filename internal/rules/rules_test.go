@@ -21,8 +21,9 @@ func writeRules(t *testing.T, files map[string]string) string {
 	return dir
 }
 
+// doc is a finding of the engagement acme, whose AI is on.
 func doc() Doc {
-	return Doc{ID: "F-001", Title: "SQL injection.", Severity: "high",
+	return Doc{ID: "F-001", Engagement: "acme", Title: "SQL injection.", Severity: "high",
 		Sections: []Section{{"Description", "Text with `code`."}, {"Location", "/login"}, {"Impact", ""}},
 		Details:  map[string]string{"Location": "https://x/login", "Business impact": "Takeover"}}
 }

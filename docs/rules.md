@@ -16,6 +16,7 @@ Every `*.yaml` or `*.yml` file in `.yars/rules/` is a list of rules:
 | `target` | `text` (default: the title, every section and every details row), `title`, `sections`, `section:<Name>`, `details`, `details:<Row>` |
 | `enabled` | `false` turns the rule off |
 | `exclude` | `code`, on a pattern rule only (Patterns, below) |
+| `engagements` | a list of engagement IDs: the rule runs in those engagements only (Rules for some engagements, below) |
 
 and exactly one check:
 
@@ -33,6 +34,23 @@ and exactly one check:
   regex_forbid: '\.\s*$'
   message: The title must not end with a dot
 ```
+
+## Rules for some engagements
+
+A rule with `engagements` runs only in the engagements it lists. Everywhere else it does not run, is no step of a Check and holds nothing.
+
+```yaml
+- id: acme-no-product-names
+  target: text
+  regex_forbid: 'Portal\s?X'
+  message: Write "the portal", as the client asks
+  engagements: [2026-11-acme, 2027-01-acme-retest]
+```
+
+- A rule without the key runs in every engagement.
+- The ID is the engagement's folder name, shown in its address and on its Settings tab. A retest has its own ID: list it too.
+- The rule editor has no field for the key. Write it in the rule file and push it. A save, a switch and a rename on **Admin › Rules** keep it, and so does a rule pack.
+- The Test bench and Try unsaved run such a rule on the finding you pick, in any engagement.
 
 ## Starter rules and rule packs
 
@@ -128,6 +146,7 @@ Deleting the rule on **Admin › Rules**, or giving it another script, removes t
 | Field | Type | Value |
 |---|---|---|
 | `id` | string | `"F-005"` |
+| `engagement` | string | the engagement's ID, `"2026-11-acme"` |
 | `title` | string | `"SQL injection in report export"` |
 | `status` | string | `draft`, `verification`, `complete`, `reported`, `withdrawn` |
 | `severity` | string | `critical`, `high`, `medium`, `low`, `info` |
@@ -221,6 +240,7 @@ A rules file with a mistake reports `rule invalid (<file>): …`, always as an e
 | A built-in check that does not exist | `unknown check "<name>"` |
 | An `exclude` other than `code` | `unknown exclude "<value>" (use code)` |
 | `exclude` on a rule that is no pattern | `exclude is for regex_forbid and regex_require only` |
+| An `engagements` entry that cannot be an engagement's ID | `engagements: "<value>" is not an engagement ID` |
 | A target of another form | `unknown target "<target>" (use title, text, sections, details, section:<Name> or details:<Row>)` |
 
 A target that is well formed but names a section or details row the config lacks is a warning: `rule target section:<Name> (<file>) is not a configured section name; check the spelling`.
@@ -243,6 +263,21 @@ A rule with `ai:` asks the AI provider (**Admin › AI**, or `ai.*` in `config.y
 AI rules run where script rules run, except on a git push. Without a provider or a key an AI rule does not run: it reports the warning `AI rules skipped: no AI provider configured`, and the finding shows an "AI checks failed" badge after Check. Sign off and Approve are not held by it.
 
 An AI rule that cannot run never holds a finding, with a provider set up too: when the call fails, or the reply is cut off or cannot be read, Submit, Sign off and Approve go through. The badge and Retry stay on the finding, and what the rule found before on the same text still counts. With a provider set up, each step taken this way is a `warn` line in the service log ([deploy.md](deploy.md)).
+
+### AI off for an engagement
+
+A client may allow no AI on its findings. The engagement's **Settings** tab has an AI switch for that; a director flips it. It is the key `ai: off` in the engagement's `engagement.yaml`, so a clone has it too.
+
+With AI off for an engagement:
+
+- No AI rule runs on its findings: not in a Check, not with `yars lint --all`, not over MCP, not on the Test bench. The rule is no step of the Check and shows no "AI checks failed" badge. The other rules run as before.
+- Fix with AI is off: its button is disabled and a press answers `AI is off for this engagement`. The Test bench and Try unsaved answer an AI rule with the same words.
+- An answer the server kept from before is not used.
+- Nothing of the engagement's findings is sent to the provider.
+
+Only `on` and `off` are taken for the key. Any other value is refused on the page and on a push; a value that is on disk all the same, and a file that does not read, count as off. The switch is one commit in the engagement's repository and one row in Admin › Activity.
+
+A retest takes the switch of its source when it is made. Results an AI rule left before the switch went off stay on a finding until its next Check.
 
 ### Spend limit
 
