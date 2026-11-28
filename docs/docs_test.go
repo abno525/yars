@@ -91,6 +91,7 @@ func TestRulesGuideCoversEveryKind(t *testing.T) {
 	for _, want := range []string{
 		"`yars lint` runs the pattern and built-in rules", "`yars lint --all`", "90 s", "the rules as they are now",
 		"`(?m)`", "Code blocks and tables are matched", "skips a part with no text",
+		"`exclude: code`", "Skip code box", "a fence that is never closed", "unknown exclude",
 		"## Dismissing a result", "the reviewer role", "that rule, that place and that quote",
 		"An error on your own finding: another reviewer or a director dismisses it", "A dismissal needs a reason", "a row in the audit log",
 		"not executable", "64 KB", "even when the script exits 0",

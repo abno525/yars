@@ -54,12 +54,13 @@ type fileRule struct {
 	Script          string `yaml:"script,omitempty"`
 	AI              string `yaml:"ai,omitempty"`
 	RequireNonempty bool   `yaml:"require_nonempty,omitempty"`
+	Exclude         string `yaml:"exclude,omitempty"`
 	Enabled         *bool  `yaml:"enabled,omitempty"`
 }
 
 func fileOf(r Rule) fileRule {
 	f := fileRule{ID: r.ID, Level: r.Level, Message: r.Message, Target: r.Target, RegexForbid: r.RegexForbid,
-		RegexRequire: r.RegexRequire, Check: r.Check, Script: r.Script, AI: r.AI, RequireNonempty: r.RequireNonempty}
+		RegexRequire: r.RegexRequire, Check: r.Check, Script: r.Script, AI: r.AI, RequireNonempty: r.RequireNonempty, Exclude: r.Exclude}
 	if !r.On() {
 		off := false
 		f.Enabled = &off

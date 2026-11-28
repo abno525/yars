@@ -94,10 +94,18 @@ type Rule struct {
 	Script          string `yaml:"script"`
 	AI              string `yaml:"ai"`
 	RequireNonempty bool   `yaml:"require_nonempty"`
-	Enabled         *bool  `yaml:"enabled"`
-	File            string `yaml:"-"`
-	re              *regexp.Regexp
+	// Exclude is "code" on a pattern rule that does not read the code of a
+	// section (fenced and indented blocks, code spans), else "". It is left
+	// out of the rule's JSON when empty, so the key of a kept script result
+	// is what it was.
+	Exclude string `yaml:"exclude" json:",omitempty"`
+	Enabled *bool  `yaml:"enabled"`
+	File    string `yaml:"-"`
+	re      *regexp.Regexp
 }
+
+// ExcludeCode is the one value of a rule's exclude key.
+const ExcludeCode = "code"
 
 type Violation struct {
 	Rule    string `json:"rule"`
@@ -297,7 +305,7 @@ func (s *Set) add(file string, b []byte, seen map[string]bool) {
 }
 
 var ruleKeys = map[string]bool{"id": true, "level": true, "message": true, "target": true, "regex_forbid": true,
-	"regex_require": true, "check": true, "script": true, "ai": true, "require_nonempty": true, "enabled": true}
+	"regex_require": true, "check": true, "script": true, "ai": true, "require_nonempty": true, "exclude": true, "enabled": true}
 
 func unknownKeys(m map[string]any) []string {
 	var bad []string
@@ -338,6 +346,15 @@ func (r *Rule) prepare() error {
 			return fmt.Errorf("%s: %v", r.ID, err)
 		}
 		r.re = re
+	}
+	// a key that is not read must not load: the rule would match code its
+	// author believes left out
+	switch {
+	case r.Exclude == "":
+	case r.Exclude != ExcludeCode:
+		return fmt.Errorf("%s: unknown exclude %q (use code)", r.ID, r.Exclude)
+	case r.re == nil:
+		return fmt.Errorf("%s: exclude is for regex_forbid and regex_require only", r.ID)
 	}
 	if r.Target == "" && r.Script == "" {
 		r.Target = "text"
@@ -487,6 +504,7 @@ func (s *Set) RunWith(ctx context.Context, d Doc, cfg config.Config, kinds Kind,
 	}
 	ctx = withRun(ctx) // a provider that is down is waited for once
 	seen := map[Violation]bool{}
+	memo := codeMemo{} // a section's code is found once for all the rules
 	run := s.Runs(kinds, slow)
 	if h.Only != "" {
 		run = slices.DeleteFunc(run, func(r Rule) bool { return r.ID != h.Only })
@@ -505,7 +523,7 @@ func (s *Set) RunWith(ctx context.Context, d Doc, cfg config.Config, kinds Kind,
 		switch {
 		case r.re != nil || r.Check != "":
 			if kinds&Fast != 0 {
-				vs = r.fast(d, cfg)
+				vs = r.fast(d, cfg, memo)
 			}
 		case r.Script != "":
 			if kinds&Slow != 0 && slow != nil {
@@ -565,7 +583,7 @@ func (s *Set) RunWith(ctx context.Context, d Doc, cfg config.Config, kinds Kind,
 	return out
 }
 
-func (r Rule) fast(d Doc, cfg config.Config) []Violation {
+func (r Rule) fast(d Doc, cfg config.Config, memo codeMemo) []Violation {
 	var vs []Violation
 	switch {
 	case r.RegexForbid != "":
@@ -576,6 +594,22 @@ func (r Rule) fast(d Doc, cfg config.Config) []Violation {
 			if left == 0 {
 				break
 			}
+			if r.Exclude == ExcludeCode && p.Kind == "section" {
+				// matched on a copy with the code blanked, so offsets and
+				// lines stay; the quote is cut from the text itself
+				b := memo.of(p.Text)
+				for _, m := range r.re.FindAllStringIndex(b.text, -1) {
+					if left == 0 {
+						break
+					}
+					if b.inCode(m[0], m[1]) {
+						continue
+					}
+					left--
+					vs = append(vs, r.v(p.Target, r.message(), p.Text[m[0]:m[1]]))
+				}
+				continue
+			}
 			for _, m := range r.re.FindAllString(p.Text, left) {
 				left--
 				vs = append(vs, r.v(p.Target, r.message(), m))
@@ -583,10 +617,19 @@ func (r Rule) fast(d Doc, cfg config.Config) []Violation {
 		}
 	case r.RegexRequire != "":
 		for _, p := range parts(d, r.Target) {
-			if strings.TrimSpace(p.Text) == "" && !r.RequireNonempty {
+			text := p.Text
+			if r.Exclude == ExcludeCode && p.Kind == "section" {
+				b := memo.of(p.Text)
+				// a part that is only code is an empty part: what is left
+				// of it are the marks around the code
+				if text = b.text; strings.Trim(text, " \t\n`~") == "" {
+					text = ""
+				}
+			}
+			if strings.TrimSpace(text) == "" && !r.RequireNonempty {
 				continue
 			}
-			if !r.re.MatchString(p.Text) {
+			if !r.re.MatchString(text) {
 				vs = append(vs, r.v(p.Target, r.message(), ""))
 			}
 		}

@@ -15,6 +15,7 @@ Every `*.yaml` or `*.yml` file in `.yars/rules/` is a list of rules:
 | `message` | shown with each hit; empty → the id |
 | `target` | `text` (default: the title, every section and every details row), `title`, `sections`, `section:<Name>`, `details`, `details:<Row>` |
 | `enabled` | `false` turns the rule off |
+| `exclude` | `code`, on a pattern rule only (Patterns, below) |
 
 and exactly one check:
 
@@ -40,6 +41,10 @@ A pattern is matched against one part at a time: the title, a section's body or 
 - `^` and `$` are the start and the end of the whole part, not of a line. Write `(?m)` at the start of the pattern to make them match at each line; in the editor that is the Multiline box, as Aa is `(?i)`.
 - A pattern the text must match skips an empty part. With `require_nonempty: true` (the editor's Check empty parts box) an empty part is a hit.
 - The part is the Markdown as written. Code blocks and tables are matched too.
+- `exclude: code` (the editor's Skip code box) makes a pattern rule leave out the code of a section: fenced blocks, indented blocks and code spans. The title and the details rows are still matched as written. A match that starts and ends in text is a hit, also when code lies between.
+- The key is off unless a rule has it. Leave it off for a rule that must hold everywhere, such as a client's name, a secret or an internal host: with it, the same word in backticks passes.
+- Code is what the page shows as code: a fence that is never closed makes the rest of the section code.
+- With `exclude: code`, a part that is only code is an empty part for a pattern the text must match.
 - A rule of any kind shows up to 20 hits per finding. A last row then says how many it does not show: `and 5 more`, or `and more than 1000 more`.
 - That row has the rule's level and counts as one result. It is dismissed on its own, for its count: `and 6 more` is a new row. The live hints under a section do not show it.
 - The same wording found again in the same part is the same result, not one more.
@@ -180,6 +185,8 @@ A rules file with a mistake reports `rule invalid (<file>): …`, always as an e
 | None or several of the checks | `needs exactly one of regex_forbid, regex_require, check, script, ai` |
 | A regular expression that does not compile | the expression's error |
 | A built-in check that does not exist | `unknown check "<name>"` |
+| An `exclude` other than `code` | `unknown exclude "<value>" (use code)` |
+| `exclude` on a rule that is no pattern | `exclude is for regex_forbid and regex_require only` |
 | A target of another form | `unknown target "<target>" (use title, text, sections, details, section:<Name> or details:<Row>)` |
 
 A target that is well formed but names a section or details row the config lacks is a warning: `rule target section:<Name> (<file>) is not a configured section name; check the spelling`.
