@@ -6,6 +6,7 @@ What changed for people who run or use YARS. Newest first.
 
 ### Added
 
+- The Inbox updates itself: a finding sent for review, a sign-off, a reply, a notice or a new lead on a team board shows within about two seconds, with no reload. The Inbox badge of the top bar follows on every page that updates live (a finding, the findings list, the team board, the Inbox). A refresh waits while rows are ticked, a menu or the reason panel is open, a bulk run's result is shown or more rows were loaded.
 - Sign off and Approve on the finding page open the next finding of the queue: Awaiting my review after a Sign off, Ready to approve after an Approve, in the Inbox's order (before: the same finding again). With none left the page stays on the finding.
 - A page opened without a session comes back after the login (before: always the start page). A form sent after the session expired comes back to the page it was on. The address is a path of this site only.
 - The Return, Withdraw and Revert reasons of the finding page are sent without leaving the page: with an expired session the reason stays in its box under a Session expired toast (before: the login page, and the reason was lost).

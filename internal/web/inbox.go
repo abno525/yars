@@ -1,8 +1,10 @@
 package web
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"html/template"
 	"maps"
 	"net/http"
 	"net/url"
@@ -685,6 +687,21 @@ func (s *Server) inbox(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
+	if p.InboxLive, err = s.inboxLiveOf(p.InboxLists, p.Inbox.Count()); err != nil {
+		s.fail(w, err)
+		return
+	}
+	if q.Get("live") != "" && r.Header.Get("HX-Request") == "true" {
+		// the queues refreshing themselves: nothing while what would be drawn
+		// is what the page shows, else the queues and the badge
+		if q.Get("h") == p.InboxLive.Stamp {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		p.InboxLive.OOB = true
+		s.exec(w, "inbox.html", "inbox_live", p.InboxLive)
+		return
+	}
 	stale, err := s.staleRows(p.User, p.Engagements)
 	if err != nil {
 		s.fail(w, err)
@@ -692,6 +709,48 @@ func (s *Server) inbox(w http.ResponseWriter, r *http.Request) {
 	}
 	p.InboxLists.Stale = len(stale)
 	s.render(w, "inbox.html", p)
+}
+
+// inboxTrigger is the hx-trigger of the Inbox's queues and of the top bar's
+// badge: the events that can change a queue (a notice written, a team board
+// change, a status, an edit, a chat message, a check), a resync and the
+// poll. Each waits a second, and a new event starts the wait again (htmx
+// keeps one timer per element), so a burst is one request.
+const inboxTrigger = "sse:notice delay:1s, sse:workflow delay:1s, sse:content delay:1s, sse:chat delay:1s, sse:check delay:1s, sse:resync delay:1s, sse:poll delay:1s"
+
+// inboxLive is the Inbox's queues as drawn, in the element that fetches
+// itself again on events.
+type inboxLive struct {
+	HTML  template.HTML // the queues (the inbox_lists template's own output)
+	Stamp string        // identifies HTML: a refresh that would draw the same is answered 204
+	Rows  int           // the rows drawn: more in the page were appended by Load more
+	Count int           // the top bar's badge
+	OOB   bool          // the answer of a refresh: the badge goes with it, out of band
+}
+
+// inboxLiveOf draws l's queues and stamps them.
+func (s *Server) inboxLiveOf(l inboxLists, count int) (inboxLive, error) {
+	var buf bytes.Buffer
+	if err := s.pages["inbox.html"].ExecuteTemplate(&buf, "inbox_lists", l); err != nil {
+		return inboxLive{}, err
+	}
+	v := inboxLive{HTML: template.HTML(buf.String()), Stamp: store.BodyHash(buf.String()), Count: count}
+	for _, q := range l.Queues {
+		v.Rows += len(q.Rows)
+	}
+	return v, nil
+}
+
+// inboxBadge answers the text of the top bar's Inbox link (its live
+// refresh), for the request's account only. When the inbox cannot be read
+// the link keeps what it shows (204; base logged why).
+func (s *Server) inboxBadge(w http.ResponseWriter, r *http.Request) {
+	p, err := s.base(r, "")
+	if err != nil || p.inboxErr != nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	s.exec(w, "inbox.html", "inbox_badge", p.Inbox.Count())
 }
 
 // inboxAfterBulk is the inbox as it was before a run, so no row moves: each

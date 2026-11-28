@@ -51,6 +51,10 @@ func (s *Server) wireNotifications() {
 			s.Notifier.Handle(e)
 		}
 		s.Webhooks.Handle(e)
+		// the pages heard of the change when it was committed, before its
+		// notices were written: now that they are, the inbox and the badge
+		// are told to read again
+		s.inboxChanged(e.Eng)
 	})
 	if hs, err := d.Webhooks(); err == nil && len(hs) > 0 {
 		s.startHooks()

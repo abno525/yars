@@ -23,6 +23,11 @@ const (
 	// reach only subscribers of that Fid (the board page), never streams of
 	// a whole engagement.
 	Board = "board"
+	// Notice says an account's inbox may hold something new: sent once the
+	// notices of a change are written (the change itself is published before
+	// them), and for a team board change, whose own event streams of a whole
+	// engagement never get. It carries the engagement and nothing else.
+	Notice = "notice"
 )
 
 // Event says what changed. ID is set by the hub (increasing, from 1); Seq

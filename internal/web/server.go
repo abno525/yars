@@ -238,6 +238,7 @@ type page struct {
 	WF            wfView
 	Inbox         inboxView
 	InboxLists    inboxLists // the inbox page: one page of each list
+	InboxLive     inboxLive  // … drawn, in the element that refreshes itself
 	Chat          chatView
 	Checks        checksView
 	CloneURL      string
@@ -279,6 +280,9 @@ var funcs = template.FuncMap{"join": strings.Join, "checkedIn": checkedIn, "rete
 	// a read panel refetches itself when the finding changed (MCP, a push,
 	// another tab); an open editor has no trigger, so it is never replaced
 	"liveTrigger": func() string { return "sse:content, sse:resync, sse:poll" },
+	// the Inbox's queues and the top bar's badge refetch themselves on what
+	// can change a queue, a second after the last event of a burst
+	"inboxTrigger": func() string { return inboxTrigger },
 	// a new password's minlength, as the server checks it
 	"minPassword":  func() int { return auth.MinPassword },
 	"previewDelay": previewDelay,
@@ -373,6 +377,7 @@ func (s *Server) Handler() http.Handler {
 	private.HandleFunc("GET /events", s.events)
 	private.HandleFunc("GET /go", s.goEngagement)
 	private.HandleFunc("GET /inbox", s.inbox)
+	private.HandleFunc("GET /inbox/badge", s.inboxBadge)
 	private.HandleFunc("POST /inbox/board/read", s.boardInboxRead)
 	private.HandleFunc("POST /inbox/check-stale", s.inboxCheckStale)
 	private.HandleFunc("POST /logout", s.logout)

@@ -55,6 +55,21 @@ function yarsListIdle() {
   return shown <= Number(list.getAttribute('data-rows') || 0);
 }
 
+// yarsInboxIdle tells whether the Inbox's queues may refresh themselves: not
+// while a row or a reviewer is ticked, a bar menu or the reason panel is
+// open, a run's summary or its tinted rows are shown, a run is out, or more
+// rows were loaded (all would be lost).
+function yarsInboxIdle() {
+  var box = document.getElementById('inbox-live');
+  if (!box) return false;
+  if (box.querySelector('input[name=id]:checked, input[name=reviewer]:checked')) return false;
+  if (box.querySelector('[data-bulk-menu][aria-expanded=true], .bdlg:not([hidden]), tr.skip, .htmx-request')) return false;
+  var sum = box.querySelector('.bsum');
+  if (sum && sum.textContent.trim() !== '') return false;
+  var shown = box.querySelectorAll('tbody tr:not(.more):not(.emptyrow)').length;
+  return shown <= Number(box.getAttribute('data-rows') || 0);
+}
+
 // yarsToast shows a short message in #toasts; click or wait to dismiss. It
 // hands the toast back: in the page while it shows.
 function yarsToast(text, err) {
@@ -408,6 +423,8 @@ document.addEventListener('htmx:beforeRequest', function (evt) {
   var el = evt.detail.elt;
   var ev = evt.detail.requestConfig && evt.detail.requestConfig.triggeringEvent;
   if (el && el.id === 'findings' && ev && String(ev.type).indexOf('sse:') === 0 && !yarsListIdle()) evt.preventDefault();
+  // the Inbox's queues the same: see yarsInboxIdle
+  if (el && el.id === 'inbox-live' && ev && String(ev.type).indexOf('sse:') === 0 && !yarsInboxIdle()) evt.preventDefault();
 });
 // The findings search box (#fq) keeps what is typed in it when the list it
 // sits in is swapped: the answer echoes the search as it was sent (or a live

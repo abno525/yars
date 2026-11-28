@@ -131,7 +131,7 @@ func TestInboxNotifications(t *testing.T) {
 		t.Fatalf("unread after the section's read all: %s", got)
 	}
 	// the notifications page is the inbox's
-	if b := e.do(t, "alice", "GET", "/notifications", nil, nil).Body.String(); !strings.Contains(b, `<a class="on" href="/inbox"`) {
+	if b := e.do(t, "alice", "GET", "/notifications", nil, nil).Body.String(); !strings.Contains(b, `<a class="on" id="inbox-nav" href="/inbox"`) {
 		t.Fatal("Inbox not lit on the notifications page")
 	}
 }

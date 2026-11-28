@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/abno525/yars/internal/config"
+	"github.com/abno525/yars/internal/events"
 	"github.com/abno525/yars/internal/store"
 )
 
@@ -320,12 +321,20 @@ func TestTeamBoardLive(t *testing.T) {
 	esub := e.srv.Events.Subscribe("acme", "", 8)
 	defer e.srv.Events.Unsubscribe(esub)
 	e.do(t, "bob", "POST", "/e/acme/board/n/L-001/post", url.Values{"text": {"z"}}, nil)
-	select {
-	case ev := <-fsub.C():
-		t.Fatalf("finding tab got %+v", ev)
-	case ev := <-esub.C():
-		t.Fatalf("engagement stream got %+v", ev)
-	case <-time.After(50 * time.Millisecond):
+	// the post is answered, so its events are published: each of the two
+	// streams holds the notice (an inbox may hold something new) and nothing
+	// of the board
+	for name, sub := range map[string]*events.Sub{"finding tab": fsub, "engagement stream": esub} {
+		for more := true; more; {
+			select {
+			case ev := <-sub.C():
+				if ev.Kind != events.Notice || ev.Fid != "" {
+					t.Fatalf("%s got %+v", name, ev)
+				}
+			default:
+				more = false
+			}
+		}
 	}
 	e.do(t, "bob", "GET", "/e/acme/board?n=L-001", nil, nil)
 	if g, _ := e.srv.Index.Gen(); g != g0 {
