@@ -95,6 +95,7 @@ func TestRulesGuideCoversEveryKind(t *testing.T) {
 		"`exclude: code`", "Skip code box", "a fence that is never closed", "unknown exclude",
 		"## Dismissing a result", "the reviewer role", "that rule, that place and that quote",
 		"each script and each AI rule 90 s for itself", "fails alone", "90 s for all their scripts and AI questions together",
+		"is renamed in the rule targets too", "A name inside a script or an AI instruction is not changed",
 		"covers the matches that were there when it was made", "opens the result again", "Covers · By",
 		"An error on your own finding: another reviewer or a director dismisses it", "A dismissal needs a reason", "a row in the audit log",
 		"not executable", "64 KB", "even when the script exits 0",

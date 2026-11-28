@@ -131,6 +131,9 @@ func (s *Store) replay(in db.Intent) int {
 				return err
 			}
 			for o, n := range in.Sections {
+				if err := tx.RetargetResults(in.Eng, in.Fid, "section:"+o, "section:"+n); err != nil {
+					return err
+				}
 				if err := tx.RenameChatSection(in.Eng, in.Fid, o, n); err != nil {
 					return err
 				}

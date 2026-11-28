@@ -514,6 +514,61 @@ func (d *DB) RenameRule(from, to string) (moved int, err error) {
 	return moved, err
 }
 
+// RetargetResults moves what is stored for finding fid under the place from
+// to the place to (a section or details row was renamed): the results of
+// its check runs, with the key that names the place, and the dismissals of
+// those rows. A dismissal whose row no run stored is not found this way and
+// stays under the old place. A place that has a dismissal under the new
+// name already keeps that one. Nothing changes when nothing is stored under
+// from, so it can run again.
+func (tx *Tx) RetargetResults(eng, fid, from, to string) error {
+	if from == to {
+		return nil
+	}
+	type row struct {
+		id              int64
+		rule, quote, qh string
+	}
+	rows, err := tx.Query(`SELECT r.rowid, r.rule, r.quote, r.quote_hash FROM check_results r JOIN check_runs c ON c.id = r.run_id
+		WHERE c.eng = ? AND c.fid = ? AND r.target = ?`, eng, fid, from)
+	if err != nil {
+		return err
+	}
+	var all []row
+	for rows.Next() {
+		var x row
+		if err := rows.Scan(&x.id, &x.rule, &x.quote, &x.qh); err != nil {
+			rows.Close()
+			return err
+		}
+		all = append(all, x)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if len(all) == 0 {
+		return nil
+	}
+	tx.touch(eng)
+	for _, x := range all {
+		now := x.qh
+		if x.qh == ViolationHash(from, x.quote) { // keyed by its place, as every row since v14
+			now = ViolationHash(to, x.quote)
+			if _, err := tx.Exec("UPDATE OR IGNORE dismissals SET quote_hash = ? WHERE eng = ? AND fid = ? AND rule = ? AND quote_hash = ?", now, eng, fid, x.rule, x.qh); err != nil {
+				return err
+			}
+			if _, err := tx.Exec("DELETE FROM dismissals WHERE eng = ? AND fid = ? AND rule = ? AND quote_hash = ?", eng, fid, x.rule, x.qh); err != nil {
+				return err
+			}
+		}
+		if _, err := tx.Exec("UPDATE check_results SET target = ?, quote_hash = ? WHERE rowid = ?", to, now, x.id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // Undismiss drops a dismissal; the violation counts again.
 func (tx *Tx) Undismiss(eng, fid, rule, quoteHash string) error {
 	tx.touch(eng)

@@ -63,6 +63,17 @@ func (s *Store) RenameNames(list string, renames map[string]string, a gitrepo.Au
 					if err := tx.MoveHash(id, fid, oldHash, newHash); err != nil {
 						return err
 					}
+					// what the check runs stored under the old name, and its
+					// dismissals: a row dismissed before stays dismissed
+					prefix, ok := resultPlace[list]
+					for _, o := range olds {
+						if !ok {
+							break
+						}
+						if err := tx.RetargetResults(id, fid, prefix+o, prefix+renames[o]); err != nil {
+							return err
+						}
+					}
 					if list != "section" {
 						return nil
 					}
@@ -102,6 +113,10 @@ func (s *Store) RenameNames(list string, renames map[string]string, a gitrepo.Au
 	}
 	return changed, nil
 }
+
+// resultPlace is how a check result names a place of each list RenameNames
+// renames ("section:Impact", "details:Location"); a severity is no place.
+var resultPlace = map[string]string{"section": "section:", "details row": "details:"}
 
 // renamedOlds are the names renames changes, sorted.
 func renamedOlds(renames map[string]string) []string {

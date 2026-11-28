@@ -131,6 +131,55 @@ func SetRule(b []byte, id string, r *Rule) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// Retarget edits the content b of a rule file: every rule whose target is a
+// key of to gets that key's value as its target (a section or details row
+// was renamed). One lookup per rule, so two names that swap do not chain.
+// Only the target's value changes, written by the YAML encoder (a name with
+// a colon or a quote cannot change the file's structure); the other keys,
+// the other rules, rules that are off and the comments are kept. n is how
+// many rules changed; with none, b comes back as it is. A file that is no
+// list of rules is an error.
+func Retarget(b []byte, to map[string]string) (out []byte, n int, err error) {
+	var doc yaml.Node
+	if len(bytes.TrimSpace(b)) == 0 {
+		return b, 0, nil
+	}
+	if err := yaml.Unmarshal(b, &doc); err != nil {
+		return nil, 0, err
+	}
+	if doc.Kind != yaml.DocumentNode || len(doc.Content) != 1 || doc.Content[0].Kind != yaml.SequenceNode {
+		return nil, 0, errors.New("the rule file is not a list of rules")
+	}
+	for _, r := range doc.Content[0].Content {
+		if r.Kind != yaml.MappingNode {
+			continue
+		}
+		for j := 0; j+1 < len(r.Content); j += 2 {
+			k, v := r.Content[j], r.Content[j+1]
+			if k.Value != "target" || v.Kind != yaml.ScalarNode {
+				continue
+			}
+			if now, ok := to[v.Value]; ok && now != v.Value {
+				v.SetString(now)
+				n++
+			}
+		}
+	}
+	if n == 0 {
+		return b, 0, nil
+	}
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(&doc); err != nil {
+		return nil, 0, err
+	}
+	if err := enc.Close(); err != nil {
+		return nil, 0, err
+	}
+	return buf.Bytes(), n, nil
+}
+
 // Rule finds a loaded rule by id.
 func (e *Engine) Rule(id string) (Rule, bool) {
 	for _, r := range e.Rules().Rules {

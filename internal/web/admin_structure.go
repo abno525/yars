@@ -16,6 +16,7 @@ import (
 	"github.com/abno525/yars/internal/finding"
 	"github.com/abno525/yars/internal/gitrepo"
 	"github.com/abno525/yars/internal/index"
+	"github.com/abno525/yars/internal/rules"
 	"github.com/abno525/yars/internal/store"
 )
 
@@ -423,6 +424,13 @@ func (s *Server) structurePost(w http.ResponseWriter, r *http.Request) {
 	u := auth.UserFrom(r.Context())
 	dir := s.Store.Repo().Dir
 	var loaded config.Config
+	// the rule targets that name a renamed section or details row follow it
+	// in the same commit: the structure and the rules change together or
+	// not at all (no database row belongs to a rule's target)
+	targets := ruleTargets(renames)
+	rulesDir := rules.DirFor(dir)
+	var rulesBefore *rules.Set
+	retargeted := 0
 	err := s.Store.EditSettings("config: report structure", author(u), func(read func(string) ([]byte, error)) ([]store.SettingsFile, error) {
 		raw, err := read(configRel)
 		if err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -435,11 +443,28 @@ func (s *Server) structurePost(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return nil, err
 		}
-		return []store.SettingsFile{{Path: configRel, Data: b}}, nil
+		files := []store.SettingsFile{{Path: configRel, Data: b}}
+		if retargeted = 0; len(targets) > 0 {
+			rulesBefore = rules.Load(rulesDir)
+			rf, n, err := retargetRules(rulesDir, read, targets)
+			if err != nil {
+				return nil, err
+			}
+			files, retargeted = append(files, rf...), n
+		}
+		return files, nil
 	}, func() error {
 		var err error
-		loaded, err = config.Load(dir)
-		return err
+		if loaded, err = config.Load(dir); err != nil {
+			return err
+		}
+		// as the rule editor and a push: no change that breaks a rule file
+		if rulesBefore != nil {
+			if ps := rules.NewProblems(rulesBefore, rules.Load(rulesDir)); len(ps) > 0 {
+				return errors.New(ps[0].Message)
+			}
+		}
+		return nil
 	})
 	if errors.Is(err, store.ErrConflict) {
 		// the page shows the edits against the file as it is now; saving
@@ -452,6 +477,10 @@ func (s *Server) structurePost(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.structureRender(w, r, http.StatusBadRequest, c, disk, was, base, strings.TrimPrefix(err.Error(), "config: "), "")
 		return
+	}
+	if retargeted > 0 {
+		// counts only: a rule's ID and a section's name are the admin's text
+		s.log().Info("structure: rule targets follow the rename", "user", u.Username, "rules", retargeted)
 	}
 	// read again as it is on disk now, in order with a push's: never a
 	// stale copy applied after a newer one
@@ -494,6 +523,51 @@ func (s *Server) structurePost(w http.ResponseWriter, r *http.Request) {
 		head = head[:7]
 	}
 	http.Redirect(w, r, "/admin/structure?saved="+head, http.StatusSeeOther)
+}
+
+// ruleTargets are the rule targets a save's renames change: section:<old>
+// and details:<old> to the new name. Severities are no targets.
+func ruleTargets(renames map[string]map[string]string) map[string]string {
+	out := map[string]string{}
+	for key, prefix := range map[string]string{"section": "section:", "detail": "details:"} {
+		for o, n := range renames[key] {
+			if o != n {
+				out[prefix+o] = prefix + n
+			}
+		}
+	}
+	return out
+}
+
+// retargetRules gives every rule file of the rules folder dir whose rules
+// name a target of targets its new content (rules.Retarget), read through
+// read; n is how many rules changed. A file that does not read as a list of
+// rules is left as it is: it reports its own problem on every check.
+func retargetRules(dir string, read func(string) ([]byte, error), targets map[string]string) (files []store.SettingsFile, n int, err error) {
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, 0, nil
+		}
+		return nil, 0, err
+	}
+	for _, e := range ents {
+		name := e.Name()
+		if e.IsDir() || !(strings.HasSuffix(name, ".yaml") || strings.HasSuffix(name, ".yml")) {
+			continue
+		}
+		b, err := read(rulesRel + name)
+		if err != nil {
+			return nil, 0, err
+		}
+		nb, changed, err := rules.Retarget(b, targets)
+		if err != nil || changed == 0 {
+			continue
+		}
+		files = append(files, store.SettingsFile{Path: rulesRel + name, Data: nb})
+		n += changed
+	}
+	return files, n, nil
 }
 
 // nameRenames is one list's renames (old → new) for Store.RenameNames.

@@ -196,6 +196,10 @@ A rules file with a mistake reports `rule invalid (<file>): …`, always as an e
 
 A target that is well formed but names a section or details row the config lacks is a warning: `rule target section:<Name> (<file>) is not a configured section name; check the spelling`.
 
+A section or details row renamed on **Admin › Structure** is renamed in the rule targets too, in the same commit, also in rules that are off. A name inside a script or an AI instruction is not changed, and neither is a rule file that is no list of rules. What a finding's checks stored under the old name moves with it, dismissals too. A result dismissed before any Check stored it opens again after the rename.
+
+The rule file changed, so every finding needs a new Check after such a rename (When rules run, above). A name removed on the page, or renamed by hand in `config.yaml`, leaves the targets as they are: change them on **Admin › Rules**.
+
 ## AI rules
 
 A rule with `ai:` asks the AI provider (**Admin › AI**, or `ai.*` in `config.yaml`) whether a text follows the instruction. Each part the target covers (the title, each section, each details row) is one question; an AI rule skips a part with no text. The model answers with the violations it finds: a quote from the text and a message. A violation whose quote is not in the text is dropped; a quote that differs only in its spaces and line breaks is taken as the text has it. A reply without the list of violations is a failed check.
