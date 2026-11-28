@@ -1241,7 +1241,8 @@ function yarsDraft(form) {
     return d.f && typeof d.f === 'object' ? d : null;
   } catch (e) { return null; }
 }
-// A draft larger than yarsDraftMax characters is not kept, and an account
+// A draft larger than yarsDraftMax characters is not kept while typing (one
+// written because the session expired is: yarsDraftWrite), and an account
 // keeps its yarsDraftKeep newest: the browser's storage is small and shared.
 var yarsDraftMax = 200000;
 var yarsDraftKeep = 20;
@@ -1258,14 +1259,16 @@ function yarsDraftTrim(prefix) {
   all.slice(yarsDraftKeep).forEach(function (d) { localStorage.removeItem(d.k); });
 }
 // yarsDraftWrite keeps the form's unsaved fields. A form that left the page
-// (saved or cancelled meanwhile) writes nothing.
-function yarsDraftWrite(form) {
+// (saved or cancelled meanwhile) writes nothing. any: of any size (the
+// session expired: the text cannot be saved now, and the server takes a
+// section larger than the cap); the browser's own limit still holds.
+function yarsDraftWrite(form, any) {
   var k = yarsDraftKey(form);
   if (!yarsUser() || !k || !form.isConnected || !yarsDirty(form)) return;
   var f = {};
   yarsDraftFields(form).forEach(function (el) { f[el.name] = el.value; });
   var s = JSON.stringify({at: Date.now(), f: f});
-  if (s.length > yarsDraftMax) return;
+  if (!any && s.length > yarsDraftMax) return;
   try {
     localStorage.setItem(k, s);
     yarsDraftTrim('yars-draft:' + yarsUser() + ':');
@@ -1325,7 +1328,7 @@ var yarsExpiredSaid = false, yarsExpiredToast = null;
 function yarsExpired(own) {
   document.querySelectorAll('form[data-guard]').forEach(function (form) {
     if (!yarsDirty(form)) return;
-    yarsDraftWrite(form);
+    yarsDraftWrite(form, true);
     var st = form.querySelector('[data-pstate]');
     if (st) { st.textContent = 'Session expired · not saved'; st.classList.add('error'); }
   });

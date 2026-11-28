@@ -256,7 +256,7 @@ func TestDraftScriptRules(t *testing.T) {
 	if !strings.Contains(js, "var yarsDraftSecret = /passw|passphrase|token|secret|api.?key/i;") {
 		t.Error("no rule for fields named like a secret")
 	}
-	write := jsFunc(t, js, "function yarsDraftWrite(form)", "\n}\n")
+	write := jsFunc(t, js, "function yarsDraftWrite(form", "\n}\n")
 	for _, want := range []string{
 		"!yarsUser()",             // no account, no draft
 		"!form.isConnected",       // a form that left the page writes nothing
@@ -274,9 +274,22 @@ func TestDraftScriptRules(t *testing.T) {
 			t.Errorf("script lacks %q", want)
 		}
 	}
-	// a 401 keeps every guarded form at once
-	if fn := jsFunc(t, js, "function yarsExpired(own)", "\n}\n"); !strings.Contains(fn, "form[data-guard]") || !strings.Contains(fn, "yarsDraftWrite(form)") {
-		t.Errorf("yarsExpired writes no draft:\n%s", fn)
+	// a 401 keeps every guarded form at once, whatever its size: the text
+	// cannot be saved then, and the server takes a larger one than the cap
+	if fn := jsFunc(t, js, "function yarsExpired(own)", "\n}\n"); !strings.Contains(fn, "form[data-guard]") || !strings.Contains(fn, "yarsDraftWrite(form, true);") {
+		t.Errorf("yarsExpired writes no draft of any size:\n%s", fn)
+	}
+	if !strings.Contains(write, "if (!any && s.length > yarsDraftMax) return;") {
+		t.Errorf("the size cap also holds when the session expired:\n%s", write)
+	}
+	// the cap holds for every other write
+	for _, want := range []string{"setTimeout(function () { yarsDraftWrite(form); }, yarsDraftMs);", "if (form.hasAttribute('data-unsaved')) { yarsDraftWrite(form); return; }"} {
+		if !strings.Contains(js, want) {
+			t.Errorf("script lacks %q", want)
+		}
+	}
+	if strings.Count(js, "yarsDraftWrite(form, true)") != 1 {
+		t.Error("more than the expired session writes a draft of any size")
 	}
 	// Restore sets values only: a draft is text another script could have written
 	i := strings.Index(js, "closest('[data-draft-restore]')")
