@@ -1,0 +1,15 @@
+{{define "content"}}
+<div class="titlerow">
+  <div class="titlecol">
+    <h1>{{.ErrPage.Title}}</h1>
+  </div>
+</div>
+<section class="panel">
+  <div class="panelhead"><h2>Error</h2></div>
+  <table class="kv details flush">{{template "kv_head"}}<tbody>
+    <tr><th scope="row">Status</th><td class="text mono">{{.ErrPage.Code}}</td></tr>
+    <tr><th scope="row">Reason</th><td class="text">{{.ErrPage.Reason}}</td></tr>
+    {{with .ErrPage.Request}}<tr><th scope="row">Request</th><td class="text mono">{{.}}</td></tr>{{end}}
+  </tbody></table>
+</section>
+{{end}}

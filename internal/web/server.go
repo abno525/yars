@@ -22,6 +22,7 @@ import (
 	"unicode"
 
 	"github.com/abno525/yars/internal/auth"
+	"github.com/abno525/yars/internal/chat"
 	"github.com/abno525/yars/internal/config"
 	"github.com/abno525/yars/internal/events"
 	"github.com/abno525/yars/internal/export"
@@ -268,6 +269,7 @@ type page struct {
 	Notes       notesView  // the notifications page
 	Docs        docsView   // the developer docs
 	TeamBoard   teamBoardView
+	ErrPage     errPageView // an error answered as a page (errorPages)
 }
 
 var funcs = template.FuncMap{"join": strings.Join, "checkedIn": checkedIn, "retestLabel": workflow.RetestLabel, "fpath": findingURL,
@@ -410,7 +412,7 @@ func (s *Server) Handler() http.Handler {
 	root.HandleFunc("GET /favicon.ico", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, staticPrefix()+"/favicon.svg", http.StatusMovedPermanently)
 	})
-	root.Handle("/", s.Auth.Require(signedIn(private, s.mustChangeGate(s.teamGate(routed(private))))))
+	root.Handle("/", s.Auth.Require(signedIn(private, s.mustChangeGate(s.errorPages(s.teamGate(routed(private)))))))
 	if s.Git != nil {
 		root.Handle("/git/", longLived(s.Git)) // HTTP Basic auth, no cookies; big pushes and clones take time
 	}
@@ -1061,7 +1063,47 @@ func (s *Server) finding(w http.ResponseWriter, r *http.Request) {
 		s.renderFindingDenied(w, r, http.StatusOK, d.Error, &d)
 		return
 	}
+	if to := s.mergedInto(r); to != "" {
+		http.Redirect(w, r, to, http.StatusSeeOther)
+		return
+	}
 	s.renderFinding(w, r, http.StatusOK, "")
+}
+
+// sourceParam on a finding's address opens the finding itself where its
+// page would lead on to the finding it was merged into.
+const sourceParam = "source"
+
+// mergedInto is where the page of the finding in r's path leads instead:
+// the finding it was merged into, or "". A merge on the website withdraws
+// the source with the reason "merged into <ID>" and writes a merge event
+// naming the source into the target's chat (Store.Merge); nothing else
+// records the pair, so both are asked for: a reason typed by hand has no
+// such event. The target is a finding of the same engagement (so behind the
+// same team gate, asked again here) that is not withdrawn: one step, never a
+// chain. The team gate has passed, so a stranger never gets here.
+func (s *Server) mergedInto(r *http.Request) string {
+	if r.URL.Query().Has(sourceParam) {
+		return ""
+	}
+	src, err := s.Store.Finding(r.PathValue("eng"), r.PathValue("fid"))
+	if err != nil || src.F.Meta.Status != workflow.Withdrawn || src.F.Meta.Withdrawn == nil {
+		return ""
+	}
+	id, ok := strings.CutPrefix(src.F.Meta.Withdrawn.Reason, "merged into ")
+	if !ok || !store.ValidID(id) {
+		return ""
+	}
+	dst, err := s.Store.Finding(src.EngID, id)
+	if err != nil || dst.F.Meta.ID != id || dst.Dir == src.Dir || !workflow.Active(dst.F.Meta.Status) ||
+		!s.Store.CanSee(auth.UserFrom(r.Context()), dst.EngID) {
+		return ""
+	}
+	msgs, err := s.loadChat(dst)
+	if err != nil || !slices.ContainsFunc(msgs, func(m chat.Message) bool { return m.Event == store.EventMerge && m.Text == src.F.Meta.ID }) {
+		return ""
+	}
+	return findingURL(dst.EngID, dst.Dir)
 }
 
 // markFindingRead marks the viewer's notices of the finding in r's path
