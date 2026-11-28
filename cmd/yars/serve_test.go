@@ -144,30 +144,14 @@ func TestStartSaysNothingForEmptyFindingsFolder(t *testing.T) {
 	}
 }
 
-// While another server answers on the data folder, a second start removes
-// nothing: a file that server has written and not yet committed looks the
-// same as a leftover.
-func TestStartLeavesFilesWhileAnotherServerRuns(t *testing.T) {
-	dir := t.TempDir()
-	if err := initData(dir); err != nil {
-		t.Fatal(err)
-	}
-	r, err := gitrepo.Open(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, d, st, err := startData(r)
-	if err != nil {
-		t.Fatal(err)
-	}
-	a := gitrepo.Author{Name: "alice", Email: "alice@yars.local"}
-	if err := st.CreateEngagement(store.Engagement{ID: "acme", Name: "ACME"}, a); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := st.CreateFinding("acme", "SQL injection", a); err != nil {
-		t.Fatal(err)
-	}
-	d.Close()
+// A server from before the data folder's lock holds no lock, but answers on
+// the status socket: a second start beside it is refused as beside a lock,
+// before anything changes. A file that server has written and not yet
+// committed stays, its journal row is neither replayed nor removed, and
+// nothing is repaired. (The lock itself: TestServeRefusedWhileAnotherServes.)
+func TestServeRefusedWhileSocketAnswers(t *testing.T) {
+	r, _, _, _ := stoppedEdit(t)
+	dir := r.Dir
 	ln, err := net.Listen("unix", statusSocket(dir))
 	if err != nil {
 		t.Skipf("no Unix socket here: %v", err)
@@ -176,21 +160,25 @@ func TestStartLeavesFilesWhileAnotherServerRuns(t *testing.T) {
 	left := filepath.Join(dir, "engagements", "acme", "findings", "F-009-in-flight", "finding.md")
 	os.MkdirAll(filepath.Dir(left), 0o700)
 	os.WriteFile(left, []byte("---\nid: F-009\ntitle: In flight\nauthor: alice\n---\n\n## Description\n\nx\n"), 0o600)
-	cfg, err := startConfig(r)
+	// an address in use: a start that got through would end at its listener
+	busy, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	lg, out := logs.NewRecorder()
-	d, _, err = prepareData(r, cfg, lg)
-	if err != nil {
-		t.Fatal(err)
+	defer busy.Close()
+	err = cmdServe([]string{"--data", dir, "--addr", busy.Addr().String()})
+	if err == nil || err.Error() != "another yars serve runs on this data folder ("+dir+")" {
+		t.Fatalf("a second start: %v", err)
 	}
-	defer d.Close()
 	if _, err := os.Stat(left); err != nil {
 		t.Fatalf("the other server's file was removed: %v", err)
 	}
-	if n := len(out.With("start: another server runs on this data folder; uncommitted files in the findings folders are left")); n != 1 {
-		t.Fatalf("log:\n%s", out.Text())
+	d := openDB(t, dir)
+	if rows, err := d.Intents(); err != nil || len(rows) != 1 {
+		t.Fatalf("journal %+v %v", rows, err)
+	}
+	if l, _, _ := d.AuditQuery(db.AuditFilter{Action: "system.repair", Limit: 5}); len(l) != 0 {
+		t.Fatalf("audit %+v", l)
 	}
 }
 
@@ -300,43 +288,6 @@ func TestStartReplaysJournaledWrite(t *testing.T) {
 	}
 	if res, ok := st.AtStart(); !ok || len(res.Replayed) != 0 || len(out.Records()) != 0 {
 		t.Fatalf("second start: %+v %v, log:\n%s", res, ok, out.Text())
-	}
-}
-
-// While another server answers on the data folder, a second start replays
-// nothing and removes no journal row: that server may be between a commit
-// and its write this very moment.
-func TestStartReplaysNothingWhileAnotherServerRuns(t *testing.T) {
-	r, fd, _, _ := stoppedEdit(t)
-	ln, err := net.Listen("unix", statusSocket(r.Dir))
-	if err != nil {
-		t.Skipf("no Unix socket here: %v", err)
-	}
-	defer ln.Close()
-	cfg, err := startConfig(r)
-	if err != nil {
-		t.Fatal(err)
-	}
-	lg, out := logs.NewRecorder()
-	d, st, err := prepareData(r, cfg, lg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer d.Close()
-	if ref, err := st.Finding("acme", fd); err != nil || ref.F.Meta.Status != "verification" {
-		t.Fatalf("the finding is %s %v: the start wrote beside a running server", ref.F.Meta.Status, err)
-	}
-	if rows, err := d.Intents(); err != nil || len(rows) != 1 {
-		t.Fatalf("journal %+v %v", rows, err)
-	}
-	if l, _, _ := d.AuditQuery(db.AuditFilter{Action: "system.repair", Limit: 5}); len(l) != 0 {
-		t.Fatalf("audit %+v", l)
-	}
-	if _, ok := st.AtStart(); ok {
-		t.Fatal("the start compared beside a running server")
-	}
-	if n := len(out.With("start: another server runs on this data folder; uncommitted files in the findings folders are left")); n != 1 || len(out.Records()) != 1 {
-		t.Fatalf("log:\n%s", out.Text())
 	}
 }
 

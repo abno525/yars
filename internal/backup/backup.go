@@ -36,6 +36,7 @@ type Locker interface {
 func Skip(rel string, withKey bool) bool {
 	switch {
 	case rel == ".yars/yars.db",
+		rel == ".yars/yars.db.lock", // the lock file of yars serve: empty, made again at the next start
 		strings.HasPrefix(rel, ".yars/yars.db-"),
 		strings.HasPrefix(rel, ".yars/yars.db.before-"):
 		return true

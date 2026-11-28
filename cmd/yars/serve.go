@@ -90,14 +90,14 @@ func serverLogRing(w io.Writer, cfg config.Config, flagLevel string) (*slog.Logg
 // set up, teams are backfilled, board claims a stop cut off are reset, the
 // database writes a stop cut off after their commit are made
 // (recoverWrites), server files are git-ignored and the engagement pointers
-// follow their repositories. The store logs to lg. The upgrade test runs it on old data.
+// follow their repositories. The store logs to lg. The upgrade test runs it
+// on old data. It changes the folder, so yars serve calls it with the data
+// folder's lock held (lockData); it takes none itself.
 func prepareData(r *gitrepo.Repo, cfg config.Config, lg *slog.Logger) (*db.DB, *store.Store, error) {
 	if items := legacyItems(r.Dir); len(items) > 0 {
 		return nil, nil, fmt.Errorf("this data directory still keeps accounts, workflow state or chat in files (%s); run: yars migrate --data %s", strings.Join(items, ", "), r.Dir)
 	}
-	// asked once: both clean-ups of the start act on the same answer
-	other := otherServer(r.Dir)
-	cleanLeftovers(r, lg, other)
+	cleanLeftovers(r, lg)
 	d, err := dataDB(r.Dir)
 	if err != nil {
 		return nil, nil, err
@@ -125,9 +125,7 @@ func prepareData(r *gitrepo.Repo, cfg config.Config, lg *slog.Logger) (*db.DB, *
 	if err := d.ResetBoardClaims(); err != nil {
 		return fail("team board", err)
 	}
-	if !other {
-		recoverWrites(st, lg)
-	}
+	recoverWrites(st, lg)
 	if err := ensureIgnored(r); err != nil {
 		return fail("ignore server files", err)
 	}
@@ -140,15 +138,11 @@ func prepareData(r *gitrepo.Repo, cfg config.Config, lg *slog.Logger) (*db.DB, *
 // cleanLeftovers removes what a stop between a write and its commit left
 // in the engagements' findings folders (gitserve.CleanLeftovers), before
 // anything reads them, and logs a line per engagement: its ID and a count,
-// never a name. While another server answers on the data folder (a second
-// yars serve started by mistake) nothing is removed: that server's files
-// between write and commit look the same. A failure is logged and the start
-// goes on. other is otherServer's answer.
-func cleanLeftovers(r *gitrepo.Repo, lg *slog.Logger, other bool) {
-	if other {
-		logs.Or(lg).Warn("start: another server runs on this data folder; uncommitted files in the findings folders are left")
-		return
-	}
+// never a name. A running server's files between write and commit look the
+// same, so the start holds the data folder's lock before it comes here
+// (lockData in cmdServe: a second yars serve never does). A failure is
+// logged and the start goes on.
+func cleanLeftovers(r *gitrepo.Repo, lg *slog.Logger) {
 	cleaned, err := gitserve.CleanLeftovers(r)
 	for _, c := range cleaned {
 		logs.Or(lg).Warn("start: uncommitted files were removed from an engagement's findings folder", "eng", c.Eng, "count", c.N)
@@ -162,9 +156,9 @@ func cleanLeftovers(r *gitrepo.Repo, lg *slog.Logger, other bool) {
 // and then holds the database against the finding files (store.Recover),
 // once the store is built and before the first request. The store logs each
 // write it makes and each thing it finds; a start that finds nothing says
-// nothing. It is not called while another server answers on the data
-// folder: that server may be between a commit and its write. A failure is
-// logged and the start goes on.
+// nothing. A running server may be between a commit and its write, so the
+// start holds the data folder's lock before it comes here (lockData in
+// cmdServe). A failure is logged and the start goes on.
 func recoverWrites(st *store.Store, lg *slog.Logger) {
 	if _, err := st.Recover(); err != nil {
 		logs.Or(lg).Error("start: the journal is not replayed, or the database is not compared with the files", "err", err)
@@ -261,6 +255,17 @@ func cmdServe(args []string) error {
 	if err != nil {
 		return err
 	}
+	// one yars serve per data folder: the lock is taken before anything in
+	// the folder is read or changed, and held until this process ends
+	unlock, err := lockData(r.Dir)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	// a server from before the lock holds none, but answers on its socket
+	if otherServer(r.Dir) {
+		return errDataLocked(r.Dir)
+	}
 	cfg, err := startConfig(r)
 	if err != nil {
 		return err
@@ -292,6 +297,8 @@ func cmdServe(args []string) error {
 	hs.TLSConfig = tlsCfg
 	ln, err := net.Listen("tcp", *addr)
 	if err != nil {
+		srv.Close()
+		d.Close()
 		return err
 	}
 	// yars status reads this server on a socket in the data folder; it is

@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/cgi"
 	"os"
@@ -36,7 +37,7 @@ import (
 // RepoName is the fixed name in the clone URL: http(s)://host/git/yars.
 const RepoName = "yars"
 
-// DefaultMaxBody is the largest chunked request body (a push) accepted.
+// DefaultMaxBody is the largest request body (a push) accepted.
 const DefaultMaxBody = 2 << 30
 
 // LintMaxBody caps a posted finding (POST /git/e/<id>/lint).
@@ -71,9 +72,15 @@ type Server struct {
 	// CanSee, when set, decides who may reach an engagement's repo (its
 	// team, directors, admins); others get 403.
 	CanSee func(u config.User, eng string) bool
-	// MaxBody caps a request body sent without a length (chunked), which
-	// is spooled to a temporary file; 0 = DefaultMaxBody.
+	// MaxBody caps the body of a git request (a push, a fetch), with or
+	// without a length; each is spooled to a temporary file before git
+	// starts. 0 = DefaultMaxBody.
 	MaxBody int64
+	// IdleTimeout is how long a git request may send nothing while its body
+	// is read, and take nothing while its answer is written, before it is
+	// cut (408 for a body). A body or an answer that keeps moving is never
+	// cut. 0 = DefaultIdleTimeout.
+	IdleTimeout time.Duration
 	// Lint, when set, answers POST /git/e/<id>/lint: it checks a posted
 	// finding.md with the rules of kinds and stores no commit and no check
 	// run (yars lint --staged). kinds is rules.All for a password login and
@@ -524,46 +531,82 @@ func (s *Server) Handler() http.Handler {
 		// the environment of git and the hook (HTTP_AUTHORIZATION)
 		r2 := r.Clone(r.Context())
 		r2.Header.Del("Authorization")
-		if r2.Method == http.MethodPost && r2.ContentLength < 0 {
-			// git sends a pack bigger than its http.postBuffer chunked, and
-			// net/http/cgi refuses chunked bodies: spool it so it has a length
+		idle := s.idle()
+		rc := http.NewResponseController(w)
+		if r2.Method == http.MethodPost {
+			// every body is read whole into a temporary file before git starts
+			// and before a push takes its repository's lock: a client that
+			// stops sending holds neither. (A body without a length must be
+			// spooled anyway: git sends a pack bigger than its http.postBuffer
+			// chunked, and net/http/cgi refuses chunked bodies.)
 			limit := s.MaxBody
 			if limit <= 0 {
 				limit = DefaultMaxBody
 			}
-			f, err := spool(http.MaxBytesReader(w, r2.Body, limit))
+			tooBigMsg := fmt.Sprintf("request body over %d MiB", limit>>20)
+			if r2.ContentLength > limit {
+				http.Error(w, tooBigMsg, http.StatusRequestEntityTooLarge)
+				return
+			}
+			// the read deadline moves ahead with each read: a large push on a
+			// slow line goes on as long as bytes arrive. After a whole body it
+			// is lifted (git may work for long); after a failed read it stays
+			// and the body is closed, so net/http answers and drops the
+			// connection instead of waiting for the rest
+			body := &idleReader{r: http.MaxBytesReader(w, r2.Body, limit), idle: idle, set: rc.SetReadDeadline}
+			f, err := spool(body)
 			if err != nil {
+				r2.Body.Close()
 				var tooBig *http.MaxBytesError
-				if errors.As(err, &tooBig) {
-					http.Error(w, fmt.Sprintf("request body over %d MiB", limit>>20), http.StatusRequestEntityTooLarge)
-					return
+				var ne net.Error
+				switch {
+				case errors.As(err, &tooBig):
+					http.Error(w, tooBigMsg, http.StatusRequestEntityTooLarge)
+				case errors.As(err, &ne) && ne.Timeout():
+					// said to the pusher (git: RPC failed; HTTP 408) and in the log
+					logs.Or(s.Logger).Warn("git: a request body stalled and was cut off", "eng", eng, "user", u.Username, "bytes", body.n, "idle", idle.String())
+					http.Error(w, fmt.Sprintf("no data for %s: the request was cut off", idle), http.StatusRequestTimeout)
+				default:
+					http.Error(w, "could not read the request body", http.StatusBadRequest)
 				}
-				http.Error(w, "could not read the request body", http.StatusBadRequest)
 				return
 			}
+			rc.SetReadDeadline(time.Time{}) // an error: not a net/http connection (tests)
 			defer func() { f.Close(); os.Remove(f.Name()) }()
-			st, err := f.Stat()
-			if err != nil {
-				http.Error(w, "could not read the request body", http.StatusInternalServerError)
-				return
-			}
-			r2.Body, r2.ContentLength, r2.TransferEncoding = f, st.Size(), nil
+			r2.Body, r2.ContentLength, r2.TransferEncoding = f, body.n, nil
 		}
-		receive := r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/git-receive-pack")
-		if receive && s.Receive != nil {
-			s.Receive(eng, u, func() { h.ServeHTTP(w, r2) })
+		// an answer is written under an idle deadline too: a client that stops
+		// reading ends the request. The last of it is flushed after this
+		// handler returns, within the same time.
+		out := &idleWriter{ResponseWriter: w, rc: rc, idle: idle}
+		defer func() { rc.SetWriteDeadline(time.Now().Add(idle)) }()
+		if r.Method != http.MethodPost || !strings.HasSuffix(r.URL.Path, "/git-receive-pack") {
+			h.ServeHTTP(out, r2)
+			return
+		}
+		// a push: git's answer is kept in a file while the push runs under
+		// its repository's lock (Receive), and sent once the lock is free
+		ans, err := newAnswer()
+		if err != nil {
+			http.Error(w, "could not keep git's answer", http.StatusInternalServerError)
+			return
+		}
+		defer ans.close()
+		if s.Receive != nil {
+			s.Receive(eng, u, func() { h.ServeHTTP(ans, r2) })
 		} else {
-			h.ServeHTTP(w, r2)
+			h.ServeHTTP(ans, r2)
 		}
-		if s.Invalidate != nil && receive {
+		if s.Invalidate != nil {
 			// the push (if the hook accepted it) has landed: HEAD may have moved
 			s.Invalidate(eng)
 		}
+		ans.send(out)
 	})
 }
 
-// spool copies a request body of unknown length to a temporary file and
-// returns it rewound.
+// spool copies a request body to a temporary file (0600) and returns it
+// rewound; after an error no file is left.
 func spool(body io.Reader) (*os.File, error) {
 	f, err := os.CreateTemp("", "yars-git-body-*")
 	if err != nil {

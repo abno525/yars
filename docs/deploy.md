@@ -57,7 +57,7 @@ sudo -u yars yars admin --data /srv/yars bob on     # or off
 sudo -u yars yars userdel --data /srv/yars bob
 ```
 
-`yars disable` is the usual way to take access away. The account cannot log in, its sessions end at once and its tokens are refused. Its name and its work stay, and `yars enable` brings it back. `yars userdel` deletes the account for good: its name stays taken and no new account gets it.
+`yars disable` is the usual way to take access away. The account cannot log in, its sessions end at once and its tokens are refused. Its name and its work stay, and `yars enable` brings it back. `yars userdel` deletes the account for good: its name stays taken and no new account gets it. What the account did stays under its name: sign-offs, chat, dismissals and check runs. It is taken off the drafts and the findings in verification it had not signed off yet. The command prints how many, and the IDs of the findings in verification that now have no reviewer. Their author or a director assigns another. It also prints the findings in verification that only deleted accounts signed off: such a sign-off stays, but an edit voids it, and then nobody can sign off again. Assign another reviewer there too.
 
 One admin who can sign in always remains. `yars admin <user> off`, `yars disable` and `yars userdel` refuse the last one: `bob is the last admin: the admin flag stays`. Give another account the flag first. Admin › Users follows the same rule.
 
@@ -65,9 +65,11 @@ For a solo reporter or a team of two, `sudo -u yars yars init --simple /srv/yars
 
 A new data folder has no check rules. Add the ones you want in Admin › Rules, or in a clone pushed by a director with the admin flag ([rules.md](rules.md)); a file put straight into the server's `.yars/rules/` is not in git.
 
-Put no file of your own into an engagement's `findings/` folder on the server. Each start of `yars serve` removes what is there and in no commit: a stop between a file's write and its commit leaves such files, and they would read as real findings. The start logs the engagement and a count. It removes nothing while another `yars serve` answers on the same data folder.
+Put no file of your own into an engagement's `findings/` folder on the server. Each start of `yars serve` removes what is there and in no commit: a stop between a file's write and its commit leaves such files, and they would read as real findings. The start logs the engagement and a count.
 
-A change to a finding is a commit, and for some changes a write to the database after it: the approval that follows a director's edit, and what follows a rename in Admin › Structure. YARS notes such a write in the database before the commit. A server stopped between the two leaves the note, and the next start makes the write. It does so only when the finding's file is the one the commit wrote; in any other case it changes nothing and logs one line. Each write made this way is in Admin › Activity as `system.repair`. While another `yars serve` answers on the same data folder the start makes no such write.
+One `yars serve` runs on a data folder. It holds a lock on the file `.yars/yars.db.lock` while it runs. A second `yars serve` on the same folder stops at once with `another yars serve runs on this data folder` and changes nothing. The lock goes when the server's process ends, however it ends; the file stays, and is no sign of a running server. The other commands (`yars useradd`, `yars disable`, `yars token`, `yars backup` and the rest) take no lock and work beside the server. A start that cannot take the lock for another reason, such as a file system without `flock`, stops too.
+
+A change to a finding is a commit, and for some changes a write to the database after it: the approval that follows a director's edit, and what follows a rename in Admin › Structure. YARS notes such a write in the database before the commit. A server stopped between the two leaves the note, and the next start makes the write. It does so only when the finding's file is the one the commit wrote; in any other case it changes nothing and logs one line. Each write made this way is in Admin › Activity as `system.repair`.
 
 Admin › System › Restore writes the restored folder next to the data folder, so it needs `/srv` writable by `yars`. With `/srv` owned by root, restore from the shell instead (see the restore drill).
 
@@ -167,6 +169,8 @@ server {
 
 The proxy must keep the `Host` header: YARS refuses cross-origin form posts by it. YARS does not read `X-Forwarded-Proto`. The clone and MCP addresses on the pages come from `base_url` (below). Without `base_url` they use the request's `Host` header, with `https` only when the server runs with `--https` or a certificate; `yars serve` then logs at the start that `base_url` is not set. The live-update stream asks nginx not to buffer it (`X-Accel-Buffering: no`) and sends a ping every 25 seconds.
 
+A push or a fetch whose client sends nothing for two minutes is cut. git then prints `RPC failed; HTTP 408`, and the log has one `warn` line. A push that keeps sending is never cut, however large it is and however slow the line. YARS writes each push to a temporary file before git reads it, so `TMPDIR` (`/tmp` by default) needs room for the largest push. With `PrivateTmp=yes` and a `/tmp` kept in memory, that room is memory. The lines git prints as `remote:` reach the pusher when the push has ended.
+
 Set the address people use in `.yars/config.yaml`, so links in mail and webhooks are whole and the pages show the right clone and MCP addresses:
 
 ```yaml
@@ -211,6 +215,8 @@ A git clone holds the findings only. Accounts, workflow state, reviewers, chat a
 ```
 
 (cron needs the `%` escaped.) Add `--key` to include the key that decrypts the stored AI and personal keys and the webhook secrets; keep such a backup as safe as the server. Admin › System shows the last backup and can download one.
+
+A download from Admin › System is built as a file first and sent after. The file is in `TMPDIR` (`/tmp` by default), readable by the service account alone, and removed when the download ends. That folder needs room for one whole backup; with `PrivateTmp=yes` and a `/tmp` kept in memory, that room is memory. The browser shows nothing until the file is built. One download is built at a time. A server killed during a download leaves a file `yars-backup-*.zip` there: remove it.
 
 A backup is of one moment. It records the commit each repository was at when the database was copied, and a restore resets each repository to that commit. A change that lands while the backup is taken is not in the restored folder. A backup fails when a Purge rewrites an engagement's history meanwhile; `yars backup` then takes it again, up to three times.
 
@@ -345,11 +351,11 @@ Each job writes one line when it ends, with `ms` and its outcome.
 |---|---|
 | `yars serving` | the start: version, schema, workflow, address, and whether AI, SMTP and pandoc are on |
 | `start: uncommitted files were removed from an engagement's findings folder` | the start removed files a stop had left between their write and their commit: the engagement and a count (`warn`) |
-| `start: another server runs on this data folder; uncommitted files in the findings folders are left` | a second `yars serve` on a data folder a server already runs on: it removes nothing (`warn`) |
 | `start: a database write that a stop cut off was made` | the start made a write that a stop had cut off after its commit: the engagement, the finding and the kind (`carry`: an approval follows a director's edit; `rename`: approval, sign-offs and threads follow a renamed text) (`warn`) |
 | `start: a journal row matches nothing and is dropped; nothing was changed` | a noted write did not fit the finding's file any more; the finding is as it was, and may need its approval again (`warn`) |
 | `start: the database and the finding files disagree; see Admin, System, Health` | the start's compare found a finding ID in two folders or a `finding.md` that does not read: the counts (`warn`) |
 | `git: the version does not read; the start goes on (YARS needs git 2.30 or later)` | `git version` printed no version YARS reads, so the start could not check it (`warn`) |
+| `git: a request body stalled and was cut off` | a push or a fetch sent nothing for two minutes and got `408`: the engagement (none for the main repository), the user and the bytes read (`warn`) |
 | `yars stopping`, `yars stopped` | the stop |
 | `health check failed`, `health check passes again` | the answer of `/healthz` changed: to `503` (`warn`, with the reason in `err`), and back to `200` |
 | `check run finished` | a check run ended: its state and the counts of errors and warnings |
