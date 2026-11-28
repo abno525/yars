@@ -74,9 +74,10 @@ func (s *Store) Engagement(id string) (Engagement, error) {
 	return e, nil
 }
 
-// ParseEngagement reads an engagement.yaml. An ai key without a value reads
-// as the value "~", which no check accepts and AIOff reads as off: a key
-// someone began to write never reads as on.
+// ParseEngagement reads an engagement.yaml. An ai key without a value or
+// with an empty one, and the key in another letter case (AI, Ai), read as
+// the value "~", which no check accepts and AIOff reads as off: a switch
+// someone began to write, or wrote badly, never reads as on.
 func ParseEngagement(b []byte) (Engagement, error) {
 	var e Engagement
 	if err := yaml.Unmarshal(b, &e); err != nil {
@@ -84,8 +85,13 @@ func ParseEngagement(b []byte) (Engagement, error) {
 	}
 	var keys map[string]any
 	if yaml.Unmarshal(b, &keys) == nil {
-		if v, ok := keys["ai"]; ok && v == nil {
-			e.AI = "~"
+		for k, v := range keys {
+			switch {
+			case k == "ai" && (v == nil || v == ""):
+				e.AI = "~"
+			case k != "ai" && strings.EqualFold(k, "ai"):
+				e.AI = "~"
+			}
 		}
 	}
 	return e, nil

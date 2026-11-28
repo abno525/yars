@@ -1663,6 +1663,14 @@ func TestPolicyEngagementAISwitch(t *testing.T) {
 	if ps := f.push("dora", add("ai: of")); !has(ps, "ai must be on or off") {
 		t.Fatalf("a typo in the switch: %v", ps)
 	}
+	// the key in another letter case, or with an empty value, is no switch
+	// that reads as on either
+	for _, line := range []string{"AI: off", "Ai: off", `ai: ""`} {
+		f.reclone()
+		if ps := f.push("dora", add(line)); !has(ps, "ai must be on or off") {
+			t.Fatalf("%s: %v", line, ps)
+		}
+	}
 	f.reclone()
 	if ps := f.push("dora", add("ai: off")); len(ps) != 0 {
 		t.Fatalf("ai: off refused: %v", ps)

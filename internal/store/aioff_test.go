@@ -255,6 +255,15 @@ func TestEngagementAIValues(t *testing.T) {
 		"name: A\nai:\n":       {true, false},
 		"name: A\nai: ~\n":     {true, false},
 		"name: A\nai: Off\n":   {true, false},
+		// the key in another letter case is the switch, badly written
+		"name: A\nAI: off\n":         {true, false},
+		"name: A\nAi: off\n":         {true, false},
+		"name: A\naI: on\n":          {true, false},
+		"name: A\nai: on\nAI: off\n": {true, false},
+		"name: A\nai: \"\"\n":        {true, false},
+		"name: A\nai: ''\n":          {true, false},
+		// another key is not the switch
+		"name: A\naim: off\n": {false, true},
 	} {
 		e, err := ParseEngagement([]byte(src))
 		if err != nil {

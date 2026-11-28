@@ -287,9 +287,9 @@ With AI off for an engagement:
 - An answer the server kept from before is not used.
 - Nothing of the engagement's findings is sent to the provider.
 
-Only `on` and `off` are taken for the key. Any other value is refused on the page and on a push; a value that is on disk all the same, and a file that does not read, count as off. The switch is one commit in the engagement's repository and one row in Admin › Activity.
+Only `on` and `off` are taken for the key. Any other value is refused on the page and on a push; a value that is on disk all the same, and a file that does not read, count as off. The key is `ai` in small letters: `AI` or `Ai` is refused the same way, and so is an empty value. A key with another name (`a1: off`) is not read as the switch: after a push, look at the Settings tab. The switch is one commit in the engagement's repository and one row in Admin › Activity.
 
-A retest takes the switch of its source when it is made. Results an AI rule left before the switch went off stay on a finding until its next Check.
+A retest takes the switch of its source when it is made. Results an AI rule left before the switch went off stay on a finding until its next Check. A Retry of one rule after the switch moved is such a Check: it runs every rule the finding has now.
 
 ### Spend limit
 
