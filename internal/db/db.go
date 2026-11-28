@@ -449,6 +449,20 @@ var migrations = []migration{
 	// Each such account gets the in-app row, the default of an account that
 	// never chose (laterNoticeDefaults, in Go)
 	{name: "030-later-notice-defaults", fn: laterNoticeDefaults},
+	// how many matches a result row stands for (the same wording found again
+	// in one place is one row), and how many a dismissal covered when it was
+	// made: a row that grew past it is open again. 0 on a dismissal is "made
+	// before counts were kept" (addMatchCounts, in Go as v22)
+	{name: "031-match-counts", fn: addMatchCounts},
+}
+
+// addMatchCounts adds check_results.matches and dismissals.covers unless
+// they are there.
+func addMatchCounts(tx *sql.Tx) error {
+	if err := addColumn(tx, "check_results", "matches", "INTEGER NOT NULL DEFAULT 1"); err != nil {
+		return err
+	}
+	return addColumn(tx, "dismissals", "covers", "INTEGER NOT NULL DEFAULT 0")
 }
 
 // LaterNoticeKeys are the notification events migration 030 switches on in

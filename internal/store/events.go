@@ -58,6 +58,9 @@ type Event struct {
 	// check.finished: the run's state; finding.reviewers: the status
 	State            string
 	Errors, Warnings int
+	// check.finished: the run was one of many started with one press (Check
+	// stale on the Inbox)
+	Bulk bool
 }
 
 // OnEvent registers fn to be told about every domain event. fn runs on the

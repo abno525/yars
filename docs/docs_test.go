@@ -63,6 +63,7 @@ func TestKnownLimitsArePlain(t *testing.T) {
 		}
 	}
 	for _, want := range []string{"## Checks and rules", "## Simple workflow", "AI rules skipped: no AI provider configured",
+		"| A Check has no time limit of its own |",
 		// as the rules guide has it: a push runs scripts and no AI rule, and
 		// only `yars lint --all` runs either
 		"| A git push and `yars lint --all` run every script each time, and `yars lint --all` sends the text to the AI provider each time |"} {
@@ -91,7 +92,12 @@ func TestRulesGuideCoversEveryKind(t *testing.T) {
 	for _, want := range []string{
 		"`yars lint` runs the pattern and built-in rules", "`yars lint --all`", "90 s", "the rules as they are now",
 		"`(?m)`", "Code blocks and tables are matched", "skips a part with no text",
+		"`exclude: code`", "Skip code box", "a fence that is never closed", "unknown exclude",
 		"## Dismissing a result", "the reviewer role", "that rule, that place and that quote",
+		"each script and each AI rule 90 s for itself", "fails alone", "90 s for all their scripts and AI questions together",
+		"is renamed in the rule targets too", "A name inside a script or an AI instruction is not changed",
+		"**Check stale**", "100 at most per press", "only because the rules changed",
+		"covers the matches that were there when it was made", "opens the result again", "Covers · By",
 		"An error on your own finding: another reviewer or a director dismisses it", "A dismissal needs a reason", "a row in the audit log",
 		"not executable", "64 KB", "even when the script exits 0",
 		"does not compile", "unknown check", "unknown target", "is not a configured section name",

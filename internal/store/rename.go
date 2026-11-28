@@ -41,6 +41,20 @@ func (s *Store) RenameNames(list string, renames map[string]string, a gitrepo.Au
 		return nil, err
 	}
 	sort.Strings(ids)
+	// what the check runs stored under the old name, and its dismissals: a
+	// row dismissed before stays dismissed
+	prefix, place := resultPlace[list]
+	retarget := func(tx *db.Tx, id, fid string) error {
+		for _, o := range olds {
+			if !place {
+				break
+			}
+			if err := tx.RetargetResults(id, fid, prefix+o, prefix+renames[o]); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 	for _, id := range ids {
 		if _, err := s.Engagement(id); err != nil {
 			continue // not an engagement repository (as RenameReportSections)
@@ -61,6 +75,9 @@ func (s *Store) RenameNames(list string, renames map[string]string, a gitrepo.Au
 						return err
 					}
 					if err := tx.MoveHash(id, fid, oldHash, newHash); err != nil {
+						return err
+					}
+					if err := retarget(tx, id, fid); err != nil {
 						return err
 					}
 					if list != "section" {
@@ -95,6 +112,18 @@ func (s *Store) RenameNames(list string, renames map[string]string, a gitrepo.Au
 			if err != nil {
 				return changed, fmt.Errorf("engagements/%s %s: %w", id, fid, err)
 			}
+			// a finding without the renamed heading or row is not written,
+			// and it is the one whose "empty" result was stored under the
+			// old name: that moves all the same. No commit goes before it,
+			// so there is nothing to journal.
+			if ev.Kind == "" && place && s.db != nil {
+				unlock := s.LockEngagement(id)
+				err := s.db.TxFor(id, func(tx *db.Tx) error { return retarget(tx, id, fid) })
+				unlock()
+				if err != nil {
+					return changed, fmt.Errorf("engagements/%s %s: %w", id, fid, err)
+				}
+			}
 		}
 	}
 	if err := s.renameInTemplates(msg, apply, a); err != nil {
@@ -102,6 +131,10 @@ func (s *Store) RenameNames(list string, renames map[string]string, a gitrepo.Au
 	}
 	return changed, nil
 }
+
+// resultPlace is how a check result names a place of each list RenameNames
+// renames ("section:Impact", "details:Location"); a severity is no place.
+var resultPlace = map[string]string{"section": "section:", "details row": "details:"}
 
 // renamedOlds are the names renames changes, sorted.
 func renamedOlds(renames map[string]string) []string {

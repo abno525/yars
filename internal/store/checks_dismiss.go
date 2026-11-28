@@ -69,7 +69,7 @@ func (s *Store) DismissWhy(engID, dir, rule, target, quote, reason string, u con
 		}
 	}
 	qh := ViolationHash(target, quote)
-	level, err := s.violationLevel(ref, rule, qh)
+	level, covers, err := s.violationLevel(ref, rule, qh)
 	if err != nil {
 		return err
 	}
@@ -86,7 +86,7 @@ func (s *Store) DismissWhy(engID, dir, rule, target, quote, reason string, u con
 		if err := archivedIn(tx, engID); err != nil {
 			return err
 		}
-		if err := tx.Dismiss(db.Dismissal{Eng: engID, Fid: fid, Rule: rule, QuoteHash: qh, Level: level, By: u.Username, Reason: reason}); err != nil {
+		if err := tx.Dismiss(db.Dismissal{Eng: engID, Fid: fid, Rule: rule, QuoteHash: qh, Level: level, By: u.Username, Reason: reason, Covers: covers}); err != nil {
 			return err
 		}
 		refs, err := tx.CheckThreadRefs(engID, fid)

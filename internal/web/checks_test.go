@@ -706,7 +706,7 @@ func TestChecksDismiss(t *testing.T) {
 		t.Fatalf("reviewer dismiss %d: %s", rec.Code, rec.Body.String())
 	}
 	p := rec.Body.String()
-	if !strings.Contains(p, "Dismissed") || !strings.Contains(p, ">bob<") || !strings.Contains(p, `<details class="dismissed"`) ||
+	if !strings.Contains(p, "Dismissed") || !strings.Contains(p, ">1 · bob<") || !strings.Contains(p, `<details class="dismissed"`) ||
 		!strings.Contains(p, "<th class=\"c-reason\">Reason</th>") || !strings.Contains(p, "Injection is the client&#39;s term") {
 		t.Fatalf("dismissed row:\n%s", p)
 	}

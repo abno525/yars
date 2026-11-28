@@ -957,7 +957,8 @@ func cmdLint(args []string, out io.Writer) (int, error) {
 				if v.Target == "rules" && slices.Contains(problems, v) {
 					continue // printed once above
 				}
-				if _, ok := db.Lookup(dismissed, v.Rule, v.Target, v.Quote); ok {
+				// a dismissal covers the matches its row had, as on the website
+				if _, ok := db.Covering(dismissed, v.Rule, v.Target, v.Quote, v.Matches()); ok {
 					continue
 				}
 				line := fmt.Sprintf("%s/%s %s %s: %s", e.ID, ref.F.Meta.ID, v.Level, v.Rule, v.Message)

@@ -51,7 +51,7 @@ func (s *Store) FixRunning(engID, fid string) bool {
 // dismissed, with its thread, a quote and a section to fix in.
 func fixable(r db.CheckResult, dismissed map[string]db.Dismissal) bool {
 	v := rules.Violation{Rule: r.Rule, Target: r.Target, Quote: r.Quote}
-	_, gone := db.Lookup(dismissed, r.Rule, r.Target, r.Quote)
+	_, gone := db.Covering(dismissed, r.Rule, r.Target, r.Quote, r.Matches)
 	return !notice(v) && !gone && r.Thread != "" && r.Quote != "" && sectionOf(r.Target) != ""
 }
 

@@ -66,7 +66,7 @@ func TestLaterNoticeDefaults(t *testing.T) {
 	if rows != 0 {
 		t.Fatalf("an account that never chose got %d rows", rows)
 	}
-	if got := migrations[len(migrations)-1].name; got != "030-later-notice-defaults" {
-		t.Fatalf("the last migration is %s", got)
+	if got := migrations[29].name; got != "030-later-notice-defaults" {
+		t.Fatalf("migration 30 is %s", got)
 	}
 }

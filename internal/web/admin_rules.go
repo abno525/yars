@@ -47,11 +47,11 @@ type ruleForm struct {
 	ID, Kind, Level, Target, Message string
 	Mode, Pattern, Check, Script, AI string
 	// the pattern's flags as boxes: (?i) and (?m) in front of it; NonEmpty
-	// is require_nonempty (Match mode only)
-	ICase, Multiline, NonEmpty bool
-	Targets                    []option
-	Builtins                   []rules.Builtin
-	Errs                       map[string]string
+	// is require_nonempty (Match mode only), NoCode is exclude: code
+	ICase, Multiline, NonEmpty, NoCode bool
+	Targets                            []option
+	Builtins                           []rules.Builtin
+	Errs                               map[string]string
 }
 
 // benchView is the test bench: its choices, and the result of a run on
@@ -157,6 +157,7 @@ func (s *Server) formOf(r rules.Rule) ruleForm {
 		f.Mode, f.Pattern, f.NonEmpty = "require", r.RegexRequire, r.RequireNonempty
 	}
 	f.Pattern, f.ICase, f.Multiline = cutFlags(f.Pattern)
+	f.NoCode = r.Exclude == rules.ExcludeCode
 	return f
 }
 
@@ -322,7 +323,8 @@ func (s *Server) ruleFromForm(r *http.Request) (ruleForm, rules.Rule, string, []
 	f := ruleForm{Old: r.FormValue("old"), ID: strings.TrimSpace(r.FormValue("id")), Kind: r.FormValue("kind"), Level: r.FormValue("level"),
 		Target: r.FormValue("target"), Message: strings.TrimSpace(r.FormValue("message")), Mode: r.FormValue("mode"),
 		Pattern: r.FormValue("pattern"), ICase: r.FormValue("icase") == "1", Multiline: r.FormValue("multiline") == "1", NonEmpty: r.FormValue("nonempty") == "1",
-		Check: r.FormValue("check"), AI: strings.TrimSpace(r.FormValue("ai"))}
+		NoCode: r.FormValue("nocode") == "1",
+		Check:  r.FormValue("check"), AI: strings.TrimSpace(r.FormValue("ai"))}
 	f.New = f.Old == ""
 	if f.Mode != "require" {
 		f.Mode = "forbid"
@@ -358,6 +360,9 @@ func (s *Server) ruleFromForm(r *http.Request) (ruleForm, rules.Rule, string, []
 		} else {
 			rule.RegexForbid = p
 			f.NonEmpty = false
+		}
+		if f.NoCode {
+			rule.Exclude = rules.ExcludeCode
 		}
 	case "builtin":
 		if !slices.ContainsFunc(rules.Builtins, func(b rules.Builtin) bool { return b.ID == f.Check }) {

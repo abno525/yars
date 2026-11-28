@@ -66,7 +66,12 @@
 {{end}}
 
 {{define "content"}}
-<div class="titlerow"><div class="titlecol"><h1>Inbox</h1></div></div>
+<div class="titlerow"><div class="titlecol"><h1>Inbox</h1></div>
+  <form class="actions" method="post" action="/inbox/check-stale">
+    <span class="{{if .InboxLists.Stale}}qcnt{{else}}qcnt zero{{end}}">{{.InboxLists.Stale}}</span>
+    <button class="btn secondary w152"{{if not .InboxLists.Stale}} disabled{{end}}>Check stale</button>
+  </form>
+</div>
 {{template "inbox_lists" .InboxLists}}
 <form id="notes" method="post" hidden><input type="hidden" name="back" value="inbox"></form>
 {{end}}

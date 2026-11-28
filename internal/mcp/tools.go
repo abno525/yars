@@ -916,7 +916,7 @@ var coreTools = []tool{
 			// AI calls are recorded for the token's user on this finding (D24)
 			for _, v := range s.Rules.Lint(rules.WithCaller(ctx, rules.Caller{User: u.Username, Eng: ref.EngID, Fid: ref.F.Meta.ID}), ref.F, kinds) {
 				m := violationOf(v)
-				if d, ok := db.Lookup(ds, v.Rule, v.Target, v.Quote); ok {
+				if d, ok := db.Covering(ds, v.Rule, v.Target, v.Quote, v.Matches()); ok {
 					m.Dismissed, m.DismissedBy = true, d.By
 				}
 				out = append(out, m)
@@ -982,7 +982,7 @@ var coreTools = []tool{
 				out.RunID, out.State, out.Done, out.Total, out.Error, out.By, out.Started, out.Finished = r.ID, r.State, r.Done, r.Total, r.Error, r.By, r.Started, r.Finished
 			}
 			for _, x := range st.Results {
-				_, dis := db.Lookup(st.Dismissed, x.Rule, x.Target, x.Quote)
+				_, dis := db.Covering(st.Dismissed, x.Rule, x.Target, x.Quote, x.Matches)
 				r := result{Rule: x.Rule, Level: x.Level, Target: x.Target, Thread: x.Thread, Dismissed: dis}
 				r.Theirs.Message, r.Theirs.Quote = x.Message, x.Quote
 				out.Results = append(out.Results, r)

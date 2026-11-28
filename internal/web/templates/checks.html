@@ -58,14 +58,14 @@
     <details class="dismissed">
       <summary>Dismissed <span class="badge">{{len .Dismissed}}</span></summary>
       <table class="table checktable">
-        <thead><tr><th class="c-level">Level</th><th>Message</th><th class="c-reason">Reason</th><th class="c-where">Dismissed by</th><th class="c-act">Action</th></tr></thead>
+        <thead><tr><th class="c-level">Level</th><th>Message</th><th class="c-reason">Reason</th><th class="c-where">Covers · By</th><th class="c-act">Action</th></tr></thead>
         <tbody>
           {{range .Dismissed}}
           <tr>
             <td><span class="tag lvl-{{.Level}}">{{.Level}}</span></td>
             <td title="{{.Message}} · {{.Rule}}{{with .Quote}} · {{.}}{{end}}">{{.Message}}</td>
             <td title="{{.Reason}}">{{if .Reason}}{{.Reason}}{{else}}<span class="muted">—</span>{{end}}</td>
-            <td title="{{.At}}">{{.By}}</td>
+            <td title="{{.By}} · {{.At}}">{{.Covers}} · {{.By}}</td>
             <td>{{if .CanDismiss}}<form hx-post="{{$.UndismissURL}}" hx-target="#checks" hx-swap="outerHTML"><input type="hidden" name="rule" value="{{.Rule}}"><input type="hidden" name="target" value="{{.Target}}"><input type="hidden" name="quote" value="{{.Quote}}"><button class="btn ghost sm w96">Restore</button></form>{{else}}<span class="slot w96"></span>{{end}}</td>
           </tr>
           {{end}}

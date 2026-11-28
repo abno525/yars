@@ -294,7 +294,13 @@ func recipients(e store.Event) map[string]string {
 	case store.EventRetest:
 		add(e.Assignee, Retest)
 	case store.EventCheck:
-		// a run the author started tells them nothing: they are on the page
+		// a run the author started tells them nothing: they are on the page.
+		// One of many runs started with one press (Check stale) tells them
+		// only when it left an open error, which is theirs to act on: a
+		// press after a rule's comment changed is no hundred notices
+		if e.Bulk && e.Errors == 0 {
+			break
+		}
 		add(e.Author, Check)
 	}
 	return out

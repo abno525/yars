@@ -83,7 +83,8 @@ func TestInboxEmptyQueues(t *testing.T) {
 	for u, want := range map[string]int{"alice": 4, "bob": 4, "dora": 4} {
 		b := e.do(t, u, "GET", "/inbox", nil, nil).Body.String()
 		_, counts := queues(b)
-		if len(counts) != want || strings.Count(b, `<span class="qcnt zero">0</span>`) != want {
+		// the queues' own counts: the head's Check stale count is not one
+		if len(counts) != want || strings.Count(b[strings.Index(b, `<div class="inbox">`):], `<span class="qcnt zero">0</span>`) != want {
 			t.Fatalf("%s: counts %v:\n%s", u, counts, b)
 		}
 		picks := 0

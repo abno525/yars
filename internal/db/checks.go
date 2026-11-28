@@ -47,6 +47,9 @@ type CheckResult struct {
 	RunID                               int64
 	Rule, Level, Message, Target, Quote string
 	QuoteHash, Thread                   string
+	// Matches is how many matches the row stands for: the same wording a
+	// pattern found again in the same place is the same row. 0 reads as 1.
+	Matches int
 }
 
 // Dismissal says a violation (rule + hash of its quote) of a finding no
@@ -54,6 +57,25 @@ type CheckResult struct {
 type Dismissal struct {
 	Eng, Fid, Rule, QuoteHash string
 	Level, By, At, Reason     string
+	// Covers is how many matches the row stood for when it was dismissed: a
+	// row with more is not covered (Holds). 0 is a dismissal made before
+	// counts were kept: it covers any number until a check run writes the
+	// count it finds.
+	Covers int
+}
+
+// Holds reports whether the dismissal covers its row when the row stands
+// for n matches.
+func (x Dismissal) Holds(n int) bool { return x.Covers == 0 || n <= x.Covers }
+
+// Covering is Lookup for a row that stands for n matches: the dismissal of
+// the violation (rule, target, quote) when it covers that many.
+func Covering(ds map[string]Dismissal, rule, target, quote string, n int) (Dismissal, bool) {
+	d, ok := Lookup(ds, rule, target, quote)
+	if !ok || !d.Holds(n) {
+		return Dismissal{}, false
+	}
+	return d, true
 }
 
 // Check step states: a rule of a run waits, runs, then passes, finds
@@ -285,7 +307,8 @@ func (d *DB) LatestRuns(keys [][2]string) (map[string]RunCount, error) {
 	// one per result row (rule and place): runs before that stored a quote
 	// found twice in one place twice
 	const count = `(SELECT count(DISTINCT r.rule || char(0) || r.quote_hash) FROM check_results r WHERE r.run_id = c.id AND r.level = ? AND r.target NOT IN ('rules', 'ai')
-		AND NOT EXISTS (SELECT 1 FROM dismissals x WHERE x.eng = c.eng AND x.fid = c.fid AND x.rule = r.rule AND x.quote_hash = r.quote_hash))`
+		AND NOT EXISTS (SELECT 1 FROM dismissals x WHERE x.eng = c.eng AND x.fid = c.fid AND x.rule = r.rule AND x.quote_hash = r.quote_hash
+			AND (x.covers = 0 OR x.covers >= r.matches)))`
 	for len(keys) > 0 {
 		part := keys[:min(len(keys), 200)]
 		keys = keys[len(part):]
@@ -345,8 +368,8 @@ func (tx *Tx) FinishRun(id int64, state, reason string, results []CheckResult) e
 		return err
 	}
 	for _, r := range results {
-		if _, err := tx.Exec(`INSERT INTO check_results(run_id, rule, level, message, target, quote, quote_hash, thread)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, id, r.Rule, r.Level, r.Message, r.Target, r.Quote, r.QuoteHash, r.Thread); err != nil {
+		if _, err := tx.Exec(`INSERT INTO check_results(run_id, rule, level, message, target, quote, quote_hash, thread, matches)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, id, r.Rule, r.Level, r.Message, r.Target, r.Quote, r.QuoteHash, r.Thread, max(r.Matches, 1)); err != nil {
 			return err
 		}
 	}
@@ -355,7 +378,7 @@ func (tx *Tx) FinishRun(id int64, state, reason string, results []CheckResult) e
 
 // RunResults returns a run's violations in the order found.
 func (d *DB) RunResults(id int64) ([]CheckResult, error) {
-	rows, err := d.Query("SELECT run_id, rule, level, message, target, quote, quote_hash, thread FROM check_results WHERE run_id = ? ORDER BY rowid", id)
+	rows, err := d.Query("SELECT run_id, rule, level, message, target, quote, quote_hash, thread, matches FROM check_results WHERE run_id = ? ORDER BY rowid", id)
 	if err != nil {
 		return nil, err
 	}
@@ -363,7 +386,7 @@ func (d *DB) RunResults(id int64) ([]CheckResult, error) {
 	var out []CheckResult
 	for rows.Next() {
 		var r CheckResult
-		if err := rows.Scan(&r.RunID, &r.Rule, &r.Level, &r.Message, &r.Target, &r.Quote, &r.QuoteHash, &r.Thread); err != nil {
+		if err := rows.Scan(&r.RunID, &r.Rule, &r.Level, &r.Message, &r.Target, &r.Quote, &r.QuoteHash, &r.Thread, &r.Matches); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
@@ -408,7 +431,7 @@ func (tx *Tx) Dismissals(eng, fid string) (map[string]Dismissal, error) {
 }
 
 func dismissals(q querier, eng, fid string) (map[string]Dismissal, error) {
-	rows, err := q.Query("SELECT eng, fid, rule, quote_hash, level, by_user, at, reason FROM dismissals WHERE eng = ? AND fid = ?", eng, fid)
+	rows, err := q.Query("SELECT eng, fid, rule, quote_hash, level, by_user, at, reason, covers FROM dismissals WHERE eng = ? AND fid = ?", eng, fid)
 	if err != nil {
 		return nil, err
 	}
@@ -416,7 +439,7 @@ func dismissals(q querier, eng, fid string) (map[string]Dismissal, error) {
 	out := map[string]Dismissal{}
 	for rows.Next() {
 		var x Dismissal
-		if err := rows.Scan(&x.Eng, &x.Fid, &x.Rule, &x.QuoteHash, &x.Level, &x.By, &x.At, &x.Reason); err != nil {
+		if err := rows.Scan(&x.Eng, &x.Fid, &x.Rule, &x.QuoteHash, &x.Level, &x.By, &x.At, &x.Reason, &x.Covers); err != nil {
 			return nil, err
 		}
 		out[DismissKey(x.Rule, x.QuoteHash)] = x
@@ -431,9 +454,10 @@ func (tx *Tx) Dismiss(x Dismissal) error {
 	if x.At == "" {
 		x.At = stampNow()
 	}
-	_, err := tx.Exec(`INSERT INTO dismissals(eng, fid, rule, quote_hash, level, by_user, at, reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(eng, fid, rule, quote_hash) DO UPDATE SET level = excluded.level, by_user = excluded.by_user, at = excluded.at, reason = excluded.reason`,
-		x.Eng, x.Fid, x.Rule, x.QuoteHash, x.Level, x.By, x.At, x.Reason)
+	_, err := tx.Exec(`INSERT INTO dismissals(eng, fid, rule, quote_hash, level, by_user, at, reason, covers) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(eng, fid, rule, quote_hash) DO UPDATE SET level = excluded.level, by_user = excluded.by_user, at = excluded.at, reason = excluded.reason,
+			covers = excluded.covers`,
+		x.Eng, x.Fid, x.Rule, x.QuoteHash, x.Level, x.By, x.At, x.Reason, x.Covers)
 	return err
 }
 
@@ -488,6 +512,61 @@ func (d *DB) RenameRule(from, to string) (moved int, err error) {
 		return err
 	})
 	return moved, err
+}
+
+// RetargetResults moves what is stored for finding fid under the place from
+// to the place to (a section or details row was renamed): the results of
+// its check runs, with the key that names the place, and the dismissals of
+// those rows. A dismissal whose row no run stored is not found this way and
+// stays under the old place. A place that has a dismissal under the new
+// name already keeps that one. Nothing changes when nothing is stored under
+// from, so it can run again.
+func (tx *Tx) RetargetResults(eng, fid, from, to string) error {
+	if from == to {
+		return nil
+	}
+	type row struct {
+		id              int64
+		rule, quote, qh string
+	}
+	rows, err := tx.Query(`SELECT r.rowid, r.rule, r.quote, r.quote_hash FROM check_results r JOIN check_runs c ON c.id = r.run_id
+		WHERE c.eng = ? AND c.fid = ? AND r.target = ?`, eng, fid, from)
+	if err != nil {
+		return err
+	}
+	var all []row
+	for rows.Next() {
+		var x row
+		if err := rows.Scan(&x.id, &x.rule, &x.quote, &x.qh); err != nil {
+			rows.Close()
+			return err
+		}
+		all = append(all, x)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if len(all) == 0 {
+		return nil
+	}
+	tx.touch(eng)
+	for _, x := range all {
+		now := x.qh
+		if x.qh == ViolationHash(from, x.quote) { // keyed by its place, as every row since v14
+			now = ViolationHash(to, x.quote)
+			if _, err := tx.Exec("UPDATE OR IGNORE dismissals SET quote_hash = ? WHERE eng = ? AND fid = ? AND rule = ? AND quote_hash = ?", now, eng, fid, x.rule, x.qh); err != nil {
+				return err
+			}
+			if _, err := tx.Exec("DELETE FROM dismissals WHERE eng = ? AND fid = ? AND rule = ? AND quote_hash = ?", eng, fid, x.rule, x.qh); err != nil {
+				return err
+			}
+		}
+		if _, err := tx.Exec("UPDATE check_results SET target = ?, quote_hash = ? WHERE rowid = ?", to, now, x.id); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Undismiss drops a dismissal; the violation counts again.

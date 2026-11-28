@@ -426,8 +426,8 @@ func (c *Checker) checkRules(old, new string) []string {
 		blocks := status == "verification" || status == "complete" || status == "reported" || status == unreadable
 		for _, v := range c.Linter.Lint(context.Background(), f, rules.All) {
 			// as the website: its own dismissal, or one made before they
-			// were per row
-			if _, ok := db.Lookup(dismissed, v.Rule, v.Target, v.Quote); ok {
+			// were per row, while it covers the matches the row has
+			if _, ok := db.Covering(dismissed, v.Rule, v.Target, v.Quote, v.Matches()); ok {
 				continue
 			}
 			level := v.Level

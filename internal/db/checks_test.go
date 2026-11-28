@@ -115,7 +115,7 @@ func TestCheckRunLifecycle(t *testing.T) {
 		t.Fatalf("finished %+v", r)
 	}
 	got, err := d.RunResults(id)
-	if err != nil || len(got) != 1 || got[0] != (CheckResult{RunID: id, Rule: "a", Level: "error", Message: "m", Target: "section:Impact", Quote: "q", QuoteHash: "qh", Thread: "c1"}) {
+	if err != nil || len(got) != 1 || got[0] != (CheckResult{RunID: id, Rule: "a", Level: "error", Message: "m", Target: "section:Impact", Quote: "q", QuoteHash: "qh", Thread: "c1", Matches: 1}) {
 		t.Fatalf("results %+v %v", got, err)
 	}
 	var th []CheckThreadRef

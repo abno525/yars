@@ -15,6 +15,7 @@ Every `*.yaml` or `*.yml` file in `.yars/rules/` is a list of rules:
 | `message` | shown with each hit; empty → the id |
 | `target` | `text` (default: the title, every section and every details row), `title`, `sections`, `section:<Name>`, `details`, `details:<Row>` |
 | `enabled` | `false` turns the rule off |
+| `exclude` | `code`, on a pattern rule only (Patterns, below) |
 
 and exactly one check:
 
@@ -40,6 +41,10 @@ A pattern is matched against one part at a time: the title, a section's body or 
 - `^` and `$` are the start and the end of the whole part, not of a line. Write `(?m)` at the start of the pattern to make them match at each line; in the editor that is the Multiline box, as Aa is `(?i)`.
 - A pattern the text must match skips an empty part. With `require_nonempty: true` (the editor's Check empty parts box) an empty part is a hit.
 - The part is the Markdown as written. Code blocks and tables are matched too.
+- `exclude: code` (the editor's Skip code box) makes a pattern rule leave out the code of a section: fenced blocks, indented blocks and code spans. The title and the details rows are still matched as written. A match that starts and ends in text is a hit, also when code lies between.
+- The key is off unless a rule has it. Leave it off for a rule that must hold everywhere, such as a client's name, a secret or an internal host: with it, the same word in backticks passes.
+- Code is what the page shows as code: a fence that is never closed makes the rest of the section code.
+- With `exclude: code`, a part that is only code is an empty part for a pattern the text must match.
 - A rule of any kind shows up to 20 hits per finding. A last row then says how many it does not show: `and 5 more`, or `and more than 1000 more`.
 - That row has the rule's level and counts as one result. It is dismissed on its own, for its count: `and 6 more` is a new row. The live hints under a section do not show it.
 - The same wording found again in the same part is the same result, not one more.
@@ -54,9 +59,13 @@ Pattern and built-in rules run wherever a finding is checked. Scripts and AI rul
 - `yars lint` runs the pattern and built-in rules only. `yars lint --all` adds scripts and AI rules.
 - `yars lint` on the server's data folder leaves out the results dismissed on the finding page and uses the provider, address, model and key saved on **Admin › AI**. In a clone there is no database: nothing is dismissed there and `config.yaml` alone sets the provider.
 
-One check of a finding has 90 s for all its scripts and AI questions together. A rule that has not finished by then fails.
+A Check (the button, `start_check` and `lint_finding all=true` on the server) gives each script and each AI rule 90 s for itself, an AI rule's questions together. A rule that has not finished by then fails alone, and the rules after it run. Pattern and built-in rules have no limit.
+
+The checks that answer at once have 90 s for all their scripts and AI questions together: `yars lint --all`, the pre-commit check with every rule, a git push, the Test bench, and Submit and Approve where they run the rules themselves. A rule that has not finished by then fails, and so does every rule after it.
 
 With **Require Check** on (Admin › Rules, the default), Sign off and Approve wait for a finished Check on the finding's current text and on the rules as they are now: after a rule changes, the finding is checked again. While no rule is on, they don't wait. A script rule that could not run fails the Check, and they wait for a new one. An AI rule that could not run does not (AI rules, below).
+
+Any change of a file in `.yars/rules` counts: a message, a rule turned off, a comment, a helper file, and a section renamed on **Admin › Structure** that a rule names. **Check stale** on the Inbox starts the new checks in one press. It takes the findings of your Awaiting my review and Ready to approve queues whose check is out of date only because the rules changed, 100 at most per press; the number beside the button counts them. In the simple workflow it takes the drafts you wrote. A check started this way notifies the finding's author only when it leaves an open error. A finding whose text changed, or that was never checked, is not among them: open it and press Check. Such a check costs little: an AI answer is kept for the same text and instruction, so only the scripts and the AI rules that changed run again.
 
 ## Dismissing a result
 
@@ -66,6 +75,9 @@ A result that is right to ignore can be dismissed. A dismissal needs a reason. R
 - An error: the same, and the reviewer role or more.
 - An error on your own finding: another reviewer or a director dismisses it, whatever your role, and restores it. A team needs a second person with the reviewer role or more for that. In the simple workflow you dismiss it yourself.
 - A dismissal covers one result: that rule, that place and that quote. The same quote in another place still counts.
+- The same wording a pattern finds more than once in one place is one result. Its dismissal covers the matches that were there when it was made; the Dismissed table shows the number in its Covers · By column. One more match in that place opens the result again. Fewer matches stay dismissed. Dismissing it again covers the new number.
+- A result of a built-in check, a script or an AI rule is one match. The row that counts the rest (`and 5 more`) shows no number.
+- A dismissal made before YARS kept the number shows —. It covers its result as before until the next Check of the finding, which writes the number it finds.
 - A rule renamed on **Admin › Rules** keeps its dismissals, its stored results and their chat threads. A rule renamed by hand in its file does not: to the server it is a new rule.
 - In an archived engagement nothing is dismissed or restored.
 - Each dismissal and each restore is a row in the audit log (Admin › Activity): who, the finding, the rule, its level and place, and the reason. The quote is not in it.
@@ -143,7 +155,7 @@ A stored result is deleted after the days set for check runs on **Admin › Syst
 
 | Limit | Value |
 |---|---|
-| Timeout | 10 s per script · kill wait 1 s · 90 s for one check's scripts and AI questions together |
+| Timeout | 10 s per script · kill wait 1 s · 90 s per rule in a Check · 90 s for all scripts and AI questions of a check that answers at once |
 | stdout | 1 MB |
 | stderr | 64 KB · first 80 characters shown |
 | Hits per rule | 20 shown · the rest is counted in a last row, up to 1,000 |
@@ -162,7 +174,7 @@ A script that can't run reports a violation with target `rules` at the rule's le
 |---|---|
 | `rule failed: script outside rules dir` | Path |
 | `rule failed: <the system's message>` | The file is missing or not executable (`… no such file or directory`, `… permission denied`). The message can show a path on the server |
-| `rule failed: timed out` | Over 10 s, or the check's 90 s ran out |
+| `rule failed: timed out` | Over 10 s, or the 90 s ran out (When rules run, above) |
 | `rule failed: output too large (limit 1 MB)` | stdout |
 | `rule failed: <stderr>` | Non-zero exit |
 | `rule failed: <stderr>` or `rule failed: output too large` | stderr over 64 KB: the rule fails even when the script exits 0 |
@@ -180,9 +192,15 @@ A rules file with a mistake reports `rule invalid (<file>): …`, always as an e
 | None or several of the checks | `needs exactly one of regex_forbid, regex_require, check, script, ai` |
 | A regular expression that does not compile | the expression's error |
 | A built-in check that does not exist | `unknown check "<name>"` |
+| An `exclude` other than `code` | `unknown exclude "<value>" (use code)` |
+| `exclude` on a rule that is no pattern | `exclude is for regex_forbid and regex_require only` |
 | A target of another form | `unknown target "<target>" (use title, text, sections, details, section:<Name> or details:<Row>)` |
 
 A target that is well formed but names a section or details row the config lacks is a warning: `rule target section:<Name> (<file>) is not a configured section name; check the spelling`.
+
+A section or details row renamed on **Admin › Structure** is renamed in the rule targets too, in the same commit, also in rules that are off. A name inside a script or an AI instruction is not changed, and neither is a rule file that is no list of rules. What a finding's checks stored under the old name moves with it, dismissals too. A result dismissed before any Check stored it opens again after the rename.
+
+The rule file changed, so every finding needs a new Check after such a rename (When rules run, above). A name removed on the page, or renamed by hand in `config.yaml`, leaves the targets as they are: change them on **Admin › Rules**.
 
 ## AI rules
 
@@ -213,7 +231,7 @@ A model can still be talked into passing a text, and a text can make its call fa
 
 | Limit | Value |
 |---|---|
-| Time per question | 60 s, its tries included · 90 s for one check's scripts and AI questions together |
+| Time per question | 60 s, its tries included · 90 s for all questions of one rule in a Check · 90 s for all scripts and AI questions of a check that answers at once |
 | Tries per question | 3 · the wait is 1 s, then 2 s, or what the provider's `Retry-After` asks, up to 10 s · 1 for the questions of a check after one that failed with all its tries |
 | Redirects | followed on the provider's own address only |
 | Reply | 4,096 tokens (Anthropic) · a reply cut at the model's limit is a failed check |
