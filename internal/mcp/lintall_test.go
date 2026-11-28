@@ -1,10 +1,12 @@
 package mcp
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -202,6 +204,79 @@ func TestMCPLintAllCancelled(t *testing.T) {
 	if out := f.ok(alice, "get_check_results", a); json.Unmarshal([]byte(out), &st) != nil || !st.HasRun || st.RunID != first.RunID {
 		t.Fatalf("get_check_results after the cancel: %s", out)
 	}
+}
+
+// askedAI counts the questions put to the AI and finds nothing.
+type askedAI struct {
+	rules.SlowRunner
+	n atomic.Int32
+}
+
+func (c *askedAI) AI(context.Context, rules.Rule, string, string) []rules.Violation {
+	c.n.Add(1)
+	return nil
+}
+
+// withAIRule gives f one AI rule on the title, asked through the counter it
+// returns.
+func withAIRule(t *testing.T, f *fx) *askedAI {
+	t.Helper()
+	rd := filepath.Join(f.dir, ".yars", "rules")
+	os.MkdirAll(rd, 0o755)
+	if err := os.WriteFile(filepath.Join(rd, "r.yaml"), []byte("- id: plain\n  level: warning\n  target: title\n  ai: Be plain.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	eng := rules.NewEngine(rules.DirFor(f.dir), f.s.Cfg)
+	cnt := &askedAI{SlowRunner: eng.Runner}
+	eng.Runner = cnt
+	f.s.Store.Linter, f.s.Rules = eng, eng
+	return cnt
+}
+
+// lint_finding all=true asks no AI rule where the engagement takes no AI: on
+// the server (a check run) and in a clone, which reads the switch from its
+// own engagement.yaml. On again, the rule is asked.
+func TestMCPLintAllWhereAIIsOff(t *testing.T) {
+	a := map[string]any{"engagement": "acme", "finding": "F-001", "all": true}
+	lint := func(f *fx, cnt *askedAI, where string, want int32) {
+		t.Helper()
+		out, isErr := f.call(alice, "lint_finding", a)
+		f.s.Store.WaitChecks()
+		if isErr || cnt.n.Load() != want || strings.Contains(out, "plain") {
+			t.Fatalf("%s: %d questions, want %d: %s", where, cnt.n.Load(), want, out)
+		}
+	}
+	srv := newFx(t)
+	cnt := withAIRule(t, srv)
+	lint(srv, cnt, "the server, AI on", 1)
+	if err := srv.s.Store.SetEngagementAI("acme", false, dora); err != nil {
+		t.Fatal(err)
+	}
+	lint(srv, cnt, "the server, AI off", 1)
+	if err := srv.s.Store.SetEngagementAI("acme", true, dora); err != nil {
+		t.Fatal(err)
+	}
+	lint(srv, cnt, "the server, AI on again", 2)
+
+	c := cloneOf(t, newFx(t))
+	cnt = withAIRule(t, c)
+	if c.s.Store.DB() != nil {
+		t.Fatal("the clone has a database")
+	}
+	lint(c, cnt, "the clone, AI on", 1)
+	p := filepath.Join(c.dir, "engagements", "acme", "engagement.yaml")
+	on, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte(strings.TrimRight(string(on), "\n")+"\nai: off\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	lint(c, cnt, "the clone, AI off", 1)
+	if err := os.WriteFile(p, on, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	lint(c, cnt, "the clone, AI on again", 2)
 }
 
 // yars mcp on a clone has no database, so no queue and no archive: all=true

@@ -114,6 +114,65 @@ func newAICounter(t *testing.T) *aiCounter {
 	return c
 }
 
+// yars lint --all honours the engagement's AI switch, on the data folder and
+// in a folder without a database (a clone): with ai: off in engagement.yaml
+// the provider is not asked, for the whole folder and for one finding, and
+// no notice is printed. On again, it is asked.
+func TestLintAllHonoursTheEngagementAISwitch(t *testing.T) {
+	ai := newAICounter(t)
+	dir := lintData(t, "- id: acr\n  level: warning\n  target: title\n  ai: Expand acronyms.\n")
+	t.Setenv("YARS_TEST_LINT_KEY", "env-key")
+	if err := os.WriteFile(config.ConfigPath(dir), []byte("ai:\n  provider: openai\n  base_url: "+ai.URL+"\n  model: m1\n  api_key_env: YARS_TEST_LINT_KEY\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	engFile := filepath.Join(dir, "engagements", "acme", "engagement.yaml")
+	on, err := os.ReadFile(engFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	set := func(body string) {
+		t.Helper()
+		if err := os.WriteFile(engFile, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	lint := func(args ...string) string {
+		t.Helper()
+		var out bytes.Buffer
+		if code, err := cmdLint(append([]string{"--data", dir, "--all"}, args...), &out); code != 0 || err != nil {
+			t.Fatalf("code %d err %v:\n%s", code, err, out.String())
+		}
+		return out.String()
+	}
+	for _, where := range []string{"the data folder", "a clone"} {
+		if where == "a clone" { // no database: config.yaml and the files alone
+			if err := os.Remove(db.Path(dir)); err != nil {
+				t.Fatal(err)
+			}
+			if d, err := existingDB(dir); err != nil || d != nil {
+				t.Fatalf("the folder still has a database (%v)", err)
+			}
+		}
+		base := ai.hits.Load()
+		lint()
+		if ai.hits.Load() != base+1 {
+			t.Fatalf("%s, AI on: %d requests", where, ai.hits.Load()-base)
+		}
+		set(strings.TrimRight(string(on), "\n") + "\nai: off\n")
+		for _, args := range [][]string{nil, {"acme"}, {"acme/F-001"}} {
+			out := lint(args...)
+			if ai.hits.Load() != base+1 || strings.Contains(out, "acr") || strings.Contains(out, "AI rules skipped") || !strings.Contains(out, "1 finding(s) checked") {
+				t.Fatalf("%s, AI off, lint %v: %d requests:\n%s", where, args, ai.hits.Load()-base, out)
+			}
+		}
+		set(string(on))
+		lint("acme/F-001")
+		if ai.hits.Load() != base+2 {
+			t.Fatalf("%s, AI on again: %d requests", where, ai.hits.Load()-base)
+		}
+	}
+}
+
 // yars lint --all on the data folder uses the AI settings saved on Admin ›
 // AI, as the server does: Off there sends nothing, and an address and a key
 // saved there are the ones asked. A folder without a key file gets none.
