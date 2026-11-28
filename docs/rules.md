@@ -54,6 +54,7 @@ A pattern is matched against one part at a time: the title, a section's body or 
 Pattern and built-in rules run wherever a finding is checked. Scripts and AI rules take longer and run in fewer places:
 
 - The Check button, `start_check` and `lint_finding all=true` (MCP) and the Test bench on **Admin › Rules** run every rule. On the server `lint_finding all=true` is a check run as the other two: stored, in the queue, and refused on an archived engagement.
+- **Try unsaved** in the rule editor runs the editor's values on the finding the Test bench has selected, before they are saved. It writes nothing. A script rule runs the script it has saved: save the rule to try a new upload.
 - The pre-commit check (`yars lint --staged`) runs the pattern and built-in rules, so a commit does not wait. `yars lint --staged --all` asks the server for scripts and AI rules too. Signed in with a Git token it gets them only when the token has the Run checks action; a password gets them.
 - A git push runs scripts, not AI rules.
 - `yars lint` runs the pattern and built-in rules only. `yars lint --all` adds scripts and AI rules.

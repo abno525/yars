@@ -635,6 +635,7 @@
   <div class="pfoot flush">
     {{if .New}}<span class="slot w112"></span>{{else}}<button class="btn danger sm w112" form="rule-delete">Delete</button>{{end}}
     <span class="pstate error" title="{{index .Errs "form"}}">{{index .Errs "form"}}</span>
+    <button class="btn secondary sm w128" type="button" hx-post="/admin/rules/try" hx-encoding="multipart/form-data" hx-target="#bench-out" hx-swap="outerHTML" hx-include="#bench [name='eng'], #bench-fid">Try unsaved</button>
     <button class="btn primary sm w128">Save</button>
   </div>
 </form>

@@ -105,7 +105,64 @@ func (s *Server) routesAdminRules(mux *http.ServeMux) {
 	// a run starts scripts and AI calls: a POST (no link starts one), with
 	// the write deadline of a lint run
 	mux.Handle("POST /admin/rules/bench", s.lintLived(h(s.ruleBench)))
+	mux.Handle("POST /admin/rules/try", s.lintLived(h(s.ruleTry)))
 	mux.HandleFunc("GET /admin/rules/bench/findings", h(s.benchFindings))
+}
+
+// tryID names a rule that is tried before it has an ID.
+const tryID = "try"
+
+// tryFields is the order a Try names a field error in (the first is said).
+var tryFields = []string{"id", "form", "pattern", "check", "script", "ai"}
+
+// ruleTry runs the editor's values, saved or not, on the finding the bench
+// has selected and answers the bench's output. It writes nothing: no rule
+// file, no commit, no check run. Its values are the posted form's. A script
+// rule runs the script it has saved: an upload cannot be tried, since the
+// runner runs the file in the rules folder and a file put there for one run
+// would make every stored check out of date.
+func (s *Server) ruleTry(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 2*maxScript)
+	if err := r.ParseMultipartForm(maxScript); err != nil && !errors.Is(err, http.ErrNotMultipart) {
+		tryRefused(w, r, "the form does not read")
+		return
+	}
+	r.Form = r.PostForm // nothing is read from the address
+	if strings.TrimSpace(r.Form.Get("id")) == "" {
+		r.Form.Set("id", tryID)
+	}
+	_, rule, scriptName, _, errs := s.ruleFromForm(r)
+	if scriptName != "" && errs["script"] == "" {
+		errs["script"] = "save the rule to try an uploaded script"
+	}
+	for _, f := range tryFields {
+		if msg := errs[f]; msg != "" {
+			tryRefused(w, r, msg)
+			return
+		}
+	}
+	ref, err := s.Store.Finding(r.Form.Get("eng"), r.Form.Get("fid"))
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	v := benchView{Ran: true}
+	for _, it := range s.Rules.RunRule(benchCaller(r, ref), rule, rules.DocOf(ref.F)) {
+		v.Rows = append(v.Rows, checkRow{Rule: it.Rule, Level: it.Level, Message: it.Message, Quote: it.Quote, Where: where(it.Target)})
+	}
+	v.Hits = len(v.Rows)
+	s.exec(w, "admin.html", "bench_out", v)
+}
+
+// tryRefused answers a Try that cannot run with its words: 422 for htmx,
+// which shows them as a toast and leaves the editor and the bench (as
+// checksRefused), else 400.
+func tryRefused(w http.ResponseWriter, r *http.Request, msg string) {
+	code := http.StatusBadRequest
+	if r.Header.Get("HX-Request") == "true" {
+		code = http.StatusUnprocessableEntity
+	}
+	http.Error(w, msg, code)
 }
 
 // targetLabel names a rule target for people.
