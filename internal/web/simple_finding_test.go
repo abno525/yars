@@ -263,7 +263,7 @@ func TestSimpleCompleteSlots(t *testing.T) {
 		return `<button type="button" class="btn w136 secondary" id="wf-` + act + `" aria-keyshortcuts="Shift&#43;U" data-slot="` + act + `" data-action="` + act + `" title="` + head + `" aria-controls="wf-` + act + `-reason" aria-expanded="false" data-reason-toggle>Revert</button>`
 	}
 	panel := func(act, head string) string {
-		return `<form method="post" action="/e/acme/f/001/action/` + act + `" class="wfpanel ` + act + `" id="wf-` + act + `-reason" hidden>
+		return `<form method="post" action="/e/acme/f/001/action/` + act + `" hx-post="/e/acme/f/001/action/` + act + `" hx-swap="none" hx-disabled-elt="find button" class="wfpanel ` + act + `" id="wf-` + act + `-reason" hidden>
     <div class="panelhead"><h2>` + head + `</h2></div>`
 	}
 	report := `<form method="post" action="/e/acme/f/001/action/report" class="wf-action" data-slot="report"><button class="btn w136 primary" id="wf-report" aria-keyshortcuts="Shift&#43;P" data-action="report" title="Mark reported">Mark reported</button></form>`

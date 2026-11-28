@@ -85,7 +85,7 @@ func TestInboxGroupsAndBulkBar(t *testing.T) {
 	if !strings.Contains(b, `Awaiting my review <span class="qcnt">1</span>`) || !strings.Contains(b, `Open threads on my findings <span class="qcnt zero">0</span>`) || !strings.Contains(b, `<th class="title">Title</th>`) {
 		t.Fatalf("group counts:\n%s", b)
 	}
-	if strings.Count(b, `<a class="on"`) != 1 || !strings.Contains(b, `<a class="on" href="/inbox" aria-keyshortcuts="I">`) {
+	if strings.Count(b, `<a class="on"`) != 1 || !strings.Contains(b, `<a class="on" id="inbox-nav" href="/inbox" aria-keyshortcuts="I">`) {
 		t.Fatalf("only Inbox is the active nav item:\n%s", b)
 	}
 	if strings.Contains(b, `class="fbulk"`) || strings.Contains(b, `name="id"`) || strings.Contains(b, "Ready to approve") {

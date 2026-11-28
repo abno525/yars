@@ -70,22 +70,26 @@ func TestDraftRestoreKeepsBase(t *testing.T) {
 	}
 
 	js := e.do(t, "alice", "GET", "/static/app.js", nil, nil).Body.String()
-	// the draft is written with the form's base
-	if fn := jsFunc(t, js, "function yarsExpired(own)", "\n}\n"); !strings.Contains(fn, "input[name=base]") || !strings.Contains(fn, "base: ") {
-		t.Fatalf("yarsExpired keeps no base:\n%s", fn)
+	// the draft is written with the form's bases (the hidden fields named
+	// base or base:<row>)
+	if fn := jsFunc(t, js, "function yarsDraftFields(form)", "\n}\n"); !strings.Contains(fn, "if (el.type === 'hidden') return yarsDraftBase(el.name) || el.hasAttribute('data-draft');") {
+		t.Fatalf("a draft keeps no base:\n%s", fn)
 	}
-	// Restore puts it back, and "none" for a draft without one
-	i := strings.Index(js, "closest('[data-draft-restore]')")
-	if i < 0 {
-		t.Fatal("no Restore handler")
+	if !strings.Contains(js, "function yarsDraftBase(name) { return name === 'base' || name.indexOf('base:') === 0; }") {
+		t.Fatal("yarsDraftBase does not name the base fields")
 	}
-	fn := js[i : i+strings.Index(js[i:], "\n});")]
-	if !strings.Contains(fn, "input[name=base]") || !strings.Contains(fn, "d.base") || !strings.Contains(fn, "'none'") {
+	// Restore puts them back, and "none" for a base the draft lacks
+	fn := jsFunc(t, js, "function yarsDraftPut(form, d)", "\n}\n")
+	if !strings.Contains(fn, "if (yarsDraftBase(el.name)) el.value = typeof v === 'string' && v ? v : 'none';") {
 		t.Fatalf("Restore leaves the fresh editor's base:\n%s", fn)
+	}
+	// a draft kept by an earlier version without a base gets "none" too
+	if fn := jsFunc(t, js, "function yarsDraft(form)", "\n}\n"); !strings.Contains(fn, "d.base ? d.base : 'none'") {
+		t.Fatalf("an old draft without a base saves unchecked:\n%s", fn)
 	}
 	// a conflict (409) or a refused text (400) is no error to htmx: the
 	// draft goes only when the answer closed the editor
-	i = strings.LastIndex(js, "'htmx:afterRequest'")
+	i := strings.LastIndex(js, "'htmx:afterRequest'")
 	fn = js[i : i+strings.Index(js[i:], "\n});")]
 	if strings.Contains(fn, "detail.successful") || !strings.Contains(fn, "status < 200") {
 		t.Fatalf("the draft is dropped on a conflict:\n%s", fn)

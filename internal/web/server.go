@@ -22,6 +22,7 @@ import (
 	"unicode"
 
 	"github.com/abno525/yars/internal/auth"
+	"github.com/abno525/yars/internal/chat"
 	"github.com/abno525/yars/internal/config"
 	"github.com/abno525/yars/internal/events"
 	"github.com/abno525/yars/internal/export"
@@ -237,6 +238,7 @@ type page struct {
 	WF            wfView
 	Inbox         inboxView
 	InboxLists    inboxLists // the inbox page: one page of each list
+	InboxLive     inboxLive  // … drawn, in the element that refreshes itself
 	Chat          chatView
 	Checks        checksView
 	CloneURL      string
@@ -252,6 +254,7 @@ type page struct {
 	// seconds (the countdown runs from these, not the browser's clock)
 	LockLeft    string
 	LockSecs    int
+	Next        string      // the login page: the page to go on to (safeNext; "" = the start page)
 	Tpl         tplView     // templates, the template picker
 	History     historyView // a finding's history
 	ETab        engTabs     // the engagement tabs (Findings, Overview, Report, Settings)
@@ -268,6 +271,7 @@ type page struct {
 	Notes       notesView  // the notifications page
 	Docs        docsView   // the developer docs
 	TeamBoard   teamBoardView
+	ErrPage     errPageView // an error answered as a page (errorPages)
 }
 
 var funcs = template.FuncMap{"join": strings.Join, "checkedIn": checkedIn, "retestLabel": workflow.RetestLabel, "fpath": findingURL,
@@ -276,6 +280,9 @@ var funcs = template.FuncMap{"join": strings.Join, "checkedIn": checkedIn, "rete
 	// a read panel refetches itself when the finding changed (MCP, a push,
 	// another tab); an open editor has no trigger, so it is never replaced
 	"liveTrigger": func() string { return "sse:content, sse:resync, sse:poll" },
+	// the Inbox's queues and the top bar's badge refetch themselves on what
+	// can change a queue, a second after the last event of a burst
+	"inboxTrigger": func() string { return inboxTrigger },
 	// a new password's minlength, as the server checks it
 	"minPassword":  func() int { return auth.MinPassword },
 	"previewDelay": previewDelay,
@@ -359,6 +366,10 @@ func (s *Server) init() {
 
 func (s *Server) Handler() http.Handler {
 	s.init()
+	// a page asked for without a session comes back after the login
+	if s.Auth.LoginURL == nil {
+		s.Auth.LoginURL = loginURL
+	}
 
 	private := http.NewServeMux()
 	private.HandleFunc("GET /{$}", s.home)
@@ -366,6 +377,7 @@ func (s *Server) Handler() http.Handler {
 	private.HandleFunc("GET /events", s.events)
 	private.HandleFunc("GET /go", s.goEngagement)
 	private.HandleFunc("GET /inbox", s.inbox)
+	private.HandleFunc("GET /inbox/badge", s.inboxBadge)
 	private.HandleFunc("POST /inbox/board/read", s.boardInboxRead)
 	private.HandleFunc("POST /inbox/check-stale", s.inboxCheckStale)
 	private.HandleFunc("POST /logout", s.logout)
@@ -410,7 +422,7 @@ func (s *Server) Handler() http.Handler {
 	root.HandleFunc("GET /favicon.ico", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, staticPrefix()+"/favicon.svg", http.StatusMovedPermanently)
 	})
-	root.Handle("/", s.Auth.Require(signedIn(private, s.mustChangeGate(s.teamGate(routed(private))))))
+	root.Handle("/", s.Auth.Require(signedIn(private, s.mustChangeGate(s.errorPages(s.teamGate(routed(private)))))))
 	if s.Git != nil {
 		root.Handle("/git/", longLived(s.Git)) // HTTP Basic auth, no cookies; big pushes and clones take time
 	}
@@ -647,17 +659,20 @@ func (s *Server) badges(p *page, u config.User, engs []store.Engagement) error {
 }
 
 func (s *Server) loginPage(w http.ResponseWriter, r *http.Request) {
-	s.render(w, "login.html", &page{Bare: true})
+	s.render(w, "login.html", &page{Bare: true, Next: safeNext(r.URL.Query().Get("next"))})
 }
 
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	// a disabled account gets the same answer as a wrong password
 	tok, ok := s.Auth.Login(r.FormValue("username"), r.FormValue("password"))
+	// the page to go on to: the form's field is the client's, so it is judged
+	// again here (safeNext); it goes into no log line
+	next := safeNext(r.FormValue("next"))
 	if !ok {
 		s.Auth.LogFailedLogin("login", r.FormValue("username"), r)
 		// the username stays filled in (never the password)
 		form := url.Values{"username": {r.FormValue("username")}}
-		p := &page{Bare: true, Error: "Wrong username or password", Form: form}
+		p := &page{Bare: true, Error: "Wrong username or password", Form: form, Next: next}
 		if until, locked := s.Auth.LockedUntil(r.FormValue("username")); locked {
 			left := time.Until(until)
 			p.LockLeft, p.LockSecs = lockLeft(left), max(int(left.Round(time.Second).Seconds()), 0)
@@ -666,7 +681,10 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.Auth.SetCookie(w, tok)
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	if next == "" {
+		next = "/"
+	}
+	http.Redirect(w, r, next, http.StatusSeeOther)
 }
 
 // lockLeft shows the rest of a lockout as m:ss.
@@ -1061,7 +1079,47 @@ func (s *Server) finding(w http.ResponseWriter, r *http.Request) {
 		s.renderFindingDenied(w, r, http.StatusOK, d.Error, &d)
 		return
 	}
+	if to := s.mergedInto(r); to != "" {
+		http.Redirect(w, r, to, http.StatusSeeOther)
+		return
+	}
 	s.renderFinding(w, r, http.StatusOK, "")
+}
+
+// sourceParam on a finding's address opens the finding itself where its
+// page would lead on to the finding it was merged into.
+const sourceParam = "source"
+
+// mergedInto is where the page of the finding in r's path leads instead:
+// the finding it was merged into, or "". A merge on the website withdraws
+// the source with the reason "merged into <ID>" and writes a merge event
+// naming the source into the target's chat (Store.Merge); nothing else
+// records the pair, so both are asked for: a reason typed by hand has no
+// such event. The target is a finding of the same engagement (so behind the
+// same team gate, asked again here) that is not withdrawn: one step, never a
+// chain. The team gate has passed, so a stranger never gets here.
+func (s *Server) mergedInto(r *http.Request) string {
+	if r.URL.Query().Has(sourceParam) {
+		return ""
+	}
+	src, err := s.Store.Finding(r.PathValue("eng"), r.PathValue("fid"))
+	if err != nil || src.F.Meta.Status != workflow.Withdrawn || src.F.Meta.Withdrawn == nil {
+		return ""
+	}
+	id, ok := strings.CutPrefix(src.F.Meta.Withdrawn.Reason, "merged into ")
+	if !ok || !store.ValidID(id) {
+		return ""
+	}
+	dst, err := s.Store.Finding(src.EngID, id)
+	if err != nil || dst.F.Meta.ID != id || dst.Dir == src.Dir || !workflow.Active(dst.F.Meta.Status) ||
+		!s.Store.CanSee(auth.UserFrom(r.Context()), dst.EngID) {
+		return ""
+	}
+	msgs, err := s.loadChat(dst)
+	if err != nil || !slices.ContainsFunc(msgs, func(m chat.Message) bool { return m.Event == store.EventMerge && m.Text == src.F.Meta.ID }) {
+		return ""
+	}
+	return findingURL(dst.EngID, dst.Dir)
 }
 
 // markFindingRead marks the viewer's notices of the finding in r's path

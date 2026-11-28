@@ -52,7 +52,7 @@
 
 {{define "cvss_editor"}}
 <section class="panel editing cvss" id="cvss" data-kpanel>
-  <form class="flush" hx-post="{{.SaveURL}}" hx-target="#cvss" hx-swap="outerHTML" data-guard{{if .Unsaved}} data-unsaved{{end}}>
+  <form class="flush" hx-post="{{.SaveURL}}" hx-target="#cvss" hx-swap="outerHTML" data-draft-via="{{.CalcURL}}" data-guard{{if .Unsaved}} data-unsaved{{end}}>
     <div class="panelhead">
       <h2>CVSS 3.1</h2>
       <div class="scorehead">
@@ -102,6 +102,7 @@
     <div class="pfoot flush">
       {{if .HasStored}}<button class="btn danger sm w128" name="action" value="clear" data-confirm="Remove the CVSS vector?">Clear vector</button>{{else}}<span class="slot w128"></span>{{end}}
       <span class="pstate error">{{with .Missing}}{{len .}} reason{{if gt (len .) 1}}s{{end}} missing{{end}}</span>
+      <button type="button" class="btn secondary sm w96 invisible" data-draft-restore>Restore</button>
       <button type="button" class="btn secondary sm w96" hx-get="{{.ViewURL}}" hx-target="#cvss" hx-swap="outerHTML" data-guard-cancel>Cancel</button>
       <button class="btn save sm w96" aria-keyshortcuts="Control+S"{{if not .Complete}} disabled{{end}}>Save</button>
     </div>

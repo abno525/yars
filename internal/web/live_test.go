@@ -311,7 +311,12 @@ func TestSSEFilteredAndContent(t *testing.T) {
 	// another finding's chat is not sent to this page
 	e.do(t, "bob", "POST", "/e/acme/f/002/chat", url.Values{"text": {"other"}}, nil)
 	e.do(t, "alice", "POST", fpath+"/s/Impact", url.Values{"body": {"Bad."}}, nil)
+	// a notice event says only that an inbox may hold something new; it goes
+	// to every stream of the engagement, the other finding's chat event not
 	l := s.waitFor(t, "event: ")
+	for l == "event: notice" {
+		l = s.waitFor(t, "event: ")
+	}
 	if l != "event: content" {
 		t.Fatalf("first event %q, want content (other finding's chat filtered out)", l)
 	}

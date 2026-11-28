@@ -6,6 +6,14 @@ What changed for people who run or use YARS. Newest first.
 
 ### Added
 
+- A half-typed reply in the chat stays when the list is drawn again: after a reply in another thread, Resolve, Reopen, Hide, Show or a new message (before: every reply box came back empty). Show older works while a reply is being typed (before: the click did nothing).
+- The Inbox updates itself: a finding sent for review, a sign-off, a reply, a notice or a new lead on a team board shows within about two seconds, with no reload. The Inbox badge of the top bar follows on every page that updates live (a finding, the findings list, the team board, the Inbox). A refresh waits while rows are ticked, a menu or the reason panel is open, a bulk run's result is shown or more rows were loaded.
+- Sign off and Approve on the finding page open the next finding of the queue: Awaiting my review after a Sign off, Ready to approve after an Approve, in the Inbox's order (before: the same finding again). With none left the page stays on the finding.
+- A page opened without a session comes back after the login (before: always the start page). A form sent after the session expired comes back to the page it was on. The address is a path of this site only.
+- The Return, Withdraw and Revert reasons of the finding page are sent without leaving the page: with an expired session the reason stays in its box under a Session expired toast (before: the login page, and the reason was lost).
+- An error answered to a page request is a page in the layout, with the top bar: the status, the reason, and on a server error the request's ID (before: bare text). htmx requests, scripts and downloads get the plain text as before. A missing engagement and one the account is not on are the same page.
+- The page of a finding that was merged into another opens that finding. The merged one is still opened from the link in the target's chat (`merged in: F-001`) or with `?source=1` on its address; its history and its Restore are unchanged.
+- Every editor keeps what is typed as a draft in the browser: a section, CVSS, Details, Affected assets, a team board reply and a new lead (before: a section only, and only when the session had expired). An editor opened again offers it with Restore. The draft is finding text stored in the browser's profile (`localStorage`), per account, for up to 14 days; it is never sent anywhere, and it goes on Save, Cancel, a confirmed Discard and Log out. An editor with more than 200,000 characters gets a draft only when the session expired.
 - Settings › About shows the version, the license and a link to the source.
 - The licence texts of the vendored fonts and htmx ship with the binary; `NOTICE` lists all third-party work.
 - `SECURITY.md`, `CONTRIBUTING.md` and issue templates.

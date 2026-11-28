@@ -87,6 +87,7 @@ type chatItem struct {
 type chatEvent struct {
 	User, Time, What, Text string
 	Kind                   string // the workflow event (submit, return, …): the marker colour
+	URL                    string // a merge event: the merged finding itself (its page leads here otherwise)
 }
 
 type chatView struct {
@@ -245,7 +246,12 @@ func (s *Server) chatFor(ref store.FindingRef, msgs []chat.Message, stamp string
 	for _, it := range items[from:] {
 		if e := it.Event; e != nil {
 			what := eventTextFor(e.Event, simple)
-			v.Items = append(v.Items, chatItem{Event: &chatEvent{User: e.User, Time: e.TS.Local().Format("2006-01-02 15:04"), What: what, Text: e.Text, Kind: e.Event}})
+			ev := &chatEvent{User: e.User, Time: e.TS.Local().Format("2006-01-02 15:04"), What: what, Text: e.Text, Kind: e.Event}
+			// the store wrote the source's ID as the merge event's text
+			if e.Event == store.EventMerge && store.ValidID(e.Text) {
+				ev.URL = findingURL(ref.EngID, e.Text) + "?" + sourceParam + "=1"
+			}
+			v.Items = append(v.Items, chatItem{Event: ev})
 			continue
 		}
 		th := it.Thread

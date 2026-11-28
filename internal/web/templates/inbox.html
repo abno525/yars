@@ -65,6 +65,17 @@
 {{end}}
 {{end}}
 
+{{/* inbox_live holds the queues and fetches itself again on the events of
+every engagement (the stream is checked against the account's teams); the
+answer brings the top bar's badge out of band. A director's form swaps itself
+inside it, so it is still there after a run. */}}
+{{define "inbox_live"}}
+<div id="inbox-live" data-sse-url="/events" hx-get="/inbox?live=1&amp;h={{.Stamp}}" hx-trigger="{{inboxTrigger}}" hx-swap="outerHTML" data-rows="{{.Rows}}" data-sse>
+{{.HTML}}
+</div>
+{{if .OOB}}<a id="inbox-nav" hx-swap-oob="innerHTML">{{template "inbox_badge" .Count}}</a>{{end}}
+{{end}}
+
 {{define "content"}}
 <div class="titlerow"><div class="titlecol"><h1>Inbox</h1></div>
   <form class="actions" method="post" action="/inbox/check-stale">
@@ -72,6 +83,6 @@
     <button class="btn secondary w152"{{if not .InboxLists.Stale}} disabled{{end}}>Check stale</button>
   </form>
 </div>
-{{template "inbox_lists" .InboxLists}}
+{{template "inbox_live" .InboxLive}}
 <form id="notes" method="post" hidden><input type="hidden" name="back" value="inbox"></form>
 {{end}}

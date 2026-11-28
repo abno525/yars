@@ -60,7 +60,8 @@
     </div>
   </div>
   {{range .Panels}}
-  <form method="post" action="{{.URL}}" class="wfpanel {{.Slot}}" id="{{.PanelID}}"{{if not .Open}} hidden{{end}}>
+  {{/* sent by htmx: with an expired session the answer is a toast and the reason stays in its box */}}
+  <form method="post" action="{{.URL}}" hx-post="{{.URL}}" hx-swap="none" hx-disabled-elt="find button" class="wfpanel {{.Slot}}" id="{{.PanelID}}"{{if not .Open}} hidden{{end}}>
     <div class="panelhead"><h2>{{.PanelHead}}</h2></div>
     <label class="reason"><span>Reason <span class="req">Required</span></span>
       <textarea name="reason" required rows="4" maxlength="4000">{{.Reason}}</textarea>

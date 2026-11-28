@@ -103,7 +103,7 @@ func TestNotificationsFlow(t *testing.T) {
 		t.Fatalf("carol's unread %s", got)
 	}
 	b := e.do(t, "alice", "GET", "/notifications", nil, nil).Body.String()
-	for _, want := range []string{"Returned to me", "Mentioned", "add a PoC", "@alice which roles?", "F-001", "<thead>", `<a class="on" href="/inbox"`} {
+	for _, want := range []string{"Returned to me", "Mentioned", "add a PoC", "@alice which roles?", "F-001", "<thead>", `<a class="on" id="inbox-nav" href="/inbox"`} {
 		if !strings.Contains(b, want) {
 			t.Errorf("notifications page lacks %q", want)
 		}

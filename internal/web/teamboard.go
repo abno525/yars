@@ -431,6 +431,17 @@ var fieldLabels = map[string]string{"reason": "Reason", "severity": "Severity", 
 // changed tells open board pages that eng's board changed (IDs only).
 func (s *Server) boardChanged(eng string) {
 	s.Events.Publish(events.Event{Eng: eng, Fid: boardEvent, Kind: boardEvent})
+	// the board's own event reaches the board page only: the inbox (New on
+	// team board) and the badge hear of it this way
+	s.inboxChanged(eng)
+}
+
+// inboxChanged tells the open pages that the inbox of eng's team may hold
+// something new (events.Notice: the engagement's ID and nothing else).
+func (s *Server) inboxChanged(eng string) {
+	if eng != "" {
+		s.Events.Publish(events.Event{Eng: eng, Kind: events.Notice})
+	}
 }
 
 func (s *Server) teamBoardCreate(w http.ResponseWriter, r *http.Request) {

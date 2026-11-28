@@ -27,7 +27,7 @@
   {{if .ListError}}<p class="error">{{.ListError}}</p>{{end}}
   {{if .Older}}<button type="button" class="btn ghost sm w152 older" hx-get="{{.OlderURL}}" hx-target="#chat-list" hx-swap="outerHTML">Show older ({{.Older}})</button>{{end}}
   {{range .Items}}
-    {{with .Event}}<div class="chatev ev-{{.Kind}}"><span class="what"><strong>{{.User}}</strong> {{.What}}{{if .Text}}: <span class="text">{{.Text}}</span>{{end}}</span><span class="time">{{.Time}}</span></div>{{end}}
+    {{with .Event}}<div class="chatev ev-{{.Kind}}"><span class="what"><strong>{{.User}}</strong> {{.What}}{{if .Text}}: {{if .URL}}<a class="text" href="{{.URL}}">{{.Text}}</a>{{else}}<span class="text">{{.Text}}</span>{{end}}{{end}}</span><span class="time">{{.Time}}</span></div>{{end}}
     {{with .Thread}}
     {{if .Resolved}}
     <div class="thread resolved" id="t-{{.Root.ID}}" data-thread="{{.Root.ID}}"{{if .Hidden}} data-hidden{{end}}>

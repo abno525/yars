@@ -24,13 +24,13 @@
 
 {{define "assets_editor"}}
 <section class="panel editing" id="assets" data-kpanel>
-  <form class="flush" hx-post="{{.SaveURL}}" hx-target="#assets" hx-swap="outerHTML" data-guard{{if .Dirty}} data-unsaved{{end}}>
+  <form class="flush" hx-post="{{.SaveURL}}" hx-target="#assets" hx-swap="outerHTML" data-draft-via="{{.SaveURL}}" data-guard{{if .Dirty}} data-unsaved{{end}}>
     <div class="panelhead">
       <div class="panelname"><h2>Affected assets</h2>{{template "assets_count" .Rows}}</div>
       <button type="button" class="btn ghost sm w112" name="op" value="add" hx-post="{{.SaveURL}}" hx-target="#assets" hx-swap="outerHTML">Add row</button>
     </div>
     <input type="hidden" name="base" value="{{.Base}}">
-    <input type="hidden" name="n" value="{{len .Rows}}">
+    <input type="hidden" name="n" value="{{len .Rows}}" data-draft>
     <table class="table atable aedit flush">
       <thead><tr><th class="c-host">Host</th><th>URL</th><th class="c-port">Port</th><th class="c-note">Note</th><th class="c-x"><span class="sr">Remove</span></th></tr></thead>
       <tbody>
@@ -47,6 +47,7 @@
     </table>
     <div class="pfoot flush">
       <span class="pstate error" title="{{.Error}}">{{.Error}}</span>
+      <button type="button" class="btn secondary sm w96 invisible" data-draft-restore>Restore</button>
       <button type="button" class="btn secondary sm w96" hx-get="{{.ViewURL}}" hx-target="#assets" hx-swap="outerHTML" data-guard-cancel>Cancel</button>
       <button class="btn save sm w96" aria-keyshortcuts="Control+S">Save</button>
     </div>

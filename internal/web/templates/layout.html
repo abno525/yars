@@ -39,7 +39,8 @@
   </form>
   <nav class="nav">
     <a{{if $cur}} data-list="{{$cur}}"{{end}} class="{{if eq .Nav ""}}on{{end}}" href="{{if $cur}}/e/{{$cur}}{{else}}/{{end}}" aria-keyshortcuts="F">Findings</a>
-    <a class="{{if eq .Nav "inbox"}}on{{end}}" href="/inbox" aria-keyshortcuts="I">Inbox {{with .Inbox.Count}}<span class="badge">{{.}}</span>{{else}}<span class="badge0">0</span>{{end}}</a>
+    {{/* the badge follows the page's event stream: the link fetches its own text (on the Inbox the queues' request brings it) */ -}}
+    <a class="{{if eq .Nav "inbox"}}on{{end}}" id="inbox-nav"{{if ne .Nav "inbox"}} hx-get="/inbox/badge" hx-trigger="{{inboxTrigger}}" hx-swap="innerHTML" data-sse{{end}} href="/inbox" aria-keyshortcuts="I">{{template "inbox_badge" .Inbox.Count}}</a>
     {{if .CanAdmin}}<a class="{{if eq .Nav "admin"}}on{{end}}" href="/admin">Admin</a>{{end}}
   </nav>
   <a class="who{{if eq .Nav "settings"}} on{{end}}" href="/settings" title="{{.User.Username}}{{if not simple}} · {{.User.Role}}{{end}}">{{.User.Username}}</a>
@@ -69,6 +70,9 @@
 </body>
 {{end}}
 </html>{{end}}
+
+{{/* inbox_badge is the text of the top bar's Inbox link: the argument is the count */}}
+{{define "inbox_badge"}}Inbox {{with .}}<span class="badge">{{.}}</span>{{else}}<span class="badge0">0</span>{{end}}{{end}}
 
 {{/* goto_none is Go to's list with nothing typed: its head and the one
 empty row, as an empty table shows (goto_results is the list itself) */}}

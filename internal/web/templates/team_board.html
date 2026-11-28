@@ -106,7 +106,7 @@
   <form class="tbcomposer" data-guard hx-post="{{.PostURL}}post" hx-target="#board" hx-swap="outerHTML">
     {{template "lead_keep" .}}
     <textarea id="tb-text" name="text" aria-label="Reply" placeholder="Reply" maxlength="10000"{{if .TextError}} aria-invalid="true" data-dirty{{end}}>{{.Text}}</textarea>
-    <div class="tbcrow"><span class="tberr error">{{.TextError}}</span><button type="button" class="btn ghost sm w136" data-quote="{{.Quote}}">Quote request</button><button class="btn save sm w96">Post</button></div>
+    <div class="tbcrow"><span class="tberr error">{{.TextError}}</span><button type="button" class="btn secondary sm w96 invisible" data-draft-restore>Restore</button><button type="button" class="btn ghost sm w136" data-quote="{{.Quote}}">Quote request</button><button class="btn save sm w96">Post</button></div>
   </form>
   {{end}}
 </section>
@@ -132,7 +132,7 @@
       </div>
       <label class="nefield grow">First message<textarea name="text" maxlength="10000" required{{if $e}} data-dirty{{end}}{{if index $e "text"}} aria-invalid="true"{{end}}>{{.New.Text}}</textarea><span class="ferr" id="err-text">{{index $e "text"}}</span></label>
     </div>
-    <div class="tbcrow"><span class="tberr"></span><a class="btn secondary sm w96" href="{{.URL}}" hx-get="{{.URL}}" hx-target="#board" hx-swap="outerHTML" hx-push-url="true">Cancel</a><button class="btn primary sm w96">Create</button></div>
+    <div class="tbcrow"><span class="tberr"></span><button type="button" class="btn secondary sm w96 invisible" data-draft-restore>Restore</button><a class="btn secondary sm w96" href="{{.URL}}" hx-get="{{.URL}}" hx-target="#board" hx-swap="outerHTML" hx-push-url="true" data-guard-cancel>Cancel</a><button class="btn primary sm w96">Create</button></div>
   </form>
 </section>
 {{end}}

@@ -7,7 +7,7 @@
 // "sse:poll" every 30 s, paused while the tab is hidden, and tries the
 // stream again at each poll; once one opens, the polling stops.
 (function () {
-  var NAMES = ['chat', 'workflow', 'content', 'presence', 'check', 'board'];
+  var NAMES = ['chat', 'workflow', 'content', 'presence', 'check', 'board', 'notice'];
   var RESYNC = ['push', 'resync'];
   var POLL_MS = 30000;
   var MAX_ERRORS = 3;
