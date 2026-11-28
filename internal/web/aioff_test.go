@@ -116,6 +116,34 @@ func TestEngagementAISwitch(t *testing.T) {
 	}
 }
 
+// A rule limited to engagements keeps its engagements key through the rule
+// editor, which has no field for it: a save and a switch write it back.
+func TestRuleEditorKeepsEngagements(t *testing.T) {
+	e := setup(t)
+	e.rules(t, "- id: acme-only\n  target: title\n  regex_forbid: 'SQL'\n  message: no SQL\n  engagements: [acme, beta]\n", nil)
+	form := url.Values{"old": {"acme-only"}, "id": {"acme-only"}, "kind": {"pattern"}, "level": {"warning"}, "target": {"title"}, "mode": {"forbid"},
+		"pattern": {"SQL"}, "message": {"edited"}}
+	if rec := e.do(t, "dora", "POST", "/admin/rules/save", form, nil); rec.Code != http.StatusSeeOther {
+		t.Fatalf("save: %d\n%s", rec.Code, rec.Body.String())
+	}
+	if f := e.ruleFile(t, "style.yaml"); !strings.Contains(f, "engagements: [acme, beta]") || !strings.Contains(f, "message: edited") {
+		t.Fatalf("after a save:\n%s", f)
+	}
+	if rec := e.do(t, "dora", "POST", "/admin/rules/toggle", url.Values{"id": {"acme-only"}, "on": {"0"}}, nil); rec.Code != http.StatusSeeOther {
+		t.Fatalf("toggle: %d\n%s", rec.Code, rec.Body.String())
+	}
+	if f := e.ruleFile(t, "style.yaml"); !strings.Contains(f, "engagements: [acme, beta]") || !strings.Contains(f, "enabled: false") {
+		t.Fatalf("after a switch:\n%s", f)
+	}
+	if r, ok := e.srv.Rules.Rule("acme-only"); !ok || len(r.Engagements) != 2 {
+		t.Fatalf("the rule as loaded: %+v", r)
+	}
+	// an export has it too
+	if b := e.do(t, "dora", "GET", "/admin/rules/export", nil, nil).Body.String(); !strings.Contains(b, "engagements: [acme, beta]") {
+		t.Fatalf("export:\n%s", b)
+	}
+}
+
 // Fix with AI keeps its slot where the engagement takes no AI: the button is
 // there, disabled, and a press is refused with the words.
 func TestFixButtonWhereAIIsOff(t *testing.T) {
