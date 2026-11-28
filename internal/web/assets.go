@@ -88,7 +88,8 @@ func postedAssets(r *http.Request) []finding.Asset {
 	return out
 }
 
-// assetsPost edits the rows on the server (op add, del-<i>) or saves them.
+// assetsPost edits the rows on the server (op add, del-<i>, draw) or saves
+// them.
 func (s *Server) assetsPost(w http.ResponseWriter, r *http.Request) {
 	ref, ok := s.editRef(w, r)
 	if !ok {
@@ -117,6 +118,11 @@ func (s *Server) assetsPost(w http.ResponseWriter, r *http.Request) {
 		if i, err := strconv.Atoi(strings.TrimPrefix(op, "del-")); err == nil && i >= 0 && i < len(rows) {
 			rows = append(rows[:i], rows[i+1:]...)
 		}
+		editor(http.StatusOK, rows, "")
+		return
+	case op == "draw":
+		// the rows as posted, nothing saved: a draft the browser kept, which
+		// may hold more rows than the editor opened with
 		editor(http.StatusOK, rows, "")
 		return
 	}

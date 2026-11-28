@@ -6,6 +6,7 @@ What changed for people who run or use YARS. Newest first.
 
 ### Added
 
+- Every editor keeps what is typed as a draft in the browser: a section, CVSS, Details, Affected assets, a team board reply and a new lead (before: a section only, and only when the session had expired). An editor opened again offers it with Restore. The draft is finding text stored in the browser's profile (`localStorage`), per account, for up to 14 days; it is never sent anywhere, and it goes on Save, Cancel, a confirmed Discard and Log out.
 - Settings › About shows the version, the license and a link to the source.
 - The licence texts of the vendored fonts and htmx ship with the binary; `NOTICE` lists all third-party work.
 - `SECURITY.md`, `CONTRIBUTING.md` and issue templates.

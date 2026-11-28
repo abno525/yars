@@ -553,6 +553,14 @@ var yarsHere = location.href;
 document.addEventListener('DOMContentLoaded', function () {
   var restore = window.onpopstate;
   if (!restore) return;
+  // a Back that goes through with something typed was confirmed (Discard):
+  // the reply or new lead it leaves is not offered again as a draft
+  var htmxBack = restore;
+  restore = function (evt) {
+    var b = document.getElementById('board');
+    if (b && yarsDirty(b)) Array.prototype.forEach.call(b.querySelectorAll('form[data-guard]'), yarsDraftDrop);
+    htmxBack.call(window, evt);
+  };
   window.onpopstate = function (evt) {
     var b = document.getElementById('board');
     if (!evt.state || !evt.state.htmx || !b || !yarsDirty(b)) { restore.call(window, evt); yarsHere = location.href; return; }
@@ -983,9 +991,12 @@ document.addEventListener('htmx:confirm', function (evt) {
   // posting that text (a POST from the guarded form itself); a live refresh
   // waits instead (htmx:beforeSwap)
   var tg = evt.detail.target, live = evt.detail.triggeringEvent && String(evt.detail.triggeringEvent.type).indexOf('sse:') === 0;
+  // every request passes here first: a question that was cancelled is over
+  yarsBoardDiscard = null;
   if (!q && tg && tg.id === 'board' && !live && !(evt.detail.verb !== 'get' && el && el.closest && el.closest('form[data-guard]')) && yarsDirty(tg)) {
     q = 'Discard changes?';
     ok = 'Discard';
+    yarsBoardDiscard = tg;
   }
   if (!q) return;
   evt.preventDefault();
@@ -995,6 +1006,15 @@ document.addEventListener('htmx:confirm', function (evt) {
   var sel = el && el.querySelector && el.tagName === 'FORM' ? el.querySelector('select[data-choose]') : null, chosen = sel ? sel.value : '';
   if (sel) yarsSelectReset(sel);
   yarsConfirm(q, ok, function () { if (sel) sel.value = chosen; evt.detail.issueRequest(true); }, typing);
+});
+// yarsBoardDiscard is the team board while its Discard changes? is asked.
+// The request that follows is the confirmed one: the reply or new lead it
+// discards is not offered again as a draft.
+var yarsBoardDiscard = null;
+document.addEventListener('htmx:beforeRequest', function (evt) {
+  var b = yarsBoardDiscard;
+  yarsBoardDiscard = null;
+  if (b && evt.detail.target === b) Array.prototype.forEach.call(b.querySelectorAll('form[data-guard]'), yarsDraftDrop);
 });
 
 // yarsSelectReset shows a select's value as the server sent it.
@@ -1025,15 +1045,22 @@ setInterval(function () {
   });
 }, 20000);
 
-// Session expired (an htmx request or a heartbeat got 401): every editor's
-// unsaved text is kept in localStorage under "yars-draft:<user>:<save URL>",
-// and the editor offers it back (Restore) when it is opened again. The key
-// names the account, so another account on this browser is never offered
-// it; Log out removes the account's drafts (an expired session does not:
-// that is when a draft is written), and a draft older than 14 days goes at
-// the next page load, whoever is signed in.
+// Drafts: what is typed in a guarded editor (form[data-guard]) is kept in
+// this browser's localStorage under "yars-draft:<user>:<save URL>", a
+// moment after the last key and at once when the session expired (an htmx
+// request or a heartbeat got 401), so a closed or crashed tab loses nothing.
+// The editor offers it back (Restore) when it is opened again. A draft is
+// never sent anywhere but into the form it came from. The key names the
+// account, so another account on this browser is never offered it; with no
+// account there is no draft. A saved or cancelled editor drops its draft,
+// Log out removes the account's drafts (an expired session does not: that
+// is when a draft is written), and a draft older than 14 days goes at the
+// next page load, whoever is signed in.
 function yarsUser() { return document.documentElement.getAttribute('data-user') || ''; }
-function yarsDraftKey(form) { return 'yars-draft:' + yarsUser() + ':' + (form.getAttribute('hx-post') || ''); }
+function yarsDraftKey(form) {
+  var u = yarsUser(), to = form.getAttribute('hx-post') || '';
+  return u && to ? 'yars-draft:' + u + ':' + to : '';
+}
 // yarsForget removes the entries whose key starts with prefix from
 // localStorage, or from st (sessionStorage) when given.
 function yarsForget(prefix, st) {
@@ -1114,8 +1141,106 @@ document.addEventListener('DOMContentLoaded', function () { yarsListKeep(); yars
 });
 // the finding's head swaps itself on live events and brings the bare link
 document.addEventListener('htmx:load', function (evt) { yarsListLinks(evt.detail.elt && evt.detail.elt.parentNode || document); });
+// A draft is {at, f}: the time it was written and the form's fields by
+// name. yarsDraftFields picks them by an allow-list: text boxes, the checked
+// radio, and of the hidden fields only the bases (what the editor was opened
+// with: restored later, the text is saved against them, so a colleague's
+// newer value shows as a conflict). Never another kind of field, and never
+// one named like a secret.
+var yarsDraftSecret = /pass|token|secret|api.?key/i;
+function yarsDraftBase(name) { return name === 'base' || name.indexOf('base:') === 0; }
+function yarsDraftFields(form) {
+  return Array.prototype.filter.call(form.elements, function (el) {
+    if (!el.name || el.disabled || yarsDraftSecret.test(el.name)) return false;
+    if (el.tagName === 'TEXTAREA') return true;
+    if (el.tagName !== 'INPUT') return false;
+    if (el.type === 'hidden') return yarsDraftBase(el.name);
+    if (el.type === 'radio') return el.checked;
+    return el.type === 'text'; // also an input without a type
+  });
+}
+// yarsDraft reads the form's draft. One kept by an earlier version is the
+// section editor's {text, base, at}; without a base it gets one that matches
+// no text, so the conflict view decides.
 function yarsDraft(form) {
-  try { var d = JSON.parse(localStorage.getItem(yarsDraftKey(form)) || 'null'); return d && typeof d.text === 'string' ? d : null; } catch (e) { return null; }
+  if (!yarsDraftKey(form)) return null;
+  try {
+    var d = JSON.parse(localStorage.getItem(yarsDraftKey(form)) || 'null');
+    if (!d || typeof d.at !== 'number') return null;
+    if (!d.f && typeof d.text === 'string') d.f = {body: d.text, base: typeof d.base === 'string' && d.base ? d.base : 'none'};
+    return d.f && typeof d.f === 'object' ? d : null;
+  } catch (e) { return null; }
+}
+// A draft larger than yarsDraftMax characters is not kept, and an account
+// keeps its yarsDraftKeep newest: the browser's storage is small and shared.
+var yarsDraftMax = 200000;
+var yarsDraftKeep = 20;
+function yarsDraftTrim(prefix) {
+  var all = [];
+  for (var i = 0; i < localStorage.length; i++) {
+    var k = localStorage.key(i);
+    if (!k || k.indexOf(prefix) !== 0) continue;
+    var at = 0;
+    try { at = JSON.parse(localStorage.getItem(k)).at || 0; } catch (e) { /* not a draft: the first to go */ }
+    all.push({k: k, at: at});
+  }
+  all.sort(function (a, b) { return b.at - a.at; });
+  all.slice(yarsDraftKeep).forEach(function (d) { localStorage.removeItem(d.k); });
+}
+// yarsDraftWrite keeps the form's unsaved fields. A form that left the page
+// (saved or cancelled meanwhile) writes nothing.
+function yarsDraftWrite(form) {
+  var k = yarsDraftKey(form);
+  if (!yarsUser() || !k || !form.isConnected || !yarsDirty(form)) return;
+  var f = {};
+  yarsDraftFields(form).forEach(function (el) { f[el.name] = el.value; });
+  var s = JSON.stringify({at: Date.now(), f: f});
+  if (s.length > yarsDraftMax) return;
+  try {
+    localStorage.setItem(k, s);
+    yarsDraftTrim('yars-draft:' + yarsUser() + ':');
+  } catch (e) { /* storage full or blocked: not kept */ }
+}
+// yarsDraftDrop forgets the form's draft and its pending write.
+function yarsDraftDrop(form) {
+  clearTimeout(form.yarsDraftT);
+  var k = yarsDraftKey(form);
+  if (!k) return;
+  try { localStorage.removeItem(k); } catch (e) { /* none kept */ }
+}
+// written a moment after the last key or choice in the form
+var yarsDraftMs = 800;
+function yarsDraftSoon(evt) {
+  var form = evt.target.closest && evt.target.closest('form[data-guard]');
+  if (!form) return;
+  clearTimeout(form.yarsDraftT);
+  form.yarsDraftT = setTimeout(function () { yarsDraftWrite(form); }, yarsDraftMs);
+}
+document.addEventListener('input', yarsDraftSoon);
+document.addEventListener('change', yarsDraftSoon);
+// yarsDraftDiffers: the draft holds a text or choice the form does not show.
+function yarsDraftDiffers(form, d) {
+  var cur = {};
+  yarsDraftFields(form).forEach(function (el) { cur[el.name] = el.value; });
+  return Object.keys(d.f).some(function (n) { return !yarsDraftBase(n) && d.f[n] !== cur[n]; });
+}
+// yarsDraftPut sets the form's fields from the draft (values only: a draft
+// is text another script on this site could have written). The bases become
+// the draft's own, not this editor's: the text was written over what they
+// name. A base the draft lacks would save unchecked, so it gets one that
+// matches nothing.
+function yarsDraftPut(form, d) {
+  Array.prototype.forEach.call(form.elements, function (el) {
+    if (!el.name || yarsDraftSecret.test(el.name)) return;
+    var v = d.f[el.name];
+    if (el.type === 'hidden') {
+      if (yarsDraftBase(el.name)) el.value = typeof v === 'string' && v ? v : 'none';
+      return;
+    }
+    if (typeof v !== 'string') return;
+    if (el.type === 'radio') { el.checked = el.value === v; return; }
+    if (el.tagName === 'TEXTAREA' || el.type === 'text') { el.value = v; el.setAttribute('data-dirty', ''); }
+  });
 }
 // A 401 nobody asked for (a poll, a presence beat) shows the toast once per
 // expiry: a page that polls gets one for each of its live parts every 30 s.
@@ -1125,12 +1250,8 @@ function yarsDraft(form) {
 var yarsExpiredSaid = false, yarsExpiredToast = null;
 function yarsExpired(own) {
   document.querySelectorAll('form[data-guard]').forEach(function (form) {
-    var ta = form.querySelector('textarea[name=body]');
-    if (!ta || !yarsDirty(form.parentNode)) return;
-    // with the base the editor was opened with: restored later, the text is
-    // saved against it, so a colleague's newer text shows as a conflict
-    var base = form.querySelector('input[name=base]');
-    try { localStorage.setItem(yarsDraftKey(form), JSON.stringify({text: ta.value, base: base ? base.value : '', at: Date.now()})); } catch (e) { /* not kept */ }
+    if (!yarsDirty(form)) return;
+    yarsDraftWrite(form);
     var st = form.querySelector('[data-pstate]');
     if (st) { st.textContent = 'Session expired · not saved'; st.classList.add('error'); }
   });
@@ -1147,11 +1268,13 @@ function yarsDraftOffer(root) {
   var forms = root.matches && root.matches('form[data-guard]') ? [root] : root.querySelectorAll ? root.querySelectorAll('form[data-guard]') : [];
   Array.prototype.forEach.call(forms, function (form) {
     form.classList.toggle('dirty', yarsDirty(form.parentNode));
+    // drawn again with unsaved rows (a CVSS choice, Add row, a restored
+    // draft): what it shows is the draft now
+    if (form.hasAttribute('data-unsaved')) { yarsDraftWrite(form); return; }
     var btn = form.querySelector('[data-draft-restore]');
-    var ta = form.querySelector('textarea[name=body]');
-    if (!btn || !ta) return;
-    var d = yarsDraft(form);
-    if (!d || d.text === ta.value) return;
+    var d = btn && yarsDraft(form);
+    if (!d || !yarsDraftDiffers(form, d)) return;
+    // the button keeps its place in the footer: shown, nothing moves
     btn.classList.remove('invisible');
     var st = form.querySelector('[data-pstate]');
     if (st && !st.textContent) st.textContent = 'Draft ' + new Date(d.at).toTimeString().slice(0, 5);
@@ -1162,20 +1285,23 @@ document.addEventListener('click', function (evt) {
   var b = evt.target.closest && evt.target.closest('[data-draft-restore]');
   if (!b) return;
   var form = b.closest('form');
-  var ta = form && form.querySelector('textarea[name=body]');
   var d = form && yarsDraft(form);
-  if (!ta || !d) return;
-  ta.value = d.text;
-  // the draft's own base, not this editor's: the text was written over what
-  // that one names. A draft kept by an earlier version has none; an empty
-  // base would save unchecked, so it gets one that matches no text and the
-  // conflict view decides.
-  var base = form.querySelector('input[name=base]');
-  if (base) base.value = typeof d.base === 'string' && d.base ? d.base : 'none';
-  ta.setAttribute('data-dirty', '');
+  if (!d) return;
+  // an editor the server draws (CVSS: the score follows the choices; assets:
+  // a draft may hold more rows than are shown) is drawn again from the
+  // draft's fields, bases included; nothing is saved by that
+  var via = form.getAttribute('data-draft-via');
+  if (via && window.htmx) {
+    var vals = {op: 'draw'};
+    Object.keys(d.f).forEach(function (n) { if (!yarsDraftSecret.test(n) && typeof d.f[n] === 'string') vals[n] = d.f[n]; });
+    htmx.ajax('POST', via, {target: form.getAttribute('hx-target'), swap: 'outerHTML', values: vals});
+    return;
+  }
+  yarsDraftPut(form, d);
   form.classList.add('dirty');
   b.classList.add('invisible');
-  if (window.htmx) htmx.trigger(ta, 'keyup');
+  var ta = form.querySelector('textarea[name=body]');
+  if (ta && window.htmx) htmx.trigger(ta, 'keyup');
 });
 // a saved or cancelled editor drops its draft. The editor is swapped out by
 // then, so htmx fires afterRequest on an ancestor: the key rides on the xhr.
@@ -1185,7 +1311,11 @@ document.addEventListener('htmx:beforeRequest', function (evt) {
   var el = evt.detail.elt;
   if (!el || !el.matches || !evt.detail.xhr) return;
   var form = el.matches('form[data-guard]') ? el : el.hasAttribute('data-guard-cancel') ? el.closest('form[data-guard]') : null;
-  if (form) evt.detail.xhr.yarsDraftKey = yarsDraftKey(form);
+  if (!form) return;
+  // no write is pending while the answer is out: one that fired after a
+  // 2xx would put the draft back
+  clearTimeout(form.yarsDraftT);
+  evt.detail.xhr.yarsDraftKey = yarsDraftKey(form);
 });
 document.addEventListener('htmx:afterRequest', function (evt) {
   var x = evt.detail.xhr, k = x && x.yarsDraftKey;

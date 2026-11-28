@@ -43,7 +43,7 @@ func TestSSERetriesFromPolling(t *testing.T) {
 		t.Errorf("the toast repeats while the session stays expired:\n%s", exp)
 	}
 	// the draft and the editor's state are still written at every 401
-	if !strings.Contains(exp, "localStorage.setItem(yarsDraftKey(form)") || !strings.Contains(exp, "Session expired · not saved") {
+	if !strings.Contains(exp, "yarsDraftWrite(form);") || !strings.Contains(exp, "Session expired · not saved") {
 		t.Errorf("yarsExpired keeps no draft:\n%s", exp)
 	}
 	// an answered request ends the expiry, so a later one is said again
