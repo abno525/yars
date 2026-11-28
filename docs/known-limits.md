@@ -84,6 +84,11 @@ What YARS does not do, or does in a way that can surprise. Each row states today
 | The History page still scrolls when a selected change's diff is taller than the window | The list column fits the window; the diff panel has no height limit. |
 | A notice about a chat message opens the finding at the top, not at the thread, when the chat is hidden, the thread is under Show older, or it is a resolved thread you hid | The link names the thread; the page has no element to go to then. Notices stored before the upgrade lead to the top too. |
 | Opening a finding marks your notices of that finding read, also those you did not look at | Every notice of the finding counts as seen with its page. A part of the page that refreshes itself marks nothing. |
+| What you type in an editor is kept as a draft in the browser, as plain text, for up to 14 days | It is in the browser's profile on that computer and is never sent. Save, Cancel, a confirmed Discard and Log out remove it. On a shared computer, log out. |
+| A details row whose name holds "passw", "token", "secret" or "api key" gets no draft | The draft leaves out every field named like a secret. The leave warning still asks. |
+| The Inbox badge does not update on a page that has no live part (Admin, Settings, the engagements list, Notifications, the docs) | It shows the count of the page's load. A finding, the findings list, the team board and the Inbox update it. |
+| A finding merged into another is told by its withdraw reason, "merged into F-002", and the target's merge event | Nothing else records the pair. Restore the merged finding, or withdraw the target, and its page opens itself again. `?source=1` on its address always opens it. |
+| After the login a page is opened again, a typed form is not sent again | The login comes back to the page the form was on. The reasons of the workflow bar stay in their box; other forms are filled again. |
 
 ## Simple workflow
 
